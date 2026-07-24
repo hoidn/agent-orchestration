@@ -100,6 +100,7 @@ class _ProviderExecutionBoundary:
 class ProviderExecutionControl:
     """Coordinate cancellation without taking ownership of ``Popen.wait``."""
 
+    _DEFAULT_CANCELLATION_GRACE_SEC = 0.2
     _FINALIZATION_TIMEOUT_SEC = 5.0
     _POLL_INTERVAL_SEC = 0.01
 
@@ -110,14 +111,20 @@ class ProviderExecutionControl:
         self._pgid: int | None = None
         self._cancellation_requested = False
         self._cancellation_reason: str | None = None
-        self._completion_preceded_cancellation = False
+        self._cancellation_requested_before_bind = False
+        self._cancellation_grace_sec = (
+            self._DEFAULT_CANCELLATION_GRACE_SEC
+        )
+        self._cancellation_applied_before_completion = False
+        self._cancellation_application_unproved = False
+        self._term_applied_at: float | None = None
         self._term_sent = False
         self._kill_sent = False
         self._leader_return_code: int | None = None
         self._leader_reaped = False
         self._pgid_empty = False
         self._capture_threads_joined = False
-        self._stdout_capture_completed_before_cancellation = False
+        self._missing_terminal_eof_preceded_cancellation = False
         self._execution_joined = False
         self._identity_required = False
         self._session_snapshot: SessionIdentitySnapshot | None = None
@@ -201,8 +208,6 @@ class ProviderExecutionControl:
             self._process = process
             self._pgid = pgid
             self._state = "BOUND"
-            if self._cancellation_requested:
-                self._send_signal_locked(signal.SIGTERM)
             self._condition.notify_all()
 
     def record_bind_failure(
@@ -268,18 +273,22 @@ class ProviderExecutionControl:
             self._session_snapshot = frozen_snapshot
             self._condition.notify_all()
 
-    def record_capture_worker_completed(self, stream_name: str) -> None:
-        """Record successful controlled capture completion ordering."""
-        if stream_name not in {"stdout", "stderr"}:
-            raise ValueError(f"unknown provider capture stream: {stream_name}")
+    def record_missing_terminal_at_session_stdout_eof(
+        self,
+        snapshot: SessionIdentitySnapshot,
+    ) -> None:
+        """Record exact session EOF without a terminal marker."""
+        if not isinstance(snapshot, SessionIdentitySnapshot):
+            raise TypeError("session snapshot must be a SessionIdentitySnapshot")
+        if snapshot.terminal_seen:
+            raise ValueError(
+                "missing-terminal EOF cannot contain a terminal marker"
+            )
         with self._condition:
             if self._terminal_result is not None:
                 return
-            if (
-                stream_name == "stdout"
-                and not self._cancellation_requested
-            ):
-                self._stdout_capture_completed_before_cancellation = True
+            if not self._cancellation_requested:
+                self._missing_terminal_eof_preceded_cancellation = True
             self._condition.notify_all()
 
     def spawn_failed(self, error: BaseException | str) -> ProviderCancellationResult:
@@ -311,19 +320,53 @@ class ProviderExecutionControl:
             )
             return self._freeze_terminal_locked(result)
 
-    def request_cancel(self, *, reason: str = "external") -> None:
-        """Latch cancellation and send TERM immediately when already bound."""
+    def request_cancel(
+        self,
+        *,
+        reason: str = "external",
+        grace: float | None = None,
+    ) -> None:
+        """Latch cancellation for the executor-owned wait loop."""
+        if grace is not None and grace < 0:
+            raise ValueError("cancellation grace must be non-negative")
         with self._condition:
             if self._terminal_result is not None:
                 return
-            self._request_cancel_locked(reason=reason)
+            self._request_cancel_locked(reason=reason, grace=grace)
 
     def force_kill(self) -> None:
-        """Escalate one already-bound cancellation to SIGKILL."""
+        """Ask the executor-owned wait loop to escalate without delay."""
         with self._condition:
-            if self._terminal_result is not None or self._state != "BOUND":
+            if self._terminal_result is not None:
                 return
-            self._send_signal_locked(signal.SIGKILL)
+            self._request_cancel_locked(
+                reason=self._cancellation_reason or "external",
+                grace=0.0,
+            )
+
+    def apply_pending_cancellation_after_incomplete_probe(self) -> None:
+        """Apply pending signals after the executor observed an incomplete wait."""
+        with self._condition:
+            if (
+                self._terminal_result is not None
+                or self._state != "BOUND"
+                or not self._cancellation_requested
+            ):
+                return
+
+            if not self._term_sent:
+                if self._send_signal_locked(signal.SIGTERM):
+                    self._cancellation_applied_before_completion = True
+                    self._term_applied_at = time.monotonic()
+                else:
+                    self._cancellation_application_unproved = True
+            elif (
+                not self._kill_sent
+                and self._term_applied_at is not None
+                and time.monotonic() - self._term_applied_at
+                >= self._cancellation_grace_sec
+            ):
+                self._send_signal_locked(signal.SIGKILL)
             self._condition.notify_all()
 
     def record_leader_reaped(
@@ -347,9 +390,9 @@ class ProviderExecutionControl:
             self._leader_return_code = return_code
             self._leader_reaped = True
             group_empty = self._probe_group_empty_locked()
-            if not group_empty and (
-                not self._cancellation_requested
-                or self._completion_preceded_cancellation
+            if (
+                not group_empty
+                and not self._cancellation_applied_before_completion
             ):
                 self._natural_exit_with_lingering_group = True
             if not group_empty:
@@ -358,9 +401,16 @@ class ProviderExecutionControl:
 
         if group_empty:
             return
-        if self._wait_for_group_empty(cleanup_grace):
+        if self._wait_for_group_empty(
+            cleanup_grace,
+            honor_cancellation_grace=(
+                self._cancellation_applied_before_completion
+            ),
+        ):
             return
-        self.force_kill()
+        with self._condition:
+            self._send_signal_locked(signal.SIGKILL)
+            self._condition.notify_all()
         self._wait_for_group_empty(max(cleanup_grace, 0.2))
 
     def record_execution_boundary(
@@ -391,12 +441,20 @@ class ProviderExecutionControl:
                     and self._session_snapshot.status == "unique"
                 )
             )
+            cancellation_unproved = (
+                self._cancellation_application_unproved
+                or (
+                    self._cancellation_requested_before_bind
+                    and not self._cancellation_applied_before_completion
+                )
+            )
             boundary_complete = (
                 self._leader_reaped
                 and self._pgid_empty
                 and self._capture_threads_joined
                 and identity_valid
                 and not self._natural_exit_with_lingering_group
+                and not cancellation_unproved
                 and self._signal_error is None
                 and boundary_error is None
             )
@@ -404,18 +462,10 @@ class ProviderExecutionControl:
                 disposition: ProviderTerminalDisposition = "boundary_failed"
             elif (
                 transport_failed
-                and self._cancellation_requested
-                and self._stdout_capture_completed_before_cancellation
+                and self._missing_terminal_eof_preceded_cancellation
             ):
                 disposition = "natural_exit"
-            elif (
-                self._cancellation_requested
-                and not self._completion_preceded_cancellation
-                and (
-                    self._leader_return_code is None
-                    or self._leader_return_code <= 0
-                )
-            ):
+            elif self._cancellation_applied_before_completion:
                 disposition = "cancelled"
             else:
                 disposition = "natural_exit"
@@ -457,7 +507,10 @@ class ProviderExecutionControl:
             if self._terminal_result is not None:
                 return self._terminal_result
             if self._boundary is None:
-                self._request_cancel_locked(reason="external")
+                self._request_cancel_locked(
+                    reason="external",
+                    grace=grace,
+                )
                 while self._state == "NEW" and self._terminal_result is None:
                     self._condition.wait()
                 if self._terminal_result is not None:
@@ -474,12 +527,6 @@ class ProviderExecutionControl:
                     self._condition.wait(timeout=remaining)
                 if self._terminal_result is not None:
                     return self._terminal_result
-                if (
-                    self._boundary is None
-                    and not self._probe_group_empty_locked()
-                ):
-                    self._send_signal_locked(signal.SIGKILL)
-                    self._condition.notify_all()
 
             final_deadline = (
                 time.monotonic() + self._FINALIZATION_TIMEOUT_SEC
@@ -628,51 +675,54 @@ class ProviderExecutionControl:
         )
         return self._freeze_terminal_locked(result)
 
-    def _request_cancel_locked(self, *, reason: str) -> None:
+    def _request_cancel_locked(
+        self,
+        *,
+        reason: str,
+        grace: float | None,
+    ) -> None:
         if not self._cancellation_requested:
-            if (
-                self._state == "BOUND"
-                and self._boundary is None
-                and self._process is not None
-            ):
-                observed_return_code = getattr(
-                    self._process,
-                    "returncode",
-                    None,
-                )
-                if isinstance(observed_return_code, int):
-                    self._completion_preceded_cancellation = True
-                    self._leader_return_code = observed_return_code
-                    self._leader_reaped = True
-                    if not self._probe_group_empty_locked():
-                        self._natural_exit_with_lingering_group = True
+            self._cancellation_requested_before_bind = self._state == "NEW"
             self._cancellation_requested = True
             self._cancellation_reason = reason
-        if self._state == "BOUND":
-            self._send_signal_locked(signal.SIGTERM)
+            self._cancellation_grace_sec = (
+                self._DEFAULT_CANCELLATION_GRACE_SEC
+                if grace is None
+                else grace
+            )
+        elif grace is not None:
+            self._cancellation_grace_sec = min(
+                self._cancellation_grace_sec,
+                grace,
+            )
         self._condition.notify_all()
 
-    def _send_signal_locked(self, sig: signal.Signals) -> None:
+    def _send_signal_locked(self, sig: signal.Signals) -> bool:
         if self._pgid is None:
-            return
+            return False
         if sig == signal.SIGTERM:
             if self._term_sent:
-                return
-            self._term_sent = True
+                return True
         elif sig == signal.SIGKILL:
             if self._kill_sent:
-                return
-            self._kill_sent = True
+                return True
 
         try:
             os.killpg(self._pgid, sig)
         except ProcessLookupError:
             self._pgid_empty = True
+            return False
         except OSError as exc:
             if self._signal_error is None:
                 self._signal_error = (
                     f"failed to signal provider process group {self._pgid}: {exc}"
                 )
+            return False
+        if sig == signal.SIGTERM:
+            self._term_sent = True
+        elif sig == signal.SIGKILL:
+            self._kill_sent = True
+        return True
 
     def _probe_group_empty_locked(self) -> bool:
         if self._pgid is None:
@@ -692,20 +742,47 @@ class ProviderExecutionControl:
         self._pgid_empty = False
         return False
 
-    def _wait_for_group_empty(self, timeout: float) -> bool:
-        deadline = time.monotonic() + max(timeout, 0.0)
+    def _wait_for_group_empty(
+        self,
+        timeout: float,
+        *,
+        honor_cancellation_grace: bool = False,
+    ) -> bool:
+        fallback_deadline = time.monotonic() + max(timeout, 0.0)
         while True:
             with self._condition:
                 if self._probe_group_empty_locked():
                     self._condition.notify_all()
                     return True
-            if time.monotonic() >= deadline:
+                deadline = fallback_deadline
+                if (
+                    honor_cancellation_grace
+                    and self._term_applied_at is not None
+                ):
+                    deadline = (
+                        self._term_applied_at
+                        + self._cancellation_grace_sec
+                    )
+            now = time.monotonic()
+            if now >= deadline:
                 return False
-            time.sleep(self._POLL_INTERVAL_SEC)
+            time.sleep(
+                min(
+                    self._POLL_INTERVAL_SEC,
+                    max(deadline - now, 0.0),
+                )
+            )
 
     def _proof_error_locked(self, identity_valid: bool) -> str | None:
         if self._signal_error is not None:
             return self._signal_error
+        if self._cancellation_application_unproved:
+            return "provider cancellation application could not be proved"
+        if (
+            self._cancellation_requested_before_bind
+            and not self._cancellation_applied_before_completion
+        ):
+            return "provider cancellation requested before bind was not applied"
         if self._natural_exit_with_lingering_group:
             return "provider leader exited while its owned process group was non-empty"
         if not self._leader_reaped:

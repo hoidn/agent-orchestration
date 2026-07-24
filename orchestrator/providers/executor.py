@@ -61,6 +61,10 @@ class ProviderExecutor:
     per specs/providers.md.
     """
 
+    _CONTROL_WAIT_SLICE_SEC = 0.01
+    _CONTROL_CAPTURE_FAILURE_GRACE_SEC = 0.2
+    _CONTROL_TIMEOUT_GRACE_SEC = 2.0
+
     def __init__(self, workspace: Path, registry: ProviderRegistry, secrets_manager: Optional[SecretsManager] = None):
         """
         Initialize provider executor.
@@ -558,8 +562,11 @@ class ProviderExecutor:
         stdout_buf = bytearray()
         stderr_buf = bytearray()
         capture_threads: List[threading.Thread] = []
-        capture_failures: List[str] = []
-        capture_failure_lock = threading.Lock()
+        capture_outcomes: Dict[
+            str,
+            Tuple[bool, Optional[str]],
+        ] = {}
+        capture_outcome_lock = threading.Lock()
         try:
             return self._run_bound_controlled_invocation(
                 invocation=invocation,
@@ -574,8 +581,8 @@ class ProviderExecutor:
                 stdout_buf=stdout_buf,
                 stderr_buf=stderr_buf,
                 capture_threads=capture_threads,
-                capture_failures=capture_failures,
-                capture_failure_lock=capture_failure_lock,
+                capture_outcomes=capture_outcomes,
+                capture_outcome_lock=capture_outcome_lock,
             )
         except Exception as exc:
             return self._fail_bound_controlled_invocation(
@@ -588,7 +595,8 @@ class ProviderExecutor:
                 stdout_buf=stdout_buf,
                 stderr_buf=stderr_buf,
                 capture_threads=capture_threads,
-                capture_failures=capture_failures,
+                capture_outcomes=capture_outcomes,
+                capture_outcome_lock=capture_outcome_lock,
                 error=exc,
             )
 
@@ -754,8 +762,8 @@ class ProviderExecutor:
         stdout_buf: bytearray,
         stderr_buf: bytearray,
         capture_threads: List[threading.Thread],
-        capture_failures: List[str],
-        capture_failure_lock: Any,
+        capture_outcomes: Dict[str, Tuple[bool, Optional[str]]],
+        capture_outcome_lock: Any,
     ) -> ProviderExecutionResult:
         """Run capture, wait, transport finalization, and boundary recording."""
         if stdin_input is not None and process.stdin is not None:
@@ -780,9 +788,10 @@ class ProviderExecutor:
             args=(process.stdout, stdout_buf),
             kwargs={
                 "stream_name": "stdout",
-                "capture_failures": capture_failures,
-                "capture_failure_lock": capture_failure_lock,
+                "capture_outcomes": capture_outcomes,
+                "capture_outcome_lock": capture_outcome_lock,
                 "control": control,
+                "session_accumulator": accumulator,
                 "out_stream": (
                     sys.stdout
                     if stream_output and accumulator is None
@@ -798,8 +807,8 @@ class ProviderExecutor:
             args=(process.stderr, stderr_buf),
             kwargs={
                 "stream_name": "stderr",
-                "capture_failures": capture_failures,
-                "capture_failure_lock": capture_failure_lock,
+                "capture_outcomes": capture_outcomes,
+                "capture_outcome_lock": capture_outcome_lock,
                 "control": control,
                 "out_stream": sys.stderr if stream_output else None,
             },
@@ -809,17 +818,11 @@ class ProviderExecutor:
         stdout_thread.start()
         stderr_thread.start()
 
-        timed_out = False
-        try:
-            exit_code = process.wait(timeout=invocation.timeout_sec)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            control.request_cancel(reason="timeout")
-            try:
-                exit_code = process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                control.force_kill()
-                exit_code = process.wait()
+        exit_code, timed_out = self._wait_for_controlled_process(
+            process=process,
+            control=control,
+            timeout_sec=invocation.timeout_sec,
+        )
 
         control.record_leader_reaped(exit_code)
         stdout_thread.join()
@@ -869,13 +872,17 @@ class ProviderExecutor:
                 raw_stdout=raw_stdout,
             )
 
+        capture_errors = self._capture_outcome_errors(
+            capture_outcomes,
+            capture_outcome_lock,
+        )
         boundary = control.record_execution_boundary(
             capture_threads_joined=capture_threads_joined,
             final_identity_valid=final_identity_valid,
             transport_failed=natural_result.error is not None,
             boundary_error=(
-                "; ".join(capture_failures)
-                if capture_failures
+                "; ".join(capture_errors)
+                if capture_errors
                 else None
             ),
         )
@@ -924,6 +931,54 @@ class ProviderExecutor:
 
         return natural_result
 
+    def _wait_for_controlled_process(
+        self,
+        *,
+        process: subprocess.Popen,
+        control: ProviderExecutionControl,
+        timeout_sec: Optional[int],
+    ) -> Tuple[int, bool]:
+        """Linearize completion and cancellation on the executor thread."""
+        deadline = (
+            None
+            if timeout_sec is None
+            else time.monotonic() + timeout_sec
+        )
+        timed_out = False
+
+        while True:
+            try:
+                return process.wait(timeout=0), timed_out
+            except subprocess.TimeoutExpired:
+                pass
+
+            now = time.monotonic()
+            if (
+                not timed_out
+                and deadline is not None
+                and now >= deadline
+            ):
+                timed_out = True
+                control.request_cancel(
+                    reason="timeout",
+                    grace=self._CONTROL_TIMEOUT_GRACE_SEC,
+                )
+
+            control.apply_pending_cancellation_after_incomplete_probe()
+
+            wait_slice = self._CONTROL_WAIT_SLICE_SEC
+            if not timed_out and deadline is not None:
+                wait_slice = min(
+                    wait_slice,
+                    max(deadline - now, 0.0),
+                )
+                if wait_slice == 0:
+                    continue
+            try:
+                return process.wait(timeout=wait_slice), timed_out
+            except subprocess.TimeoutExpired:
+                continue
+
     def _fail_bound_controlled_invocation(
         self,
         *,
@@ -936,16 +991,20 @@ class ProviderExecutor:
         stdout_buf: bytearray,
         stderr_buf: bytearray,
         capture_threads: List[threading.Thread],
-        capture_failures: List[str],
+        capture_outcomes: Dict[str, Tuple[bool, Optional[str]]],
+        capture_outcome_lock: Any,
         error: Exception,
     ) -> ProviderExecutionResult:
         """Fail closed after bind while preserving executor-owned wait."""
-        control.request_cancel(reason="execution_error")
-        try:
-            exit_code = process.wait(timeout=0.2)
-        except subprocess.TimeoutExpired:
-            control.force_kill()
-            exit_code = process.wait()
+        control.request_cancel(
+            reason="execution_error",
+            grace=self._CONTROL_CAPTURE_FAILURE_GRACE_SEC,
+        )
+        exit_code, _ = self._wait_for_controlled_process(
+            process=process,
+            control=control,
+            timeout_sec=None,
+        )
         control.record_leader_reaped(exit_code)
 
         for thread in capture_threads:
@@ -979,7 +1038,10 @@ class ProviderExecutor:
 
         boundary_errors = [
             f"provider execution failed after bind: {error}",
-            *capture_failures,
+            *self._capture_outcome_errors(
+                capture_outcomes,
+                capture_outcome_lock,
+            ),
         ]
         boundary = control.record_execution_boundary(
             capture_threads_joined=all(
@@ -1076,7 +1138,12 @@ class ProviderExecutor:
         if pipe is None:
             return
 
-        output = out_stream.buffer if out_stream is not None and hasattr(out_stream, "buffer") else out_stream
+        output = out_stream
+        if out_stream is not None:
+            try:
+                output = getattr(out_stream, "buffer", out_stream)
+            except BaseException:
+                output = None
         try:
             while True:
                 if read_mode == "lines":
@@ -1089,19 +1156,19 @@ class ProviderExecutor:
                 if chunk_callback is not None:
                     try:
                         chunk_callback(chunk)
-                    except Exception:
+                    except BaseException:
                         pass
                 if output is not None:
                     try:
                         output.write(chunk)
                         output.flush()
-                    except Exception:
+                    except BaseException:
                         # Streaming should never break execution/capture path.
                         pass
         finally:
             try:
                 pipe.close()
-            except Exception:
+            except BaseException:
                 pass
 
     def _capture_controlled_pipe(
@@ -1110,9 +1177,13 @@ class ProviderExecutor:
         buffer: bytearray,
         *,
         stream_name: str,
-        capture_failures: List[str],
-        capture_failure_lock: Any,
+        capture_outcomes: Dict[
+            str,
+            Tuple[bool, Optional[str]],
+        ],
+        capture_outcome_lock: Any,
         control: ProviderExecutionControl,
+        session_accumulator: CodexExecJsonlAccumulator | None = None,
         **capture_kwargs: Any,
     ) -> None:
         """Capture one controlled pipe and retain core worker failures."""
@@ -1122,13 +1193,59 @@ class ProviderExecutor:
                 buffer,
                 **capture_kwargs,
             )
-        except Exception as exc:
-            with capture_failure_lock:
-                capture_failures.append(
-                    f"{stream_name} capture worker failed: {exc}"
+            if session_accumulator is not None:
+                session_accumulator.finalize(
+                    expected_session_id=None,
+                    require_terminal=False,
                 )
+                snapshot = session_accumulator.snapshot()
+                if not snapshot.terminal_seen:
+                    control.record_missing_terminal_at_session_stdout_eof(
+                        snapshot
+                    )
+                control.publish_session_snapshot(snapshot)
+        except BaseException as exc:
+            failure = (
+                f"{stream_name} capture worker failed "
+                f"({type(exc).__name__}): {exc}"
+            )
+            with capture_outcome_lock:
+                capture_outcomes[stream_name] = (False, failure)
+            control.request_cancel(
+                reason=f"{stream_name}_capture_failure",
+                grace=self._CONTROL_CAPTURE_FAILURE_GRACE_SEC,
+            )
         else:
-            control.record_capture_worker_completed(stream_name)
+            with capture_outcome_lock:
+                capture_outcomes[stream_name] = (True, None)
+
+    @staticmethod
+    def _capture_outcome_errors(
+        capture_outcomes: Dict[
+            str,
+            Tuple[bool, Optional[str]],
+        ],
+        capture_outcome_lock: Any,
+    ) -> List[str]:
+        """Return stable errors for failed or non-reporting core workers."""
+        with capture_outcome_lock:
+            outcomes = dict(capture_outcomes)
+
+        errors: List[str] = []
+        for stream_name in ("stdout", "stderr"):
+            outcome = outcomes.get(stream_name)
+            if outcome is None:
+                errors.append(
+                    f"{stream_name} capture worker did not report an outcome"
+                )
+                continue
+            succeeded, failure = outcome
+            if not succeeded:
+                errors.append(
+                    failure
+                    or f"{stream_name} capture worker failed"
+                )
+        return errors
 
     def _stream_pipe(
         self,
