@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields as dataclass_fields, is_dataclass, replace
 
 from ..conditionals import classify_condition_expr
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from ..effects import EffectSummary
+from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
+from ..expression_traversal import walk_expr
 from ..expressions import (
     BindProcExpr,
     CallExpr,
@@ -28,6 +29,7 @@ from ..expressions import (
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
+    ProcRefLiteralExpr,
     PureOpExpr,
     ProduceOneOfExpr,
     ProcedureCallExpr,
@@ -39,8 +41,17 @@ from ..expressions import (
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
+    WithLiveProvidersExpr,
     WithPhaseExpr,
+    WorkflowRefLiteralExpr,
 )
+from ..procedures import (
+    ProcedureLoweringMode,
+    TypedProcedureDef,
+    procedure_type_env_for,
+)
+from ..procedure_refs import ResolvedProcRefValue
+from ..spans import SourceSpan
 from ..type_env import (
     FrontendTypeEnvironment,
     OptionalTypeRef,
@@ -50,6 +61,7 @@ from ..type_env import (
     TypeRef,
     UnionTypeRef,
     VariantCaseTypeRef,
+    WorkflowRefTypeRef,
     type_refs_compatible,
 )
 from ..typecheck_context import TypedExpr
@@ -57,7 +69,9 @@ from ..loops import LoopControlTypeRef
 from ..loop_state import carrier_metadata_for_expr
 from ..lowering.pure_projection import is_pure_projection_expr
 from ..workflows import TypedWorkflowDef
+from ..workflow_refs import ResolvedWorkflowRef
 from .model import (
+    WccBindingValue,
     WccBody,
     WccCase,
     WccCaseArm,
@@ -79,12 +93,15 @@ from .model import (
     WccPhaseScope,
     WccPhaseTargetAtom,
     WccPerform,
+    WccProviderSupervision,
+    WccProviderSupervisionMember,
     WccPureOp,
     WccProduceOneOfPayload,
     WccRecJoin,
     WccRecordAtom,
     WccResumeOrStartPayload,
     WccRunProviderPhasePayload,
+    WccSpecializationCapture,
     WccValue,
 )
 
@@ -113,6 +130,49 @@ class WccPromptDependencyPayload:
     expansion_stack: tuple[object, ...]
 
 
+@dataclass(frozen=True)
+class _WccBoundProcedureBinding:
+    """A compile-time procedure value plus bind-site runtime captures."""
+
+    capture_values: tuple[tuple[str, WccValue], ...]
+
+
+@dataclass(frozen=True)
+class _WccCompileTimeAlias:
+    """One erased alias retaining its original compile-time owner."""
+
+    value: object
+    source_name: str
+
+
+@dataclass(frozen=True)
+class _WccRuntimeCaptureAlias:
+    """One runtime alias materialized at a ``bind-proc`` site."""
+
+    source_name: str
+    alias_name: str
+    type_ref: TypeRef
+    source_expr: NameExpr
+    source_atom: WccNameAtom
+    alias_atom: WccNameAtom
+    scope: WccIdentityFactory
+
+
+@dataclass(frozen=True)
+class _WccDirectBoundProcedureArgument:
+    """One inline ``bind-proc`` argument prebound for WCC closure."""
+
+    binding_name: str
+    type_ref: TypeRef
+    compile_time_value: _WccBoundProcedureBinding
+    capture_aliases: tuple[_WccRuntimeCaptureAlias, ...]
+
+
+_PRESERVE_BOUND_PROC_CAPTURES = (
+    "\x00wcc-preserve-bound-proc-captures"
+)
+
+
 def elaborate_typed_workflow_body(
     typed_body: TypedExpr,
     *,
@@ -121,6 +181,9 @@ def elaborate_typed_workflow_body(
     value_env: Mapping[str, TypeRef],
     workflow_return_types: Mapping[str, TypeRef] | None = None,
     procedure_return_types: Mapping[str, TypeRef] | None = None,
+    resolved_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
+    compile_time_bindings: Mapping[str, object] | None = None,
     route_schema_version: str | None = None,
 ) -> WccBody:
     """Elaborate one typed workflow body into WCC."""
@@ -135,16 +198,103 @@ def elaborate_typed_workflow_body(
         for edge in typed_body.effect_summary.procedure_edges
         if edge.span is not None
     }
-    return _elaborate_expr_to_body(
+    if resolved_procedures_by_name is not None:
+        for node in walk_expr(typed_body.expr):
+            if not isinstance(node, ProcedureCallExpr):
+                continue
+            site = (node.span, node.form_path)
+            edge_name = procedure_edges_by_site.get(site)
+            edge_procedure = (
+                None
+                if edge_name is None
+                else resolved_procedures_by_name.get(edge_name)
+            )
+            if (
+                edge_procedure is None
+                or edge_procedure.specialization is not None
+            ):
+                continue
+            site_specializations = tuple(
+                procedure
+                for procedure in resolved_procedures_by_name.values()
+                if (
+                    procedure.specialization is not None
+                    and procedure.specialization.base_name == edge_name
+                    and procedure.specialization.origin_span == node.span
+                    and procedure.specialization.origin_form_path
+                    == node.form_path
+                )
+            )
+            if len(site_specializations) > 1:
+                raise TypeError(
+                    "compiler-owned procedure specialization is "
+                    "ambiguous at one WCC call site"
+                )
+            if site_specializations:
+                procedure_edges_by_site[site] = (
+                    site_specializations[0].definition.name
+                )
+    resolved_procedure_return_types = dict(procedure_return_types or {})
+    for node in walk_expr(typed_body.expr):
+        if not isinstance(node, ProcedureCallExpr):
+            continue
+        specialized_name = procedure_edges_by_site.get(
+            (node.span, node.form_path)
+        )
+        if specialized_name is None:
+            continue
+        specialized_return_type = resolved_procedure_return_types.get(
+            specialized_name
+        )
+        if specialized_return_type is None:
+            continue
+        existing_return_type = resolved_procedure_return_types.get(
+            node.callee_name
+        )
+        if (
+            existing_return_type is not None
+            and not type_refs_compatible(
+                existing_return_type,
+                specialized_return_type,
+            )
+        ):
+            raise TypeError(
+                "one lexical procedure binding resolved to incompatible "
+                "return types during WCC elaboration"
+            )
+        resolved_procedure_return_types[node.callee_name] = (
+            specialized_return_type
+        )
+    initial_compile_time_bindings = dict(
+        compile_time_bindings or {}
+    )
+    if any(
+        isinstance(node, WithLiveProvidersExpr)
+        for node in walk_expr(typed_body.expr)
+    ):
+        initial_compile_time_bindings[
+            _PRESERVE_BOUND_PROC_CAPTURES
+        ] = True
+    body = _elaborate_expr_to_body(
         typed_body.expr,
         scope=scope,
         type_env=type_env,
         value_env=dict(value_env),
         workflow_return_types=dict(workflow_return_types or {}),
-        procedure_return_types=dict(procedure_return_types or {}),
+        procedure_return_types=resolved_procedure_return_types,
         effect_summary=typed_body.effect_summary,
         procedure_edges_by_site=procedure_edges_by_site,
-        compile_time_bindings={},
+        compile_time_bindings=initial_compile_time_bindings,
+    )
+    if resolved_procedures_by_name is None:
+        return body
+    return close_wcc_provider_supervision_members(
+        body,
+        resolved_procedures_by_name=resolved_procedures_by_name,
+        procedure_type_envs=procedure_type_envs or {},
+        type_env=type_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types or {},
     )
 
 
@@ -154,6 +304,8 @@ def elaborate_typed_workflow(
     type_env: FrontendTypeEnvironment,
     workflow_return_types: Mapping[str, TypeRef] | None = None,
     procedure_return_types: Mapping[str, TypeRef] | None = None,
+    resolved_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
     route_schema_version: str | None = None,
 ) -> WccBody:
     """Convenience wrapper for elaborating one typed workflow definition."""
@@ -165,8 +317,936 @@ def elaborate_typed_workflow(
         value_env=dict(typed_workflow.signature.params),
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
+        resolved_procedures_by_name=resolved_procedures_by_name,
+        procedure_type_envs=procedure_type_envs,
         route_schema_version=route_schema_version,
     )
+
+
+def close_wcc_provider_supervision_members(
+    node: WccBody | WccProviderSupervision,
+    *,
+    resolved_procedures_by_name: Mapping[str, TypedProcedureDef],
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment],
+    type_env: FrontendTypeEnvironment,
+    procedure_return_types: Mapping[str, TypeRef],
+    workflow_return_types: Mapping[str, TypeRef] | None = None,
+) -> WccBody | WccProviderSupervision:
+    """Close every live-provider member by recursively inlining explicit procedures."""
+
+    context = _ProviderSupervisionClosureContext(
+        resolved_procedures_by_name=resolved_procedures_by_name,
+        procedure_type_envs=procedure_type_envs,
+        type_env=type_env,
+        workflow_return_types=dict(workflow_return_types or {}),
+        procedure_return_types=dict(procedure_return_types),
+    )
+    if isinstance(node, WccProviderSupervision):
+        return _close_provider_supervision(node, context=context)
+    return _close_provider_supervision_groups_in_body(node, context=context)
+
+
+@dataclass(frozen=True)
+class _ProviderSupervisionClosureContext:
+    resolved_procedures_by_name: Mapping[str, TypedProcedureDef]
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment]
+    type_env: FrontendTypeEnvironment
+    workflow_return_types: Mapping[str, TypeRef]
+    procedure_return_types: Mapping[str, TypeRef]
+
+
+def _close_provider_supervision_groups_in_body(
+    body: WccBody,
+    *,
+    context: _ProviderSupervisionClosureContext,
+) -> WccBody:
+    if isinstance(body, WccLet):
+        bound_value = body.bound_value
+        if isinstance(bound_value, WccProviderSupervision):
+            bound_value = _close_provider_supervision(
+                bound_value,
+                context=context,
+            )
+        return replace(
+            body,
+            bound_value=bound_value,
+            body=_close_provider_supervision_groups_in_body(
+                body.body,
+                context=context,
+            ),
+        )
+    if isinstance(body, WccCase):
+        return replace(
+            body,
+            arms=tuple(
+                replace(
+                    arm,
+                    body=_close_provider_supervision_groups_in_body(
+                        arm.body,
+                        context=context,
+                    ),
+                )
+                for arm in body.arms
+            ),
+        )
+    if isinstance(body, WccIf):
+        return replace(
+            body,
+            then_body=_close_provider_supervision_groups_in_body(
+                body.then_body,
+                context=context,
+            ),
+            else_body=_close_provider_supervision_groups_in_body(
+                body.else_body,
+                context=context,
+            ),
+        )
+    if isinstance(body, WccJoin):
+        return replace(
+            body,
+            body=_close_provider_supervision_groups_in_body(
+                body.body,
+                context=context,
+            ),
+            continuation=_close_provider_supervision_groups_in_body(
+                body.continuation,
+                context=context,
+            ),
+        )
+    if isinstance(body, WccRecJoin):
+        return replace(
+            body,
+            body=_close_provider_supervision_groups_in_body(
+                body.body,
+                context=context,
+            ),
+            exhaustion=(
+                _close_provider_supervision_groups_in_body(
+                    body.exhaustion,
+                    context=context,
+                )
+                if body.exhaustion is not None
+                else None
+            ),
+        )
+    return body
+
+
+def _close_provider_supervision(
+    group: WccProviderSupervision,
+    *,
+    context: _ProviderSupervisionClosureContext,
+) -> WccProviderSupervision:
+    from .anf import normalize_wcc_body_to_anf
+    from .analysis import validate_wcc_provider_supervision
+
+    closed = replace(
+        group,
+        members=tuple(
+            replace(
+                member,
+                normalized_body=_inline_provider_supervision_member(
+                    replace(
+                        member,
+                        normalized_body=normalize_wcc_body_to_anf(
+                            member.normalized_body
+                        ),
+                    ),
+                    context=context,
+                ),
+            )
+            for member in group.members
+        ),
+        settlement_body=normalize_wcc_body_to_anf(group.settlement_body),
+    )
+    return validate_wcc_provider_supervision(closed)
+
+
+def _inline_provider_supervision_member(
+    member: WccProviderSupervisionMember,
+    *,
+    context: _ProviderSupervisionClosureContext,
+) -> WccBody:
+    return _inline_linear_provider_region(
+        member.normalized_body,
+        substitutions={},
+        namespace=None,
+        member=member,
+        context=context,
+        active_procedures=frozenset(),
+        deferred_specialization_captures=(),
+        terminal_builder=lambda halt, result: replace(halt, result=result),
+    )
+
+
+def _inline_linear_provider_region(
+    body: WccBody,
+    *,
+    substitutions: Mapping[str, WccValue],
+    namespace: str | None,
+    member: WccProviderSupervisionMember,
+    context: _ProviderSupervisionClosureContext,
+    active_procedures: frozenset[str],
+    deferred_specialization_captures: tuple[
+        tuple[str, str, WccValue],
+        ...,
+    ],
+    terminal_builder,
+) -> WccBody:
+    if isinstance(body, WccHalt):
+        return terminal_builder(
+            body,
+            _substitute_wcc_value(body.result, substitutions),
+        )
+    if not isinstance(body, WccLet):
+        _raise_provider_member_ineligible(
+            member,
+            offending_metadata=body.metadata,
+            message=(
+                "live-provider members must normalize to a straight "
+                "`WccLet`/`WccHalt` region"
+            ),
+        )
+
+    bound_name = (
+        body.bound_name
+        if namespace is None
+        else f"{namespace}{body.bound_name}"
+    )
+    bound_ref = _provider_inline_name_ref(
+        body,
+        name=bound_name,
+    )
+    continuation = _inline_linear_provider_region(
+        body.body,
+        substitutions={**substitutions, body.bound_name: bound_ref},
+        namespace=namespace,
+        member=member,
+        context=context,
+        active_procedures=active_procedures,
+        deferred_specialization_captures=(
+            deferred_specialization_captures
+        ),
+        terminal_builder=terminal_builder,
+    )
+    bound_value = _substitute_wcc_binding_value(
+        body.bound_value,
+        substitutions,
+    )
+    if isinstance(bound_value, WccCall):
+        return _inline_provider_procedure_call(
+            bound_value,
+            output_let=replace(body, bound_name=bound_name),
+            continuation=continuation,
+            member=member,
+            context=context,
+            active_procedures=active_procedures,
+            caller_substitutions=substitutions,
+            deferred_specialization_captures=(
+                deferred_specialization_captures
+            ),
+        )
+    if isinstance(bound_value, WccProviderSupervision):
+        _raise_provider_member_ineligible(
+            member,
+            offending_metadata=bound_value.metadata,
+            message="nested live-provider groups are not eligible as members",
+        )
+    return replace(
+        body,
+        bound_name=bound_name,
+        bound_value=bound_value,
+        body=continuation,
+    )
+
+
+def _inline_provider_procedure_call(
+    call: WccCall,
+    *,
+    output_let: WccLet,
+    continuation: WccBody,
+    member: WccProviderSupervisionMember,
+    context: _ProviderSupervisionClosureContext,
+    active_procedures: frozenset[str],
+    caller_substitutions: Mapping[str, WccValue],
+    deferred_specialization_captures: tuple[
+        tuple[str, str, WccValue],
+        ...,
+    ],
+) -> WccBody:
+    procedure = context.resolved_procedures_by_name.get(
+        call.specialized_callee_name
+    )
+    if procedure is None:
+        _raise_provider_member_ineligible(
+            member,
+            offending_metadata=call.metadata,
+            message=(
+                "live-provider procedure members require a resolved "
+                "monomorphic specialization"
+            ),
+        )
+    if (
+        procedure.signature.requested_lowering_mode
+        is not ProcedureLoweringMode.INLINE
+        or procedure.resolved_lowering_mode
+        is not ProcedureLoweringMode.INLINE
+    ):
+        _raise_provider_member_ineligible(
+            member,
+            offending_metadata=procedure.definition,
+            message=(
+                "every live-provider member procedure must be authored "
+                "with `:lowering inline` and resolve inline"
+            ),
+        )
+    if procedure.signature.name in active_procedures:
+        _raise_provider_member_ineligible(
+            member,
+            offending_metadata=call.metadata,
+            message="recursive live-provider member procedures are not eligible",
+        )
+    if len(call.args) != len(procedure.signature.params):
+        _raise_provider_member_ineligible(
+            member,
+            offending_metadata=call.metadata,
+            message="live-provider procedure specialization arguments are ambiguous",
+        )
+
+    immediate_captures, forwarded_captures = (
+        _partition_call_specialization_captures(
+            call,
+            procedure=procedure,
+            context=context,
+            member=member,
+            deferred_specialization_captures=(
+                deferred_specialization_captures
+            ),
+        )
+    )
+    call_capture_substitutions: dict[str, WccValue] = {}
+    for capture_name, capture_value in immediate_captures:
+        if (
+            capture_name in call_capture_substitutions
+            and call_capture_substitutions[capture_name] != capture_value
+        ):
+            _raise_provider_member_ineligible(
+                member,
+                offending_metadata=call.metadata,
+                message=(
+                    "live-provider procedure specialization captures "
+                    f"`{capture_name}` ambiguously"
+                ),
+            )
+        call_capture_substitutions[capture_name] = capture_value
+    effective_caller_substitutions = {
+        **caller_substitutions,
+        **call_capture_substitutions,
+    }
+
+    specialization = procedure.specialization
+    workflow_ref_values = (
+        {}
+        if specialization is None
+        else dict(getattr(specialization, "workflow_ref_bindings", {}))
+    )
+    proc_ref_values = (
+        {}
+        if specialization is None
+        else dict(getattr(specialization, "proc_ref_bindings", {}))
+    )
+    specialization_values = (
+        {}
+        if specialization is None
+        else dict(getattr(specialization, "value_bindings", {}))
+    )
+    capture_substitutions: dict[str, WccValue] = {}
+    rewritten_specialization_values: dict[str, object] = {}
+    for ordinal, (name, value) in enumerate(
+        specialization_values.items()
+    ):
+        rewritten, captures = _rewrite_specialization_value_captures(
+            value,
+            caller_substitutions=effective_caller_substitutions,
+            member=member,
+            token_prefix=(
+                "__wcc_supervision_capture_"
+                f"{call.metadata.node_id.rsplit(':', 1)[-1]}_"
+                f"{ordinal}_"
+            ),
+        )
+        rewritten_specialization_values[name] = rewritten
+        capture_substitutions.update(captures)
+    compile_time_values = {
+        _PRESERVE_BOUND_PROC_CAPTURES: True,
+        **workflow_ref_values,
+        **proc_ref_values,
+        **rewritten_specialization_values,
+    }
+
+    procedure_env = procedure_type_env_for(
+        procedure,
+        procedure_type_envs=context.procedure_type_envs,
+        default=context.type_env,
+    )
+    procedure_value_env = dict(procedure.signature.params)
+    if specialization is not None:
+        procedure_value_env.update(
+            dict(getattr(specialization, "bound_param_types", {}))
+        )
+    procedure_value_env.update(
+        {
+            name: value.metadata.type_ref
+            for name, value in capture_substitutions.items()
+        }
+    )
+    route_schema_version = _wcc_route_schema_version(call.metadata)
+    callee_body = elaborate_typed_workflow_body(
+        procedure.typed_body,
+        owner_name=(
+            f"{procedure.definition.name}"
+            f"@provider-supervision:{call.metadata.node_id}"
+        ),
+        type_env=procedure_env,
+        value_env=procedure_value_env,
+        workflow_return_types=context.workflow_return_types,
+        procedure_return_types=context.procedure_return_types,
+        compile_time_bindings=compile_time_values,
+        route_schema_version=route_schema_version,
+    )
+    from .anf import normalize_wcc_body_to_anf
+
+    callee_body = normalize_wcc_body_to_anf(callee_body)
+    parameter_substitutions = {
+        name: arg
+        for (name, _), arg in zip(
+            procedure.signature.params,
+            call.args,
+            strict=True,
+        )
+    }
+    namespace = (
+        "__wcc_supervision_inline_"
+        f"{call.metadata.node_id.rsplit(':', 1)[-1]}__"
+    )
+
+    def bind_call_result(
+        _halt: WccHalt,
+        result: WccValue,
+    ) -> WccBody:
+        return replace(
+            output_let,
+            bound_value=result,
+            body=continuation,
+        )
+
+    return _inline_linear_provider_region(
+        callee_body,
+        substitutions={
+            **capture_substitutions,
+            **parameter_substitutions,
+        },
+        namespace=namespace,
+        member=member,
+        context=context,
+        active_procedures=(
+            active_procedures | {procedure.signature.name}
+        ),
+        deferred_specialization_captures=tuple(
+            forwarded_captures
+        ),
+        terminal_builder=bind_call_result,
+    )
+
+
+def _partition_call_specialization_captures(
+    call: WccCall,
+    *,
+    procedure: TypedProcedureDef,
+    context: _ProviderSupervisionClosureContext,
+    member: WccProviderSupervisionMember,
+    deferred_specialization_captures: tuple[
+        tuple[str, str, WccValue],
+        ...,
+    ],
+) -> tuple[
+    tuple[tuple[str, WccValue], ...],
+    tuple[tuple[str, str, WccValue], ...],
+]:
+    specialization = procedure.specialization
+    base_procedure = (
+        None
+        if specialization is None
+        else context.resolved_procedures_by_name.get(
+            specialization.base_name
+        )
+    )
+    base_params = (
+        ()
+        if base_procedure is None
+        else base_procedure.signature.params
+    )
+    proc_ref_bindings = (
+        {}
+        if specialization is None
+        else dict(specialization.proc_ref_bindings)
+    )
+    def target_parameter_name(argument_index: int) -> str:
+        if argument_index >= len(base_params):
+            _raise_provider_member_ineligible(
+                member,
+                offending_metadata=call.metadata,
+                message=(
+                    "live-provider specialization capture argument "
+                    "is outside the base procedure signature"
+                ),
+            )
+        parameter_name = base_params[argument_index][0]
+        resolved_ref = proc_ref_bindings.get(parameter_name)
+        if not isinstance(resolved_ref, ResolvedProcRefValue):
+            _raise_provider_member_ineligible(
+                member,
+                offending_metadata=call.metadata,
+                message=(
+                    "live-provider direct bind-proc capture "
+                    "does not have an exact specialized target"
+                ),
+            )
+        return parameter_name
+
+    callee_capture_owner = (
+        call.proc_ref_callee_source or call.callee_name
+    )
+    immediate: list[tuple[str, WccValue]] = (
+        []
+        if call.proc_ref_callee_masks_deferred
+        else [
+            (capture_name, capture_value)
+            for owner_name, capture_name, capture_value
+            in deferred_specialization_captures
+            if owner_name == callee_capture_owner
+        ]
+    )
+    forwarded: list[tuple[str, str, WccValue]] = []
+    for argument_index, source_name, masks_deferred in (
+        call.proc_ref_argument_sources
+    ):
+        target_name = target_parameter_name(argument_index)
+        if not masks_deferred:
+            forwarded.extend(
+                (
+                    target_name,
+                    capture_name,
+                    capture_value,
+                )
+                for owner_name, capture_name, capture_value
+                in deferred_specialization_captures
+                if owner_name == source_name
+            )
+    for capture in call.specialization_captures:
+        if capture.owner_kind == "callee":
+            immediate.append(
+                (capture.source_name, capture.value)
+            )
+        elif (
+            capture.owner_kind == "argument"
+            and capture.argument_index is not None
+        ):
+            forwarded.append(
+                (
+                    target_parameter_name(
+                        capture.argument_index
+                    ),
+                    capture.source_name,
+                    capture.value,
+                )
+            )
+        else:
+            _raise_provider_member_ineligible(
+                member,
+                offending_metadata=call.metadata,
+                message=(
+                    "live-provider specialization capture owner "
+                    "is not exact"
+                ),
+            )
+    return tuple(immediate), tuple(forwarded)
+
+
+def _rewrite_specialization_value_captures(
+    value: object,
+    *,
+    caller_substitutions: Mapping[str, WccValue],
+    member: WccProviderSupervisionMember,
+    token_prefix: str,
+) -> tuple[object, Mapping[str, WccValue]]:
+    capture_substitutions: dict[str, WccValue] = {}
+    tokens_by_name: dict[str, str] = {}
+
+    def capture_token(expr: NameExpr) -> str:
+        name = expr.name
+        token = tokens_by_name.get(name)
+        if token is not None:
+            return token
+        token = f"{token_prefix}{len(tokens_by_name)}__"
+        tokens_by_name[name] = token
+        capture_value = caller_substitutions.get(name)
+        if capture_value is None:
+            _raise_provider_member_ineligible(
+                member,
+                offending_metadata=expr,
+                message=(
+                    "live-provider procedure specialization capture "
+                    f"`{name}` has no bind-site lexical identity"
+                ),
+            )
+            raise AssertionError("unreachable")
+        capture_substitutions[token] = capture_value
+        return token
+
+    def rewrite(node: object, *, shadowed: frozenset[str]) -> object:
+        if isinstance(node, NameExpr):
+            if (
+                (
+                    node.name in caller_substitutions
+                )
+                and node.name not in shadowed
+            ):
+                return replace(node, name=capture_token(node))
+            if node.name not in shadowed:
+                capture_token(node)
+            return node
+        if isinstance(node, FieldAccessExpr):
+            rewritten_base = rewrite(node.base, shadowed=shadowed)
+            if rewritten_base is node.base:
+                return node
+            return replace(node, base=rewritten_base)
+        if isinstance(node, LetStarExpr):
+            local_shadowed = set(shadowed)
+            rewritten_bindings: list[tuple[str, object]] = []
+            changed = False
+            for binding_name, binding_expr in node.bindings:
+                rewritten_binding = rewrite(
+                    binding_expr,
+                    shadowed=frozenset(local_shadowed),
+                )
+                rewritten_bindings.append(
+                    (binding_name, rewritten_binding)
+                )
+                changed = changed or rewritten_binding is not binding_expr
+                local_shadowed.add(binding_name)
+            rewritten_body = rewrite(
+                node.body,
+                shadowed=frozenset(local_shadowed),
+            )
+            changed = changed or rewritten_body is not node.body
+            if not changed:
+                return node
+            return replace(
+                node,
+                bindings=tuple(rewritten_bindings),
+                body=rewritten_body,
+            )
+        if isinstance(node, tuple):
+            rewritten_items = tuple(
+                rewrite(item, shadowed=shadowed)
+                for item in node
+            )
+            return (
+                node
+                if all(
+                    rewritten is original
+                    for rewritten, original in zip(
+                        rewritten_items,
+                        node,
+                        strict=True,
+                    )
+                )
+                else rewritten_items
+            )
+        if isinstance(node, list):
+            rewritten_items = [
+                rewrite(item, shadowed=shadowed)
+                for item in node
+            ]
+            return (
+                node
+                if all(
+                    rewritten is original
+                    for rewritten, original in zip(
+                        rewritten_items,
+                        node,
+                        strict=True,
+                    )
+                )
+                else rewritten_items
+            )
+        if isinstance(node, Mapping):
+            rewritten_items = {
+                key: rewrite(item, shadowed=shadowed)
+                for key, item in node.items()
+            }
+            return (
+                node
+                if all(
+                    rewritten_items[key] is item
+                    for key, item in node.items()
+                )
+                else rewritten_items
+            )
+        if is_dataclass(node):
+            updates = {
+                field.name: rewrite(
+                    getattr(node, field.name),
+                    shadowed=shadowed,
+                )
+                for field in dataclass_fields(node)
+                if field.init
+            }
+            changed_updates = {
+                name: rewritten
+                for name, rewritten in updates.items()
+                if rewritten is not getattr(node, name)
+            }
+            if changed_updates:
+                return replace(node, **changed_updates)
+        return node
+
+    return (
+        rewrite(value, shadowed=frozenset()),
+        capture_substitutions,
+    )
+
+
+def _provider_inline_name_ref(
+    binding: WccLet,
+    *,
+    name: str,
+) -> WccNameAtom:
+    factory = WccIdentityFactory(
+        owner_name=binding.metadata.node_id,
+        lexical_owner_chain=(
+            binding.metadata.scope_id,
+            "provider-supervision-inline-ref",
+            name,
+        ),
+        route_schema_version=_wcc_route_schema_version(binding.metadata),
+    )
+    return WccNameAtom(
+        metadata=factory.atom_metadata(
+            role=f"name:{name}",
+            type_ref=binding.bound_type_ref,
+            source_span=binding.metadata.source_span,
+            form_path=binding.metadata.form_path,
+            expansion_stack=binding.metadata.expansion_stack,
+        ),
+        name=name,
+    )
+
+
+def _substitute_wcc_binding_value(
+    value,
+    substitutions: Mapping[str, WccValue],
+):
+    if isinstance(value, WccPerform):
+        return replace(
+            value,
+            positional_args=tuple(
+                _substitute_wcc_value(arg, substitutions)
+                for arg in value.positional_args
+            ),
+            keyword_args=tuple(
+                (
+                    name,
+                    _substitute_wcc_value(arg, substitutions),
+                )
+                for name, arg in value.keyword_args
+            ),
+            operation_payload=_substitute_wcc_payload(
+                value.operation_payload,
+                substitutions,
+            ),
+        )
+    if isinstance(value, WccCall):
+        return replace(
+            value,
+            args=tuple(
+                _substitute_wcc_value(arg, substitutions)
+                for arg in value.args
+            ),
+            specialization_captures=tuple(
+                replace(
+                    capture,
+                    value=_substitute_wcc_value(
+                        capture.value,
+                        substitutions,
+                    ),
+                )
+                for capture in value.specialization_captures
+            ),
+        )
+    if isinstance(value, WccProviderSupervision):
+        return value
+    return _substitute_wcc_value(value, substitutions)
+
+
+def _substitute_wcc_value(
+    value: WccValue,
+    substitutions: Mapping[str, WccValue],
+) -> WccValue:
+    if isinstance(value, WccNameAtom):
+        return substitutions.get(value.name, value)
+    if isinstance(value, WccFieldAccessAtom):
+        base = _substitute_wcc_value(value.base, substitutions)
+        if not isinstance(
+            base,
+            (
+                WccLiteralAtom,
+                WccNameAtom,
+                WccFieldAccessAtom,
+                WccPhaseTargetAtom,
+                WccRecordAtom,
+                WccOpaqueFrontendValue,
+            ),
+        ):
+            raise TypeError("field-access substitution must remain atomic")
+        return replace(value, base=base)
+    if isinstance(value, WccRecordAtom):
+        return replace(
+            value,
+            fields=tuple(
+                (
+                    name,
+                    _substitute_wcc_value(field_value, substitutions),
+                )
+                for name, field_value in value.fields
+            ),
+        )
+    if isinstance(value, WccInject):
+        return replace(
+            value,
+            fields=tuple(
+                (
+                    name,
+                    _substitute_wcc_value(field_value, substitutions),
+                )
+                for name, field_value in value.fields
+            ),
+        )
+    if isinstance(value, WccPureOp):
+        return replace(
+            value,
+            args=tuple(
+                _substitute_wcc_value(arg, substitutions)
+                for arg in value.args
+            ),
+        )
+    return value
+
+
+def _substitute_wcc_payload(
+    value,
+    substitutions: Mapping[str, WccValue],
+):
+    if isinstance(
+        value,
+        (
+            WccLiteralAtom,
+            WccNameAtom,
+            WccFieldAccessAtom,
+            WccPhaseTargetAtom,
+            WccRecordAtom,
+            WccOpaqueFrontendValue,
+            WccInject,
+            WccPureOp,
+        ),
+    ):
+        return _substitute_wcc_value(value, substitutions)
+    if isinstance(value, tuple):
+        return tuple(
+            _substitute_wcc_payload(item, substitutions)
+            for item in value
+        )
+    if isinstance(value, list):
+        return [
+            _substitute_wcc_payload(item, substitutions)
+            for item in value
+        ]
+    if isinstance(value, Mapping):
+        return {
+            key: _substitute_wcc_payload(item, substitutions)
+            for key, item in value.items()
+        }
+    if is_dataclass(value):
+        updates = {
+            field.name: _substitute_wcc_payload(
+                getattr(value, field.name),
+                substitutions,
+            )
+            for field in dataclass_fields(value)
+            if field.init
+        }
+        if any(
+            updates[name] is not getattr(value, name)
+            for name in updates
+        ):
+            return replace(value, **updates)
+    return value
+
+
+def _raise_provider_member_ineligible(
+    member: WccProviderSupervisionMember,
+    *,
+    offending_metadata,
+    message: str,
+) -> None:
+    offending_span = getattr(
+        offending_metadata,
+        "source_span",
+        getattr(offending_metadata, "span", member.metadata.source_span),
+    )
+    offending_form_path = getattr(
+        offending_metadata,
+        "form_path",
+        member.metadata.form_path,
+    )
+    offending_expansion_stack = getattr(
+        offending_metadata,
+        "expansion_stack",
+        member.metadata.expansion_stack,
+    )
+    diagnostics = [
+        LispFrontendDiagnostic(
+            code="provider_supervision_member_ineligible",
+            message=message,
+            span=member.metadata.source_span,
+            form_path=member.metadata.form_path,
+            expansion_stack=member.metadata.expansion_stack,
+            phase="lowering",
+        )
+    ]
+    if (
+        offending_span != member.metadata.source_span
+        or offending_form_path != member.metadata.form_path
+    ):
+        diagnostics.append(
+            LispFrontendDiagnostic(
+                code="provider_supervision_member_disqualifying_form",
+                message="specialized member contains this disqualifying form",
+                span=offending_span,
+                form_path=offending_form_path,
+                expansion_stack=offending_expansion_stack,
+                phase="lowering",
+            )
+        )
+    raise LispFrontendCompileError(tuple(diagnostics))
+
+
+def _wcc_route_schema_version(metadata) -> str:
+    parts = metadata.node_id.split(":")
+    if len(parts) >= 3:
+        return parts[1]
+    return WccIdentityFactory.route_schema_version
 
 
 def _body_to_prefix_and_value(body: WccBody) -> tuple[tuple[WccLet, ...], WccValue]:
@@ -357,6 +1437,7 @@ def _elaborate_expr_to_body(
             FinalizeSelectedItemExpr,
             CallExpr,
             ProcedureCallExpr,
+            WithLiveProvidersExpr,
         ),
     ):
         return _elaborate_effect_expr_to_body(
@@ -468,15 +1549,122 @@ def _elaborate_let_star(
         )
         next_env = dict(local_env)
         next_env[binding_name] = binding_type
+        runtime_tail_compile_time_bindings = dict(
+            local_compile_time_bindings
+        )
+        runtime_tail_compile_time_bindings.pop(
+            binding_name,
+            None,
+        )
         if isinstance(binding_expr, BindProcExpr):
+            if not local_compile_time_bindings.get(
+                _PRESERVE_BOUND_PROC_CAPTURES,
+                False,
+            ):
+                next_compile_time_bindings = dict(
+                    local_compile_time_bindings
+                )
+                next_compile_time_bindings[binding_name] = (
+                    binding_expr
+                )
+                return build(
+                    index + 1,
+                    next_env,
+                    local_scope.child_scope(
+                        "body",
+                        authored_binding_name=binding_name,
+                    ),
+                    next_compile_time_bindings,
+                )
+            capture_rows = _materialize_bind_proc_capture_aliases(
+                binding_expr,
+                owner_role=binding_name,
+                scope=local_scope,
+                value_env=local_env,
+                compile_time_bindings=local_compile_time_bindings,
+            )
+            next_env.update(
+                {
+                    capture.alias_name: capture.type_ref
+                    for capture in capture_rows
+                }
+            )
             next_compile_time_bindings = dict(local_compile_time_bindings)
-            next_compile_time_bindings[binding_name] = binding_expr
-            return build(
+            next_compile_time_bindings[binding_name] = (
+                _WccBoundProcedureBinding(
+                    capture_values=(
+                        *_inherited_bind_proc_capture_values(
+                            binding_expr,
+                            compile_time_bindings=(
+                                local_compile_time_bindings
+                            ),
+                        ),
+                        *(
+                            (
+                                capture.source_name,
+                                capture.alias_atom,
+                            )
+                            for capture in capture_rows
+                        ),
+                    ),
+                )
+            )
+            tail = build(
                 index + 1,
                 next_env,
                 local_scope.child_scope("body", authored_binding_name=binding_name),
                 next_compile_time_bindings,
             )
+            return _wrap_bind_proc_capture_aliases(
+                capture_rows,
+                tail=tail,
+                result_type=result_type,
+            )
+        if _is_compile_time_reference_value(binding_expr):
+            next_compile_time_bindings = dict(
+                local_compile_time_bindings
+            )
+            next_compile_time_bindings[binding_name] = binding_expr
+            return build(
+                index + 1,
+                next_env,
+                local_scope.child_scope(
+                    "body",
+                    authored_binding_name=binding_name,
+                ),
+                next_compile_time_bindings,
+            )
+        if isinstance(binding_expr, NameExpr):
+            forwarded_compile_time_value = (
+                local_compile_time_bindings.get(binding_expr.name)
+            )
+            if _is_compile_time_reference_value(
+                forwarded_compile_time_value
+            ):
+                alias_value, alias_source_name = (
+                    _unwrap_compile_time_alias(
+                        forwarded_compile_time_value,
+                        default_source_name=binding_expr.name,
+                    )
+                )
+                next_compile_time_bindings = dict(
+                    local_compile_time_bindings
+                )
+                next_compile_time_bindings[binding_name] = (
+                    _WccCompileTimeAlias(
+                        value=alias_value,
+                        source_name=alias_source_name,
+                    )
+                )
+                return build(
+                    index + 1,
+                    next_env,
+                    local_scope.child_scope(
+                        "body",
+                        authored_binding_name=binding_name,
+                    ),
+                    next_compile_time_bindings,
+                )
         if isinstance(
             binding_expr,
             (
@@ -495,7 +1683,7 @@ def _elaborate_let_star(
                 index + 1,
                 next_env,
                 local_scope.child_scope("body", authored_binding_name=binding_name),
-                local_compile_time_bindings,
+                runtime_tail_compile_time_bindings,
             )
             return _elaborate_effect_binding_to_body(
                 binding_name=binding_name,
@@ -519,7 +1707,7 @@ def _elaborate_let_star(
                 index + 1,
                 next_env,
                 local_scope.child_scope("body", authored_binding_name=binding_name),
-                local_compile_time_bindings,
+                runtime_tail_compile_time_bindings,
             )
             return _elaborate_non_tail_match_binding(
                 binding_name=binding_name,
@@ -542,7 +1730,7 @@ def _elaborate_let_star(
                 index + 1,
                 next_env,
                 local_scope.child_scope("body", authored_binding_name=binding_name),
-                local_compile_time_bindings,
+                runtime_tail_compile_time_bindings,
             )
             binding_scope = local_scope.child_scope("if", authored_binding_name=binding_name)
             binding_body = _elaborate_if_to_body(
@@ -585,7 +1773,7 @@ def _elaborate_let_star(
             index + 1,
             next_env,
             local_scope.child_scope("body", authored_binding_name=binding_name),
-            local_compile_time_bindings,
+            runtime_tail_compile_time_bindings,
         )
         if not _is_linear_value_body(binding_body):
             return _elaborate_control_binding_to_body(
@@ -616,6 +1804,179 @@ def _elaborate_let_star(
         return _wrap_prefix_lets(prefix, let_node)
 
     return build(0, dict(value_env), scope, dict(compile_time_bindings))
+
+
+def _bind_proc_runtime_capture_sites(
+    expr: BindProcExpr,
+    *,
+    value_env: Mapping[str, TypeRef],
+    compile_time_bindings: Mapping[str, object],
+) -> tuple[tuple[str, NameExpr], ...]:
+    captures: dict[str, NameExpr] = {}
+
+    def visit(node: object, *, shadowed: frozenset[str]) -> None:
+        if isinstance(node, NameExpr):
+            if node.name in shadowed:
+                return
+            type_ref = value_env.get(node.name)
+            if type_ref is None or isinstance(
+                type_ref,
+                (ProcRefTypeRef, WorkflowRefTypeRef),
+            ):
+                return
+            if _is_compile_time_reference_value(
+                compile_time_bindings.get(node.name)
+            ):
+                return
+            captures.setdefault(node.name, node)
+            return
+        if isinstance(node, LetStarExpr):
+            local_shadowed = set(shadowed)
+            for binding_name, binding_expr in node.bindings:
+                visit(
+                    binding_expr,
+                    shadowed=frozenset(local_shadowed),
+                )
+                local_shadowed.add(binding_name)
+            visit(node.body, shadowed=frozenset(local_shadowed))
+            return
+        if isinstance(node, MatchExpr):
+            visit(node.subject, shadowed=shadowed)
+            for arm in node.arms:
+                visit(
+                    arm.body,
+                    shadowed=shadowed | {arm.binding_name},
+                )
+            return
+        if isinstance(node, tuple | list):
+            for item in node:
+                visit(item, shadowed=shadowed)
+            return
+        if isinstance(node, Mapping):
+            for item in node.values():
+                visit(item, shadowed=shadowed)
+            return
+        if is_dataclass(node):
+            for field in dataclass_fields(node):
+                if field.init:
+                    visit(
+                        getattr(node, field.name),
+                        shadowed=shadowed,
+                    )
+
+    if isinstance(expr.base_expr, BindProcExpr):
+        for capture_name, capture_expr in (
+            _bind_proc_runtime_capture_sites(
+                expr.base_expr,
+                value_env=value_env,
+                compile_time_bindings=compile_time_bindings,
+            )
+        ):
+            captures.setdefault(capture_name, capture_expr)
+    for binding in expr.bindings:
+        visit(binding.value_expr, shadowed=frozenset())
+    return tuple(captures.items())
+
+
+def _materialize_bind_proc_capture_aliases(
+    expr: BindProcExpr,
+    *,
+    owner_role: str,
+    scope: WccIdentityFactory,
+    value_env: Mapping[str, TypeRef],
+    compile_time_bindings: Mapping[str, object],
+) -> tuple[_WccRuntimeCaptureAlias, ...]:
+    captures: list[_WccRuntimeCaptureAlias] = []
+    for ordinal, (capture_name, capture_expr) in enumerate(
+        _bind_proc_runtime_capture_sites(
+            expr,
+            value_env=value_env,
+            compile_time_bindings=compile_time_bindings,
+        )
+    ):
+        capture_type = value_env[capture_name]
+        capture_scope = scope.child_scope(
+            "bind-proc-capture",
+            authored_binding_name=(
+                f"{owner_role}:{capture_name}:{ordinal}"
+            ),
+        )
+        alias_name = _generated_value_binding_name_from_scope(
+            capture_scope,
+            role=(
+                f"bind-proc-capture:{owner_role}:"
+                f"{capture_name}:{ordinal}"
+            ),
+        )
+        captures.append(
+            _WccRuntimeCaptureAlias(
+                source_name=capture_name,
+                alias_name=alias_name,
+                type_ref=capture_type,
+                source_expr=capture_expr,
+                source_atom=WccNameAtom(
+                    metadata=capture_scope.atom_metadata(
+                        role=f"capture-source:{capture_name}",
+                        type_ref=capture_type,
+                        source_span=capture_expr.span,
+                        form_path=capture_expr.form_path,
+                        expansion_stack=capture_expr.expansion_stack,
+                    ),
+                    name=capture_name,
+                ),
+                alias_atom=WccNameAtom(
+                    metadata=capture_scope.atom_metadata(
+                        role=f"capture-alias:{alias_name}",
+                        type_ref=capture_type,
+                        source_span=capture_expr.span,
+                        form_path=capture_expr.form_path,
+                        expansion_stack=capture_expr.expansion_stack,
+                    ),
+                    name=alias_name,
+                ),
+                scope=capture_scope,
+            )
+        )
+    return tuple(captures)
+
+
+def _inherited_bind_proc_capture_values(
+    expr: BindProcExpr,
+    *,
+    compile_time_bindings: Mapping[str, object],
+) -> tuple[tuple[str, WccValue], ...]:
+    if not isinstance(expr.base_expr, NameExpr):
+        return ()
+    base_binding, _ = _unwrap_compile_time_alias(
+        compile_time_bindings.get(expr.base_expr.name),
+    )
+    if not isinstance(base_binding, _WccBoundProcedureBinding):
+        return ()
+    return base_binding.capture_values
+
+
+def _wrap_bind_proc_capture_aliases(
+    captures: tuple[_WccRuntimeCaptureAlias, ...],
+    *,
+    tail: WccBody,
+    result_type: TypeRef,
+) -> WccBody:
+    current = tail
+    for capture in reversed(captures):
+        current = WccLet(
+            metadata=capture.scope.body_metadata(
+                role=f"let:{capture.alias_name}",
+                type_ref=result_type,
+                source_span=capture.source_expr.span,
+                form_path=capture.source_expr.form_path,
+                expansion_stack=capture.source_expr.expansion_stack,
+            ),
+            bound_name=capture.alias_name,
+            bound_type_ref=capture.type_ref,
+            bound_value=capture.source_atom,
+            body=current,
+        )
+    return current
 
 
 def _elaborate_loop_recur_to_body(
@@ -803,6 +2164,49 @@ def _elaborate_expr_to_value(
     compile_time_bindings: Mapping[str, object],
     active_phase_scope: WccPhaseScope | None = None,
 ) -> tuple[tuple[WccLet, ...], WccValue]:
+    if isinstance(expr, NameExpr) and expr.name in compile_time_bindings:
+        from ..lowering.values import _resolve_inline_expr_value
+
+        bound_value = compile_time_bindings[expr.name]
+        if _is_compile_time_reference_value(bound_value):
+            raise TypeError(
+                "compile-time procedure/workflow references cannot "
+                "materialize as WCC runtime values"
+            )
+        resolved = _resolve_inline_expr_value(
+            expr,
+            local_values=compile_time_bindings,
+        )
+        if (
+            resolved is not None
+            and resolved is not expr
+            and hasattr(resolved, "span")
+        ):
+            return _elaborate_expr_to_value(
+                resolved,
+                scope=scope,
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
+        if hasattr(bound_value, "span") and bound_value is not expr:
+            return _elaborate_expr_to_value(
+                bound_value,
+                scope=scope,
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
     if isinstance(expr, LiteralExpr):
         return (
             (),
@@ -1777,6 +3181,38 @@ def _elaborate_effect_binding_to_body(
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
     )
+    normalized_expr, direct_bound_proc_args = (
+        _prebind_direct_bind_proc_arguments(
+            normalized_expr,
+            scope=scope.child_scope(
+                "effect-proc-args",
+                authored_binding_name=binding_name,
+            ),
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            compile_time_bindings=compile_time_bindings,
+        )
+    )
+    binding_value_env = {
+        **value_env,
+        **{
+            name: type_ref
+            for name, type_ref, _ in match_bindings
+        },
+        **{
+            item.binding_name: item.type_ref
+            for item in direct_bound_proc_args
+        },
+    }
+    binding_compile_time_bindings = {
+        **compile_time_bindings,
+        **{
+            item.binding_name: item.compile_time_value
+            for item in direct_bound_proc_args
+        },
+    }
     current: WccBody = WccLet(
         metadata=scope.body_metadata(
             role=f"let:{binding_name}",
@@ -1791,12 +3227,12 @@ def _elaborate_effect_binding_to_body(
             normalized_expr,
             scope=scope.child_scope("binding", authored_binding_name=binding_name),
             type_env=type_env,
-            value_env={**value_env, **{name: type_ref for name, type_ref, _ in match_bindings}},
+            value_env=binding_value_env,
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
             effect_summary=effect_summary,
             procedure_edges_by_site=procedure_edges_by_site,
-            compile_time_bindings=compile_time_bindings,
+            compile_time_bindings=binding_compile_time_bindings,
             active_phase_scope=active_phase_scope,
         ),
         body=continuation,
@@ -1848,7 +3284,100 @@ def _elaborate_effect_binding_to_body(
         )
         for prefix_let in reversed(prebound_prefix):
             current = replace(prefix_let, body=current)
+    for item in reversed(direct_bound_proc_args):
+        current = _wrap_bind_proc_capture_aliases(
+            item.capture_aliases,
+            tail=current,
+            result_type=let_result_type,
+        )
     return current
+
+
+def _prebind_direct_bind_proc_arguments(
+    expr: object,
+    *,
+    scope: WccIdentityFactory,
+    type_env: FrontendTypeEnvironment,
+    value_env: Mapping[str, TypeRef],
+    workflow_return_types: Mapping[str, TypeRef],
+    procedure_return_types: Mapping[str, TypeRef],
+    compile_time_bindings: Mapping[str, object],
+) -> tuple[object, tuple[_WccDirectBoundProcedureArgument, ...]]:
+    if (
+        not isinstance(expr, ProcedureCallExpr)
+        or not compile_time_bindings.get(
+            _PRESERVE_BOUND_PROC_CAPTURES,
+            False,
+        )
+    ):
+        return expr, ()
+
+    direct_args: list[_WccDirectBoundProcedureArgument] = []
+    rewritten_args: list[object] = []
+    for index, arg_expr in enumerate(expr.args):
+        if not isinstance(arg_expr, BindProcExpr):
+            rewritten_args.append(arg_expr)
+            continue
+        type_ref = _infer_expr_type(
+            arg_expr,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
+        arg_scope = scope.child_scope(
+            "direct-bind-proc",
+            authored_binding_name=str(index),
+        )
+        binding_name = _generated_value_binding_name_from_scope(
+            arg_scope,
+            role=f"direct-bind-proc:{index}",
+        )
+        capture_aliases = _materialize_bind_proc_capture_aliases(
+            arg_expr,
+            owner_role=f"argument:{index}",
+            scope=arg_scope,
+            value_env=value_env,
+            compile_time_bindings=compile_time_bindings,
+        )
+        direct_args.append(
+            _WccDirectBoundProcedureArgument(
+                binding_name=binding_name,
+                type_ref=type_ref,
+                compile_time_value=_WccBoundProcedureBinding(
+                    capture_values=(
+                        *_inherited_bind_proc_capture_values(
+                            arg_expr,
+                            compile_time_bindings=(
+                                compile_time_bindings
+                            ),
+                        ),
+                        *(
+                            (
+                                capture.source_name,
+                                capture.alias_atom,
+                            )
+                            for capture in capture_aliases
+                        ),
+                    ),
+                ),
+                capture_aliases=capture_aliases,
+            )
+        )
+        rewritten_args.append(
+            NameExpr(
+                name=binding_name,
+                span=arg_expr.span,
+                form_path=arg_expr.form_path,
+                expansion_stack=arg_expr.expansion_stack,
+            )
+        )
+    if not direct_args:
+        return expr, ()
+    return (
+        replace(expr, args=tuple(rewritten_args)),
+        tuple(direct_args),
+    )
 
 
 def _prebind_effect_argument_matches(
@@ -1992,6 +3521,122 @@ def _prebind_effect_argument_matches(
     return expr, ()
 
 
+def _elaborate_live_provider_supervision(
+    expr: WithLiveProvidersExpr,
+    *,
+    scope: WccIdentityFactory,
+    type_env: FrontendTypeEnvironment,
+    value_env: Mapping[str, TypeRef],
+    workflow_return_types: Mapping[str, TypeRef],
+    procedure_return_types: Mapping[str, TypeRef],
+    effect_summary: EffectSummary,
+    procedure_edges_by_site: Mapping[tuple[object, tuple[str, ...]], str],
+    compile_time_bindings: Mapping[str, object],
+    active_phase_scope: WccPhaseScope | None,
+) -> WccProviderSupervision:
+    member_types = {
+        binding.name: _infer_expr_type(
+            binding.value_expr,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
+        for binding in expr.bindings
+    }
+    members = tuple(
+        WccProviderSupervisionMember(
+            metadata=scope.value_metadata(
+                role=f"provider-supervision:member:{binding.name}",
+                type_ref=member_types[binding.name],
+                source_span=binding.value_expr.span,
+                form_path=binding.value_expr.form_path,
+                expansion_stack=binding.value_expr.expansion_stack,
+                effect_summary=effect_summary,
+                phase_scope=active_phase_scope,
+            ),
+            binding_metadata=scope.value_metadata(
+                role=f"provider-supervision:binding:{binding.name}",
+                type_ref=member_types[binding.name],
+                source_span=binding.span,
+                form_path=binding.form_path,
+                expansion_stack=binding.expansion_stack,
+                effect_summary=effect_summary,
+                phase_scope=active_phase_scope,
+            ),
+            binding_name=binding.name,
+            normalized_body=_elaborate_expr_to_body(
+                binding.value_expr,
+                scope=scope.child_scope(
+                    "provider-supervision-member",
+                    authored_binding_name=binding.name,
+                ),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            ),
+        )
+        for binding in expr.bindings
+    )
+    supervisor_binding = next(
+        binding for binding in expr.bindings if binding.observes is not None
+    )
+    assert supervisor_binding.observes_span is not None
+    assert supervisor_binding.observed_name_span is not None
+    observation_span = SourceSpan(
+        start=supervisor_binding.observes_span.start,
+        end=supervisor_binding.observed_name_span.end,
+    )
+    settlement_env = {**value_env, **member_types}
+    settlement_body = _elaborate_expr_to_body(
+        expr.body,
+        scope=scope.child_scope("provider-supervision-settlement"),
+        type_env=type_env,
+        value_env=settlement_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types,
+        effect_summary=EMPTY_EFFECT_SUMMARY,
+        procedure_edges_by_site={},
+        compile_time_bindings=compile_time_bindings,
+        active_phase_scope=active_phase_scope,
+    )
+    return WccProviderSupervision(
+        metadata=scope.value_metadata(
+            role="provider-supervision",
+            type_ref=_infer_expr_type(
+                expr.body,
+                type_env=type_env,
+                value_env=settlement_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+            ),
+            source_span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+            effect_summary=effect_summary,
+            phase_scope=active_phase_scope,
+        ),
+        observation_metadata=scope.value_metadata(
+            role="provider-supervision:observation",
+            type_ref=member_types[supervisor_binding.name],
+            source_span=observation_span,
+            form_path=supervisor_binding.form_path,
+            expansion_stack=supervisor_binding.expansion_stack,
+            effect_summary=effect_summary,
+            phase_scope=active_phase_scope,
+        ),
+        members=members,
+        supervisor_name=supervisor_binding.name,
+        worker_name=supervisor_binding.observes,
+        settlement_body=settlement_body,
+    )
+
+
 def _elaborate_effect_expr_to_binding_value(
     expr,
     *,
@@ -2020,6 +3665,19 @@ def _elaborate_effect_expr_to_binding_value(
         effect_summary=effect_summary,
         phase_scope=active_phase_scope,
     )
+    if isinstance(expr, WithLiveProvidersExpr):
+        return _elaborate_live_provider_supervision(
+            expr,
+            scope=scope,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
     if isinstance(expr, ProviderResultExpr):
         operation_payload = {"return_spec": expr.return_spec}
         for field_name, field_expr in (
@@ -2326,10 +3984,18 @@ def _elaborate_effect_expr_to_binding_value(
             operation_payload=expr,
         )
     if isinstance(expr, CallExpr):
+        resolved_workflow_ref, _ = _unwrap_compile_time_alias(
+            compile_time_bindings.get(expr.callee_name),
+        )
+        target_name = (
+            resolved_workflow_ref.workflow_name
+            if isinstance(resolved_workflow_ref, ResolvedWorkflowRef)
+            else expr.callee_name
+        )
         return WccPerform(
             metadata=scope.value_metadata(role="perform:workflow_call", **metadata_kwargs),
             perform_kind="workflow_call",
-            target_name=expr.callee_name,
+            target_name=target_name,
             prompt_name=None,
             positional_args=(),
             keyword_args=tuple(
@@ -2354,6 +4020,67 @@ def _elaborate_effect_expr_to_binding_value(
         )
     if isinstance(expr, ProcedureCallExpr):
         specialized_name = procedure_edges_by_site.get((expr.span, expr.form_path), expr.callee_name)
+        specialization_captures: list[
+            WccSpecializationCapture
+        ] = []
+        proc_ref_argument_sources: list[
+            tuple[int, str, bool]
+        ] = []
+        compile_time_callee, callee_source_name = (
+            _unwrap_compile_time_alias(
+                compile_time_bindings.get(expr.callee_name),
+            )
+        )
+        if isinstance(
+            compile_time_callee,
+            _WccBoundProcedureBinding,
+        ):
+            specialization_captures.extend(
+                WccSpecializationCapture(
+                    owner_kind="callee",
+                    argument_index=None,
+                    source_name=name,
+                    value=value,
+                )
+                for name, value in compile_time_callee.capture_values
+            )
+        for index, item in enumerate(expr.args):
+            if not isinstance(item, NameExpr):
+                continue
+            compile_time_arg, argument_source_name = (
+                _unwrap_compile_time_alias(
+                    compile_time_bindings.get(item.name),
+                )
+            )
+            if isinstance(
+                compile_time_arg,
+                (
+                    _WccBoundProcedureBinding,
+                    ResolvedProcRefValue,
+                ),
+            ):
+                proc_ref_argument_sources.append(
+                    (
+                        index,
+                        argument_source_name or item.name,
+                        _compile_time_binding_masks_deferred_capture(
+                            compile_time_arg
+                        ),
+                    )
+                )
+            if isinstance(
+                compile_time_arg,
+                _WccBoundProcedureBinding,
+            ):
+                specialization_captures.extend(
+                    WccSpecializationCapture(
+                        owner_kind="argument",
+                        argument_index=index,
+                        source_name=name,
+                        value=value,
+                    )
+                    for name, value in compile_time_arg.capture_values
+                )
         return WccCall(
             metadata=scope.value_metadata(role=f"call:{specialized_name}", **metadata_kwargs),
             callee_name=expr.callee_name,
@@ -2372,10 +4099,80 @@ def _elaborate_effect_expr_to_binding_value(
                     active_phase_scope=active_phase_scope,
                 )
                 for index, item in enumerate(expr.args)
-                if not (isinstance(item, NameExpr) and item.name in compile_time_bindings)
+                if not (
+                    _is_compile_time_reference_value(item)
+                    or (
+                        isinstance(item, NameExpr)
+                        and _is_compile_time_reference_value(
+                            compile_time_bindings.get(item.name)
+                        )
+                    )
+                )
+            ),
+            specialization_captures=tuple(
+                specialization_captures
+            ),
+            proc_ref_callee_source=(
+                callee_source_name
+                if isinstance(
+                    compile_time_callee,
+                    ResolvedProcRefValue,
+                )
+                else None
+            ),
+            proc_ref_callee_masks_deferred=(
+                _compile_time_binding_masks_deferred_capture(
+                    compile_time_callee
+                )
+            ),
+            proc_ref_argument_sources=tuple(
+                proc_ref_argument_sources
             ),
         )
     raise TypeError(f"unsupported WCC M2 effect node: {type(expr).__name__}")
+
+
+def _is_compile_time_reference_value(value: object) -> bool:
+    return isinstance(
+        value,
+        (
+            BindProcExpr,
+            _WccBoundProcedureBinding,
+            _WccCompileTimeAlias,
+            ProcRefLiteralExpr,
+            ResolvedProcRefValue,
+            ResolvedWorkflowRef,
+            WorkflowRefLiteralExpr,
+        ),
+    )
+
+
+def _compile_time_binding_masks_deferred_capture(
+    value: object,
+) -> bool:
+    """Return whether ``value`` is a new lexical ProcRef owner."""
+
+    return isinstance(
+        value,
+        (
+            BindProcExpr,
+            _WccBoundProcedureBinding,
+            ProcRefLiteralExpr,
+        ),
+    )
+
+
+def _unwrap_compile_time_alias(
+    value: object,
+    *,
+    default_source_name: str | None = None,
+) -> tuple[object, str | None]:
+    source_name = default_source_name
+    current = value
+    while isinstance(current, _WccCompileTimeAlias):
+        source_name = current.source_name
+        current = current.value
+    return current, source_name
 
 
 def _elaborate_atomic_value(
@@ -2520,6 +4317,16 @@ def _infer_expr_type(
             span=expr.span,
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
+        )
+    if isinstance(expr, ProcRefLiteralExpr):
+        return value_env.get(
+            expr.target_name,
+            PrimitiveTypeRef(name="String"),
+        )
+    if isinstance(expr, WorkflowRefLiteralExpr):
+        return value_env.get(
+            expr.target_name,
+            PrimitiveTypeRef(name="String"),
         )
     if isinstance(expr, NameExpr):
         return value_env[expr.name]
@@ -2736,6 +4543,24 @@ def _infer_expr_type(
                 raise TypeError("match arm types must match during WCC inference")
         assert inferred_type is not None
         return inferred_type
+    if isinstance(expr, WithLiveProvidersExpr):
+        member_types = {
+            binding.name: _infer_expr_type(
+                binding.value_expr,
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+            )
+            for binding in expr.bindings
+        }
+        return _infer_expr_type(
+            expr.body,
+            type_env=type_env,
+            value_env={**value_env, **member_types},
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
     if isinstance(expr, WithPhaseExpr):
         return _infer_expr_type(
             expr.body,
@@ -2798,6 +4623,9 @@ def _infer_expr_type(
             expansion_stack=expr.expansion_stack,
         )
     if isinstance(expr, CallExpr):
+        workflow_ref_type = value_env.get(expr.callee_name)
+        if isinstance(workflow_ref_type, WorkflowRefTypeRef):
+            return workflow_ref_type.return_type_ref
         return workflow_return_types[expr.callee_name]
     if isinstance(expr, ProcedureCallExpr):
         proc_ref_type = value_env.get(expr.callee_name)
@@ -2805,7 +4633,13 @@ def _infer_expr_type(
             return proc_ref_type.return_type_ref
         return procedure_return_types[expr.callee_name]
     if isinstance(expr, BindProcExpr):
-        return value_env.get(expr.base_expr.target_name, PrimitiveTypeRef(name="String"))
+        return _infer_expr_type(
+            expr.base_expr,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
     raise TypeError(f"unsupported WCC type inference node: {type(expr).__name__}")
 
 

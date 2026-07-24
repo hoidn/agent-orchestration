@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow
 from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.analysis import analyze_wcc_body
+from orchestrator.workflow_lisp.wcc import model as wcc_model
 from orchestrator.workflow_lisp.wcc.route import (
     DEFAULT_LOWERING_ROUTE,
     LoweringRoute,
@@ -22,6 +24,7 @@ from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.type_env import PrimitiveTypeRef
 from orchestrator.workflow_lisp.wcc.model import (
     WCC_M4_ROUTE_SCHEMA_VERSION,
+    WccCall,
     WccHalt,
     WccIdentityFactory,
     WccJoinParam,
@@ -31,6 +34,7 @@ from orchestrator.workflow_lisp.wcc.model import (
     WccLoopDone,
     WccLoopRole,
     WccNameAtom,
+    WccPerform,
     WccPureOp,
     WccRecJoin,
 )
@@ -672,6 +676,209 @@ def test_wcc_m4_analysis_records_loop_site_and_nested_case_scopes(tmp_path: Path
     assert loop_site.roles.iteration_role == "loop_iteration"
     assert loop_site.terminal_type is not None
     assert {"COMPLETED", "BLOCKED"}.issubset({scope.variant_name for scope in analysis.arm_scopes})
+
+
+_SUPERVISION_FORM_PATH = ("workflow-lisp", "defworkflow", "supervise")
+_SUPERVISION_STRING = PrimitiveTypeRef(name="String")
+
+
+def _supervision_metadata(factory: WccIdentityFactory, role: str, *, kind: str = "body"):
+    return getattr(factory, f"{kind}_metadata")(
+        role=role,
+        type_ref=_SUPERVISION_STRING,
+        source_span=_span(),
+        form_path=_SUPERVISION_FORM_PATH,
+    )
+
+
+def _supervision_name(factory: WccIdentityFactory, name: str) -> WccNameAtom:
+    return WccNameAtom(
+        metadata=_supervision_metadata(factory, f"name:{name}", kind="atom"),
+        name=name,
+    )
+
+
+def _supervision_perform(
+    factory: WccIdentityFactory,
+    role: str,
+    *,
+    perform_kind: str = "provider_result",
+) -> WccPerform:
+    return WccPerform(
+        metadata=_supervision_metadata(factory, role, kind="value"),
+        perform_kind=perform_kind,
+        target_name=f"providers.{role}",
+        prompt_name=f"prompts.{role}" if perform_kind == "provider_result" else None,
+        positional_args=(),
+        keyword_args=(),
+        returns_type_name="String",
+    )
+
+
+def _supervision_member(
+    factory: WccIdentityFactory,
+    name: str,
+    values: tuple[object, ...],
+    *,
+    result_name: str | None = None,
+):
+    result_names = tuple(f"{name}_{index}" for index in range(len(values)))
+    body = WccHalt(
+        metadata=_supervision_metadata(factory, f"{name}:halt"),
+        result=_supervision_name(
+            factory,
+            result_name or result_names[-1],
+        ),
+    )
+    for result_name, value in reversed(tuple(zip(result_names, values, strict=True))):
+        body = WccLet(
+            metadata=_supervision_metadata(factory, f"{name}:let:{result_name}"),
+            bound_name=result_name,
+            bound_type_ref=_SUPERVISION_STRING,
+            bound_value=value,
+            body=body,
+        )
+    return getattr(wcc_model, "WccProviderSupervisionMember")(
+        metadata=_supervision_metadata(factory, f"member:{name}", kind="value"),
+        binding_metadata=_supervision_metadata(
+            factory,
+            f"member-binding:{name}",
+            kind="value",
+        ),
+        binding_name=name,
+        normalized_body=body,
+    )
+
+
+def _synthetic_provider_supervision_body(*, defect: str | None = None):
+    factory = WccIdentityFactory(
+        owner_name="supervise",
+        lexical_owner_chain=("workflow", "provider-supervision"),
+        route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
+    )
+    worker_values: tuple[object, ...] = (_supervision_perform(factory, "worker"),)
+    if defect == "residual_call":
+        worker_values = (
+            WccCall(
+                metadata=_supervision_metadata(factory, "call:worker", kind="value"),
+                callee_name="worker",
+                specialized_callee_name="worker",
+                args=(),
+            ),
+        )
+    elif defect == "second_perform":
+        worker_values += (_supervision_perform(factory, "worker-again"),)
+    elif defect == "non_provider_perform":
+        worker_values = (
+            _supervision_perform(factory, "worker-command", perform_kind="command_result"),
+        )
+    elif defect == "pure_refs_later_provider":
+        worker_values = (
+            _supervision_name(factory, "worker_1"),
+            replace(
+                _supervision_perform(factory, "worker"),
+                positional_args=(
+                    _supervision_name(factory, "worker_0"),
+                ),
+            ),
+        )
+    elif defect == "provider_refs_later_pure":
+        worker_values = (
+            replace(
+                _supervision_perform(factory, "worker"),
+                positional_args=(
+                    _supervision_name(factory, "worker_1"),
+                ),
+            ),
+            WccLiteralAtom(
+                metadata=_supervision_metadata(
+                    factory,
+                    "worker:later-pure",
+                    kind="atom",
+                ),
+                value="later",
+                literal_kind="string",
+            ),
+        )
+
+    settlement = WccHalt(
+        metadata=_supervision_metadata(factory, "settlement:halt"),
+        result=_supervision_name(factory, "worker"),
+    )
+    if defect == "effectful_settlement":
+        settlement = WccLet(
+            metadata=_supervision_metadata(factory, "settlement:let"),
+            bound_name="settlement_effect",
+            bound_type_ref=_SUPERVISION_STRING,
+            bound_value=_supervision_perform(factory, "settlement"),
+            body=settlement,
+        )
+    group = getattr(wcc_model, "WccProviderSupervision")(
+        metadata=_supervision_metadata(factory, "provider-supervision", kind="value"),
+        observation_metadata=_supervision_metadata(
+            factory,
+            "provider-supervision:observation",
+            kind="value",
+        ),
+        members=(
+            _supervision_member(
+                factory,
+                "worker",
+                worker_values,
+                result_name=(
+                    "worker_0"
+                    if defect == "provider_refs_later_pure"
+                    else None
+                ),
+            ),
+            _supervision_member(
+                factory,
+                "supervisor",
+                (_supervision_perform(factory, "supervisor"),),
+            ),
+        ),
+        supervisor_name="supervisor",
+        worker_name="worker",
+        settlement_body=settlement,
+    )
+    return WccLet(
+        metadata=_supervision_metadata(factory, "let:supervised"),
+        bound_name="supervised",
+        bound_type_ref=_SUPERVISION_STRING,
+        bound_value=group,
+        body=WccHalt(
+            metadata=_supervision_metadata(factory, "halt:supervised"),
+            result=_supervision_name(factory, "supervised"),
+        ),
+    )
+
+
+def test_wcc_m4_analysis_accepts_canonical_provider_supervision_members() -> None:
+    analysis = analyze_wcc_body(_synthetic_provider_supervision_body())
+
+    assert analysis.arm_scopes == ()
+    assert analysis.loop_sites == ()
+
+
+@pytest.mark.parametrize(
+    ("defect", "expected_code"),
+    (
+        ("residual_call", "provider_supervision_member_ineligible"),
+        ("second_perform", "provider_supervision_member_ineligible"),
+        ("non_provider_perform", "provider_supervision_member_ineligible"),
+        ("pure_refs_later_provider", "provider_supervision_member_ineligible"),
+        ("provider_refs_later_pure", "provider_supervision_member_ineligible"),
+        ("effectful_settlement", "provider_supervision_settlement_effectful"),
+    ),
+)
+def test_wcc_m4_analysis_rejects_noncanonical_provider_supervision(
+    defect: str,
+    expected_code: str,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        analyze_wcc_body(_synthetic_provider_supervision_body(defect=defect))
+
+    _assert_diagnostic_code(excinfo, expected_code)
 
 
 def test_wcc_m4_defunctionalizes_loop_recur_to_repeat_until(tmp_path: Path) -> None:

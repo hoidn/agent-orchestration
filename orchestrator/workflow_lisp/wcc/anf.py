@@ -26,6 +26,7 @@ from .model import (
     WccOpaqueFrontendValue,
     WccPhaseTargetAtom,
     WccPerform,
+    WccProviderSupervision,
     WccPureOp,
     WccRecJoin,
     WccRecordAtom,
@@ -237,6 +238,18 @@ def _normalize_binding_value(value) -> tuple[tuple[_PendingLet, ...], object]:
         return _normalize_perform(value)
     if isinstance(value, WccCall):
         return _normalize_call(value)
+    if isinstance(value, WccProviderSupervision):
+        return (
+            (),
+            replace(
+                value,
+                members=tuple(
+                    replace(member, normalized_body=_normalize_body(member.normalized_body))
+                    for member in value.members
+                ),
+                settlement_body=_normalize_body(value.settlement_body),
+            ),
+        )
     return _normalize_value(value)
 
 
@@ -311,6 +324,7 @@ def _normalize_perform(value: WccPerform) -> tuple[tuple[_PendingLet, ...], WccP
 def _normalize_call(value: WccCall) -> tuple[tuple[_PendingLet, ...], WccCall]:
     pending: list[_PendingLet] = []
     args: list[WccValue] = []
+    specialization_captures = []
     for index, arg in enumerate(value.args):
         arg_prefix, normalized_arg = _normalize_value(arg)
         pending.extend(arg_prefix)
@@ -319,7 +333,29 @@ def _normalize_call(value: WccCall) -> tuple[tuple[_PendingLet, ...], WccCall]:
             pending.append(generated)
             normalized_arg = _generated_name_atom(normalized_arg.metadata, purpose=f"call:{index}")
         args.append(normalized_arg)
-    return tuple(pending), replace(value, args=tuple(args))
+    for capture in value.specialization_captures:
+        capture_prefix, normalized_capture = _normalize_value(
+            capture.value
+        )
+        pending.extend(capture_prefix)
+        if not _is_atomic_effect_arg(normalized_capture):
+            generated = _generated_pending_let(
+                normalized_capture,
+                purpose=f"call-capture:{capture.source_name}",
+            )
+            pending.append(generated)
+            normalized_capture = _generated_name_atom(
+                normalized_capture.metadata,
+                purpose=f"call-capture:{capture.source_name}",
+            )
+        specialization_captures.append(
+            replace(capture, value=normalized_capture)
+        )
+    return tuple(pending), replace(
+        value,
+        args=tuple(args),
+        specialization_captures=tuple(specialization_captures),
+    )
 
 
 def _is_atomic_effect_arg(value: WccValue) -> bool:

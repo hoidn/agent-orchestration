@@ -40,6 +40,7 @@ from ..expressions import (
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
+    WithLiveProvidersExpr,
     WithPhaseExpr,
 )
 from ..type_env import WorkflowRefTypeRef
@@ -689,6 +690,21 @@ def _validate_wcc_m4_expr_supported(
     local_workflow_signatures: Mapping[str, WorkflowSignature],
     workflow_ref_value_names: frozenset[str],
 ) -> None:
+    if isinstance(expr, WithLiveProvidersExpr):
+        for binding in expr.bindings:
+            _validate_wcc_m4_expr_supported(
+                binding.value_expr,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
+        _validate_wcc_m4_expr_supported(
+            expr.body,
+            workflow_name=workflow_name,
+            local_workflow_signatures=local_workflow_signatures,
+            workflow_ref_value_names=workflow_ref_value_names,
+        )
+        return
     if isinstance(expr, LoopRecurExpr):
         _validate_wcc_m4_expr_supported(
             expr.max_iterations_expr,

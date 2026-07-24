@@ -7,9 +7,27 @@ import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.effects import (
+    LiveSupervisionEffect,
+    UsesProviderEffect,
+    effect_summary,
+)
+from orchestrator.workflow_lisp.expressions import (
+    LiveProviderBinding,
+    NameExpr,
+    ProviderResultExpr,
+    WithLiveProvidersExpr,
+)
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+from orchestrator.workflow_lisp.syntax import SyntaxNode
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, PrimitiveTypeRef
-from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from orchestrator.workflow_lisp.typecheck_context import TypedExpr
+from orchestrator.workflow_lisp.workflows import (
+    ExternalToolBinding,
+    TypedWorkflowDef,
+    WorkflowDef,
+    WorkflowSignature,
+)
 from orchestrator.workflow_lisp.wcc.analysis import analyze_wcc_body
 from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow
@@ -28,7 +46,12 @@ from orchestrator.workflow_lisp.wcc.model import (
     WccNameAtom,
     WccRecordAtom,
 )
-from orchestrator.workflow_lisp.wcc.route import LoweringRoute, normalize_lowering_route
+from orchestrator.workflow_lisp.wcc.route import (
+    LoweringRoute,
+    normalize_lowering_route,
+    validate_wcc_m3_route_supported,
+    validate_wcc_m4_route_supported,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -82,6 +105,117 @@ def _compile_fixture(path: Path, *, tmp_path: Path, lowering_route: str | None =
 @pytest.mark.parametrize("route_value", ("wcc_m3", LoweringRoute.WCC_M3))
 def test_normalize_lowering_route_accepts_wcc_m3(route_value: str | LoweringRoute) -> None:
     assert normalize_lowering_route(route_value) is LoweringRoute.WCC_M3
+
+
+def test_provider_supervision_group_is_admitted_only_by_wcc_m4_route() -> None:
+    start = SourcePosition(
+        path="tests/fixtures/workflow_lisp/provider_supervision/route_probe.orc",
+        line=8,
+        column=3,
+        offset=120,
+    )
+    end = SourcePosition(
+        path=start.path,
+        line=14,
+        column=10,
+        offset=420,
+    )
+    group_span = SourceSpan(start=start, end=end)
+    form_path = ("workflow-lisp", "defworkflow", "route-probe")
+
+    def name(value: str) -> NameExpr:
+        return NameExpr(name=value, span=group_span, form_path=form_path)
+
+    worker_expr = ProviderResultExpr(
+        provider=name("providers.worker"),
+        prompt=name("prompts.worker"),
+        inputs=(),
+        returns_type_name="String",
+        span=group_span,
+        form_path=form_path,
+    )
+    supervisor_expr = ProviderResultExpr(
+        provider=name("providers.supervisor"),
+        prompt=name("prompts.supervisor"),
+        inputs=(),
+        returns_type_name="ProviderSteeringDirective",
+        span=group_span,
+        form_path=form_path,
+    )
+    group = WithLiveProvidersExpr(
+        bindings=(
+            LiveProviderBinding(
+                name="worker",
+                value_expr=worker_expr,
+                observes=None,
+                name_span=group_span,
+                observes_span=None,
+                observed_name_span=None,
+                span=group_span,
+                form_path=form_path,
+            ),
+            LiveProviderBinding(
+                name="supervisor",
+                value_expr=supervisor_expr,
+                observes="worker",
+                name_span=group_span,
+                observes_span=group_span,
+                observed_name_span=group_span,
+                span=group_span,
+                form_path=form_path,
+            ),
+        ),
+        body=name("worker"),
+        span=group_span,
+        form_path=form_path,
+    )
+    effects = effect_summary(
+        direct_effects=(
+            UsesProviderEffect(("providers", "worker")),
+            UsesProviderEffect(("providers", "supervisor")),
+            LiveSupervisionEffect(supervisor="supervisor", worker="worker"),
+        )
+    )
+    result_type = PrimitiveTypeRef(name="String")
+    workflow = TypedWorkflowDef(
+        definition=WorkflowDef(
+            name="route-probe",
+            params=(),
+            body=SyntaxNode(
+                datum="route-probe",
+                span=group_span,
+                module_path=start.path,
+                form_path=form_path,
+            ),
+            span=group_span,
+            form_path=form_path,
+            return_type_name="String",
+        ),
+        signature=WorkflowSignature(
+            name="route-probe",
+            params=(),
+            return_type_ref=result_type,
+            span=group_span,
+            form_path=form_path,
+        ),
+        typed_body=TypedExpr(
+            expr=group,
+            type_ref=result_type,
+            span=group_span,
+            form_path=form_path,
+            effect_summary=effects,
+        ),
+        effect_summary=effects,
+    )
+
+    validate_wcc_m4_route_supported((workflow,), ())
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        validate_wcc_m3_route_supported((workflow,), ())
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "wcc_lowering_route_unsupported"
+    assert diagnostic.span == group_span
 
 
 @pytest.mark.parametrize(

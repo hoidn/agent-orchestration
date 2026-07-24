@@ -265,14 +265,53 @@ class WccPerform:
 
 
 @dataclass(frozen=True)
+class WccSpecializationCapture:
+    """One bind-site value routed to an exact specialization boundary."""
+
+    owner_kind: str
+    argument_index: int | None
+    source_name: str
+    value: WccValue
+
+
+@dataclass(frozen=True)
 class WccCall:
     metadata: WccNodeMetadata
     callee_name: str
     specialized_callee_name: str
     args: tuple[WccValue, ...]
+    specialization_captures: tuple[
+        WccSpecializationCapture,
+        ...,
+    ] = ()
+    proc_ref_callee_source: str | None = None
+    proc_ref_callee_masks_deferred: bool = False
+    proc_ref_argument_sources: tuple[
+        tuple[int, str, bool],
+        ...,
+    ] = ()
 
 
-WccBindingValue = WccValue | WccPerform | WccCall
+@dataclass(frozen=True)
+class WccProviderSupervisionMember:
+    metadata: WccNodeMetadata
+    binding_metadata: WccNodeMetadata
+    binding_name: str
+    normalized_body: "WccBody"
+    provider_binding_name: str | None = None
+
+
+@dataclass(frozen=True)
+class WccProviderSupervision:
+    metadata: WccNodeMetadata
+    observation_metadata: WccNodeMetadata
+    members: tuple[WccProviderSupervisionMember, ...]
+    supervisor_name: str
+    worker_name: str
+    settlement_body: "WccBody"
+
+
+WccBindingValue = WccValue | WccPerform | WccCall | WccProviderSupervision
 
 
 @dataclass(frozen=True)

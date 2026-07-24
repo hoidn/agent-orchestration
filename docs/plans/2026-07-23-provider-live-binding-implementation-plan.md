@@ -1039,15 +1039,15 @@ Ordered final verdicts: `AST_SPEC_APPROVED`, `TYPE_SPEC_APPROVED`, then
 - Test: `tests/test_workflow_lisp_wcc_m3.py`
 - Test: `tests/test_workflow_lisp_wcc_m4.py`
 
-- [ ] Write RED WCC tests for direct provider members and recursively inlined
+- [x] Write RED WCC tests for direct provider members and recursively inlined
   monomorphic thin procedures declared `:lowering inline`, whose canonical
   bodies are straight-line `WccLet/WccHalt` with one unconditional provider
   `WccPerform` and pure projections. Prove authored `(call ...)` workflow
   boundaries are rejected as members.
-- [ ] Write negative tests for residual `WccCall`, private boundary, case/if,
+- [x] Write negative tests for residual `WccCall`, private boundary, case/if,
   `:lowering auto`, loop/recursion, second perform, non-provider effect, or
   effectful settlement, with authored-source ownership.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q \
@@ -1057,13 +1057,26 @@ Ordered final verdicts: `AST_SPEC_APPROVED`, `TYPE_SPEC_APPROVED`, then
     -k 'provider_supervision or live_providers or inline'
   ```
 
-- [ ] Add `WccProviderSupervisionMember` and `WccProviderSupervision`, reuse
+- [x] Add `WccProviderSupervisionMember` and `WccProviderSupervision`, reuse
   existing specialization substitution/source provenance, recursively
   normalize direct procedure calls, and verify the canonical member shape in
   WCC.
-- [ ] Rerun the concrete command above.
-- [ ] Complete specification review, quality review, and commit:
+- [x] Rerun the concrete command above.
+- [x] Complete specification review, quality review, and commit:
   `Normalize live provider supervision members`.
+
+**Task 12A evidence (2026-07-24):** WCC now owns a closed
+`WccProviderSupervision` group whose two member regions recursively inline
+only exact monomorphic `:lowering inline` procedure specializations and whose
+canonical validator rejects residual calls, control, extra or non-provider
+effects, and effectful settlement with authored-source ownership. Capture
+composition covers nested value specialization, direct and aliased ProcRefs,
+sequential partial binding, lexical shadowing, and fail-closed workflow-ref
+boundaries. Fresh verification passed all 148 task-module tests, the exact
+plan selector at 95 passed/53 deselected, and the broader WCC/provider
+regression surface at 287 passed. The ordered independent verdicts were
+`TASK12A_CLOSURE_SPEC_APPROVED` and
+`TASK12A_CLOSURE_QUALITY_APPROVED`.
 
 ### Task 12B: Defunctionalization And Core/Executable Projection
 
