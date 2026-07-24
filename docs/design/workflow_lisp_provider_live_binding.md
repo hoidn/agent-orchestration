@@ -217,8 +217,8 @@ Illustrative surface:
 
 ```lisp
 (with-live-providers
-  ((w (call procs.run-migration :input plan))
-   (m (call procs.supervise :input policy)
+  ((w (procs.run-migration plan))
+   (m (procs.supervise policy)
       :observes w))
   (make-supervised-outcome
     :work w
@@ -228,20 +228,24 @@ Illustrative surface:
 Binding shape:
 
 ```text
-(<name> <provider-call>)
-(<name> <provider-call> :observes <sibling-name>)
+(<name> <provider-producing-expression>)
+(<name> <provider-producing-expression> :observes <sibling-name>)
 ```
 
 Rules:
 
 - There are exactly two bindings.
 - Exactly one binding declares `:observes`; its peer is the worker.
+- A member may be a direct provider-producing expression or a direct
+  procedure invocation. Authored `(call ...)` is a workflow boundary and is
+  rejected here.
 - Both expressions must, after specialization and WCC elaboration, contain
   exactly one unconditional provider perform and a pure return projection.
   Branches, loops, additional effects, private workflow boundaries, and
   residual calls are rejected with source-mapped diagnostics.
-- Thin procedures are allowed because eligibility is checked after
-  specialization, not inferred from a set-valued effect summary.
+- Thin procedures are allowed only when declared `:lowering inline`, because
+  eligibility is checked after specialization and recursive inline expansion,
+  not inferred from a set-valued effect summary.
 - The worker may return any supported transportable type `T`.
 - The supervisor must return the compiler-owned
   `ProviderSteeringDirective`.
@@ -260,9 +264,10 @@ residual `WccCall` as a provider member:
 1. Parse and typecheck each binding expression normally.
 2. Resolve its monomorphic procedure specialization with the existing
    procedure-specialization environment.
-3. Inline the specialized callee body into a closed member region using the
-   same substitution and source-provenance rules as ordinary inline
-   procedure lowering. Recursively normalize inline callees until no
+3. Require every encountered procedure to declare `:lowering inline`, then
+   inline the specialized callee body into a closed member region using the
+   same substitution and source-provenance rules as ordinary inline procedure
+   lowering. Recursively normalize eligible inline callees until no
    `WccCall` remains.
 4. Accept only a canonical region whose control spine is straight-line
    `WccLet`/`WccHalt`, with exactly one unconditional provider `WccPerform`;
