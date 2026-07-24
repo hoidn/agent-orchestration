@@ -114,7 +114,7 @@ def create_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         'workflow',
         type=str,
-        help='Path to workflow YAML file'
+        help='Path to a Workflow Lisp .orc source file'
     )
     run_parser.add_argument(
         '--context',

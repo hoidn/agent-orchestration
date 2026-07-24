@@ -135,7 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--task-file", required=True, help="Path to the shared task markdown file.")
     parser.add_argument(
         "--workflow-path",
-        help="Optional workflow YAML to stage into workflow-run/workflows/examples/.",
+        help="Optional Workflow Lisp .orc source to stage into workflow-run/workflows/examples/.",
     )
     parser.add_argument(
         "--workflow-prompts-dir",

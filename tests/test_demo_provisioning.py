@@ -90,8 +90,8 @@ def test_provision_trial_stages_workflow_assets_into_workflow_workspace(tmp_path
     seed_repo, _ = _init_seed_repo(tmp_path)
     task_file = tmp_path / "task.md"
     task_file.write_text("task\n")
-    workflow_file = tmp_path / "trial_workflow_fixture.yaml"
-    workflow_file.write_text("name: demo\n")
+    workflow_file = tmp_path / "trial_workflow_fixture.orc"
+    workflow_file.write_text("(workflow-lisp (:language \"0.1\"))\n")
     prompt_root = tmp_path / "prompt-root"
     (prompt_root / "generic_task_loop").mkdir(parents=True)
     (prompt_root / "generic_task_loop" / "draft_plan.md").write_text("draft\n")
@@ -106,7 +106,9 @@ def test_provision_trial_stages_workflow_assets_into_workflow_workspace(tmp_path
     )
 
     workflow_workspace = experiment_root / "workflow-run"
-    assert (workflow_workspace / "workflows" / "examples" / workflow_file.name).read_text() == "name: demo\n"
+    assert (
+        workflow_workspace / "workflows" / "examples" / workflow_file.name
+    ).read_text() == "(workflow-lisp (:language \"0.1\"))\n"
     assert (
         workflow_workspace / "prompts" / "workflows" / "generic_task_loop" / "draft_plan.md"
     ).read_text() == "draft\n"

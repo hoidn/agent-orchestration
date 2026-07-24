@@ -186,7 +186,7 @@ class ProviderRegistry:
         Register providers from workflow configuration.
 
         Args:
-            providers_config: Provider definitions from workflow YAML
+            providers_config: Provider definitions from a compiled workflow
 
         Returns:
             List of validation errors (empty if all valid)

@@ -598,7 +598,7 @@ class StateManager:
         """Initialize a new run state.
 
         Args:
-            workflow_file: Path to workflow YAML file
+            workflow_file: Path to the workflow source file
             context: Optional initial context variables
 
         Returns:
