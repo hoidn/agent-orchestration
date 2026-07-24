@@ -14,32 +14,45 @@ boundary.
 
 **Architecture:** Keep the existing provider pipe and JSONL transports
 authoritative. Add three focused provider-runtime primitives—a shared session
-codec, a cancellable process-group control, and an observation-only pane
-manager—then prove the real Codex cancellation/resume boundary before adding a
-single-writer provider-supervision executable node. Expose that node through
-the ordinary Workflow Lisp target-2.16, WCC/schema-2, Core, Executable, and
-runtime projection routes; never add a direct surface-to-runtime escape path.
+codec with provider-specific resume-boundary observations, a cancellable
+process-group control, and an observation-only pane manager—then prove the
+real Codex unique-identity + exact-readiness-marker cancellation/resume
+boundary before adding a single-writer provider-supervision executable node.
+Expose that node through the ordinary Workflow Lisp target-2.16, WCC/schema-2,
+Core, Executable, and runtime projection routes; never add a direct
+surface-to-runtime escape path.
 
 **Tech Stack:** Python 3.11+, immutable dataclasses, subprocess/POSIX process
 groups, tmux, Workflow Lisp WCC schema 2, executable IR v1, state schema 2.1,
 pytest/pytest-xdist.
 
-**Accepted design:** `docs/design/workflow_lisp_provider_live_binding.md` at
-commit `afd0fec5`, content digest
-`sha256:e88578cb2b3d02e6dc74ec52234d8ea66efecdcf049812d84086f579933e5b17`.
+**Accepted design:** The evidence-driven resume-boundary amendment to
+`docs/design/workflow_lisp_provider_live_binding.md` at commit
+`f01eb670b1fb68590824f2b4b0c9bd887fb329e4`, content digest
+`sha256:03ba656da9773ee0e6bdb8527d37edaf943ff9444bf2dc7d0c4ba5d4ff552446`.
+The design-only acceptance commit landed first; this bounded plan delta binds
+that immutable commit/digest and closes its acceptance metadata. No Task 1R
+code began before this binding, and Task 1R code may start only after this
+plan commit lands.
 
 **Historical behavior simulation:** The T3 report remains truthful historical
 evidence for the pre-clarification design bytes at `99404956` /
 `sha256:9c2a2f333eb277154c8a98a0897cf9b390339a42fcf8a7702ce5582824ada113`.
-The clarified design above is the current implementation authority; the
-historical simulation does not override its observable cancellation
-linearization rule.
+The bound amendment supersedes commit `afd0fec5` as current implementation
+authority. The historical simulation does not override the accepted
+observable cancellation linearization or the narrower resume-boundary rule.
 
-**Status:** Reviewed and approved for execution on 2026-07-23.
+**Status:** Execution in progress. Tasks 1-2 are complete. Task 3 activated the
+accepted stop/revise branch; the amendment is accepted and Task 1R is next.
+Task 3 remains pending on Task 1R and its ordered code reviews.
 
 **Plan-review evidence:** Independent specification/sequence review: `PASS`.
-Independent path/selector/shell-order audit: `PASS`. The status/evidence lines
-were added only after both reviewers returned their final verdicts.
+Independent path/selector/shell-order audit: `PASS` for the pre-amendment plan.
+For the readiness amendment, independent specification review:
+`SPEC_COMPLIANT`; independent quality/path review: `APPROVED`; behavioral
+simulation: `PASS`. The final design acceptance metadata recheck passed. This
+pointer-and-acceptance-metadata delta received final bounded independent
+specification `PASS` and quality `APPROVED`.
 
 ---
 
@@ -49,7 +62,11 @@ Implement only the accepted v1:
 
 - one worker and one supervisor;
 - one observation edge from supervisor to worker;
-- one typed `CONTINUE|STEER` directive;
+- one typed `CONTINUE|STEER` directive, with active-turn `STEER` eligible only
+  from a unique, codec-validated resume-boundary-seen, preterminal snapshot
+  while both applicable deadlines remain live; clean natural success retains
+  its separately proved frozen-boundary path only while the whole-step
+  deadline remains live before resume launch;
 - at most one replacement session turn;
 - process containment only through the runtime-owned POSIX process group;
 - one pure settlement expression and one atomic workflow-state/result commit;
@@ -173,7 +190,7 @@ nothing.
 ### Provider runtime substrate
 
 - Create `orchestrator/providers/session_transport.py`: incremental
-  metadata-mode JSONL codecs and immutable identity snapshots.
+  metadata-mode JSONL codecs and immutable identity/readiness snapshots.
 - Create `orchestrator/providers/control.py`: thread-safe invocation lifecycle,
   cancellation, reaping, PGID-empty proof, and terminal disposition.
 - Create `orchestrator/providers/observation.py`: run-scoped tmux observation
@@ -330,6 +347,7 @@ class SessionIdentitySnapshot:
     session_ids: tuple[str, ...]
     terminal_seen: bool
     error: Mapping[str, Any] | None = None
+    resume_boundary_seen: bool = False
 
 
 class CodexExecJsonlAccumulator:
@@ -373,6 +391,79 @@ values, immutable snapshots, lone-surrogate text, and invalid EOF tails.
 Final verification: 59 passed/20 deselected in the required selector, 34/34
 in the full adjacent provider-execution module, and 45 tests collected.
 Independent verdicts: `SPEC_COMPLIANT`; `APPROVED`.
+
+#### Task 1R: Resume-boundary observation amendment
+
+Task 3 proved that a unique `thread.started.thread_id` alone is not a
+resumable boundary. Preserve Task 1's accepted parsing work and add only the
+codec-owned fact needed by the revised gate.
+
+**Files:**
+
+- Modify: `orchestrator/providers/session_transport.py`
+- Modify: `orchestrator/providers/control.py`
+- Modify: `tests/test_provider_session_transport.py`
+- Modify: `tests/test_provider_execution_control.py`
+- Test: `tests/test_provider_execution.py`
+
+- [ ] Write RED tests proving `resume_boundary_seen` defaults to false,
+  remains false for identity alone and for nested/suffixed/status-like
+  lookalikes, becomes true only when the top-level `type` is exactly
+  `turn.started` after unique identity and before an exact terminal event, and
+  is not applied retroactively when `turn.started` precedes identity. Cover
+  split, coalesced, duplicate-marker, and EOF-tail input.
+- [ ] Add both-direction snapshot tests proving the observation stays true
+  after later invalid/ambiguous identity or terminal input. Prove exact
+  `turn.failed` before and after the marker sets `terminal_seen`, durably
+  fails the transport, and remains nonpromotable even when the child exits
+  zero. Prove codecs without a validated marker retain the false default and
+  expose no structural resume-boundary-observation capability.
+- [ ] Add control-copy tests proving both `control.session_snapshot` and
+  `ProviderCancellationResult.final_session_snapshot` preserve the codec-owned
+  observation. Do not put deadline or active-versus-clean branch policy in the
+  codec/control layer; Task 8 owns those coordinator tests.
+- [ ] Run all new RED tests:
+
+  ```bash
+  pytest -q \
+    tests/test_provider_session_transport.py \
+    tests/test_provider_execution_control.py \
+    tests/test_provider_execution.py \
+    -k 'resume_boundary or turn_started or turn_failed'
+  ```
+
+  Confirm the assertions fail for the intended missing observation,
+  propagation, capability, and failed-turn contracts.
+- [ ] Implement the smallest accumulator change. Validate each event's
+  identity fields before considering its exact top-level `type`; do not infer
+  readiness from provider names, event suffixes, terminal state, or successful
+  parsing alone. Expose a generic codec capability query for later static and
+  runtime validation, and copy the new field at every explicit snapshot-copy
+  boundary.
+- [ ] Run:
+
+  ```bash
+  PYTHONWARNINGS=error pytest -q \
+    tests/test_provider_session_transport.py \
+    tests/test_provider_execution_control.py \
+    tests/test_provider_execution.py \
+    -k 'session or identity or resume_boundary or codex_jsonl'
+  ```
+
+- [ ] Run:
+  `pytest --collect-only -q tests/test_provider_session_transport.py tests/test_provider_execution_control.py tests/test_provider_execution.py`.
+- [ ] Run the full adjacent warning-strict suite without a selector:
+
+  ```bash
+  PYTHONWARNINGS=error pytest -q \
+    tests/test_provider_session_transport.py \
+    tests/test_provider_execution_control.py \
+    tests/test_provider_execution.py
+  ```
+
+- [ ] Rerun Task 1 specification review and then quality review on the exact
+  amendment, resolve findings, and commit:
+  `Track provider resume-boundary observations`.
 
 ### Task 2: Generic Cancellable Provider Execution
 
@@ -421,31 +512,57 @@ concurrency, and attempted-versus-delivered signal facts. Final verification:
 `-n 16 --dist=worksteal`; the required focused selector passed 25 with 82
 deselected. Independent verdicts: `SPEC_COMPLIANT`; `APPROVED`.
 
-### Task 3: Early Real Codex Identity-Cancel-Resume Gate
+### Task 3: Early Real Codex Resume-Boundary Gate
 
 **Files:**
 
-- Create: `tests/e2e/test_e2e_codex_provider_session_control.py`
+- Modify: `tests/e2e/test_e2e_codex_provider_session_control.py`
 - Test: `orchestrator/providers/registry.py`
 - Test: `orchestrator/providers/executor.py`
 
-- [ ] Write an E2E test that initializes a temporary Git repository, prepares
-  the builtin Codex fresh invocation, starts it with a control, waits for one
-  preterminal canonical thread identity, cancels/proves the complete boundary,
-  joins execution, resumes the exact identity with corrective guidance, and
-  requires matching identity plus non-empty normalized assistant text.
+**Structural stop/revise evidence (2026-07-23):**
+
+| Installed version | Exact event at cancellation gate | Unique identity | `resume_boundary_seen` | `terminal_seen` | Complete process boundary | Exact-identity resume succeeded |
+| --- | --- | --- | --- | --- | --- | --- |
+| Codex `0.145.0` | `thread.started` | true | false | false | true | false |
+| Codex `0.145.0` | `turn.started` | true | true | false | true | true |
+
+The first row is the immediate-failure incident. The test introduced at
+`7e3f869f` waited only for unique identity and is not accepted gate evidence.
+The second row proves the narrower feasibility boundary. These records retain
+no session id, prompt, raw event, raw output, or response content.
+`turn.started` makes an attempt eligible; only this successful
+exact-identity resume proves the real boundary.
+
+- [ ] Complete Task 1R and both of its ordered reviews before changing the
+  Task 3 gate.
+- [ ] Amend the E2E test so its active-turn wait requires one immutable
+  snapshot with `status == "unique"`, one id,
+  `resume_boundary_seen is True`, and `terminal_seen is False` before either
+  applicable deadline. Identity-only `thread.started` must not release the
+  wait.
+- [ ] Keep the existing temporary-Git-repository, builtin fresh/resume
+  commands, owned process-boundary proof, exact-identity check, and non-empty
+  normalized assistant-result assertions. After cancellation and capture
+  join, require the final killed-turn snapshot to retain the same unique
+  identity and `resume_boundary_seen is True` while
+  `terminal_seen is False`.
 - [ ] Run:
   `pytest --collect-only -q tests/e2e/test_e2e_codex_provider_session_control.py`.
 - [ ] Run it in tmux:
   `ORCHESTRATE_E2E=1 pytest -q tests/e2e/test_e2e_codex_provider_session_control.py::test_real_codex_thread_identity_cancel_and_resume -s`.
-- [ ] If the real provider cannot expose identity preterminally, cannot reach
-  the complete owned boundary, or cannot resume the killed turn, stop Stage 7
-  before Tasks 4-15 and return to the design's stop/revise branch. Do not
-  weaken the assertion or substitute fixture evidence.
+- [ ] If the real provider cannot expose unique identity plus the exact
+  preterminal readiness marker, reaches either deadline first, cannot prove
+  the complete owned boundary, or cannot resume the killed turn under the
+  exact identity, stop Stage 7 before Tasks 4-15 and return to the design's
+  stop/revise branch. Do not weaken the assertion or substitute fixture
+  evidence.
 - [ ] If green, record only the command, exit, installed provider version, and
-  structural facts; do not persist secrets or full prompts.
-- [ ] Complete specification review, quality review, and commit:
-  `Prove real provider turn-boundary resume`.
+  structural event types/booleans; do not persist the identity, prompt, raw
+  events/output, or response content.
+- [ ] Rerun Task 3 specification review and then quality review on the exact
+  revised test and bound Task 1R behavior, resolve findings, and commit:
+  `Prove real provider resume boundary`.
 
 ### Task 4: Observation-Only Pane Lifecycle
 
@@ -628,9 +745,17 @@ deselected. Independent verdicts: `SPEC_COMPLIANT`; `APPROVED`.
 - Modify: `orchestrator/workflow/provider_supervision/bindings.py`
 - Modify: `orchestrator/workflow/executor.py`
 
-- [ ] Write RED tests for early `STEER`, bounded identity wait, cancel-before-
-  bind, active cancellation, clean natural exit, natural nonzero exit,
-  lingering same-PGID child, invalid final identity, resume mismatch,
+- [ ] Write RED tests for early `STEER`, bounded resume-boundary wait,
+  identity-only refusal, exact-marker readiness, cancel-before-bind, active
+  cancellation requiring `terminal_seen: false`, clean natural success using
+  its complete frozen terminal boundary, natural nonzero exit, exact
+  `turn.failed` precedence, terminal observation concurrent with cancellation,
+  clean natural completion both before and after whole-step deadline expiry
+  (timeout wins after expiry),
+  lingering same-PGID child, invalid final identity, sticky-marker plus
+  invalid/ambiguous-identity refusal, resume mismatch, a marker followed by an
+  exact-identity native-resume failure, completed resume output with
+  `terminal_seen: true`,
   supervisor/worker/whole-step timeout, second-steer rejection, and all
   directive/worker completion orders.
 - [ ] Add stale-preimage, distinct fresh/resume path, missing resume bundle,
@@ -641,7 +766,11 @@ deselected. Independent verdicts: `SPEC_COMPLIANT`; `APPROVED`.
 - [ ] Implement one serialized `STEER` path that always invokes the idempotent
   boundary verifier, allocates a new attempt/path only after proof, renders a
   fresh typed output contract into the guidance prompt, and selects only the
-  resumed bundle.
+  resumed bundle. The active-cancellation branch requires unique identity,
+  `resume_boundary_seen: true`, `terminal_seen: false`, and live deadlines;
+  the clean-natural-success branch requires its frozen complete boundary,
+  unique identity, the sticky readiness observation, and a live whole-step
+  deadline immediately before resume launch.
 - [ ] Ensure all group invocations have controls and all failure paths cancel
   and join active siblings before terminal failure publication.
 - [ ] Run:
@@ -949,9 +1078,11 @@ expansion.
 - Test: `tests/test_workflow_lisp_provider_supervision_e2e.py`
 
 - [ ] Write RED validation tests for `turn_boundary_resume: true`: fresh and
-  resume commands required, exactly one `${SESSION_ID}`, supported metadata
-  codec, requested identity equality, and cancellable lifecycle. Prove provider
-  name, TTY, or input mode never implies capability.
+  resume commands required, exactly one `${SESSION_ID}`, a metadata codec with
+  a generic `supports_resume_boundary_observation` capability, no exact
+  `--ephemeral` argument in either command (with near-lookalike controls),
+  requested identity equality, and cancellable lifecycle. Prove provider name,
+  TTY, input mode, or stable identity alone never implies capability.
 - [ ] Add negative compile/load/runtime tests for an unsupported worker, plus
   positive tests proving a supervisor needs no session capability.
 - [ ] Run the new RED capability tests:
@@ -1065,8 +1196,9 @@ expansion.
 Stop dependent Stage 7 implementation and follow the accepted design's revise
 path if:
 
-- the real Codex Task 3 boundary cannot prove preterminal identity,
-  leader/PGID/future/capture completion, and same-session resume;
+- the real Codex Task 3 boundary cannot prove unique identity plus the exact
+  readiness marker while preterminal and within deadline, complete
+  leader/PGID/future/capture cleanup, and exact-identity session resume;
 - observation changes raw stdout/stderr, timeout, exit, metadata, or result
   semantics;
 - any member thread must mutate `WorkflowExecutor` or `StateManager`;
