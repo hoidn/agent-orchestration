@@ -262,7 +262,7 @@ class ProviderExecutionControl:
         kill_sent: bool,
         error: BaseException | str,
     ) -> ProviderCancellationResult:
-        """Freeze cleanup proof when a spawned process could not be bound."""
+        """Record emergency BOUND proof when normal binding was rejected."""
         with self._condition:
             if self._terminal_result is not None:
                 return self._terminal_result
@@ -274,6 +274,8 @@ class ProviderExecutionControl:
                 )
             self._process = process
             self._pgid = pgid
+            self._state = "BOUND"
+            self._condition.notify_all()
             self._leader_return_code = return_code
             self._leader_reaped = bool(leader_reaped)
             self._pgid_empty = bool(pgid_empty)

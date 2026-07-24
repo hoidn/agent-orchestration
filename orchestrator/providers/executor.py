@@ -1108,6 +1108,13 @@ class ProviderExecutor:
                     grace=self._CONTROL_TIMEOUT_GRACE_SEC,
                 )
 
+            if (
+                not cancellation_preceded_probe
+                and control.cancellation_requested
+            ):
+                # Only an incomplete probe begun after cancellation can
+                # authorize signaling; completion observed first still wins.
+                continue
             if cancellation_preceded_probe:
                 control.apply_pending_cancellation_after_incomplete_probe()
 
