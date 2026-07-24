@@ -1,10 +1,12 @@
 # Workflow Lisp Provider Live Binding
 
-- **Status:** accepted
+- **Status:** accepted design; implementation in progress
 - **Kind:** feature / provider observation, bounded concurrency, and
   turn-boundary supervision architecture
 - **Owner:** Workflow Lisp frontend + provider runtime
-- **Review:** independent specification PASS and quality APPROVED on
+- **Review:** original independent specification PASS and quality APPROVED;
+  evidence-driven resume-boundary amendment independently
+  `SPEC_COMPLIANT`, quality `APPROVED`, and behavior simulation `PASS` on
   2026-07-23
 - **Created:** 2026-07-13
 - **Last material update:** 2026-07-23
@@ -42,9 +44,14 @@ This revision follows the roadmap's adverse-T3 stop/revise path. It adds:
    compiler-owned, validated directive:
    `CONTINUE` or `STEER` with free-form guidance.
 3. **One bounded turn-boundary correction.** `CONTINUE` accepts the active
-   worker turn. `STEER` requires a unique provider session id, terminates and
-   reaps the runtime-owned worker process group, and performs exactly one
-   resume turn with the guidance. Only the selected completed turn's validated
+   worker turn. For active-turn cancellation, `STEER` requires one
+   codec-validated resume-boundary-readiness snapshot—a unique provider
+   session id, an observed provider-specific readiness marker, and no exact
+   terminal event—then terminates and reaps the runtime-owned worker process
+   group. A worker that completes successfully before cancellation may use
+   its complete frozen natural boundary when the unique identity and
+   readiness marker were observed. Either path performs exactly one resume
+   turn with the guidance. Only the selected completed turn's validated
    bundle can become the worker result.
 
 The runtime interprets only the directive discriminant. It never interprets
@@ -101,6 +108,35 @@ Therefore ordinary `send-keys` is not steering capability, and client-owned
 interrupt acknowledgement is not process-quiescence proof. The detailed
 trace and compared alternatives live in the T3 behavior-simulation report.
 
+### Task 3 stop/revise feasibility result
+
+The first real Codex gate exposed a narrower provider boundary than the
+identity-only design assumed. The evidence retained here is structural only:
+
+| Installed provider version | Exact event at cancellation gate | Unique identity | `resume_boundary_seen` | `terminal_seen` | Complete owned-process boundary | Same-identity resume succeeded |
+| --- | --- | --- | --- | --- | --- | --- |
+| Codex `0.145.0` | `thread.started` | true | false | false | true | false |
+| Codex `0.145.0` | `turn.started` | true | true | false | true | true |
+
+The first row is the immediate-failure incident: a canonical identity plus
+complete cancellation/reaping proof did not make the native session
+resumable. The second row proves the narrower feasibility claim used by this
+design: cancellation after the exact top-level `turn.started` event, while
+the identity remained unique and no exact terminal event had been seen, was
+preterminal and resumable. No provider session id, prompt, raw event payload,
+or response content is retained in this design record.
+
+Installed `0.145.0` source ordering places `turn.started` after an awaited
+persistence attempt/flush, but persistence errors may be logged and swallowed
+before event delivery, and no governing provider contract promises rollout
+durability at that point. Therefore `resume_boundary_seen` is a necessary
+codec-validated boundary-eligibility fact, not proof of native persistence
+and not a guarantee that resume will succeed. `resume_boundary_seen` is the
+truthful field name: only a successful exact-identity resume proves
+resumability. An attempted resume must still match identity, complete
+successfully, and validate its bundle; otherwise the group fails with no
+output promotion.
+
 ## Problem
 
 The system needs a truthful way for a supervisor provider to:
@@ -127,9 +163,12 @@ feeding terminal-rendered bytes into strict provider metadata parsers.
 2. A Workflow Lisp form composes one worker and one supervisor concurrently
    after both calls specialize to eligible provider operations.
 3. The supervisor can return one validated free-form steering directive.
-4. A steered worker resumes the same provider session only after the prior
-   process leader is reaped, its runtime-owned process group is empty, and
-   its executor future and capture threads are joined.
+4. A steered active worker resumes the same provider session only after the
+   codec reports a unique, preterminal, resume-boundary-seen snapshot and the
+   prior process leader is reaped, its runtime-owned process group is empty,
+   and its executor future and capture threads are joined. A clean naturally
+   completed worker may use its complete frozen boundary when its final
+   identity remains unique and the readiness marker was observed.
 5. One coordinator owns all workflow state, checkpoint, dataflow, attempt,
    artifact, and final-result mutations.
 6. Results travel only through typed validated bundles. Pane text,
@@ -171,7 +210,8 @@ runtime-mediated, typed turn-boundary directive.
 - every invocation receives an additional tmux display pane;
 - the form has one observed worker and one observing supervisor;
 - the supervisor returns `ProviderSteeringDirective`;
-- `STEER` cancels the active worker process group, proves the
+- `STEER` requires a codec-validated resume-boundary-seen snapshot, cancels
+  an active worker or verifies a clean natural completion, proves the
   runtime-owned leader/PGID/future/capture boundary, and performs one session
   resume;
 - a single coordinator aggregates member outcomes and publishes one atomic
@@ -205,6 +245,9 @@ runtime-mediated, typed turn-boundary directive.
   unavailable;
 - a steered first turn may consume time and provider capacity before
   cancellation;
+- a provider may expose a stable identity before it exposes a validated
+  resume boundary, and providers/codecs without such a marker cannot occupy
+  the observed-worker role;
 - v1 supports one worker, one supervisor, and at most one correction;
 - an interrupted group gets no partial credit and is quarantined rather than
   replayed automatically; and
@@ -418,22 +461,32 @@ Presence of `turn_boundary_resume: true` is valid only when:
 
 - `fresh_command` and `resume_command` are present;
 - the resume command contains exactly one `${SESSION_ID}`;
-- the selected metadata parser can report exactly one stable session id
-  before the fresh process becomes terminal;
+- neither command contains the exact `--ephemeral` argument;
+- the selected metadata codec can report exactly one stable session id and a
+  validated resume-boundary marker before the fresh process becomes
+  terminal;
 - a resume result is checked against the requested session id; and
 - the invocation uses the runtime's cancellable process-group lifecycle.
 
 The supervisor needs no session capability.
 
 `input_mode`, TTY allocation, or a provider name never imply the capability.
-Compile/load validation rejects a worker whose resolved template lacks it.
-Runtime validation repeats the capability check before launch.
+Compile/load validation rejects a worker whose resolved template lacks it or
+whose resume-capable command uses `--ephemeral`. Runtime validation repeats
+the capability check before launch.
 
 ### Session-transport codec
 
 Preterminal observation and terminal parsing use one metadata-mode codec and
 one identity accumulator. For `codex_exec_jsonl_stdout`:
 
+- every immutable `SessionIdentitySnapshot` carries
+  `resume_boundary_seen: bool`, owned by the codec and defaulting to `false`;
+  codecs without a validated readiness marker leave it `false`;
+- codec selection exposes the generic structural capability
+  `supports_resume_boundary_observation`; static/runtime validation consults
+  that capability rather than provider names or a fresh snapshot's default
+  value;
 - the codec owns an incremental UTF-8 JSONL line buffer across arbitrary
   callback chunk splits and coalesced lines, feeds every complete line
   exactly once, and parses a non-empty EOF tail exactly once;
@@ -446,9 +499,25 @@ one identity accumulator. For `codex_exec_jsonl_stdout`:
 - the identity set across all observed events must remain exactly one;
 - a later different identity or malformed recognized key permanently marks
   the stream invalid;
+- after validating the event's identity fields, an event whose top-level
+  `type` field is exactly `turn.started` sets `resume_boundary_seen` only when
+  the accumulated identity is already unique and no exact terminal event has
+  been seen; a nested, suffixed, status-like, or otherwise lookalike event
+  does not set it;
+- a `turn.started` observed before unique identity is not applied
+  retroactively when identity later becomes unique;
+- once set, `resume_boundary_seen` remains true as historical observation
+  even if a later event makes the identity invalid/ambiguous or marks the turn
+  terminal; invalid/ambiguous identity removes all eligibility, while
+  terminal state removes active-cancellation eligibility and is separately
+  adjudicated for clean natural success;
 - `turn.completed` and the retained fixture/legacy
   `response.completed` spelling are the exact successful turn-terminal
-  events;
+  events; exact top-level `turn.failed` is an unsuccessful terminal event
+  that sets `terminal_seen`, durably invalidates the transport with a
+  structured failure, immediately removes all resume eligibility, and must
+  resolve through natural/transport-failure precedence rather than the
+  clean-success branch even if the process exits zero;
   `item.completed` is not terminal; and
 - an `item.completed` event whose nested `item.type` is `agent_message`
   contributes nested `item.text` to normalized assistant output without
@@ -457,7 +526,28 @@ one identity accumulator. For `codex_exec_jsonl_stdout`:
 
 The in-flight readiness snapshot is provisional. After cancellation, the
 coordinator joins the executor future and capture threads and rechecks the
-final partial-stream accumulator before using the identity. Callback
+final partial-stream accumulator before using the identity. An active fresh
+turn is eligible for cancellation toward a resume attempt only while the
+member and whole-step deadlines are live and the same snapshot satisfies all
+three conditions:
+
+```text
+status == "unique"
+and resume_boundary_seen
+and not terminal_seen
+```
+
+If the fresh process completes successfully before cancellation becomes
+authoritative, the separate clean-natural-completion branch may proceed only
+when its frozen terminal snapshot proves the complete process boundary,
+identity remains unique, `resume_boundary_seen` is true, and the whole-step
+deadline remains live before the resume launch. That branch expects
+`terminal_seen: true`; it does not claim active-turn cancellation. A
+whole-step timeout wins over both active-cancellation and clean-natural
+branches.
+
+The readiness marker is necessary but not sufficient: actual exact-identity
+resume remains the only resumability proof. Callback
 exceptions cannot be the correctness channel because pipe capture currently
 treats them as best-effort; invalidity is durable inside the accumulator
 returned to the coordinator.
@@ -574,7 +664,8 @@ surface between the coordinator and `ProviderExecutor`:
 - spawn failure terminalizes an unbound control with a frozen launch-failure
   disposition and wakes every readiness/cancellation waiter;
 - session-codec updates publish immutable identity snapshots
-  (`missing|unique|ambiguous|invalid`, ids, exact-terminal-seen);
+  (`missing|unique|ambiguous|invalid`, ids, codec-owned
+  resume-boundary-seen, exact-terminal-seen);
 - `cancel_and_reap(grace)` is idempotent and returns a frozen disposition,
   leader return code, PGID-empty proof, and join status. It is invoked for
   every `STEER`, including after natural leader exit. An already-terminal
@@ -590,13 +681,13 @@ The coordinator resolves races as follows:
 | Race | Required outcome |
 | --- | --- |
 | cancellation requested before process bind | latch; cancel immediately after bind; never expose a promotable result |
-| `STEER` arrives before identity readiness | wait only until a unique identity, worker terminal state, or the earlier member/whole-step deadline; missing/invalid identity or deadline expiry fails and cleans the group without resume |
-| successful natural exit before `STEER` cancellation | invoke the same idempotent boundary verifier; resume only when the frozen terminal snapshot already proves leader reaped, owned PGID empty, and executor/capture work joined |
+| `STEER` arrives before resume-boundary readiness | wait only until one snapshot has unique identity, `resume_boundary_seen: true`, and `terminal_seen: false`, or until worker terminal state or the earlier member/whole-step deadline; invalid/ambiguous identity fails immediately, while identity/readiness still missing at terminal or deadline fails unless the terminal state satisfies the clean-natural-success row below |
+| successful natural exit before `STEER` cancellation | invoke the same idempotent boundary verifier; resume only when the frozen terminal snapshot proves leader reaped, owned PGID empty, executor/capture work joined, unique identity, and prior observation of the resume-boundary marker |
 | successful leader exit with a lingering same-PGID child | clean the owned PGID, classify the prior boundary as failed, and do not resume |
 | natural nonzero/transport failure before validated `STEER` | member failure wins; fail the group and do not resume |
-| natural exit concurrent with cancellation | join once; `STEER` still selects only the resume turn |
+| natural exit concurrent with cancellation | join once; if cancellation became authoritative, require the active-turn conjunction including `terminal_seen: false`; if clean natural success became authoritative, require its complete frozen terminal boundary plus unique identity and the sticky readiness observation; `STEER` still selects only the resume turn |
 | repeated cancellation | same frozen cancellation result; no second signals or publication |
-| unique id followed by malformed/conflicting input | final snapshot is invalid/ambiguous; no resume |
+| unique id and readiness marker followed by malformed/conflicting input | `resume_boundary_seen` remains historical evidence, but the final snapshot is invalid/ambiguous; no resume |
 | launch failure | member failure; cancel/join the sibling; no group publication |
 | supervisor failure or timeout | cancel/join the worker; fail the group; no resume |
 | worker timeout with `CONTINUE` | fail the group after cleanup |
@@ -629,8 +720,9 @@ execution path.
 
 1. Start the worker in fresh-session mode and the supervisor concurrently.
 2. Mirror normalized output into their distinct panes.
-3. Capture a candidate worker session id through the shared metadata-mode
-   codec and publish it only to the coordinator's in-memory arbiter.
+3. Capture candidate worker-session identity and resume-boundary observations
+   through the shared metadata-mode codec and publish immutable snapshots only
+   to the coordinator's in-memory arbiter.
 4. Validate the supervisor's result bundle as
    `ProviderSteeringDirective`.
 
@@ -643,31 +735,44 @@ execution path.
 
 ### `STEER`
 
-1. Record the validated directive and require a unique stable worker session
-   id.
-2. If identity is not ready, wait only until the codec publishes one unique
-   identity, the worker becomes terminal, or the earlier worker/whole-step
-   deadline. Missing, invalid, ambiguous, or deadline-expired identity fails
-   and cleans the group without resume.
+1. Record the validated directive. For an active worker, require exactly one
+   stable session id, `resume_boundary_seen: true`,
+   `terminal_seen: false`, and time remaining before both applicable
+   deadlines. A worker already terminal enters the separate
+   clean-natural-completion check below only while the whole-step deadline
+   remains live.
+2. If the active snapshot is not eligible yet, wait only until the codec
+   publishes the complete active-turn conjunction, the worker becomes
+   terminal, or the earlier worker/whole-step deadline.
+   Invalid/ambiguous identity fails immediately. Identity or readiness still
+   missing at terminal/deadline fails and cleans the group without resume. A
+   terminal worker may proceed only through the
+   clean-natural-completion branch.
 3. Invoke `cancel_and_reap` for every `STEER`:
    - send graceful termination to the owned process group;
    - after a fixed bounded grace, send hard termination;
    - reap the process leader;
    - verify that the owned PGID is empty;
    - join the executor future and both capture threads; and
-   - revalidate the final partial-stream identity snapshot as unique.
+   - revalidate the final partial-stream snapshot against the authoritative
+     branch: unique, resume-boundary-seen, and preterminal for active
+     cancellation; or unique and resume-boundary-seen with a complete frozen
+     successful terminal boundary for clean natural completion.
    An already-terminal invocation skips signals only when its frozen terminal
    snapshot already proves the complete boundary. If the leader exited while
    a same-PGID child remained, cleanup still runs but the boundary is failed.
 4. If any process-group, join, or identity condition fails, fail the group.
-   Do not launch a resume turn.
-5. If the fresh worker completed successfully before the directive and its
-   frozen terminal snapshot proves the complete boundary, treat its execution
-   and transport as provisional and proceed. Once `STEER` is validated, the
-   coordinator does not read or validate the unselected fresh business
-   bundle. A lingering same-PGID child, natural nonzero exit, or transport
-   failure that became terminal before the validated directive fails the
-   group instead.
+   Do not launch a resume turn. Recheck the whole-step deadline before either
+   branch launches the resume; timeout wins even after a clean natural
+   completion.
+5. If the fresh worker completed successfully before cancellation became
+   authoritative and its frozen terminal snapshot proves the complete
+   boundary, unique identity, and prior resume-boundary observation, treat its
+   execution and transport as provisional and proceed. Once `STEER` is
+   validated, the coordinator does not read or validate the unselected fresh
+   business bundle. A lingering same-PGID child, natural nonzero exit,
+   transport failure, missing readiness marker, or unusable final identity
+   fails the group instead.
 6. Launch exactly one resume invocation with the captured session id and the
    directive's free-form guidance as its conversational content. Render the
    worker's output contract again for the same declared type, bind
@@ -789,9 +894,14 @@ feature. It is not implied by `with-live-providers`.
 2. The provider transport remains authoritative; the pane is a view.
 3. Workflow state has one writer: the group coordinator.
 4. Exactly one worker turn supplies the selected worker result.
-5. `STEER` cannot resume until the fresh leader is reaped, the owned PGID is
-   empty, its executor future and capture threads are joined, and the final
-   partial-stream identity is still unique.
+5. `STEER` cannot resume until the final partial-stream snapshot still has a
+   unique identity and `resume_boundary_seen: true`; the fresh leader is
+   reaped, the owned PGID is empty, and its executor future and capture
+   threads are joined. Active-turn cancellation additionally requires
+   `terminal_seen: false` and live applicable deadlines. Clean natural
+   completion instead requires the complete frozen successful terminal
+   boundary and a live whole-step deadline immediately before resume launch.
+   Whole-step timeout wins over either branch.
 6. The supervisor directive is accepted only from its validated bundle.
 7. Guidance is free-form content; the runtime interprets only
    `CONTINUE|STEER`.
@@ -807,12 +917,16 @@ feature. It is not implied by `with-live-providers`.
 - wrong arity, missing/duplicate observation edge, unknown peer, ineligible
   member, or effectful settlement body;
 - target DSL below 2.16;
-- worker template missing valid turn-boundary capability;
+- worker template missing valid turn-boundary capability, using an unsupported
+  metadata codec, or including `--ephemeral` in a resume-capable command;
 - required supervision-pane allocation or pre-directive display-mirror
   failure;
 - supervisor failure or invalid directive;
-- missing, empty, plural, changing, or late-only worker session identity when
-  `STEER` needs active-turn cancellation;
+- missing, empty, plural, changing, or late-only worker session identity;
+  missing or lookalike-only resume-boundary marker; exact terminal event on
+  the active-cancellation branch without a complete clean-success boundary;
+  expired member deadline when `STEER` needs active-turn cancellation; or
+  expired whole-step deadline before either branch launches resume;
 - worker leader/PGID/future/capture-thread boundary not proved;
 - resume identity mismatch;
 - member timeout or nonzero exit;
@@ -835,6 +949,9 @@ feature. It is not implied by `with-live-providers`.
 - Providers without turn-boundary resume remain fully usable for ordinary
   calls and as supervisors; they are rejected only in the observed-worker
   position.
+- A session codec without a validated readiness marker reports
+  `resume_boundary_seen: false`; stable identity alone never upgrades that
+  provider to observed-worker eligibility.
 - Current file/inbox coordination, cross-run watchdogs, and sequential
   provider-session steps remain valid.
 
@@ -846,7 +963,8 @@ Compare pane-disabled and pane-enabled execution for:
 
 - ordinary non-stream provider calls;
 - streaming calls;
-- session JSONL calls and in-flight session-id extraction;
+- session JSONL calls, in-flight session-id extraction, and immutable
+  resume-boundary observations;
 - adjudicated candidate/evaluator invocations and managed-provider
   invocations;
 - stdout, stderr, exit code, timeout, and normalized result;
@@ -877,21 +995,34 @@ Use scripted providers to prove:
 Both-direction fixtures:
 
 - `CONTINUE` selects the fresh worker result and never launches resume;
-- `STEER` observes a live worker, captures one canonical session id, reaps the
-  leader, empties the owned PGID, joins the executor/capture work, performs
-  one resume, and selects only the resumed result;
+- `STEER` observes a live worker, captures one canonical session id, observes
+  the exact `turn.started` readiness marker while preterminal, reaps the leader,
+  empties the owned PGID, joins the executor/capture work, performs one resume,
+  and selects only the resumed result;
 - no session id rejects;
 - plural/changing session ids reject;
 - real `thread.started.thread_id` canonicalizes and becomes available before
   `turn.completed`;
+- identity-only cancellation after `thread.started` remains ineligible;
+- exact top-level `turn.started` sets `resume_boundary_seen` only after unique
+  identity and before terminal; early, nested, suffixed, or status-like
+  lookalikes do not set it, and codecs without a validated marker remain
+  ineligible;
+- a later invalid/ambiguous identity leaves the sticky observation visible but
+  removes all eligibility; an exact successful terminal event removes
+  active-cancellation eligibility but may enter the complete
+  clean-natural-success branch, while exact `turn.failed` resolves through
+  durable transport-failure precedence;
 - real nested `item.completed.item` agent messages contribute normalized
   assistant text without marking the turn terminal;
 - cross-key identity disagreement and malformed identity values reject;
-- `item.completed` does not mark the provider turn terminal;
+- `item.completed` neither marks the provider turn terminal nor establishes
+  resume-boundary readiness;
 - invalid directive rejects;
 - failed or ambiguous quiescence rejects before resume;
 - successful leader exit with a lingering same-PGID child rejects without a
-  resume, while a clean natural exit may resume;
+  resume, while a clean natural terminal exit may resume only through its
+  complete frozen-boundary branch;
 - resume identity mismatch rejects;
 - stale fresh bundle never wins;
 - a missing/invalid fresh business bundle fails `CONTINUE` but is not read
@@ -907,10 +1038,12 @@ Both-direction fixtures:
 
 One real-provider smoke must demonstrate a real supervisor observing a real
 session-capable worker and producing a correction whose resumed typed result
-differs as intended. If session identity is not available before worker
-completion, or the leader/owned-PGID/future/capture-thread boundary cannot be
-proved, Stage 7 stops at the fixture implementation and the live-correction
-claim is not shipped.
+differs as intended. If neither the complete active-cancellation boundary nor
+the complete clean-natural-success boundary is available, the applicable
+deadline expires, actual same-identity resume fails, or the
+leader/owned-PGID/future/capture-thread boundary cannot be proved, Stage 7
+stops at the fixture implementation and the live-correction claim is not
+shipped.
 
 ### Frontend and IR
 
@@ -935,9 +1068,10 @@ The Stage 7 implementation order is:
 
 1. **Observation and cancellation substrate.** Pane mirror behind a flag,
    cancellable provider execution, shared real-shape session codec,
-   preterminal identity callback, T1 parity, and a minimal real Codex
-   identity → cancel/owned-PGID proof → resume spike. This phase stops if the
-   real boundary fails; frontend work may not begin on fixture evidence alone.
+   preterminal identity/readiness callback, T1 parity, and a minimal real
+   Codex unique-identity + exact-readiness-marker → cancel/owned-PGID proof →
+   same-identity-resume spike. This phase stops if the real boundary fails;
+   frontend work may not begin on fixture evidence alone.
 2. **Runtime group coordinator.** Hand-built executable nodes, immutable
    member execution, directive arbitration, one-turn resume, result
    promotion, atomic state, and T2/T3b fixtures.
@@ -957,15 +1091,15 @@ review before the next dependent phase.
   incorporated.
 - T1 proves observation non-interference for every current provider execution
   path.
-- The phase-1 real Codex spike proves canonical preterminal identity,
-  cancellation boundary, and session resume before group/frontend
-  implementation.
+- The phase-1 real Codex spike proves canonical preterminal identity, an exact
+  codec-owned resume-boundary marker, cancellation boundary, and actual
+  same-identity session resume before group/frontend implementation.
 - T2 proves the group coordinator is the only workflow-state writer.
 - Fixture T3b proves both `CONTINUE` and `STEER`, including strict negative
   paths.
-- The real T3b smoke proves effective live correction, preterminal canonical
-  session identity, leader reaping, owned-PGID emptiness, and joined
-  executor/capture work.
+- The real T3b smoke proves effective live correction, the complete
+  preterminal resume-eligibility conjunction, leader reaping, owned-PGID
+  emptiness, and joined executor/capture work.
 - DSL 2.16 frontend, IR, runtime, state, report, and typed-result checks pass.
 - Existing provider behavior remains non-regressive.
 - Normative specs, capability status, authoring guidance, and roadmap routing
@@ -975,9 +1109,11 @@ review before the next dependent phase.
 
 - Raw provider behavior changes when the pane mirror is enabled: stop and keep
   ordinary mirrors opt-in until non-interference is restored.
-- A real supported provider cannot expose a stable session id before
-  completion: do not claim active-turn correction; revise to post-turn resume
-  or a separately designed native protocol.
+- A real supported provider cannot expose a unique session id plus a
+  codec-validated resume-boundary marker before an exact terminal event and
+  the applicable deadline, or actual exact-identity resume still fails from
+  that boundary: do not claim active-turn correction; revise to a separately
+  designed native protocol.
 - The runtime cannot prove the old worker's leader/owned-PGID/future/capture
   boundary: do not launch the resume turn.
 - The implementation requires concurrent workflow-executor mutation: stop and
