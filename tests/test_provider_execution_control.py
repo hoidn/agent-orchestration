@@ -283,8 +283,9 @@ def test_large_unread_controlled_stdin_cannot_block_cancellation(
             def closed(self) -> bool:
                 return real_stdin.closed
 
-            def write(self, data: bytes) -> int:
-                writer_threads.append(threading.current_thread())
+            def write(self, data: Any) -> int:
+                if not writer_threads:
+                    writer_threads.append(threading.current_thread())
                 stdin_write_entered.set()
                 return real_stdin.write(data)
 
@@ -402,12 +403,16 @@ def test_unexpected_controlled_stdin_writer_failure_fails_boundary(
     failure_kind: str,
 ) -> None:
     real_popen = subprocess.Popen
+    real_killpg = os.killpg
     processes: list[subprocess.Popen] = []
     wait_thread_ids: list[int] = []
     writer_threads: list[threading.Thread] = []
     spawn_entered = threading.Event()
     allow_spawn = threading.Event()
-    writer_failed = threading.Event()
+    broken_pipe_classified = threading.Event()
+    allow_broken_pipe_classification_return = threading.Event()
+    kill_seen = threading.Event()
+    close_saw_kill: list[bool] = []
     stdin_closed = threading.Event()
     ready_path = tmp_path / f"stdin-writer-{failure_kind}.ready"
 
@@ -434,7 +439,6 @@ def test_unexpected_controlled_stdin_writer_failure_fails_boundary(
 
             def write(self, data: bytes) -> int:
                 writer_threads.append(threading.current_thread())
-                writer_failed.set()
                 if failure_kind == "preapply_broken_pipe":
                     raise BrokenPipeError(
                         "stdin broke before cancellation signal"
@@ -443,6 +447,10 @@ def test_unexpected_controlled_stdin_writer_failure_fails_boundary(
 
             def close(self) -> None:
                 stdin_closed.set()
+                if failure_kind == "runtime":
+                    close_saw_kill.append(
+                        kill_seen.wait(timeout=0.5)
+                    )
                 real_stdin.close()
 
             def __getattr__(self, name: str) -> Any:
@@ -454,7 +462,7 @@ def test_unexpected_controlled_stdin_writer_failure_fails_boundary(
                 failure_kind == "preapply_broken_pipe"
                 and wait_kwargs.get("timeout") == 0
             ):
-                assert writer_failed.wait(timeout=5)
+                assert broken_pipe_classified.wait(timeout=5)
             return real_wait(*wait_args, **wait_kwargs)
 
         process.stdin = _FailingStdin()  # type: ignore[assignment]
@@ -465,6 +473,16 @@ def test_unexpected_controlled_stdin_writer_failure_fails_boundary(
         "orchestrator.providers.executor.subprocess.Popen",
         _failing_stdin_popen,
     )
+
+    def _recording_killpg(pgid: int, sig: int) -> None:
+        if sig == signal.SIGKILL:
+            kill_seen.set()
+        real_killpg(pgid, sig)
+
+    monkeypatch.setattr(
+        "orchestrator.providers.control.os.killpg",
+        _recording_killpg,
+    )
     script = (
         "import pathlib, signal, sys, time; "
         "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
@@ -474,6 +492,40 @@ def test_unexpected_controlled_stdin_writer_failure_fails_boundary(
         "time.sleep(30)"
     )
     control = ProviderExecutionControl()
+    classify_stdin_broken_pipe = (
+        control.classify_stdin_broken_pipe
+    )
+
+    def _observed_broken_pipe_classification(
+        *,
+        failure_grace: float,
+    ) -> bool:
+        expected = classify_stdin_broken_pipe(
+            failure_grace=failure_grace,
+        )
+        broken_pipe_classified.set()
+        if failure_kind == "preapply_broken_pipe":
+            assert allow_broken_pipe_classification_return.wait(timeout=5)
+        return expected
+
+    monkeypatch.setattr(
+        control,
+        "classify_stdin_broken_pipe",
+        _observed_broken_pipe_classification,
+    )
+    apply_pending_cancellation = (
+        control.apply_pending_cancellation_after_incomplete_probe
+    )
+
+    def _apply_pending_cancellation_and_release_writer() -> None:
+        apply_pending_cancellation()
+        allow_broken_pipe_classification_return.set()
+
+    monkeypatch.setattr(
+        control,
+        "apply_pending_cancellation_after_incomplete_probe",
+        _apply_pending_cancellation_and_release_writer,
+    )
     invocation = ProviderInvocation(
         command=[sys.executable, "-c", script],
         input_mode=InputMode.STDIN,
@@ -514,6 +566,10 @@ def test_unexpected_controlled_stdin_writer_failure_fails_boundary(
     assert execution_result.raw_stdout == b"partial-stdout"
     assert execution_result.stderr == b"partial-stderr"
     assert stdin_closed.is_set()
+    if failure_kind == "runtime":
+        assert close_saw_kill == [True]
+    else:
+        assert broken_pipe_classified.is_set()
     assert wait_thread_ids
     assert set(wait_thread_ids) == {execution_thread.ident}
     assert len(writer_threads) == 1

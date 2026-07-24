@@ -532,6 +532,7 @@ class ProviderExecutor:
                 invocation.command,
                 cwd=str(working_dir),
                 env=process_env,
+                bufsize=0,
                 stdin=(
                     subprocess.PIPE
                     if stdin_input is not None
@@ -1055,14 +1056,20 @@ class ProviderExecutor:
                 thread.join()
 
         stdin_close_error: str | None = None
+        stdin_writer_started = any(
+            thread.ident is not None
+            for thread in stdin_threads
+        )
         if (
             process.stdin is not None
-            and not getattr(process.stdin, "closed", False)
+            and not stdin_writer_started
         ):
             try:
                 process.stdin.close()
             except BrokenPipeError:
-                if not control.cancellation_was_applied_before_completion():
+                if not control.classify_stdin_broken_pipe(
+                    failure_grace=self._CONTROL_STDIN_FAILURE_GRACE_SEC,
+                ):
                     stdin_close_error = (
                         "stdin writer failed (BrokenPipeError) while closing"
                     )
@@ -1207,17 +1214,28 @@ class ProviderExecutor:
     ) -> None:
         """Deliver controlled stdin without blocking the executor arbiter."""
         failure: str | None = None
+        broken_pipe_expected: bool | None = None
         try:
             if pipe is None:
                 raise RuntimeError("provider stdin pipe is unavailable")
-            written = pipe.write(stdin_input)
-            if written != len(stdin_input):
-                raise OSError(
-                    "provider stdin writer completed a short write "
-                    f"({written!r} of {len(stdin_input)} bytes)"
-                )
+            remaining = memoryview(stdin_input)
+            while remaining:
+                written = pipe.write(remaining)
+                if (
+                    not isinstance(written, int)
+                    or written <= 0
+                    or written > len(remaining)
+                ):
+                    raise OSError(
+                        "provider stdin writer made no valid progress "
+                        f"({written!r} for {len(remaining)} remaining bytes)"
+                    )
+                remaining = remaining[written:]
         except BrokenPipeError as exc:
-            if not control.cancellation_was_applied_before_completion():
+            broken_pipe_expected = control.classify_stdin_broken_pipe(
+                failure_grace=self._CONTROL_STDIN_FAILURE_GRACE_SEC,
+            )
+            if not broken_pipe_expected:
                 failure = (
                     "stdin writer failed "
                     f"(BrokenPipeError): {exc}"
@@ -1227,24 +1245,38 @@ class ProviderExecutor:
                 "stdin writer failed "
                 f"({type(exc).__name__}): {exc}"
             )
+            control.request_cancel(
+                reason="stdin_writer_failure",
+                grace=self._CONTROL_STDIN_FAILURE_GRACE_SEC,
+            )
         finally:
             if pipe is not None:
                 try:
                     pipe.close()
                 except BrokenPipeError as exc:
-                    if (
-                        failure is None
-                        and not control.cancellation_was_applied_before_completion()
-                    ):
-                        failure = (
-                            "stdin writer failed while closing "
-                            f"(BrokenPipeError): {exc}"
-                        )
+                    if failure is None:
+                        if broken_pipe_expected is None:
+                            broken_pipe_expected = (
+                                control.classify_stdin_broken_pipe(
+                                    failure_grace=(
+                                        self._CONTROL_STDIN_FAILURE_GRACE_SEC
+                                    ),
+                                )
+                            )
+                        if not broken_pipe_expected:
+                            failure = (
+                                "stdin writer failed while closing "
+                                f"(BrokenPipeError): {exc}"
+                            )
                 except BaseException as exc:
                     if failure is None:
                         failure = (
                             "stdin writer failed while closing "
                             f"({type(exc).__name__}): {exc}"
+                        )
+                        control.request_cancel(
+                            reason="stdin_writer_failure",
+                            grace=self._CONTROL_STDIN_FAILURE_GRACE_SEC,
                         )
 
             with stdin_outcome_lock:
@@ -1252,12 +1284,6 @@ class ProviderExecutor:
                     failure is None,
                     failure,
                 )
-
-        if failure is not None:
-            control.request_cancel(
-                reason="stdin_writer_failure",
-                grace=self._CONTROL_STDIN_FAILURE_GRACE_SEC,
-            )
 
     def _capture_pipe(
         self,

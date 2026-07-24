@@ -152,10 +152,22 @@ class ProviderExecutionControl:
         with self._condition:
             return self._cancellation_reason
 
-    def cancellation_was_applied_before_completion(self) -> bool:
-        """Return whether the executor successfully applied cancellation."""
+    def classify_stdin_broken_pipe(
+        self,
+        *,
+        failure_grace: float,
+    ) -> bool:
+        """Linearize a broken stdin pipe against applied cancellation."""
+        if failure_grace < 0:
+            raise ValueError("stdin failure grace must be non-negative")
         with self._condition:
-            return self._cancellation_applied_before_completion
+            expected = self._cancellation_applied_before_completion
+            if not expected and self._terminal_result is None:
+                self._request_cancel_locked(
+                    reason="stdin_writer_failure",
+                    grace=failure_grace,
+                )
+            return expected
 
     @property
     def session_snapshot(self) -> SessionIdentitySnapshot | None:
