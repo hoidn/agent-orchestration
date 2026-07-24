@@ -91,6 +91,17 @@ class SummaryObserver:
         if not ok and not self.best_effort:
             raise RuntimeError(f"Summary generation failed for step '{step_name}'")
 
+    def wait_for_pending(self) -> None:
+        """Join async summaries before a shared provider runtime is torn down."""
+        threads = tuple(self._threads)
+        for thread in threads:
+            thread.join()
+        self._threads = [
+            thread
+            for thread in self._threads
+            if thread.is_alive()
+        ]
+
     def emit_typed_terminal_summary(
         self,
         *,

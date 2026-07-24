@@ -1231,6 +1231,20 @@ class CallExecutor:
             retry_delay_ms=self.executor.retry_delay_ms,
             observability=self.executor.observability,
             step_heartbeat_interval_sec=self.executor.step_heartbeat_interval_sec,
+            provider_observation_enabled=(
+                getattr(
+                    self.executor,
+                    "provider_observation_enabled",
+                    False,
+                )
+            ),
+            provider_observation_manager=(
+                getattr(
+                    self.executor,
+                    "provider_observation_manager",
+                    None,
+                )
+            ),
         )
         child_state = child_executor.execute(resume=child_resume)
         call_frames[frame_id] = child_state_manager._snapshot()

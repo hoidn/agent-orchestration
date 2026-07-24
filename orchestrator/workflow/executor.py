@@ -20,6 +20,7 @@ from ..state import StateManager, StepResult
 from ..exec.step_executor import StepExecutor
 from ..exec.retry import RetryPolicy
 from ..providers.executor import ProviderExecutor
+from ..providers.observation import ProviderObservationManager
 from ..providers.registry import ProviderRegistry
 from ..providers.types import ProviderSessionMode, ProviderSessionRequest
 from ..managed_jobs.recovery import recover_managed_jobs
@@ -181,6 +182,9 @@ class WorkflowExecutor:
         retry_delay_ms: int = 1000,
         observability: Optional[Dict[str, Any]] = None,
         step_heartbeat_interval_sec: float = 30.0,
+        *,
+        provider_observation_enabled: bool = False,
+        provider_observation_manager: ProviderObservationManager | None = None,
     ):
         """
         Initialize workflow executor.
@@ -239,6 +243,10 @@ class WorkflowExecutor:
         self.debug = debug
         self.stream_output = stream_output
         self.observability = observability or {}
+        self.provider_observation_enabled = provider_observation_enabled
+        self.provider_observation_manager = provider_observation_manager
+        self._owns_provider_observation_manager = False
+        self._provider_observation_manager_closed = False
 
         # Initialize secrets manager
         self.secrets_manager = SecretsManager()
@@ -252,7 +260,13 @@ class WorkflowExecutor:
 
         # Initialize sub-executors
         self.step_executor = StepExecutor(workspace, logs_dir, self.secrets_manager)
-        self.provider_executor = ProviderExecutor(workspace, self.provider_registry, self.secrets_manager)
+        self.provider_executor = ProviderExecutor(
+            workspace,
+            self.provider_registry,
+            self.secrets_manager,
+            provider_observation_enabled=self.provider_observation_enabled,
+            observation_manager=self.provider_observation_manager,
+        )
         self.dependency_resolver = DependencyResolver(str(workspace))
         self.dependency_injector = DependencyInjector(str(workspace))
         self.condition_evaluator = ConditionEvaluator(workspace)
@@ -407,6 +421,30 @@ class WorkflowExecutor:
                     validate_expected_outputs(*args, **kwargs)
                 ),
             )
+        )
+        self._initialize_provider_observation_manager()
+
+    def _initialize_provider_observation_manager(self) -> None:
+        """Acquire the owned run manager after fallible executor initialization."""
+        if (
+            self.provider_observation_enabled
+            and self.provider_observation_manager is None
+        ):
+            try:
+                self.provider_observation_manager = (
+                    ProviderObservationManager(
+                        Path(self.state_manager.run_root)
+                    )
+                )
+            except Exception:
+                logger.warning(
+                    "Provider observation manager allocation failed",
+                    exc_info=True,
+                )
+            else:
+                self._owns_provider_observation_manager = True
+        self.provider_executor.observation_manager = (
+            self.provider_observation_manager
         )
 
     @property
@@ -2630,31 +2668,77 @@ class WorkflowExecutor:
         Returns:
             Final execution state
         """
-        # Override retry config if provided
-        if max_retries is not None:
-            self.max_retries = max_retries
-        if retry_delay_ms is not None:
-            self.retry_delay_ms = retry_delay_ms
+        try:
+            # Override retry config if provided
+            if max_retries is not None:
+                self.max_retries = max_retries
+            if retry_delay_ms is not None:
+                self.retry_delay_ms = retry_delay_ms
 
-        run_state = self.state_manager.load()
-        if resume and _is_structurally_root_state_manager(self.state_manager):
-            root_guard_result = self._revalidate_root_resume(run_state)
-            if root_guard_result is not None:
-                return root_guard_result
-        state = run_state.to_dict()
-        early_result = self._execute_prologue(state, resume=resume)
-        if early_result is not None:
-            return early_result
+            run_state = self.state_manager.load()
+            if resume and _is_structurally_root_state_manager(self.state_manager):
+                root_guard_result = self._revalidate_root_resume(run_state)
+                if root_guard_result is not None:
+                    return root_guard_result
+            state = run_state.to_dict()
+            early_result = self._execute_prologue(state, resume=resume)
+            if early_result is not None:
+                return early_result
 
-        loop_result = self._execute_step_loop(
-            state,
-            resume=resume,
-            on_error=on_error,
-            terminal_status='completed',
+            loop_result = self._execute_step_loop(
+                state,
+                resume=resume,
+                on_error=on_error,
+                terminal_status='completed',
+            )
+            if loop_result.early_result is not None:
+                return loop_result.early_result
+            return self._execute_epilogue(
+                state,
+                loop_result.terminal_status,
+            )
+        finally:
+            self._wait_for_provider_observation_dependents()
+            self._close_owned_provider_observation_manager()
+
+    def _wait_for_provider_observation_dependents(self) -> None:
+        """Settle async provider users before their shared manager closes."""
+        if (
+            not self.provider_observation_enabled
+            or self.provider_observation_manager is None
+            or self.summary_observer is None
+        ):
+            return
+        wait_for_pending = getattr(
+            self.summary_observer,
+            "wait_for_pending",
+            None,
         )
-        if loop_result.early_result is not None:
-            return loop_result.early_result
-        return self._execute_epilogue(state, loop_result.terminal_status)
+        if not callable(wait_for_pending):
+            return
+        try:
+            wait_for_pending()
+        except Exception:
+            logger.warning(
+                "Provider observation dependent teardown failed",
+                exc_info=True,
+            )
+
+    def _close_owned_provider_observation_manager(self) -> None:
+        if (
+            not self._owns_provider_observation_manager
+            or self._provider_observation_manager_closed
+            or self.provider_observation_manager is None
+        ):
+            return
+        self._provider_observation_manager_closed = True
+        try:
+            self.provider_observation_manager.close()
+        except Exception:
+            logger.warning(
+                "Provider observation manager teardown failed",
+                exc_info=True,
+            )
 
     def _revalidate_root_resume(self, run_state: Any) -> Optional[Dict[str, Any]]:
         """Recheck authoritative root source and projection before prologue."""

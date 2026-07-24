@@ -42,8 +42,8 @@ The bound amendment supersedes commit `afd0fec5` as current implementation
 authority. The historical simulation does not override the accepted
 observable cancellation linearization or the narrower resume-boundary rule.
 
-**Status:** Execution in progress. Tasks 1-4 and the evidence-driven Task 1R
-amendment are complete. The real resume-boundary gate passed; Task 5 is next.
+**Status:** Execution in progress. Tasks 1-5 and the evidence-driven Task 1R
+amendment are complete. The real resume-boundary gate passed; Task 6 is next.
 
 **Plan-review evidence:** Independent specification/sequence review: `PASS`.
 Independent path/selector/shell-order audit: `PASS` for the pre-amendment plan.
@@ -620,29 +620,39 @@ Ordered independent verdicts: `SPEC_COMPLIANT`; `APPROVED`.
 **Files:**
 
 - Modify: `orchestrator/providers/executor.py`
+- Modify: `orchestrator/providers/observation.py`
+- Modify: `orchestrator/observability/summary.py`
 - Modify: `orchestrator/workflow/executor.py`
 - Modify: `orchestrator/workflow/calls.py`
 - Test: `tests/test_provider_execution.py`
+- Create: `tests/test_provider_observation_execution.py`
+- Create: `tests/test_provider_observation_workflow.py`
+- Create: `tests/test_provider_observation_adjudicated_route.py`
+- Test: `tests/test_provider_observation.py`
+- Test: `tests/test_observability_summary_modes.py`
 - Test: `tests/test_adjudicated_provider_runtime.py`
 - Test: `tests/test_managed_provider_execution.py`
 - Test: `tests/test_at72_provider_state_persistence.py`
 - Test: `tests/test_workflow_executor_characterization.py`
 
-- [ ] Write RED parity tests for ordinary non-stream, stream, session JSONL,
+- [x] Write RED parity tests for ordinary non-stream, stream, session JSONL,
   timeout, adjudicated candidate/evaluator, managed-provider wrapper, and
   imported child-executor paths, defining the intended keyword as
   `provider_observation_enabled` and parametrizing every new parity/failure
   test over `(False, True)`.
-- [ ] Add failure-direction tests for allocation, tail, callback, tmux-server,
+- [x] Add failure-direction tests for allocation, tail, callback, tmux-server,
   transcript, and teardown failures. Outside the live form, provider raw
   output/result/metadata must remain authoritative and unchanged.
-- [ ] Prove live targets appear only in the actual supervisor execution prompt
-  and permitted debug prompt/command evidence, never in workflow values,
-  bundles, `state.json`, result diagnostics, or the stable pane record.
-- [ ] Keep ordinary automatic observation behind an internal disabled-by-
+- [x] Prove the Task 5 negative boundary: live targets never enter workflow
+  values, bundles, `state.json`, result diagnostics, or the stable pane
+  record. The positive assertion that the target appears only in the actual
+  supervisor execution prompt and permitted debug evidence remains the
+  explicit Task 7 coordinator gate, because no supervisor executable exists
+  at this plumbing-only boundary.
+- [x] Keep ordinary automatic observation behind an internal disabled-by-
   default `provider_observation_enabled` flag in this task. The ordinary
   default flips only after Task 14's real smoke proves the complete boundary.
-- [ ] Run and confirm only observation plumbing is missing:
+- [x] Run and confirm only observation plumbing is missing:
 
   ```bash
   pytest -q tests/test_provider_execution.py \
@@ -656,22 +666,37 @@ Ordered independent verdicts: `SPEC_COMPLIANT`; `APPROVED`.
     tests/test_workflow_executor_characterization.py \
     -k 'provider_session or provider_step or imported'
   ```
-- [ ] Add the keyword-only internal
+- [x] Add the keyword-only internal
   `provider_observation_enabled: bool = False` construction flag shared by
   the run-level `WorkflowExecutor` and its `ProviderExecutor`/imported child
   executors.
-- [ ] Inject one observation manager at run construction and share it with
+- [x] Inject one observation manager at run construction and share it with
   imported child executors. Let `ProviderExecutor.execute` auto-open ordinary
   handles or accept a pre-opened group handle.
-- [ ] Fan raw bytes to the authoritative buffer first, then independent
+- [x] Fan raw bytes to the authoritative buffer first, then independent
   display sinks. Session panes receive codec-normalized assistant output, not
   raw JSONL. Record sink failures without substituting output.
-- [ ] Run:
+- [x] Run:
   `pytest -q tests/test_provider_execution.py -k 'observation or session'`.
-- [ ] Rerun all four concrete commands above; their required parametrization
+- [x] Rerun all four concrete commands above; their required parametrization
   covers the flag disabled and enabled.
-- [ ] Complete specification review, quality review, and commit:
+- [x] Complete specification review, quality review, and commit:
   `Mirror provider execution without changing transport`.
+
+**Task 5 evidence (2026-07-23):** The first RED collected 15 tests and failed
+on the absent keyword-only construction flag. Review-driven REDs then exposed
+an unread-large-stdin timeout bypass, manager-local identity collisions,
+masked process-control exceptions, early manager acquisition, and teardown
+racing async summary-provider work. The corrected implementation uses a
+run-scoped locked invocation ordinal, concurrent bounded stdin delivery,
+caller-owned pre-opened handles, late manager acquisition, and dependent
+summary settlement before root-only teardown. Final verification passed 74
+warning-strict focused tests and 141 integrated xdist-selected tests; all 41
+initial changed/new tests collected before the review corrections, and the
+expanded provider/workflow modules collected 78 tests cleanly afterward. Ordered
+cross-specification verdicts: `PROVIDER_SPEC_PASS`,
+`WORKFLOW_SPEC_PASS`. Ordered cross-quality verdicts after corrections:
+`PROVIDER_QUALITY_APPROVED`, `WORKFLOW_QUALITY_APPROVED`.
 
 ## Phase 2 — Executable Node And Single-Writer Coordinator
 

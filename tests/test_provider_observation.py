@@ -115,6 +115,23 @@ def test_observation_manager_uses_one_server_and_unique_precreated_panes(
     manager.close()
 
 
+def test_observation_manager_allocates_run_scoped_invocation_identities(
+    tmp_path: Path,
+) -> None:
+    manager = ProviderObservationManager(
+        tmp_path,
+        backend=_FakeObservationBackend(),
+    )
+
+    assert manager.next_invocation_id() == "provider-invocation-000001"
+    assert manager.next_invocation_id() == "provider-invocation-000002"
+
+    manager.close()
+    with pytest.raises(ProviderObservationError) as exc_info:
+        manager.next_invocation_id()
+    assert exc_info.value.code == "manager_closed"
+
+
 def test_observation_finalize_uses_display_bytes_before_pane_teardown(
     tmp_path: Path,
 ) -> None:

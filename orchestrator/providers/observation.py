@@ -320,6 +320,7 @@ class ProviderObservationManager:
         self._condition = threading.Condition(self._lock)
         self._handles: list[ProviderObservationHandle] = []
         self._allocation_index = 0
+        self._invocation_index = 0
         self._server_started = False
         self._state = "open"
         self._failure_code: str | None = None
@@ -332,6 +333,14 @@ class ProviderObservationManager:
     def failure_code(self) -> str | None:
         with self._lock:
             return self._failure_code
+
+    def next_invocation_id(self) -> str:
+        """Allocate one stable run-scoped identity for an ordinary invocation."""
+        with self._lock:
+            if self._state != "open":
+                raise ProviderObservationError("manager_closed")
+            self._invocation_index += 1
+            return f"provider-invocation-{self._invocation_index:06d}"
 
     def open_observation(
         self,

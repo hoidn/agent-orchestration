@@ -81,6 +81,24 @@ def test_summary_observer_async_dispatch_non_blocking(tmp_path: Path):
     assert _wait_for(run_root / "summaries" / "StepA.summary.md")
 
 
+def test_summary_observer_wait_for_pending_joins_async_provider_work(
+    tmp_path: Path,
+):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-async-drain"
+    observer = SummaryObserver(
+        run_root=run_root,
+        provider_executor=_FakeProviderExecutor(delay_sec=0.1),
+        provider_name="summary_provider",
+        mode="async",
+    )
+
+    observer.emit("StepA", {"step": "StepA", "status": "completed"})
+    observer.wait_for_pending()
+
+    assert (run_root / "summaries" / "StepA.summary.md").exists()
+    assert observer._threads == []
+
+
 def test_summary_observer_sync_is_deterministic_and_blocking(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "run-sync"
     observer = SummaryObserver(

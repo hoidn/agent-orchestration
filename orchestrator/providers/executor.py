@@ -24,6 +24,7 @@ from .types import (
 )
 from .registry import ProviderRegistry
 from .control import ProviderExecutionControl
+from .observation import ProviderObservationHandle, ProviderObservationManager
 from .session_transport import (
     CodexExecJsonlAccumulator,
     SessionIdentitySnapshot,
@@ -103,7 +104,15 @@ class ProviderExecutor:
     _CONTROL_TIMEOUT_GRACE_SEC = 2.0
     _CONTROL_IO_JOIN_TIMEOUT_SEC = 0.2
 
-    def __init__(self, workspace: Path, registry: ProviderRegistry, secrets_manager: Optional[SecretsManager] = None):
+    def __init__(
+        self,
+        workspace: Path,
+        registry: ProviderRegistry,
+        secrets_manager: Optional[SecretsManager] = None,
+        *,
+        provider_observation_enabled: bool = False,
+        observation_manager: Optional[ProviderObservationManager] = None,
+    ):
         """
         Initialize provider executor.
 
@@ -115,6 +124,81 @@ class ProviderExecutor:
         self.workspace = workspace
         self.registry = registry
         self.secrets_manager = secrets_manager or SecretsManager()
+        self.provider_observation_enabled = provider_observation_enabled
+        self.observation_manager = observation_manager
+
+    def _acquire_observation_handle(
+        self,
+        preopened: Optional[ProviderObservationHandle],
+    ) -> Tuple[Optional[ProviderObservationHandle], bool]:
+        """Return a pre-opened handle or best-effort ordinary observation."""
+        if preopened is not None:
+            handle = preopened
+            owns_handle = False
+        else:
+            if (
+                not self.provider_observation_enabled
+                or self.observation_manager is None
+            ):
+                return None, False
+            try:
+                handle = self.observation_manager.open_observation(
+                    invocation_id=self.observation_manager.next_invocation_id(),
+                    member_id="ordinary",
+                    turn_id="turn-1",
+                )
+            except Exception:
+                return None, False
+            owns_handle = True
+
+        try:
+            handle.check_health()
+        except Exception:
+            pass
+        return handle, owns_handle
+
+    @staticmethod
+    def _append_observation_display(
+        handle: Optional[ProviderObservationHandle],
+        data: bytes,
+    ) -> None:
+        """Append display bytes without changing provider execution."""
+        if handle is None or not data:
+            return
+        try:
+            handle.append_display(data)
+        except Exception:
+            pass
+
+    def _observation_display_callback(
+        self,
+        handle: Optional[ProviderObservationHandle],
+    ) -> Optional[Callable[[bytes], None]]:
+        if handle is None:
+            return None
+
+        def _append(data: bytes) -> None:
+            self._append_observation_display(handle, data)
+
+        return _append
+
+    @staticmethod
+    def _finalize_observation(
+        handle: Optional[ProviderObservationHandle],
+        *,
+        owned: bool,
+    ) -> None:
+        """Health-check and finalize observation as evidence-only work."""
+        if handle is None or not owned:
+            return
+        try:
+            handle.check_health()
+        except Exception:
+            pass
+        try:
+            handle.finalize()
+        except Exception:
+            pass
 
     def prepare_invocation(
         self,
@@ -301,6 +385,37 @@ class ProviderExecutor:
         stream_output: bool = False,
         session_runtime: Optional[Dict[str, Any]] = None,
         control: Optional[ProviderExecutionControl] = None,
+        *,
+        observation_handle: Optional[ProviderObservationHandle] = None,
+    ) -> ProviderExecutionResult:
+        """Execute while keeping optional observation outside result semantics."""
+        active_observation, owns_observation = self._acquire_observation_handle(
+            observation_handle
+        )
+        try:
+            return self._execute(
+                invocation,
+                cwd=cwd,
+                stream_output=stream_output,
+                session_runtime=session_runtime,
+                control=control,
+                observation_handle=active_observation,
+            )
+        finally:
+            self._finalize_observation(
+                active_observation,
+                owned=owns_observation,
+            )
+
+    def _execute(
+        self,
+        invocation: ProviderInvocation,
+        cwd: Optional[Path] = None,
+        stream_output: bool = False,
+        session_runtime: Optional[Dict[str, Any]] = None,
+        control: Optional[ProviderExecutionControl] = None,
+        *,
+        observation_handle: Optional[ProviderObservationHandle] = None,
     ) -> ProviderExecutionResult:
         """
         Execute a prepared provider invocation.
@@ -324,6 +439,7 @@ class ProviderExecutor:
                 start_time=start_time,
                 session_runtime=session_runtime,
                 control=control,
+                observation_handle=observation_handle,
             )
 
         # Setup environment
@@ -351,9 +467,19 @@ class ProviderExecutor:
                     stream_output=stream_output,
                     start_time=start_time,
                     session_runtime=session_runtime,
+                    observation_handle=observation_handle,
                 )
 
             if not stream_output:
+                if observation_handle is not None:
+                    return self._execute_observed_nonstream_invocation(
+                        invocation=invocation,
+                        working_dir=working_dir,
+                        process_env=process_env,
+                        stdin_input=stdin_input,
+                        start_time=start_time,
+                        observation_handle=observation_handle,
+                    )
                 if invocation.terminate_process_tree:
                     process = subprocess.Popen(
                         invocation.command,
@@ -430,9 +556,16 @@ class ProviderExecutor:
             stdout_buf = bytearray()
             stderr_buf = bytearray()
 
+            stdout_thread_kwargs: Dict[str, Any] = {}
+            observation_callback = self._observation_display_callback(
+                observation_handle
+            )
+            if observation_callback is not None:
+                stdout_thread_kwargs["chunk_callback"] = observation_callback
             stdout_thread = threading.Thread(
                 target=self._stream_pipe,
                 args=(process.stdout, stdout_buf, sys.stdout),
+                kwargs=stdout_thread_kwargs,
                 daemon=True,
             )
             stderr_thread = threading.Thread(
@@ -507,6 +640,114 @@ class ProviderExecutor:
                 }
             )
 
+    def _execute_observed_nonstream_invocation(
+        self,
+        *,
+        invocation: ProviderInvocation,
+        working_dir: Path,
+        process_env: Dict[str, str],
+        stdin_input: Optional[bytes],
+        start_time: float,
+        observation_handle: ProviderObservationHandle,
+    ) -> ProviderExecutionResult:
+        """Run a non-stream invocation while mirroring stdout live."""
+        process = subprocess.Popen(
+            invocation.command,
+            cwd=str(working_dir),
+            env=process_env,
+            stdin=(
+                subprocess.PIPE
+                if stdin_input is not None
+                else subprocess.DEVNULL
+            ),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=invocation.terminate_process_tree,
+        )
+        stdout_buf = bytearray()
+        stderr_buf = bytearray()
+        stdout_thread = threading.Thread(
+            target=self._capture_pipe,
+            args=(process.stdout, stdout_buf),
+            kwargs={
+                "chunk_callback": self._observation_display_callback(
+                    observation_handle
+                ),
+            },
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=self._capture_pipe,
+            args=(process.stderr, stderr_buf),
+            daemon=True,
+        )
+        stdin_failures: List[Exception] = []
+        stdin_thread: Optional[threading.Thread] = None
+        if stdin_input is not None and process.stdin is not None:
+            def _write_stdin() -> None:
+                try:
+                    process.stdin.write(stdin_input)
+                    process.stdin.close()
+                except BrokenPipeError:
+                    pass
+                except Exception as exc:
+                    stdin_failures.append(exc)
+                finally:
+                    try:
+                        process.stdin.close()
+                    except (BrokenPipeError, OSError, ValueError):
+                        pass
+
+            stdin_thread = threading.Thread(
+                target=_write_stdin,
+                name=f"provider-observed-stdin-{process.pid}",
+                daemon=True,
+            )
+        stdout_thread.start()
+        stderr_thread.start()
+        if stdin_thread is not None:
+            stdin_thread.start()
+
+        try:
+            exit_code = process.wait(timeout=invocation.timeout_sec)
+        except subprocess.TimeoutExpired:
+            if invocation.terminate_process_tree:
+                self._terminate_process_tree(process)
+            else:
+                process.kill()
+                process.wait()
+            if stdin_thread is not None:
+                stdin_thread.join()
+            stdout_thread.join()
+            stderr_thread.join()
+            return ProviderExecutionResult(
+                exit_code=124,
+                stdout=bytes(stdout_buf),
+                stderr=bytes(stderr_buf),
+                duration_ms=int((time.time() - start_time) * 1000),
+                error={
+                    "type": "timeout",
+                    "message": (
+                        f"Provider timed out after "
+                        f"{invocation.timeout_sec} seconds"
+                    ),
+                    "context": {"timeout_sec": invocation.timeout_sec},
+                },
+            )
+
+        if stdin_thread is not None:
+            stdin_thread.join()
+        stdout_thread.join()
+        stderr_thread.join()
+        if stdin_failures:
+            raise stdin_failures[0]
+        return ProviderExecutionResult(
+            exit_code=exit_code,
+            stdout=bytes(stdout_buf),
+            stderr=bytes(stderr_buf),
+            duration_ms=int((time.time() - start_time) * 1000),
+        )
+
     def _execute_controlled_invocation(
         self,
         *,
@@ -516,6 +757,7 @@ class ProviderExecutor:
         start_time: float,
         session_runtime: Optional[Dict[str, Any]],
         control: ProviderExecutionControl,
+        observation_handle: Optional[ProviderObservationHandle],
     ) -> ProviderExecutionResult:
         """Execute one opt-in invocation inside a runtime-owned process group."""
         expected_session_id: Optional[str] = None
@@ -533,7 +775,12 @@ class ProviderExecutor:
                 and snapshot.session_ids != (expected_session_id,)
             ):
                 return
-            self._emit_session_assistant_text(assistant_text)
+            if stream_output:
+                self._emit_session_assistant_text(assistant_text)
+            self._append_observation_display(
+                observation_handle,
+                assistant_text.encode("utf-8"),
+            )
 
         try:
             control.claim_spawn()
@@ -561,7 +808,9 @@ class ProviderExecutor:
             accumulator = create_session_transport_accumulator(
                 invocation.metadata_mode,
                 assistant_text_callback=(
-                    _emit_assistant_text if stream_output else None
+                    _emit_assistant_text
+                    if stream_output or observation_handle is not None
+                    else None
                 ),
             )
             if accumulator is not None:
@@ -637,6 +886,7 @@ class ProviderExecutor:
                 stdin_threads=stdin_threads,
                 stdin_outcomes=stdin_outcomes,
                 stdin_outcome_lock=stdin_outcome_lock,
+                observation_handle=observation_handle,
             )
         except BaseException as exc:
             failure_result = self._fail_bound_controlled_invocation(
@@ -863,6 +1113,7 @@ class ProviderExecutor:
         stdin_threads: List[threading.Thread],
         stdin_outcomes: Dict[str, Tuple[bool, Optional[str]]],
         stdin_outcome_lock: Any,
+        observation_handle: Optional[ProviderObservationHandle],
     ) -> ProviderExecutionResult:
         """Run capture, wait, transport finalization, and boundary recording."""
         stdout_callback: Optional[Callable[[bytes], None]] = None
@@ -873,6 +1124,10 @@ class ProviderExecutor:
                 session_runtime=session_runtime,
                 accumulator=accumulator,
                 identity_snapshot_callback=control.publish_session_snapshot,
+            )
+        else:
+            stdout_callback = self._observation_display_callback(
+                observation_handle
             )
 
         stdout_thread = threading.Thread(
@@ -1476,7 +1731,12 @@ class ProviderExecutor:
                 if read_mode == "lines":
                     chunk = pipe.readline()
                 else:
-                    chunk = pipe.read(4096)
+                    read_available = getattr(pipe, "read1", None)
+                    chunk = (
+                        read_available(4096)
+                        if callable(read_available)
+                        else pipe.read(4096)
+                    )
                 if not chunk:
                     break
                 buffer.extend(chunk)
@@ -1613,10 +1873,17 @@ class ProviderExecutor:
         self,
         pipe: Optional[Any],
         buffer: bytearray,
-        out_stream: Any
+        out_stream: Any,
+        *,
+        chunk_callback: Optional[Callable[[bytes], None]] = None,
     ) -> None:
         """Read bytes from a subprocess pipe, stream them to output, and buffer them."""
-        self._capture_pipe(pipe, buffer, out_stream=out_stream)
+        self._capture_pipe(
+            pipe,
+            buffer,
+            out_stream=out_stream,
+            chunk_callback=chunk_callback,
+        )
 
     def _substitute_params(
         self,
@@ -1759,6 +2026,7 @@ class ProviderExecutor:
         stream_output: bool,
         start_time: float,
         session_runtime: Optional[Dict[str, Any]] = None,
+        observation_handle: Optional[ProviderObservationHandle] = None,
     ) -> ProviderExecutionResult:
         """Execute one session-enabled provider invocation and normalize transport."""
         try:
@@ -1795,12 +2063,19 @@ class ProviderExecutor:
                     and snapshot.session_ids != (expected_session_id,)
                 ):
                     return
-                self._emit_session_assistant_text(assistant_text)
+                if stream_output:
+                    self._emit_session_assistant_text(assistant_text)
+                self._append_observation_display(
+                    observation_handle,
+                    assistant_text.encode("utf-8"),
+                )
 
             accumulator = create_session_transport_accumulator(
                 invocation.metadata_mode,
                 assistant_text_callback=(
-                    _emit_assistant_text if stream_output else None
+                    _emit_assistant_text
+                    if stream_output or observation_handle is not None
+                    else None
                 ),
             )
             stdout_callback = self._build_session_stdout_callback(

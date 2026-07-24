@@ -3,6 +3,8 @@ from unittest.mock import patch
 import json
 import sys
 
+import pytest
+
 from orchestrator.managed_jobs.audit import append_event
 from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.providers.executor import ProviderExecutionResult, ProviderExecutor
@@ -70,6 +72,81 @@ def _executor(
     if initialize:
         state_manager.initialize(str(workflow_path), bundle_context_dict(bundle))
     return WorkflowExecutor(bundle, tmp_path, state_manager, max_retries=max_retries, retry_delay_ms=0)
+
+
+class _RecordingObservation:
+    live_target = "managed-provider-live-target-must-not-persist"
+
+    def __init__(self) -> None:
+        self.open_calls: list[dict[str, str]] = []
+        self.display_chunks: list[bytes] = []
+        self.finalize_calls = 0
+        self.invocation_index = 0
+
+    def next_invocation_id(self) -> str:
+        self.invocation_index += 1
+        return f"provider-invocation-{self.invocation_index:06d}"
+
+    def open_observation(self, **identity: str) -> "_RecordingObservation":
+        self.open_calls.append(dict(identity))
+        return self
+
+    def check_health(self) -> bool:
+        return True
+
+    def append_display(self, data: bytes) -> None:
+        self.display_chunks.append(bytes(data))
+
+    def finalize(self) -> dict[str, object]:
+        self.finalize_calls += 1
+        return {"status": "finalized"}
+
+
+@pytest.mark.parametrize("provider_observation_enabled", [False, True])
+def test_managed_provider_observation_preserves_result_and_complete_route(
+    tmp_path: Path,
+    provider_observation_enabled: bool,
+) -> None:
+    provider_output = "managed-provider-observation-result"
+    workflow_path = _write_workflow(
+        tmp_path,
+        provider_code=f"print({provider_output!r}, end='')",
+    )
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    state_manager = StateManager(tmp_path, run_id="managed-run")
+    state_manager.initialize(
+        str(workflow_path),
+        bundle_context_dict(bundle),
+    )
+    observation = _RecordingObservation()
+    executor = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        state_manager,
+        max_retries=0,
+        retry_delay_ms=0,
+        provider_observation_enabled=provider_observation_enabled,
+        provider_observation_manager=observation,
+    )
+
+    state = executor.execute()
+
+    execute_state = state["steps"]["Execute"]
+    assert execute_state["output"] == provider_output
+    assert execute_state["managed_jobs"]["managed_job_outcome"] == "COMPLETE"
+    assert (tmp_path / "review.txt").read_text(encoding="utf-8") == "review"
+    assert not (tmp_path / "fix.txt").exists()
+
+    expected_observation_count = int(provider_observation_enabled)
+    assert len(observation.open_calls) == expected_observation_count
+    assert len(observation.display_chunks) == expected_observation_count
+    if provider_observation_enabled:
+        assert observation.display_chunks == [provider_output.encode("utf-8")]
+    assert observation.finalize_calls == expected_observation_count
+    assert (
+        observation.live_target
+        not in state_manager.state_file.read_text(encoding="utf-8")
+    )
 
 
 def test_managed_provider_wraps_invocation_recovers_and_routes_complete(tmp_path: Path) -> None:
