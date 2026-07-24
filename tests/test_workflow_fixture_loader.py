@@ -78,6 +78,8 @@ def test_product_tree_has_no_yaml_parser_import_or_loader_module() -> None:
     assert offenders == []
     assert not (REPO_ROOT / "orchestrator" / "loader.py").exists()
     assert not (REPO_ROOT / "scripts" / "e2e" / "run_real_agent_test.py").exists()
+    assert not (REPO_ROOT / "orchestrator" / "demo" / "trial_runner.py").exists()
+    assert not (REPO_ROOT / "scripts" / "demo" / "run_trial.py").exists()
 
 
 def test_runtime_dependencies_do_not_include_pyyaml() -> None:

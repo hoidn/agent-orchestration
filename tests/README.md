@@ -83,12 +83,11 @@ pytest tests/test_demo_provisioning.py -q
 pytest tests/test_demo_linear_classifier_evaluator.py -q
 ```
 
-If you add or change the trial runner, also run the targeted trial smoke or runner tests for that surface.
-
-Recommended selector for the current runner observability surface:
+The informal YAML-only trial runner was retired in Stage 6 Task 7. For changes
+to retained demo workspace staging, run the provisioning coverage:
 
 ```bash
-pytest tests/test_demo_trial_runner.py tests/test_demo_trial_runner_observability.py -q
+pytest tests/test_demo_provisioning.py tests/test_demo_nanobragg_provisioning.py -q
 ```
 
 ## Conventions

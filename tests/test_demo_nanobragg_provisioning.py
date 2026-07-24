@@ -3,7 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from orchestrator.demo.provisioning import provision_trial
-from tests.demo_helpers import init_git_seed_repo_from_example, write_trial_workflow
+from tests.demo_helpers import (
+    init_git_seed_repo_from_example,
+    write_trial_workflow_source,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -19,7 +22,7 @@ def _tracked_visible_files(root: Path) -> list[Path]:
 def test_nanobragg_seed_provisions_clean_workspaces_with_staged_workflow_assets(tmp_path: Path):
     seed_repo, _commit = init_git_seed_repo_from_example(tmp_path=tmp_path, source_dir=SEED)
     experiment_root = tmp_path / "experiment"
-    workflow = write_trial_workflow(tmp_path)
+    workflow = write_trial_workflow_source(tmp_path)
 
     metadata = provision_trial(
         seed_repo=seed_repo,
@@ -37,6 +40,7 @@ def test_nanobragg_seed_provisions_clean_workspaces_with_staged_workflow_assets(
     assert (
         workflow_workspace / "workflows" / "examples" / workflow.name
     ).is_file()
+    assert workflow.suffix == ".orc"
     assert (
         workflow_workspace / "prompts" / "workflows" / "generic_task_loop" / "draft_plan.md"
     ).is_file()

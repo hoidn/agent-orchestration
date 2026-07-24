@@ -25,9 +25,9 @@
 - **Implementation target:** an evidence-grade paired-trial harness, one modern
   `.orc` repository-task workflow, frozen benchmark profiles, mixed hard/soft
   evaluation, downstream-consumer trials, and reproducible comparison reports
-- **Current fallback:** the existing `orchestrator.demo` runner may still be
-  used for informal serial demonstrations. It is not evidence for the claims
-  governed by this design.
+- **Current fallback:** none. Stage 6 Task 7 retired the informal YAML-only
+  `orchestrator.demo` runner. Future `.orc` comparisons must use the planned
+  experiment harness governed by this design.
 
 Purpose: define a reproducible class of experiments comparing a direct
 one-provider invocation with a bounded `.orc` workflow on the same nontrivial
@@ -86,12 +86,12 @@ The March 2026 demo design established useful foundations:
 - external evaluation after both arms finish; and
 - preservation of runner and evaluator artifacts.
 
-The existing implementation is not sufficient for evidence-grade claims:
+The retired implementation was not sufficient for evidence-grade claims:
 
 - `orchestrator.demo.provisioning` uses Git worktrees, leaving both arms tied to
   one object store and making historical-reference leakage possible;
-- `orchestrator.demo.trial_runner` labels its mode `serial` and launches the
-  direct arm before the workflow arm;
+- `orchestrator.demo.trial_runner` labeled its mode `serial` and launched the
+  direct arm before the workflow arm before Task 7 retired it;
 - its workflow was the now-retired YAML example
   `generic_task_plan_execute_review_loop.yaml`, not a current `.orc` workflow;
 - evaluator selection depends on seed/task naming rather than a frozen
@@ -312,9 +312,9 @@ results.
 
 Create a new `orchestrator.experiments` package and `scripts/experiments`
 entrypoints. Do not retrofit evidence-grade semantics into
-`orchestrator.demo` in place. The older demo remains usable for informal
-examples while adapters can reuse stable evaluators after their inputs and
-outputs are brought under the new contracts.
+`orchestrator.demo` in place. Task 7 retired the informal YAML runner; future
+`.orc` comparisons use this planned harness. Adapters may still reuse stable
+evaluators after their inputs and outputs are brought under the new contracts.
 
 This choice duplicates a small amount of launch/provisioning plumbing at
 first. It makes automatic migration of old demo commands harder, but avoids

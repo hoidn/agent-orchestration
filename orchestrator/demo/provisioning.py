@@ -1,4 +1,4 @@
-"""Provision fresh direct-vs-workflow demo workspaces from one git commit."""
+"""Provision isolated demo workspaces and optionally stage source assets."""
 
 from __future__ import annotations
 
@@ -124,7 +124,10 @@ def provision_trial(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Provision direct-run and workflow-run demo workspaces from one seed commit."
+        description=(
+            "Provision demo workspaces from one seed commit and optionally stage "
+            "source assets."
+        )
     )
     parser.add_argument("--seed-repo", required=True, help="Path to the git seed repository.")
     parser.add_argument(
@@ -135,11 +138,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--task-file", required=True, help="Path to the shared task markdown file.")
     parser.add_argument(
         "--workflow-path",
-        help="Optional Workflow Lisp .orc source to stage into workflow-run/workflows/examples/.",
+        help=(
+            "Optional source asset to copy into workflow-run/workflows/examples/. "
+            "Staging does not validate or execute it."
+        ),
     )
     parser.add_argument(
         "--workflow-prompts-dir",
-        help="Optional prompts/workflows directory to stage into workflow-run/prompts/workflows/.",
+        help=(
+            "Optional prompt asset tree to copy into workflow-run/prompts/workflows/."
+        ),
     )
     parser.add_argument(
         "--commitish",

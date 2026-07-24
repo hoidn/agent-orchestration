@@ -1,2 +1,1 @@
-"""Utilities for workflow demo setup and execution."""
-
+"""Utilities for demo workspace provisioning and evaluation."""
