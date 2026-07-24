@@ -53,6 +53,7 @@ def _copy_session_snapshot(
             if error is not None
             else None
         ),
+        resume_boundary_seen=bool(snapshot.resume_boundary_seen),
     )
 
 

@@ -141,6 +141,32 @@ def executor(tmp_path: Path) -> ProviderExecutor:
     return ProviderExecutor(tmp_path, ProviderRegistry())
 
 
+@pytest.mark.parametrize("resume_boundary_seen", (False, True))
+def test_resume_boundary_snapshot_is_preserved_at_control_copy_boundaries(
+    resume_boundary_seen: bool,
+) -> None:
+    control = ProviderExecutionControl()
+    source = SessionIdentitySnapshot(
+        status="unique",
+        session_ids=("session-copy",),
+        terminal_seen=False,
+        resume_boundary_seen=resume_boundary_seen,
+    )
+
+    control.publish_session_snapshot(source)
+    published = control.session_snapshot
+    terminal = control.spawn_failed("test terminal boundary")
+
+    assert published is not None
+    assert published is not source
+    assert published.resume_boundary_seen is resume_boundary_seen
+    assert terminal.final_session_snapshot is not None
+    assert (
+        terminal.final_session_snapshot.resume_boundary_seen
+        is resume_boundary_seen
+    )
+
+
 def test_cancellation_before_bind_latches_and_runs_immediately_after_spawn(
     executor: ProviderExecutor,
     monkeypatch: pytest.MonkeyPatch,

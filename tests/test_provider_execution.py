@@ -736,6 +736,40 @@ class TestProviderExecutor:
             "event_count": 4,
         }
 
+    def test_session_execution_turn_failed_exit_zero_is_not_promotable(self):
+        """An exact failed-turn event defeats a successful child exit."""
+        raw_stdout = (
+            '{"type":"thread.started","thread_id":"thread-failed"}\n'
+            '{"type":"turn.started"}\n'
+            '{"type":"turn.failed"}\n'
+        )
+        invocation = ProviderInvocation(
+            command=[
+                "python",
+                "-c",
+                f"import sys; sys.stdout.write({raw_stdout!r})",
+            ],
+            input_mode=InputMode.STDIN,
+            prompt="Test prompt",
+            command_variant="fresh_command",
+            metadata_mode=(
+                ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value
+            ),
+            session_request=ProviderSessionRequest(
+                mode=ProviderSessionMode.FRESH,
+            ),
+        )
+
+        result = self.executor.execute(invocation)
+
+        assert result.exit_code == 2
+        assert result.is_promotable is False
+        assert result.raw_stdout == raw_stdout.encode("utf-8")
+        assert result.stdout == b""
+        assert result.provider_session is None
+        assert result.error is not None
+        assert result.error["type"] == "provider_session_transport_error"
+
     def test_session_execution_rejects_mismatched_resume_session_id(self):
         """Resume invocations fail when transport reports a different session id."""
         raw_stdout = (

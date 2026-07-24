@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -120,6 +121,261 @@ def test_codex_jsonl_snapshot_exposes_real_thread_id_before_terminal():
 
     accumulator.feed(_jsonl_event(type="turn.completed") + b"\n")
     assert accumulator.snapshot().terminal_seen is True
+
+
+def test_session_identity_snapshot_resume_boundary_defaults_false_and_is_immutable():
+    snapshot = _session_transport_module().SessionIdentitySnapshot(
+        status="missing",
+        session_ids=(),
+        terminal_seen=False,
+    )
+
+    assert snapshot.resume_boundary_seen is False
+    with pytest.raises(FrozenInstanceError):
+        snapshot.resume_boundary_seen = True
+
+
+def test_codex_jsonl_resume_boundary_requires_exact_top_level_turn_started():
+    accumulator = _new_accumulator()
+    accumulator.feed(
+        _jsonl_event(type="thread.started", thread_id="thread-boundary") + b"\n"
+    )
+
+    assert accumulator.snapshot().resume_boundary_seen is False
+
+    for lookalike in (
+        {"type": "turn.started.suffix"},
+        {"type": "item.started", "status": "turn.started"},
+        {"type": "item.started", "item": {"type": "turn.started"}},
+        {"type": "turn", "status": "started"},
+    ):
+        accumulator.feed(_jsonl_event(**lookalike) + b"\n")
+        assert accumulator.snapshot().resume_boundary_seen is False
+
+    accumulator.feed(_jsonl_event(type="turn.started") + b"\n")
+
+    assert accumulator.snapshot().resume_boundary_seen is True
+
+
+def test_codex_jsonl_turn_started_can_bind_identity_in_the_same_event():
+    accumulator = _new_accumulator()
+
+    accumulator.feed(
+        _jsonl_event(
+            type="turn.started",
+            thread_id="thread-same-event",
+        )
+        + b"\n"
+    )
+
+    snapshot = accumulator.snapshot()
+    assert snapshot.status == "unique"
+    assert snapshot.session_ids == ("thread-same-event",)
+    assert snapshot.terminal_seen is False
+    assert snapshot.resume_boundary_seen is True
+
+
+@pytest.mark.parametrize(
+    "event_type,identity_fields,expected_status",
+    (
+        ("turn.started", {"thread_id": None}, "invalid"),
+        (
+            "turn.started",
+            {"thread_id": "thread-one", "session_id": "thread-two"},
+            "ambiguous",
+        ),
+        ("turn.failed", {"thread_id": None}, "invalid"),
+        (
+            "turn.failed",
+            {"thread_id": "thread-one", "session_id": "thread-two"},
+            "ambiguous",
+        ),
+    ),
+)
+def test_codex_jsonl_turn_started_and_turn_failed_validate_identity_first(
+    event_type: str,
+    identity_fields: dict[str, Any],
+    expected_status: str,
+):
+    accumulator = _new_accumulator()
+
+    accumulator.feed(
+        _jsonl_event(type=event_type, **identity_fields) + b"\n"
+    )
+
+    snapshot = accumulator.snapshot()
+    assert snapshot.status == expected_status
+    assert snapshot.terminal_seen is False
+    assert snapshot.resume_boundary_seen is False
+
+
+def test_codex_jsonl_turn_started_is_not_retroactive_or_post_terminal():
+    early = _new_accumulator()
+    early.feed(_jsonl_event(type="turn.started") + b"\n")
+    early.feed(
+        _jsonl_event(type="thread.started", thread_id="thread-early") + b"\n"
+    )
+
+    assert early.snapshot().status == "unique"
+    assert early.snapshot().resume_boundary_seen is False
+
+    terminal = _new_accumulator()
+    terminal.feed(
+        _jsonl_event(type="thread.started", thread_id="thread-terminal") + b"\n"
+    )
+    terminal.feed(_jsonl_event(type="turn.completed") + b"\n")
+    terminal.feed(_jsonl_event(type="turn.started") + b"\n")
+
+    assert terminal.snapshot().terminal_seen is True
+    assert terminal.snapshot().resume_boundary_seen is False
+
+
+def test_codex_jsonl_resume_boundary_handles_split_and_duplicate_turn_started():
+    accumulator = _new_accumulator()
+    accumulator.feed(
+        _jsonl_event(type="thread.started", thread_id="thread-split") + b"\n"
+    )
+    marker = _jsonl_event(type="turn.started")
+    split_at = len(marker) // 2
+
+    accumulator.feed(marker[:split_at])
+    assert accumulator.snapshot().resume_boundary_seen is False
+
+    accumulator.feed(marker[split_at:] + b"\n" + marker + b"\n")
+
+    assert accumulator.snapshot().resume_boundary_seen is True
+
+
+def test_codex_jsonl_resume_boundary_handles_coalesced_turn_started_eof_tail():
+    accumulator = _new_accumulator()
+    accumulator.feed(
+        _jsonl_event(type="thread.started", thread_id="thread-eof")
+        + b"\n"
+        + _jsonl_event(type="turn.started")
+    )
+
+    assert accumulator.snapshot().resume_boundary_seen is False
+
+    metadata, error = accumulator.finalize(
+        expected_session_id=None,
+        require_terminal=False,
+    )
+
+    assert error is None
+    assert metadata is not None
+    assert accumulator.snapshot().resume_boundary_seen is True
+
+
+@pytest.mark.parametrize(
+    "later_event,expected_status,expected_terminal",
+    (
+        (
+            {"type": "item.started", "thread_id": "thread-other"},
+            "ambiguous",
+            False,
+        ),
+        ({"type": "item.started", "thread_id": None}, "invalid", False),
+        ({"type": "turn.completed"}, "unique", True),
+    ),
+)
+def test_codex_jsonl_resume_boundary_observation_is_sticky(
+    later_event: dict[str, Any],
+    expected_status: str,
+    expected_terminal: bool,
+):
+    accumulator = _new_accumulator()
+    accumulator.feed(
+        b"\n".join(
+            (
+                _jsonl_event(
+                    type="thread.started",
+                    thread_id="thread-sticky",
+                ),
+                _jsonl_event(type="turn.started"),
+            )
+        )
+        + b"\n"
+    )
+    assert accumulator.snapshot().resume_boundary_seen is True
+
+    accumulator.feed(_jsonl_event(**later_event) + b"\n")
+
+    snapshot = accumulator.snapshot()
+    assert snapshot.status == expected_status
+    assert snapshot.terminal_seen is expected_terminal
+    assert snapshot.resume_boundary_seen is True
+
+
+@pytest.mark.parametrize("marker_before_failure", (False, True))
+def test_codex_jsonl_turn_failed_is_terminal_and_durably_invalid(
+    marker_before_failure: bool,
+):
+    accumulator = _new_accumulator()
+    accumulator.feed(
+        _jsonl_event(type="thread.started", thread_id="thread-failed") + b"\n"
+    )
+    if marker_before_failure:
+        accumulator.feed(_jsonl_event(type="turn.started") + b"\n")
+
+    accumulator.feed(_jsonl_event(type="turn.failed") + b"\n")
+    failed_snapshot = accumulator.snapshot()
+    accumulator.feed(_jsonl_event(type="turn.started") + b"\n")
+    accumulator.feed(_jsonl_event(type="turn.completed") + b"\n")
+    assert accumulator.snapshot() == failed_snapshot
+
+    metadata, error = accumulator.finalize(
+        expected_session_id=None,
+        require_terminal=False,
+    )
+
+    assert failed_snapshot.status == "invalid"
+    assert failed_snapshot.terminal_seen is True
+    assert failed_snapshot.resume_boundary_seen is marker_before_failure
+    assert metadata is None
+    assert error is not None
+    assert error["type"] == "provider_session_transport_error"
+
+
+@pytest.mark.parametrize(
+    "lookalike",
+    (
+        {"type": "turn.failed.suffix"},
+        {"type": "item.failed", "status": "turn.failed"},
+        {"type": "item.failed", "item": {"type": "turn.failed"}},
+        {"type": "turn", "status": "failed"},
+    ),
+)
+def test_codex_jsonl_turn_failed_lookalikes_are_not_terminal(
+    lookalike: dict[str, Any],
+):
+    accumulator = _new_accumulator()
+    accumulator.feed(
+        _jsonl_event(type="thread.started", thread_id="thread-lookalike")
+        + b"\n"
+    )
+    accumulator.feed(_jsonl_event(**lookalike) + b"\n")
+
+    metadata, error = accumulator.finalize(
+        expected_session_id=None,
+        require_terminal=False,
+    )
+
+    snapshot = accumulator.snapshot()
+    assert snapshot.status == "unique"
+    assert snapshot.terminal_seen is False
+    assert snapshot.resume_boundary_seen is False
+    assert error is None
+    assert metadata is not None
+
+
+def test_session_transport_resume_boundary_capability_is_structural():
+    module = _session_transport_module()
+
+    assert module.supports_resume_boundary_observation(
+        ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value
+    )
+    assert not module.supports_resume_boundary_observation("unsupported-mode")
+    assert not module.supports_resume_boundary_observation(None)
 
 
 def test_codex_jsonl_retains_legacy_session_id_and_response_terminal():

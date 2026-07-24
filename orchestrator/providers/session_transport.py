@@ -15,6 +15,8 @@ from .types import ProviderSessionMetadataMode
 _TRANSPORT_ERROR_TYPE = "provider_session_transport_error"
 _IDENTITY_KEYS = ("thread_id", "session_id")
 _TERMINAL_EVENT_TYPES = frozenset({"turn.completed", "response.completed"})
+_RESUME_BOUNDARY_EVENT_TYPE = "turn.started"
+_FAILED_TERMINAL_EVENT_TYPE = "turn.failed"
 
 
 def _freeze_snapshot_value(value: Any) -> Any:
@@ -48,6 +50,7 @@ class SessionIdentitySnapshot:
     session_ids: tuple[str, ...]
     terminal_seen: bool
     error: Mapping[str, Any] | None = None
+    resume_boundary_seen: bool = False
 
 
 def extract_codex_assistant_text(event: Mapping[str, Any]) -> str | None:
@@ -90,6 +93,7 @@ class CodexExecJsonlAccumulator:
         self._session_ids: set[str] = set()
         self._text_parts: list[str] = []
         self._terminal_seen = False
+        self._resume_boundary_seen = False
         self._event_count = 0
         self._line_number = 0
         self._invalid_error: dict[str, Any] | None = None
@@ -133,6 +137,7 @@ class CodexExecJsonlAccumulator:
                     session_ids=session_ids,
                     terminal_seen=self._terminal_seen,
                     error=_freeze_snapshot_error(self._invalid_error),
+                    resume_boundary_seen=self._resume_boundary_seen,
                 )
             if len(session_ids) > 1:
                 return SessionIdentitySnapshot(
@@ -142,12 +147,14 @@ class CodexExecJsonlAccumulator:
                     error=_freeze_snapshot_error(
                         self._conflicting_identity_error()
                     ),
+                    resume_boundary_seen=self._resume_boundary_seen,
                 )
             return SessionIdentitySnapshot(
                 status="unique" if session_ids else "missing",
                 session_ids=session_ids,
                 terminal_seen=self._terminal_seen,
                 error=None,
+                resume_boundary_seen=self._resume_boundary_seen,
             )
 
     def finalize(
@@ -260,10 +267,28 @@ class CodexExecJsonlAccumulator:
             event_session_ids.append(value)
 
         self._session_ids.update(event_session_ids)
+        if len(self._session_ids) > 1:
+            return None
 
         event_type = event.get("type")
-        if isinstance(event_type, str) and event_type in _TERMINAL_EVENT_TYPES:
+        if event_type == _FAILED_TERMINAL_EVENT_TYPE:
             self._terminal_seen = True
+            self._invalidate(
+                "Session transport reported a failed provider turn",
+                {"line": self._line_number},
+            )
+            return None
+        if (
+            isinstance(event_type, str)
+            and event_type in _TERMINAL_EVENT_TYPES
+        ):
+            self._terminal_seen = True
+        elif (
+            event_type == _RESUME_BOUNDARY_EVENT_TYPE
+            and len(self._session_ids) == 1
+            and not self._terminal_seen
+        ):
+            self._resume_boundary_seen = True
 
         assistant_text = extract_codex_assistant_text(event)
         if assistant_text is not None:
@@ -324,8 +349,19 @@ def create_session_transport_accumulator(
     return None
 
 
+def supports_resume_boundary_observation(
+    metadata_mode: str | ProviderSessionMetadataMode | None,
+) -> bool:
+    """Return whether a metadata codec validates a resume-boundary marker."""
+    return (
+        metadata_mode
+        == ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value
+    )
+
+
 __all__ = [
     "CodexExecJsonlAccumulator",
     "SessionIdentitySnapshot",
     "create_session_transport_accumulator",
+    "supports_resume_boundary_observation",
 ]
