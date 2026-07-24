@@ -388,27 +388,38 @@ The control must expose `NEW -> BOUND -> TERMINAL` plus spawn-failure
 `NEW -> TERMINAL`, cancellation-before-bind latching, immutable session
 snapshots, idempotent `cancel_and_reap`, and one frozen terminal proof.
 
-- [ ] Write RED tests for cancel-before-bind, spawn failure, natural exit,
+- [x] Write RED tests for cancel-before-bind, spawn failure, natural exit,
   TERM then KILL, same-PGID child cleanup, naturally exited leader with a
   lingering child, repeated cancellation, concurrent natural-exit/cancel,
   capture-thread join, and invalid final identity.
-- [ ] Run:
+- [x] Run:
   `pytest -q tests/test_provider_execution_control.py`
   and confirm the new control is absent.
-- [ ] Implement `ProviderExecutionControl` and
+- [x] Implement `ProviderExecutionControl` and
   `ProviderCancellationResult`; make the executor thread the sole `Popen.wait`
   owner.
-- [ ] Add optional `control` to `ProviderExecutor.execute`. Only
+- [x] Add optional `control` to `ProviderExecutor.execute`. Only
   control-enabled calls must use the cancellable Popen path and
   `start_new_session=True`; the control-absent path must retain current
   behavior.
-- [ ] Return an explicit `cancelled_provisional` classification with raw
+- [x] Return an explicit `cancelled_provisional` classification with raw
   partial transport and no promotable result. Do not swallow failed
   PGID/join proof.
-- [ ] Run:
+- [x] Run:
   `pytest -q tests/test_provider_execution_control.py tests/test_provider_execution.py -k 'timeout or streaming or session or process_tree'`.
-- [ ] Complete specification review, quality review, and commit:
+- [x] Complete specification review, quality review, and commit:
   `Add cancellable provider execution control`.
+
+**Task 2 evidence (2026-07-23):** Initial implementation `dbeb9480`;
+correctness and lifecycle corrections through `9c6de9ac`; observable
+cancellation linearization authority `afd0fec5` with plan rebinding
+`24476d92`. Recorded REDs covered pre-bind latching, post-claim
+`BaseException`, both causal probe directions, persistent group-signal
+failure, descendant-held pipes, failed-bind waiter state, capture/codec
+concurrency, and attempted-versus-delivered signal facts. Final verification:
+107 tests collected; 107 passed warning-strict both serially and with
+`-n 16 --dist=worksteal`; the required focused selector passed 25 with 82
+deselected. Independent verdicts: `SPEC_COMPLIANT`; `APPROVED`.
 
 ### Task 3: Early Real Codex Identity-Cancel-Resume Gate
 
