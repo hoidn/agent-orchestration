@@ -4,12 +4,8 @@ import os
 import json
 import pytest
 from pathlib import Path
-import signal
 import stat
-import subprocess
-import sys
 import tempfile
-import shutil
 import threading
 import time
 from dataclasses import replace
@@ -27,14 +23,13 @@ from orchestrator.state import StateManager
 from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
-from orchestrator.workflow.identity import iteration_step_id
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.call_frame_state import _CallFrameStateManager
 from orchestrator.workflow.executor_runtime import CallFrameStateManager
 from orchestrator.workflow.resume_planner import ResumePlanner
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from orchestrator.workflow_lisp.wcc.route import LoweringRoute, workflow_lisp_context_with_lowering_schema
-from tests.workflow_bundle_helpers import bundle_context_dict, materialize_projection_body_steps
+from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 LEXICAL_CHECKPOINT_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_shadow_points.orc")
@@ -89,25 +84,27 @@ def _seed_projection_integrity_root_resume(
     run_id: str,
 ) -> tuple[Path, StateManager]:
     """Seed a checksum-compatible failed v2.0 run with a stale explicit current id."""
-    workflow_path = workspace / "projection_integrity_root.yaml"
+    workflow_path = workspace / "projection_integrity_root.orc"
     workflow_path.write_text(
-        json.dumps(
-            {
-                "version": "2.0",
-                "name": "projection-integrity-root",
-                "steps": [
-                    {
-                        "name": "NoEffect",
-                        "id": "no_effect",
-                        "command": [
-                            "bash",
-                            "-lc",
-                            "mkdir -p state && printf 'unexpected\\n' > state/effect.txt",
-                        ],
-                    }
-                ],
-            },
-            sort_keys=False,
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule projection_integrity_root)",
+                "  (export orchestrate)",
+                "  (defrecord ResumeSummary",
+                "    (status String)",
+                "    (ready Bool))",
+                "  (defworkflow orchestrate",
+                "    ((approved Bool)",
+                "     (status String))",
+                "    -> ResumeSummary",
+                "    (record ResumeSummary",
+                "      :status status",
+                "      :ready approved)))",
+                "",
+            ]
         ),
         encoding="utf-8",
     )
@@ -191,79 +188,10 @@ def _workflow_boundary_projection(bundle):
     return helper(bundle)
 
 
-def _workflow_generated_path_allocations(bundle):
-    helper = getattr(loaded_bundle_helpers, "workflow_generated_path_allocations")
-    return helper(bundle)
-
-
 def _allocation_field(allocation, field_name: str):
     if isinstance(allocation, dict):
         return allocation[field_name]
     return getattr(allocation, field_name)
-
-
-def _build_resume_loop_workflow() -> dict:
-    return {
-        "version": "1.1",
-        "name": "Resume Loop Workflow",
-        "steps": [
-            {
-                "name": "ReviewImplementation",
-                "command": [
-                    "bash",
-                    "-lc",
-                    "\n".join(
-                        [
-                            "count=$(cat state/review_count.txt 2>/dev/null || printf '0')",
-                            "count=$((count + 1))",
-                            "printf '%s\\n' \"$count\" > state/review_count.txt",
-                            "if [ \"$count\" -ge 2 ]; then",
-                            "  printf 'APPROVE\\n' > state/decision.txt",
-                            "else",
-                            "  printf 'REVISE\\n' > state/decision.txt",
-                            "fi",
-                            "printf 'review-%s\\n' \"$count\" >> state/history.log",
-                        ]
-                    ),
-                ],
-            },
-            {
-                "name": "ImplementationReviewGate",
-                "command": ["bash", "-lc", "test \"$(cat state/decision.txt)\" = APPROVE"],
-                "on": {"success": {"goto": "_end"}, "failure": {"goto": "ImplementationCycleGate"}},
-            },
-            {
-                "name": "ImplementationCycleGate",
-                "command": ["bash", "-lc", "test \"$(cat state/cycle.txt)\" -lt 20"],
-                "on": {"success": {"goto": "FixImplementation"}, "failure": {"goto": "MaxImplementationCyclesExceeded"}},
-            },
-            {
-                "name": "FixImplementation",
-                "command": ["bash", "-lc", "printf 'fix\\n' >> state/history.log"],
-                "on": {"success": {"goto": "IncrementImplementationCycle"}},
-            },
-            {
-                "name": "IncrementImplementationCycle",
-                "command": [
-                    "bash",
-                    "-lc",
-                    "\n".join(
-                        [
-                            "count=$(cat state/cycle.txt 2>/dev/null || printf '0')",
-                            "count=$((count + 1))",
-                            "printf '%s\\n' \"$count\" > state/cycle.txt",
-                            "printf 'increment-%s\\n' \"$count\" >> state/history.log",
-                        ]
-                    ),
-                ],
-                "on": {"success": {"goto": "ReviewImplementation"}},
-            },
-            {
-                "name": "MaxImplementationCyclesExceeded",
-                "command": ["bash", "-lc", "printf 'maxed\\n' >> state/history.log && exit 1"],
-            },
-        ],
-    }
 
 
 def _build_structured_if_else_resume_workflow() -> dict:
@@ -377,398 +305,6 @@ def _build_structured_if_else_resume_workflow() -> dict:
                     "-lc",
                     "test \"${steps.RouteReview.artifacts.route_result}\" = true && "
                     "[ \"$(grep -c '^write-one$' state/history.log)\" -eq 1 ]",
-                ],
-            },
-        ],
-    }
-
-
-def _build_structured_finally_resume_workflow() -> dict:
-    return {
-        "version": "2.3",
-        "name": "Resume Structured Finally Workflow",
-        "artifacts": {
-            "decision": {
-                "kind": "scalar",
-                "type": "enum",
-                "allowed": ["APPROVE", "REVISE"],
-            }
-        },
-        "outputs": {
-            "final_decision": {
-                "kind": "scalar",
-                "type": "enum",
-                "allowed": ["APPROVE", "REVISE"],
-                "from": {
-                    "ref": "root.steps.WriteDecision.artifacts.decision",
-                },
-            }
-        },
-        "steps": [
-            {
-                "name": "WriteDecision",
-                "id": "write_decision",
-                "set_scalar": {
-                    "artifact": "decision",
-                    "value": "APPROVE",
-                },
-            }
-        ],
-        "finally": {
-            "id": "cleanup",
-            "steps": [
-                {
-                    "name": "ObserveOutputsPending",
-                    "id": "observe_outputs_pending",
-                    "command": [
-                        "bash",
-                        "-lc",
-                        "\n".join(
-                            [
-                                "python - <<'PY'",
-                                "import json",
-                                "from pathlib import Path",
-                                "state = json.loads(Path('${run.root}/state.json').read_text(encoding='utf-8'))",
-                                "assert state.get('workflow_outputs', {}) == {}, state.get('workflow_outputs')",
-                                "Path('state').mkdir(exist_ok=True)",
-                                "with Path('state/finalization.log').open('a', encoding='utf-8') as handle:",
-                                "    handle.write('outputs-pending\\n')",
-                                "PY",
-                            ]
-                        ),
-                    ],
-                },
-                {
-                    "name": "WriteCleanupMarker",
-                    "id": "write_cleanup_marker",
-                    "command": [
-                        "bash",
-                        "-lc",
-                        "mkdir -p state && printf 'cleanup-complete\\n' >> state/finalization.log",
-                    ],
-                },
-            ],
-        },
-    }
-
-
-def _build_repeat_until_resume_workflow() -> dict:
-    return {
-        "version": "2.7",
-        "name": "Resume Repeat Until Workflow",
-        "steps": [
-            {
-                "name": "ReviewLoop",
-                "id": "review_loop",
-                "repeat_until": {
-                    "id": "iteration_body",
-                    "outputs": {
-                        "review_decision": {
-                            "kind": "scalar",
-                            "type": "enum",
-                            "allowed": ["APPROVE", "REVISE"],
-                            "from": {
-                                "ref": "self.steps.WriteDecision.artifacts.review_decision",
-                            },
-                        }
-                    },
-                    "condition": {
-                        "compare": {
-                            "left": {
-                                "ref": "self.outputs.review_decision",
-                            },
-                            "op": "eq",
-                            "right": "APPROVE",
-                        }
-                    },
-                    "max_iterations": 4,
-                    "steps": [
-                        {
-                            "name": "WriteBodyHistory",
-                            "id": "write_body_history",
-                            "command": [
-                                "bash",
-                                "-lc",
-                                "\n".join(
-                                    [
-                                        "mkdir -p state",
-                                        "count=$(cat state/review_count.txt 2>/dev/null || printf '0')",
-                                        "count=$((count + 1))",
-                                        "printf '%s\\n' \"$count\" > state/review_count.txt",
-                                        "printf 'body-%s\\n' \"$count\" >> state/history.log",
-                                    ]
-                                ),
-                            ],
-                        },
-                        {
-                            "name": "ResumeGate",
-                            "id": "resume_gate",
-                            "command": [
-                                "bash",
-                                "-lc",
-                                "\n".join(
-                                    [
-                                        "mkdir -p state",
-                                        "count=$(cat state/review_count.txt)",
-                                        "if [ \"$count\" -ge 2 ] && [ ! -f state/resume_ready.txt ]; then",
-                                        "  printf 'gate-failed-%s\\n' \"$count\" >> state/history.log",
-                                        "  exit 1",
-                                        "fi",
-                                        "printf 'gate-passed-%s\\n' \"$count\" >> state/history.log",
-                                    ]
-                                ),
-                            ],
-                        },
-                        {
-                            "name": "WriteDecision",
-                            "id": "write_decision",
-                            "command": [
-                                "bash",
-                                "-lc",
-                                "\n".join(
-                                    [
-                                        "mkdir -p state",
-                                        "count=$(cat state/review_count.txt)",
-                                        "if [ \"$count\" -ge 2 ]; then",
-                                        "  printf 'APPROVE\\n' > state/review_decision.txt",
-                                        "else",
-                                        "  printf 'REVISE\\n' > state/review_decision.txt",
-                                        "fi",
-                                    ]
-                                ),
-                            ],
-                            "expected_outputs": [
-                                {
-                                    "name": "review_decision",
-                                    "path": "state/review_decision.txt",
-                                    "type": "enum",
-                                    "allowed": ["APPROVE", "REVISE"],
-                                }
-                            ],
-                        },
-                    ],
-                },
-            },
-            {
-                "name": "VerifyApproval",
-                "id": "verify_approval",
-                "assert": {
-                    "compare": {
-                        "left": {
-                            "ref": "root.steps.ReviewLoop.artifacts.review_decision",
-                        },
-                        "op": "eq",
-                        "right": "APPROVE",
-                    }
-                },
-            },
-        ],
-    }
-
-
-def _build_finally_resume_workflow() -> dict:
-    return {
-        "version": "2.3",
-        "name": "Resume Finally Workflow",
-        "steps": [
-            {
-                "name": "WriteBodyHistory",
-                "id": "write_body_history",
-                "command": [
-                    "bash",
-                    "-lc",
-                    "mkdir -p state && printf 'body\\n' >> state/history.log",
-                ],
-            }
-        ],
-        "finally": {
-            "id": "cleanup",
-            "steps": [
-                {
-                    "name": "WriteCleanupOne",
-                    "id": "write_cleanup_one",
-                    "command": [
-                        "bash",
-                        "-lc",
-                        "mkdir -p state && printf 'cleanup-one\\n' >> state/history.log",
-                    ],
-                },
-                {
-                    "name": "ResumeGate",
-                    "id": "resume_gate",
-                    "command": [
-                        "bash",
-                        "-lc",
-                        "\n".join(
-                            [
-                                "mkdir -p state",
-                                "if [ ! -f state/resume_ready.txt ]; then",
-                                "  printf 'cleanup-gate-failed\\n' >> state/history.log",
-                                "  exit 1",
-                                "fi",
-                                "printf 'cleanup-gate-passed\\n' >> state/history.log",
-                            ]
-                        ),
-                    ],
-                },
-                {
-                    "name": "WriteCleanupTwo",
-                    "id": "write_cleanup_two",
-                    "command": [
-                        "bash",
-                        "-lc",
-                        "mkdir -p state && printf 'cleanup-two\\n' >> state/history.log",
-                    ],
-                },
-            ],
-        },
-    }
-
-
-def _build_call_resume_library_workflow() -> dict:
-    return {
-        "version": "2.5",
-        "name": "resume-review-loop",
-        "inputs": {
-            "write_root": {
-                "kind": "relpath",
-                "type": "relpath",
-            }
-        },
-        "artifacts": {
-            "approved": {
-                "kind": "scalar",
-                "type": "bool",
-            }
-        },
-        "outputs": {
-            "approved": {
-                "kind": "scalar",
-                "type": "bool",
-                "from": {
-                    "ref": "root.steps.SetApproved.artifacts.approved",
-                },
-            }
-        },
-        "steps": [
-            {
-                "name": "WriteHistory",
-                "id": "write_history",
-                "command": [
-                    "bash",
-                    "-lc",
-                    "\n".join(
-                        [
-                            "mkdir -p \"${inputs.write_root}\"",
-                            "printf 'child-one\\n' >> \"${inputs.write_root}/history.log\"",
-                        ]
-                    ),
-                ],
-            },
-            {
-                "name": "ResumeGate",
-                "id": "resume_gate",
-                "command": [
-                    "bash",
-                    "-lc",
-                    "\n".join(
-                        [
-                            "mkdir -p \"${inputs.write_root}\"",
-                            "if [ ! -f state/resume_ready.txt ]; then",
-                            "  printf 'gate-failed\\n' >> \"${inputs.write_root}/history.log\"",
-                            "  exit 1",
-                            "fi",
-                            "printf 'gate-passed\\n' >> \"${inputs.write_root}/history.log\"",
-                        ]
-                    ),
-                ],
-            },
-            {
-                "name": "SetApproved",
-                "id": "set_approved",
-                "set_scalar": {
-                    "artifact": "approved",
-                    "value": True,
-                },
-            },
-        ],
-    }
-
-
-def _build_call_resume_caller_workflow() -> dict:
-    return {
-        "version": "2.5",
-        "name": "resume-call-workflow",
-        "imports": {
-            "review_loop": "workflows/library/review_loop_fixture.yaml",
-        },
-        "steps": [
-            {
-                "name": "RunReviewLoop",
-                "id": "run_review_loop",
-                "call": "review_loop",
-                "with": {
-                    "write_root": "state/review-loop",
-                },
-            },
-            {
-                "name": "VerifyApproved",
-                "id": "verify_approved",
-                "assert": {
-                    "artifact_bool": {
-                        "ref": "root.steps.RunReviewLoop.artifacts.approved",
-                    }
-                },
-            },
-        ],
-    }
-
-
-def _build_since_last_consume_resume_workflow() -> dict:
-    return {
-        "version": "2.14",
-        "name": "resume-since-last-consume-workflow",
-        "artifacts": {
-            "review_feedback": {
-                "kind": "scalar",
-                "type": "string",
-            }
-        },
-        "steps": [
-            {
-                "name": "PublishReview",
-                "id": "publish_review",
-                "set_scalar": {
-                    "artifact": "review_feedback",
-                    "value": "revise the implementation",
-                },
-                "publishes": [{"artifact": "review_feedback", "from": "review_feedback"}],
-            },
-            {
-                "name": "FixImplementation",
-                "id": "fix_implementation",
-                "consumes": [
-                    {
-                        "artifact": "review_feedback",
-                        "policy": "latest_successful",
-                        "freshness": "since_last_consume",
-                    }
-                ],
-                "consume_bundle": {"path": "state/fix_bundle.json"},
-                "command": [
-                    "bash",
-                    "-lc",
-                    "\n".join(
-                        [
-                            "mkdir -p state",
-                            "if [ ! -f state/resume_ready.txt ]; then",
-                            "  printf 'attempted\\n' >> state/history.log",
-                            "  exit 1",
-                            "fi",
-                            "cat state/fix_bundle.json > state/consumed.json",
-                            "printf 'resumed\\n' >> state/history.log",
-                        ]
-                    ),
                 ],
             },
         ],
@@ -1317,36 +853,6 @@ def _compile_root_result_collection_bundle(workspace: Path):
     return module_path, bundle
 
 
-def test_resume_root_result_scalar_output_bundle_persists_across_resume(temp_workspace):
-    run_id = "root-result-scalar-resume"
-    workflow_path = temp_workspace / "root_result_resume.yaml"
-    workflow_path.write_text(
-        json.dumps(_build_root_result_resume_workflow(), sort_keys=False),
-        encoding="utf-8",
-    )
-
-    loaded = WorkflowLoader(temp_workspace).load(workflow_path)
-    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
-    state_manager.initialize(str(workflow_path), context=bundle_context_dict(loaded))
-
-    first_run = WorkflowExecutor(loaded, temp_workspace, state_manager).execute(on_error="stop")
-
-    assert first_run["status"] == "failed"
-    assert first_run["steps"]["WriteScalarRoot"]["status"] == "completed"
-    assert first_run["steps"]["WriteScalarRoot"]["artifacts"] == {"__result__": True}
-
-    (temp_workspace / "state" / "approved.txt").write_text("ok\n", encoding="utf-8")
-    with patch("os.getcwd", return_value=str(temp_workspace)):
-        result = resume_workflow(run_id=run_id, repair=False, force_restart=False)
-
-    assert result == 0
-    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
-    assert loaded_state.status == "completed"
-    assert loaded_state.steps["WriteScalarRoot"]["artifacts"] == {"__result__": True}
-    replay_log = temp_workspace / "state" / "replay.log"
-    assert replay_log.read_text(encoding="utf-8").split() == ["scalar"]
-
-
 def test_projection_runtime_plan_includes_root_result_output_bundle_entries(tmp_path: Path):
     workflow_path = tmp_path / "root_result_resume.yaml"
     workflow_path.write_text(
@@ -1422,64 +928,6 @@ def test_resume_root_result_collection_bundles_persist_and_resume_at_lexical_che
     assert resumed["workflow_outputs"] == {"__result__": [1, 2, 3]}
     replay_log = temp_workspace / "state" / "replay.log"
     assert replay_log.read_text(encoding="utf-8").split() == ["optional", "list"]
-
-
-def _seed_resume_loop_state(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
-    workflow_path = workspace / "resume_loop.yaml"
-    workflow_path.write_text(json.dumps(_build_resume_loop_workflow(), sort_keys=False))
-
-    state_dir = workspace / "state"
-    state_dir.mkdir(exist_ok=True)
-    (state_dir / "review_count.txt").write_text("1\n")
-    (state_dir / "cycle.txt").write_text("1\n")
-    (state_dir / "decision.txt").write_text("REVISE\n")
-    (state_dir / "history.log").write_text("review-1\nfix\nincrement-1\n")
-
-    state_manager = StateManager(workspace=workspace, run_id=run_id)
-    state_manager.initialize("resume_loop.yaml")
-    assert state_manager.state is not None
-    state_manager.state.status = "failed"
-    state_manager.state.steps = {
-        "ReviewImplementation": {"status": "completed", "exit_code": 0},
-        "ImplementationReviewGate": {"status": "failed", "exit_code": 1},
-        "ImplementationCycleGate": {"status": "completed", "exit_code": 0},
-        "FixImplementation": {"status": "completed", "exit_code": 0},
-        "IncrementImplementationCycle": {"status": "completed", "exit_code": 0},
-    }
-    state_manager._write_state()
-    return workflow_path, state_manager
-
-
-def _seed_structured_if_else_failure(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
-    workflow_path = workspace / "structured_if_else_resume.yaml"
-    workflow_path.write_text(
-        json.dumps(_build_structured_if_else_resume_workflow(), sort_keys=False),
-        encoding="utf-8",
-    )
-
-    state_manager = StateManager(workspace=workspace, run_id=run_id)
-    state_manager.initialize("structured_if_else_resume.yaml")
-    workflow = WorkflowLoader(workspace).load(workflow_path)
-    state = WorkflowExecutor(workflow, workspace, state_manager).execute(on_error="stop")
-
-    assert state["status"] == "failed"
-    return workflow_path, state_manager
-
-
-def _seed_repeat_until_failure(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
-    workflow_path = workspace / "repeat_until_resume.yaml"
-    workflow_path.write_text(
-        json.dumps(_build_repeat_until_resume_workflow(), sort_keys=False),
-        encoding="utf-8",
-    )
-
-    state_manager = StateManager(workspace=workspace, run_id=run_id)
-    state_manager.initialize("repeat_until_resume.yaml")
-    workflow = WorkflowLoader(workspace).load(workflow_path)
-    state = WorkflowExecutor(workflow, workspace, state_manager).execute(on_error="stop")
-
-    assert state["status"] == "failed"
-    return workflow_path, state_manager
 
 
 def test_projection_runtime_plan_summarizes_artifacts_and_snapshots_from_executable_config(
@@ -1786,28 +1234,6 @@ def test_resume_planner_marks_yaml_route_ineligible_without_lexical_restore(
     assert decision["restore_decision"] is None
 
 
-def _seed_repeat_until_call_failure(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
-    library_path = workspace / "workflows" / "library" / "repeat_until_review_fixture.yaml"
-    library_path.parent.mkdir(parents=True, exist_ok=True)
-    library_path.write_text(
-        json.dumps(_build_repeat_until_call_resume_library_workflow(), sort_keys=False),
-        encoding="utf-8",
-    )
-    workflow_path = workspace / "repeat_until_call_resume.yaml"
-    workflow_path.write_text(
-        json.dumps(_build_repeat_until_call_resume_workflow(), sort_keys=False),
-        encoding="utf-8",
-    )
-
-    state_manager = StateManager(workspace=workspace, run_id=run_id)
-    state_manager.initialize("repeat_until_call_resume.yaml")
-    workflow = WorkflowLoader(workspace).load(workflow_path)
-    state = WorkflowExecutor(workflow, workspace, state_manager).execute(on_error="stop")
-
-    assert state["status"] == "failed"
-    return workflow_path, state_manager
-
-
 @pytest.fixture
 def temp_workspace():
     """Create a temporary workspace directory."""
@@ -1818,40 +1244,28 @@ def temp_workspace():
 
 @pytest.fixture
 def sample_workflow(temp_workspace):
-    """Create a sample workflow file."""
-    workflow_path = temp_workspace / "test_workflow.yaml"
-    workflow_content = r"""
-{
-  "version": "1.1",
-  "name": "Test Resume Workflow",
-  "steps": [
-    {
-      "name": "Step1",
-      "command": [
-        "echo",
-        "Hello from Step1"
-      ],
-      "output_capture": "text"
-    },
-    {
-      "name": "Step2",
-      "command": [
-        "echo",
-        "Hello from Step2"
-      ],
-      "output_capture": "text"
-    },
-    {
-      "name": "Step3",
-      "command": [
-        "echo",
-        "Hello from Step3"
-      ],
-      "output_capture": "text"
-    }
-  ]
-}
-"""
+    """Create a minimal compiled-ORC resume fixture."""
+    workflow_path = temp_workspace / "test_resume_workflow.orc"
+    workflow_content = "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.15")',
+            "  (defmodule test_resume_workflow)",
+            "  (export orchestrate)",
+            "  (defrecord ResumeSummary",
+            "    (status String)",
+            "    (ready Bool))",
+            "  (defworkflow orchestrate",
+            "    ((approved Bool)",
+            "     (status String))",
+            "    -> ResumeSummary",
+            "    (record ResumeSummary",
+            "      :status status",
+            "      :ready approved)))",
+            "",
+        ]
+    )
     workflow_path.write_text(workflow_content)
 
     # Calculate checksum in StateManager format
@@ -1937,16 +1351,11 @@ def partial_run_state(temp_workspace, sample_workflow):
         "updated_at": "2024-01-01T00:01:00Z",
         "status": "suspended",
         "context": {},
-        "steps": {
-            "Step1": {
-                "status": "completed",
-                "exit_code": 0,
-                "output": "Hello from Step1",
-                "started_at": "2024-01-01T00:00:01Z",
-                "completed_at": "2024-01-01T00:00:02Z",
-                "duration_ms": 1000
-            }
-        }
+        "bound_inputs": {
+            "approved": False,
+            "status": "pending",
+        },
+        "steps": {},
     }
 
     state_file = state_dir / "state.json"
@@ -2084,9 +1493,8 @@ def test_at4_resume_nonexistent_run(temp_workspace):
     assert result == 1  # Should fail
 
 
-def test_resume_rejects_pre_task6_schema_state(temp_workspace, sample_workflow, capsys):
+def test_resume_rejects_pre_task6_schema_state(temp_workspace, capsys):
     """Task 6 should reject resume from pre-identity-schema state without an upgrader."""
-    fixture_path, _fixture_checksum = sample_workflow
     workflow_path = temp_workspace / "old_schema_source.orc"
     workflow_source = (
         "(workflow-lisp\n"
@@ -2112,12 +1520,7 @@ def test_resume_rejects_pre_task6_schema_state(temp_workspace, sample_workflow, 
             "Step1": {"status": "completed", "exit_code": 0},
         },
     }, indent=2))
-    bundle = WorkflowLoader(temp_workspace).load_bundle(fixture_path)
-
-    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
-        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
-        return_value=bundle,
-    ):
+    with patch('os.getcwd', return_value=str(temp_workspace)):
         result = resume_workflow(
             run_id=run_id,
             repair=False,
@@ -2128,291 +1531,6 @@ def test_resume_rejects_pre_task6_schema_state(temp_workspace, sample_workflow, 
     assert result == 1
     assert "schema version" in captured.err
     assert "1.1.1" in captured.err
-
-
-def test_structured_if_else_smoke_resume_does_not_replay_completed_lowered_steps(temp_workspace):
-    """Resume should not replay completed lowered branch work inside structured if/else."""
-    run_id = "if-else-resume-run"
-    workflow_path, _state_manager = _seed_structured_if_else_failure(temp_workspace, run_id=run_id)
-    bundle = WorkflowLoader(temp_workspace).load_bundle(workflow_path)
-
-    history_path = temp_workspace / "state" / "history.log"
-    assert history_path.read_text(encoding="utf-8").splitlines() == [
-        "write-one",
-        "gate-failed",
-    ]
-
-    (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
-
-    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
-        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
-        return_value=bundle,
-    ):
-        result = resume_workflow(
-            run_id=run_id,
-            repair=False,
-            force_restart=False,
-        )
-
-    assert result == 0
-    assert history_path.read_text(encoding="utf-8").splitlines() == [
-        "write-one",
-        "gate-failed",
-        "gate-passed",
-    ]
-
-    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
-    assert loaded_state.status == "completed"
-    assert loaded_state.steps["RouteReview.then.WriteHistory"]["status"] == "completed"
-    assert loaded_state.steps["RouteReview.then.ResumeGate"]["status"] == "completed"
-    assert loaded_state.steps["RouteReview"]["artifacts"] == {"route_result": True}
-
-
-def test_resume_fails_closed_on_projection_current_step_integrity_mismatch(temp_workspace, capsys):
-    """Resume should reject corrupted current_step compatibility fields when step_id disagrees."""
-    run_id = "if-else-resume-integrity-error"
-    workflow_path, state_manager = _seed_structured_if_else_failure(temp_workspace, run_id=run_id)
-    bundle = WorkflowLoader(temp_workspace).load_bundle(workflow_path)
-
-    loaded_state = state_manager.load()
-    loaded_state.status = "failed"
-    loaded_state.current_step = {
-        "name": "SetReady",
-        "index": 0,
-        "type": "structured_if_join",
-        "status": "running",
-        "step_id": "root.route_review",
-    }
-    state_manager._write_state()
-
-    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
-        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
-        return_value=bundle,
-    ):
-        result = resume_workflow(
-            run_id=run_id,
-            repair=False,
-            force_restart=False,
-        )
-
-    assert result == 1
-    persisted_state = state_manager.load().to_dict()
-    error = persisted_state["error"]
-
-    assert persisted_state["status"] == "failed"
-    assert error["type"] == "resume_projection_integrity_error"
-    assert error["context"]["reason"] == "presentation_slot_mismatch"
-    assert error["context"]["field"] == "current_step.step_id"
-    assert error["context"]["offending_value"] == "root.route_review"
-
-    captured = capsys.readouterr()
-    assert "presentation_slot_mismatch" in captured.err
-
-
-def test_repeat_until_smoke_resume_restarts_unfinished_iteration_without_replaying_completed_nested_steps(
-    temp_workspace,
-):
-    """Resume should continue a failed repeat_until iteration from the first unfinished nested step."""
-    run_id = "repeat-until-resume-run"
-    workflow_path, _state_manager = _seed_repeat_until_failure(temp_workspace, run_id=run_id)
-    bundle = WorkflowLoader(temp_workspace).load_bundle(workflow_path)
-
-    history_path = temp_workspace / "state" / "history.log"
-    assert history_path.read_text(encoding="utf-8").splitlines() == [
-        "body-1",
-        "gate-passed-1",
-        "body-2",
-        "gate-failed-2",
-    ]
-
-    (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
-
-    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
-        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
-        return_value=bundle,
-    ):
-        result = resume_workflow(
-            run_id=run_id,
-            repair=False,
-            force_restart=False,
-        )
-
-    assert result == 0
-    assert history_path.read_text(encoding="utf-8").splitlines() == [
-        "body-1",
-        "gate-passed-1",
-        "body-2",
-        "gate-failed-2",
-        "gate-passed-2",
-    ]
-
-    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
-    assert loaded_state.status == "completed"
-    assert loaded_state.steps["ReviewLoop[1].WriteBodyHistory"]["status"] == "completed"
-    assert loaded_state.steps["ReviewLoop[1].ResumeGate"]["status"] == "completed"
-    assert loaded_state.steps["ReviewLoop[1].WriteDecision"]["artifacts"] == {
-        "review_decision": "APPROVE"
-    }
-    assert loaded_state.steps["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
-
-
-def test_repeat_until_resume_advances_past_already_evaluated_condition_without_replaying_iteration(
-    temp_workspace,
-):
-    """Resume should advance to the next iteration when the prior iteration body and condition already settled."""
-    run_id = "repeat-until-condition-resume-run"
-    workflow_path = temp_workspace / "repeat_until_resume.yaml"
-    workflow_path.write_text(
-        json.dumps(_build_repeat_until_resume_workflow(), sort_keys=False),
-        encoding="utf-8",
-    )
-    workflow = WorkflowLoader(temp_workspace).load(workflow_path)
-    bundle = WorkflowLoader(temp_workspace).load_bundle(workflow_path)
-    repeat_step = materialize_projection_body_steps(workflow)[0]
-    body_steps = repeat_step["repeat_until"]["steps"]
-
-    state_dir = temp_workspace / "state"
-    state_dir.mkdir(exist_ok=True)
-    (state_dir / "review_count.txt").write_text("1\n", encoding="utf-8")
-    (state_dir / "review_decision.txt").write_text("REVISE\n", encoding="utf-8")
-    (state_dir / "history.log").write_text("body-1\ngate-passed-1\n", encoding="utf-8")
-    (state_dir / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
-
-    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
-    state_manager.initialize("repeat_until_resume.yaml")
-    assert state_manager.state is not None
-    state_manager.state.status = "failed"
-    state_manager.state.step_visits = {"ReviewLoop": 1}
-    state_manager.state.current_step = {
-        "name": "ReviewLoop",
-        "index": 0,
-        "type": "repeat_until",
-        "status": "running",
-        "started_at": state_manager.state.started_at,
-        "last_heartbeat_at": state_manager.state.updated_at,
-        "step_id": repeat_step["step_id"],
-        "visit_count": 1,
-    }
-    state_manager.state.steps = {
-        "ReviewLoop": {
-            "status": "running",
-            "name": "ReviewLoop",
-            "step_id": repeat_step["step_id"],
-            "artifacts": {"review_decision": "REVISE"},
-            "debug": {
-                "structured_repeat_until": {
-                    "completed_iterations": [],
-                    "current_iteration": 0,
-                    "condition_evaluated_for_iteration": 0,
-                    "last_condition_result": False,
-                }
-            },
-        },
-        "ReviewLoop[0].WriteBodyHistory": {
-            "status": "completed",
-            "name": "WriteBodyHistory",
-            "step_id": iteration_step_id(repeat_step["step_id"], 0, body_steps[0], 0),
-            "exit_code": 0,
-        },
-        "ReviewLoop[0].ResumeGate": {
-            "status": "completed",
-            "name": "ResumeGate",
-            "step_id": iteration_step_id(repeat_step["step_id"], 0, body_steps[1], 1),
-            "exit_code": 0,
-        },
-        "ReviewLoop[0].WriteDecision": {
-            "status": "completed",
-            "name": "WriteDecision",
-            "step_id": iteration_step_id(repeat_step["step_id"], 0, body_steps[2], 2),
-            "exit_code": 0,
-            "artifacts": {"review_decision": "REVISE"},
-        },
-    }
-    state_manager.state.repeat_until = {
-        "ReviewLoop": {
-            "current_iteration": 0,
-            "completed_iterations": [],
-            "condition_evaluated_for_iteration": 0,
-            "last_condition_result": False,
-        }
-    }
-    state_manager._write_state()
-
-    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
-        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
-        return_value=bundle,
-    ):
-        result = resume_workflow(
-            run_id=run_id,
-            repair=False,
-            force_restart=False,
-        )
-
-    assert result == 0
-    assert (state_dir / "history.log").read_text(encoding="utf-8").splitlines() == [
-        "body-1",
-        "gate-passed-1",
-        "body-2",
-        "gate-passed-2",
-    ]
-
-    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
-    assert loaded_state.status == "completed"
-    assert loaded_state.steps["ReviewLoop[1].WriteBodyHistory"]["status"] == "completed"
-    assert loaded_state.steps["ReviewLoop[1].ResumeGate"]["status"] == "completed"
-    assert loaded_state.steps["ReviewLoop[1].WriteDecision"]["artifacts"] == {
-        "review_decision": "APPROVE"
-    }
-    assert loaded_state.steps["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
-
-
-def test_repeat_until_resume_preserves_nested_call_frames_and_lowered_match_progress(temp_workspace):
-    """Resume should continue a repeat_until call body without replaying finished child-call work."""
-    run_id = "repeat-until-call-resume-run"
-    workflow_path, _state_manager = _seed_repeat_until_call_failure(temp_workspace, run_id=run_id)
-    bundle = WorkflowLoader(temp_workspace).load_bundle(workflow_path)
-
-    history_path = temp_workspace / "state" / "review-loop" / "history.log"
-    assert history_path.read_text(encoding="utf-8").splitlines() == [
-        "body-1",
-        "gate-passed-1",
-        "body-2",
-        "gate-failed-2",
-    ]
-
-    (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
-
-    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
-        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
-        return_value=bundle,
-    ):
-        result = resume_workflow(
-            run_id=run_id,
-            repair=False,
-            force_restart=False,
-        )
-
-    assert result == 0
-    assert history_path.read_text(encoding="utf-8").splitlines() == [
-        "body-1",
-        "gate-passed-1",
-        "body-2",
-        "gate-failed-2",
-        "gate-passed-2",
-    ]
-
-    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
-    assert loaded_state.status == "completed"
-    assert loaded_state.steps["ReviewLoop[0].RunReviewLoop"]["artifacts"] == {"review_decision": "REVISE"}
-    assert loaded_state.steps["ReviewLoop[0].RouteDecision.REVISE.WriteRevision"]["status"] == "completed"
-    assert loaded_state.steps["ReviewLoop[1].RunReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
-    assert loaded_state.steps["ReviewLoop[1].RouteDecision.APPROVE.WriteApproved"]["status"] == "completed"
-    assert loaded_state.steps["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
-    assert len(loaded_state.call_frames) == 2
-    assert sorted(frame["call_step_id"] for frame in loaded_state.call_frames.values()) == [
-        "root.review_loop#0.iteration_body.run_review_loop",
-        "root.review_loop#1.iteration_body.run_review_loop",
-    ]
 
 
 def test_repeat_until_resume_clears_stale_failed_nested_call_result_while_child_reruns(
@@ -2527,252 +1645,6 @@ def test_repeat_until_resume_clears_stale_failed_nested_call_result_while_child_
     assert second_frame["state"]["steps"]["WriteBodyHistory"]["status"] == "completed"
     assert second_frame["state"]["steps"]["ResumeGate"]["status"] == "completed"
     assert second_frame["state"]["steps"]["WriteDecision"]["status"] == "completed"
-
-
-def test_finally_smoke_resume_restarts_at_first_unfinished_cleanup_step(temp_workspace):
-    """Resume should continue finalization from the first unfinished cleanup step."""
-    workflow_path = temp_workspace / "resume_finally.yaml"
-    workflow_path.write_text(
-        json.dumps(_build_finally_resume_workflow(), sort_keys=False),
-        encoding="utf-8",
-    )
-
-    loader = WorkflowLoader(temp_workspace)
-    loaded = loader.load(workflow_path)
-
-    state_manager = StateManager(workspace=temp_workspace, run_id="finally-resume-run")
-    state_manager.initialize("resume_finally.yaml")
-    first_run = WorkflowExecutor(loaded, temp_workspace, state_manager).execute()
-
-    history_path = temp_workspace / "state" / "history.log"
-    assert first_run["status"] == "failed"
-    assert history_path.read_text(encoding="utf-8").splitlines() == [
-        "body",
-        "cleanup-one",
-        "cleanup-gate-failed",
-    ]
-
-    (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
-
-    with patch('os.getcwd', return_value=str(temp_workspace)):
-        result = resume_workflow(
-            run_id="finally-resume-run",
-            repair=False,
-            force_restart=False,
-        )
-
-    assert result == 0
-    assert history_path.read_text(encoding="utf-8").splitlines() == [
-        "body",
-        "cleanup-one",
-        "cleanup-gate-failed",
-        "cleanup-gate-passed",
-        "cleanup-two",
-    ]
-
-    loaded_state = StateManager(temp_workspace, run_id="finally-resume-run").load()
-    assert loaded_state.status == "completed"
-    assert loaded_state.steps["WriteBodyHistory"]["status"] == "completed"
-    assert loaded_state.steps["finally.WriteCleanupOne"]["status"] == "completed"
-    assert loaded_state.steps["finally.ResumeGate"]["status"] == "completed"
-    assert loaded_state.steps["finally.WriteCleanupTwo"]["status"] == "completed"
-
-
-def test_call_subworkflow_smoke_resume_preserves_completed_nested_steps(temp_workspace):
-    run_id = "call-subworkflow-resume-run"
-    library_path = temp_workspace / "workflows" / "library" / "review_loop_fixture.yaml"
-    library_path.parent.mkdir(parents=True, exist_ok=True)
-    library_path.write_text(
-        json.dumps(_build_call_resume_library_workflow(), sort_keys=False),
-        encoding="utf-8",
-    )
-    workflow_path = temp_workspace / "resume_call_workflow.yaml"
-    workflow_path.write_text(
-        json.dumps(_build_call_resume_caller_workflow(), sort_keys=False),
-        encoding="utf-8",
-    )
-
-    loader = WorkflowLoader(temp_workspace)
-    loaded = loader.load(workflow_path)
-    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
-    state_manager.initialize(str(workflow_path), context=bundle_context_dict(loaded))
-
-    first_run = WorkflowExecutor(loaded, temp_workspace, state_manager).execute()
-
-    history_path = temp_workspace / "state" / "review-loop" / "history.log"
-    assert first_run["status"] == "failed"
-    assert history_path.read_text(encoding="utf-8").splitlines() == [
-        "child-one",
-        "gate-failed",
-    ]
-
-    (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
-
-    with patch('os.getcwd', return_value=str(temp_workspace)):
-        result = resume_workflow(
-            run_id=run_id,
-            repair=False,
-            force_restart=False,
-        )
-
-    assert result == 0
-    assert history_path.read_text(encoding="utf-8").splitlines() == [
-        "child-one",
-        "gate-failed",
-        "gate-passed",
-    ]
-
-    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
-    assert loaded_state.status == "completed"
-    assert loaded_state.steps["RunReviewLoop"]["artifacts"] == {"approved": True}
-    assert loaded_state.steps["VerifyApproved"]["status"] == "completed"
-    assert len(loaded_state.call_frames) == 1
-    frame = next(iter(loaded_state.call_frames.values()))
-    assert frame["status"] == "completed"
-    assert frame["export_status"] == "completed"
-    assert frame["state"]["steps"]["WriteHistory"]["status"] == "completed"
-    assert frame["state"]["steps"]["ResumeGate"]["status"] == "completed"
-    assert frame["state"]["steps"]["SetApproved"]["status"] == "completed"
-
-
-def test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch(temp_workspace):
-    run_id = "call-subworkflow-checksum-run"
-    library_path = temp_workspace / "workflows" / "library" / "review_loop_fixture.yaml"
-    library_path.parent.mkdir(parents=True, exist_ok=True)
-    library_path.write_text(
-        json.dumps(_build_call_resume_library_workflow(), sort_keys=False),
-        encoding="utf-8",
-    )
-    workflow_path = temp_workspace / "resume_call_workflow.yaml"
-    workflow_path.write_text(
-        json.dumps(_build_call_resume_caller_workflow(), sort_keys=False),
-        encoding="utf-8",
-    )
-
-    loader = WorkflowLoader(temp_workspace)
-    loaded = loader.load(workflow_path)
-    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
-    state_manager.initialize(str(workflow_path), context=bundle_context_dict(loaded))
-
-    first_run = WorkflowExecutor(loaded, temp_workspace, state_manager).execute()
-
-    history_path = temp_workspace / "state" / "review-loop" / "history.log"
-    assert first_run["status"] == "failed"
-    assert history_path.read_text(encoding="utf-8").splitlines() == [
-        "child-one",
-        "gate-failed",
-    ]
-
-    (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
-    run_root = state_manager.run_root
-    before_tree = {
-        relative_path: (entry_type, payload)
-        for relative_path, entry_type, payload in _persisted_tree_entries(run_root)
-    }
-    before_state = json.loads((run_root / "state.json").read_text(encoding="utf-8"))
-    before_frames = before_state["call_frames"]
-    assert len(before_frames) == 1
-    before_frame_id, before_frame = next(iter(before_frames.items()))
-
-    def child_identity_projection(frame):
-        child_state = frame["state"]
-        return {
-            "call_frame_id": frame["call_frame_id"],
-            "call_step_name": frame["call_step_name"],
-            "call_step_id": frame["call_step_id"],
-            "import_alias": frame["import_alias"],
-            "workflow_file": frame["workflow_file"],
-            "child_workflow_file": child_state["workflow_file"],
-            "child_workflow_checksum": child_state["workflow_checksum"],
-            "child_step_names": tuple(sorted(child_state["steps"])),
-            "child_step_ids": tuple(
-                sorted(
-                    step["step_id"]
-                    for step in child_state["steps"].values()
-                    if isinstance(step, dict) and isinstance(step.get("step_id"), str)
-                )
-            ),
-        }
-
-    before_child_identity = child_identity_projection(before_frame)
-    library_path.write_text(
-        library_path.read_text(encoding="utf-8") + "\n# checksum-change\n",
-        encoding="utf-8",
-    )
-
-    def unexpected_child_runtime_call(*_args, **_kwargs):
-        raise AssertionError("callee checksum mismatch reached child execution")
-
-    # `execute_call` imports WorkflowExecutor dynamically; patching the module
-    # binding here observes child construction without replacing the already-
-    # imported parent executor used by `resume_workflow`.
-    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
-        "orchestrator.workflow.executor.WorkflowExecutor",
-        side_effect=unexpected_child_runtime_call,
-    ) as child_executor_constructor, patch.object(
-        WorkflowExecutor,
-        "_execute_provider_with_context",
-        side_effect=unexpected_child_runtime_call,
-    ) as provider_entrypoint, patch.object(
-        WorkflowExecutor,
-        "_execute_command_with_context",
-        side_effect=unexpected_child_runtime_call,
-    ) as command_entrypoint:
-        result = resume_workflow(
-            run_id=run_id,
-            repair=False,
-            force_restart=False,
-        )
-
-    assert result == 1
-    assert history_path.read_text(encoding="utf-8").splitlines() == [
-        "child-one",
-        "gate-failed",
-    ]
-    child_executor_constructor.assert_not_called()
-    provider_entrypoint.assert_not_called()
-    command_entrypoint.assert_not_called()
-
-    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
-    assert loaded_state.status == "failed"
-    assert len(loaded_state.call_frames) == 1
-    frame = next(iter(loaded_state.call_frames.values()))
-    assert frame["status"] == "failed"
-    assert frame["state"]["steps"]["WriteHistory"]["status"] == "completed"
-    assert frame["state"]["steps"]["ResumeGate"]["status"] == "failed"
-    assert "SetApproved" not in frame["state"]["steps"]
-    assert set(loaded_state.call_frames) == {before_frame_id}
-    assert child_identity_projection(frame) == before_child_identity
-
-    after_tree = {
-        relative_path: (entry_type, payload)
-        for relative_path, entry_type, payload in _persisted_tree_entries(run_root)
-    }
-    changed_run_entries = {
-        relative_path
-        for relative_path in before_tree.keys() | after_tree.keys()
-        if before_tree.get(relative_path) != after_tree.get(relative_path)
-    }
-    after_state = json.loads((run_root / "state.json").read_text(encoding="utf-8"))
-    changed_parent_state_fields = {
-        key
-        for key in before_state.keys() | after_state.keys()
-        if before_state.get(key) != after_state.get(key)
-    }
-    assert changed_run_entries == {
-        "monitor_process.json",
-        "state.json",
-        "workflow_lisp",
-        "workflow_lisp/checkpoints",
-        "workflow_lisp/checkpoints/default_resume_report.json",
-    }
-    assert changed_parent_state_fields == {
-        "runtime_observability",
-        "step_visits",
-        "steps",
-        "updated_at",
-    }
-    assert loaded_state.steps["RunReviewLoop"]["error"]["type"] == "call_resume_checksum_mismatch"
 
 
 def test_workflow_lisp_resume_ignores_shadow_checkpoint_sidecars(temp_workspace):
@@ -3258,84 +2130,25 @@ def test_resume_command_writes_default_resume_report_for_historical_legacy_route
     assert payload["checked_workflows"][0]["decision"]["restore_decision"] is None
 
 
-def test_resume_command_writes_default_resume_report_for_ineligible_yaml_route(
-    temp_workspace,
-) -> None:
-    run_id = "workflow-default-resume-ineligible"
-    workflow_path = temp_workspace / "resume_ineligible.yaml"
-    workflow_path.write_text(
-        json.dumps(_build_structured_if_else_resume_workflow(), sort_keys=False),
-        encoding="utf-8",
-    )
-
-    loader = WorkflowLoader(temp_workspace)
-    loaded = loader.load(workflow_path)
-    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
-    state_manager.initialize(str(workflow_path), context=bundle_context_dict(loaded))
-
-    first_run = WorkflowExecutor(loaded, temp_workspace, state_manager).execute()
-    assert first_run["status"] == "failed"
-
-    (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
-
-    with patch('os.getcwd', return_value=str(temp_workspace)):
-        result = resume_workflow(run_id=run_id, repair=False, force_restart=False)
-
-    assert result == 0
-    payload = json.loads(
-        state_manager.workflow_lisp_checkpoint_default_resume_report_path().read_text(
-            encoding="utf-8"
-        )
-    )
-    assert payload["schema_version"] == "workflow_lisp_checkpoint_default_resume_report.v1"
-    assert payload["default_modes"][0]["mode"] == "INELIGIBLE_STEP_GRANULAR"
-    assert payload["checked_workflows"][0]["decision"]["restore_decision"] is None
-
-
-def test_resume_retries_since_last_consume_step_after_failed_attempt(temp_workspace):
-    run_id = "since-last-consume-resume-run"
-    workflow_path = temp_workspace / "resume_since_last_consume.yaml"
-    workflow_path.write_text(
-        json.dumps(_build_since_last_consume_resume_workflow(), sort_keys=False),
-        encoding="utf-8",
-    )
-
-    loader = WorkflowLoader(temp_workspace)
-    loaded = loader.load(workflow_path)
-    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
-    state_manager.initialize(str(workflow_path), context=bundle_context_dict(loaded))
-
-    first_run = WorkflowExecutor(loaded, temp_workspace, state_manager).execute()
-
-    history_path = temp_workspace / "state" / "history.log"
-    assert first_run["status"] == "failed"
-    assert history_path.read_text(encoding="utf-8").splitlines() == ["attempted"]
-
-    (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
-
-    with patch('os.getcwd', return_value=str(temp_workspace)):
-        result = resume_workflow(
-            run_id=run_id,
-            repair=False,
-            force_restart=False,
-        )
-
-    assert result == 0
-    assert history_path.read_text(encoding="utf-8").splitlines() == ["attempted", "resumed"]
-    assert json.loads((temp_workspace / "state" / "consumed.json").read_text(encoding="utf-8")) == {
-        "review_feedback": "revise the implementation",
-    }
-
-    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
-    assert loaded_state.status == "completed"
-    assert loaded_state.steps["FixImplementation"]["status"] == "completed"
-
-
 @patch('orchestrator.cli.commands.resume.WorkflowExecutor')
-@patch('orchestrator.cli.commands.resume.WorkflowLoader')
-def test_resume_preserves_bound_inputs_in_loaded_state(mock_loader, mock_executor, temp_workspace, sample_workflow):
+def test_resume_preserves_bound_inputs_in_loaded_state(
+    mock_executor,
+    temp_workspace,
+    sample_workflow,
+):
     """Persisted workflow-signature inputs should remain available after resume reload."""
     workflow_path, checksum = sample_workflow
+    compiled = compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(temp_workspace,),
+        validate_shared=True,
+        workspace_root=temp_workspace,
+    )
+    bundle = next(
+        candidate
+        for name, candidate in compiled.validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
     run_id = "bound-inputs-run"
     state_dir = temp_workspace / '.orchestrate' / 'runs' / run_id
     state_dir.mkdir(parents=True)
@@ -3347,28 +2160,20 @@ def test_resume_preserves_bound_inputs_in_loaded_state(mock_loader, mock_executo
         "started_at": "2024-01-01T00:00:00Z",
         "updated_at": "2024-01-01T00:01:00Z",
         "status": "failed",
-        "context": {},
-        "bound_inputs": {"max_cycles": 5},
+        "context": bundle_context_dict(bundle),
+        "bound_inputs": {
+            "approved": False,
+            "status": "pending",
+        },
         "steps": {},
     }, indent=2))
 
-    mock_loader.return_value.load.return_value = {
-        "version": "2.1",
-        "name": "resume-signature",
-        "inputs": {
-            "max_cycles": {
-                "kind": "scalar",
-                "type": "integer",
-            }
-        },
-        "steps": [],
-    }
-    mock_loader.return_value.load_bundle.return_value = WorkflowLoader(
-        temp_workspace,
-    ).load_bundle(workflow_path)
     mock_executor.return_value.execute.return_value = {"status": "completed"}
 
-    with patch('os.getcwd', return_value=str(temp_workspace)):
+    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=bundle,
+    ):
         result = resume_workflow(
             run_id=run_id,
             repair=False,
@@ -3378,7 +2183,10 @@ def test_resume_preserves_bound_inputs_in_loaded_state(mock_loader, mock_executo
     assert result == 0
     state_manager = mock_executor.call_args.kwargs["state_manager"]
     assert state_manager.state is not None
-    assert state_manager.state.bound_inputs == {"max_cycles": 5}
+    assert state_manager.state.bound_inputs == {
+        "approved": False,
+        "status": "pending",
+    }
 
 
 def test_at4_resume_completed_run(temp_workspace, sample_workflow):
@@ -3746,7 +2554,17 @@ def test_projection_resume_root_direct_executor_rechecks_checksum_and_audit_befo
         temp_workspace,
         run_id="projection-root-direct",
     )
-    bundle = WorkflowLoader(temp_workspace).load_bundle(workflow_path)
+    compiled = compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(temp_workspace,),
+        validate_shared=True,
+        workspace_root=temp_workspace,
+    )
+    bundle = next(
+        candidate
+        for name, candidate in compiled.validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
     before_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
     events: list[str] = []
     original_checksum = manager.calculate_checksum
@@ -3791,96 +2609,6 @@ def test_projection_resume_root_direct_executor_rechecks_checksum_and_audit_befo
     assert "runtime_observability" not in after_state
     assert not (manager.run_root / "monitor_process.json").exists()
     assert not (manager.run_root / "provider_sessions").exists()
-
-
-def test_projection_integrity_public_paths_never_call_retirement_readers(
-    temp_workspace: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from tests.test_subworkflow_calls import (
-        _write_projection_integrity_call_graph,
-    )
-    import orchestrator.cli.commands.route_readiness as route_readiness_command
-    import orchestrator.workflow_lisp.migration_parity as migration_parity
-    import orchestrator.workflow_lisp.procedure_identity_retirement as retirement
-
-    workflow_path = _write_projection_integrity_call_graph(temp_workspace)
-    root_workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
-    root_workflow["steps"].insert(
-        0,
-        {
-            "name": "ResumeGate",
-            "id": "resume_gate",
-            "command": ["bash", "-lc", "test -f state/resume-ready.txt"],
-        },
-    )
-    workflow_path.write_text(
-        json.dumps(root_workflow, sort_keys=False),
-        encoding="utf-8",
-    )
-    bundle = WorkflowLoader(temp_workspace).load_bundle(workflow_path)
-    manager = StateManager(
-        temp_workspace,
-        run_id="projection-public-path-retirement-tripwire",
-    )
-    manager.initialize("workflow.yaml", context=bundle_context_dict(bundle))
-    first = WorkflowExecutor(bundle, temp_workspace, manager).execute()
-    assert first["status"] == "failed"
-    assert first.get("call_frames", {}) == {}
-
-    (temp_workspace / "state").mkdir(exist_ok=True)
-    (temp_workspace / "state" / "resume-ready.txt").write_text(
-        "ready\n",
-        encoding="utf-8",
-    )
-
-    known_readers = (
-        retirement.load_retirement_record,
-        retirement.validate_retirement_record,
-        migration_parity.load_parity_targets,
-    )
-    reader_tripwire = MagicMock(
-        side_effect=AssertionError(
-            "resume projection public path read retirement evidence"
-        )
-    )
-    patched_aliases: set[tuple[str, str]] = set()
-    for module_name, module in tuple(sys.modules.items()):
-        if not module_name.startswith("orchestrator.") or module is None:
-            continue
-        for attribute_name, value in tuple(vars(module).items()):
-            if any(value is reader for reader in known_readers):
-                monkeypatch.setattr(module, attribute_name, reader_tripwire)
-                patched_aliases.add((module_name, attribute_name))
-    monkeypatch.setattr(
-        retirement,
-        "load_retirement_evidence",
-        reader_tripwire,
-        raising=False,
-    )
-
-    with patch("os.getcwd", return_value=str(temp_workspace)):
-        result = resume_workflow(
-            run_id="projection-public-path-retirement-tripwire",
-        )
-
-    after = manager.load().to_dict()
-    assert result == 0
-    assert after["status"] == "completed"
-    assert len(after["call_frames"]) == 1
-    outer_frame = next(iter(after["call_frames"].values()))
-    assert outer_frame["status"] == "completed"
-    assert len(outer_frame["state"]["call_frames"]) == 1
-    assert (
-        "orchestrator.workflow_lisp.procedure_identity_retirement",
-        "load_retirement_record",
-    ) in patched_aliases
-    assert (
-        "orchestrator.cli.commands.route_readiness",
-        "load_parity_targets",
-    ) in patched_aliases
-    assert route_readiness_command.load_parity_targets is reader_tripwire
-    reader_tripwire.assert_not_called()
 
 
 def test_projection_resume_child_executor_skips_root_guard_structurally(
@@ -3957,21 +2685,27 @@ def test_projection_resume_post_cli_identity_race_uses_three_field_delta_and_clo
     temp_workspace: Path,
 ) -> None:
     run_id = "projection-post-cli-race"
-    workflow_path = temp_workspace / "projection_post_cli_race.yaml"
+    workflow_path = temp_workspace / "projection_post_cli_race.orc"
     workflow_path.write_text(
-        json.dumps(
-            {
-                "version": "2.0",
-                "name": "projection-post-cli-race",
-                "steps": [
-                    {
-                        "name": "NoEffect",
-                        "id": "no_effect",
-                        "command": ["bash", "-lc", "true"],
-                    }
-                ],
-            },
-            sort_keys=False,
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule projection_post_cli_race)",
+                "  (export orchestrate)",
+                "  (defrecord ResumeSummary",
+                "    (status String)",
+                "    (ready Bool))",
+                "  (defworkflow orchestrate",
+                "    ((approved Bool)",
+                "     (status String))",
+                "    -> ResumeSummary",
+                "    (record ResumeSummary",
+                "      :status status",
+                "      :ready approved)))",
+                "",
+            ]
         ),
         encoding="utf-8",
     )
@@ -4306,21 +3040,10 @@ def test_at4_resume_with_checksum_mismatch(temp_workspace, partial_run_state):
 
     # Modify the workflow file
     workflow_path = Path(json.loads((state_dir / "state.json").read_text())["workflow_file"])
-    workflow_path.write_text(r"""
-{
-  "version": "1.1",
-  "name": "Modified Workflow",
-  "steps": [
-    {
-      "name": "Step1",
-      "command": [
-        "echo",
-        "Modified"
-      ]
-    }
-  ]
-}
-""")
+    workflow_path.write_text(
+        workflow_path.read_text(encoding="utf-8") + "; modified workflow\n",
+        encoding="utf-8",
+    )
 
     with patch('os.getcwd', return_value=str(temp_workspace)):
         result = resume_workflow(
@@ -4371,31 +3094,25 @@ def test_resume_force_restart_revalidates_persisted_bound_inputs(
     capsys,
 ):
     """Force restart must rebind persisted inputs against the current workflow contracts."""
-    workflow_path = temp_workspace / "typed_input_workflow.yaml"
+    workflow_path = temp_workspace / "typed_input_workflow.orc"
     workflow_path.write_text(
-        r"""
-{
-  "version": "2.1",
-  "name": "Force Restart Input Validation",
-  "inputs": {
-    "max_cycles": {
-      "kind": "scalar",
-      "type": "integer"
-    }
-  },
-  "steps": [
-    {
-      "name": "Finish",
-      "command": [
-        "bash",
-        "-lc",
-        "printf 'done\n'"
-      ]
-    }
-  ]
-}
-""".strip()
-        + "\n",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule typed_input_workflow)",
+                "  (export orchestrate)",
+                "  (defrecord RestartSummary",
+                "    (max_cycles Int))",
+                "  (defworkflow orchestrate",
+                "    ((max_cycles Int))",
+                "    -> RestartSummary",
+                "    (record RestartSummary",
+                "      :max_cycles max_cycles)))",
+                "",
+            ]
+        ),
         encoding="utf-8",
     )
     checksum = f"sha256:{hashlib.sha256(workflow_path.read_bytes()).hexdigest()}"
@@ -4488,7 +3205,7 @@ def test_resume_force_restart_rebinds_only_public_inputs_for_managed_orc_inputs(
     }
 
     with patch('os.getcwd', return_value=str(temp_workspace)), patch(
-        'orchestrator.cli.commands.resume.WorkflowLoader.load_bundle',
+        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
         return_value=bundle,
     ), patch('uuid.uuid4', return_value=SimpleNamespace(hex="fresh-force-restart-run")):
         result = resume_workflow(
@@ -4904,7 +3621,7 @@ def test_resume_force_restart_strips_stale_managed_inputs_after_workflow_rename(
     }
 
     with patch('os.getcwd', return_value=str(temp_workspace)), patch(
-        'orchestrator.cli.commands.resume.WorkflowLoader.load_bundle',
+        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
         return_value=renamed_bundle,
     ), patch('uuid.uuid4', return_value=SimpleNamespace(hex="fresh-force-restart-renamed-run")):
         result = resume_workflow(
@@ -4982,486 +3699,6 @@ def test_at4_resume_corrupted_state_with_repair(temp_workspace, sample_workflow)
     assert state_content["steps"]["Step1"]["status"] == "completed"
 
 
-def test_at4_resume_partial_for_each_loop(temp_workspace):
-    """Test resuming a partially completed for-each loop."""
-    # Create workflow with for-each loop
-    workflow_path = temp_workspace / "loop_workflow.yaml"
-    workflow_content = r"""
-{
-  "version": "1.1",
-  "name": "Loop Workflow",
-  "steps": [
-    {
-      "name": "GenerateList",
-      "command": [
-        "echo",
-        "item1\nitem2\nitem3"
-      ],
-      "output_capture": "lines"
-    },
-    {
-      "name": "ProcessItems",
-      "for_each": {
-        "items_from": "steps.GenerateList.lines",
-        "steps": [
-          {
-            "name": "ProcessItem",
-            "command": [
-              "echo",
-              "Processing ${item}"
-            ],
-            "output_capture": "text"
-          }
-        ]
-      }
-    }
-  ]
-}
-"""
-    workflow_path.write_text(workflow_content)
-    checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
-
-    run_id = "loop-run"
-    state_dir = temp_workspace / '.orchestrate' / 'runs' / run_id
-    state_dir.mkdir(parents=True)
-
-    # Create state with partial loop completion
-    state = {
-        "schema_version": StateManager.SCHEMA_VERSION,
-        "run_id": run_id,
-        "workflow_file": str(workflow_path),
-        "workflow_checksum": checksum,
-        "started_at": "2024-01-01T00:00:00Z",
-        "updated_at": "2024-01-01T00:01:00Z",
-        "status": "suspended",
-        "context": {},
-        "steps": {
-            "GenerateList": {
-                "status": "completed",
-                "exit_code": 0,
-                "lines": ["item1", "item2", "item3"]
-            },
-            "ProcessItems[0].ProcessItem": {
-                "status": "completed",
-                "exit_code": 0,
-                "output": "Processing item1"
-            }
-            # item2 and item3 not yet processed
-        }
-    }
-
-    (state_dir / "state.json").write_text(json.dumps(state, indent=2))
-
-    # Mock WorkflowExecutor
-    with patch('orchestrator.cli.commands.resume.WorkflowExecutor') as MockExecutor:
-        mock_executor = MagicMock()
-        mock_executor.execute.return_value = {
-            'status': 'completed',
-            'steps': {
-                'GenerateList': {'status': 'completed'},
-                'ProcessItems': [
-                    {'status': 'completed'},
-                    {'status': 'completed'},
-                    {'status': 'completed'}
-                ]
-            }
-        }
-        MockExecutor.return_value = mock_executor
-
-        with patch('os.getcwd', return_value=str(temp_workspace)):
-            result = resume_workflow(
-                run_id=run_id,
-                repair=False,
-                force_restart=False
-            )
-
-        # Verify executor was called with resume=True
-        assert mock_executor.execute.call_args.kwargs.get('resume') == True
-
-    assert result == 0
-
-
-def test_resume_partial_for_each_loop_skips_completed_iterations_using_bookkeeping(temp_workspace):
-    """Resume should continue from the first incomplete loop iteration without replaying completed work."""
-    workflow = {
-        "version": "1.1",
-        "name": "Loop Resume Workflow",
-        "steps": [
-            {
-                "name": "GenerateList",
-                "command": ["bash", "-lc", "printf 'item1\\nitem2\\nitem3\\n'"],
-                "output_capture": "lines",
-            },
-            {
-                "name": "ProcessItems",
-                "for_each": {
-                    "items_from": "steps.GenerateList.lines",
-                    "steps": [
-                        {
-                            "name": "ProcessItem",
-                            "command": [
-                                "bash",
-                                "-lc",
-                                "mkdir -p state && printf '%s\\n' \"${item}\" >> state/processed.log",
-                            ],
-                        }
-                    ],
-                },
-            },
-        ],
-    }
-
-    workflow_path = temp_workspace / "loop_resume_workflow.yaml"
-    workflow_text = json.dumps(workflow, sort_keys=False)
-    workflow_path.write_text(workflow_text)
-    checksum = f"sha256:{hashlib.sha256(workflow_text.encode()).hexdigest()}"
-
-    state_dir = temp_workspace / "state"
-    state_dir.mkdir()
-    (state_dir / "processed.log").write_text("item1\n")
-
-    run_id = "loop-resume-real"
-    run_root = temp_workspace / ".orchestrate" / "runs" / run_id
-    run_root.mkdir(parents=True)
-    state = {
-        "schema_version": StateManager.SCHEMA_VERSION,
-        "run_id": run_id,
-        "workflow_file": "loop_resume_workflow.yaml",
-        "workflow_checksum": checksum,
-        "started_at": "2024-01-01T00:00:00Z",
-        "updated_at": "2024-01-01T00:01:00Z",
-        "status": "failed",
-        "context": {},
-        "steps": {
-            "GenerateList": {
-                "status": "completed",
-                "exit_code": 0,
-                "lines": ["item1", "item2", "item3"],
-            },
-            "ProcessItems[0].ProcessItem": {
-                "status": "completed",
-                "exit_code": 0,
-                "output": "item1",
-            },
-        },
-        "for_each": {
-            "ProcessItems": {
-                "items": ["item1", "item2", "item3"],
-                "completed_indices": [0],
-                "current_index": 1,
-            }
-        },
-    }
-    (run_root / "state.json").write_text(json.dumps(state, indent=2))
-
-    with patch("os.getcwd", return_value=str(temp_workspace)):
-        result = resume_workflow(
-            run_id=run_id,
-            repair=False,
-            force_restart=False,
-        )
-
-    assert result == 0
-    assert (state_dir / "processed.log").read_text().splitlines() == ["item1", "item2", "item3"]
-
-    resumed = json.loads((run_root / "state.json").read_text())
-    assert resumed["for_each"]["ProcessItems"]["completed_indices"] == [0, 1, 2]
-    assert resumed["for_each"]["ProcessItems"]["current_index"] is None
-    assert len(resumed["steps"]["ProcessItems"]) == 3
-    assert resumed["steps"]["ProcessItems[1].ProcessItem"]["status"] == "completed"
-    assert resumed["steps"]["ProcessItems[2].ProcessItem"]["status"] == "completed"
-
-
-def test_resume_partial_for_each_loop_uses_incremental_summary_bookkeeping(temp_workspace):
-    """Resume must not treat a partial loop summary as terminal when bookkeeping shows pending iterations."""
-    workflow = {
-        "version": "1.1",
-        "name": "Loop Resume Workflow",
-        "steps": [
-            {
-                "name": "GenerateList",
-                "command": ["bash", "-lc", "printf 'item1\\nitem2\\nitem3\\n'"],
-                "output_capture": "lines",
-            },
-            {
-                "name": "ProcessItems",
-                "for_each": {
-                    "items_from": "steps.GenerateList.lines",
-                    "steps": [
-                        {
-                            "name": "ProcessItem",
-                            "command": [
-                                "bash",
-                                "-lc",
-                                "mkdir -p state && printf '%s\\n' \"${item}\" >> state/processed.log",
-                            ],
-                        }
-                    ],
-                },
-            },
-        ],
-    }
-
-    workflow_path = temp_workspace / "loop_resume_workflow.yaml"
-    workflow_text = json.dumps(workflow, sort_keys=False)
-    workflow_path.write_text(workflow_text)
-    checksum = f"sha256:{hashlib.sha256(workflow_text.encode()).hexdigest()}"
-
-    state_dir = temp_workspace / "state"
-    state_dir.mkdir()
-    (state_dir / "processed.log").write_text("item1\n")
-
-    run_id = "loop-resume-incremental-summary"
-    run_root = temp_workspace / ".orchestrate" / "runs" / run_id
-    run_root.mkdir(parents=True)
-    state = {
-        "schema_version": StateManager.SCHEMA_VERSION,
-        "run_id": run_id,
-        "workflow_file": "loop_resume_workflow.yaml",
-        "workflow_checksum": checksum,
-        "started_at": "2024-01-01T00:00:00Z",
-        "updated_at": "2024-01-01T00:01:00Z",
-        "status": "failed",
-        "context": {},
-        "steps": {
-            "GenerateList": {
-                "status": "completed",
-                "exit_code": 0,
-                "lines": ["item1", "item2", "item3"],
-            },
-            "ProcessItems": [
-                {
-                    "ProcessItem": {
-                        "status": "completed",
-                        "exit_code": 0,
-                        "output": "item1",
-                    }
-                }
-            ],
-            "ProcessItems[0].ProcessItem": {
-                "status": "completed",
-                "exit_code": 0,
-                "output": "item1",
-            },
-        },
-        "for_each": {
-            "ProcessItems": {
-                "items": ["item1", "item2", "item3"],
-                "completed_indices": [0],
-                "current_index": 1,
-            }
-        },
-        "current_step": {
-            "name": "ProcessItems",
-            "index": 1,
-            "status": "running",
-            "started_at": "2024-01-01T00:00:30Z",
-            "step_id": "root.processitems",
-        },
-    }
-    (run_root / "state.json").write_text(json.dumps(state, indent=2))
-
-    with patch("os.getcwd", return_value=str(temp_workspace)):
-        result = resume_workflow(
-            run_id=run_id,
-            repair=False,
-            force_restart=False,
-        )
-
-    assert result == 0
-    assert (state_dir / "processed.log").read_text().splitlines() == ["item1", "item2", "item3"]
-
-    resumed = json.loads((run_root / "state.json").read_text())
-    assert resumed["for_each"]["ProcessItems"]["completed_indices"] == [0, 1, 2]
-    assert resumed["for_each"]["ProcessItems"]["current_index"] is None
-    assert len(resumed["steps"]["ProcessItems"]) == 3
-    assert resumed["steps"]["ProcessItems[1].ProcessItem"]["status"] == "completed"
-    assert resumed["steps"]["ProcessItems[2].ProcessItem"]["status"] == "completed"
-
-
-def test_resume_revisits_top_level_review_step_after_fix_loop(temp_workspace):
-    """Resume should only skip to the restart point, not skip revisited loop steps forever."""
-    run_id = "resume-loop-run"
-    _seed_resume_loop_state(temp_workspace, run_id=run_id)
-
-    with patch("os.getcwd", return_value=str(temp_workspace)):
-        result = resume_workflow(
-            run_id=run_id,
-            repair=False,
-            force_restart=False,
-        )
-
-    assert result == 0
-    assert (temp_workspace / "state" / "review_count.txt").read_text() == "2\n"
-    assert (temp_workspace / "state" / "decision.txt").read_text() == "APPROVE\n"
-    history = (temp_workspace / "state" / "history.log").read_text()
-    assert "review-2\n" in history
-    assert "maxed\n" not in history
-
-
-def test_resume_clears_current_step_after_looped_completion(temp_workspace):
-    """Resumed completion should clear any stale current_step metadata."""
-    run_id = "resume-loop-current-step"
-    _, state_manager = _seed_resume_loop_state(temp_workspace, run_id=run_id)
-    assert state_manager.state is not None
-    state_manager.state.current_step = {
-        "name": "ImplementationReviewGate",
-        "index": 1,
-        "type": "command",
-        "status": "running",
-        "step_id": "root.implementationreviewgate",
-        "started_at": "2024-01-01T00:00:10Z",
-        "last_heartbeat_at": "2024-01-01T00:00:11Z",
-    }
-    state_manager._write_state()
-
-    with patch("os.getcwd", return_value=str(temp_workspace)):
-        result = resume_workflow(
-            run_id=run_id,
-            repair=False,
-            force_restart=False,
-        )
-
-    assert result == 0
-    payload = json.loads(
-        (temp_workspace / ".orchestrate" / "runs" / run_id / "state.json").read_text()
-    )
-    assert payload["status"] == "completed"
-    assert payload.get("current_step") is None
-
-
-def test_resume_ignores_stale_running_current_step_for_completed_side_effecting_step(temp_workspace):
-    """Resume should not rerun a completed side-effecting step just because current_step is stale."""
-    workflow_path = temp_workspace / "stale_current_step.yaml"
-    workflow_path.write_text(
-        json.dumps(
-            {
-                "version": "1.1",
-                "name": "stale-current-step",
-                "steps": [
-                    {
-                        "name": "FixImplementation",
-                        "command": ["bash", "-lc", "printf 'fix\\n' >> state/history.log"],
-                    },
-                    {
-                        "name": "NextStep",
-                        "command": ["bash", "-lc", "printf 'next\\n' >> state/history.log"],
-                    },
-                ],
-            },
-            sort_keys=False,
-        )
-    )
-
-    state_dir = temp_workspace / "state"
-    state_dir.mkdir(exist_ok=True)
-    (state_dir / "history.log").write_text("fix\n")
-
-    run_id = "stale-current-step-run"
-    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
-    state_manager.initialize("stale_current_step.yaml")
-    assert state_manager.state is not None
-    state_manager.state.status = "failed"
-    state_manager.state.steps = {
-        "FixImplementation": {"status": "completed", "exit_code": 0},
-        "NextStep": {"status": "pending"},
-    }
-    state_manager.state.current_step = {
-        "name": "FixImplementation",
-        "index": 0,
-        "type": "command",
-        "status": "running",
-        "step_id": "root.fiximplementation",
-        "started_at": "2024-01-01T00:00:10Z",
-        "last_heartbeat_at": "2024-01-01T00:00:11Z",
-    }
-    state_manager._write_state()
-
-    with patch("os.getcwd", return_value=str(temp_workspace)):
-        result = resume_workflow(
-            run_id=run_id,
-            repair=False,
-            force_restart=False,
-        )
-
-    assert result == 0
-    assert (state_dir / "history.log").read_text() == "fix\nnext\n"
-
-
-def test_resume_continues_partial_finalization_without_rerunning_completed_cleanup(temp_workspace):
-    workflow_path = temp_workspace / "structured_finally_resume.yaml"
-    workflow_path.write_text(
-        json.dumps(_build_structured_finally_resume_workflow(), sort_keys=False),
-        encoding="utf-8",
-    )
-
-    state_dir = temp_workspace / "state"
-    state_dir.mkdir(exist_ok=True)
-    (state_dir / "finalization.log").write_text("outputs-pending\n", encoding="utf-8")
-
-    run_id = "structured-finally-resume-run"
-    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
-    state_manager.initialize("structured_finally_resume.yaml")
-    assert state_manager.state is not None
-    state_manager.state.status = "failed"
-    state_manager.state.steps = {
-        "WriteDecision": {
-            "status": "completed",
-            "exit_code": 0,
-            "artifacts": {"decision": "APPROVE"},
-        },
-        "finally.ObserveOutputsPending": {
-            "status": "completed",
-            "exit_code": 0,
-        },
-        "finally.WriteCleanupMarker": {"status": "pending"},
-    }
-    state_manager.state.current_step = {
-        "name": "finally.ObserveOutputsPending",
-        "index": 1,
-        "type": "command",
-        "status": "running",
-        "step_id": "root.finally.cleanup.observe_outputs_pending",
-        "started_at": "2024-01-01T00:00:10Z",
-        "last_heartbeat_at": "2024-01-01T00:00:11Z",
-    }
-    state_manager.state.finalization = {
-        "block_id": "cleanup",
-        "status": "running",
-        "body_status": "completed",
-        "current_index": None,
-        "completed_indices": [0],
-        "step_names": [
-            "finally.ObserveOutputsPending",
-            "finally.WriteCleanupMarker",
-        ],
-        "workflow_outputs_status": "pending",
-    }
-    state_manager.state.workflow_outputs = {}
-    state_manager._write_state()
-
-    with patch("os.getcwd", return_value=str(temp_workspace)):
-        result = resume_workflow(
-            run_id=run_id,
-            repair=False,
-            force_restart=False,
-        )
-
-    assert result == 0
-    payload = json.loads(
-        (temp_workspace / ".orchestrate" / "runs" / run_id / "state.json").read_text()
-    )
-    assert payload["status"] == "completed"
-    assert payload["workflow_outputs"] == {"final_decision": "APPROVE"}
-    assert payload["finalization"]["completed_indices"] == [0, 1]
-    assert payload["finalization"]["workflow_outputs_status"] == "completed"
-    assert payload.get("current_step") is None
-    assert (state_dir / "finalization.log").read_text(encoding="utf-8").splitlines() == [
-        "outputs-pending",
-        "cleanup-complete",
-    ]
-
-
 def test_at4_resume_with_retry_parameters(temp_workspace, partial_run_state):
     """Test resume with custom retry parameters."""
     run_id, state_dir = partial_run_state
@@ -5495,31 +3732,27 @@ def test_at4_resume_with_retry_parameters(temp_workspace, partial_run_state):
 
 def test_resume_preserves_control_flow_counters(temp_workspace):
     """Resume keeps persisted cycle-guard counters available to the executor."""
-    workflow_path = temp_workspace / "control_flow_resume.yaml"
-    workflow_content = r"""
-{
-  "version": "1.8",
-  "name": "Control Flow Resume Workflow",
-  "max_transitions": 5,
-  "steps": [
-    {
-      "name": "Step1",
-      "max_visits": 3,
-      "command": [
-        "echo",
-        "Hello from Step1"
-      ]
-    },
-    {
-      "name": "Step2",
-      "command": [
-        "echo",
-        "Hello from Step2"
-      ]
-    }
-  ]
-}
-"""
+    workflow_path = temp_workspace / "control_flow_resume.orc"
+    workflow_content = "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.15")',
+            "  (defmodule control_flow_resume)",
+            "  (export orchestrate)",
+            "  (defrecord ResumeSummary",
+            "    (status String)",
+            "    (ready Bool))",
+            "  (defworkflow orchestrate",
+            "    ((approved Bool)",
+            "     (status String))",
+            "    -> ResumeSummary",
+            "    (record ResumeSummary",
+            "      :status status",
+            "      :ready approved)))",
+            "",
+        ]
+    )
     workflow_path.write_text(workflow_content)
     checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
 
@@ -5535,6 +3768,10 @@ def test_resume_preserves_control_flow_counters(temp_workspace):
         "updated_at": "2024-01-01T00:01:00Z",
         "status": "suspended",
         "context": {},
+        "bound_inputs": {
+            "approved": False,
+            "status": "pending",
+        },
         "steps": {
             "Step1": {"status": "completed", "exit_code": 0},
         },
@@ -5565,24 +3802,27 @@ def test_resume_preserves_control_flow_counters(temp_workspace):
 
 def test_resume_uses_custom_state_dir_override(temp_workspace):
     """Resume should locate and reopen runs stored under a custom runs root."""
-    workflow_path = temp_workspace / "custom_state_dir_resume.yaml"
+    workflow_path = temp_workspace / "custom_state_dir_resume.orc"
     workflow_path.write_text(
-        json.dumps(
-            {
-                "version": "1.1",
-                "name": "Custom State Dir Resume Workflow",
-                "steps": [
-                    {
-                        "name": "Step1",
-                        "command": ["bash", "-lc", "printf 'one\\n' >> state/history.log"],
-                    },
-                    {
-                        "name": "Step2",
-                        "command": ["bash", "-lc", "printf 'two\\n' >> state/history.log"],
-                    },
-                ],
-            },
-            sort_keys=False,
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule custom_state_dir_resume)",
+                "  (export orchestrate)",
+                "  (defrecord ResumeSummary",
+                "    (status String)",
+                "    (ready Bool))",
+                "  (defworkflow orchestrate",
+                "    ((approved Bool)",
+                "     (status String))",
+                "    -> ResumeSummary",
+                "    (record ResumeSummary",
+                "      :status status",
+                "      :ready approved)))",
+                "",
+            ]
         )
     )
 
@@ -5593,13 +3833,13 @@ def test_resume_uses_custom_state_dir_override(temp_workspace):
         run_id=run_id,
         state_dir=custom_runs_root,
     )
-    state_manager.initialize("custom_state_dir_resume.yaml")
+    state_manager.initialize(
+        "custom_state_dir_resume.orc",
+        bound_inputs={"approved": False, "status": "pending"},
+    )
     assert state_manager.state is not None
     state_manager.state.status = "failed"
-    state_manager.state.steps = {
-        "Step1": {"status": "completed", "exit_code": 0},
-        "Step2": {"status": "pending"},
-    }
+    state_manager.state.steps = {}
     state_manager._write_state()
 
     with patch('orchestrator.cli.commands.resume.WorkflowExecutor') as MockExecutor:
@@ -5627,29 +3867,29 @@ def test_resume_uses_custom_state_dir_override(temp_workspace):
     assert result == 0
 
 
-def test_resume_defaults_retry_settings_for_provider_steps(temp_workspace):
+def test_resume_defaults_retry_settings_before_executor(temp_workspace):
     """Resume normalizes retry defaults before constructing the executor."""
-    workflow_path = temp_workspace / "provider_resume.yaml"
-    workflow_content = r"""
-{
-  "version": "1.1",
-  "name": "Provider Resume Workflow",
-  "providers": {
-    "test_provider": {
-      "command": [
-        "echo",
-        "${PROMPT}"
-      ]
-    }
-  },
-  "steps": [
-    {
-      "name": "ProviderStep",
-      "provider": "test_provider"
-    }
-  ]
-}
-"""
+    workflow_path = temp_workspace / "retry_defaults_resume.orc"
+    workflow_content = "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.15")',
+            "  (defmodule retry_defaults_resume)",
+            "  (export orchestrate)",
+            "  (defrecord ResumeSummary",
+            "    (status String)",
+            "    (ready Bool))",
+            "  (defworkflow orchestrate",
+            "    ((approved Bool)",
+            "     (status String))",
+            "    -> ResumeSummary",
+            "    (record ResumeSummary",
+            "      :status status",
+            "      :ready approved)))",
+            "",
+        ]
+    )
     workflow_path.write_text(workflow_content)
     checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
 
@@ -5665,18 +3905,18 @@ def test_resume_defaults_retry_settings_for_provider_steps(temp_workspace):
         "updated_at": "2024-01-01T00:01:00Z",
         "status": "failed",
         "context": {},
-        "steps": {
-            "ProviderStep": {"status": "failed", "exit_code": 1},
+        "bound_inputs": {
+            "approved": False,
+            "status": "pending",
         },
+        "steps": {},
     }, indent=2))
 
     with patch('orchestrator.cli.commands.resume.WorkflowExecutor') as MockExecutor:
         mock_executor = MagicMock()
         mock_executor.execute.return_value = {
             'status': 'completed',
-            'steps': {
-                'ProviderStep': {'status': 'completed', 'exit_code': 0},
-            },
+            'steps': {},
         }
         MockExecutor.return_value = mock_executor
 
@@ -5700,6 +3940,7 @@ def test_at4_resume_displays_progress_information(temp_workspace, partial_run_st
 
     # Add more steps to state
     state = json.loads((state_dir / "state.json").read_text())
+    state["steps"]["Step1"] = {"status": "completed", "exit_code": 0}
     state["steps"]["Step2"] = {"status": "failed", "exit_code": 1}
     (state_dir / "state.json").write_text(json.dumps(state, indent=2))
 
@@ -5723,530 +3964,3 @@ def test_at4_resume_displays_progress_information(temp_workspace, partial_run_st
     assert "Resuming run test-run-123" in captured.out
     assert "Completed steps: Step1" in captured.out
     assert "Pending steps: Step2" in captured.out
-
-
-def test_resume_quarantines_interrupted_provider_session_visit(temp_workspace, capsys):
-    """Interrupted provider-session visits are quarantined instead of replayed."""
-    workflow_path = temp_workspace / "provider_session_resume.yaml"
-    workflow_content = r"""
-{
-  "version": "2.10",
-  "name": "provider-session-resume",
-  "providers": {
-    "codex_session": {
-      "command": [
-        "bash",
-        "-lc",
-        "echo should-not-run"
-      ],
-      "input_mode": "stdin",
-      "session_support": {
-        "metadata_mode": "codex_exec_jsonl_stdout",
-        "fresh_command": [
-          "bash",
-          "-lc",
-          "echo should-not-run"
-        ],
-        "resume_command": [
-          "bash",
-          "-lc",
-          "echo should-not-run ${SESSION_ID}"
-        ]
-      }
-    }
-  },
-  "artifacts": {
-    "implementation_session_id": {
-      "kind": "scalar",
-      "type": "string"
-    }
-  },
-  "steps": [
-    {
-      "name": "StartImplementation",
-      "id": "start_implementation",
-      "provider": "codex_session",
-      "provider_session": {
-        "mode": "fresh",
-        "publish_artifact": "implementation_session_id"
-      }
-    }
-  ]
-}
-"""
-    workflow_path.write_text(workflow_content, encoding="utf-8")
-    checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
-
-    run_id = "provider-session-quarantine-run"
-    state_dir = temp_workspace / ".orchestrate" / "runs" / run_id
-    state_dir.mkdir(parents=True)
-    (state_dir / "state.json").write_text(json.dumps({
-        "schema_version": StateManager.SCHEMA_VERSION,
-        "run_id": run_id,
-        "workflow_file": str(workflow_path),
-        "workflow_checksum": checksum,
-        "started_at": "2024-01-01T00:00:00Z",
-        "updated_at": "2024-01-01T00:01:00Z",
-        "status": "running",
-        "context": {},
-        "steps": {
-            "StartImplementation": {
-                "status": "completed",
-                "step_id": "root.start_implementation",
-                "visit_count": 1,
-                "exit_code": 0,
-                "artifacts": {
-                    "implementation_session_id": "sess-old",
-                },
-            },
-        },
-        "current_step": {
-            "name": "StartImplementation",
-            "index": 0,
-            "type": "provider",
-            "status": "running",
-            "step_id": "root.start_implementation",
-            "visit_count": 2,
-            "started_at": "2024-01-01T00:02:00Z",
-            "last_heartbeat_at": "2024-01-01T00:02:00Z",
-        },
-        "artifact_versions": {
-            "implementation_session_id": [
-                {
-                    "version": 1,
-                    "value": "sess-old",
-                    "producer": "root.start_implementation",
-                    "producer_name": "StartImplementation",
-                    "step_index": 0,
-                }
-            ]
-        },
-        "artifact_consumes": {},
-        "transition_count": 0,
-        "step_visits": {"StartImplementation": 2},
-    }, indent=2), encoding="utf-8")
-
-    with patch('os.getcwd', return_value=str(temp_workspace)):
-        result = resume_workflow(run_id=run_id)
-
-    assert result == 1
-    persisted_state = json.loads((state_dir / "state.json").read_text(encoding="utf-8"))
-    error = persisted_state["error"]
-    metadata_path = Path(error["context"]["metadata_path"])
-    transport_spool_path = Path(error["context"]["transport_spool_path"])
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-
-    assert persisted_state["status"] == "failed"
-    assert persisted_state.get("current_step") is None
-    assert persisted_state["steps"]["StartImplementation"]["visit_count"] == 1
-    assert error["type"] == "provider_session_interrupted_visit_quarantined"
-    assert error["context"]["visit_count"] == 2
-    assert error["context"]["metadata_synthesized"] is True
-    assert metadata["step_status"] == "interrupted"
-    assert metadata["publication_state"] == "quarantined_interrupted_visit"
-    assert metadata["metadata_synthesized"] is True
-    assert transport_spool_path.exists()
-
-    captured = capsys.readouterr()
-    assert "interrupted provider-session visit was quarantined" in captured.err
-
-
-def test_resume_quarantines_interrupted_provider_session_visit_without_current_step_name(
-    temp_workspace,
-    capsys,
-):
-    """Interrupted provider-session visits still quarantine when only durable identity survives."""
-    workflow_path = temp_workspace / "provider_session_resume_missing_name.yaml"
-    workflow_content = r"""
-{
-  "version": "2.10",
-  "name": "provider-session-resume-missing-name",
-  "providers": {
-    "codex_session": {
-      "command": [
-        "bash",
-        "-lc",
-        "echo should-not-run"
-      ],
-      "input_mode": "stdin",
-      "session_support": {
-        "metadata_mode": "codex_exec_jsonl_stdout",
-        "fresh_command": [
-          "bash",
-          "-lc",
-          "echo should-not-run"
-        ],
-        "resume_command": [
-          "bash",
-          "-lc",
-          "echo should-not-run ${SESSION_ID}"
-        ]
-      }
-    }
-  },
-  "artifacts": {
-    "implementation_session_id": {
-      "kind": "scalar",
-      "type": "string"
-    }
-  },
-  "steps": [
-    {
-      "name": "StartImplementation",
-      "id": "start_implementation",
-      "provider": "codex_session",
-      "provider_session": {
-        "mode": "fresh",
-        "publish_artifact": "implementation_session_id"
-      }
-    }
-  ]
-}
-"""
-    workflow_path.write_text(workflow_content, encoding="utf-8")
-    checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
-
-    run_id = "provider-session-quarantine-missing-name"
-    state_dir = temp_workspace / ".orchestrate" / "runs" / run_id
-    state_dir.mkdir(parents=True)
-    (state_dir / "state.json").write_text(json.dumps({
-        "schema_version": StateManager.SCHEMA_VERSION,
-        "run_id": run_id,
-        "workflow_file": str(workflow_path),
-        "workflow_checksum": checksum,
-        "started_at": "2024-01-01T00:00:00Z",
-        "updated_at": "2024-01-01T00:01:00Z",
-        "status": "running",
-        "context": {},
-        "steps": {
-            "StartImplementation": {
-                "status": "completed",
-                "step_id": "root.start_implementation",
-                "visit_count": 1,
-                "exit_code": 0,
-                "artifacts": {
-                    "implementation_session_id": "sess-old",
-                },
-            },
-        },
-        "current_step": {
-            "index": 0,
-            "type": "provider",
-            "status": "running",
-            "step_id": "root.start_implementation",
-            "visit_count": 2,
-            "started_at": "2024-01-01T00:02:00Z",
-            "last_heartbeat_at": "2024-01-01T00:02:00Z",
-        },
-        "artifact_versions": {
-            "implementation_session_id": [
-                {
-                    "version": 1,
-                    "value": "sess-old",
-                    "producer": "root.start_implementation",
-                    "producer_name": "StartImplementation",
-                    "step_index": 0,
-                }
-            ]
-        },
-        "artifact_consumes": {},
-        "transition_count": 0,
-        "step_visits": {"StartImplementation": 2},
-    }, indent=2), encoding="utf-8")
-
-    with patch('os.getcwd', return_value=str(temp_workspace)):
-        result = resume_workflow(run_id=run_id)
-
-    assert result == 1
-    persisted_state = json.loads((state_dir / "state.json").read_text(encoding="utf-8"))
-    error = persisted_state["error"]
-    metadata_path = Path(error["context"]["metadata_path"])
-    transport_spool_path = Path(error["context"]["transport_spool_path"])
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-
-    assert persisted_state["status"] == "failed"
-    assert persisted_state.get("current_step") is None
-    assert persisted_state["steps"]["StartImplementation"]["visit_count"] == 1
-    assert error["type"] == "provider_session_interrupted_visit_quarantined"
-    assert error["context"]["step_name"] == "StartImplementation"
-    assert error["context"]["visit_count"] == 2
-    assert error["context"]["metadata_synthesized"] is True
-    assert metadata["step_status"] == "interrupted"
-    assert metadata["publication_state"] == "quarantined_interrupted_visit"
-    assert metadata["metadata_synthesized"] is True
-    assert transport_spool_path.exists()
-
-    captured = capsys.readouterr()
-    assert "interrupted provider-session visit was quarantined" in captured.err
-
-
-def test_resume_quarantines_live_provider_session_with_retained_partial_spool(temp_workspace, capsys):
-    """Resume quarantine retains the bytes captured before a live provider-session run was interrupted."""
-    workflow_path = temp_workspace / "provider_session_resume_live.yaml"
-    session_script = "\n".join(
-        [
-            "python -u - <<'PY'",
-            "import sys, time",
-            "sys.stdout.write('{\"type\":\"session.started\",\"session_id\":\"sess-live\"}\\n')",
-            "sys.stdout.flush()",
-            "sys.stdout.write('{\"type\":\"assistant.message\",\"role\":\"assistant\",\"text\":\"partial\"}\\n')",
-            "sys.stdout.flush()",
-            "time.sleep(30)",
-            "sys.stdout.write('{\"type\":\"response.completed\",\"session_id\":\"sess-live\"}\\n')",
-            "sys.stdout.flush()",
-            "PY",
-        ]
-    )
-    workflow_content = {
-        "version": "2.10",
-        "name": "provider-session-live-resume",
-        "providers": {
-            "codex_session": {
-                "command": ["bash", "-lc", session_script],
-                "input_mode": "stdin",
-                "session_support": {
-                    "metadata_mode": "codex_exec_jsonl_stdout",
-                    "fresh_command": ["bash", "-lc", session_script],
-                    "resume_command": ["bash", "-lc", "echo should-not-run ${SESSION_ID}"],
-                },
-            }
-        },
-        "artifacts": {
-            "implementation_session_id": {
-                "kind": "scalar",
-                "type": "string",
-            }
-        },
-        "steps": [
-            {
-                "name": "StartImplementation",
-                "id": "start_implementation",
-                "provider": "codex_session",
-                "provider_session": {
-                    "mode": "fresh",
-                    "publish_artifact": "implementation_session_id",
-                },
-            }
-        ],
-    }
-    workflow_path.write_text(json.dumps(workflow_content, sort_keys=False), encoding="utf-8")
-
-    runs_root = temp_workspace / ".orchestrate" / "runs"
-    runs_root.mkdir(parents=True, exist_ok=True)
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
-
-    run_process = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "orchestrator",
-            "run",
-            workflow_path.name,
-            "--state-dir",
-            str(runs_root),
-        ],
-        cwd=temp_workspace,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        start_new_session=True,
-    )
-
-    run_id = None
-    state_file = None
-    transport_spool_path = None
-    deadline = time.time() + 15
-    while time.time() < deadline:
-        run_dirs = [path for path in runs_root.iterdir() if path.is_dir()]
-        if run_dirs:
-            run_id = run_dirs[0].name
-            state_file = run_dirs[0] / "state.json"
-            transport_candidates = list((run_dirs[0] / "provider_sessions").glob("*.transport.log"))
-            if state_file.exists():
-                snapshot = json.loads(state_file.read_text(encoding="utf-8"))
-                current_step = snapshot.get("current_step")
-                if (
-                    isinstance(current_step, dict)
-                    and current_step.get("name") == "StartImplementation"
-                    and transport_candidates
-                ):
-                    candidate = transport_candidates[0]
-                    if candidate.exists() and candidate.stat().st_size > 0:
-                        if "partial" in candidate.read_text(encoding="utf-8"):
-                            transport_spool_path = candidate
-                            break
-        time.sleep(0.05)
-
-    assert run_id is not None
-    assert state_file is not None and state_file.exists()
-    assert transport_spool_path is not None and transport_spool_path.exists()
-
-    os.killpg(run_process.pid, signal.SIGTERM)
-    try:
-        run_process.communicate(timeout=5)
-    except subprocess.TimeoutExpired:
-        os.killpg(run_process.pid, signal.SIGKILL)
-        run_process.communicate(timeout=5)
-
-    partial_spool = transport_spool_path.read_text(encoding="utf-8")
-    assert "session.started" in partial_spool
-    assert "partial" in partial_spool
-    assert "response.completed" not in partial_spool
-
-    with patch('os.getcwd', return_value=str(temp_workspace)):
-        result = resume_workflow(run_id=run_id, state_dir=str(runs_root))
-
-    assert result == 1
-    persisted_state = json.loads(state_file.read_text(encoding="utf-8"))
-    error = persisted_state["error"]
-    metadata_path = Path(error["context"]["metadata_path"])
-    retained_spool_path = Path(error["context"]["transport_spool_path"])
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-
-    assert persisted_state["status"] == "failed"
-    assert error["type"] == "provider_session_interrupted_visit_quarantined"
-    assert error["context"]["metadata_synthesized"] is False
-    assert retained_spool_path == transport_spool_path
-    assert retained_spool_path.read_text(encoding="utf-8") == partial_spool
-    assert metadata["step_status"] == "interrupted"
-    assert metadata["publication_state"] == "quarantined_interrupted_visit"
-    assert metadata["captured_transport_bytes"] > 0
-    assert metadata["metadata_synthesized"] is False
-
-    captured = capsys.readouterr()
-    assert "interrupted provider-session visit was quarantined" in captured.err
-
-
-def test_resume_refuses_to_clear_existing_provider_session_quarantine(temp_workspace, capsys):
-    """Persisted quarantine markers fail fast on later resume attempts."""
-    workflow_path = temp_workspace / "provider_session_resume.yaml"
-    workflow_content = r"""
-{
-  "version": "2.10",
-  "name": "provider-session-resume",
-  "steps": [
-    {
-      "name": "StartImplementation",
-      "provider": "codex",
-      "provider_session": {
-        "mode": "fresh",
-        "publish_artifact": "implementation_session_id"
-      }
-    }
-  ],
-  "artifacts": {
-    "implementation_session_id": {
-      "kind": "scalar",
-      "type": "string"
-    }
-  }
-}
-"""
-    workflow_path.write_text(workflow_content, encoding="utf-8")
-    checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
-
-    run_id = "provider-session-quarantine-existing"
-    state_dir = temp_workspace / ".orchestrate" / "runs" / run_id
-    state_dir.mkdir(parents=True)
-    metadata_path = state_dir / "provider_sessions" / "root.startimplementation__v1.json"
-    transport_spool_path = state_dir / "provider_sessions" / "root.startimplementation__v1.transport.log"
-    metadata_path.parent.mkdir(parents=True)
-    metadata_path.write_text("{}", encoding="utf-8")
-    transport_spool_path.write_text("", encoding="utf-8")
-    (state_dir / "state.json").write_text(json.dumps({
-        "schema_version": StateManager.SCHEMA_VERSION,
-        "run_id": run_id,
-        "workflow_file": str(workflow_path),
-        "workflow_checksum": checksum,
-        "started_at": "2024-01-01T00:00:00Z",
-        "updated_at": "2024-01-01T00:01:00Z",
-        "status": "failed",
-        "context": {},
-        "steps": {},
-        "error": {
-            "type": "provider_session_interrupted_visit_quarantined",
-            "message": "An interrupted provider-session visit was quarantined.",
-            "context": {
-                "step_name": "StartImplementation",
-                "step_id": "root.startimplementation",
-                "visit_count": 1,
-                "metadata_path": str(metadata_path),
-                "transport_spool_path": str(transport_spool_path),
-                "metadata_synthesized": False,
-            },
-        },
-        "artifact_versions": {},
-        "artifact_consumes": {},
-        "transition_count": 0,
-        "step_visits": {"StartImplementation": 1},
-    }, indent=2), encoding="utf-8")
-
-    with patch('os.getcwd', return_value=str(temp_workspace)):
-        result = resume_workflow(run_id=run_id)
-
-    assert result == 1
-    captured = capsys.readouterr()
-    assert "interrupted provider-session visit was quarantined" in captured.err
-
-
-def test_projection_error_survives_epilogue_and_executor_session_close(
-    temp_workspace: Path,
-) -> None:
-    from tests.test_subworkflow_calls import (
-        _write_projection_integrity_call_graph,
-    )
-    from orchestrator.workflow.resume_projection_integrity import (
-        ResumeProjectionIntegrityError,
-        ResumeScopePath,
-        audit_scope,
-    )
-
-    root_bundle = WorkflowLoader(temp_workspace).load_bundle(
-        _write_projection_integrity_call_graph(temp_workspace)
-    )
-    middle_bundle = root_bundle.imports["middle"]
-    manager = StateManager(
-        temp_workspace,
-        run_id="sticky-projection-session-close",
-    )
-    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
-    first = WorkflowExecutor(root_bundle, temp_workspace, manager).execute()
-    assert first["status"] == "completed"
-
-    persisted = manager.load()
-    frame_id, frame = next(iter(persisted.call_frames.items()))
-    child_state = frame["state"]
-    child_state["current_step"] = {
-        "status": "running",
-        "name": "RemovedMiddleStep",
-        "step_id": "root.removed_middle_step",
-        "visit_count": 1,
-    }
-    frame["current_step"] = dict(child_state["current_step"])
-    frame["status"] = "running"
-    persisted.status = "failed"
-    persisted.steps["InvokeMiddle"]["status"] = "failed"
-
-    with pytest.raises(ResumeProjectionIntegrityError) as exc_info:
-        audit_scope(
-            middle_bundle,
-            child_state,
-            ResumeScopePath.root(persisted.workflow_file).child(frame_id),
-        )
-    expected_error = json.loads(json.dumps(exc_info.value.error))
-    manager._write_state()
-
-    with patch("os.getcwd", return_value=str(temp_workspace)):
-        result = resume_workflow(
-            run_id="sticky-projection-session-close",
-        )
-
-    after = manager.load().to_dict()
-    assert result == 1
-    assert after["status"] == "failed"
-    assert after["error"] == expected_error
-    sessions = after["runtime_observability"]["executor_sessions"]
-    assert len(sessions) == 1
-    assert sessions[0]["status"] == "failed"
-    assert sessions[0]["ended_at"]
