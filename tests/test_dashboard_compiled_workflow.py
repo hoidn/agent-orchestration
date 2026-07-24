@@ -248,12 +248,12 @@ def test_projector_decodes_real_persisted_surface_with_external_import_closure(
     assert structure is not None
     assert structure.entry_workflow == "neurips/entry::orchestrate"
     assert [node.workflow_name for node in structure.nodes.values()].count(
-        "selector-run"
+        "imported_selector::selector-run"
     ) == 1
     assert set(structure.nodes) == {
+        "imported_selector::selector-run",
         "neurips/entry::orchestrate",
         "neurips/helper::provider-attempt",
-        "selector-run",
     }
 
 
@@ -450,7 +450,7 @@ def test_persisted_surface_decoder_deeply_freezes_metadata(tmp_path: Path):
     result, _source_path, _state = _write_real_imported_bundle_mix_run(tmp_path)
     surface_path = result.artifact_paths["persisted_workflow_surface"]
     payload = json.loads(surface_path.read_text(encoding="utf-8"))
-    step = payload["nodes"]["selector-run"]["steps"][0]
+    step = payload["nodes"]["imported_selector::selector-run"]["steps"][0]
     step["asset_depends_on"] = [{"nested": ["asset"]}]
     step["common"]["publishes"] = [{"nested": ["publish"]}]
     step["common"]["consumes"] = [{"nested": ["consume"]}]
@@ -459,7 +459,7 @@ def test_persisted_surface_decoder_deeply_freezes_metadata(tmp_path: Path):
     graph = decode_persisted_workflow_surface_graph(
         canonical_persisted_surface_bytes(payload)
     )
-    decoded = graph.nodes["selector-run"].steps[0]
+    decoded = graph.nodes["imported_selector::selector-run"].steps[0]
 
     for value in (
         decoded.asset_depends_on[0],
@@ -531,7 +531,7 @@ def test_projector_decodes_orc_persisted_typed_surface_graph(tmp_path: Path):
     assert structure.imported_node(entry, entry.steps[0].call_alias).steps[0].kind \
         is SurfaceStepKind.PROVIDER
     assert structure.imported_node(entry, entry.steps[1].call_alias).steps[0].kind \
-        is SurfaceStepKind.COMMAND
+        is SurfaceStepKind.MATERIALIZE_ARTIFACTS
 
 
 def test_projector_deduplicates_identical_linker_workflow_closures(tmp_path: Path):
@@ -541,7 +541,7 @@ def test_projector_deduplicates_identical_linker_workflow_closures(tmp_path: Pat
 
     structure = detail.workflow_structure
     assert structure is not None
-    assert tuple(structure.nodes).count("selector-run") == 1
+    assert tuple(structure.nodes).count("imported_selector::selector-run") == 1
     assert len(structure.nodes) == 3
 
 
@@ -558,8 +558,12 @@ def test_summary_endpoint_renders_orc_typed_structure_and_imported_call(tmp_path
     assert '<span class="workflow-kind">call neurips/helper::provider-attempt</span>' in body
     assert '<span class="workflow-name">neurips/helper::provider-attempt__result</span>' in body
     assert '<span class="workflow-kind">call selector-run</span>' in body
-    assert '<span class="workflow-name">EmitImportedReport</span>' in body
-    assert '<span class="workflow-kind">command</span>' in body
+    assert (
+        '<span class="workflow-name">'
+        "imported_selector::selector-run__return"
+        "</span>"
+    ) in body
+    assert '<span class="workflow-kind">materialize_artifacts</span>' in body
 
 
 def test_summary_endpoint_renders_persisted_finalization_and_adjudicated_links(

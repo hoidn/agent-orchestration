@@ -7,7 +7,6 @@ import json
 from dataclasses import asdict, is_dataclass, replace
 from enum import Enum
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -185,9 +184,9 @@ def test_build_emits_digest_bound_persisted_surface_graph_for_real_import_closur
     assert graph["entry_workflow"] == "neurips/entry::orchestrate"
     assert graph["entry_workflow"] in graph["nodes"]
     assert set(graph["nodes"]) == {
+        "imported_selector::selector-run",
         "neurips/entry::orchestrate",
         "neurips/helper::provider-attempt",
-        "selector-run",
     }
     assert graph["nodes"]["neurips/helper::provider-attempt"]["calls"] == {}
     assert anchor == {
@@ -441,14 +440,14 @@ def test_persisted_surface_decoder_accepts_only_canonical_closed_wire_payload(
             )
 
     metadata = copy.deepcopy(raw)
-    metadata_step = metadata["nodes"]["selector-run"]["steps"][0]
+    metadata_step = metadata["nodes"]["imported_selector::selector-run"]["steps"][0]
     metadata_step["asset_depends_on"] = [{"nested": ["asset"]}]
     metadata_step["common"]["publishes"] = [{"nested": ["publish"]}]
     metadata_step["common"]["consumes"] = [{"nested": ["consume"]}]
     metadata_step["common"]["expected_outputs"] = [{"nested": ["output"]}]
     frozen_step = decode_persisted_workflow_surface_graph(
         canonical_persisted_surface_bytes(metadata)
-    ).nodes["selector-run"].steps[0]
+    ).nodes["imported_selector::selector-run"].steps[0]
     for value in (
         frozen_step.asset_depends_on[0],
         frozen_step.common.publishes[0],
@@ -470,7 +469,9 @@ def test_persisted_surface_decoder_rejects_missing_extra_cycle_and_unreachable_e
     entry_name = raw["entry_workflow"]
 
     extra_alias = copy.deepcopy(raw)
-    extra_alias["nodes"][entry_name]["calls"]["unused"] = "selector-run"
+    extra_alias["nodes"][entry_name]["calls"]["unused"] = (
+        "imported_selector::selector-run"
+    )
     with pytest.raises(ValueError, match="call-edge table"):
         decode_persisted_workflow_surface_graph(
             canonical_persisted_surface_bytes(extra_alias)
@@ -485,15 +486,19 @@ def test_persisted_surface_decoder_rejects_missing_extra_cycle_and_unreachable_e
         )
 
     cyclic = copy.deepcopy(raw)
-    selector_step = cyclic["nodes"]["selector-run"]["steps"][0]
+    selector_step = cyclic["nodes"]["imported_selector::selector-run"]["steps"][0]
     selector_step["kind"] = "call"
     selector_step["call_alias"] = "back"
-    cyclic["nodes"]["selector-run"]["calls"] = {"back": entry_name}
+    cyclic["nodes"]["imported_selector::selector-run"]["calls"] = {
+        "back": entry_name
+    }
     with pytest.raises(ValueError, match="import cycle"):
         decode_persisted_workflow_surface_graph(canonical_persisted_surface_bytes(cyclic))
 
     unreachable = copy.deepcopy(raw)
-    orphan = copy.deepcopy(unreachable["nodes"]["selector-run"])
+    orphan = copy.deepcopy(
+        unreachable["nodes"]["imported_selector::selector-run"]
+    )
     orphan["workflow_name"] = "orphan"
     unreachable["nodes"]["orphan"] = orphan
     with pytest.raises(ValueError, match="unreachable"):
@@ -654,113 +659,60 @@ def _build_request(tmp_path: Path, *, manifest_path: Path | None = None):
     )
 
 
-def test_yaml_deprecation_request_normalization_preserves_suppression(
+def test_frontend_build_request_has_no_yaml_deprecation_policy(
     tmp_path: Path,
 ) -> None:
-    build = _build_module()
-    request = replace(
-        _build_request(tmp_path),
-        emit_yaml_deprecation_warning=False,
-    )
+    request = _build_request(tmp_path)
 
-    resolved = build._resolve_request(request)
-
-    assert resolved.emit_yaml_deprecation_warning is False
+    assert "emit_yaml_deprecation_warning" not in request.__dataclass_fields__
 
 
-def test_yaml_deprecation_policy_is_absent_from_build_identity_and_persisted_artifacts(
+@pytest.mark.parametrize(
+    ("entry", "expected_code"),
+    [
+        (
+            {"path": "must-not-be-read.orc"},
+            "imported_workflow_bundle_kind_invalid",
+        ),
+        (
+            {"kind": "yaml", "path": "must-not-be-read.yaml"},
+            "imported_workflow_bundle_kind_invalid",
+        ),
+        (
+            {"kind": "compiled", "path": "must-not-be-read.yaml"},
+            "imported_workflow_bundle_path_invalid",
+        ),
+    ],
+    ids=("omitted-kind", "yaml-kind", "compiled-non-orc"),
+)
+def test_imported_bundle_manifest_rejects_non_compiled_orc_entries_before_source_read(
     tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
+    entry: dict[str, str],
+    expected_code: str,
 ) -> None:
-    build = _build_module()
-    enabled_request = _build_request(tmp_path)
-    with caplog.at_level(
-        "WARNING",
-        logger="orchestrator.loader.yaml_deprecation",
-    ):
-        enabled = build.build_frontend_bundle(enabled_request)
-    enabled_records = [
-        record
-        for record in caplog.records
-        if record.name == "orchestrator.loader.yaml_deprecation"
-    ]
-    assert len(enabled_records) == 1
-    assert enabled_records[0].levelname == "WARNING"
-    assert (
-        enabled_records[0].workflow_deprecation_code
-        == "workflow_yaml_authoring_deprecated"
-    )
-    assert enabled_records[0].workflow_deprecation_path == str(
-        (CLI_FIXTURES / "imported_selector.yaml").resolve()
-    )
-    assert enabled_records[0].workflow_deprecation_format == "yaml"
-    enabled_manifest_bytes = enabled.manifest_path.read_bytes()
-    enabled_artifacts = {
-        name: path.read_bytes()
-        for name, path in enabled.artifact_paths.items()
-        if path.exists()
-    }
-
-    suppressed_request = replace(
-        enabled_request,
-        emit_yaml_deprecation_warning=False,
-    )
-    caplog.clear()
-    with caplog.at_level(
-        "WARNING",
-        logger="orchestrator.loader.yaml_deprecation",
-    ):
-        suppressed = build.build_frontend_bundle(suppressed_request)
-    assert [
-        record
-        for record in caplog.records
-        if record.name == "orchestrator.loader.yaml_deprecation"
-    ] == []
-    suppressed_manifest_bytes = suppressed.manifest_path.read_bytes()
-    suppressed_artifacts = {
-        name: path.read_bytes()
-        for name, path in suppressed.artifact_paths.items()
-        if path.exists()
-    }
-
-    assert suppressed.manifest.fingerprint == enabled.manifest.fingerprint
-    assert suppressed.build_root == enabled.build_root
-    assert asdict(suppressed.manifest) == asdict(enabled.manifest)
-    assert suppressed_manifest_bytes == enabled_manifest_bytes
-    assert suppressed.imported_workflow_bundles == enabled.imported_workflow_bundles
-    assert suppressed.validated_bundle == enabled.validated_bundle
-    assert suppressed.validated_bundle.semantic_ir == enabled.validated_bundle.semantic_ir
-    assert suppressed.validated_bundle.ir == enabled.validated_bundle.ir
-    assert suppressed_artifacts == enabled_artifacts
-    assert b"emit_yaml_deprecation_warning" not in suppressed_manifest_bytes
-    assert all(
-        b"emit_yaml_deprecation_warning" not in payload
-        for payload in suppressed_artifacts.values()
-    )
-
-
-def test_fresh_build_yaml_dependency_recursive_import_emits_only_for_root(
-    tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    child_path = tmp_path / "child.yml"
-    child_path.write_text(
-        'version: "2.14"\n'
-        "name: child\n"
-        "steps:\n"
-        "  - name: Done\n"
-        "    command: [echo, done]\n",
+    manifest_path = tmp_path / "imported-workflows.json"
+    manifest_path.write_text(
+        json.dumps({"selector-run": entry}),
         encoding="utf-8",
     )
-    root_path = tmp_path / "selector-root.yaml"
-    root_path.write_text(
-        (CLI_FIXTURES / "imported_selector.yaml")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_module().load_imported_workflow_bundle_manifest(
+            manifest_path,
+            workspace_root=tmp_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == expected_code
+
+
+def test_imported_bundle_manifest_accepts_case_insensitive_orc_suffix(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "selector_upper.ORC"
+    source_path.write_text(
+        (CLI_FIXTURES / "imported_selector.orc")
         .read_text(encoding="utf-8")
-        .replace(
-            "name: selector-run\n",
-            "name: selector-run\nimports:\n  child: child.yml\n",
-            1,
-        ),
+        .replace("(defmodule imported_selector)", "(defmodule selector_upper)", 1),
         encoding="utf-8",
     )
     manifest_path = tmp_path / "imported-workflows.json"
@@ -768,139 +720,115 @@ def test_fresh_build_yaml_dependency_recursive_import_emits_only_for_root(
         json.dumps(
             {
                 "selector-run": {
-                    "kind": "yaml",
-                    "path": root_path.name,
+                    "kind": "compiled",
+                    "path": source_path.name,
                 }
             }
         ),
         encoding="utf-8",
     )
 
-    with caplog.at_level(
-        "WARNING",
-        logger="orchestrator.loader.yaml_deprecation",
-    ):
-        result = _build_module().build_frontend_bundle(
-            _build_request(tmp_path, manifest_path=manifest_path)
-        )
+    bindings = _build_module().load_imported_workflow_bundle_manifest(
+        manifest_path,
+        workspace_root=tmp_path,
+    )
 
-    records = [
-        record
-        for record in caplog.records
-        if record.name == "orchestrator.loader.yaml_deprecation"
-    ]
-    assert len(records) == 1
-    assert records[0].levelname == "WARNING"
-    assert records[0].workflow_deprecation_code == "workflow_yaml_authoring_deprecated"
-    assert records[0].workflow_deprecation_path == str(root_path.resolve())
-    assert records[0].workflow_deprecation_format == "yaml"
-    assert result.imported_workflow_bundles[0].resolved_bundle_path == root_path.resolve()
-    assert "child" in result.imported_workflow_bundles[0].bundle.imports
+    assert bindings[0].workflow_name == "selector_upper::selector-run"
 
 
-def test_fresh_build_two_explicit_yaml_dependency_roots_emit_two_events(
+def test_compiled_imported_bundle_preserves_recursive_orc_workflow_imports(
     tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    selector_path = tmp_path / "selector.yaml"
-    selector_path.write_text(
-        (CLI_FIXTURES / "imported_selector.yaml").read_text(encoding="utf-8"),
+    module_root = tmp_path / "recursive"
+    module_root.mkdir()
+    (module_root / "types.orc").write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule recursive/types)",
+                "  (export WorkReport ChecksResult ImplementationSummary)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ChecksResult",
+                "    (status String)",
+                "    (report WorkReport))",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport)))",
+            ]
+        )
+        + "\n",
         encoding="utf-8",
     )
-    unused_path = tmp_path / "unused.yml"
-    unused_path.write_text(
-        (CLI_FIXTURES / "imported_selector.yaml")
-        .read_text(encoding="utf-8")
-        .replace("name: selector-run\n", "name: unused\n", 1),
+    (module_root / "child.orc").write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule recursive/child)",
+                "  (import recursive/types",
+                "    :only (ChecksResult ImplementationSummary WorkReport))",
+                "  (export selector-child)",
+                "  (defworkflow selector-child",
+                "    ((input ChecksResult)",
+                "     (report_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    (record ImplementationSummary :report report_path)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    root_path = module_root / "root.orc"
+    root_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule recursive/root)",
+                "  (import recursive/types",
+                "    :only (ChecksResult ImplementationSummary WorkReport))",
+                "  (import recursive/child :as child :only (selector-child))",
+                "  (export selector-run)",
+                "  (defworkflow selector-run",
+                "    ((input ChecksResult)",
+                "     (report_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    (call child.selector-child",
+                "      :input input",
+                "      :report_path report_path)))",
+            ]
+        )
+        + "\n",
         encoding="utf-8",
     )
     manifest_path = tmp_path / "imported-workflows.json"
     manifest_path.write_text(
         json.dumps(
             {
-                "selector-run": {"kind": "yaml", "path": selector_path.name},
-                "unused": {"kind": "yaml", "path": unused_path.name},
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    with caplog.at_level(
-        "WARNING",
-        logger="orchestrator.loader.yaml_deprecation",
-    ):
-        result = _build_module().build_frontend_bundle(
-            _build_request(tmp_path, manifest_path=manifest_path)
-        )
-
-    records = [
-        record
-        for record in caplog.records
-        if record.name == "orchestrator.loader.yaml_deprecation"
-    ]
-    assert len(records) == 2
-    assert {
-        record.workflow_deprecation_path
-        for record in records
-    } == {str(selector_path.resolve()), str(unused_path.resolve())}
-    assert all(
-        record.levelname == "WARNING"
-        and record.workflow_deprecation_code == "workflow_yaml_authoring_deprecated"
-        and record.workflow_deprecation_format == "yaml"
-        for record in records
-    )
-    assert len(result.imported_workflow_bundles) == 2
-
-
-@pytest.mark.parametrize("emit_warning", (True, False))
-def test_compiled_imported_bundle_propagates_yaml_deprecation_policy_to_child_build(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    emit_warning: bool,
-) -> None:
-    build = _build_module()
-    child_path = tmp_path / "child.orc"
-    child_path.write_text(
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.14"))\n',
-        encoding="utf-8",
-    )
-    manifest_path = tmp_path / "compiled-bundles.json"
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "child": {
+                "selector-run": {
                     "kind": "compiled",
-                    "path": child_path.name,
+                    "path": str(root_path),
                 }
             }
         ),
         encoding="utf-8",
     )
-    template_bundle = build.WorkflowLoader(
-        tmp_path,
-        emit_yaml_deprecation_warning=False,
-    ).load_bundle(CLI_FIXTURES / "imported_selector.yaml")
-    captured_requests = []
 
-    def capture_child_request(request):
-        captured_requests.append(request)
-        return SimpleNamespace(
-            validated_bundle=template_bundle,
-            selected_workflow_name=template_bundle.surface.name,
-            manifest=SimpleNamespace(fingerprint="child-fingerprint"),
-        )
-
-    monkeypatch.setattr(build, "build_frontend_bundle", capture_child_request)
-
-    bindings = build.load_imported_workflow_bundle_manifest(
+    bindings = _build_module().load_imported_workflow_bundle_manifest(
         manifest_path,
         workspace_root=tmp_path,
-        emit_yaml_deprecation_warning=emit_warning,
+        source_roots=(tmp_path,),
     )
 
     assert len(bindings) == 1
-    assert len(captured_requests) == 1
-    assert captured_requests[0].emit_yaml_deprecation_warning is emit_warning
+    assert bindings[0].load_status == "compiled"
+    assert "recursive/child::selector-child" in bindings[0].bundle.imports
 
 
 def _procedure_identity_build_request(tmp_path: Path):
@@ -1805,9 +1733,11 @@ def test_build_fingerprint_changes_when_imported_bundle_manifest_changes(tmp_pat
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
 
-    alternate_bundle = tmp_path / "selector_alt.yaml"
+    alternate_bundle = tmp_path / "selector_alt.orc"
     alternate_bundle.write_text(
-        (CLI_FIXTURES / "imported_selector.yaml").read_text(encoding="utf-8"),
+        (CLI_FIXTURES / "imported_selector.orc")
+        .read_text(encoding="utf-8")
+        .replace("(defmodule imported_selector)", "(defmodule selector_alt)", 1),
         encoding="utf-8",
     )
     alternate_manifest = tmp_path / "imported_workflow_bundles.alt.json"
@@ -1815,7 +1745,7 @@ def test_build_fingerprint_changes_when_imported_bundle_manifest_changes(tmp_pat
         json.dumps(
             {
                 "selector-run": {
-                    "kind": "yaml",
+                    "kind": "compiled",
                     "path": str(alternate_bundle),
                 }
             },
@@ -3853,6 +3783,15 @@ def test_build_emits_debug_yaml_when_requested_and_marks_manifest_status(tmp_pat
     assert debug_yaml_path.exists()
     assert "non-authoritative" in debug_yaml_text
     assert "must not be used as execution input" in debug_yaml_text
+    debug_payload = json.loads(
+        "\n".join(
+            line
+            for line in debug_yaml_text.splitlines()
+            if not line.startswith("#")
+        )
+    )
+    assert debug_payload["warning"] == "non_authoritative_debug_projection"
+    assert debug_payload["workflow"]["name"] == result.validated_bundle.surface.name
 
 
 def test_build_removes_stale_debug_yaml_when_not_requested(tmp_path: Path) -> None:

@@ -8,7 +8,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow.persisted_surface import (
@@ -33,7 +32,6 @@ from .build_manifest_io import (
     _parse_command_boundaries_manifest,
     _resolve_manifest_relative_path,
     _resolve_request,
-    _sha256_path,
 )
 from .build_artifacts import (
     _build_manifest,
@@ -99,7 +97,7 @@ FRONTEND_ARTIFACT_EXPORT_FILENAMES = {
 class FrontendBuildRequest:
     """Operator-facing compile request for one `.orc` entrypoint.
 
-    The request keeps source discovery, extern manifests, imported YAML bundle
+    The request keeps source discovery, extern manifests, imported `.orc` bundle
     bindings, and optional debug emission together so the build fingerprint can
     reflect every input that affects the lowered workflow bundle.
     """
@@ -112,7 +110,6 @@ class FrontendBuildRequest:
     imported_workflow_bundles_path: Path | None = None
     command_boundaries_path: Path | None = None
     emit_debug_yaml: bool = False
-    emit_yaml_deprecation_warning: bool = True
     workspace_root: Path | None = None
     lint_profile: str = LINT_PROFILE_DEFAULT
     lowering_route: LoweringRoute | str | None = None
@@ -136,8 +133,7 @@ class FrontendEntrySelection:
 class ImportedWorkflowBundleBinding:
     """One existing workflow bundle linked into Lisp as a callable boundary.
 
-    This is the compatibility bridge that lets a Lisp workflow call a validated
-    YAML workflow without treating YAML as the frontend compiler target.
+    Each binding is compiled from an explicit `.orc` source before linking.
     """
 
     canonical_key: str
@@ -259,7 +255,6 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         prompt_externs_path=resolved_request.prompt_externs_path,
         command_boundaries_path=resolved_request.command_boundaries_path,
         lowering_route=resolved_request.lowering_route,
-        emit_yaml_deprecation_warning=resolved_request.emit_yaml_deprecation_warning,
     )
     imported_workflow_bundles = {
         binding.canonical_key: binding.bundle
@@ -632,7 +627,6 @@ def load_imported_workflow_bundle_manifest(
     prompt_externs_path: Path | None = None,
     command_boundaries_path: Path | None = None,
     lowering_route: LoweringRoute | str | None = None,
-    emit_yaml_deprecation_warning: bool = True,
 ) -> tuple[ImportedWorkflowBundleBinding, ...]:
     """Load imported workflow bundles from one explicit manifest file."""
 
@@ -661,10 +655,6 @@ def load_imported_workflow_bundle_manifest(
         )
 
     bindings: list[ImportedWorkflowBundleBinding] = []
-    loader = WorkflowLoader(
-        workspace_root,
-        emit_yaml_deprecation_warning=emit_yaml_deprecation_warning,
-    )
     for canonical_key, raw_entry in payload.items():
         if not isinstance(canonical_key, str) or not canonical_key:
             raise LispFrontendCompileError(
@@ -686,7 +676,20 @@ def load_imported_workflow_bundle_manifest(
                     ),
                 )
             )
-        bundle_kind = str(raw_entry.get("kind", "yaml"))
+        bundle_kind = raw_entry.get("kind")
+        if bundle_kind != "compiled":
+            raise LispFrontendCompileError(
+                (
+                    _cli_request_diagnostic(
+                        code="imported_workflow_bundle_kind_invalid",
+                        message=(
+                            f"manifest entry for `{canonical_key}` must explicitly "
+                            "declare `kind` as `compiled`"
+                        ),
+                        path=manifest_path,
+                    ),
+                )
+            )
         raw_path = raw_entry.get("path")
         if not isinstance(raw_path, str) or not raw_path:
             raise LispFrontendCompileError(
@@ -699,45 +702,41 @@ def load_imported_workflow_bundle_manifest(
                 )
             )
         resolved_bundle_path = _resolve_manifest_relative_path(manifest_path, raw_path)
-        if bundle_kind == "yaml":
-            bundle = loader.load_bundle(resolved_bundle_path)
-            workflow_name = bundle.surface.name
-            bundle_fingerprint = _sha256_path(resolved_bundle_path)
-            load_status = "loaded"
-        elif bundle_kind == "compiled":
-            compiled_result = build_frontend_bundle(
-                FrontendBuildRequest(
-                    source_path=resolved_bundle_path,
-                    source_roots=source_roots,
-                    entry_workflow=(
-                        raw_entry.get("entry_workflow")
-                        if isinstance(raw_entry.get("entry_workflow"), str)
-                        else None
-                    ),
-                    provider_externs_path=provider_externs_path,
-                    prompt_externs_path=prompt_externs_path,
-                    imported_workflow_bundles_path=None,
-                    command_boundaries_path=command_boundaries_path,
-                    emit_debug_yaml=False,
-                    emit_yaml_deprecation_warning=emit_yaml_deprecation_warning,
-                    workspace_root=workspace_root,
-                    lowering_route=lowering_route,
-                )
-            )
-            bundle = compiled_result.validated_bundle
-            workflow_name = compiled_result.selected_workflow_name
-            bundle_fingerprint = compiled_result.manifest.fingerprint
-            load_status = "compiled"
-        else:
+        if resolved_bundle_path.suffix.lower() != ".orc":
             raise LispFrontendCompileError(
                 (
                     _cli_request_diagnostic(
-                        code="imported_workflow_bundle_kind_invalid",
-                        message=f"unsupported imported workflow bundle kind `{bundle_kind}` for `{canonical_key}`",
+                        code="imported_workflow_bundle_path_invalid",
+                        message=(
+                            f"compiled imported workflow bundle `{canonical_key}` "
+                            "must reference a `.orc` source"
+                        ),
                         path=manifest_path,
                     ),
                 )
             )
+        compiled_result = build_frontend_bundle(
+            FrontendBuildRequest(
+                source_path=resolved_bundle_path,
+                source_roots=source_roots,
+                entry_workflow=(
+                    raw_entry.get("entry_workflow")
+                    if isinstance(raw_entry.get("entry_workflow"), str)
+                    else None
+                ),
+                provider_externs_path=provider_externs_path,
+                prompt_externs_path=prompt_externs_path,
+                imported_workflow_bundles_path=None,
+                command_boundaries_path=command_boundaries_path,
+                emit_debug_yaml=False,
+                workspace_root=workspace_root,
+                lowering_route=lowering_route,
+            )
+        )
+        bundle = compiled_result.validated_bundle
+        workflow_name = compiled_result.selected_workflow_name
+        bundle_fingerprint = compiled_result.manifest.fingerprint
+        load_status = "compiled"
         bindings.append(
             ImportedWorkflowBundleBinding(
                 canonical_key=canonical_key,

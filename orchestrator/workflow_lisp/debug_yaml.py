@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping
-
-import yaml
 
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 
@@ -30,7 +29,7 @@ def render_debug_yaml(
     }
     if source_trace_path is not None:
         payload["source_trace_path"] = str(source_trace_path)
-    return WARNING_HEADER + yaml.safe_dump(payload, sort_keys=False)
+    return WARNING_HEADER + json.dumps(payload, indent=2) + "\n"
 
 
 def _thaw(value: Any) -> Any:

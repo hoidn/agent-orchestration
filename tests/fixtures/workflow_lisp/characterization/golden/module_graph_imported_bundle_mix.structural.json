@@ -8,13 +8,13 @@
   "diagnostics": [],
   "imported_workflow_bundles": [
     {
-      "bundle_fingerprint": "73aa130602777319fe38032d433afe8265f7044cfe32a78238decd6233324d55",
-      "bundle_kind": "yaml",
+      "bundle_fingerprint": "0234e4c44ad23957",
+      "bundle_kind": "compiled",
       "canonical_key": "selector-run",
-      "load_status": "loaded",
-      "manifest_entry_path": "imported_selector.yaml",
-      "resolved_bundle_path": "tests/fixtures/workflow_lisp/cli/imported_selector.yaml",
-      "workflow_name": "selector-run"
+      "load_status": "compiled",
+      "manifest_entry_path": "imported_selector.orc",
+      "resolved_bundle_path": "tests/fixtures/workflow_lisp/cli/imported_selector.orc",
+      "workflow_name": "imported_selector::selector-run"
     }
   ],
   "lowered_workflows": [

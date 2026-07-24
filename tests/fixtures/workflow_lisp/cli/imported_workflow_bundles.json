@@ -1,6 +1,6 @@
 {
   "selector-run": {
-    "kind": "yaml",
-    "path": "imported_selector.yaml"
+    "kind": "compiled",
+    "path": "imported_selector.orc"
   }
 }

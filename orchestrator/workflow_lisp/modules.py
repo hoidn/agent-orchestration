@@ -295,7 +295,12 @@ def resolve_module_graph(
         source_root = _resolve_source_root(module_path, source_roots=resolved_roots)
         expected_path = source_root / Path(*syntax_module.module_name.split("/"))
         expected_path = expected_path.with_suffix(".orc")
-        if expected_path != module_path:
+        module_path_matches = expected_path == module_path or (
+            expected_path.parent == module_path.parent
+            and expected_path.stem == module_path.stem
+            and module_path.suffix.lower() == ".orc"
+        )
+        if not module_path_matches:
             raise LispFrontendCompileError(
                 (
                     LispFrontendDiagnostic(

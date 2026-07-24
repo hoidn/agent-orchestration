@@ -1,0 +1,20 @@
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14")
+  (defmodule imported_selector)
+  (export selector-run)
+  (defpath WorkReport
+    :kind relpath
+    :under "artifacts/work"
+    :must-exist true)
+  (defrecord ChecksResult
+    (status String)
+    (report WorkReport))
+  (defrecord ImplementationSummary
+    (report WorkReport))
+  (defworkflow selector-run
+    ((input ChecksResult)
+     (report_path WorkReport))
+    -> ImplementationSummary
+    (record ImplementationSummary
+      :report report_path)))
