@@ -190,6 +190,96 @@ def test_codex_jsonl_rejects_identity_that_changes_after_unique_snapshot():
     assert snapshot.error is not None
 
 
+def test_invalid_session_snapshot_error_rejects_outer_mutation():
+    accumulator = _new_accumulator()
+    accumulator.feed(
+        _jsonl_event(type="thread.started", thread_id=None) + b"\n"
+    )
+    snapshot = accumulator.snapshot()
+    assert snapshot.status == "invalid"
+    assert snapshot.error is not None
+
+    with pytest.raises(TypeError):
+        snapshot.error["message"] = "mutated"
+
+    metadata, error = accumulator.finalize(
+        expected_session_id=None,
+        require_terminal=False,
+    )
+    assert metadata is None
+    assert isinstance(error, dict)
+    json.dumps(error)
+
+
+def test_invalid_session_snapshot_error_rejects_nested_context_mutation():
+    accumulator = _new_accumulator()
+    accumulator.feed(
+        _jsonl_event(type="thread.started", thread_id=None) + b"\n"
+    )
+    snapshot = accumulator.snapshot()
+    assert snapshot.error is not None
+    context = snapshot.error["context"]
+
+    with pytest.raises(TypeError):
+        context["line"] = 999
+
+
+def test_ambiguous_session_snapshot_error_rejects_outer_mutation():
+    accumulator = _new_accumulator()
+    accumulator.feed(
+        _jsonl_event(type="thread.started", thread_id="thread-one") + b"\n"
+    )
+    accumulator.feed(
+        _jsonl_event(type="turn.started", thread_id="thread-two") + b"\n"
+    )
+    snapshot = accumulator.snapshot()
+    assert snapshot.status == "ambiguous"
+    assert snapshot.error is not None
+
+    with pytest.raises(TypeError):
+        snapshot.error["message"] = "mutated"
+
+    metadata, error = accumulator.finalize(
+        expected_session_id=None,
+        require_terminal=False,
+    )
+    assert metadata is None
+    assert isinstance(error, dict)
+    json.dumps(error)
+
+
+def test_ambiguous_session_snapshot_error_rejects_nested_context_mutation():
+    accumulator = _new_accumulator()
+    accumulator.feed(
+        _jsonl_event(type="thread.started", thread_id="thread-one") + b"\n"
+    )
+    accumulator.feed(
+        _jsonl_event(type="turn.started", thread_id="thread-two") + b"\n"
+    )
+    snapshot = accumulator.snapshot()
+    assert snapshot.error is not None
+    context = snapshot.error["context"]
+
+    with pytest.raises(TypeError):
+        context["session_ids"] = ("mutated",)
+
+
+def test_ambiguous_session_snapshot_error_rejects_nested_sequence_mutation():
+    accumulator = _new_accumulator()
+    accumulator.feed(
+        _jsonl_event(type="thread.started", thread_id="thread-one") + b"\n"
+    )
+    accumulator.feed(
+        _jsonl_event(type="turn.started", thread_id="thread-two") + b"\n"
+    )
+    snapshot = accumulator.snapshot()
+    assert snapshot.error is not None
+    session_ids = snapshot.error["context"]["session_ids"]
+
+    with pytest.raises((AttributeError, TypeError)):
+        session_ids.append("mutated")
+
+
 @pytest.mark.parametrize("key", ("thread_id", "session_id"))
 @pytest.mark.parametrize("value", ("", None, 7))
 def test_codex_jsonl_rejects_malformed_recognized_identity(key: str, value: Any):
@@ -228,6 +318,34 @@ def test_codex_jsonl_rejects_malformed_transport(
     assert snapshot.error["type"] == "provider_session_transport_error"
 
 
+def test_codex_jsonl_invalid_stream_discards_unterminated_valid_tail():
+    emitted: list[str] = []
+    accumulator = _new_accumulator(assistant_text_callback=emitted.append)
+    valid_tail = _jsonl_event(
+        type="item.completed",
+        session_id="late-session",
+        item={"type": "agent_message", "text": "late text"},
+    )
+    accumulator.feed(b'{"type":\n' + valid_tail)
+    before = accumulator.snapshot()
+
+    metadata, error = accumulator.finalize(
+        expected_session_id=None,
+        require_terminal=False,
+    )
+    after = accumulator.snapshot()
+
+    assert before.status == "invalid"
+    assert before.session_ids == ()
+    assert before.terminal_seen is False
+    assert accumulator.event_count == 1
+    assert after == before
+    assert emitted == []
+    assert metadata is None
+    assert error is not None
+    assert error["type"] == "provider_session_transport_error"
+
+
 def test_codex_jsonl_nested_agent_item_contributes_text_without_terminal():
     emitted: list[str] = []
     accumulator = _new_accumulator(assistant_text_callback=emitted.append)
@@ -250,6 +368,31 @@ def test_codex_jsonl_nested_agent_item_contributes_text_without_terminal():
     assert metadata is None
     assert error is not None
     assert "did not expose" in error["message"]
+
+
+def test_codex_jsonl_rejects_lone_surrogate_assistant_text():
+    accumulator = _new_accumulator()
+    accumulator.feed(
+        _jsonl_event(type="thread.started", thread_id="thread-surrogate")
+        + b"\n"
+    )
+    accumulator.feed(
+        b'{"type":"item.completed","item":'
+        b'{"type":"agent_message","text":"\\ud800"}}\n'
+    )
+    accumulator.feed(_jsonl_event(type="turn.completed") + b"\n")
+
+    snapshot = accumulator.snapshot()
+    metadata, error = accumulator.finalize(
+        expected_session_id=None,
+        require_terminal=True,
+    )
+
+    assert snapshot.status == "invalid"
+    assert metadata is None
+    assert error is not None
+    assert error["type"] == "provider_session_transport_error"
+    assert "unicode" in error["message"].lower()
 
 
 @pytest.mark.parametrize("terminal_type", ("turn.completed", "response.completed"))
@@ -492,6 +635,46 @@ def test_session_executor_preserves_raw_eof_for_non_string_event_type(
     assert result.error is not None
     assert result.error["type"] == "provider_session_transport_error"
     assert "terminal" in result.error["message"].lower()
+
+
+def test_session_executor_rejects_lone_surrogate_and_preserves_raw_stdout(
+    tmp_path: Path,
+):
+    raw_stdout = b"\n".join(
+        (
+            _jsonl_event(
+                type="thread.started",
+                thread_id="thread-surrogate",
+            ),
+            (
+                b'{"type":"item.completed","item":'
+                b'{"type":"agent_message","text":"\\ud800"}}'
+            ),
+            _jsonl_event(type="turn.completed"),
+        )
+    )
+    invocation = ProviderInvocation(
+        command=[
+            "python",
+            "-c",
+            "import os; os.write(1, bytes.fromhex(%r))" % raw_stdout.hex(),
+        ],
+        input_mode=InputMode.STDIN,
+        prompt="Test prompt",
+        command_variant="fresh_command",
+        metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+        session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+    )
+
+    result = ProviderExecutor(tmp_path, ProviderRegistry()).execute(invocation)
+
+    assert result.exit_code == 2
+    assert result.raw_stdout == raw_stdout
+    assert result.stdout == b""
+    assert result.provider_session is None
+    assert result.error is not None
+    assert result.error["type"] == "provider_session_transport_error"
+    assert "unicode" in result.error["message"].lower()
 
 
 def test_session_executor_uses_real_codex_shape_and_preserves_raw_stdout(

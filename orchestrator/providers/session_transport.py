@@ -6,6 +6,7 @@ import copy
 import json
 import threading
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Callable, Literal, Mapping
 
 from .types import ProviderSessionMetadataMode
@@ -14,6 +15,29 @@ from .types import ProviderSessionMetadataMode
 _TRANSPORT_ERROR_TYPE = "provider_session_transport_error"
 _IDENTITY_KEYS = ("thread_id", "session_id")
 _TERMINAL_EVENT_TYPES = frozenset({"turn.completed", "response.completed"})
+
+
+def _freeze_snapshot_value(value: Any) -> Any:
+    """Recursively detach and freeze one snapshot-owned value."""
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {
+                key: _freeze_snapshot_value(nested_value)
+                for key, nested_value in value.items()
+            }
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_snapshot_value(item) for item in value)
+    return value
+
+
+def _freeze_snapshot_error(error: Mapping[str, Any]) -> Mapping[str, Any]:
+    return MappingProxyType(
+        {
+            key: _freeze_snapshot_value(value)
+            for key, value in error.items()
+        }
+    )
 
 
 @dataclass(frozen=True)
@@ -108,14 +132,16 @@ class CodexExecJsonlAccumulator:
                     status="invalid",
                     session_ids=session_ids,
                     terminal_seen=self._terminal_seen,
-                    error=copy.deepcopy(self._invalid_error),
+                    error=_freeze_snapshot_error(self._invalid_error),
                 )
             if len(session_ids) > 1:
                 return SessionIdentitySnapshot(
                     status="ambiguous",
                     session_ids=session_ids,
                     terminal_seen=self._terminal_seen,
-                    error=self._conflicting_identity_error(),
+                    error=_freeze_snapshot_error(
+                        self._conflicting_identity_error()
+                    ),
                 )
             return SessionIdentitySnapshot(
                 status="unique" if session_ids else "missing",
@@ -137,7 +163,7 @@ class CodexExecJsonlAccumulator:
                 self._finalized = True
                 raw_tail = bytes(self._buffer)
                 self._buffer.clear()
-                if raw_tail.strip():
+                if self._invalid_error is None and raw_tail.strip():
                     self._line_number += 1
                     assistant_text = self._consume_line(raw_tail)
                     if assistant_text is not None:
@@ -146,8 +172,13 @@ class CodexExecJsonlAccumulator:
         self._emit_assistant_text(emitted)
 
         snapshot = self.snapshot()
-        if snapshot.status in {"invalid", "ambiguous"}:
-            return None, snapshot.error
+        if snapshot.status == "invalid":
+            with self._lock:
+                assert self._invalid_error is not None
+                return None, copy.deepcopy(self._invalid_error)
+        if snapshot.status == "ambiguous":
+            with self._lock:
+                return None, self._conflicting_identity_error()
 
         if require_terminal and not snapshot.terminal_seen:
             return None, self._error(
@@ -236,6 +267,14 @@ class CodexExecJsonlAccumulator:
 
         assistant_text = extract_codex_assistant_text(event)
         if assistant_text is not None:
+            try:
+                assistant_text.encode("utf-8", errors="strict")
+            except UnicodeEncodeError as exc:
+                self._invalidate(
+                    "Session transport assistant text is not valid Unicode",
+                    {"line": self._line_number, "error": str(exc)},
+                )
+                return None
             self._text_parts.append(assistant_text)
         return assistant_text
 
