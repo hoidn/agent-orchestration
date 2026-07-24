@@ -1,29 +1,48 @@
 # YAML Deprecation Surface Design
 
-**Status:** Implemented for Stage 6 Task 4. The behavior landed at `3871099b`,
-`4e0a700d`, `30b1bd48`, and `ee0e520a`; author routing landed at `b329c4b3`.
-Final implementation review returned specification PASS and quality APPROVED
-for exact HEAD `b329c4b396e095d195119996838ea8782e6d1401` and tree
-`00b1a2d17c6118695c747b7c3001817e4dd4977d`.
+**Status:** Retired historical Stage 6 Task-4 design. The advisory behavior
+landed at `3871099b`, `4e0a700d`, `30b1bd48`, and `ee0e520a`; author routing
+landed at `b329c4b3`. Final Task-4 implementation review returned specification
+PASS and quality APPROVED for exact HEAD
+`b329c4b396e095d195119996838ea8782e6d1401` and tree
+`00b1a2d17c6118695c747b7c3001817e4dd4977d`. Task 7 subsequently removed the
+advisory boundary with the user-facing YAML loader and project PyYAML
+dependency.
 
 **Owner:** `docs/plans/2026-07-07-yaml-retirement-program.md`, Task 4.
 
-## Goal
+## Supersession
 
-Make YAML/YML visibly legacy without rejecting it: every explicit fresh
-authored-YAML root load emits one structured advisory warning, persisted-run
-compatibility reads remain quiet, and new-author documentation and template
-routing lead to Workflow Lisp `.orc`.
+Task 7 now rejects fresh non-`.orc` execution before state creation, rejects
+nonterminal or restarted legacy YAML/YML resume without mutation, and preserves
+completed legacy runs through state-only resume/report/dashboard paths. There
+is no current `WorkflowLoader` or YAML deprecation event. The authored workflow
+YAML/YML estate is empty, the focused Task-7 gate passed 821 tests with 5
+skipped, and a production `.orc` dry-run smoke left the run-directory count
+unchanged. The final scoped broad comparison and both independent reviews
+remain pending; this historical design does not claim Stage-6 completion.
 
-Task 7 still owns fresh-YAML rejection, parser removal, and the final removal of
-the PyYAML dependency.
+The sections below preserve the implemented Task-4 warning contract at its
+reviewed commit. They are provenance, not current runtime or authoring guidance.
+
+## Historical goal
+
+Make YAML/YML visibly legacy without rejecting it at the Task-4 boundary: every
+explicit fresh authored-YAML root load emitted one structured advisory warning,
+persisted-run compatibility reads remained quiet, and new-author documentation
+and template routing led to Workflow Lisp `.orc`.
+
+Task 7 subsequently implemented fresh-YAML rejection, parser removal, and
+removal of the project PyYAML dependency.
 
 ## Governing contracts
 
-- `docs/plans/2026-07-07-yaml-retirement-program.md` defines Task 4 and keeps
-  YAML `Legacy` until the final gate.
-- `specs/dsl.md` owns the normative advisory-warning behavior.
-- `docs/capability_status_matrix.md` owns copy-safety status.
+- `docs/plans/2026-07-07-yaml-retirement-program.md` defined Task 4 and kept
+  YAML `Legacy` at that historical gate; it now owns Task-7 final verification.
+- `specs/dsl.md` owned the normative advisory-warning behavior while the
+  Task-4 frontend existed.
+- `docs/capability_status_matrix.md` owns current copy-safety status and records
+  the advisory surface as retired.
 - `docs/lisp_workflow_drafting_guide.md` is the preferred new-author route.
 - `docs/workflow_drafting_guide.md` remains a compatibility-maintenance guide
   for existing YAML.
@@ -31,9 +50,9 @@ the PyYAML dependency.
   `docs/workflow_yaml_estate_triage.md` freeze the YAML estate. Task 4 must not
   edit a queued YAML/YML source merely to make it look deprecated.
 
-## Decision
+## Historical decision
 
-### Warning boundary
+### Historical warning boundary
 
 `WorkflowLoader.load_bundle()` is the one deprecation-event boundary. Its
 constructor gains a keyword-only `emit_yaml_deprecation_warning: bool = True`
@@ -129,7 +148,7 @@ Rejected because ordinary `DeprecationWarning` filtering hides events and
 call-site deduplication does not express once per explicit fresh root load. A
 structured log record is visible and deterministic.
 
-## Error handling and invariants
+## Historical error handling and invariants
 
 - Warning emission occurs before parsing and cannot make a valid load invalid.
 - Non-YAML suffixes emit no YAML deprecation event.
@@ -139,9 +158,10 @@ structured log record is visible and deterministic.
 - Message wording is non-contractual. Event identity and routing are the
   behavioral contract.
 - No queued workflow source, prompt, or protected user-owned path is modified.
-- YAML stays executable and `Legacy`; Task 7 remains incomplete.
+- At Task-4 closeout, YAML stayed executable and `Legacy`; that invariant was
+  intentionally superseded by Task 7.
 
-## Verification
+## Historical Task-4 verification
 
 Behavioral tests must cover both directions:
 
@@ -163,10 +183,10 @@ After narrow tests, run the affected CLI, resume, report, dashboard, loader,
 Workflow Lisp build, routing, and broad suites. Obtain independent specification
 and code-quality review before advancing the Stage 6 selector to Task 5.
 
-## Future cost
+## Retired future-cost note
 
-The boolean policy is intentionally less expressive than a general load-purpose
-enum. If another authored frontend needs more than fresh-versus-persisted
-warning policy before Task 7, the facade/build request will require an explicit
-policy type. Keeping the switch keyword-only, observability-only, and out of
-fingerprints confines that future change.
+The boolean policy was intentionally less expressive than a general
+load-purpose enum. Task 7 removed the switch and its loader boundary, so the
+previously described pre-Task-7 extension cost no longer applies. Any future
+authored frontend requires its own accepted loading and observability contract;
+this retired design is not a reusable loader API.

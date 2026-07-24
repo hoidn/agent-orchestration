@@ -4,9 +4,11 @@
 
 **Effective:** 2026-07-23.
 
-**Status:** Active execution authority for the remainder of Stage 6. This
-record changes execution proportion, not the frozen queue membership or the
-product-safety meaning of a zero live reference.
+**Status:** Active execution authority through Task 7 final verification. This
+record changed execution proportion, not the frozen queue membership or the
+product-safety meaning of a zero live reference. All queue work and Task-7
+product implementation are complete; the final scoped broad comparison and two
+independent reviews remain open.
 
 ## Decision
 
@@ -121,7 +123,15 @@ five-root supported-consumer, and live-process checks and retired the YAML,
 its dedicated test, and its YAML-only input helper without mutating run stores.
 The authored workflow YAML/YML estate is empty, all Task 6 queue work is
 drained, and Task 7 is now current and eligible. This note does not claim any
-Task 7 parser-removal implementation.
+Task 7 parser-removal implementation at the Task-6 closeout boundary.
+
+Task 7 subsequently made fresh execution ORC-only, retained only completed
+legacy state-only resume/report/dashboard compatibility, removed the authored
+YAML loader and project PyYAML dependency, retired the stale YAML demo runner,
+and passed its consolidated focused gate with 821 passed and 5 skipped. A fresh
+production `.orc` dry-run smoke also passed without changing the run-directory
+count. The final scoped broad comparison and both independent reviews have not
+yet run, so this note does not report Stage 6 complete.
 
 ## Supersession Boundary
 
@@ -144,7 +154,12 @@ It does not change:
 - the requeued step-back row's zero-reference and supported-consumer gates; or
 - Task 7's product-facing parser-removal checklist and final verification.
 
-## Claims Not Made
+## Claims Not Made At Issuance
+
+The claims below record what the ruling and owner disposition did not establish
+when issued. The later completion and progress notes above supersede their
+time-bound queue and Task-7 eligibility status without changing their authority
+limits.
 
 - This ruling does not attest that any queue is already empty.
 - Closing the local capture window does not approve or land its deferred
