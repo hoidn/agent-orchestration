@@ -1019,24 +1019,33 @@ def test_compiled_frontend_source_context_logs_certified_adapter_metadata(tmp_pa
 def test_executor_uses_bundle_runtime_plan_for_top_level_ordering(tmp_path: Path):
     workflow = tmp_path / "workflow.yaml"
     workflow.write_text(
-        "\n".join(
-            [
-                "version: '2.7'",
-                "name: runtime-plan-ordering",
-                "steps:",
-                "  - name: First",
-                "    id: first",
-                "    command: ['bash', '-lc', 'printf first\\\\n']",
-                "  - name: Second",
-                "    id: second",
-                "    command: ['bash', '-lc', 'printf second\\\\n']",
-                "finally:",
-                "  id: cleanup",
-                "  steps:",
-                "    - name: Cleanup",
-                "      id: cleanup_marker",
-                "      command: ['bash', '-lc', 'printf cleanup\\\\n']",
-            ]
+        json.dumps(
+            {
+                "version": "2.7",
+                "name": "runtime-plan-ordering",
+                "steps": [
+                    {
+                        "name": "First",
+                        "id": "first",
+                        "command": ["bash", "-lc", "printf first\\n"],
+                    },
+                    {
+                        "name": "Second",
+                        "id": "second",
+                        "command": ["bash", "-lc", "printf second\\n"],
+                    },
+                ],
+                "finally": {
+                    "id": "cleanup",
+                    "steps": [
+                        {
+                            "name": "Cleanup",
+                            "id": "cleanup_marker",
+                            "command": ["bash", "-lc", "printf cleanup\\n"],
+                        }
+                    ],
+                },
+            }
         )
         + "\n",
         encoding="utf-8",

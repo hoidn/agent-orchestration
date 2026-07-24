@@ -282,7 +282,6 @@ class TestAT60WaitForIntegration:
             state_file = state_dir / "runs" / run_id / "state.json"
         assert state_file.exists(), f"State file not found at {state_file}"
 
-        import json
         with open(state_file) as f:
             persisted_state = json.load(f)
 
