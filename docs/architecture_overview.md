@@ -4,18 +4,17 @@ Status: informative conceptual front door
 Normative authority: `specs/`
 Fuller model: [Orchestration Start Here](orchestration_start_here.md)
 
-`agent-orchestration` is a deterministic workflow runtime plus authoring
-frontends for agent-driven work. It treats workflows as typed contracts over
+`agent-orchestration` is a deterministic workflow runtime plus a Workflow Lisp
+frontend for agent-driven work. It treats workflows as typed contracts over
 state, artifacts, provider calls, command calls, and control flow.
 
 ## One-Screen Model
 
 ```text
-authored workflow
-  YAML DSL or Workflow Lisp .orc
+authored Workflow Lisp source (.orc)
         |
         v
-loader / frontend / validation
+frontend compiler / shared validation
         |
         v
 typed workflow state, output contracts, artifact lineage, source maps
@@ -43,10 +42,12 @@ authority. They decide routing, resume, publication, and terminal status.
 
 ## What Is A View?
 
-Reports, markdown summaries, rendered debug YAML, stdout, prompt audits, pointer
-files, and dashboards are views unless a specific contract makes one of them the
-artifact value. A useful view may explain a decision, but workflow control should
-come from validated state and contracts.
+Reports, markdown summaries, stdout, prompt audits, pointer files, and
+dashboards are views unless a specific contract makes one of them the artifact
+value. `expanded.debug.yaml` is an intentionally historical filename for a
+JSON-rendered debug projection; it is also a view and is never parsed as authored
+source. A useful view may explain a decision, but workflow control should come
+from validated state and contracts.
 
 ## Why Files?
 
@@ -69,7 +70,8 @@ Typed outputs, variants, and contracts prevent common workflow mistakes:
 - a tagged outcome must prove its variant before variant-specific values are
   consumed;
 - command and provider outputs are validated before canonical state is exposed;
-- migration candidates can be compared against YAML primaries mechanically.
+- migration results can be compared against preserved historical baselines
+  mechanically.
 
 ## Why Workflow Lisp?
 
@@ -78,16 +80,18 @@ It should make high-level workflows easier to write without changing runtime
 authority. The frontend lowers through shared validation, semantic IR, executable
 IR, source maps, and the existing runtime.
 
-Use Workflow Lisp when the required forms are supported and the workflow does
-not depend on behavior still only proven in YAML. Use YAML when exact runtime
-behavior, compatibility fixtures, or unsupported surfaces are required.
+Workflow Lisp is the only fresh authoring frontend. If the required form is not
+implemented, record a capability gap rather than creating a lower-level or YAML
+workaround. Historical YAML/YML sources remain translation and evidence inputs,
+not executable workflows.
 
 ## Next Reading
 
 - [Documentation Hub](index.md): choose the right spec, guide, or design doc.
 - [Capability Status Matrix](capability_status_matrix.md): check whether a
   surface is implemented, partial, library-provided, designed, future, or legacy.
-- [Workflow Drafting Guide](workflow_drafting_guide.md): author YAML workflows.
+- [Workflow Drafting Guide](workflow_drafting_guide.md): translate or audit
+  historical YAML workflows.
 - [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md): author `.orc`
   workflows.
 - [Design Documentation Index](design/README.md): route to architecture and

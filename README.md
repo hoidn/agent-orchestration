@@ -142,9 +142,9 @@ What the typed declarations buy:
 - Every generated step maps back to this source form, and the whole run is
   resumable from its last validated state.
 
-The same contracts exist on the legacy YAML surface (`variant_output`,
-`match`, injected output contracts); the Lisp frontend is the typed,
-composable way to author them.
+The lower-level Core contract still contains surfaces such as
+`variant_output`, `match`, and injected output contracts. They are compiler
+targets and runtime semantics, not a second authored frontend.
 
 ## Guarantees The System Enforces
 
@@ -163,19 +163,21 @@ composable way to author them.
 - Runs are deterministic where the workflow is, sequential by default, and
   leave complete local evidence. There is no service dependency.
 
-## Workflow Frontends
+## Workflow Source And Core Contract
 
-- **Workflow Lisp** (`.orc`) — the preferred frontend for new authoring. It
+- **Workflow Lisp** (`.orc`) — the only fresh workflow frontend. It
   compiles through a
   real middle-end (typed elaboration, ANF normalization,
-  defunctionalization) into the same validated runtime. Migration is
-  evidence-gated: a YAML workflow stays authoritative until its `.orc`
-  replacement passes computed parity gates, never because the `.orc`
-  version merely compiles.
-- **YAML DSL** (`specs/dsl.md`) — the legacy compatibility frontend. Existing
-  workflows across versions 1.x–2.14 remain executable while their migration
-  or retirement queues are open; new workflow families do not start here.
-  `specs/` remains authoritative for its runtime contract.
+  defunctionalization) into the validated runtime.
+- **Core workflow contract** (`specs/dsl.md`) — the normalized mapping produced
+  by the compiler and consumed by shared validation/runtime code. The former
+  authored YAML/YML frontend and its production parser are retired.
+
+Fresh `run` accepts only a path whose suffix compares case-insensitively as
+`.orc`; every other source path fails with `.orc required` before run state is
+created. Reports and dashboards may render persisted legacy state without
+parsing its source. Normal resume may acknowledge a completed YAML/YML run as
+already complete; nonterminal legacy resume fails closed.
 
 Use [`docs/capability_status_matrix.md`](docs/capability_status_matrix.md) to
 check whether a given surface is implemented, partial, designed, or legacy
@@ -183,23 +185,21 @@ before copying it.
 
 ## Architecture
 
-Both frontends lower into one validated substrate:
+The `.orc` frontend lowers into one validated substrate:
 
 ```text
-.orc source                                    YAML workflow
-  -> frontend AST                                   |
-  -> macro/import expansion,                        |
-     compile-time procedure specialization          |
-  -> typecheck                                      |
-  -> core-calculus elaboration (ANF)                |
-  -> scope/effect/proof analysis                    |
-  -> defunctionalization                            |
-          \                                         |
-           +--> flat Core workflow AST <------------+
-                  -> shared validation
-                  -> Semantic IR (semantic authority)
-                     + Executable IR (executable authority)
-                  -> flat, resumable runtime
+.orc source
+  -> frontend AST
+  -> macro/import expansion and compile-time procedure specialization
+  -> typecheck
+  -> core-calculus elaboration (ANF)
+  -> scope/effect/proof analysis
+  -> defunctionalization
+  -> flat Core workflow AST
+  -> shared validation
+  -> Semantic IR (semantic authority)
+     + Executable IR (executable authority)
+  -> flat, resumable runtime
 ```
 
 The choices that carry the design:
@@ -229,8 +229,9 @@ The choices that carry the design:
   different meaning.
 - **Two IR authority lanes.** Semantic IR records what a workflow means
   (types, effects, provenance — what review and migration parity consume);
-  Executable IR is what runs. Generated debug YAML is a projection, never
-  authority.
+  Executable IR is what runs. `expanded.debug.yaml` is an intentionally
+  historical filename for a JSON-rendered debug projection, never authored
+  source or authority.
 - **Pure computation has one semantics.** The runtime evaluator owns the
   closed operator surface; compile-time constant folding must agree with
   it (shared golden vectors). Maximal pure regions fold into single
@@ -252,7 +253,7 @@ Deeper reading:
 | Learn the execution model | [`docs/orchestration_start_here.md`](docs/orchestration_start_here.md) |
 | Start new authoring | [Workflow Lisp review/revise example](workflows/examples/review_revise_design_docs.orc) |
 | Author Workflow Lisp `.orc` | [`docs/lisp_workflow_drafting_guide.md`](docs/lisp_workflow_drafting_guide.md) |
-| Maintain existing YAML | [Legacy YAML drafting guide](docs/workflow_drafting_guide.md) |
+| Translate or audit historical YAML | [Historical YAML reference](docs/workflow_drafting_guide.md) |
 | Check the normative DSL contract | [`specs/index.md`](specs/index.md) and [`specs/dsl.md`](specs/dsl.md) |
 | Find runnable examples | [`workflows/README.md`](workflows/README.md) |
 | Compare Workflow Lisp to YAML | [`docs/workflow_lisp_mvp_comparison.md`](docs/workflow_lisp_mvp_comparison.md) |
@@ -362,13 +363,13 @@ recovery decisions. For headless email alerts across workspaces, see
 
 | Path | Purpose |
 | --- | --- |
-| [`orchestrator/`](orchestrator/) | Loader, validator, executor, CLI, dashboard, observability, and the Workflow Lisp compiler. |
+| [`orchestrator/`](orchestrator/) | Workflow Lisp frontend/compiler, validator, executor, CLI, dashboard, and observability. |
 | [`specs/`](specs/) | Normative DSL, CLI, state, provider, observability, and acceptance contracts. |
 | [`docs/`](docs/) | Informative guides, design docs, runbooks, and implementation plans. |
 | [`workflows/examples/`](workflows/examples/) | Runnable examples and validation fixtures. |
 | [`workflows/library/`](workflows/library/) | Reusable imported subworkflows and bundled prompt assets. |
 | [`prompts/`](prompts/) | Shared prompt catalog. |
-| [`tests/`](tests/) | Unit, runtime, loader, workflow, and fixture tests. |
+| [`tests/`](tests/) | Unit, frontend, runtime, workflow, and fixture tests. |
 
 ## Common Commands
 
@@ -388,11 +389,12 @@ pytest -m "not e2e" -v
 
 ## Versioning
 
-The repo contains workflows across multiple DSL versions, including older
-`1.x` examples and newer `2.x` structured-control, reusable-call,
-provider-session, managed-job, and v2.14 materialization/variant examples.
-Authoritative versioning details live in [`specs/index.md`](specs/index.md)
-and [`specs/versioning.md`](specs/versioning.md).
+The Core/runtime contract spans multiple DSL versions, including the older
+`1.x` semantics and newer `2.x` structured-control, reusable-call,
+provider-session, managed-job, and materialization/variant surfaces. Fresh
+authored source is `.orc`; authoritative versioning details live in
+[`specs/index.md`](specs/index.md) and
+[`specs/versioning.md`](specs/versioning.md).
 
 ## Debugging Rule Of Thumb
 

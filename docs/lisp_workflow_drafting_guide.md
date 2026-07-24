@@ -1,13 +1,12 @@
 # Workflow Lisp Drafting Guide
 
-Status: informative
-Preferred authoring frontend: Workflow Lisp / `.orc` where the required forms
-are supported
+Status: informative current-authoring guide
+Authored workflow frontend: Workflow Lisp / `.orc`
 Normative contracts: `specs/`
 Primary audience: workflow authors, workflow-library maintainers, and
 prompt/workflow reviewers
-Compatibility audience: maintainers inspecting generated Core DSL/YAML,
-migration fixtures, and legacy workflows
+Compatibility audience: maintainers inspecting generated Core mappings,
+historical migration fixtures, and persisted legacy state
 
 This guide explains how to author deterministic workflows using the Workflow
 Lisp frontend. It is about authoring choices, not runtime implementation.
@@ -43,29 +42,25 @@ surfaces. Use [Workflow Lisp Runtime-Native Drain Authoring](design/workflow_lis
 as the concrete checklist for Design Delta Drain-style authoring shape.
 Use `specs/` for normative runtime and DSL behavior.
 
-During the coexistence period, use the legacy
-[Workflow Drafting Guide](workflow_drafting_guide.md) only when maintaining,
-debugging, or migrating an existing YAML/YML workflow. It is compatibility
-guidance, not the new-author start.
+Use the retired [Workflow Drafting Guide](workflow_drafting_guide.md) only to
+translate or audit historical YAML/YML definitions and evidence. It is not an
+authoring or runtime route.
 
-Use `.orc` for new high-level workflows when the needed frontend forms are
-available and the workflow does not depend on runtime behavior that still exists
-only in YAML. Use YAML only for:
-
-- legacy workflows;
-- compatibility fixtures;
-- low-level runtime tests;
-- debug projections;
-- generated Core DSL inspection.
+Fresh workflow execution is ORC-only. `run` accepts a path whose suffix
+compares case-insensitively as `.orc` and rejects every other source with
+`.orc required` before creating state. The production YAML parser and PyYAML
+runtime dependency are removed. Persisted legacy runs retain state-only
+report/dashboard compatibility without source parsing. Normal resume may
+acknowledge a completed YAML/YML run as already complete; nonterminal legacy
+resume fails closed.
 
 If new work needs a form that the current `.orc` frontend does not support, do
-not create a new YAML workflow as a workaround. Retain an existing authoritative
-workflow when migrating, or record a capability gap for new work so the missing
-surface can be designed and implemented deliberately.
+not create a lower-level or YAML workflow as a workaround. Record a capability
+gap so the missing surface can be designed and implemented deliberately.
 
-For migrations, keep the existing YAML workflow authoritative until the `.orc`
-version has compile, shared-validation, dry-run or smoke, and parity evidence.
-Do not deprecate the YAML version only because an `.orc` version parses.
+For historical migration review, preserve the captured YAML baseline and its
+computed parity evidence. Do not attempt to rerun the retired source or infer
+parity merely because an `.orc` version compiles.
 
 Before copying a checked-in `.orc` example or fixture, check
 `docs/workflow_lisp_route_readiness_registry.json`. Registry labels provide
@@ -84,12 +79,12 @@ Migration promotion checklist:
 - Treat compile, typecheck, lower, shared validation, and dry-run as necessary
   evidence, not as promotion approval.
 - Require output contract parity, terminal-state parity, artifact parity, and
-  resume/reuse parity against the characterized YAML primary behavior.
+  resume/reuse parity against the characterized historical baseline.
 - Let migration tooling compute `non_regressive`; do not write or approve that
   value by hand.
 - Keep structured bundles, typed artifacts, runtime state, and variant proof as
   authority. Do not route migration behavior through reports, stdout, pointer
-  files, or debug YAML.
+  files, or `expanded.debug.yaml`.
 - Do not expose compiler-generated write roots or result-bundle paths as public
   entrypoint inputs. Debug projections may show generated bindings only with
   origin metadata.
@@ -126,9 +121,10 @@ Use strict modes only when you want the command to act as a release gate:
 - `--require-promotable` exits `1` unless each selected target is both
   non-regressive and eligible for primary-surface promotion.
 
-`non_regressive` and promotable are intentionally different. A target can be
-non-regressive yet remain `primary_surface=yaml` because the migration design
-still blocks promotion. The machine-readable gate decision lives in
+`non_regressive` and promotable are intentionally different. Historical reports
+may record a non-regressive target as `primary_surface=yaml` because the
+migration design still blocked promotion at capture time; that label is
+provenance, not a current execution route. The machine-readable gate decision lives in
 `gate_evaluation.json`, not in the per-target report payload. Keep
 `primary_surface`, `report_valid`, and `evidence_complete` as derived gate or
 index views rather than authoring or editing them into parity reports.
@@ -149,8 +145,7 @@ review/fix loops. Treat it as a compact shared-validation reference and
 inspiration corpus, not as a direct template for new workflows, not as the main
 `.orc` model, and not as a production queue drain: it can compile and dry-run
 through the `.orc` runtime bridge, but it does not include the selector, queue
-movement, recovery, and parity evidence required to replace the mature YAML
-backlog drains.
+movement, recovery, and evidence required of a production backlog drain.
 
 ## Core Rule
 
@@ -286,8 +281,9 @@ The authoring pipeline is:
   -> existing runtime
 ```
 
-Generated YAML, if emitted, is a debug projection. It is not semantic or
-executable authority.
+The optional `expanded.debug.yaml` artifact is a JSON-rendered debug projection
+despite its historical suffix. It is not semantic or executable authority and
+is never workflow source.
 
 The first question is not "which YAML field do I need?"
 
@@ -367,7 +363,7 @@ The currently implemented authoring surface includes:
   certified adapters only as explicit compatibility backends
 - `finalize-selected-item`
 - `backlog-drain`
-- debug YAML renderer
+- JSON debug-projection renderer (`expanded.debug.yaml`)
 - source-map and build-artifact emission
 
 The ProcRef tranche currently supports compile-time-only procedure composition:
@@ -417,32 +413,34 @@ workflow calls, without wrapping it in a one-field record. Typed result
 guidance uses `(result T :description ... :format-hint ... :example ...)`, and
 record/union payload fields accept the same optional keys. Examples are typed
 pure constants. Path examples must be safe but need not exist at compile time.
-DSL v2.15 is public through ordinary loader entrypoints. Follow the
+DSL v2.15 is public through ordinary `.orc` frontend entrypoints. Follow the
 [Capability Status Matrix](capability_status_matrix.md) for current status.
 
-Some migration slices now have evidence, but YAML remains authoritative for a
-workflow until that specific `.orc` version has compile, shared-validation,
-dry-run or smoke, and parity evidence.
+Historical migration records retain their captured YAML baseline and parity
+claims as evidence. YAML is no longer an executable authority; current routes
+must be `.orc` and satisfy their ordinary compile, validation, and runtime
+gates.
 
 Do not present a form as ordinary authoring guidance unless the guide labels
 whether it is implemented, library-backed, designed, future, or legacy.
 
 ## 3. Semantic Authority Rules
 
-These rules are frontend-independent. They apply to `.orc`, generated Core AST,
-generated/debug YAML, and runtime IR.
+These rules apply across `.orc`, generated Core AST, the JSON-rendered
+`expanded.debug.yaml` view, and runtime IR.
 
 Semantic IR is the typed semantic authority surface for validated workflows.
 Executable IR is the validated executable authority surface. Runtime plans,
-source maps, debug YAML, summaries, and reports are derived views unless a
-specific contract says otherwise.
+source maps, `expanded.debug.yaml`, summaries, and reports are derived views
+unless a specific contract says otherwise.
 
 ### 3.1 Structured State Is Authority
 
 Structured records, unions, bundles, and typed artifacts are semantic authority.
 
-Reports, rendered plans, summaries, debug YAML, logs, and pointer files are
-views or materialized representations.
+Reports, rendered plans, summaries, the JSON-rendered
+`expanded.debug.yaml`, logs, and pointer files are views or materialized
+representations.
 
 Bad:
 
@@ -1061,8 +1059,8 @@ canonical model/effort reach native argv; workflow authors do not construct
 `.orc`. Unsupported canonical options fail before launch. Public resume treats
 policy changes as ordinary source/program drift and uses the existing checksum,
 bound-input, checkpoint, and completed-boundary guards. Runtime plans, reports,
-dashboard/debug projections, debug YAML, and source maps are inspection views,
-not call-policy or resume authority.
+dashboard/debug projections, `expanded.debug.yaml`, and source maps are
+inspection views, not call-policy or resume authority.
 
 When provider prompt semantics require workspace file contents rather than only
 typed values or path text, declare exact typed prompt dependencies on the
@@ -1097,9 +1095,9 @@ result is reused without reopening the files.
 
 The compiler-owned typed contract and per-attempt content-free evidence are not
 authoring surfaces. `runtime_plan` remains topology-only, and evidence or its
-offline index never controls execution or resume. YAML content injection has
-compatible successful rendering and fresh-per-retry behavior, but it remains a
-legacy surface for migration rather than the model for new `.orc` syntax.
+offline index never controls execution or resume. Historical YAML
+content-injection behavior may remain in parity evidence, but no fresh authored
+YAML path reaches it.
 
 The provider must produce structured output matching the return type. The
 result travels through one channel: a validated bundle written at the
@@ -1426,7 +1424,7 @@ the workflow is explicitly a low-level fixture or compatibility bridge.
 When a promoted entry workflow omits one of these context parameters for an
 internal reusable call, Workflow Lisp records that omission as private
 executable-context metadata. Public authored inputs stay public; runtime-owned
-context bindings, managed write roots, and YAML-compatibility bridge values
+context bindings, managed write roots, and historical compatibility-bridge values
 stay off the public boundary.
 
 ### 11.1 Boundary Authority Classes
@@ -1437,7 +1435,7 @@ authority before exposing it:
 | Class | Meaning | Treatment |
 | --- | --- | --- |
 | `public_authored` | The caller genuinely chooses the value: steering doc, target design, explicit output root | Keep public |
-| `compatibility_bridge` | YAML-era state/artifact path kept for parity or existing consumers | Keep temporarily, labeled, with a retirement route |
+| `compatibility_bridge` | Historical state/artifact path retained for a supported persisted consumer | Keep only while that consumer contract remains, labeled with a retirement route |
 | `runtime_derived` | Derivable from run context, resource identity, or `StateLayout` | Bind internally; not a public input |
 | `generated_internal` | Compiler/runtime-owned bundle, write root, temp, or sidecar | Allocate privately |
 | `materialized_view` | Deterministic rendering of a typed value | Allocate as a view; never semantic authority |
@@ -1550,14 +1548,12 @@ effect visibility, source maps, and generated path handling.
 Do not replace a missing or unsupported standard-library lowering with ad hoc
 inline command text, report parsing, pointer choreography, or macro-generated
 hidden effects. Either use the supported form, add a reviewed lowering
-contract, retain the existing authority during migration, or record a
-capability gap. For new authoring, do not create a new YAML workflow to bypass
-the missing form; lower-level YAML/Core stays limited to compatibility and
-fixture coverage.
+contract, or record a capability gap. The lower-level Core mapping remains a
+compiler/runtime contract, not an alternate authored surface.
 
 | Missing-form context | Required disposition |
 | --- | --- |
-| Existing migration | `retain_existing_authority` |
+| Historical migration evidence | `preserve_captured_baseline` |
 | New authoring | `record_capability_gap` |
 | New YAML/YML workaround | `prohibited` |
 
@@ -1585,9 +1581,9 @@ supported for the workflow's target.
 
 The current authoring surface supports review/fix loop examples and fixtures,
 and the current checkout lowers the form through the ordinary imported stdlib
-route over compile-time review/fix `ProcRef` hooks. Primary YAML-to-`.orc`
-migration is stricter: promotion still requires the parity evidence described
-by `docs/design/workflow_lisp_key_migration_parity_architecture.md`.
+route over compile-time review/fix `ProcRef` hooks. Historical YAML-to-`.orc`
+migration claims remain bounded by the preserved parity evidence described by
+`docs/design/workflow_lisp_key_migration_parity_architecture.md`.
 
 The exact first-tranche `ReviewFindings`, `ReviewDecision`, and
 `ReviewLoopResult` schemas are owned by
@@ -1867,10 +1863,9 @@ produced, or dynamically dispatched procedures.
 Use high-level loop forms when the pattern is known.
 
 Prefer `review-revise-loop` for review/fix loops only when its current lowering
-contract is supported for the workflow's promotion target. For primary
-migrations, keep the characterized YAML primary or use an explicitly marked
-compatibility surface until the required workflow-family parity evidence is
-proven. Prefer `backlog-drain` for select/run/gap/repeat. Use direct
+contract is supported for the workflow's route. Historical migration reviews
+should preserve the captured baseline and parity evidence, not execute the
+retired source. Prefer `backlog-drain` for select/run/gap/repeat. Use direct
 `loop/recur` only when the loop shape is genuinely novel.
 
 Every loop must have:
@@ -2038,7 +2033,9 @@ Useful build artifacts may include:
 .orchestrate/build/<workflow>/expanded.debug.yaml
 ```
 
-The debug YAML is optional and non-authoritative.
+`expanded.debug.yaml` is optional and non-authoritative. Its filename is
+retained for historical tooling compatibility, but its body is a JSON-rendered
+projection and is never accepted as authored workflow source.
 
 After compile/lowering succeeds, use ordinary runtime artifacts:
 
@@ -2071,10 +2068,11 @@ The frontend and lint tools should warn on brittle authoring patterns.
 | `loop_state_carries_path_authority` | Loop state threading state-file paths between iterations | Typed value state plus `record-update` (Section 17) |
 | `low_level_state_path_in_high_level_module` | `state/...` path types on a high-level public boundary | Derived context, private bindings, or a labeled compatibility bridge (Section 11.1) |
 
-## 21. YAML Compatibility Surfaces
+## 21. Historical YAML-To-Core Translation Surfaces
 
-This section is for migration and debugging. New high-level `.orc` authors
-should not usually start here.
+This section helps interpret retired YAML definitions and historical migration
+evidence. The rows describe Core behaviors that `.orc` lowering may still
+target; they do not define a runnable YAML frontend.
 
 | YAML/Core surface | Lisp-oriented replacement |
 | --- | --- |
@@ -2117,9 +2115,10 @@ Prefer high-level authoring:
 
 If Lisp code is only YAML with parentheses, stop and revise the abstraction.
 
-## 22. Migration From YAML To `.orc`
+## 22. Historical Migration From YAML To `.orc`
 
-Use this process for converting an existing workflow.
+Use this process when translating a historical definition or auditing how a
+retired workflow was converted.
 
 1. Inventory behavior, not syntax.
 2. Translate types first: path contracts, enums, records, unions, context
@@ -2155,9 +2154,10 @@ For each migrated workflow, measure:
 - gate-pattern count;
 - behavioral equivalence.
 
-The migration is not successful merely because the `.orc` parses. If the `.orc`
-version remains YAML-shaped or requires more boilerplate than v2.14 YAML, stop
-and revise the frontend design before migrating more workflows.
+A translation is not successful merely because the `.orc` parses. If the
+`.orc` version remains YAML-shaped or requires more boilerplate than the
+captured baseline, stop and revise the frontend design before translating more
+workflows.
 
 ## 23. Example: Implementation Phase
 
@@ -2410,7 +2410,7 @@ Before running a new `.orc` workflow, confirm:
 
 | Area | Check |
 | --- | --- |
-| Frontend choice | This belongs in `.orc`; YAML is needed only for compatibility or fixtures. |
+| Frontend choice | This belongs in `.orc`; there is no alternate fresh authored frontend. |
 | Types | All boundary values are typed. In public DSL v2.15, every currently transportable type is valid in function, procedure, provider-result, command-result, workflow-call, and public-workflow return positions; direct roots use compiler-owned `__result__` carriage and no authored wrapper. Optional `(result T ...)` and payload-field guidance is typed, prompt-only metadata and never changes runtime validity. |
 | Paths | Path contracts are reusable `defpath` definitions. |
 | Authority | Structured bundles/artifacts are authority; reports are views. |
@@ -2468,10 +2468,11 @@ Require artifact values.
 Look for variant-specific fields outside `match`. Require `match` or a frontend
 construct that lowers to an equivalent proof context.
 
-## 29. Legacy And Compatibility Policy
+## 29. Persisted Legacy And Historical Compatibility Policy
 
-Legacy workflows may retain YAML, shell glue, report parsing, and pointer
-conventions temporarily. New high-level workflows should not introduce them.
+Persisted legacy runs and historical evidence may retain YAML-era path names,
+shell glue, report parsing, and pointer conventions. Fresh workflows cannot
+retain authored YAML and should not introduce those mechanics through `.orc`.
 
 A legacy adapter should declare:
 
@@ -2486,10 +2487,11 @@ Compatibility does not imply authority. A legacy script may still need pointer
 files or markdown reports. That does not make those files semantic authority.
 The `.orc` boundary should expose typed values.
 
-## 30. Low-Level Core/YAML Surfaces
+## 30. Low-Level Core Surfaces
 
-These surfaces still exist after lowering and remain useful for debugging,
-compatibility, and runtime tests.
+These surfaces exist after `.orc` lowering and remain useful for debugging,
+persisted compatibility, and runtime tests. They are compiler targets, not a
+second source language.
 
 | Surface | Purpose |
 | --- | --- |
@@ -2521,7 +2523,7 @@ writing a compatibility fixture, runtime test, or standard-library lowering.
 | "I need to select/run/gap/repeat." | "This is `backlog-drain`." |
 | "I need a tiny Python helper to compare, count, or format." | "This is pure computation; use the operator surface and typed projection." |
 | "I need to write a lot of target paths." | "These should derive from context or typed target schemas." |
-| "The generated YAML is weird." | "Inspect the Core AST, executable IR, Semantic IR, and source map; YAML is only a projection." |
+| "`expanded.debug.yaml` looks unusual." | "Inspect the Core AST, executable IR, Semantic IR, and source map; the historical filename contains only a JSON-rendered projection." |
 
 ## 32. Minimal Safe Subset
 

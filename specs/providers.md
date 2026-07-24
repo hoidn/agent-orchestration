@@ -1,5 +1,9 @@
 # Providers and Prompt Delivery (Normative)
 
+Fresh authored workflows reach this contract through compiled `.orc` source
+only. The mapping snippets below describe the validated Core/executable provider
+shape; YAML-fenced snippets are schema notation, not accepted workflow files.
+
 - Provider templates
   - Define CLI command and input mode:
     - `command: string[]` may reference `${PROMPT}` in argv mode.
@@ -16,7 +20,7 @@
   - `provider` may contain `${run|context|inputs|steps.*}` substitutions. The resolved provider name is validated immediately before provider template lookup and execution.
   - Provider aliases resolve in the active workflow provider namespace. Imported workflows do not inherit or merge caller provider templates; pass role choices through declared inputs and define supported aliases inside the callee.
   - v2.10 top-level provider steps may also declare `provider_session` to select either `session_support.fresh_command` or `session_support.resume_command`.
-  - In this tranche, `provider_session` steps require a static provider alias because loader-time session-support validation must inspect the provider template.
+  - In this tranche, `provider_session` steps require a static provider alias because frontend-build-time session-support validation must inspect the provider template.
   - Provider steps with `output_bundle.path` or `variant_output.path` receive the runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding for the resolved workspace-relative bundle target. The runtime creates or validates the declared parent directory before launch, and that declared bundle file remains the only structured-output authority.
   - For v2.15 contracts, provider prompt composition renders validated
     effect-boundary `guidance`, field guidance, ordered `guidance_context`, and
@@ -83,9 +87,10 @@
     only the resolved provider identifier and canonical option; enclosing
     provider-result provenance may be retained, but policy values, prompts,
     secrets, and invented field spans may not be exposed.
-  - Authored YAML/YML reserves and rejects both the internal step key
-    `provider_call_policy` and provider-template key `call_policy_bindings`.
-    Existing YAML `provider_params` behavior is unchanged.
+  - Authored `.orc` cannot directly populate the internal step key
+    `provider_call_policy` or provider-template key `call_policy_bindings`.
+    Compiler lowering and validated provider externs own those surfaces.
+    Lower-level Core `provider_params` behavior is unchanged.
 
 - Shared unrestricted invocation profiles
   - `codex_unrestricted_workspace` has no defaults, uses stdin, binds
@@ -98,7 +103,7 @@
     `["claude", "-p", "--model", "${model}", "--effort", "${effort}",
     "--permission-mode", "bypassPermissions"]`.
   - These profiles are generic provider data. Their presence does not prove
-    workflow-family parity, promotion eligibility, or YAML deletion.
+    workflow-family parity or promotion eligibility.
 
 - Managed provider job policy JSON (v2.13)
   - `managed_jobs.policy` points to workspace-relative JSON that classifies payloads launched by the guarded provider process. It is separate from provider-template configuration.
@@ -184,7 +189,7 @@
   - Ordinary and adjudicated provider execution use the same snapshot/render owner. Each relevant attempt receives exactly one immutable dependency snapshot shared by rendering and prompt finalization; no stage reopens a dependency. Each retry takes a fresh snapshot before provider preparation.
   - The completed provider result and its lexical checkpoint include the compiled dependency contract. Compatible completed-result reuse returns the committed structured result without reopening current dependency files. A pending or failed provider boundary takes a new snapshot for its new attempt.
   - The exact UTF-8 dependency block is limited to `262144` bytes as specified by `dependencies.md`; truncation is deterministic and explicit.
-  - Prompt-dependency evidence is narrower than snapshot/render reuse: only an ordinary typed Workflow Lisp attempt carrying the validated compiler contract derives Workflow Lisp prompt-dependency evidence. YAML and adjudicated paths without that ordinary typed carrier emit no such evidence; their existing debug/state output is separate. YAML content injection still uses the shared snapshot/render owner and fresh-per-retry behavior for stable successful calls while remaining a legacy authoring surface.
+  - Prompt-dependency evidence is narrower than snapshot/render reuse: only an ordinary typed Workflow Lisp attempt carrying the validated compiler contract derives Workflow Lisp prompt-dependency evidence. Adjudicated paths without that ordinary typed carrier emit no such evidence; their existing debug/state output is separate. Historical YAML content-injection behavior remains comparison evidence only and is not reachable through fresh workflow execution.
 
 - Adjudicated provider prompt and evaluator delivery (v2.11)
   - Each candidate uses the ordinary provider prompt composition contract, including step-wide `asset_depends_on`, `depends_on`, `consumes` injection, and deterministic output-contract suffixes. A candidate `asset_file` or `input_file` override replaces only the base prompt source.
@@ -234,7 +239,7 @@
 
 ## Direct CLI Integration (details)
 
-Workflow-level templates:
+Core provider-template mapping (schema notation, not authored workflow source):
 ```yaml
 providers:
   claude:
@@ -251,7 +256,7 @@ providers:
       reasoning_effort: "high"
 ```
 
-Step-level usage:
+Core provider-step mapping (schema notation, not authored workflow source):
 ```yaml
 steps:
   - name: Analyze
@@ -280,7 +285,7 @@ Providers can read and write files directly from/to the filesystem while also ou
 2. STDOUT Capture: The `output_file` parameter captures STDOUT (typically logs, status messages, or reasoning process).
 3. Simultaneous Operation: A provider invocation may write multiple files AND produce STDOUT output.
 
-Example:
+Core mapping example (schema notation, not authored workflow source):
 ```yaml
 steps:
   - name: GenerateSystem

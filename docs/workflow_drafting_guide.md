@@ -1,14 +1,20 @@
 # Workflow Drafting Guide
 
-Status: legacy compatibility guide
+Status: retired YAML authoring guide; historical translation/reference only
 New-author start: [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
 
 This guide is informative. The normative contracts live under `specs/` (start at `specs/index.md`).
-This guide is for maintaining, debugging, or migrating existing YAML/YML
-workflows, not for starting new workflow families. YAML remains executable
-during the compatibility period; its eventual parser removal is a separate
-retirement gate. This guide is about legacy DSL authoring choices, not runtime
-operations.
+The production YAML parser is retired. Fresh `run` accepts only a path whose
+suffix compares case-insensitively as `.orc`; YAML/YML and every other
+non-`.orc` path fail with `.orc required` before state creation. This guide
+exists only to interpret historical definitions and evidence or to translate
+their behavior into Workflow Lisp. Its YAML snippets are historical schema
+notation, not runnable examples or maintenance instructions.
+
+Reports and dashboards may show persisted legacy state without parsing its
+source. Normal resume may acknowledge a completed YAML/YML run as already
+complete; nonterminal legacy resume fails closed. Those compatibility reads do
+not restore an authored YAML surface.
 
 Companion docs:
 - Concept model and terminology: `docs/orchestration_start_here.md`
@@ -16,14 +22,16 @@ Companion docs:
 - Inline glue and command-adapter boundary:
   `docs/design/workflow_command_adapter_contract.md`
 
-Goal: help you preserve or migrate existing YAML workflows reliably when
-prompts, deterministic artifacts, and control flow all interact. For new
-authoring, begin with the Workflow Lisp guide and a registry-approved `.orc`
-example.
+Goal: help you reconstruct the contracts of retired YAML workflows when
+prompts, deterministic artifacts, and control flow all interacted, then map
+those contracts to `.orc`. For all runnable authoring, begin with the Workflow
+Lisp guide and a registry-approved `.orc` example.
 
 ## 1) Mental Model: Four Authoring Surfaces
 
-Keep these authoring surfaces separate. Confusing them is the fastest way to write a workflow that looks coherent in YAML but teaches the wrong boundary model.
+Keep these historical contract surfaces separate when reading or translating a
+retired definition. Confusing them is the fastest way to preserve the wrong
+boundary model in its `.orc` replacement.
 
 | Surface | What it is | Where it lives |
 | --- | --- | --- |
@@ -50,12 +58,13 @@ when designing a new frontend, macro layer, or reusable workflow family. For
 ordinary workflow authoring, keep these rules in view:
 
 - Structured bundles and typed artifacts are authority. Reports, rendered
-  plans, debug YAML, pointer files, and summaries are views or materialized
-  representations.
-- When revising an existing YAML/YML workflow, do not parse markdown reports
-  to recover semantic fields such as blocker class, review decision, selected
-  item path, phase status, or drain status. Text extraction belongs only in
-  explicitly marked legacy adapters or compatibility surfaces with fixtures.
+  plans, pointer files, and summaries are views or materialized
+  representations. `expanded.debug.yaml` is likewise a view: the historical
+  filename now contains a JSON-rendered projection, not authored YAML.
+- When translating a historical YAML/YML workflow, do not carry forward
+  markdown-report parsing for semantic fields such as blocker class, review
+  decision, selected item path, phase status, or drain status. Text extraction
+  belongs only in explicitly marked legacy adapters with fixtures.
 - Artifact values are authoritative. A pointer file contains or represents an
   artifact value; it is not itself the semantic value unless the contract says
   the artifact value is that pointer path.
@@ -85,9 +94,9 @@ Command steps are allowed. Hidden workflow semantics in inline command text are
 migration debt.
 
 Use command steps for external tools or named adapters with explicit contracts.
-Do not add `python -c`, `python -`, `bash -c`, heredocs, nested
-`subprocess.run`, or inline JSON/pointer/report parsing to decide workflow
-state while maintaining an existing YAML/YML compatibility surface.
+Do not carry `python -c`, `python -`, `bash -c`, heredocs, nested
+`subprocess.run`, or inline JSON/pointer/report parsing forward into `.orc` to
+decide workflow state.
 
 Procedural behavior should be one of:
 
@@ -145,7 +154,9 @@ Use `depends_on.inject` for runtime-resolved file lists or content, not for subs
 
 For provider-review steps, treat injected docs as candidates rather than a mandatory reading list unless the step truly requires every file. Avoid broad doc globs such as `docs/**/*.md` or `specs/*.md`; prefer `docs/index.md` plus a small exact set of docs that are nearly always relevant. Do not list ambient agent instruction files such as `AGENTS.md` or `CLAUDE.md` as workflow dependencies just to make agents read them; the agent runtime handles those.
 
-If semantic enforcement matters, put the standard in the review or design prompt and back it with an output contract or gate instead of duplicating the same instruction in YAML and prompt prose.
+If semantic enforcement matters, put the standard in the review or design
+prompt and back it with an output contract or gate instead of preserving the
+same instruction in both a historical mapping and prompt prose.
 
 Codex provider note: when a Codex workflow is expected to use shell tools to read or write the checkout, include `--dangerously-bypass-approvals-and-sandbox` in the provider command; `--skip-git-repo-check` is often paired with it for workflows that may run from copied or generated checkouts. The bypass flag matches the built-in `codex` provider and avoids Codex starting in its default Linux sandbox, which can fail in nested or externally sandboxed environments. Only use this for trusted workflow workspaces because it disables Codex's own approval and sandbox layer.
 
@@ -172,21 +183,20 @@ For v2.10 provider-session steps, treat the session handle as runtime-owned data
 
 ### Managed Provider Steps (v2.13)
 
-**Authoring scope:** `existing_yaml_compatibility`
+**Historical scope:** `retired_yaml_translation`
 **New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
 
-Use `managed_jobs` when an existing YAML/YML workflow has a provider that may
-launch long-running local, Slurm, or training-style jobs that must be audited,
-recovered, and resumed without relaunching the provider. Provider-job tests
-cover that v2.13 surface. Genuinely new authoring starts in the
+The historical `managed_jobs` mapping represented a provider that could launch
+long-running local, Slurm, or training-style jobs requiring audit, recovery,
+and resume without relaunching the provider. Use the mapping below only to
+understand old state/evidence or to identify behavior that an `.orc`
+replacement must preserve.
+
+Do not edit or run the sample. New authoring starts in the
 [Workflow Lisp drafting guide](lisp_workflow_drafting_guide.md) and selects a
 registry-approved `.orc` example whose typed shape fits.
 
-When updating an existing v2.13 YAML/YML workflow, do not hand-author guard
-wrappers, audit paths, or `RecoverManagedJobs` command steps. Manual recovery
-steps are a compatibility fallback for older runtimes.
-
-Workflow YAML owns only the managed boundary and routes:
+The retired mapping owned only the managed boundary and routes:
 
 ```yaml
 steps:
@@ -240,7 +250,10 @@ Policy JSON owns the command classification and deterministic job metadata:
 
 Conventions:
 - Managed policy entries must provide complete deterministic metadata directly or through a named extractor: state root template, output-root handling, verification targets, source/config snapshot inputs, and backend selection.
-- Use `managed_jobs.on.complete`, `.failed`, and `.invalid` for managed outcome routing. `outstanding` is `fail_resumable` in v2.13 so `orchestrator resume <run_id>` re-enters recovery.
+- Historical `managed_jobs.on.complete`, `.failed`, and `.invalid` values owned
+  managed outcome routing. `outstanding` was `fail_resumable` in v2.13 so the
+  former runtime could re-enter recovery; current nonterminal legacy resume
+  rejects rather than parsing this definition.
 - Do not combine `managed_jobs` with step-level `retries` or ordinary `on` handlers. Managed provider execution suppresses provider retries to avoid duplicate job launches.
 - Shims cover direct `python`/`torchrun` launches plus supported `conda run ... python|torchrun ...` and `uv run python|torchrun ...` forms. Unsupported activation or wrapper forms should fail closed or stay explicitly unmanaged.
 - For Slurm, run from an immutable snapshot workspace or use generated scripts that verify recorded source/config hashes before execution.
@@ -287,10 +300,10 @@ Use when a step writes one JSON bundle whose valid shape depends on an enum
 discriminant. This is the right surface for "completed versus blocked" style
 outputs where each variant has different required and forbidden fields.
 
-When updating an existing v2.14 YAML/YML workflow, do not emulate tagged unions
-with a flat `output_bundle` full of optional fields. That pattern hides which
-fields are actually available and pushes variant reasoning into downstream
-shell or prompt prose.
+When translating an existing v2.14 YAML/YML definition, do not carry forward a
+flat `output_bundle` full of optional fields when the behavior is a tagged
+union. That pattern hides which fields are actually available and pushes
+variant reasoning into downstream shell or prompt prose.
 
 Provider and adjudicated-provider steps receive an injected variant contract.
 Command steps are validated after successful execution without prompt
@@ -379,13 +392,19 @@ Two practical upgrades now exist:
 - v1.5: use first-class `assert` instead of shelling out to `test`, `jq`, or tiny one-line Python gates.
 - v1.6: use typed predicates plus structured `ref:` for booleans, generic typed comparisons, and recovered-failure routing instead of stringly `when.equals` hacks.
 - v1.8: use `max_visits` and `max_transitions` instead of shell counters or ad hoc file-backed loop budgets when the goal is simply to cap a raw `goto` loop.
-- v2.0: when adding typed predicates to nested scopes in an existing YAML/YML workflow, use explicit `self.steps.*`, `parent.steps.*`, and `root.steps.*` refs and add stable step `id` values anywhere later refactors should preserve lineage or resume identity.
+- v2.0 history: typed predicates in nested scopes used explicit `self.steps.*`,
+  `parent.steps.*`, and `root.steps.*` refs plus stable step `id` values for
+  lineage or resume identity. Preserve the behavior, not the YAML syntax, when
+  translating it.
 - v2.1: prefer typed workflow `inputs`/`outputs` over ad hoc `context` conventions when the value is part of the workflow boundary and should survive validation, resume, and later `call` reuse.
 - v2.2: prefer top-level structured `if/else` when the workflow intent is branch selection rather than a reusable raw `goto` diamond.
 - v2.6: prefer top-level structured `match` when a typed enum decision has three or more stable cases, or when you want the workflow shape to stay aligned with the decision artifact values instead of layering chained predicates.
 - v2.7: prefer top-level `repeat_until` for bounded post-test review/fix loops when the exit condition should read the latest iteration outputs instead of shell-managed counters or raw `goto` back-edges.
 - v2.8: prefer the `score` predicate helper for evaluator thresholds and score bands instead of repeating numeric `compare` / `all_of` chains around one score artifact.
-- v2.9 tooling: use `orchestrate run ... --dry-run` or `orchestrate report` to surface advisory migration warnings for shell gates, stringly `when.equals`, raw `goto` diamonds, and imported/exported output-name collisions before those patterns spread.
+- v2.9 history: advisory migration lints identified shell gates, stringly
+  `when.equals`, raw `goto` diamonds, and imported/exported output-name
+  collisions. Historical reports may be inspected; the retired YAML source
+  cannot be dry-run.
 - v2.11: use `adjudicated_provider` when a high-value artifact-producing provider step should compare multiple providers or prompt variants before downstream publication.
 - v2.14: use `materialize_artifacts` for deterministic input/target materialization, `pre_snapshot` plus `select_variant_output` for content-based outcome selection, `variant_output` for provider/command tagged-union bundles, and `requires_variant` or `match` to prove variant-only references.
 - Reusable-call boundary: if a workflow is intended for `call` reuse, keep bundled prompts/rubrics/schemas on the workflow-source-relative asset surface (`asset_file`, `asset_depends_on`) and keep workspace-owned or runtime-generated prompt material on `input_file`.
@@ -407,15 +426,15 @@ For design, design-review, and planning prompts that may affect architecture, da
 
 ### Conservative Prompt Handling When Reusing Workflows
 
-**Authoring scope:** `existing_yaml_compatibility`
+**Historical scope:** `retired_yaml_translation`
 **New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
 
-When migrating, forking, or specializing an existing YAML/YML compatibility
-workflow, copy prompt files verbatim by default. Change prompt text only for a
-documented semantic reason, such as a renamed actor, a changed input role, a
-different target contract, or a changed output contract that the provider must
-understand. Genuinely new work starts from the Workflow Lisp guide and a
-registry-approved `.orc` example rather than cloning the YAML path.
+When translating a retired YAML/YML workflow, preserve prompt files verbatim by
+default. Change prompt text only for a documented semantic reason, such as a
+renamed actor, a changed input role, a different target contract, or a changed
+output contract that the provider must understand. Genuinely new work starts
+from the Workflow Lisp guide and a registry-approved `.orc` example rather than
+cloning the historical path.
 
 Keep prompt deltas small and reviewable:
 
@@ -571,7 +590,10 @@ For v2.7 structured loops:
 - give both the outer step and the repeat body an authored `id` when iteration lineage or resume stability matters across sibling insertion / body reshaping
 - for bounded review loops where exhausting the cap means "this phase did not converge" rather than "the workflow crashed", use v2.12 `repeat_until.on_exhausted.outputs` to route to the adjacent escalation decision; keep provider prompts unaware of the loop cap
 - keep the first tranche bounded: no `goto`, nested `for_each`, or nested `repeat_until` inside the loop body
-- direct nested `call`, `match`, and `if/else` bodies are allowed; the loader lowers them into loop-local executable steps that still read body-local refs through `self.steps.*` and outer lexical refs through `parent.steps.*`
+- direct nested `call`, `match`, and `if/else` bodies were lowered into
+  loop-local executable steps that read body-local refs through `self.steps.*`
+  and outer lexical refs through `parent.steps.*`; preserve that scope behavior
+  when translating it
 
 For post-v2.0 workflows, separate display names from durable identity:
 - keep `name` optimized for readable reports
@@ -580,15 +602,13 @@ For post-v2.0 workflows, separate display names from durable identity:
 
 ### Preparing A Workflow For `call`
 
-**Authoring scope:** `existing_yaml_compatibility`
+**Historical scope:** `retired_yaml_translation`
 **New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
 
-Before extending or migrating an existing YAML/YML design -> plan ->
-implementation workflow, check `workflows/README.md` for an existing
-compatibility stack or phase workflow that already matches the required
-behavior. Preserve or import that stack and its imported subworkflows
-recursively instead of flattening it into a one-off monolith. Use a monolith
-only when import portability or a debugging snapshot is the explicit goal.
+Before translating a retired YAML/YML design -> plan -> implementation
+workflow, check `workflows/README.md` for a current `.orc` stack or phase
+workflow that already matches the required behavior. Reuse the current typed
+route instead of flattening historical syntax into a one-off monolith.
 
 If you expect a workflow to be used through `call`:
 
@@ -622,14 +642,14 @@ Why this matters:
 
 For this pattern, `RunChecks` should usually consume `check_plan` from execution/fix producers, not from plan-drafting producers. Malformed or stale check definitions should normally become structured `check_results` evidence for review/fix, rather than terminating the workflow immediately.
 
-## 8) Compatibility-Edit Checklist
+## 8) Historical Translation Checklist
 
-**Authoring scope:** `existing_yaml_compatibility`
+**Historical scope:** `retired_yaml_translation`
 **New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
 
-Before running an existing YAML/YML workflow after compatibility edits,
-confirm the basics. For genuinely new work, use the Workflow Lisp drafting
-checklist instead.
+Before claiming that an `.orc` translation preserves a historical YAML/YML
+contract, confirm the basics below. Do not run the retired source; validate and
+smoke the `.orc` result.
 
 | Area | Sanity check |
 | --- | --- |
@@ -638,8 +658,8 @@ checklist instead.
 | Dataflow | `publishes.from` references a real produced artifact name; `consumes` matches real runtime dependencies. |
 | Prompts | Prompt text does not conflict with injected blocks. |
 | Control flow | Gates encode completion, not just "a file exists"; loops have bounded retries/cycles. |
-| Structured DSL combinations | If a maintained workflow combines structured loops, calls, or matches with deterministic output contracts or dynamic paths, compare against exact compatibility evidence or run a minimal runtime smoke for that contract shape. `--dry-run` validates schema and dependencies, not post-execution contract substitution. |
-| First run | Use `--debug` so you can inspect composed prompts. |
+| Structured DSL combinations | If the historical definition combined structured loops, calls, or matches with deterministic output contracts or dynamic paths, compare against exact compatibility evidence and run a minimal `.orc` runtime smoke for that contract shape. `--dry-run` validates schema and dependencies, not post-execution contract substitution. |
+| First `.orc` run | Use `--debug` so you can inspect composed prompts. |
 
 ## 9) Debugging Where Things Go Wrong
 

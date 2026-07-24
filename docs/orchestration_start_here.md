@@ -9,7 +9,7 @@ Normative behavior lives in `specs/`. This file is explanatory.
 
 1. `docs/orchestration_start_here.md` (this file)
 2. `docs/runtime_execution_lifecycle.md` (what happens at runtime)
-3. `docs/workflow_drafting_guide.md` (how to author workflows)
+3. `docs/lisp_workflow_drafting_guide.md` (how to author `.orc` workflows)
 4. `specs/index.md` (normative contracts)
 
 ## One-Screen Model
@@ -17,9 +17,9 @@ Normative behavior lives in `specs/`. This file is explanatory.
 ```text
 Design time (authoring)                              Runtime (execution)
 -----------------------------------------------------------------------------
-Write workflow YAML (DSL) -------------------------> Parse raw mapping
+Write Workflow Lisp (.orc) ------------------------> Parse and typecheck source
 Write provider prompt files -----------------------> Elaborate to typed surface AST
-Define artifact contracts -------------------------> Lower to executable IR + compatibility projection
+Define typed values/contracts ---------------------> Lower to executable IR + compatibility projection
 Configure queue conventions in workflow -----------> Execute IR nodes / enforce contracts
 Use runbook/CLI flags -----------------------------> Emit state/logs/reports through compatibility surfaces
 ```
@@ -35,10 +35,13 @@ Short version:
 - The full coordination system: workflow graph + runtime engine + queue conventions + operational policy.
 
 `workflow`
-- One executable YAML definition of steps, control flow, and contracts.
+- One executable `.orc` program defining typed steps, control flow, and
+  contracts.
 
 `DSL`
-- The YAML schema used to express workflows (`steps`, `on.goto`, `artifacts`, `publishes`, `consumes`, etc.).
+- The normative Core workflow contract (`steps`, routing, artifacts,
+  publications, consumes, and related runtime semantics) targeted by the
+  Workflow Lisp compiler. It is not a separately authored YAML frontend.
 
 `surface AST`
 - The immutable authored-shape in-memory model produced after validation/elaboration.
@@ -65,7 +68,8 @@ Short version:
 - Human operations guidance for launch/monitor/resume/recovery; does not define executable logic by itself.
 
 `authoring`
-- Editing workflow YAML, prompt files, and related contracts before a run.
+- Editing Workflow Lisp `.orc`, prompt files, extern manifests, and related
+  contracts before a run.
 
 `runtime`
 - Executing a workflow (`run`/`resume`) and producing state/log artifacts under `.orchestrate/runs/<run_id>/`.
@@ -74,14 +78,14 @@ Short version:
 
 ```text
                  +-------------------------------------------+
-                 | Workflow DSL YAML                         |
-                 | (graph, routing, contracts)               |
+                 | Workflow Lisp .orc                        |
+                 | (typed composition and contracts)         |
                  +----------------------+--------------------+
                                         |
                                         v
                            +---------------------------+
-                           | Parse + Elaborate         |
-                           | raw -> typed surface AST  |
+                           | Compile + Elaborate       |
+                           | source -> typed AST       |
                            +-----------+---------------+
                                        |
                                        v
@@ -119,7 +123,7 @@ Short version:
 
 ## What Belongs Where
 
-Change workflow DSL when you need to change:
+Change Workflow Lisp source when you need to change:
 - control flow (`goto`, gates, retries, loops)
 - artifact lineage semantics (`artifacts`, `publishes`, `consumes`)
 - deterministic output/consume contract behavior
@@ -145,13 +149,25 @@ Confusion: "Every workflow needs the same git-safety rules."
 - Correction: most workflows do not treat git history or checkout state as runtime data. Special coexistence rules are repo-local operational policy only for workflows with DSL-level git rollback/checkpoint behavior, such as candidate-commit loops that record a base ref and later reset/restore against it.
 
 Confusion: "Prompt text can define routing."
-- Correction: routing belongs in DSL `on.*.goto` and gate steps.
+- Correction: routing belongs in typed workflow control flow and its lowered
+  Core graph.
 
 Confusion: "Queue lifecycle is automatic."
 - Correction: queue file lifecycle is workflow-authored; orchestrator does not auto-move items.
 
-Confusion: "Execution still runs the raw lowered dict graph."
-- Correction: raw YAML exists only long enough to parse; execution runs the lowered executable IR, and persisted/reporting compatibility surfaces are reconstructed through the projection layer.
+Confusion: "The runtime can still execute a YAML/YML workflow if the file is
+present."
+- Correction: fresh `run` accepts only a case-insensitive `.orc` suffix and
+  rejects every other source with `.orc required` before state creation.
+  Reports and dashboards may render persisted legacy state without parsing its
+  source. Normal resume may acknowledge a completed YAML/YML run as already
+  complete; nonterminal legacy resume fails closed.
+
+Confusion: "Execution runs the authored source tree directly."
+- Correction: execution runs validated executable IR. Persisted/reporting
+  compatibility surfaces are reconstructed through the projection layer.
+  `expanded.debug.yaml` is a JSON-rendered debug view despite its historical
+  filename.
 
 Confusion: "Informative docs are normative."
 - Correction: `specs/` are normative; docs are guidance.
@@ -159,7 +175,8 @@ Confusion: "Informative docs are normative."
 ## Companion Docs
 
 - Runtime sequence details: `docs/runtime_execution_lifecycle.md`
-- Workflow authoring guidance: `docs/workflow_drafting_guide.md`
+- Workflow authoring guidance: `docs/lisp_workflow_drafting_guide.md`
+- Historical YAML translation reference: `docs/workflow_drafting_guide.md`
 - DSL reference (normative): `specs/dsl.md`
 - State schema (normative): `specs/state.md`
 - Provider/prompt contract (normative): `specs/providers.md`

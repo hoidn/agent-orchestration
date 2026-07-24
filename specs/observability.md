@@ -37,9 +37,15 @@
   - Example fields: `schema: "status/v1"`, `correlation_id`, `agent`, `run_id`, `step`, `timestamp`, `success`, `exit_code`, `outputs[]`, `metrics{}`, `next_actions[]`, `message`.
   - All file paths within a status JSON must be relative to WORKSPACE.
 
-Orchestrator interaction: The orchestrator does not consume or act on status JSON files. They are for observability and external tooling only; control flow derives solely from the workflow YAML and `state.json`.
+Orchestrator interaction: The orchestrator does not consume or act on status
+JSON files. They are for observability and external tooling only; control flow
+derives solely from the validated `.orc` executable and `state.json`.
 
 - Status/report surfaces
+  - Reports and dashboards may project persisted legacy-run state without
+    reopening the recorded workflow source. A non-`.orc` workflow path selects
+    state-only compatibility: no authored YAML parsing, source-derived
+    structure, or workflow execution is permitted.
   - Dashboard status projection is advisory and read-only: it may expose both persisted `state.status` and dashboard-derived `display_status`, but it must not reconcile stale running state, write `context.status_reconciled_*`, or otherwise mutate `state.json`.
   - The existing `orchestrate report` command may continue to self-heal stale running state when it derives a terminal status; dashboard routes must reuse only pure projection helpers, not the mutating report command path.
   - Dashboard run identity is the resolved workspace root plus the scanned run directory name. `state.run_id` is display metadata and mismatch context only.
@@ -96,7 +102,7 @@ Orchestrator interaction: The orchestrator does not consume or act on status JSO
     - report/debug surfaces may show secondary provenance for exported call outputs, but the caller-visible producer remains the outer call step
 
 - Reusable-call diagnostics
-  - Loader-facing failures should distinguish:
+  - Frontend/build-facing failures should distinguish:
     - unknown import alias
     - caller/callee version mismatch
     - missing required `with:` bindings

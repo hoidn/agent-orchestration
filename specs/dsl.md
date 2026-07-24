@@ -1,5 +1,26 @@
 # Workflow DSL and Control Flow (Normative)
 
+## Authored frontend and persisted compatibility boundary
+
+Fresh workflow execution accepts only Workflow Lisp source whose path suffix,
+compared case-insensitively, is `.orc`. `run` rejects YAML/YML and every other
+non-`.orc` path with a diagnostic containing `.orc required` before creating
+run state. The production YAML parser is retired.
+
+`resume` reads persisted state before applying the frontend boundary. Normal
+resume (without force restart) of a completed run whose recorded workflow path
+ends in `.yaml` or `.yml` returns the existing terminal-success result without
+parsing or reopening that source. Every other resume against a non-`.orc`
+source—including any nonterminal legacy run or force-restart request—fails
+closed with `.orc required`; it is not reparsed, restarted, or silently
+skipped. `report` and dashboard surfaces may render persisted state for legacy
+runs, but must not parse authored YAML to reconstruct workflow semantics.
+
+The schema below remains the normative Core workflow contract produced by the
+`.orc` compiler and consumed by shared validation/runtime code. YAML-fenced
+snippets are structural notation for that mapping, not accepted fresh workflow
+source.
+
 - Top-level workflow keys
   - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", "2.13", "2.14", or "2.15"). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
@@ -28,8 +49,8 @@
       (not `inputs`) to accept `kind: collection` (`optional|list|map`) in
       addition to the existing scalar/enum/relpath contracts, so a public
       workflow may directly export a collection value produced by a
-      Workflow-Lisp-compiled root return. Ordinary authored YAML on other DSL
-      versions does not gain this widening.
+      Workflow-Lisp-compiled root return. Lower-level Core mappings on other DSL
+      versions do not gain this widening.
   - `result_guidance` (v2.15+, optional): closed, non-empty metadata describing
     the workflow's overall declared return. It accepts only `description:
     string`, `format_hint: string`, and JSON-compatible `example`; requires at
@@ -60,7 +81,7 @@
       - supports only `type: enum|integer|float|bool|string`
       - forbids `pointer`, `under`, and `must_exist_target`
     - `allowed: string[]` required for enum artifacts
-    - Lowered Workflow Lisp bundles may additionally carry compiler-classified executable-private artifacts that are not part of the public authored YAML compatibility surface. A private executable artifact does not widen ordinary authored YAML syntax and does not reuse the public runtime ledgers as authority.
+    - Lowered Workflow Lisp bundles may additionally carry compiler-classified executable-private artifacts that are not part of the public Core contract. A private executable artifact does not widen the authored `.orc` surface and does not reuse the public runtime ledgers as authority.
   - `steps`: ordered list of step objects.
   - `max_transitions: integer` (v1.8+; optional; must be `> 0`)
     - Counts routed transfers between settled top-level steps.
@@ -117,7 +138,7 @@
     - Artifact materialization execution form (v2.14):
       - `materialize_artifacts` is mutually exclusive with other execution forms.
       - `values` resolves typed values from `source.input`, `source.ref`, `source.literal`, or `source.runtime: now_ns`.
-      - `input_values` is an optional shorthand for repeated workflow-input materialization. Each entry supplies `names: string[]`, the literal `contract: inherit`, and a `pointer_template` containing `{name}`; the loader expands it into the equivalent long-form `values` entries before validation and lowering.
+      - `input_values` is an optional shorthand for repeated workflow-input materialization. Each entry supplies `names: string[]`, the literal `contract: inherit`, and a `pointer_template` containing `{name}`; frontend lowering expands it into the equivalent long-form `values` entries before shared validation.
       - `source.input` inherits the workflow input contract; `source.ref` inherits the referenced artifact contract; `source.literal` requires an explicit contract; `runtime: now_ns` uses a built-in integer scalar contract.
       - Contract refinements may only narrow the source contract. They may require an existing target, narrow `under` to a child root, or narrow enum values. Type changes, kind changes, broader roots, broader enum sets, and weakened `must_exist_target` are rejected.
       - `input_values` names must reference declared workflow inputs, must not duplicate existing `values[*].name`, and must obey the same path-safety validation as authored long-form pointers.
@@ -405,7 +426,7 @@
   - `set_scalar` and `increment_scalar` are first-class execution forms and cannot be combined with `provider`/`command`/`wait_for`/`assert`/`for_each` on the same step.
   - `for_each` is a block form and cannot be combined with `provider`/`command`/`wait_for`/`assert` on the same step.
   - `goto` targets must reference an existing step name or `_end`. Unknown targets are a validation error (exit code 2) reported at workflow load time.
-  - Deprecated `command_override` is not supported and must be rejected by the loader/validator.
+  - Deprecated `command_override` is not supported and must be rejected by the frontend/shared validator.
   - Version gating:
     - `depends_on.inject` requires `version: "1.1.1"` or higher.
     - `artifacts`, `publishes`, `consumes`, `inject_consumes`, `consumes_injection_position`, and `prompt_consumes` require `version: "1.2"` or higher.
@@ -447,45 +468,30 @@
       `provider_call_policy` mapping in canonical `model`, then `effort` order.
       Absent keywords remain absent; no empty mapping, default, parameter, argv
       fragment, or serialized `null` is synthesized.
-    - Authored YAML/YML cannot supply `provider_call_policy`, and YAML provider
-      declarations cannot supply `call_policy_bindings`; both keys are reserved
-      internal surfaces. Ordinary YAML `provider_params` and `timeout_sec` retain
-      their compatibility behavior.
-    - Runtime plans, semantic/runtime reports, dashboard/debug projections, debug
-      YAML, and source maps are non-authoritative views for call-policy execution.
-      The validated executable provider-step configuration is execution
-      authority.
+    - Authored `.orc` cannot directly supply `provider_call_policy` or
+      `call_policy_bindings`; both are compiler/runtime-owned internal surfaces.
+      The lower-level Core `provider_params` and `timeout_sec` semantics remain
+      unchanged.
+    - Runtime plans, semantic/runtime reports, dashboard/debug projections,
+      `expanded.debug.yaml`, and source maps are non-authoritative views for
+      call-policy execution. `expanded.debug.yaml` is an intentionally
+      historical filename for a JSON-rendered projection; it is not authored
+      YAML and is never reparsed. The validated executable provider-step
+      configuration is execution authority.
 
   - reusable-call contract boundary:
     - Task 10 reserves `imports`, `call`, `with`, `asset_file`, and `asset_depends_on` semantics before execution support lands.
     - When Task 11 lands, those fields require `version: "2.5"` or higher.
-    - `version: "2.4"` is a documentation/contract boundary, not a promise that the current loader/runtime executes reusable-call workflows.
+    - `version: "2.4"` is a documentation/contract boundary, not a promise that the current compiler/runtime executes reusable-call workflows.
 
-### YAML fresh-load deprecation advisory
+### Retired YAML authoring surface
 
-YAML/YML is a legacy compatibility frontend. It remains executable until the
-separate parser-retirement gate closes, but explicit fresh authored-root loads
-surface a structured advisory event.
-
-| Load purpose | Event policy |
-| --- | --- |
-| Explicit fresh YAML/YML root | Emit one event before parsing for each public root-load attempt. |
-| Persisted compatibility read | Explicitly suppress the event for resume, report, dashboard, and persisted `.orc` rebuild paths. |
-| Recursive YAML import | Do not emit a separate event; the containing explicit root owns the event. |
-| Non-YAML root | Do not emit the YAML deprecation event. |
-
-The event uses logger `orchestrator.loader.yaml_deprecation` at `WARNING` and
-has these structured fields:
-
-- `workflow_deprecation_code` = `workflow_yaml_authoring_deprecated`;
-- `workflow_deprecation_path` = the string form of
-  `Path(requested_path).resolve(strict=False)`; and
-- `workflow_deprecation_format` = `yaml`.
-
-The event is advisory and observability-only. Its presence or suppression must
-not change parsing, validation, diagnostics, bundle identity, execution,
-resume behavior, or exit codes. Warning message wording is not part of the
-contract.
+The former fresh-load YAML/YML deprecation advisory is retired with its parser.
+Fresh non-`.orc` execution now fails at the frontend boundary described above;
+there is no YAML warning followed by parsing. Historical warning records and
+YAML-shaped state fields remain evidence only. Their presence does not reopen
+an authored YAML frontend or affect `.orc` compilation, validation, bundle
+identity, execution, or exit codes.
 
 - Control flow defaults
   - `strict_flow: true`: any non-zero exit halts unless an applicable `on.failure.goto` exists.
@@ -532,7 +538,7 @@ contract.
 
 - Accepted-risk constraint
   - Reusable workflows may still include `command` and `provider` steps.
-  - The first tranche does not claim sandboxing or loader-proved isolation of child-process filesystem effects.
+  - The first tranche does not claim sandboxing or frontend-proved isolation of child-process filesystem effects.
   - Every DSL-managed reusable-workflow write root that must remain distinct across invocations is expected to be surfaced as a typed `relpath` workflow input and bound explicitly by each call site.
   - Call sites are expected to bind distinct per-invocation values whenever repeated or concurrent calls could otherwise alias the same managed paths.
 

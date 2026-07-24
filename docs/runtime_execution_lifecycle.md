@@ -5,11 +5,25 @@ It focuses on execution order and state transitions, not DSL authoring style.
 
 Normative behavior is defined by `specs/`. This file is explanatory.
 
+## Frontend And Compatibility Boundary
+
+Fresh `run` accepts only a workflow path whose suffix compares
+case-insensitively as `.orc`. YAML/YML and every other non-`.orc` path fail
+with `.orc required` before a run root or `state.json` is created. There is no
+production YAML parser.
+
+`resume` reads the selected run's persisted state first. A completed run
+recorded against `.yaml` or `.yml` may return the existing already-completed
+result without reopening the source. A nonterminal run recorded against any
+non-`.orc` source fails closed. `report` and dashboard views may render legacy
+state, but do not parse its authored source or reconstruct executable workflow
+structure from it.
+
 ## Execution Timeline
 
 ```text
-1) Parse workflow YAML into a raw mapping for syntax/load errors only
-2) Elaborate the raw mapping into immutable surface AST nodes
+1) Enforce the `.orc` source boundary, then parse/typecheck Workflow Lisp
+2) Elaborate the source into immutable typed surface AST nodes
    - run version-gated validation
    - normalize authored shapes (`if`, `match`, `repeat_until`, `finally`, `call`, `for_each`)
    - assign durable `step_id` values
@@ -18,7 +32,7 @@ Normative behavior is defined by `specs/`. This file is explanatory.
    - bind refs/predicates to durable addresses
    - resolve routed transfers (`goto`, branch/case routing, loop/call/finalization edges) to node ids
    - map node ids back to compatibility surfaces such as `steps.*`, `current_step.index`, `finalization.*`, and report ordering
-4) Initialize run root and `state.json`
+4) After successful frontend build and validation, initialize run root and `state.json`
 5) Iterate executable nodes in IR order (or explicit routed transfers)
 6) For each node:
    a) apply workflow/step cycle guards for the routed target (`max_transitions`, then `max_visits`)
@@ -54,6 +68,9 @@ Identity note:
 - When a run stops mid-visit on a v2.10 session-enabled provider step, `resume` quarantines that exact visit instead of replaying the provider and records the canonical metadata/spool paths in the run-level error.
 - During such revisits, `state.steps.<StepName>` still stores the latest completed/skipped/failed result for that top-level name, while `current_step` may refer to a later in-flight visit of the same step. The visit ordinals distinguish them: `current_step.visit_count` is the active visit, and `steps.<StepName>.visit_count` is the last persisted result visit.
 - Runtime code no longer needs workflow-path/import magic fields or helper-key inspection to resume/report typed runs; typed provenance/import metadata plus the compatibility projection are the maintained bridge back to the persisted compatibility surfaces.
+- `expanded.debug.yaml` is an intentionally historical filename for an optional
+  JSON-rendered projection. It is never source authority and is not read by
+  fresh execution or legacy compatibility views.
 
 ## Run Artifacts
 
@@ -180,6 +197,9 @@ These are reflected in step `status`, `exit_code`, and `error` fields in `state.
 ## Runtime vs Authoring Boundary
 
 This file describes runtime behavior.
-For writing workflow YAML and prompt patterns, use:
+For writing Workflow Lisp and prompt patterns, use:
 - `docs/orchestration_start_here.md`
-- `docs/workflow_drafting_guide.md`
+- `docs/lisp_workflow_drafting_guide.md`
+
+Use `docs/workflow_drafting_guide.md` only to translate or audit historical
+YAML/YML definitions.

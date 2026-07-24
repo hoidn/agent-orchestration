@@ -1,16 +1,21 @@
 # Workflow Index
 
-This file is an informative catalog of workflow YAML and Workflow Lisp `.orc`
-examples under `workflows/`. A promoted `.orc` entry with shared-validation,
-runtime, and parity evidence is the primary surface for its family. Otherwise,
-the retained YAML surface remains the exact-behavior authority until its own
-promotion gate closes. That migration rule preserves existing authority; it
-does not make YAML a starting point for new workflow families.
+This file is an informative catalog of Workflow Lisp `.orc` examples under
+`workflows/`. Fresh workflow execution is ORC-only: `run` accepts a
+case-insensitive `.orc` suffix and rejects every other source path with
+`.orc required` before creating state. The former authored YAML/YML estate and
+its production parser are retired.
 
-Existing YAML compatibility workflows can still be checked from the repo root:
+Compile or dry-run a catalogued `.orc` entry from the repository root, supplying
+the entry's declared externs and inputs:
 
 ```bash
-python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
+python -m orchestrator run workflows/examples/<workflow>.orc \
+  --entry-workflow <module::entry> \
+  --provider-externs-file <providers.json> \
+  --prompt-externs-file <prompts.json> \
+  --input-file <inputs.json> \
+  --dry-run
 ```
 
 The promoted Design Delta primary uses the Workflow Lisp launch route. Supply
@@ -63,7 +68,7 @@ python -m orchestrator run workflows/library/generic_run_watchdog/watchdog.orc \
 | Goal | Starting point | Route status |
 | --- | --- | --- |
 | Start new authoring | [Workflow Lisp review/revise example](examples/review_revise_design_docs.orc) | `preferred_current_guidance` / `wcc_default` in the route-readiness registry; use when its typed review/fix shape fits. |
-| Maintain existing YAML | [Legacy YAML drafting guide](../docs/workflow_drafting_guide.md) | Compatibility guidance only; do not create a new YAML/YML workflow or template. |
+| Translate or audit historical YAML | [Historical YAML reference](../docs/workflow_drafting_guide.md) | Translation/history only; YAML/YML is not runnable workflow source. |
 
 Fresh preferred starting points:
 
@@ -87,9 +92,8 @@ Reference corpus:
   direct template for new workflows.
 - For structured variant/materialization behavior, inspect the v2.14 drain
   examples as reference corpus before copying patterns.
-- For migration work, keep the YAML primary authoritative until the `.orc`
-  candidate has compile, shared-validation, dry-run or smoke, and parity
-  evidence.
+- For historical migration review, preserve the recorded YAML baseline and
+  computed parity evidence; do not attempt to execute the retired source.
 - Avoid copying examples marked legacy, negative fixture, prompt asset issue, or
   needs schema cleanup unless that status matches your purpose.
 - Treat workflows last modified more than one week ago as reference corpus:
@@ -112,10 +116,10 @@ nearby parity evidence; route identity remains registry metadata.
 
 ## Directory Map
 
-- `workflows/examples/`: runnable example workflows and validation fixtures
+- `workflows/examples/`: `.orc` examples and validation fixtures
 - `workflows/examples/*.orc`: Workflow Lisp authoring examples that compile
   through the frontend; check each catalog entry before treating one as a
-  runnable replacement for YAML
+  runnable production route
 - `workflows/templates/`: frozen non-running compatibility-template inventory;
   new template work starts from a registry-approved `.orc` example
 - `workflows/library/`: reusable imported subworkflows used by `call`-based examples
@@ -142,11 +146,12 @@ Resolution rules:
   stable reference and revalidate before adapting; do not copy it directly as a
   new workflow template.
 - **Reusable call-based**: examples that exercise imported library workflows and bundled prompt assets.
-- **Legacy or migration**: still useful as historical or migration references, but not the first place to copy patterns.
+- **Legacy or migration**: historical `.orc` migration evidence, not the first place to copy patterns.
 - **Negative fixture**: expected to fail validation or runtime checks for a specific test purpose.
 - **Input-required**: requires `--input` or fixture files for dry-run validation.
 - **Prompt asset issue**: references missing or external prompt assets; inspect the source-relative bindings before running.
-- **Needs schema cleanup**: use this status when an example fails dry-run validation because it predates current loader schema.
+- **Needs schema cleanup**: historical registry status for an `.orc` example
+  that predates the current compiler/shared-validation schema.
 
 ## Workflow Catalog
 
@@ -155,7 +160,7 @@ Resolution rules:
 | `workflows/library/generic_run_watchdog/watchdog.orc` | Workflow Lisp production primary; input-required | `2.15` | `generic_run_watchdog/watchdog::watchdog` | Promoted generic watchdog primary with exact clean, repair, retry/resume, artifact-lineage, and typed parity evidence. New launches use this `.orc` route; the final report is `artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final/generic_run_watchdog.json`. |
 | `workflows/library/lisp_frontend_design_delta/drain.orc` | Workflow Lisp production primary; reusable library; input-required | `2.14` | `lisp_frontend_design_delta/drain::drain` | Primary Design Delta target/baseline drain. Its route-readiness entry is `wcc_default` / `promotion_eligible` with preferred-current-guidance copy safety. The retained strict migration-parity report records the historical promotion decision; it is not a live parity target. Fresh promotion compile, dry-run, smoke, and parity evidence is recorded; Phase 3 Tasks 3.1–3.4 are complete, and Gates P3 and P4 are independently reviewed and satisfied while retaining the historical report. Task 4.1 stripped the Design-Delta-only parity lanes, and Task 4.2 retired the temporary G8 build serializer. Task 4.1 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The semantic-migration freeze is lifted. Current work selection and later-stage order are governed by `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`. |
 | `workflows/library/verified_iteration_drain/drain.orc` | Workflow Lisp production primary; input-required | `2.15` | `verified_iteration_drain/drain::drain` | Promoted verified-iteration primary with exact compile/runtime/parity evidence. New launches use this `.orc` route; the final typed parity report is `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`. |
-| `workflows/examples/kiss_backlog_item.orc` | Workflow Lisp shared-validation example; input-required | `2.14` | `run-backlog-item` | Minimal `.orc` single-backlog-item stack: typed backlog item inputs, plan provider result, plan review/revise loop, implementation provider result, implementation review/fix loop, and final structured summary output. It compiles through shared validation and dry-runs through the `.orc` runtime bridge; it is a single-item authoring example, not a production queue drain or parity replacement for the mature YAML stacks. |
+| `workflows/examples/kiss_backlog_item.orc` | Workflow Lisp shared-validation example; input-required | `2.14` | `run-backlog-item` | Minimal `.orc` single-backlog-item stack: typed backlog item inputs, plan provider result, plan review/revise loop, implementation provider result, implementation review/fix loop, and final structured summary output. It compiles through shared validation and dry-runs through the `.orc` runtime bridge; it is a single-item authoring example, not a production queue drain or parity replacement for the retired stack baselines. |
 | `workflows/examples/cycle_guard_demo.orc` | Historical Workflow Lisp migration surface; input-required | `2.14` | `cycle-guard-demo` | Preserved `.orc` surface from the cycle-guard migration tranche. Its certified command boundary and frozen historical contract/evidence remain useful migration context; it is not a live YAML-parity target or preferred authoring route. |
 | `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | Historical Workflow Lisp migration surface; input-required | `2.14` | `design-plan-impl-review-stack` | Preserved `.orc` surface for the call-based design->plan->implementation family, with typed provider/prompt extern bindings and frozen historical YAML contract/evidence. Inspect it for stack migration context; it is not a live YAML-parity target or the real-life-tested design-doc review/fix workflow. |
 | `workflows/examples/review_revise_design_docs.orc` | Workflow Lisp generic review/fix workflow; input-required | `2.14` | `review_revise_design_docs::review-revise-design-docs` | Generic `.orc` workflow that runs a bounded stdlib review/fix loop over a parameterized `target_doc`, `context_docs`, and `review_focus`. Use it as the current model for targeted design-doc review/fix loops; it is not a production drain or YAML parity replacement. |
@@ -170,6 +175,6 @@ Resolution rules:
 
 ## Related Docs
 
-- `docs/workflow_drafting_guide.md`: authoring guidance for robust workflows
+- `docs/workflow_drafting_guide.md`: historical YAML-to-`.orc` translation reference
 - `docs/work_definition_model.md`: explanatory split between semantic specs, work instructions, workflow mechanics, work items, and run evidence
 - `docs/runtime_execution_lifecycle.md`: runtime sequencing and state transitions

@@ -12,8 +12,9 @@ Specs and design contracts define what must be true.
 Work instructions define what to do, in what order, and under what constraints
 for a specific body of work.
 
-Workflow YAML defines the executable process that selects, routes, runs,
-records, and resumes work.
+Workflow Lisp `.orc` defines the executable process that selects, routes, runs,
+records, and resumes work. Its compiled Core mapping is validated before the
+runtime creates run state.
 
 Run state, ledgers, reports, and artifacts record what happened.
 
@@ -76,9 +77,11 @@ Examples:
 - resuming prior state;
 - publishing summaries and artifacts.
 
-These mechanics belong in workflow YAML, reusable workflow libraries, scripts,
-and prompt contracts for the relevant workflow step. They are not part of the
-work instructions.
+These mechanics belong in Workflow Lisp source, reusable `.orc` libraries,
+certified scripts/adapters, and prompt contracts for the relevant workflow
+step. They are not part of the work instructions. Historical YAML definitions
+may document prior mechanics, but are translation evidence rather than runnable
+workflow source.
 
 ### Run Evidence
 
