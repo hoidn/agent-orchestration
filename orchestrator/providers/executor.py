@@ -101,6 +101,7 @@ class ProviderExecutor:
     _CONTROL_CAPTURE_FAILURE_GRACE_SEC = 0.2
     _CONTROL_STDIN_FAILURE_GRACE_SEC = 0.2
     _CONTROL_TIMEOUT_GRACE_SEC = 2.0
+    _CONTROL_IO_JOIN_TIMEOUT_SEC = 0.2
 
     def __init__(self, workspace: Path, registry: ProviderRegistry, secrets_manager: Optional[SecretsManager] = None):
         """
@@ -579,8 +580,10 @@ class ProviderExecutor:
                 stderr=subprocess.PIPE,
                 start_new_session=True,
             )
-        except Exception as exc:
+        except BaseException as exc:
             control.spawn_failed(exc)
+            if not isinstance(exc, Exception):
+                raise
             return self._controlled_launch_failure_result(
                 error=exc,
                 start_time=start_time,
@@ -701,6 +704,7 @@ class ProviderExecutor:
 
         leader_reaped = False
         return_code: int | None = None
+        kill_attempted = False
 
         def _bounded_wait() -> bool:
             nonlocal leader_reaped, return_code
@@ -717,6 +721,7 @@ class ProviderExecutor:
 
         _bounded_wait()
         if not leader_reaped:
+            kill_attempted = True
             try:
                 os.killpg(pgid, signal.SIGKILL)
                 kill_sent = True
@@ -750,7 +755,8 @@ class ProviderExecutor:
             )
 
         if not self._wait_for_process_group_empty(pgid, timeout=0.2):
-            if not kill_sent:
+            if not kill_attempted:
+                kill_attempted = True
                 try:
                     os.killpg(pgid, signal.SIGKILL)
                     kill_sent = True
@@ -778,7 +784,7 @@ class ProviderExecutor:
             if pipe is None or getattr(pipe, "closed", False):
                 continue
             try:
-                if leader_reaped:
+                if leader_reaped and pgid_empty:
                     remainder = pipe.read() or b""
                     if is_stdout:
                         stdout += remainder
@@ -927,30 +933,33 @@ class ProviderExecutor:
             timeout_sec=invocation.timeout_sec,
         )
 
-        control.record_leader_reaped(exit_code)
-        for thread in stdin_threads:
-            if thread.ident is not None:
-                thread.join()
-        stdout_thread.join()
-        stderr_thread.join()
+        pgid_empty = control.record_leader_reaped(exit_code)
+        io_join_errors = self._join_controlled_io_workers(
+            stdin_threads=stdin_threads,
+            capture_threads=capture_threads,
+            bounded=not pgid_empty,
+        )
         capture_threads_joined = (
             not stdout_thread.is_alive() and not stderr_thread.is_alive()
         )
 
         final_identity_valid = invocation.session_request is None
         if accumulator is not None:
-            _, identity_error = accumulator.finalize(
-                expected_session_id=expected_session_id,
-                require_terminal=False,
-            )
-            control.publish_session_snapshot(accumulator.snapshot())
-            final_identity_valid = identity_error is None
+            if capture_threads_joined:
+                _, identity_error = accumulator.finalize(
+                    expected_session_id=expected_session_id,
+                    require_terminal=False,
+                )
+                control.publish_session_snapshot(accumulator.snapshot())
+                final_identity_valid = identity_error is None
+            else:
+                final_identity_valid = False
 
         duration_ms = int((time.time() - start_time) * 1000)
         raw_stdout = bytes(stdout_buf)
         stderr = bytes(stderr_buf)
         natural_result: ProviderExecutionResult
-        if accumulator is not None:
+        if accumulator is not None and capture_threads_joined:
             natural_result = self._finalize_session_result(
                 invocation=invocation,
                 exit_code=exit_code,
@@ -967,6 +976,25 @@ class ProviderExecutor:
                     and natural_result.error is None
                 )
                 else "failed"
+            )
+        elif accumulator is not None:
+            natural_result = ProviderExecutionResult(
+                exit_code=self._nonzero_controlled_exit_code(exit_code),
+                stdout=b"",
+                stderr=stderr,
+                duration_ms=duration_ms,
+                classification="failed",
+                raw_stdout=raw_stdout,
+                normalized_stdout=None,
+                provider_session=None,
+                error={
+                    "type": "provider_session_transport_error",
+                    "message": (
+                        "Provider session transport capture did not finish "
+                        "before the cleanup deadline"
+                    ),
+                    "context": {},
+                },
             )
         else:
             natural_result = ProviderExecutionResult(
@@ -987,7 +1015,11 @@ class ProviderExecutor:
             stdin_outcomes=stdin_outcomes,
             stdin_outcome_lock=stdin_outcome_lock,
         )
-        boundary_errors = [*stdin_errors, *capture_errors]
+        boundary_errors = [
+            *stdin_errors,
+            *capture_errors,
+            *io_join_errors,
+        ]
         boundary = control.record_execution_boundary(
             capture_threads_joined=capture_threads_joined,
             final_identity_valid=final_identity_valid,
@@ -1058,6 +1090,7 @@ class ProviderExecutor:
         timed_out = False
 
         while True:
+            cancellation_preceded_probe = control.cancellation_requested
             try:
                 return process.wait(timeout=0), timed_out
             except subprocess.TimeoutExpired:
@@ -1075,7 +1108,8 @@ class ProviderExecutor:
                     grace=self._CONTROL_TIMEOUT_GRACE_SEC,
                 )
 
-            control.apply_pending_cancellation_after_incomplete_probe()
+            if cancellation_preceded_probe:
+                control.apply_pending_cancellation_after_incomplete_probe()
 
             wait_slice = self._CONTROL_WAIT_SLICE_SEC
             if not timed_out and deadline is not None:
@@ -1120,14 +1154,16 @@ class ProviderExecutor:
             control=control,
             timeout_sec=None,
         )
-        control.record_leader_reaped(exit_code)
-
-        for thread in stdin_threads:
-            if thread.ident is not None:
-                thread.join()
-        for thread in capture_threads:
-            if thread.ident is not None:
-                thread.join()
+        pgid_empty = control.record_leader_reaped(exit_code)
+        io_join_errors = self._join_controlled_io_workers(
+            stdin_threads=stdin_threads,
+            capture_threads=capture_threads,
+            bounded=not pgid_empty,
+        )
+        capture_threads_joined = all(
+            not thread.is_alive()
+            for thread in capture_threads
+        )
 
         stdin_close_error: str | None = None
         stdin_writer_started = any(
@@ -1153,30 +1189,52 @@ class ProviderExecutor:
                     f"({type(exc).__name__}): {exc}"
                 )
 
-        for pipe, buffer in (
-            (process.stdout, stdout_buf),
-            (process.stderr, stderr_buf),
+        for pipe, buffer, capture_thread in (
+            (
+                process.stdout,
+                stdout_buf,
+                capture_threads[0] if capture_threads else None,
+            ),
+            (
+                process.stderr,
+                stderr_buf,
+                capture_threads[1] if len(capture_threads) > 1 else None,
+            ),
         ):
             if pipe is None or getattr(pipe, "closed", False):
                 continue
             try:
-                remainder = pipe.read()
-                if remainder:
-                    buffer.extend(remainder)
+                if (
+                    pgid_empty
+                    and (
+                        capture_thread is None
+                        or not capture_thread.is_alive()
+                    )
+                ):
+                    remainder = pipe.read()
+                    if remainder:
+                        buffer.extend(remainder)
             finally:
-                try:
-                    pipe.close()
-                except Exception:
-                    pass
+                if (
+                    capture_thread is None
+                    or not capture_thread.is_alive()
+                ):
+                    try:
+                        pipe.close()
+                    except Exception:
+                        pass
 
         final_identity_valid = invocation.session_request is None
         if accumulator is not None:
-            _, identity_error = accumulator.finalize(
-                expected_session_id=expected_session_id,
-                require_terminal=False,
-            )
-            control.publish_session_snapshot(accumulator.snapshot())
-            final_identity_valid = identity_error is None
+            if capture_threads_joined:
+                _, identity_error = accumulator.finalize(
+                    expected_session_id=expected_session_id,
+                    require_terminal=False,
+                )
+                control.publish_session_snapshot(accumulator.snapshot())
+                final_identity_valid = identity_error is None
+            else:
+                final_identity_valid = False
 
         boundary_errors = [
             f"provider execution failed after bind: {error}",
@@ -1189,14 +1247,12 @@ class ProviderExecutor:
                 capture_outcomes,
                 capture_outcome_lock,
             ),
+            *io_join_errors,
         ]
         if stdin_close_error is not None:
             boundary_errors.append(stdin_close_error)
         boundary = control.record_execution_boundary(
-            capture_threads_joined=all(
-                not thread.is_alive()
-                for thread in capture_threads
-            ),
+            capture_threads_joined=capture_threads_joined,
             final_identity_valid=final_identity_valid,
             boundary_error="; ".join(boundary_errors),
         )
@@ -1237,6 +1293,49 @@ class ProviderExecutor:
                 "context": {},
             },
         )
+
+    def _join_controlled_io_workers(
+        self,
+        *,
+        stdin_threads: List[threading.Thread],
+        capture_threads: List[threading.Thread],
+        bounded: bool,
+    ) -> List[str]:
+        """Join owned I/O workers without waiting forever on a live PGID."""
+        deadline = (
+            time.monotonic() + self._CONTROL_IO_JOIN_TIMEOUT_SEC
+            if bounded
+            else None
+        )
+        workers = [
+            *(
+                (f"stdin-{index}", thread)
+                for index, thread in enumerate(stdin_threads)
+            ),
+            *(
+                (f"capture-{index}", thread)
+                for index, thread in enumerate(capture_threads)
+            ),
+        ]
+        for _, thread in workers:
+            if thread.ident is None:
+                continue
+            if deadline is None:
+                thread.join()
+            else:
+                thread.join(timeout=max(deadline - time.monotonic(), 0.0))
+
+        nonjoined = [
+            name
+            for name, thread in workers
+            if thread.is_alive()
+        ]
+        if not nonjoined:
+            return []
+        return [
+            "provider I/O workers did not join before the cleanup deadline: "
+            + ", ".join(nonjoined)
+        ]
 
     @staticmethod
     def _nonzero_controlled_exit_code(exit_code: int | None) -> int:

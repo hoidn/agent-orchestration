@@ -102,7 +102,6 @@ class ProviderExecutionControl:
 
     _DEFAULT_CANCELLATION_GRACE_SEC = 0.2
     _FINALIZATION_TIMEOUT_SEC = 5.0
-    _PREBIND_TIMEOUT_SEC = 0.2
     _POLL_INTERVAL_SEC = 0.01
 
     def __init__(self) -> None:
@@ -122,6 +121,11 @@ class ProviderExecutionControl:
         self._term_applied_at: float | None = None
         self._term_sent = False
         self._kill_sent = False
+        self._kill_attempted = False
+        self._group_term_attempted = False
+        self._group_kill_attempted = False
+        self._leader_term_attempted = False
+        self._leader_kill_attempted = False
         self._leader_return_code: int | None = None
         self._leader_reaped = False
         self._pgid_empty = False
@@ -135,7 +139,6 @@ class ProviderExecutionControl:
         self._execution_future_attached = False
         self._execution_future_done = False
         self._spawn_claimed = False
-        self._pre_spawn_abort_requested = False
         self._boundary: _ProviderExecutionBoundary | None = None
         self._pending_terminal_result: ProviderCancellationResult | None = None
         self._terminal_result: ProviderCancellationResult | None = None
@@ -205,13 +208,12 @@ class ProviderExecutionControl:
                 raise RuntimeError("provider execution future is already attached")
             self._execution_future_attached = True
             self._execution_future = future
-            cancel_before_spawn = (
-                self._pre_spawn_abort_requested
-                and not self._spawn_claimed
+            cancel_queued_execution = (
+                self._queued_execution_future_locked() is not None
             )
 
         add_done_callback(self._execution_future_completed)
-        if cancel_before_spawn:
+        if cancel_queued_execution:
             try:
                 future.cancel()
             except Exception:
@@ -220,10 +222,6 @@ class ProviderExecutionControl:
     def claim_spawn(self) -> None:
         """Claim this fresh control for exactly one executor launch."""
         with self._condition:
-            if self._pre_spawn_abort_requested:
-                raise RuntimeError(
-                    "provider execution was cancelled before process spawn"
-                )
             if self._state != "NEW" or self._terminal_result is not None:
                 raise RuntimeError(
                     f"provider execution control cannot spawn from {self._state}"
@@ -389,13 +387,17 @@ class ProviderExecutionControl:
         """Latch cancellation for the executor-owned wait loop."""
         if grace is not None and grace < 0:
             raise ValueError("cancellation grace must be non-negative")
+        future_to_cancel: Any = None
         with self._condition:
             if self._terminal_result is not None:
                 return
             self._request_cancel_locked(reason=reason, grace=grace)
+            future_to_cancel = self._queued_execution_future_locked()
+        self._cancel_future(future_to_cancel)
 
     def force_kill(self) -> None:
         """Ask the executor-owned wait loop to escalate without delay."""
+        future_to_cancel: Any = None
         with self._condition:
             if self._terminal_result is not None:
                 return
@@ -403,6 +405,8 @@ class ProviderExecutionControl:
                 reason=self._cancellation_reason or "external",
                 grace=0.0,
             )
+            future_to_cancel = self._queued_execution_future_locked()
+        self._cancel_future(future_to_cancel)
 
     def apply_pending_cancellation_after_incomplete_probe(self) -> None:
         """Apply pending signals after the executor observed an incomplete wait."""
@@ -417,18 +421,27 @@ class ProviderExecutionControl:
             now = time.monotonic()
             if self._term_attempted_at is None:
                 self._term_attempted_at = now
-                if self._send_signal_locked(signal.SIGTERM):
+                applied = self._send_signal_locked(signal.SIGTERM)
+                if not applied:
+                    applied = self._send_leader_signal_locked(signal.SIGTERM)
+                if applied:
                     self._cancellation_applied_before_completion = True
                     self._term_applied_at = now
                 else:
                     self._cancellation_application_unproved = True
             elif (
-                not self._kill_sent
+                not self._kill_attempted
                 and now - self._term_attempted_at
                 >= self._cancellation_grace_sec
             ):
-                if self._send_signal_locked(signal.SIGKILL):
+                self._kill_attempted = True
+                applied = self._send_signal_locked(signal.SIGKILL)
+                if not applied:
+                    applied = self._send_leader_signal_locked(signal.SIGKILL)
+                if applied:
                     self._cancellation_applied_before_completion = True
+                else:
+                    self._cancellation_application_unproved = True
             self._condition.notify_all()
 
     def record_leader_reaped(
@@ -436,7 +449,7 @@ class ProviderExecutionControl:
         return_code: int,
         *,
         cleanup_grace: float = 0.2,
-    ) -> None:
+    ) -> bool:
         """Record the executor-owned wait and clean any residual owned group."""
         with self._condition:
             if self._process is None or self._pgid is None:
@@ -446,7 +459,7 @@ class ProviderExecutionControl:
             if self._leader_reaped:
                 if self._leader_return_code != return_code:
                     raise RuntimeError("provider leader return code changed")
-                return
+                return self._probe_group_empty_locked()
             self._leader_return_code = return_code
             self._leader_reaped = True
             group_empty = self._probe_group_empty_locked()
@@ -460,18 +473,18 @@ class ProviderExecutionControl:
             self._condition.notify_all()
 
         if group_empty:
-            return
+            return True
         if self._wait_for_group_empty(
             cleanup_grace,
             honor_cancellation_grace=(
                 self._cancellation_applied_before_completion
             ),
         ):
-            return
+            return True
         with self._condition:
             self._send_signal_locked(signal.SIGKILL)
             self._condition.notify_all()
-        self._wait_for_group_empty(max(cleanup_grace, 0.2))
+        return self._wait_for_group_empty(max(cleanup_grace, 0.2))
 
     def record_execution_boundary(
         self,
@@ -579,40 +592,21 @@ class ProviderExecutionControl:
                     reason="external",
                     grace=grace,
                 )
-                if self._state == "NEW":
-                    if not self._spawn_claimed:
-                        self._pre_spawn_abort_requested = True
-                        if (
-                            self._execution_future_attached
-                            and not self._execution_future_done
-                        ):
-                            future_to_cancel = self._execution_future
+                future_to_cancel = self._queued_execution_future_locked()
 
-        if future_to_cancel is not None:
-            try:
-                future_to_cancel.cancel()
-            except Exception:
-                pass
+        self._cancel_future(future_to_cancel)
 
         with self._condition:
             if self._terminal_result is not None:
                 return self._terminal_result
             if self._boundary is None:
-                prebind_deadline = (
-                    time.monotonic() + self._PREBIND_TIMEOUT_SEC
-                )
                 while (
                     self._state == "NEW"
                     and self._terminal_result is None
                 ):
-                    remaining = prebind_deadline - time.monotonic()
-                    if remaining <= 0:
-                        break
-                    self._condition.wait(timeout=remaining)
+                    self._condition.wait()
                 if self._terminal_result is not None:
                     return self._terminal_result
-                if self._state == "NEW":
-                    return self._freeze_unjoined_failure_locked()
 
                 term_deadline = time.monotonic() + grace
                 while (
@@ -675,7 +669,6 @@ class ProviderExecutionControl:
                 return
             if (
                 self._state == "NEW"
-                and not self._spawn_claimed
                 and self._terminal_result is None
             ):
                 if future.cancelled():
@@ -824,15 +817,69 @@ class ProviderExecutionControl:
             )
         self._condition.notify_all()
 
+    def _queued_execution_future_locked(self) -> Any:
+        if (
+            not self._cancellation_requested
+            or self._state != "NEW"
+            or self._spawn_claimed
+            or not self._execution_future_attached
+            or self._execution_future_done
+        ):
+            return None
+        return self._execution_future
+
+    @staticmethod
+    def _cancel_future(future: Any) -> None:
+        if future is None:
+            return
+        try:
+            future.cancel()
+        except Exception:
+            pass
+
+    def _send_leader_signal_locked(self, sig: signal.Signals) -> bool:
+        if self._process is None or self._leader_reaped:
+            return False
+        if sig == signal.SIGTERM:
+            if self._leader_term_attempted:
+                return False
+            self._leader_term_attempted = True
+            method_name = "terminate"
+        elif sig == signal.SIGKILL:
+            if self._leader_kill_attempted:
+                return False
+            self._leader_kill_attempted = True
+            method_name = "kill"
+        else:
+            return False
+
+        method = getattr(self._process, method_name, None)
+        if not callable(method):
+            return False
+        try:
+            method()
+        except ProcessLookupError:
+            return False
+        except Exception as exc:
+            if self._signal_error is None:
+                self._signal_error = (
+                    f"failed to signal provider process leader "
+                    f"{self._process.pid}: {exc}"
+                )
+            return False
+        return True
+
     def _send_signal_locked(self, sig: signal.Signals) -> bool:
         if self._pgid is None:
             return False
         if sig == signal.SIGTERM:
-            if self._term_sent:
-                return True
+            if self._group_term_attempted:
+                return self._term_sent
+            self._group_term_attempted = True
         elif sig == signal.SIGKILL:
-            if self._kill_sent:
-                return True
+            if self._group_kill_attempted:
+                return self._kill_sent
+            self._group_kill_attempted = True
 
         try:
             os.killpg(self._pgid, sig)
