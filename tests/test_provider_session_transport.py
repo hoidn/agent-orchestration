@@ -302,6 +302,46 @@ def test_codex_jsonl_rejects_terminal_suffix_status_and_generic_lookalikes(
     assert "terminal" in error["message"].lower()
 
 
+@pytest.mark.parametrize("non_string_type", ([], {}), ids=("list", "object"))
+def test_codex_jsonl_non_string_event_type_is_not_terminal_on_feed(
+    non_string_type: Any,
+):
+    accumulator = _new_accumulator()
+    accumulator.feed(
+        _jsonl_event(type="thread.started", thread_id="thread-one") + b"\n"
+    )
+
+    accumulator.feed(_jsonl_event(type=non_string_type) + b"\n")
+    metadata, error = accumulator.finalize(
+        expected_session_id=None,
+        require_terminal=False,
+    )
+
+    assert error is None
+    assert metadata is not None
+    assert accumulator.snapshot().terminal_seen is False
+
+
+@pytest.mark.parametrize("non_string_type", ([], {}), ids=("list", "object"))
+def test_codex_jsonl_non_string_event_type_is_not_terminal_at_eof(
+    non_string_type: Any,
+):
+    accumulator = _new_accumulator()
+    accumulator.feed(
+        _jsonl_event(type="thread.started", thread_id="thread-one") + b"\n"
+    )
+    accumulator.feed(_jsonl_event(type=non_string_type))
+
+    metadata, error = accumulator.finalize(
+        expected_session_id=None,
+        require_terminal=False,
+    )
+
+    assert error is None
+    assert metadata is not None
+    assert accumulator.snapshot().terminal_seen is False
+
+
 def test_codex_jsonl_rejects_requested_session_identity_mismatch():
     accumulator = _new_accumulator()
     accumulator.feed(
@@ -371,6 +411,87 @@ def test_session_callback_feeds_accumulator_when_streaming_is_disabled(
     )
 
     assert accumulator.snapshot().session_ids == ("thread-callback",)
+
+
+def test_session_spool_failure_does_not_block_authoritative_accumulator(
+    tmp_path: Path,
+):
+    raw_stdout = (
+        b"\n".join(
+            (
+                _jsonl_event(type="thread.started", thread_id="thread-spool"),
+                _jsonl_event(
+                    type="item.completed",
+                    item={"type": "agent_message", "text": "still valid"},
+                ),
+                _jsonl_event(type="turn.completed"),
+            )
+        )
+        + b"\n"
+    )
+    broken_spool_path = tmp_path / "spool-is-a-directory"
+    broken_spool_path.mkdir()
+    invocation = ProviderInvocation(
+        command=[
+            "python",
+            "-c",
+            "import os; os.write(1, bytes.fromhex(%r))" % raw_stdout.hex(),
+        ],
+        input_mode=InputMode.STDIN,
+        prompt="Test prompt",
+        command_variant="fresh_command",
+        metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+        session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+    )
+
+    result = ProviderExecutor(tmp_path, ProviderRegistry()).execute(
+        invocation,
+        stream_output=False,
+        session_runtime={"transport_spool_path": broken_spool_path},
+    )
+
+    assert result.exit_code == 0
+    assert result.raw_stdout == raw_stdout
+    assert result.stdout == b"still valid"
+    assert result.provider_session == {
+        "session_id": "thread-spool",
+        "normalized_stdout": "still valid",
+        "event_count": 3,
+    }
+
+
+@pytest.mark.parametrize("non_string_type", ([], {}), ids=("list", "object"))
+def test_session_executor_preserves_raw_eof_for_non_string_event_type(
+    tmp_path: Path,
+    non_string_type: Any,
+):
+    raw_stdout = b"\n".join(
+        (
+            _jsonl_event(type="thread.started", thread_id="thread-eof"),
+            _jsonl_event(type=non_string_type),
+        )
+    )
+    invocation = ProviderInvocation(
+        command=[
+            "python",
+            "-c",
+            "import os; os.write(1, bytes.fromhex(%r))" % raw_stdout.hex(),
+        ],
+        input_mode=InputMode.STDIN,
+        prompt="Test prompt",
+        command_variant="fresh_command",
+        metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+        session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+    )
+
+    result = ProviderExecutor(tmp_path, ProviderRegistry()).execute(invocation)
+
+    assert result.exit_code == 2
+    assert result.raw_stdout == raw_stdout
+    assert result.provider_session is None
+    assert result.error is not None
+    assert result.error["type"] == "provider_session_transport_error"
+    assert "terminal" in result.error["message"].lower()
 
 
 def test_session_executor_uses_real_codex_shape_and_preserves_raw_stdout(

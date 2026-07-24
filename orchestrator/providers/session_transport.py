@@ -230,7 +230,8 @@ class CodexExecJsonlAccumulator:
 
         self._session_ids.update(event_session_ids)
 
-        if event.get("type") in _TERMINAL_EVENT_TYPES:
+        event_type = event.get("type")
+        if isinstance(event_type, str) and event_type in _TERMINAL_EVENT_TYPES:
             self._terminal_seen = True
 
         assistant_text = extract_codex_assistant_text(event)

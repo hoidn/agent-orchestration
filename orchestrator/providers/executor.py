@@ -824,9 +824,9 @@ class ProviderExecutor:
             )
 
         def _handle_chunk(chunk: bytes) -> None:
-            self._append_masked_transport(chunk, session_runtime)
             if accumulator is not None:
                 accumulator.feed(chunk)
+            self._append_masked_transport(chunk, session_runtime)
 
         return _handle_chunk
 
