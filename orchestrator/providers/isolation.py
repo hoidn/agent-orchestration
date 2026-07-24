@@ -225,6 +225,7 @@ def validate_provider_phase_isolation_policy(
     schema = load_provider_isolation_schema(POLICY_SCHEMA_RESOURCE)
     validator = Draft202012Validator(schema)
     issues = _schema_validation_issues(validator.iter_errors(document))
+    issues.extend(_policy_float_issues(document, "$"))
 
     if isinstance(document, Mapping):
         issues.extend(_semantic_policy_issues(document))
@@ -503,12 +504,36 @@ def _semantic_policy_issues(
     return issues
 
 
+def _policy_float_issues(value: object, path: str) -> list[ProviderIsolationIssue]:
+    if isinstance(value, float):
+        return [_issue(path, "isolation policy JSON forbids floating-point values")]
+    if isinstance(value, Mapping):
+        issues: list[ProviderIsolationIssue] = []
+        for key, item in value.items():
+            issues.extend(
+                _policy_float_issues(item, _append_json_path(path, str(key)))
+            )
+        return issues
+    if isinstance(value, Sequence) and not isinstance(
+        value, (str, bytes, bytearray)
+    ):
+        issues = []
+        for index, item in enumerate(value):
+            issues.extend(_policy_float_issues(item, f"{path}[{index}]"))
+        return issues
+    return []
+
+
 def _absolute_policy_path_issues(
     value: object,
     path: str,
 ) -> list[ProviderIsolationIssue]:
     if not isinstance(value, str):
         return []
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return [_issue(path, "filesystem path must be strict UTF-8")]
     if not _is_nfc(value):
         return [_issue(path, "filesystem path must already be Unicode NFC")]
     if (
@@ -544,6 +569,8 @@ def _require_normalized_manifest_relpath(value: object, path: str) -> None:
     if not isinstance(value, str):
         raise TypeError(f"{path} must be a string")
     _require_nfc(value, path)
+    if "\x00" in value:
+        raise ValueError(f"{path} must not contain NUL")
     if (
         not value
         or value.startswith("/")

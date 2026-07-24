@@ -333,6 +333,13 @@ def test_result_bundle_accepts_both_positive_v1_boundaries() -> None:
         assert _load(document).result_bundle_max_bytes == max_bytes
 
 
+def test_integral_float_is_reported_as_a_stable_policy_issue_before_load() -> None:
+    document = deepcopy(VALID_POLICY)
+    document["result_bundle"]["max_bytes"] = 1.0
+
+    _assert_issue_paths(document, "$.result_bundle.max_bytes")
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -520,6 +527,37 @@ def test_policy_filesystem_paths_must_already_be_unicode_nfc(
     _assert_issue_paths(document, path)
 
 
+@pytest.mark.parametrize(
+    ("container", "field", "path"),
+    [
+        (
+            "provider_environment",
+            "root",
+            "$.provider_environment.root",
+        ),
+        (
+            "provider_environment",
+            "provider_prefix",
+            "$.provider_environment.provider_prefix",
+        ),
+        (
+            "shared_network_review",
+            "inventory_path",
+            "$.shared_network_review.inventory_path",
+        ),
+    ],
+)
+def test_lone_surrogate_filesystem_paths_are_stable_policy_issues(
+    container: str,
+    field: str,
+    path: str,
+) -> None:
+    document = deepcopy(VALID_POLICY)
+    document[container][field] = "/sealed/\ud800"
+
+    _assert_issue_paths(document, path)
+
+
 def test_future_manifest_relpaths_must_already_be_nfc_and_normalized() -> None:
     canonical = _api().canonical_isolation_json_bytes
     base = {
@@ -541,6 +579,17 @@ def test_future_manifest_relpaths_must_already_be_nfc_and_normalized() -> None:
                 "entries": [{"path": "a/../b", "kind": "directory"}],
             }
         )
+
+
+def test_future_manifest_relpaths_reject_nul() -> None:
+    manifest = {
+        "schema_version": "provider_environment_manifest.v1",
+        "provider_prefix": "/opt/orchestrator-provider",
+        "entries": [{"path": "a\x00b", "kind": "directory"}],
+    }
+
+    with pytest.raises(ValueError, match="NUL"):
+        _api().canonical_isolation_json_bytes(manifest)
 
 
 def test_policy_error_returns_all_deterministically_sorted_issues() -> None:
