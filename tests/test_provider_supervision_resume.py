@@ -100,6 +100,31 @@ def _classify(
     )
 
 
+def test_supervision_invocation_snapshot_preserves_resume_capability() -> None:
+    invocation = ProviderInvocation(
+        command=["provider"],
+        input_mode=InputMode.STDIN,
+        prompt="prompt",
+        output_file=None,
+        env={},
+        timeout_sec=30,
+        command_variant="fresh_command",
+        metadata_mode="codex_jsonl",
+        session_request=ProviderSessionRequest(
+            mode=ProviderSessionMode.FRESH,
+        ),
+        terminate_process_tree=True,
+        metadata={},
+        turn_boundary_resume=True,
+    )
+
+    materialized = ProviderSupervisionInvocationSnapshot.from_invocation(
+        invocation
+    ).materialize()
+
+    assert materialized.turn_boundary_resume is True
+
+
 def test_active_resume_boundary_requires_unique_marker_preterminal_and_live_deadlines() -> None:
     assessment = _classify(snapshot=_snapshot())
 

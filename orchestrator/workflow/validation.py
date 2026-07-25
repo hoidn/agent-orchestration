@@ -17,6 +17,9 @@ from orchestrator.providers import (
     ProviderSessionSupport,
     ProviderTemplate,
 )
+from orchestrator.providers.types import (
+    validate_turn_boundary_resume_capability,
+)
 from orchestrator.workflow.assets import AssetResolutionError, WorkflowAssetResolver
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.identity import STEP_ID_PATTERN
@@ -925,6 +928,10 @@ class _WorkflowMappingValidator:
                             metadata_mode=metadata_mode,
                             fresh_command=fresh_command,
                             resume_command=resume_command,
+                            turn_boundary_resume=session_support_node.get(
+                                "turn_boundary_resume",
+                                False,
+                            ),
                         )
 
             if len(self.errors) != error_count:
@@ -1209,6 +1216,12 @@ class _WorkflowMappingValidator:
                     artifacts_registry=artifacts_registry,
                 )
 
+            if 'provider_supervision' in step:
+                self._validate_provider_supervision_capability(
+                    step['provider_supervision'],
+                    step_name=name,
+                )
+
             if 'managed_jobs' in step:
                 self._validate_managed_jobs(step, name, version)
 
@@ -1463,6 +1476,34 @@ class _WorkflowMappingValidator:
             # Validate control flow
             if 'on' in step:
                 self._validate_on_handlers(step['on'], name)
+
+    def _validate_provider_supervision_capability(
+        self,
+        config: Any,
+        *,
+        step_name: str,
+    ) -> None:
+        """Require the explicit live-resume capability only on the worker."""
+        if not isinstance(config, ProviderSupervisionStepConfig):
+            return
+        provider_name = config.worker.provider_config.provider
+        template = self._provider_registry.get(provider_name)
+        support = (
+            template.session_support
+            if template is not None
+            else None
+        )
+        if (
+            support is None
+            or support.turn_boundary_resume is not True
+            or validate_turn_boundary_resume_capability(support)
+        ):
+            self._add_error(
+                f"Step '{step_name}': provider_supervision worker "
+                f"'{config.worker.member_id}' requires provider "
+                f"'{provider_name}' to declare validated "
+                "turn_boundary_resume capability"
+            )
 
     def _collect_all_steps(self, steps: List[Any]) -> List[Dict[str, Any]]:
         """Collect all step definitions from top-level and nested control-flow blocks."""

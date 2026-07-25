@@ -157,6 +157,24 @@ def _session_invocation() -> tuple[ProviderInvocation, bytes]:
     return invocation, raw
 
 
+def test_provider_executor_enables_ordinary_observation_by_default(
+    tmp_path: Path,
+) -> None:
+    manager = _RecordingManager()
+    executor = ProviderExecutor(
+        tmp_path,
+        ProviderRegistry(),
+        None,
+        observation_manager=manager,
+    )
+
+    result = executor.execute(_ordinary_invocation())
+
+    assert executor.provider_observation_enabled is True
+    assert result.exit_code == 0
+    assert len(manager.open_calls) == 1
+
+
 @pytest.mark.parametrize("enabled", [False, True])
 def test_observation_preserves_ordinary_nonstream_result(
     tmp_path: Path,

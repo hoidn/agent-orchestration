@@ -85,6 +85,43 @@ def _install_fakes(
     return managers
 
 
+def test_root_provider_observation_is_enabled_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    managers = _install_fakes(monkeypatch, fail_close=False)
+    bundle, workflow_path = _write_bundle(
+        tmp_path,
+        {
+            "version": "2.7",
+            "name": "default-observation-owner",
+            "steps": [
+                {
+                    "name": "Complete",
+                    "id": "complete",
+                    "command": [sys.executable, "-c", "pass"],
+                }
+            ],
+        },
+    )
+    state_manager = StateManager(
+        tmp_path,
+        run_id="default-observation-owner",
+    )
+    state_manager.initialize(str(workflow_path))
+
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+
+    assert executor.provider_observation_enabled is True
+    assert len(managers) == 1
+    assert _RecordingProviderExecutor.constructions == [
+        (True, None)
+    ]
+    assert _RecordingProviderExecutor.instances[0].observation_manager is (
+        managers[0]
+    )
+
+
 @pytest.mark.parametrize("provider_observation_enabled", [False, True])
 def test_root_provider_observation_manager_is_run_scoped_and_best_effort_closed(
     tmp_path: Path,

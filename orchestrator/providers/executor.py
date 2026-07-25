@@ -21,6 +21,7 @@ from .types import (
     escape_provider_command_token,
     extract_provider_command_placeholders,
     restore_provider_command_token,
+    validate_turn_boundary_resume_capability,
 )
 from .registry import ProviderRegistry
 from .control import ProviderExecutionControl
@@ -110,7 +111,7 @@ class ProviderExecutor:
         registry: ProviderRegistry,
         secrets_manager: Optional[SecretsManager] = None,
         *,
-        provider_observation_enabled: bool = False,
+        provider_observation_enabled: bool = True,
         observation_manager: Optional[ProviderObservationManager] = None,
     ):
         """
@@ -359,6 +360,13 @@ class ProviderExecutor:
             command_variant=command_variant,
             metadata_mode=metadata_mode,
             session_request=session_request,
+            turn_boundary_resume=(
+                provider.session_support is not None
+                and provider.session_support.turn_boundary_resume is True
+                and not validate_turn_boundary_resume_capability(
+                    provider.session_support
+                )
+            ),
         )
 
         return invocation, None
@@ -389,6 +397,15 @@ class ProviderExecutor:
         observation_handle: Optional[ProviderObservationHandle] = None,
     ) -> ProviderExecutionResult:
         """Execute while keeping optional observation outside result semantics."""
+        pre_execution_failure = (
+            self._provider_supervision_worker_pre_execution_failure(
+                invocation,
+                control,
+            )
+        )
+        if pre_execution_failure is not None:
+            return pre_execution_failure
+
         active_observation, owns_observation = self._acquire_observation_handle(
             observation_handle
         )
@@ -406,6 +423,47 @@ class ProviderExecutor:
                 active_observation,
                 owned=owns_observation,
             )
+
+    @staticmethod
+    def _provider_supervision_worker_pre_execution_failure(
+        invocation: ProviderInvocation,
+        control: Optional[ProviderExecutionControl],
+    ) -> Optional[ProviderExecutionResult]:
+        """Fail a live worker before launch when its structural gates are absent."""
+        supervision = invocation.metadata.get("provider_supervision")
+        if not isinstance(supervision, dict) or supervision.get(
+            "turn_role"
+        ) not in {"worker_fresh", "worker_resume"}:
+            return None
+        if invocation.turn_boundary_resume is not True:
+            return ProviderExecutionResult(
+                exit_code=2,
+                stdout=b"",
+                stderr=b"",
+                duration_ms=0,
+                error={
+                    "type": "provider_pre_execution_failed",
+                    "message": (
+                        "Provider supervision worker requires validated "
+                        "turn_boundary_resume capability"
+                    ),
+                },
+            )
+        if not isinstance(control, ProviderExecutionControl):
+            return ProviderExecutionResult(
+                exit_code=2,
+                stdout=b"",
+                stderr=b"",
+                duration_ms=0,
+                error={
+                    "type": "provider_pre_execution_failed",
+                    "message": (
+                        "Provider supervision worker requires a cancellable "
+                        "ProviderExecutionControl"
+                    ),
+                },
+            )
+        return None
 
     def _execute(
         self,

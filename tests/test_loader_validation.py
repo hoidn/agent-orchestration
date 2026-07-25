@@ -19,6 +19,144 @@ from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_b
 from tests.workflow_bundle_helpers import materialize_projection_body_steps, thaw_surface_workflow
 
 
+def test_loader_validates_turn_boundary_resume_session_contract(tmp_path):
+    """Mapping validation enforces the explicit generic live-resume contract."""
+
+    def workflow_with_session_support(session_support):
+        return {
+            "version": "2.16",
+            "name": "turn-boundary-resume-contract",
+            "providers": {
+                "structural-provider": {
+                    "command": ["tool", "--tty", "${PROMPT}"],
+                    "input_mode": "argv",
+                    "session_support": session_support,
+                }
+            },
+            "steps": [{"name": "Done", "command": ["echo", "done"]}],
+        }
+
+    def valid_session_support():
+        return {
+            "metadata_mode": "codex_exec_jsonl_stdout",
+            "fresh_command": ["tool", "--json", "--ephemeral=true"],
+            "resume_command": [
+                "tool",
+                "resume",
+                "${SESSION_ID}",
+                "--json",
+                "--not-ephemeral",
+            ],
+            "turn_boundary_resume": True,
+        }
+
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load_mapping(
+        workflow_with_session_support(valid_session_support())
+    )
+    provider_config = thaw_surface_workflow(loaded)["providers"][
+        "structural-provider"
+    ]
+
+    assert provider_config["session_support"]["turn_boundary_resume"] is True
+
+    invalid_cases = []
+
+    missing_fresh = valid_session_support()
+    missing_fresh.pop("fresh_command")
+    invalid_cases.append((missing_fresh, ("fresh_command",)))
+
+    missing_resume = valid_session_support()
+    missing_resume.pop("resume_command")
+    invalid_cases.append(
+        (missing_resume, ("turn_boundary_resume", "resume_command"))
+    )
+
+    no_identity = valid_session_support()
+    no_identity["resume_command"] = ["tool", "resume", "--json"]
+    invalid_cases.append((no_identity, ("exactly one", "${SESSION_ID}")))
+
+    duplicate_identity = valid_session_support()
+    duplicate_identity["resume_command"] = [
+        "tool",
+        "resume",
+        "${SESSION_ID}",
+        "${SESSION_ID}",
+    ]
+    invalid_cases.append(
+        (duplicate_identity, ("exactly one", "${SESSION_ID}"))
+    )
+
+    escaped_identity = valid_session_support()
+    escaped_identity["resume_command"] = [
+        "tool",
+        "resume",
+        "$${SESSION_ID}",
+    ]
+    invalid_cases.append(
+        (escaped_identity, ("exactly one", "${SESSION_ID}"))
+    )
+
+    unsupported_codec = valid_session_support()
+    unsupported_codec["metadata_mode"] = "identity-only-codec"
+    invalid_cases.append((unsupported_codec, ("metadata_mode",)))
+
+    ephemeral_fresh = valid_session_support()
+    ephemeral_fresh["fresh_command"] = ["tool", "--json", "--ephemeral"]
+    invalid_cases.append((ephemeral_fresh, ("turn_boundary_resume", "--ephemeral")))
+
+    ephemeral_resume = valid_session_support()
+    ephemeral_resume["resume_command"] = [
+        "tool",
+        "resume",
+        "${SESSION_ID}",
+        "--ephemeral",
+    ]
+    invalid_cases.append(
+        (ephemeral_resume, ("turn_boundary_resume", "--ephemeral"))
+    )
+
+    non_boolean = valid_session_support()
+    non_boolean["turn_boundary_resume"] = "true"
+    invalid_cases.append(
+        (non_boolean, ("turn_boundary_resume", "boolean"))
+    )
+
+    for session_support, expected_fragments in invalid_cases:
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            loader.load_mapping(workflow_with_session_support(session_support))
+
+        messages = tuple(str(error.message) for error in exc_info.value.errors)
+        assert any(
+            all(fragment in message for fragment in expected_fragments)
+            for message in messages
+        ), messages
+
+    inferred = valid_session_support()
+    inferred.pop("turn_boundary_resume")
+    loaded_without_opt_in = loader.load_mapping(
+        {
+            **workflow_with_session_support(inferred),
+            "name": "codex-name-does-not-imply-live-resume",
+            "providers": {
+                "codex": {
+                    "command": ["tool", "--tty"],
+                    "input_mode": "stdin",
+                    "session_support": inferred,
+                }
+            },
+        }
+    )
+
+    inferred_config = thaw_surface_workflow(loaded_without_opt_in)["providers"][
+        "codex"
+    ]
+    assert (
+        inferred_config["session_support"].get("turn_boundary_resume", False)
+        is False
+    )
+
+
 def _resume_projection_integrity_module_ast() -> ast.Module:
     module_path = (
         Path(__file__).parents[1]

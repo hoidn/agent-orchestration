@@ -83,6 +83,72 @@ class ProviderSessionSupport:
     metadata_mode: str
     fresh_command: List[str]
     resume_command: Optional[List[str]] = None
+    turn_boundary_resume: bool = False
+
+
+def validate_turn_boundary_resume_capability(
+    session_support: ProviderSessionSupport,
+) -> Tuple[str, ...]:
+    """Validate the explicit structural contract for turn-boundary resume."""
+    enabled = session_support.turn_boundary_resume
+    if not isinstance(enabled, bool):
+        return ("turn_boundary_resume must be a boolean",)
+    if not enabled:
+        return ()
+
+    errors: List[str] = []
+    commands = (
+        ("fresh_command", session_support.fresh_command),
+        ("resume_command", session_support.resume_command),
+    )
+    for command_name, command in commands:
+        if (
+            not isinstance(command, list)
+            or not command
+            or any(not isinstance(token, str) for token in command)
+        ):
+            errors.append(
+                "turn_boundary_resume requires "
+                f"{command_name} to be a non-empty list of strings"
+            )
+
+    resume_command = session_support.resume_command
+    if (
+        isinstance(resume_command, list)
+        and resume_command
+        and all(isinstance(token, str) for token in resume_command)
+    ):
+        session_id_count = sum(
+            placeholder == "SESSION_ID"
+            for token in resume_command
+            for placeholder in extract_provider_command_placeholders(token)
+        )
+        if session_id_count != 1:
+            errors.append(
+                "turn_boundary_resume resume_command must contain exactly one "
+                "unescaped ${SESSION_ID} placeholder"
+            )
+
+    from .session_transport import supports_resume_boundary_observation
+
+    if not supports_resume_boundary_observation(
+        session_support.metadata_mode
+    ):
+        errors.append(
+            "turn_boundary_resume requires a metadata codec with "
+            "resume-boundary observation support"
+        )
+
+    for command_name, command in commands:
+        if (
+            isinstance(command, list)
+            and "--ephemeral" in command
+        ):
+            errors.append(
+                "turn_boundary_resume "
+                f"{command_name} must not contain the exact --ephemeral argument"
+            )
+    return tuple(errors)
 
 
 @dataclass
@@ -173,6 +239,13 @@ class ProviderTemplate:
                         require_session_id=True,
                     )
                 )
+
+            errors.extend(
+                f"Provider '{self.name}': session_support.{error}"
+                for error in validate_turn_boundary_resume_capability(
+                    self.session_support
+                )
+            )
 
         errors.extend(self._validate_call_policy_bindings())
 
@@ -361,6 +434,7 @@ class ProviderInvocation:
         command_variant: Selected provider command template
         metadata_mode: Session metadata transport mode for session-enabled invocations
         session_request: Resolved provider-session request, if any
+        turn_boundary_resume: Validated structural live-resume capability
     """
     command: List[str]
     input_mode: InputMode
@@ -373,3 +447,4 @@ class ProviderInvocation:
     session_request: Optional[ProviderSessionRequest] = None
     terminate_process_tree: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
+    turn_boundary_resume: bool = False

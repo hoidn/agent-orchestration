@@ -1,9 +1,14 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import orchestrator.workflow.executor as executor_module
+import orchestrator.workflow.adjudication_finalization as adjudication_finalization_module
+import orchestrator.workflow.adjudication_helpers as adjudication_helpers_module
+import orchestrator.workflow.adjudication_runner as adjudication_runner_module
+import orchestrator.workflow.adjudication.models as adjudication_models
 import orchestrator.workflow.prompting as prompting_module
 from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.observability.report import build_status_snapshot, render_status_markdown
@@ -31,9 +36,17 @@ class _FakeClock:
 
 
 def _install_fake_clock(monkeypatch: pytest.MonkeyPatch, fake_clock: _FakeClock) -> None:
-    monkeypatch.setattr(executor_module.time, "monotonic", fake_clock.monotonic)
-    monkeypatch.setattr("orchestrator.workflow.adjudication.time.monotonic", fake_clock.monotonic)
-    monkeypatch.setattr(executor_module.time, "sleep", lambda seconds: fake_clock.advance(float(seconds)))
+    fake_time = SimpleNamespace(
+        monotonic=fake_clock.monotonic,
+        sleep=lambda seconds: fake_clock.advance(float(seconds)),
+    )
+    for module in (
+        adjudication_finalization_module,
+        adjudication_helpers_module,
+        adjudication_runner_module,
+        adjudication_models,
+    ):
+        monkeypatch.setattr(module, "time", fake_time)
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:

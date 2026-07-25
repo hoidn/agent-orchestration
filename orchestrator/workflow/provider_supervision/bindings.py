@@ -247,6 +247,7 @@ class ProviderSupervisionInvocationSnapshot:
     session_request: _FrozenSessionRequest | None
     terminate_process_tree: bool
     metadata: MappingProxyType
+    turn_boundary_resume: bool
 
     @classmethod
     def from_invocation(
@@ -275,6 +276,7 @@ class ProviderSupervisionInvocationSnapshot:
             ),
             terminate_process_tree=invocation.terminate_process_tree,
             metadata=frozen_metadata,
+            turn_boundary_resume=invocation.turn_boundary_resume,
         )
 
     def materialize(self) -> ProviderInvocation:
@@ -296,6 +298,7 @@ class ProviderSupervisionInvocationSnapshot:
             ),
             terminate_process_tree=self.terminate_process_tree,
             metadata=_thaw_value(self.metadata),
+            turn_boundary_resume=self.turn_boundary_resume,
         )
 
 

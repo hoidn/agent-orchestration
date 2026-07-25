@@ -190,7 +190,7 @@ class WorkflowExecutor:
         observability: Optional[Dict[str, Any]] = None,
         step_heartbeat_interval_sec: float = 30.0,
         *,
-        provider_observation_enabled: bool = False,
+        provider_observation_enabled: bool = True,
         provider_observation_manager: ProviderObservationManager | None = None,
     ):
         """

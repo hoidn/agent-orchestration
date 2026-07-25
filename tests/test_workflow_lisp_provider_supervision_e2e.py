@@ -30,6 +30,7 @@ from orchestrator.workflow.provider_supervision.bindings import (
     WorkflowProviderSupervisionBindings,
 )
 from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 
 
 FIXTURE_ROOT = (
@@ -386,6 +387,54 @@ def test_public_compile_emits_one_atomic_provider_supervision_node(
     )
 
 
+def test_compile_rejects_worker_without_turn_boundary_resume(
+    tmp_path: Path,
+) -> None:
+    files = _copy_fixture(tmp_path)
+    files["providers.json"].write_text(
+        json.dumps(
+            {
+                "providers.worker": "claude",
+                "providers.supervisor": "codex",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_frontend_bundle(_build_request(tmp_path, files))
+
+    diagnostics = excinfo.value.diagnostics
+    assert any(
+        "worker" in diagnostic.message
+        and "turn_boundary_resume" in diagnostic.message
+        for diagnostic in diagnostics
+    )
+
+
+def test_compile_accepts_supported_worker_and_supervisor(
+    tmp_path: Path,
+) -> None:
+    files = _copy_fixture(tmp_path)
+    files["providers.json"].write_text(
+        json.dumps(
+            {
+                "providers.worker": "codex",
+                "providers.supervisor": "claude",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    built = build_frontend_bundle(_build_request(tmp_path, files))
+
+    [node] = built.validated_bundle.ir.nodes.values()
+    assert node.execution_config.worker.provider_config.provider == "codex"
+    assert (
+        node.execution_config.supervisor.provider_config.provider == "claude"
+    )
+
+
 def test_public_run_completes_continue_settlement(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -504,7 +553,9 @@ def test_public_run_rejects_stale_provisional_bundle_before_launch(
     )
     assert runtime.prepared == []
     assert runtime.executed == []
-    assert runtime.managers == []
+    [manager] = runtime.managers
+    assert manager.handles == []
+    assert manager.closed is True
     assert list(run_root.rglob("evidence.json")) == []
 
 

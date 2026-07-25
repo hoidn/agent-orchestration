@@ -1339,20 +1339,26 @@ independent verdicts were `TASK13_SPEC_APPROVED` and
 - Modify: `orchestrator/providers/registry.py`
 - Modify: `orchestrator/providers/executor.py`
 - Modify: `orchestrator/workflow/validation.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/workflow/provider_supervision/bindings.py`
 - Create: `tests/e2e/test_e2e_provider_supervision.py`
 - Test: `tests/test_provider_execution.py`
+- Test: `tests/test_provider_observation_execution.py`
+- Test: `tests/test_provider_observation_workflow.py`
+- Test: `tests/test_provider_supervision_resume.py`
+- Test: `tests/test_adjudicated_provider_runtime.py`
 - Test: `tests/test_loader_validation.py`
 - Test: `tests/test_workflow_lisp_provider_supervision_e2e.py`
 
-- [ ] Write RED validation tests for `turn_boundary_resume: true`: fresh and
+- [x] Write RED validation tests for `turn_boundary_resume: true`: fresh and
   resume commands required, exactly one `${SESSION_ID}`, a metadata codec with
   a generic `supports_resume_boundary_observation` capability, no exact
   `--ephemeral` argument in either command (with near-lookalike controls),
   requested identity equality, and cancellable lifecycle. Prove provider name,
   TTY, input mode, or stable identity alone never implies capability.
-- [ ] Add negative compile/load/runtime tests for an unsupported worker, plus
+- [x] Add negative compile/load/runtime tests for an unsupported worker, plus
   positive tests proving a supervisor needs no session capability.
-- [ ] Run the new RED capability tests:
+- [x] Run the new RED capability tests:
 
   ```bash
   pytest -q \
@@ -1362,23 +1368,54 @@ independent verdicts were `TASK13_SPEC_APPROVED` and
     tests/test_workflow_lisp_provider_supervision_e2e.py::test_compile_accepts_supported_worker_and_supervisor
   ```
 
-- [ ] Implement the structural field and opt in only the real template proven
+- [x] Implement the structural field and opt in only the real template proven
   by Task 3.
-- [ ] Rerun the four-node capability command above.
-- [ ] Add one real E2E where a real supervisor observes a real session-capable
+- [x] Rerun the four-node capability command above.
+- [x] Add one real E2E where a real supervisor observes a real session-capable
   worker, returns `STEER`, and the resumed typed result differs as intended.
-- [ ] Run the real smoke in tmux:
+- [x] Run the real smoke in tmux:
   `ORCHESTRATE_E2E=1 pytest -q tests/e2e/test_e2e_provider_supervision.py -s`.
-- [ ] If the real supervisor cannot make the correction or the complete
+- [x] If the real supervisor cannot make the correction or the complete
   boundary cannot be proved, do not claim/shipping-enable live correction;
   follow the accepted stop/revise criterion.
-- [ ] After the real smoke passes, enable the observation manager as the
+- [x] After the real smoke passes, enable the observation manager as the
   ordinary invocation default and rerun Task 5's complete parity/failure
   matrix using all four concrete Task 5 commands; their parametrization still
   covers explicit disabled and enabled construction. Do not flip the
   `provider_observation_enabled` default before this point.
-- [ ] Complete specification review, quality review, and commit:
+- [x] Complete specification review, quality review, and commit:
   `Promote verified provider supervision capability`.
+
+Task 14 implementation evidence: the structural capability RED exposed the
+missing field/validation/loader/runtime gates, and a later focused RED exposed
+that the immutable supervision invocation snapshot did not preserve the new
+capability across the member-thread boundary. The corrected generic path
+round-trips the capability and rejects incapable or non-cancellable workers
+before process launch; only the canonical template proven by Task 3 opts in.
+The first real-smoke prompt incorrectly relied on a pre-tool assistant message
+that the real codec did not emit, so it timed out with empty displays. The
+revised smoke uses the design-approved clean-natural-success boundary: the
+real worker publishes `uncorrected-value` and a terminal observation marker,
+the real supervisor observes that marker and returns `STEER`, and exact-session
+resume publishes the distinct typed result `corrected-value`. The tmux smoke
+passed one test in 41.88 seconds. After that gate, two RED default tests proved
+ordinary observation was still disabled; both run-level and low-level defaults
+were flipped while retaining explicit disabled construction. A final
+default-enabled tmux rerun passed the same real smoke in 37.87 seconds. Quality
+review then identified that a fixed marker known to the supervisor did not
+independently prove observation. The final smoke instead has the worker
+generate an unpredictable 32-hex marker absent from the supervisor prompt,
+joins wrapped pane lines, extracts that exact marker from the worker
+transcript, and requires the STEER guidance to echo it; this stronger smoke
+passed in 44.53 seconds. The four Task 5 commands passed respectively 18, 38,
+6, and 5 tests. Additional focused verification passed the six-node
+capability/snapshot gate and groups of 71, 234, and 74 tests, plus all 72
+adjudicated-provider tests. The adjudication fake-clock helper now patches
+only the workflow deadline modules it is intended to simulate, avoiding
+global polling-clock interference after observation became the default.
+All 452 changed-test nodes collected cleanly. Ordered independent review,
+including re-review after the observation-proof correction, concluded
+`TASK14_SPEC_APPROVED` and `TASK14_QUALITY_APPROVED`.
 
 ### Task 15: Normative Docs, Full Verification, And Stage 7 Closure
 

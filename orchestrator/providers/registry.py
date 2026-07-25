@@ -42,7 +42,12 @@ class ProviderRegistry:
         Returns:
             Dictionary of built-in provider templates
         """
-        def codex_provider(name: str, model: str) -> ProviderTemplate:
+        def codex_provider(
+            name: str,
+            model: str,
+            *,
+            turn_boundary_resume: bool = False,
+        ) -> ProviderTemplate:
             unrestricted_flags = ["--dangerously-bypass-approvals-and-sandbox"]
             return ProviderTemplate(
                 name=name,
@@ -81,6 +86,7 @@ class ProviderRegistry:
                         "reasoning_effort=${reasoning_effort}",
                         *unrestricted_flags,
                     ],
+                    turn_boundary_resume=turn_boundary_resume,
                 ),
                 call_policy_bindings={
                     "model": CallPolicyBinding(target_param="model"),
@@ -117,7 +123,11 @@ class ProviderRegistry:
                 defaults={},
                 input_mode=InputMode.ARGV
             ),
-            "codex": codex_provider("codex", "gpt-5.4"),
+            "codex": codex_provider(
+                "codex",
+                "gpt-5.4",
+                turn_boundary_resume=True,
+            ),
             "codex_gpt55": codex_provider("codex_gpt55", "gpt-5.5"),
             "codex_unrestricted_workspace": ProviderTemplate(
                 name="codex_unrestricted_workspace",
@@ -230,6 +240,7 @@ class ProviderRegistry:
             metadata_mode=metadata_mode,
             fresh_command=fresh_command if isinstance(fresh_command, list) else [],
             resume_command=resume_command if isinstance(resume_command, list) else None,
+            turn_boundary_resume=config.get("turn_boundary_resume", False),
         )
 
     def get(self, name: str) -> Optional[ProviderTemplate]:

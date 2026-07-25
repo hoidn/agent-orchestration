@@ -21,6 +21,7 @@ from orchestrator.providers import (
     ProviderParams,
     ProviderRegistry,
     ProviderExecutor,
+    ProviderExecutionResult,
     InputMode,
     ProviderSessionMetadataMode,
     ProviderSessionMode,
@@ -28,6 +29,207 @@ from orchestrator.providers import (
     ProviderSessionSupport,
 )
 from orchestrator.providers.types import ProviderInvocation
+from orchestrator.providers.control import ProviderExecutionControl
+
+
+def test_turn_boundary_resume_capability_is_structural():
+    """Live resume capability is an explicit, generic session contract."""
+
+    def session_support(
+        *,
+        enabled=True,
+        metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+        fresh_command=None,
+        resume_command=None,
+    ):
+        return ProviderSessionSupport(
+            metadata_mode=metadata_mode,
+            fresh_command=(
+                ["tool", "--json", "--ephemeral=true"]
+                if fresh_command is None
+                else fresh_command
+            ),
+            resume_command=(
+                [
+                    "tool",
+                    "resume",
+                    "${SESSION_ID}",
+                    "--json",
+                    "--not-ephemeral",
+                ]
+                if resume_command is None
+                else resume_command
+            ),
+            turn_boundary_resume=enabled,
+        )
+
+    def provider(support, *, name="structural-provider", input_mode=InputMode.ARGV):
+        return ProviderTemplate(
+            name=name,
+            command=(
+                ["tool", "--tty"]
+                if input_mode == InputMode.STDIN
+                else ["tool", "--tty", "${PROMPT}"]
+            ),
+            input_mode=input_mode,
+            session_support=support,
+        )
+
+    capable = provider(session_support())
+
+    assert capable.validate() == []
+    assert capable.session_support is not None
+    assert capable.session_support.turn_boundary_resume is True
+
+    invalid_cases = (
+        (
+            session_support(fresh_command=[]),
+            ("turn_boundary_resume", "fresh_command"),
+        ),
+        (
+            session_support(resume_command=[]),
+            ("turn_boundary_resume", "resume_command"),
+        ),
+        (
+            session_support(resume_command=["tool", "resume"]),
+            ("exactly one", "${SESSION_ID}"),
+        ),
+        (
+            session_support(
+                resume_command=[
+                    "tool",
+                    "resume",
+                    "${SESSION_ID}",
+                    "${SESSION_ID}",
+                ],
+            ),
+            ("exactly one", "${SESSION_ID}"),
+        ),
+        (
+            session_support(
+                resume_command=["tool", "resume", "$${SESSION_ID}"],
+            ),
+            ("exactly one", "${SESSION_ID}"),
+        ),
+        (
+            session_support(metadata_mode="identity-only-codec"),
+            ("turn_boundary_resume", "resume-boundary"),
+        ),
+        (
+            session_support(
+                fresh_command=["tool", "--json", "--ephemeral"],
+            ),
+            ("turn_boundary_resume", "--ephemeral"),
+        ),
+        (
+            session_support(
+                resume_command=[
+                    "tool",
+                    "resume",
+                    "${SESSION_ID}",
+                    "--ephemeral",
+                ],
+            ),
+            ("turn_boundary_resume", "--ephemeral"),
+        ),
+    )
+
+    for support, expected_fragments in invalid_cases:
+        errors = provider(support).validate()
+        assert any(
+            all(fragment in error for fragment in expected_fragments)
+            for error in errors
+        ), errors
+
+    inferred = provider(
+        session_support(enabled=False),
+        name="codex",
+        input_mode=InputMode.STDIN,
+    )
+
+    assert inferred.validate() == []
+    assert inferred.session_support is not None
+    assert inferred.session_support.turn_boundary_resume is False
+
+
+def test_provider_supervision_worker_runtime_repeats_capability_and_control_gate(
+    tmp_path,
+    monkeypatch,
+):
+    """A live worker cannot reach either provider execution path by inference."""
+
+    registry = ProviderRegistry()
+    executor = ProviderExecutor(tmp_path, registry)
+    controlled_calls = []
+    uncontrolled_calls = []
+    success = ProviderExecutionResult(
+        exit_code=0,
+        stdout=b"",
+        stderr=b"",
+        duration_ms=0,
+    )
+
+    def controlled(**kwargs):
+        controlled_calls.append(kwargs["invocation"])
+        return success
+
+    def uncontrolled(**kwargs):
+        uncontrolled_calls.append(kwargs["invocation"])
+        return success
+
+    monkeypatch.setattr(
+        executor,
+        "_execute_controlled_invocation",
+        controlled,
+    )
+    monkeypatch.setattr(
+        executor,
+        "_execute_session_invocation",
+        uncontrolled,
+    )
+
+    def prepared_worker(provider_name):
+        invocation, error = executor.prepare_invocation(
+            provider_name,
+            ProviderParams(),
+            {},
+            "work",
+            session_request=ProviderSessionRequest(
+                mode=ProviderSessionMode.FRESH,
+            ),
+        )
+        assert error is None
+        assert invocation is not None
+        invocation.metadata["provider_supervision"] = {
+            "member_id": "worker",
+            "turn_role": "worker_fresh",
+        }
+        return invocation
+
+    capable = prepared_worker("codex")
+    unsupported_alias = prepared_worker("codex_gpt55")
+
+    assert executor.execute(
+        capable,
+        control=ProviderExecutionControl(),
+    ) is success
+    assert controlled_calls == [capable]
+    assert uncontrolled_calls == []
+
+    unsupported_result = executor.execute(
+        unsupported_alias,
+        control=ProviderExecutionControl(),
+    )
+    assert unsupported_result.is_promotable is False
+    assert "turn_boundary_resume" in str(unsupported_result.error)
+    assert controlled_calls == [capable]
+    assert uncontrolled_calls == []
+
+    missing_control_result = executor.execute(capable)
+    assert missing_control_result.is_promotable is False
+    assert "cancellable" in str(missing_control_result.error)
+    assert controlled_calls == [capable]
+    assert uncontrolled_calls == []
 
 
 class _RecordingBinaryStream:
