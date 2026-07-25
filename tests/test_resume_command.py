@@ -27,6 +27,10 @@ from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inpu
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.call_frame_state import _CallFrameStateManager
 from orchestrator.workflow.executor_runtime import CallFrameStateManager
+from orchestrator.workflow.provider_attempts import (
+    ProviderAttemptScope,
+    derive_provider_peer_group_member_scope,
+)
 from orchestrator.workflow.resume_planner import ResumePlanner
 from orchestrator.workflow.executable_ir import ExecutableNodeKind, WorkflowRegion
 from orchestrator.workflow.state_projection import (
@@ -4433,3 +4437,213 @@ def test_resume_cli_sticky_provider_supervision_quarantine_fails_before_executor
 
     assert result == 1
     executor.assert_not_called()
+
+
+def test_resume_cli_sticky_provider_peer_group_quarantine_fails_before_executor(
+    temp_workspace: Path,
+    sample_workflow,
+) -> None:
+    workflow_path, _checksum = sample_workflow
+    run_id = "provider-peer-group-sticky-quarantine"
+    manager = StateManager(temp_workspace, run_id=run_id)
+    manager.initialize(str(workflow_path))
+    assert manager.state is not None
+    manager.state.status = "failed"
+    manager.state.error = {
+        "type": "provider_peer_group_interrupted_visit_quarantined",
+        "message": "An interrupted provider peer-group visit was quarantined.",
+        "context": {
+            "step_name": "Peers",
+            "step_id": "root.peers",
+            "visit_count": 2,
+            "metadata_path": (
+                "provider-peer-group/root.peers/visits/2/evidence.json"
+            ),
+        },
+    }
+    manager._write_state()
+
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
+        "orchestrator.cli.commands.resume.WorkflowExecutor",
+        side_effect=AssertionError(
+            "sticky peer-group quarantine must precede provider launch"
+        ),
+    ) as executor:
+        result = resume_workflow(run_id=run_id, force_restart=False)
+
+    assert result == 1
+    executor.assert_not_called()
+
+
+def test_resume_cli_force_restart_from_peer_group_quarantine_uses_clean_new_run(
+    temp_workspace: Path,
+    sample_workflow,
+) -> None:
+    workflow_path, _checksum = sample_workflow
+    compiled = compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(temp_workspace,),
+        validate_shared=True,
+        workspace_root=temp_workspace,
+    )
+    bundle = next(
+        candidate
+        for name, candidate in compiled.validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
+    run_id = "provider-peer-group-force-restart-source"
+    manager = StateManager(temp_workspace, run_id=run_id)
+    manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs={
+            "approved": False,
+            "status": "pending",
+        },
+    )
+    assert manager.state is not None
+    attempt_scope = derive_provider_peer_group_member_scope(
+        ProviderAttemptScope.from_dict(
+            {
+                "run_id": run_id,
+                "resume_scope": {
+                    "root_workflow_file": str(workflow_path),
+                    "call_frame_ids": [],
+                },
+                "runtime_step_id": "root.peers",
+                "enclosing_step": {
+                    "step_name": "Peers",
+                    "step_id": "root.peers",
+                    "visit_count": 2,
+                },
+                "loop_iteration": None,
+                "adjudication_subject": None,
+            }
+        ),
+        member_id="planner",
+    )
+    manager.state.status = "failed"
+    manager.state.error = {
+        "type": "provider_peer_group_interrupted_visit_quarantined",
+        "message": "An interrupted provider peer-group visit was quarantined.",
+        "context": {
+            "step_name": "Peers",
+            "step_id": "root.peers",
+            "visit_count": 2,
+            "metadata_path": (
+                "provider-peer-group/root.peers/visit-metadata/2.json"
+            ),
+        },
+    }
+    manager.state.provider_attempt_allocations = {
+        attempt_scope.key: {
+            "scope": attempt_scope.to_dict(),
+            "last_allocated_ordinal": 1,
+            "events": [{"ordinal": 1, "event": "allocated"}],
+        }
+    }
+    manager._write_state()
+
+    visit_root = (
+        manager.run_root
+        / "provider-peer-group"
+        / "root.peers"
+        / "visits"
+        / "2"
+    )
+    attempt_root = visit_root / "members" / "planner" / "attempt-1"
+    partial_ledger = attempt_root / "injected-messages.jsonl"
+    partial_evidence = attempt_root / "evidence.json"
+    endpoint_evidence = visit_root / "endpoint.json"
+    partial_ledger.parent.mkdir(parents=True)
+    partial_ledger.write_bytes(b'{"row_kind":"header"}\n')
+    partial_evidence.write_bytes(b'{"status":"partial"}\n')
+    endpoint_evidence.write_bytes(b'{"endpoint_instance_id":"stale"}\n')
+    old_root_before = _persisted_tree_snapshot(manager.run_root)
+
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=bundle,
+    ), patch(
+        "orchestrator.cli.commands.resume.WorkflowExecutor",
+        side_effect=AssertionError(
+            "sticky peer-group quarantine must precede provider launch"
+        ),
+    ) as ordinary_executor:
+        ordinary_result = resume_workflow(
+            run_id=run_id,
+            force_restart=False,
+        )
+
+    assert ordinary_result == 1
+    ordinary_executor.assert_not_called()
+    assert _persisted_tree_snapshot(manager.run_root) == old_root_before
+
+    captured: dict[str, object] = {}
+
+    def capture_fresh_executor(**kwargs):
+        fresh_manager = kwargs["state_manager"]
+        assert isinstance(fresh_manager, StateManager)
+        assert fresh_manager.state is not None
+        captured["run_id"] = fresh_manager.run_id
+        captured["run_root"] = fresh_manager.run_root
+        captured["state_before_execute"] = fresh_manager.state.to_dict()
+        captured["tree_before_execute"] = _persisted_tree_entries(
+            fresh_manager.run_root
+        )
+        return SimpleNamespace(
+            execute=lambda **_kwargs: {
+                "status": "completed",
+                "steps": {},
+            }
+        )
+
+    fresh_run_id = "provider-peer-group-force-restart-fresh"
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=bundle,
+    ), patch(
+        "orchestrator.cli.commands.resume.WorkflowExecutor",
+        side_effect=capture_fresh_executor,
+    ), patch(
+        "uuid.uuid4",
+        return_value=SimpleNamespace(hex=fresh_run_id),
+    ):
+        force_result = resume_workflow(
+            run_id=run_id,
+            force_restart=True,
+        )
+
+    assert force_result == 0
+    assert captured["run_id"] == fresh_run_id
+    fresh_root = temp_workspace / ".orchestrate" / "runs" / fresh_run_id
+    assert captured["run_root"] == fresh_root
+    assert fresh_root != manager.run_root
+    assert _persisted_tree_snapshot(manager.run_root) == old_root_before
+    assert partial_ledger.read_bytes() == b'{"row_kind":"header"}\n'
+    assert partial_evidence.read_bytes() == b'{"status":"partial"}\n'
+    assert endpoint_evidence.read_bytes() == (
+        b'{"endpoint_instance_id":"stale"}\n'
+    )
+
+    fresh_state = captured["state_before_execute"]
+    assert isinstance(fresh_state, dict)
+    assert fresh_state["run_id"] == fresh_run_id
+    assert fresh_state.get("current_step") is None
+    assert fresh_state["steps"] == {}
+    assert "provider_attempt_allocations" not in fresh_state
+    fresh_paths = {
+        relative_path
+        for relative_path, _entry_type, _payload in captured[
+            "tree_before_execute"
+        ]
+    }
+    assert not any(
+        path == "provider-peer-group"
+        or path.startswith("provider-peer-group/")
+        or "attempt" in Path(path).name
+        or "endpoint" in Path(path).name
+        or "ledger" in Path(path).name
+        or "injected-messages" in Path(path).name
+        for path in fresh_paths
+    )

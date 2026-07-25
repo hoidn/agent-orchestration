@@ -551,14 +551,19 @@ supervision/state tests under the required 16-worker work-stealing run.
 - Modify: `orchestrator/workflow/runtime_step.py`
 - Modify: `orchestrator/workflow/runtime_plan.py`
 - Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/workflow/lowering.py`
 - Modify: `orchestrator/workflow/resume_planner.py`
 - Modify: `orchestrator/workflow/provider_attempts.py`
+- Modify: `orchestrator/providers/executor.py`
+- Modify: `orchestrator/providers/interactive_terminal.py`
 - Create: `tests/test_provider_peer_group_ir.py`
 - Create: `tests/test_provider_peer_group_resume.py`
+- Create: `tests/test_provider_peer_group_executor.py`
 - Extend: `tests/test_provider_peer_group_runtime.py`
+- Extend: `tests/test_provider_interactive_terminal.py`
 - Modify: `tests/test_resume_command.py`
 
-- [ ] **Step 1: Add failing closed-IR tests**
+- [x] **Step 1: Add failing closed-IR tests**
 
 Define `ExecutableNodeKind.PROVIDER_PEER_GROUP` and
 `provider_peer_group.v1`. Test exact `2..8` authored-order members, closed
@@ -567,14 +572,14 @@ whole-step timeouts, distinct visit/member paths, capability requirement,
 source ownership, `max_steers: 0`, and tamper/extra/missing/reordered member
 and path failures.
 
-- [ ] **Step 2: Add failing hand-built runtime tests**
+- [x] **Step 2: Add failing hand-built runtime tests**
 
 Drive the coordinator from a hand-built typed executable node. Prove
 capability preflight repeats before launch, overlapping member attempts,
 frozen-bundle authority, pure authored-order settlement, one atomic state and
 result write, terminal evidence, reportable failure, and cleanup.
 
-- [ ] **Step 3: Add interruption/quarantine tests**
+- [x] **Step 3: Add interruption/quarantine tests**
 
 An interrupted running peer visit without its exact terminal result must
 retain partial ledgers/evidence, clear the exact current step, record a sticky
@@ -582,7 +587,7 @@ peer-group quarantine failure, and make ordinary resume fail. Explicit force
 restart creates new visit/attempt/endpoint/ledger identities. It never
 retargets a message or resumes a member.
 
-- [ ] **Step 4: Confirm all new tests fail**
+- [x] **Step 4: Confirm all new tests fail**
 
 ```bash
 pytest -q tests/test_provider_peer_group_ir.py \
@@ -593,7 +598,7 @@ pytest -q tests/test_provider_peer_group_ir.py \
 
 Expected: FAIL because executable/runtime cases are absent.
 
-- [ ] **Step 5: Implement the new node and dispatch**
+- [x] **Step 5: Implement the new node and dispatch**
 
 Add the node beside, not inside, `ProviderSupervisionStepConfig`. Reuse only
 generic atomic finalization and attempt allocation APIs. Keep the v1
@@ -603,7 +608,7 @@ member deadline, derive the ordinary whole-step timeout as
 `max(member.timeout_sec)`; do not invent new surface syntax or add sequential
 member budgets.
 
-- [ ] **Step 6: Run narrow, v1 regression, and collection checks**
+- [x] **Step 6: Run narrow, v1 regression, and collection checks**
 
 ```bash
 pytest -q tests/test_provider_peer_group_ir.py \
@@ -619,9 +624,25 @@ pytest --collect-only -q tests/test_provider_peer_group_ir.py \
 
 Expected: all pass.
 
-- [ ] **Step 7: Obtain ordered reviews and commit**
+- [x] **Step 7: Obtain ordered reviews and commit**
 
 Commit message: `Add provider peer group executable runtime`.
+
+**Outcome:** Implemented the separate closed executable node, runtime-step
+and runtime-plan projections, exact provider capability revalidation,
+authored-order attempt and path allocation, concrete coordinator bindings,
+typed frozen-bundle settlement, per-member and visit terminal evidence, one
+atomic workflow-state/result finalizer, and whole-visit resume quarantine.
+The reviewed correction path rejects stale visit roots before allocator
+mutation, terminalizes only allocation-complete preparation failures, maps
+the real compatibility projection to `provider_peer_group`, preserves
+literal `${...}` prompt text without weakening unresolved-command checks,
+and proves force restart creates a clean new run root without copying the
+quarantined visit. Ordered specification and quality re-reviews approved the
+corrected implementation. Fresh verification passed 94 peer-group
+IR/runtime/resume/executor tests, 387 adjacent v1/adapter/CLI tests, 95
+contract/protocol/runtime tests, and a 602-test 16-worker work-stealing
+adjacent run; the new peer modules are Pyright-clean.
 
 ## Task 7: Pass The Real One-Member Adapter Feasibility Gate
 

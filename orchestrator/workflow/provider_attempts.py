@@ -329,12 +329,28 @@ def derive_provider_attempt_member_turn_scope(
     return ProviderAttemptScope.from_dict(payload)
 
 
+def derive_provider_peer_group_member_scope(
+    base_scope: ProviderAttemptScope,
+    *,
+    member_id: str,
+) -> ProviderAttemptScope:
+    """Derive the single non-resumable attempt owned by one peer-group member."""
+
+    return derive_provider_attempt_member_turn_scope(
+        base_scope,
+        member_id=member_id,
+        turn_ordinal=0,
+    )
+
+
 def _ordinary_absolute(path: Any) -> Path:
     return Path(path).absolute()
 
 
 def bundle_requires_provider_attempt_coordination(bundle: Any) -> bool:
     """Return whether a recursive executable bundle contains an allocator contract."""
+
+    from .executable_ir import PROVIDER_PEER_GROUP_SCHEMA_VERSION
 
     pending = [bundle]
     seen: set[int] = set()
@@ -352,7 +368,12 @@ def bundle_requires_provider_attempt_coordination(bundle: Any) -> bool:
             raise TypeError("executable workflow bundle required")
         for node in nodes.values():
             config = getattr(node, "execution_config", None)
-            if getattr(config, "compiler_prompt_dependency_contract", None) is not None:
+            if (
+                getattr(config, "compiler_prompt_dependency_contract", None)
+                is not None
+                or getattr(config, "schema_version", None)
+                == PROVIDER_PEER_GROUP_SCHEMA_VERSION
+            ):
                 affected = True
         pending.extend(imports.values())
     return affected

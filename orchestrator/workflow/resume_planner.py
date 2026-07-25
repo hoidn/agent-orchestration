@@ -32,6 +32,9 @@ class ResumePlanner:
     PROVIDER_SUPERVISION_QUARANTINE_ERROR_TYPE = (
         "provider_supervision_interrupted_visit_quarantined"
     )
+    PROVIDER_PEER_GROUP_QUARANTINE_ERROR_TYPE = (
+        "provider_peer_group_interrupted_visit_quarantined"
+    )
     QUARANTINE_ERROR_TYPE = PROVIDER_SESSION_QUARANTINE_ERROR_TYPE
 
     def entry_is_terminal(self, entry: Any) -> bool:
@@ -441,6 +444,139 @@ class ResumePlanner:
                 "kind": "integrity_error",
                 "message": (
                     "Interrupted provider-supervision visit requires a "
+                    "positive integer current_step.visit_count"
+                ),
+                "step_name": step_name,
+                "step_id": step_id,
+                "visit_count": visit_count,
+            }
+
+        steps_state = state.get("steps", {})
+        step_result = (
+            steps_state.get(step_name)
+            if isinstance(steps_state, dict)
+            else None
+        )
+        result_visit_count = (
+            step_result.get("visit_count")
+            if isinstance(step_result, dict)
+            else None
+        )
+        if (
+            isinstance(step_result, dict)
+            and step_result.get("status")
+            in {"completed", "failed", "skipped"}
+            and step_result.get("step_id") == step_id
+            and isinstance(result_visit_count, int)
+            and not isinstance(result_visit_count, bool)
+            and result_visit_count > 0
+            and result_visit_count == visit_count
+        ):
+            return None
+
+        return {
+            "kind": "quarantine",
+            "step_name": step_name,
+            "step_id": step_id,
+            "node_id": projected_current_step.node_id,
+            "visit_count": visit_count,
+        }
+
+    def detect_interrupted_provider_peer_group_visit(
+        self,
+        state: Dict[str, Any],
+        projection: Optional[WorkflowStateProjection] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Detect an interrupted peer-group visit without resuming a member."""
+        if not isinstance(projection, WorkflowStateProjection):
+            raise TypeError("ResumePlanner requires a WorkflowStateProjection")
+
+        error = state.get("error")
+        if (
+            isinstance(error, dict)
+            and error.get("type")
+            == self.PROVIDER_PEER_GROUP_QUARANTINE_ERROR_TYPE
+        ):
+            return {"kind": "existing_quarantine", "error": error}
+
+        current_step = state.get("current_step")
+        if (
+            not isinstance(current_step, dict)
+            or current_step.get("status") != "running"
+        ):
+            return None
+
+        step_id = current_step.get("step_id")
+        projection_entry = (
+            projection.entry_for_step_id(step_id)
+            if isinstance(step_id, str) and step_id
+            else None
+        )
+        current_type = current_step.get("type")
+        if projection_entry is None:
+            if current_type != "provider_peer_group":
+                return None
+            return {
+                "kind": "integrity_error",
+                "message": (
+                    "Persisted provider-peer-group current_step.step_id is "
+                    "absent from the authoritative workflow projection."
+                ),
+                "step_name": current_step.get("name"),
+                "step_id": step_id,
+                "visit_count": current_step.get("visit_count"),
+                "context": {
+                    "step_id": step_id,
+                    "field": "step_id",
+                    "expected": "known provider-peer-group projection entry",
+                    "actual": step_id,
+                },
+            }
+
+        projected_type = projection_entry.step_definition.report_kind
+        current_is_peer_group = current_type == "provider_peer_group"
+        projected_is_peer_group = projected_type == "provider_peer_group"
+        if current_is_peer_group != projected_is_peer_group:
+            return {
+                "kind": "integrity_error",
+                "message": (
+                    "Persisted current_step.type does not match the "
+                    "authoritative provider-peer-group projection kind."
+                ),
+                "step_name": current_step.get("name"),
+                "step_id": step_id,
+                "visit_count": current_step.get("visit_count"),
+                "context": {
+                    "step_id": step_id,
+                    "field": "type",
+                    "expected": projected_type,
+                    "actual": current_type,
+                },
+            }
+        if not current_is_peer_group:
+            return None
+
+        try:
+            projected_current_step = self._projected_current_step(
+                current_step,
+                projection,
+            )
+        except ResumeStateIntegrityError as exc:
+            return self._projection_integrity_error(current_step, exc)
+        if projected_current_step is None:
+            return None
+
+        step_name = projected_current_step.presentation_key
+        visit_count = current_step.get("visit_count")
+        if (
+            not isinstance(visit_count, int)
+            or isinstance(visit_count, bool)
+            or visit_count <= 0
+        ):
+            return {
+                "kind": "integrity_error",
+                "message": (
+                    "Interrupted provider-peer-group visit requires a "
                     "positive integer current_step.visit_count"
                 ),
                 "step_name": step_name,

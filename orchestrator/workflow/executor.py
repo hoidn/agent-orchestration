@@ -70,6 +70,7 @@ from .executable_ir import (
     MatchCaseMarkerNode,
     MatchJoinNode,
     NodeResultAddress,
+    ProviderPeerGroupStepConfig,
     ProviderSupervisionStepConfig,
     RepeatUntilFrameNode,
     WorkflowInputAddress,
@@ -1994,6 +1995,126 @@ class WorkflowExecutor:
         )
         return metadata_path
 
+    def _provider_peer_group_visit_metadata_path(
+        self,
+        step: RuntimeStepInput,
+        visit_count: int,
+    ) -> Optional[Path]:
+        """Return the peer-group visit metadata path inside its owned root."""
+
+        if (
+            not isinstance(step, RuntimeStep)
+            and getattr(self, "executable_ir", None) is None
+        ):
+            return None
+        if (
+            self._execution_kind_for_step(step)
+            is not ExecutableNodeKind.PROVIDER_PEER_GROUP
+        ):
+            return None
+        node = self._executable_node_for_step(step)
+        config = getattr(node, "execution_config", None)
+        if not isinstance(config, ProviderPeerGroupStepConfig):
+            return None
+        visit_root_template = config.paths.visit_root_relpath
+        suffix = "/visits/{visit}"
+        node_root, separator, remainder = visit_root_template.rpartition(
+            suffix
+        )
+        if (
+            separator != suffix
+            or remainder
+            or not node_root
+            or "{visit}" in node_root
+        ):
+            raise ValueError(
+                "provider peer group visit metadata path is invalid"
+            )
+        relative_root = Path(
+            node_root
+        ) / "visit-metadata" / f"{visit_count}.json"
+        run_root = Path(self.state_manager.run_root).resolve()
+        metadata_path = (run_root / relative_root).resolve()
+        if metadata_path == run_root or run_root not in metadata_path.parents:
+            raise ValueError(
+                "provider peer group visit metadata path escapes run root"
+            )
+        return metadata_path
+
+    def _prepare_provider_peer_group_visit(
+        self,
+        step: RuntimeStepInput,
+        *,
+        step_name: str,
+        step_id: str,
+        visit_count: int,
+    ) -> None:
+        """Create running visit evidence before current-step publication."""
+
+        metadata_path = self._provider_peer_group_visit_metadata_path(
+            step,
+            visit_count,
+        )
+        if metadata_path is None:
+            return
+        if metadata_path.exists():
+            raise ValueError(
+                "provider peer group visit metadata preimage exists"
+            )
+        self.state_manager.write_runtime_sidecar_json(
+            metadata_path,
+            {
+                "run_id": self.state_manager.run_id,
+                "step_name": step_name,
+                "step_id": step_id,
+                "visit_count": visit_count,
+                "status": "running",
+                "publication_state": "pending",
+            },
+        )
+
+    def _update_provider_peer_group_visit_metadata(
+        self,
+        step: RuntimeStepInput,
+        *,
+        step_name: str,
+        step_id: str,
+        visit_count: int,
+        status: str,
+        publication_state: str,
+    ) -> Optional[Path]:
+        """Update peer-group visit evidence only for the exact identity."""
+
+        metadata_path = self._provider_peer_group_visit_metadata_path(
+            step,
+            visit_count,
+        )
+        if metadata_path is None:
+            return None
+        metadata = self.state_manager.read_runtime_sidecar_json(metadata_path)
+        if not isinstance(metadata, dict):
+            return None
+        expected = {
+            "step_name": step_name,
+            "step_id": step_id,
+            "visit_count": visit_count,
+        }
+        if any(metadata.get(key) != value for key, value in expected.items()):
+            raise ValueError(
+                "provider peer group visit metadata identity changed"
+            )
+        metadata.update(
+            {
+                "status": status,
+                "publication_state": publication_state,
+            }
+        )
+        self.state_manager.write_runtime_sidecar_json(
+            metadata_path,
+            metadata,
+        )
+        return metadata_path
+
     def _active_provider_session(self, step_name: str) -> Optional[Dict[str, Any]]:
         """Return the current provider-session visit metadata for one top-level step."""
         session_info = self._active_provider_sessions.get(step_name)
@@ -2174,6 +2295,87 @@ class WorkflowExecutor:
             "type": "provider_supervision_interrupted_visit_quarantined",
             "message": (
                 "An interrupted provider-supervision visit was quarantined."
+            ),
+            "context": {
+                **expected,
+                "metadata_path": str(metadata_path),
+                "metadata_synthesized": metadata_synthesized,
+            },
+        }
+        self.state_manager.fail_run(
+            error,
+            clear_current_step=True,
+            expected_step_id=step_id,
+            expected_visit_count=visit_count,
+        )
+        persisted = self.state_manager.load().to_dict()
+        persisted["status"] = "failed"
+        return persisted
+
+    def _quarantine_provider_peer_group_resume_guard(
+        self,
+        state: Dict[str, Any],
+        guard: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Atomically quarantine one exact interrupted peer-group visit."""
+
+        step_name = guard["step_name"]
+        step_id = guard["step_id"]
+        visit_count = guard["visit_count"]
+        node_id = guard.get("node_id", step_id)
+        from urllib.parse import quote
+
+        encoded_node_id = quote(str(node_id), safe="-._")
+        metadata_path = (
+            Path(self.state_manager.run_root)
+            / "provider-peer-group"
+            / encoded_node_id
+            / "visit-metadata"
+            / f"{visit_count}.json"
+        ).resolve()
+        metadata_synthesized = not metadata_path.exists()
+        metadata = (
+            self.state_manager.read_runtime_sidecar_json(metadata_path)
+            if not metadata_synthesized
+            else {}
+        )
+        assert isinstance(metadata, dict)
+        expected = {
+            "step_name": step_name,
+            "step_id": step_id,
+            "visit_count": visit_count,
+        }
+        if not metadata_synthesized and any(
+            metadata.get(key) != value
+            for key, value in expected.items()
+        ):
+            return self._fail_resume_state_integrity(
+                "provider_peer_group_resume_state_integrity_error",
+                "Provider peer-group visit metadata identity is invalid.",
+                {
+                    **expected,
+                    "metadata_path": str(metadata_path),
+                },
+            )
+        metadata.update(
+            {
+                "run_id": self.state_manager.run_id,
+                "node_id": node_id,
+                **expected,
+                "status": "interrupted",
+                "publication_state": "quarantined_interrupted_visit",
+                "metadata_synthesized": metadata_synthesized,
+            }
+        )
+        self.state_manager.write_runtime_sidecar_json(
+            metadata_path,
+            metadata,
+        )
+
+        error = {
+            "type": "provider_peer_group_interrupted_visit_quarantined",
+            "message": (
+                "An interrupted provider peer-group visit was quarantined."
             ),
             "context": {
                 **expected,
@@ -2886,6 +3088,44 @@ class WorkflowExecutor:
                         ),
                         context,
                     )
+            peer_group_guard = (
+                self.resume_planner.detect_interrupted_provider_peer_group_visit(
+                    state,
+                    projection=self.projection,
+                )
+            )
+            if peer_group_guard is not None:
+                if peer_group_guard.get("kind") == "existing_quarantine":
+                    state["status"] = "failed"
+                    return state
+                if peer_group_guard.get("kind") == "quarantine":
+                    return self._quarantine_provider_peer_group_resume_guard(
+                        state,
+                        peer_group_guard,
+                    )
+                if peer_group_guard.get("kind") == "integrity_error":
+                    context = peer_group_guard.get("context")
+                    if not isinstance(context, dict):
+                        context = {
+                            "step_name": peer_group_guard.get("step_name"),
+                            "step_id": peer_group_guard.get("step_id"),
+                            "visit_count": peer_group_guard.get(
+                                "visit_count"
+                            ),
+                        }
+                    return self._fail_resume_state_integrity(
+                        "provider_peer_group_resume_state_integrity_error",
+                        str(
+                            peer_group_guard.get(
+                                "message",
+                                (
+                                    "Provider peer-group resume state is "
+                                    "invalid."
+                                ),
+                            )
+                        ),
+                        context,
+                    )
         state.pop('error', None)
         if state.get('status') != 'running':
             self.state_manager.update_status('running')
@@ -3507,6 +3747,12 @@ class WorkflowExecutor:
                         step_id=identity.step_id,
                         visit_count=visit_count,
                     )
+                    self._prepare_provider_peer_group_visit(
+                        step,
+                        step_name=identity.name,
+                        step_id=identity.step_id,
+                        visit_count=visit_count,
+                    )
 
                 self.state_manager.start_step(
                     identity.name,
@@ -3632,6 +3878,8 @@ class WorkflowExecutor:
             return 'provider'
         if execution_kind is ExecutableNodeKind.PROVIDER_SUPERVISION:
             return 'provider_supervision'
+        if execution_kind is ExecutableNodeKind.PROVIDER_PEER_GROUP:
+            return 'provider_peer_group'
         if execution_kind is ExecutableNodeKind.ADJUDICATED_PROVIDER:
             return 'adjudicated_provider'
         if execution_kind is ExecutableNodeKind.COMMAND:
@@ -4742,6 +4990,13 @@ class WorkflowExecutor:
                 step_name=step_name,
             )
 
+        if execution_kind is ExecutableNodeKind.PROVIDER_PEER_GROUP:
+            return self._execute_provider_peer_group(
+                step,
+                state,
+                step_name=step_name,
+            )
+
         if execution_kind is ExecutableNodeKind.COMMAND:
             return self._execute_top_level_publish_and_persist(
                 step,
@@ -4884,6 +5139,20 @@ class WorkflowExecutor:
                     ),
                     "message": (
                         "provider supervision requires a top-level atomic "
+                        "settlement finalizer"
+                    ),
+                },
+            }
+        elif execution_kind is ExecutableNodeKind.PROVIDER_PEER_GROUP:
+            result = {
+                "status": "failed",
+                "exit_code": 2,
+                "error": {
+                    "type": (
+                        "provider_peer_group_nested_atomicity_unavailable"
+                    ),
+                    "message": (
+                        "provider peer group requires a top-level atomic "
                         "settlement finalizer"
                     ),
                 },
@@ -9292,6 +9561,78 @@ class WorkflowExecutor:
             visit_count=visit_count,
         )
 
+    def _execute_provider_peer_group(
+        self,
+        step: RuntimeStepInput,
+        state: Dict[str, Any],
+        *,
+        step_name: str,
+        runtime_step_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Execute one static peer group through its single-writer coordinator."""
+
+        if not callable(
+            getattr(
+                self.state_manager,
+                "finalize_step_with_dataflow",
+                None,
+            )
+        ):
+            raise RuntimeError(
+                "provider_peer_group_atomic_finalizer_unavailable"
+            )
+        node = self._executable_node_for_step(step)
+        config = getattr(node, "execution_config", None)
+        if not isinstance(config, ProviderPeerGroupStepConfig):
+            return self._persist_step_result(
+                state,
+                step_name,
+                step,
+                self._contract_violation_result(
+                    "Provider peer-group execution failed",
+                    {"reason": "typed_provider_peer_group_config_missing"},
+                ),
+                phase_hint="pre_execution",
+                class_hint="contract_violation",
+                retryable_hint=False,
+            )
+        visits = state.get("step_visits", {})
+        visit_count = (
+            visits.get(step_name)
+            if isinstance(visits, dict)
+            else None
+        )
+        if not isinstance(visit_count, int) or visit_count <= 0:
+            return self._persist_step_result(
+                state,
+                step_name,
+                step,
+                self._contract_violation_result(
+                    "Provider peer-group execution failed",
+                    {"reason": "provider_peer_group_visit_missing"},
+                ),
+                phase_hint="pre_execution",
+                class_hint="contract_violation",
+                retryable_hint=False,
+            )
+        from .provider_peer_group.bindings import (
+            WorkflowProviderPeerGroupBindings,
+        )
+        from .provider_peer_group.coordinator import (
+            ProviderPeerGroupCoordinator,
+        )
+
+        bindings = WorkflowProviderPeerGroupBindings(
+            self,
+            step=step,
+            state=state,
+            config=config,
+            step_name=step_name,
+            runtime_step_id=runtime_step_id or config.node_id,
+            visit_count=visit_count,
+        )
+        return ProviderPeerGroupCoordinator(bindings).run()
+
     def _finalize_provider_supervision_settlement(
         self,
         step: RuntimeStepInput,
@@ -9400,6 +9741,122 @@ class WorkflowExecutor:
                 logger.warning(
                     (
                         "Provider-supervision terminal metadata update failed "
+                        "after authoritative state commit: %s"
+                    ),
+                    exc,
+                )
+        self._emit_step_summary(step_name, step, finalized)
+        return finalized
+
+    def _finalize_provider_peer_group_settlement(
+        self,
+        step: RuntimeStepInput,
+        state: Dict[str, Any],
+        *,
+        step_name: str,
+        result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Commit one peer-group result and its dataflow through one finalizer."""
+
+        step_visits = state.get("step_visits", {})
+        visit_count = (
+            step_visits.get(step_name)
+            if isinstance(step_visits, dict)
+            else None
+        )
+        expected_step_id = self._step_id(step)
+        current_step = self.state_manager.load().current_step
+        if (
+            not isinstance(current_step, Mapping)
+            or current_step.get("name") != step_name
+            or current_step.get("step_id") != expected_step_id
+            or current_step.get("visit_count") != visit_count
+            or current_step.get("type") != "provider_peer_group"
+            or current_step.get("status") != "running"
+        ):
+            raise ValueError(
+                "provider peer group current_step changed before atomic settlement"
+            )
+
+        publish_error = self._record_published_artifacts(
+            step,
+            step_name,
+            result,
+            state,
+            persist=False,
+        )
+        if publish_error is not None:
+            result = publish_error
+        finalized = self._attach_outcome(step, result)
+        finalized.setdefault("name", step_name)
+        finalized.setdefault("step_id", expected_step_id)
+        if isinstance(visit_count, int):
+            finalized.setdefault("visit_count", visit_count)
+        state.setdefault("steps", {})[step_name] = finalized
+        self._finalize_consumes(
+            step,
+            step_name,
+            state,
+            succeeded=finalized.get("status") == "completed",
+            persist=False,
+        )
+        artifact_versions = state.get("artifact_versions", {})
+        artifact_consumes = state.get("artifact_consumes", {})
+        private_artifact_versions = state.get(
+            "private_artifact_versions",
+            {},
+        )
+        private_artifact_consumes = state.get(
+            "private_artifact_consumes",
+            {},
+        )
+        self.state_manager.finalize_step_with_dataflow(
+            step_name,
+            self._to_step_result(finalized, step_name),
+            artifact_versions=(
+                artifact_versions
+                if isinstance(artifact_versions, dict)
+                else {}
+            ),
+            artifact_consumes=(
+                artifact_consumes
+                if isinstance(artifact_consumes, dict)
+                else {}
+            ),
+            private_artifact_versions=(
+                private_artifact_versions
+                if isinstance(private_artifact_versions, dict)
+                else {}
+            ),
+            private_artifact_consumes=(
+                private_artifact_consumes
+                if isinstance(private_artifact_consumes, dict)
+                else {}
+            ),
+            expected_step_id=expected_step_id,
+            expected_visit_count=(
+                visit_count
+                if isinstance(visit_count, int)
+                else None
+            ),
+        )
+        if (
+            isinstance(visit_count, int)
+            and isinstance(expected_step_id, str)
+        ):
+            try:
+                self._update_provider_peer_group_visit_metadata(
+                    step,
+                    step_name=step_name,
+                    step_id=expected_step_id,
+                    visit_count=visit_count,
+                    status=str(finalized.get("status", "failed")),
+                    publication_state="committed_terminal_result",
+                )
+            except (OSError, TypeError, ValueError) as exc:
+                logger.warning(
+                    (
+                        "Provider peer-group terminal metadata update failed "
                         "after authoritative state commit: %s"
                     ),
                     exc,

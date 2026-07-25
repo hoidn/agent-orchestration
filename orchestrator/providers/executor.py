@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from .types import (
     CALL_POLICY_OPTION_ORDER,
     InputMode,
+    INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION,
     ProviderInvocation,
     ProviderParams,
     ProviderSessionMode,
@@ -21,8 +22,10 @@ from .types import (
     escape_provider_command_token,
     extract_provider_command_placeholders,
     restore_provider_command_token,
+    validate_interactive_session_support_capability,
     validate_turn_boundary_resume_capability,
 )
+from .interactive_terminal import InteractiveMemberInvocation
 from .registry import ProviderRegistry
 from .control import ProviderExecutionControl
 from .observation import ProviderObservationHandle, ProviderObservationManager
@@ -369,6 +372,167 @@ class ProviderExecutor:
             ),
         )
 
+        return invocation, None
+
+    def prepare_interactive_invocation(
+        self,
+        *,
+        provider_name: str,
+        params: Dict[str, Any],
+        context: Dict[str, Any],
+        prompt_content: str,
+        invocation_id: str,
+        member_id: str,
+        attempt_scope_key: str,
+        attempt_ordinal: int,
+        cwd: Optional[Path],
+        env: Optional[Dict[str, str]] = None,
+        secrets: Optional[List[str]] = None,
+        provider_call_policy: Optional[Dict[str, str]] = None,
+    ) -> Tuple[
+        Optional[InteractiveMemberInvocation],
+        Optional[Dict[str, Any]],
+    ]:
+        """Resolve one declared queued-interactive provider invocation."""
+
+        provider = self.registry.get(provider_name)
+        if provider is None:
+            return None, {
+                "type": "provider_not_found",
+                "message": f"Provider '{provider_name}' not found",
+                "context": {"provider": provider_name},
+            }
+        support = provider.interactive_session_support
+        if (
+            support is None
+            or support.schema_version
+            != INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION
+        ):
+            return None, {
+                "type": "interactive_session_capability_invalid",
+                "message": (
+                    "Provider does not declare the required queued "
+                    "interactive-session capability"
+                ),
+                "context": {"provider": provider_name},
+            }
+        capability_errors = (
+            validate_interactive_session_support_capability(support)
+        )
+        if capability_errors:
+            return None, {
+                "type": "interactive_session_capability_invalid",
+                "message": "Provider interactive-session capability is invalid",
+                "context": {
+                    "provider": provider_name,
+                    "errors": list(capability_errors),
+                },
+            }
+
+        translated_policy: Dict[str, str] = {}
+        policy_fragments: Dict[str, Tuple[str, ...]] = {}
+        if provider_call_policy is not None:
+            for canonical_option in provider_call_policy:
+                if canonical_option not in CALL_POLICY_OPTION_ORDER:
+                    return None, self._unsupported_call_policy_error(
+                        provider_name,
+                        canonical_option,
+                    )
+            for canonical_option in CALL_POLICY_OPTION_ORDER:
+                if canonical_option not in provider_call_policy:
+                    continue
+                binding = provider.call_policy_bindings.get(canonical_option)
+                if binding is None:
+                    return None, self._unsupported_call_policy_error(
+                        provider_name,
+                        canonical_option,
+                    )
+                translated_policy[binding.target_param] = (
+                    provider_call_policy[canonical_option]
+                )
+                if binding.argv_fragment is not None:
+                    policy_fragments[canonical_option] = tuple(
+                        binding.argv_fragment
+                    )
+
+        merged_params = self.registry.merge_params(
+            provider_name,
+            params or {},
+        )
+        merged_params.update(translated_policy)
+        substituted_params, param_errors = self._substitute_params(
+            merged_params,
+            context,
+        )
+        if param_errors:
+            return None, {
+                "type": "substitution_error",
+                "message": "Failed to substitute provider parameters",
+                "context": {"errors": param_errors},
+            }
+
+        command_template = list(support.command)
+        for canonical_option in CALL_POLICY_OPTION_ORDER:
+            fragment = policy_fragments.get(canonical_option)
+            if fragment is not None:
+                command_template.extend(fragment)
+        command, missing_placeholders, invalid_prompt = self._build_command(
+            command_template=command_template,
+            input_mode=InputMode.ARGV,
+            params=substituted_params,
+            context=context,
+            prompt=prompt_content,
+        )
+        if invalid_prompt:
+            return None, {
+                "type": "validation_error",
+                "message": "Interactive provider prompt binding is invalid",
+                "context": {"invalid_prompt_placeholder": True},
+            }
+        if missing_placeholders:
+            return None, {
+                "type": "validation_error",
+                "message": (
+                    "Missing placeholders: "
+                    + ", ".join(missing_placeholders)
+                ),
+                "context": {
+                    "missing_placeholders": missing_placeholders,
+                },
+            }
+
+        secrets_context = self.secrets_manager.resolve_secrets(
+            declared_secrets=secrets,
+            step_env=env,
+        )
+        if secrets_context.missing_secrets:
+            return None, {
+                "type": "missing_secrets",
+                "message": (
+                    "Missing required secrets: "
+                    + ", ".join(secrets_context.missing_secrets)
+                ),
+                "context": {
+                    "missing_secrets": secrets_context.missing_secrets,
+                },
+            }
+        try:
+            invocation = InteractiveMemberInvocation(
+                invocation_id=invocation_id,
+                member_id=member_id,
+                attempt_scope_key=attempt_scope_key,
+                attempt_ordinal=attempt_ordinal,
+                resolved_command=tuple(command),
+                cwd=cwd,
+                env=secrets_context.child_env,
+                support=support,
+            )
+        except (TypeError, ValueError) as exc:
+            return None, {
+                "type": "interactive_invocation_invalid",
+                "message": str(exc),
+                "context": {"provider": provider_name},
+            }
         return invocation, None
 
     @staticmethod

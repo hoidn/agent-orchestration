@@ -20,6 +20,7 @@ from .executable_ir import (
     MaterializeViewStepConfig,
     MaterializeArtifactsStepConfig,
     PureProjectionStepConfig,
+    ProviderPeerGroupStepConfig,
     ProviderStepConfig,
     ProviderSupervisionStepConfig,
     ResourceTransitionStepConfig,
@@ -29,6 +30,7 @@ from .executable_ir import (
     StepCommonConfig,
     WaitForStepConfig,
     provider_supervision_config_to_runtime_dict,
+    provider_peer_group_config_to_runtime_dict,
 )
 
 
@@ -249,6 +251,11 @@ class RuntimeStep(Mapping[str, Any]):
                 return provider_supervision_config_to_runtime_dict(config)
             raise KeyError(key)
 
+        if isinstance(config, ProviderPeerGroupStepConfig):
+            if key == "provider_peer_group":
+                return provider_peer_group_config_to_runtime_dict(config)
+            raise KeyError(key)
+
         if isinstance(config, AdjudicatedProviderStepConfig):
             if key == "adjudicated_provider":
                 return thaw_runtime_value(config.adjudicated_provider)
@@ -391,6 +398,10 @@ class RuntimeStep(Mapping[str, Any]):
 
         if isinstance(config, ProviderSupervisionStepConfig):
             yield "provider_supervision"
+            return
+
+        if isinstance(config, ProviderPeerGroupStepConfig):
+            yield "provider_peer_group"
             return
 
         if isinstance(config, AdjudicatedProviderStepConfig):

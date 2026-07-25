@@ -360,6 +360,9 @@ class _FakeBindings:
             )
         return self.allocation
 
+    def reportable_group_identity(self) -> None:
+        return None
+
     def create_adapter(
         self,
         member: PeerMemberAllocation,
@@ -749,17 +752,64 @@ def test_prompt_snapshot_digest_is_checked_before_any_launch(
         bindings.create_adapter,
     )
 
-    with pytest.raises(
-        RuntimeError,
-        match="prompt snapshot changed",
-    ):
-        coordinator.run()
+    result = coordinator.run()
+
+    assert result["status"] == "failed"
+    assert result["error"] == {
+        "code": "provider_peer_group_prompt_snapshot_mismatch",
+        "message": "prompt snapshot changed for writer",
+    }
+    assert bindings.failure_calls == 1
+    assert bindings.success_calls == 0
     assert all(
         not adapter.calls for adapter in bindings.adapters.values()
     )
     assert all(
         not member.realized_paths.injected_messages_path.exists()
         for member in allocation.members
+    )
+
+
+def test_adapter_preparation_failure_finalizes_the_allocated_group_once(
+    tmp_path: Path,
+) -> None:
+    allocation = _allocation(tmp_path)
+    bindings = _FakeBindings(allocation)
+    adapter_attempts: list[str] = []
+
+    def fail_adapter(member: PeerMemberAllocation) -> _FakeAdapter:
+        adapter_attempts.append(member.runtime.attempt.member_id)
+        raise ValueError("adapter preparation failed")
+
+    def forbid_listener(*_args: Any) -> _FakeListener:
+        raise AssertionError("preparation failure must not create ingress")
+
+    result = ProviderPeerGroupCoordinator(
+        bindings,
+        forbid_listener,
+        fail_adapter,
+    ).run()
+
+    assert result["status"] == "failed"
+    assert result["error"] == {
+        "code": "provider_peer_group_failed",
+        "message": "adapter preparation failed",
+    }
+    assert adapter_attempts == ["writer"]
+    assert bindings.failure_calls == 1
+    assert bindings.success_calls == 0
+    assert all(
+        not adapter.calls for adapter in bindings.adapters.values()
+    )
+    evidence = result["evidence"]
+    assert isinstance(evidence, PeerGroupTerminalEvidence)
+    assert evidence.group_visit == allocation.runtime.visit
+    assert tuple(member.attempt for member in evidence.members) == tuple(
+        member.runtime.attempt for member in allocation.members
+    )
+    assert all(
+        member.lifecycle is PeerMemberLifecycle.FAILED
+        for member in evidence.members
     )
 
 
@@ -1627,3 +1677,340 @@ def test_blocked_close_offer_is_bounded_and_prevents_finalization(
         assert isinstance(finish.result(_WAIT_SECONDS), PeerFailureReceipt)
         assert group.bindings.success_calls == 0
         assert group.bindings.failure_calls == 0
+
+
+def _workflow_peer_bindings(
+    tmp_path: Path,
+) -> tuple[Any, Any, Any, Any]:
+    from orchestrator.deps.injector import DependencyInjector
+    from orchestrator.deps.resolver import DependencyResolver
+    from orchestrator.providers import (
+        InputMode,
+        ProviderRegistry,
+        ProviderTemplate,
+    )
+    from orchestrator.providers.executor import ProviderExecutor
+    from orchestrator.state import StateManager
+    from orchestrator.variables.substitution import VariableSubstitutor
+    from orchestrator.workflow.executor import WorkflowExecutor
+    from orchestrator.workflow.prompting import PromptComposer
+    from orchestrator.workflow.provider_peer_group.bindings import (
+        WorkflowProviderPeerGroupBindings,
+    )
+    from tests.test_provider_peer_group_ir import _config
+
+    config = _config(member_ids=("author", "reviewer"))
+    workflow_path = tmp_path / "workflow.orc"
+    workflow_path.write_text("; peer binding test\n", encoding="utf-8")
+    manager = StateManager(tmp_path, run_id="peer-binding-run")
+    manager.initialize("workflow.orc")
+    manager.update_control_flow_counters(0, {"Peers": 1})
+    manager.start_step(
+        "Peers",
+        0,
+        "provider_peer_group",
+        step_id=config.node_id,
+        visit_count=1,
+    )
+    registry = ProviderRegistry()
+    support = InteractiveSessionSupport(
+        schema_version="interactive_terminal_turn_queue.v1",
+        turn_boundary_messages=True,
+        command=("interactive-provider", "${PROMPT}"),
+        message_submit_keys=("ENTER",),
+        graceful_close_text="/exit",
+        graceful_close_submit_keys=("ENTER",),
+    )
+    for member in config.members:
+        registry.register(
+            ProviderTemplate(
+                name=member.provider_config.provider,
+                command=["ordinary-provider", "${PROMPT}"],
+                input_mode=InputMode.ARGV,
+                interactive_session_support=support,
+            )
+        )
+
+    class _Executor:
+        def __init__(self) -> None:
+            self.workspace = tmp_path
+            self.state_manager = manager
+            self.provider_executor = ProviderExecutor(tmp_path, registry)
+            self.dependency_injector = DependencyInjector(str(tmp_path))
+            self.dependency_resolver = DependencyResolver(str(tmp_path))
+            self.variable_substitutor = VariableSubstitutor()
+            self.prompt_composer = PromptComposer(
+                workspace=tmp_path,
+                asset_resolver=None,
+            )
+            self.finalized: list[dict[str, Any]] = []
+            self.atomic_writes: list[Path] = []
+
+        def _provider_attempt_scope(self, **kwargs: Any) -> Any:
+            return WorkflowExecutor._provider_attempt_scope(
+                self,  # pyright: ignore[reportArgumentType]
+                **kwargs,
+            )
+
+        def _build_substitution_variables(
+            self,
+            _context: dict[str, Any],
+            state: dict[str, Any],
+        ) -> dict[str, Any]:
+            return {"context": state.get("context", {})}
+
+        def _resolve_typed_content_dependencies(
+            self,
+            **kwargs: Any,
+        ) -> Any:
+            return WorkflowExecutor._resolve_typed_content_dependencies(
+                self,  # type: ignore[arg-type]
+                **kwargs,
+            )
+
+        def _compose_provider_attempt_for_step(
+            self,
+            step: dict[str, Any],
+            _context: dict[str, Any],
+            _state: dict[str, Any],
+            **_kwargs: Any,
+        ) -> tuple[str, None, None]:
+            return f"member provider: {step['provider']}", None, None
+
+        def _create_provider_context(
+            self,
+            *_args: Any,
+            **_kwargs: Any,
+        ) -> dict[str, Any]:
+            return {}
+
+        def _resolve_provider_name_for_step(
+            self,
+            step: dict[str, Any],
+            _context: dict[str, Any],
+        ) -> tuple[str, None]:
+            return step["provider"], None
+
+        def _uses_qualified_identities(self) -> bool:
+            return False
+
+        def _atomic_write_bytes(self, path: Path, content: bytes) -> None:
+            self.atomic_writes.append(path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+
+        def _finalize_provider_peer_group_settlement(
+            self,
+            _step: Any,
+            _state: dict[str, Any],
+            *,
+            step_name: str,
+            result: dict[str, Any],
+        ) -> dict[str, Any]:
+            assert step_name == "Peers"
+            self.finalized.append(result)
+            return result
+
+    executor = _Executor()
+    state = manager.load().to_dict()
+    bindings = WorkflowProviderPeerGroupBindings(
+        executor,
+        step={"name": "Peers", "step_id": config.node_id},
+        state=state,
+        config=config,
+        step_name="Peers",
+        runtime_step_id=config.node_id,
+        visit_count=1,
+    )
+    return config, manager, executor, bindings
+
+
+def _failed_group_evidence(
+    allocation: PeerGroupAllocation,
+    *,
+    code: str = "test_failure",
+    message: str = "bounded failure",
+) -> PeerGroupTerminalEvidence:
+    from orchestrator.workflow.provider_peer_group.models import (
+        PeerMemberTerminalEvidence,
+    )
+
+    return PeerGroupTerminalEvidence(
+        outcome="failed",
+        group_visit=allocation.runtime.visit,
+        members=tuple(
+            PeerMemberTerminalEvidence(
+                attempt=member.runtime.attempt,
+                lifecycle=PeerMemberLifecycle.FAILED,
+                ledger=None,
+                frozen_bundle_sha256=None,
+                natural_shutdown=None,
+                failed_cleanup=None,
+            )
+            for member in allocation.members
+        ),
+        endpoint_drained=True,
+        endpoint_closed=True,
+        endpoint_workers_joined=True,
+        settlement_sha256=None,
+        failure={"code": code, "message": message},
+        terminal_at="2026-07-25T12:00:00+00:00",
+    )
+
+
+def test_workflow_peer_bindings_allocate_freeze_and_finalize_exact_visit(
+    tmp_path: Path,
+) -> None:
+    _config, manager, executor, bindings = _workflow_peer_bindings(tmp_path)
+
+    bindings.assert_current_step()
+    allocation = bindings.allocate_group()
+
+    assert tuple(
+        member.runtime.attempt.member_id for member in allocation.members
+    ) == ("author", "reviewer")
+    assert all(
+        member.runtime.attempt.attempt_ordinal == 1
+        and member.realized_paths.prompt_dependencies_path.is_file()
+        and member.prompt_snapshot_sha256
+        == "sha256:"
+        + hashlib.sha256(
+            member.realized_paths.prompt_dependencies_path.read_bytes()
+        ).hexdigest()
+        and member.invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        == str(member.realized_paths.provisional_bundle_path)
+        and "ORCHESTRATOR_ACTIVE_PEER_BINDING" in member.invocation.env
+        for member in allocation.members
+    )
+    author = allocation.members[0]
+    author.realized_paths.provisional_bundle_path.write_text(
+        '"author-result"',
+        encoding="utf-8",
+    )
+    frozen = bindings.validate_member_bundle(author)
+    assert frozen.value == "author-result"
+    assert frozen.exact_bundle_bytes == b'"author-result"'
+    assert bindings.evaluate_settlement(
+        resolved_bindings={
+            "author": "author-result",
+            "reviewer": "reviewer-result",
+        }
+    ) == "author-result"
+    assert bindings.validate_settlement(value="author-result") == (
+        "author-result"
+    )
+
+    evidence = _failed_group_evidence(allocation)
+    result = bindings.finalize_failure(evidence=evidence)
+
+    assert result["status"] == "failed"
+    assert result["debug"]["provider_peer_group"] == {
+        "terminal_evidence_path": (
+            allocation.realized_paths.terminal_evidence_path.relative_to(
+                manager.run_root
+            ).as_posix()
+        ),
+        "terminal_evidence_schema_version": evidence.schema_version,
+        "outcome": "failed",
+    }
+    assert json.loads(
+        allocation.realized_paths.terminal_evidence_path.read_text(
+            encoding="ascii"
+        )
+    ) == evidence.to_dict()
+    assert [
+        json.loads(path.read_text(encoding="ascii"))
+        for path in (
+            member.realized_paths.evidence_path
+            for member in allocation.members
+        )
+    ] == [member.to_dict() for member in evidence.members]
+    assert executor.atomic_writes[-3:] == [
+        allocation.members[0].realized_paths.evidence_path,
+        allocation.members[1].realized_paths.evidence_path,
+        allocation.realized_paths.terminal_evidence_path,
+    ]
+    assert executor.finalized == [result]
+
+
+def test_stale_visit_preimage_consumes_zero_attempt_ordinals(
+    tmp_path: Path,
+) -> None:
+    config, manager, executor, bindings = _workflow_peer_bindings(tmp_path)
+    stale = realize_provider_peer_group_paths(
+        run_root=manager.run_root,
+        plan=config.paths,
+        visit_count=1,
+        attempt_ordinals={
+            member.member_id: 1 for member in config.members
+        },
+    ).visit_root
+    stale.mkdir(parents=True)
+    (stale / "stale").write_text("occupied", encoding="utf-8")
+
+    with pytest.raises(FileExistsError, match="visit root is nonempty"):
+        bindings.allocate_group()
+
+    assert manager.load().provider_attempt_allocations == {}
+    assert executor.finalized == []
+
+
+def test_later_member_preparation_failure_is_terminal_and_reportable(
+    tmp_path: Path,
+) -> None:
+    _config, _manager, executor, bindings = _workflow_peer_bindings(tmp_path)
+    original = bindings._allocate_member
+
+    def fail_later_member(**kwargs: Any) -> PeerMemberAllocation:
+        if kwargs["member"].member_id == "reviewer":
+            raise ValueError("reviewer preparation failed")
+        return original(**kwargs)
+
+    bindings._allocate_member = fail_later_member
+
+    def forbid_listener(*_args: Any) -> Any:
+        raise AssertionError("prelaunch failure must not start ingress")
+
+    result = ProviderPeerGroupCoordinator(
+        bindings,
+        forbid_listener,
+    ).run()
+    reservation = bindings.reportable_group_identity()
+
+    assert result["status"] == "failed"
+    assert result["error"] == {
+        "type": "provider_peer_group_failed",
+        "message": "reviewer preparation failed",
+    }
+    assert reservation is not None
+    assert json.loads(
+        reservation.realized_paths.terminal_evidence_path.read_text(
+            encoding="ascii"
+        )
+    )["failure"] == {
+        "code": "provider_peer_group_failed",
+        "message": "reviewer preparation failed",
+    }
+    assert all(
+        member.evidence_path.is_file()
+        for member in reservation.realized_paths.members
+    )
+    assert executor.finalized == [result]
+
+
+def test_member_terminal_evidence_is_no_replace(
+    tmp_path: Path,
+) -> None:
+    _config, _manager, executor, bindings = _workflow_peer_bindings(tmp_path)
+    allocation = bindings.allocate_group()
+    evidence = _failed_group_evidence(allocation)
+    occupied = allocation.members[0].realized_paths.evidence_path
+    occupied.parent.mkdir(parents=True, exist_ok=True)
+    occupied.write_text('{"stale":true}', encoding="ascii")
+
+    with pytest.raises(ValueError, match="evidence preimage exists"):
+        bindings.finalize_failure(evidence=evidence)
+
+    assert occupied.read_text(encoding="ascii") == '{"stale":true}'
+    assert not allocation.realized_paths.terminal_evidence_path.exists()
+    assert executor.finalized == []

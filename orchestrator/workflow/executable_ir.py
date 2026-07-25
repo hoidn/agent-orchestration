@@ -6,9 +6,12 @@ from dataclasses import dataclass, field, fields, is_dataclass
 from enum import Enum
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, NoReturn, Optional, cast
 
 from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
+from orchestrator.providers.types import (
+    INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION,
+)
 
 from .prompt_dependency_contract import (
     CompilerPromptDependencyContract,
@@ -34,6 +37,10 @@ from .provider_supervision.paths import (
     ProviderSupervisionPaths,
     derive_provider_supervision_paths,
 )
+from .provider_peer_group.paths import (
+    PeerGroupPathPlan,
+    derive_provider_peer_group_paths,
+)
 from .pure_expr import (
     PureExprEvaluationError,
     canonical_json_for_pure_value,
@@ -44,6 +51,8 @@ from .surface_ast import WorkflowProvenance, empty_frozen_mapping
 
 WORKFLOW_EXECUTABLE_IR_SCHEMA_VERSION = "workflow_executable_ir.v1"
 PROVIDER_SUPERVISION_SCHEMA_VERSION = "provider_supervision.v1"
+PROVIDER_PEER_GROUP_SCHEMA_VERSION = "provider_peer_group.v1"
+PROVIDER_PEER_GROUP_MESSAGING_POLICY = "all_other_members"
 
 
 def _serialize_provider_call_policy(policy: Mapping[str, str]) -> dict[str, str]:
@@ -67,6 +76,7 @@ class ExecutableNodeKind(str, Enum):
     COMMAND = "command"
     PROVIDER = "provider"
     PROVIDER_SUPERVISION = "provider_supervision"
+    PROVIDER_PEER_GROUP = "provider_peer_group"
     ADJUDICATED_PROVIDER = "adjudicated_provider"
     WAIT_FOR = "wait_for"
     ASSERT = "assert"
@@ -290,6 +300,59 @@ class ProviderSupervisionStepConfig:
 
 
 @dataclass(frozen=True)
+class ProviderPeerGroupMemberConfig:
+    """One authored peer member and its provisional result contract."""
+
+    member_id: str
+    provider_config: ProviderStepConfig
+    result_contract: ExecutableContract
+    timeout_sec: int
+
+
+@dataclass(frozen=True)
+class ProviderPeerGroupMemberSourceOwnership:
+    """Source-map owner for one authored peer binding."""
+
+    member_id: str
+    binding: str
+
+
+@dataclass(frozen=True)
+class ProviderPeerGroupSourceOwnership:
+    """Closed source-map owners for one generated peer group."""
+
+    form: str
+    members: tuple[ProviderPeerGroupMemberSourceOwnership, ...]
+    settlement: str
+
+
+@dataclass(frozen=True)
+class ProviderPeerGroupStepConfig:
+    """Closed node-local executable contract for one static peer group."""
+
+    common: StepCommonConfig
+    schema_version: str
+    node_id: str
+    members: tuple[ProviderPeerGroupMemberConfig, ...]
+    messaging_policy: str
+    settlement_payload: Mapping[str, Any]
+    settlement_result_contract: ExecutableContract
+    interactive_session_schema_version: str
+    max_steers: int
+    paths: PeerGroupPathPlan
+    source_ownership: ProviderPeerGroupSourceOwnership
+
+    def __deepcopy__(
+        self,
+        memo: dict[int, Any],
+    ) -> ProviderPeerGroupStepConfig:
+        """Preserve the immutable typed contract across mapping copies."""
+
+        memo[id(self)] = self
+        return self
+
+
+@dataclass(frozen=True)
 class AdjudicatedProviderStepConfig:
     """Executable adjudicated-provider step config."""
 
@@ -408,6 +471,7 @@ ExecutableStepConfig = (
     CommandStepConfig
     | ProviderStepConfig
     | ProviderSupervisionStepConfig
+    | ProviderPeerGroupStepConfig
     | AdjudicatedProviderStepConfig
     | WaitForStepConfig
     | AssertStepConfig
@@ -566,6 +630,7 @@ _LEAF_EXECUTION_CONFIG_TYPES = (
     CommandStepConfig,
     ProviderStepConfig,
     ProviderSupervisionStepConfig,
+    ProviderPeerGroupStepConfig,
     AdjudicatedProviderStepConfig,
     WaitForStepConfig,
     AssertStepConfig,
@@ -591,6 +656,7 @@ _LEAF_KIND_TO_CONFIG = {
     ExecutableNodeKind.COMMAND: CommandStepConfig,
     ExecutableNodeKind.PROVIDER: ProviderStepConfig,
     ExecutableNodeKind.PROVIDER_SUPERVISION: ProviderSupervisionStepConfig,
+    ExecutableNodeKind.PROVIDER_PEER_GROUP: ProviderPeerGroupStepConfig,
     ExecutableNodeKind.ADJUDICATED_PROVIDER: AdjudicatedProviderStepConfig,
     ExecutableNodeKind.WAIT_FOR: WaitForStepConfig,
     ExecutableNodeKind.ASSERT: AssertStepConfig,
@@ -650,6 +716,18 @@ def provider_supervision_config_to_runtime_dict(
     payload = _json_value(config)
     if not isinstance(payload, dict):
         raise TypeError("provider supervision config must serialize to an object")
+    payload.pop("common", None)
+    return payload
+
+
+def provider_peer_group_config_to_runtime_dict(
+    config: ProviderPeerGroupStepConfig,
+) -> dict[str, Any]:
+    """Return the node-local mapping view; common fields remain step-level."""
+
+    payload = _json_value(config)
+    if not isinstance(payload, dict):
+        raise TypeError("provider peer group config must serialize to an object")
     payload.pop("common", None)
     return payload
 
@@ -828,6 +906,12 @@ def _validate_node_shape(
                 workflow_name=workflow_name,
                 node=node,
             )
+        if isinstance(node.execution_config, ProviderPeerGroupStepConfig):
+            _validate_provider_peer_group_step_config(
+                node.execution_config,
+                workflow_name=workflow_name,
+                node=node,
+            )
     elif isinstance(node, CallBoundaryNode):
         if not isinstance(node.execution_config, CallStepConfig):
             _raise_executable_ir_invalid(
@@ -952,7 +1036,7 @@ def _validate_provider_supervision_step_config(
     workflow_name: str | None,
     node: ExecutableNode,
 ) -> None:
-    def fail(reason: str) -> None:
+    def fail(reason: str) -> NoReturn:
         _raise_executable_ir_invalid(
             f"executable_ir_invalid: provider supervision {reason}",
             workflow_name=workflow_name,
@@ -1166,6 +1250,243 @@ def _validate_provider_supervision_step_config(
         fail("path plan does not match the fixed member and turn roles")
 
 
+def _validate_provider_peer_group_step_config(
+    config: ProviderPeerGroupStepConfig,
+    *,
+    workflow_name: str | None,
+    node: ExecutableNode,
+) -> None:
+    """Validate one closed static peer-group executable node."""
+
+    def fail(reason: str) -> NoReturn:
+        _raise_executable_ir_invalid(
+            f"executable_ir_invalid: provider peer group {reason}",
+            workflow_name=workflow_name,
+            node=node,
+        )
+
+    def contract_descriptor_matches(
+        contract: ExecutableContract,
+        observed_descriptor: Any,
+        *,
+        malformed_reason: str,
+    ) -> bool:
+        definition = contract.definition
+        if (
+            not isinstance(definition, Mapping)
+            or set(definition) != {"type"}
+        ):
+            fail(malformed_reason)
+        try:
+            expected = canonical_json_for_pure_value(definition["type"])
+            observed = canonical_json_for_pure_value(
+                observed_descriptor
+            )
+        except (KeyError, TypeError, ValueError):
+            fail(malformed_reason)
+        return expected == observed
+
+    if config.schema_version != PROVIDER_PEER_GROUP_SCHEMA_VERSION:
+        fail("schema is unsupported")
+    if not isinstance(config.node_id, str) or config.node_id != node.node_id:
+        fail("node id does not match its executable node")
+    if not isinstance(config.common, StepCommonConfig):
+        fail("step common config must be StepCommonConfig")
+    if (
+        isinstance(config.common.timeout_sec, bool)
+        or not isinstance(config.common.timeout_sec, int)
+        or config.common.timeout_sec <= 0
+    ):
+        fail("step timeout must be a positive integer")
+    if (
+        isinstance(config.max_steers, bool)
+        or not isinstance(config.max_steers, int)
+        or config.max_steers != 0
+    ):
+        fail("max_steers must be exactly integer 0")
+    if config.messaging_policy != PROVIDER_PEER_GROUP_MESSAGING_POLICY:
+        fail("messaging policy must be exactly all_other_members")
+    if (
+        config.interactive_session_schema_version
+        != INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION
+    ):
+        fail("interactive session capability requirement is unsupported")
+
+    if not isinstance(config.members, tuple):
+        fail("members must be an authored-order tuple")
+    if not 2 <= len(config.members) <= 8:
+        fail("requires exactly 2 through 8 authored members")
+    if any(
+        not isinstance(member, ProviderPeerGroupMemberConfig)
+        for member in config.members
+    ):
+        fail("members must contain only typed member configs")
+    member_ids = tuple(member.member_id for member in config.members)
+    if any(
+        not isinstance(member_id, str) or not member_id
+        for member_id in member_ids
+    ):
+        fail("member ids must be non-empty strings")
+    if len(set(member_ids)) != len(member_ids):
+        fail("member ids must be distinct")
+
+    for member in config.members:
+        member_id = member.member_id
+        if not isinstance(member.provider_config, ProviderStepConfig):
+            fail(f"member `{member_id}` provider config must be typed")
+        provider_config = member.provider_config
+        if not isinstance(provider_config.common, StepCommonConfig):
+            fail(f"member `{member_id}` provider common config must be typed")
+        if (
+            not isinstance(provider_config.provider, str)
+            or not provider_config.provider
+        ):
+            fail(f"member `{member_id}` provider must be non-empty")
+        if provider_config.inject_output_contract is not True:
+            fail(f"member `{member_id}` must inject its output contract")
+        try:
+            _validate_provider_prompt_dependency_binding(
+                provider_config,
+                required=True,
+            )
+        except (TypeError, ValueError):
+            fail(
+                f"member `{member_id}` prompt dependency binding is invalid"
+            )
+        if not isinstance(member.result_contract, ExecutableContract):
+            fail(f"member `{member_id}` result contract must be typed")
+        try:
+            validate_result_contract_identity(member.result_contract)
+        except (TypeError, ValueError):
+            fail(f"member `{member_id}` result contract identity is invalid")
+        if (
+            isinstance(member.timeout_sec, bool)
+            or not isinstance(member.timeout_sec, int)
+            or member.timeout_sec <= 0
+        ):
+            fail(f"member `{member_id}` timeout must be a positive integer")
+        if (
+            isinstance(provider_config.common.timeout_sec, bool)
+            or not isinstance(provider_config.common.timeout_sec, int)
+            or provider_config.common.timeout_sec <= 0
+        ):
+            fail(
+                f"member `{member_id}` provider timeout must be a "
+                "positive integer"
+            )
+        if provider_config.common.timeout_sec != member.timeout_sec:
+            fail(
+                f"member `{member_id}` provider timeout contradicts "
+                "its member timeout"
+            )
+        try:
+            bind_member_result_contract(
+                cast(Any, member),
+                path=(
+                    ".orchestrate/provider-peer-group-validation/"
+                    f"{member_id}-result.json"
+                ),
+            )
+        except (TypeError, ValueError):
+            fail(f"member `{member_id}` result contract prototype is invalid")
+
+    if config.common.timeout_sec != max(
+        member.timeout_sec for member in config.members
+    ):
+        fail("whole-step timeout must equal the maximum member timeout")
+
+    if not isinstance(config.settlement_result_contract, ExecutableContract):
+        fail("settlement result contract must be typed")
+    try:
+        validate_result_contract_identity(
+            config.settlement_result_contract
+        )
+        derive_result_bundle_contract(
+            config.settlement_result_contract,
+            path=(
+                ".orchestrate/provider-peer-group-validation/"
+                "settlement-result.json"
+            ),
+        )
+    except (TypeError, ValueError):
+        fail("settlement result contract identity is invalid")
+    if not isinstance(config.settlement_payload, Mapping):
+        fail("settlement payload must be a mapping")
+    try:
+        validate_pure_expr_payload(config.settlement_payload)
+    except (PureExprEvaluationError, TypeError, ValueError):
+        fail("settlement payload is not a validated pure expression")
+    bindings = config.settlement_payload.get("bindings")
+    if (
+        not isinstance(bindings, Mapping)
+        or tuple(bindings) != member_ids
+    ):
+        fail("settlement bindings must match authored members exactly")
+    for member in config.members:
+        binding = bindings.get(member.member_id)
+        if not isinstance(binding, Mapping) or "type" not in binding:
+            fail(
+                f"settlement binding `{member.member_id}` is incompatible "
+                "with its member result contract"
+            )
+        if not contract_descriptor_matches(
+            member.result_contract,
+            binding["type"],
+            malformed_reason=(
+                f"member `{member.member_id}` result contract descriptor "
+                "is invalid"
+            ),
+        ):
+            fail(
+                f"settlement binding `{member.member_id}` is incompatible "
+                "with its member result contract"
+            )
+    if not contract_descriptor_matches(
+        config.settlement_result_contract,
+        config.settlement_payload.get("result_type"),
+        malformed_reason="settlement result contract descriptor is invalid",
+    ):
+        fail(
+            "settlement result contract is incompatible with the pure "
+            "result type"
+        )
+
+    if not isinstance(config.paths, PeerGroupPathPlan):
+        fail("path plan must be typed")
+    expected_paths = derive_provider_peer_group_paths(
+        node_id=config.node_id,
+        member_ids=member_ids,
+    )
+    if config.paths != expected_paths:
+        fail("path plan must match the authored member order exactly")
+
+    ownership = config.source_ownership
+    if not isinstance(ownership, ProviderPeerGroupSourceOwnership):
+        fail("source ownership must be typed")
+    if (
+        not isinstance(ownership.form, str)
+        or not ownership.form
+        or not isinstance(ownership.settlement, str)
+        or not ownership.settlement
+        or not isinstance(ownership.members, tuple)
+        or any(
+            not isinstance(
+                member,
+                ProviderPeerGroupMemberSourceOwnership,
+            )
+            for member in ownership.members
+        )
+    ):
+        fail("source ownership is malformed")
+    if tuple(member.member_id for member in ownership.members) != member_ids:
+        fail("source ownership must match the authored member order exactly")
+    if any(
+        not isinstance(member.binding, str) or not member.binding
+        for member in ownership.members
+    ):
+        fail("source ownership member bindings must be non-empty")
+
+
 def _validate_contract(
     contract: ExecutableContract,
     *,
@@ -1328,7 +1649,7 @@ def _raise_executable_ir_invalid(
     *,
     workflow_name: str | None,
     node: ExecutableNode | None = None,
-) -> None:
+) -> NoReturn:
     subject_refs = ()
     if node is not None:
         subject_refs = (

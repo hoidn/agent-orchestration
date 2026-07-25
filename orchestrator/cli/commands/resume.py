@@ -48,6 +48,9 @@ PROVIDER_SESSION_QUARANTINE_ERROR = "provider_session_interrupted_visit_quaranti
 PROVIDER_SUPERVISION_QUARANTINE_ERROR = (
     "provider_supervision_interrupted_visit_quarantined"
 )
+PROVIDER_PEER_GROUP_QUARANTINE_ERROR = (
+    "provider_peer_group_interrupted_visit_quarantined"
+)
 
 
 @dataclass(frozen=True)
@@ -489,6 +492,7 @@ def resume_workflow(
             in {
                 PROVIDER_SESSION_QUARANTINE_ERROR,
                 PROVIDER_SUPERVISION_QUARANTINE_ERROR,
+                PROVIDER_PEER_GROUP_QUARANTINE_ERROR,
             }
         ):
             print(f"Error: {state.error.get('message')}", file=sys.stderr)
@@ -644,6 +648,7 @@ def resume_workflow(
             in {
                 PROVIDER_SESSION_QUARANTINE_ERROR,
                 PROVIDER_SUPERVISION_QUARANTINE_ERROR,
+                PROVIDER_PEER_GROUP_QUARANTINE_ERROR,
             }
         ):
             print(f"Error: {run_error.get('message')}", file=sys.stderr)

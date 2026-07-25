@@ -39,6 +39,7 @@ from orchestrator.providers.interactive_terminal import (
     OfferReceipt,
     PaneProcessStatus,
 )
+from orchestrator.providers.executor import ProviderExecutor
 
 
 SCHEMA_VERSION = "interactive_terminal_turn_queue.v1"
@@ -329,6 +330,141 @@ def test_provider_without_interactive_capability_remains_valid() -> None:
 
     assert provider.validate() == []
     assert provider.interactive_session_support is None
+
+
+def test_provider_executor_prepares_exact_interactive_member_invocation(
+    tmp_path: Path,
+) -> None:
+    registry = ProviderRegistry()
+    registry.register(
+        ProviderTemplate(
+            name="peer-provider",
+            command=["ordinary", "${PROMPT}"],
+            defaults={"model": "peer-model"},
+            input_mode=InputMode.ARGV,
+            interactive_session_support=InteractiveSessionSupport(
+                schema_version=SCHEMA_VERSION,
+                turn_boundary_messages=True,
+                command=(
+                    "interactive",
+                    "--model",
+                    "${model}",
+                    "${PROMPT}",
+                ),
+                message_submit_keys=("ENTER",),
+                graceful_close_text="/exit",
+                graceful_close_submit_keys=("ENTER",),
+            ),
+        )
+    )
+    executor = ProviderExecutor(tmp_path, registry)
+
+    invocation, error = executor.prepare_interactive_invocation(
+        provider_name="peer-provider",
+        params={},
+        context={},
+        prompt_content="literal prompt\nsecond line",
+        invocation_id="invocation-1",
+        member_id="reviewer",
+        attempt_scope_key="sha256:" + "a" * 64,
+        attempt_ordinal=3,
+        cwd=tmp_path,
+        env={"ORCHESTRATOR_ACTIVE_PEER_BINDING": "opaque"},
+    )
+
+    assert error is None
+    assert invocation is not None
+    assert invocation.resolved_command == (
+        "interactive",
+        "--model",
+        "peer-model",
+        "literal prompt\nsecond line",
+    )
+    assert invocation.invocation_id == "invocation-1"
+    assert invocation.member_id == "reviewer"
+    assert invocation.attempt_scope_key == "sha256:" + "a" * 64
+    assert invocation.attempt_ordinal == 3
+    assert invocation.cwd == tmp_path
+    assert invocation.env["ORCHESTRATOR_ACTIVE_PEER_BINDING"] == "opaque"
+    assert invocation.support.schema_version == SCHEMA_VERSION
+
+
+def test_provider_executor_preserves_placeholder_syntax_inside_literal_prompt(
+    tmp_path: Path,
+) -> None:
+    registry = ProviderRegistry()
+    registry.register(_provider(_support()))
+    executor = ProviderExecutor(tmp_path, registry)
+
+    invocation, error = executor.prepare_interactive_invocation(
+        provider_name="peer-provider",
+        params={},
+        context={},
+        prompt_content="Explain literal ${name} syntax.",
+        invocation_id="invocation-1",
+        member_id="reviewer",
+        attempt_scope_key="sha256:" + "c" * 64,
+        attempt_ordinal=1,
+        cwd=tmp_path,
+    )
+
+    assert error is None
+    assert invocation is not None
+    assert invocation.resolved_command == (
+        "codex",
+        "Explain literal ${name} syntax.",
+    )
+
+
+def test_interactive_invocation_rejects_placeholder_outside_prompt_token(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="resolved_command must not contain placeholders",
+    ):
+        InteractiveMemberInvocation(
+            invocation_id="invocation-1",
+            member_id="reviewer",
+            attempt_scope_key="sha256:" + "d" * 64,
+            attempt_ordinal=1,
+            resolved_command=(
+                "codex",
+                "literal ${name}",
+                "${unresolved}",
+            ),
+            cwd=tmp_path,
+            env=MappingProxyType({"LITERAL": "${context.value}"}),
+            support=_support(),
+        )
+
+
+def test_provider_executor_revalidates_interactive_capability_before_launch(
+    tmp_path: Path,
+) -> None:
+    registry = ProviderRegistry()
+    provider = _provider(_support())
+    registry.register(provider)
+    provider.interactive_session_support = _support(
+        schema_version="interactive_terminal_turn_queue.v2"
+    )
+    executor = ProviderExecutor(tmp_path, registry)
+
+    invocation, error = executor.prepare_interactive_invocation(
+        provider_name="peer-provider",
+        params={},
+        context={},
+        prompt_content="prompt",
+        invocation_id="invocation-1",
+        member_id="writer",
+        attempt_scope_key="sha256:" + "b" * 64,
+        attempt_ordinal=1,
+        cwd=tmp_path,
+    )
+
+    assert invocation is None
+    assert error is not None
+    assert error["type"] == "interactive_session_capability_invalid"
 
 
 def test_builtin_interactive_capability_is_explicit() -> None:

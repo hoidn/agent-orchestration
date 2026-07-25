@@ -28,6 +28,7 @@ from ..pure_expr import canonical_json_for_pure_value
 from .bindings import (
     PeerDeliveryFrame,
     PeerGroupAllocation,
+    PeerGroupReportableIdentity,
     PeerInteractiveAdapter,
     PeerMemberAllocation,
     ProviderPeerGroupCoordinatorBindings,
@@ -42,6 +43,7 @@ from .models import (
     PeerFinishRequest,
     PeerGroupTerminalEvidence,
     PeerMemberLifecycle,
+    PeerMemberTerminalEvidence,
     PeerMemberTerminalEvidence,
     PeerReadyReceipt,
     PeerReadyRequest,
@@ -294,7 +296,24 @@ class ProviderPeerGroupCoordinator:
                 evidence=evidence,
             )
         except _CoordinatorFailure as exc:
-            if finalization_started or allocation is None or not members:
+            if finalization_started:
+                raise
+            if allocation is None:
+                result = self._finalize_reportable_preparation_failure(
+                    code=exc.code,
+                    message=str(exc),
+                )
+                if result is not None:
+                    return result
+                raise
+            if not members:
+                result = self._finalize_reportable_preparation_failure(
+                    code=exc.code,
+                    message=str(exc),
+                    identity=allocation,
+                )
+                if result is not None:
+                    return result
                 raise
             return self._finalize_failure(
                 allocation=allocation,
@@ -307,7 +326,24 @@ class ProviderPeerGroupCoordinator:
                 message=str(exc),
             )
         except Exception as exc:
-            if finalization_started or allocation is None or not members:
+            if finalization_started:
+                raise
+            if allocation is None:
+                result = self._finalize_reportable_preparation_failure(
+                    code="provider_peer_group_failed",
+                    message=str(exc) or type(exc).__name__,
+                )
+                if result is not None:
+                    return result
+                raise
+            if not members:
+                result = self._finalize_reportable_preparation_failure(
+                    code="provider_peer_group_failed",
+                    message=str(exc) or type(exc).__name__,
+                    identity=allocation,
+                )
+                if result is not None:
+                    return result
                 raise
             return self._finalize_failure(
                 allocation=allocation,
@@ -319,6 +355,57 @@ class ProviderPeerGroupCoordinator:
                 code="provider_peer_group_failed",
                 message=str(exc) or type(exc).__name__,
             )
+
+    def _finalize_reportable_preparation_failure(
+        self,
+        *,
+        code: str,
+        message: str,
+        identity: PeerGroupReportableIdentity | PeerGroupAllocation | None = None,
+    ) -> dict[str, Any] | None:
+        if identity is None:
+            getter = getattr(
+                self._bindings,
+                "reportable_group_identity",
+                None,
+            )
+            if not callable(getter):
+                return None
+            candidate = getter()
+            if candidate is None:
+                return None
+            if not isinstance(
+                candidate,
+                (PeerGroupReportableIdentity, PeerGroupAllocation),
+            ):
+                raise _CoordinatorFailure(
+                    "provider_peer_group_allocation_invalid",
+                    "reportable group identity is invalid",
+                )
+            identity = candidate
+        evidence = PeerGroupTerminalEvidence(
+            outcome="failed",
+            group_visit=identity.runtime.visit,
+            members=tuple(
+                PeerMemberTerminalEvidence(
+                    attempt=member.attempt,
+                    lifecycle=PeerMemberLifecycle.FAILED,
+                    ledger=None,
+                    frozen_bundle_sha256=None,
+                    natural_shutdown=None,
+                    failed_cleanup=None,
+                )
+                for member in identity.runtime.members
+            ),
+            endpoint_drained=True,
+            endpoint_closed=True,
+            endpoint_workers_joined=True,
+            settlement_sha256=None,
+            failure={"code": code, "message": message},
+            terminal_at=self._timestamp(),
+        )
+        self._bindings.assert_current_step()
+        return self._bindings.finalize_failure(evidence=evidence)
 
     def _prepare_members(
         self,

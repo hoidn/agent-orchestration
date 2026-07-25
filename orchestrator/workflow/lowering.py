@@ -1142,6 +1142,7 @@ def _report_kind_for_node(node: ExecutableNode) -> str:
         ExecutableNodeKind.FINALIZATION_STEP: "finally",
         ExecutableNodeKind.PROVIDER: "provider",
         ExecutableNodeKind.PROVIDER_SUPERVISION: "provider_supervision",
+        ExecutableNodeKind.PROVIDER_PEER_GROUP: "provider_peer_group",
         ExecutableNodeKind.ADJUDICATED_PROVIDER: "adjudicated_provider",
         ExecutableNodeKind.COMMAND: "command",
         ExecutableNodeKind.WAIT_FOR: "wait_for",

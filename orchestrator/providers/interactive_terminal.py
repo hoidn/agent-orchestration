@@ -17,6 +17,7 @@ import uuid
 
 from .types import (
     InteractiveSessionSupport,
+    extract_provider_command_placeholders,
     validate_interactive_session_support_capability,
 )
 
@@ -122,6 +123,17 @@ class InteractiveMemberInvocation:
         ):
             raise ValueError("attempt_ordinal must be a non-negative integer")
 
+        if not isinstance(self.support, InteractiveSessionSupport):
+            raise ValueError("support must be an InteractiveSessionSupport")
+        support_errors = validate_interactive_session_support_capability(
+            self.support
+        )
+        if support_errors:
+            raise ValueError(
+                "invalid interactive session support: "
+                + "; ".join(support_errors)
+            )
+
         command = self.resolved_command
         if isinstance(command, list):
             command = tuple(command)
@@ -137,7 +149,15 @@ class InteractiveMemberInvocation:
             raise ValueError(
                 "resolved_command must be a non-empty tuple of non-empty strings"
             )
-        if any("${" in token for token in command):
+        prompt_token_index = next(
+            index
+            for index, token in enumerate(self.support.command)
+            if "PROMPT" in extract_provider_command_placeholders(token)
+        )
+        if any(
+            "${" in token and index != prompt_token_index
+            for index, token in enumerate(command)
+        ):
             raise ValueError("resolved_command must not contain placeholders")
 
         cwd = self.cwd
@@ -155,17 +175,6 @@ class InteractiveMemberInvocation:
         ):
             raise ValueError("env must be a string mapping")
         object.__setattr__(self, "env", MappingProxyType(copied_env))
-
-        if not isinstance(self.support, InteractiveSessionSupport):
-            raise ValueError("support must be an InteractiveSessionSupport")
-        support_errors = validate_interactive_session_support_capability(
-            self.support
-        )
-        if support_errors:
-            raise ValueError(
-                "invalid interactive session support: "
-                + "; ".join(support_errors)
-            )
 
 
 @dataclass(frozen=True)

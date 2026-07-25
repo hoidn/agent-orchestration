@@ -742,6 +742,83 @@ def _realize_relpath(
     return candidate
 
 
+def preflight_provider_peer_group_visit_root(
+    *,
+    run_root: Path,
+    plan: PeerGroupPathPlan,
+    visit_count: int,
+) -> Path:
+    """Reject a stale visit preimage before allocating durable attempts."""
+
+    if not isinstance(plan, PeerGroupPathPlan):
+        raise ValueError("plan must be a PeerGroupPathPlan")
+    _validate_path_plan(plan)
+    visit = _positive_int(visit_count, "visit_count")
+    try:
+        root = Path(run_root).resolve(strict=False)
+    except (OSError, RuntimeError, TypeError) as exc:
+        raise ValueError("run_root cannot be resolved") from exc
+    visit_root = _realize_relpath(
+        run_root=root,
+        template=plan.visit_root_relpath,
+        visit=visit,
+        attempt=None,
+    )
+    _preflight_provider_peer_group_visit_root(
+        run_root=root,
+        visit_root=visit_root,
+    )
+    return visit_root
+
+
+def _preflight_provider_peer_group_visit_root(
+    *,
+    run_root: Path,
+    visit_root: Path,
+) -> None:
+    try:
+        resolved_run_root = run_root.resolve(strict=False)
+        resolved_visit_root = visit_root.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError("provider peer visit root cannot be resolved") from exc
+    if (
+        resolved_visit_root == resolved_run_root
+        or not resolved_visit_root.is_relative_to(resolved_run_root)
+    ):
+        raise ValueError("provider peer visit root escapes run root")
+    if visit_root.is_symlink():
+        raise FileExistsError(
+            f"provider peer visit preimage exists: {visit_root}"
+        )
+    if visit_root.exists():
+        if not visit_root.is_dir():
+            raise FileExistsError(
+                f"provider peer visit root is not a directory: {visit_root}"
+            )
+        try:
+            has_entries = next(visit_root.iterdir(), None) is not None
+        except OSError as exc:
+            raise FileExistsError(
+                f"provider peer visit root cannot be inspected: {visit_root}"
+            ) from exc
+        if has_entries:
+            raise FileExistsError(
+                f"provider peer visit root is nonempty: {visit_root}"
+            )
+
+    ancestor = visit_root.parent
+    while ancestor != resolved_run_root:
+        if ancestor.is_symlink() and not ancestor.exists():
+            raise FileExistsError(
+                f"provider peer path ancestor is a broken symlink: {ancestor}"
+            )
+        if ancestor.exists() and not ancestor.is_dir():
+            raise FileExistsError(
+                f"provider peer path ancestor is not a directory: {ancestor}"
+            )
+        ancestor = ancestor.parent
+
+
 def preflight_provider_peer_group_paths(
     paths: RealizedPeerGroupPaths,
 ) -> None:
@@ -752,16 +829,11 @@ def preflight_provider_peer_group_paths(
     _validate_realized_paths(paths)
 
     run_root = _run_root_for_visit(paths.visit_root)
-    try:
-        resolved_run_root = run_root.resolve(strict=False)
-        resolved_visit_root = paths.visit_root.resolve(strict=False)
-    except (OSError, RuntimeError) as exc:
-        raise ValueError("provider peer visit root cannot be resolved") from exc
-    if (
-        resolved_visit_root == resolved_run_root
-        or not resolved_visit_root.is_relative_to(resolved_run_root)
-    ):
-        raise ValueError("provider peer visit root escapes run root")
+    resolved_run_root = run_root.resolve(strict=False)
+    _preflight_provider_peer_group_visit_root(
+        run_root=resolved_run_root,
+        visit_root=paths.visit_root,
+    )
     for leaf in paths.leaf_paths():
         try:
             resolved_leaf = leaf.resolve(strict=False)
@@ -775,40 +847,6 @@ def preflight_provider_peer_group_paths(
         if leaf.exists() or leaf.is_symlink():
             raise FileExistsError(f"provider peer leaf exists: {leaf}")
 
-    if paths.visit_root.is_symlink():
-        raise FileExistsError(
-            f"provider peer visit preimage exists: {paths.visit_root}"
-        )
-    if paths.visit_root.exists():
-        if not paths.visit_root.is_dir():
-            raise FileExistsError(
-                f"provider peer visit root is not a directory: "
-                f"{paths.visit_root}"
-            )
-        try:
-            has_entries = next(paths.visit_root.iterdir(), None) is not None
-        except OSError as exc:
-            raise FileExistsError(
-                f"provider peer visit root cannot be inspected: "
-                f"{paths.visit_root}"
-            ) from exc
-        if has_entries:
-            raise FileExistsError(
-                f"provider peer visit root is nonempty: {paths.visit_root}"
-            )
-
-    ancestor = paths.visit_root.parent
-    while ancestor != run_root:
-        if ancestor.is_symlink() and not ancestor.exists():
-            raise FileExistsError(
-                f"provider peer path ancestor is a broken symlink: {ancestor}"
-            )
-        if ancestor.exists() and not ancestor.is_dir():
-            raise FileExistsError(
-                f"provider peer path ancestor is not a directory: {ancestor}"
-            )
-        ancestor = ancestor.parent
-
 
 __all__ = [
     "PeerGroupPathPlan",
@@ -817,5 +855,6 @@ __all__ = [
     "RealizedPeerMemberPaths",
     "derive_provider_peer_group_paths",
     "preflight_provider_peer_group_paths",
+    "preflight_provider_peer_group_visit_root",
     "realize_provider_peer_group_paths",
 ]
