@@ -20,10 +20,9 @@
 ## Summary
 
 Add one small operator family to `PURE_EXPR_OPERATOR_CATALOG`, a list
-constructor expression, a pure comprehension binder form (`list/map`), a
-pure rooted-path constructor (`path/join-under`), `List[T]` as a
-loop-carried state type, and one stdlib effectful map (`std/list/map-proc`)
-over first-order `ProcRef` values. All pure operators are total and
+constructor expression, two comprehension binder forms (pure
+`list/map` and effectful `list/map-effect`), a pure rooted-path constructor
+(`path/join-under`), and `List[T]` as a loop-carried state type. All pure operators are total and
 deterministic; no function values enter the language anywhere in this
 design. This is the entire delta between "N is authored" and "N is data"
 for sequential fan-out.
@@ -33,12 +32,19 @@ The design separates two maps with different obligations:
 - **Pure mapping** (`list/map`) is total by construction — structural
   recursion over a finite list — so it carries no iteration bound and no
   exhaustion outcome.
-- **Effectful mapping** (`std/list/map-proc`) spends provider budget, so it
-  carries an authored `max_items` cap; exceeding the cap is a fail-closed
-  node error with a named diagnostic (per design principle 28), matching
-  the precedent that timeouts fail steps rather than returning routable
-  variants. It returns plain `List[R]`; no result union exists unless a
-  future consumer demonstrates a need to route on exhaustion.
+- **Effectful mapping** (`list/map-effect`) spends provider budget, so it
+  carries an authored `:max` cap; exceeding the cap is a fail-closed node
+  error with the named diagnostic `list_map_effect_cap_exceeded` (design
+  principle 28), matching the precedent that timeouts fail steps rather
+  than returning routable variants. It produces a plain `List[R]`; no
+  result union exists unless a future consumer demonstrates a need to
+  route on exhaustion.
+
+Both maps are binder forms, not higher-order functions: the body references
+enclosing bindings through ordinary lexical scope (exactly as `loop/recur`
+`(fn (state) ...)` bodies already do in `std/drain`), so loop-invariant
+arguments need no partial application, no `ProcRef`, and no `bind-proc` at
+the map site.
 
 ## Contract
 
@@ -123,32 +129,25 @@ implementation substrate for the stdlib map below:
 `loop/recur`'s authored `:max` remains the sole iteration bound; list length
 never bypasses it. Exhaustion semantics are unchanged.
 
-### Stdlib effectful map: `std/list/map-proc`
+### Effectful comprehension: `list/map-effect`
 
-One generic stdlib procedure — composed entirely from shipped mechanisms
-(`:forall` procedures, `ProcRef` parameters with post-specialization effect
-recomputation as in `std/phase` and `std/drain`, `bind-proc` partial
-application, `loop/recur`) plus the operators above:
+`(list/map-effect ((<binder> <list-expr>)) :max <int-literal> <body-expr>)`
+evaluates the effectful body once per element in order, producing a
+`List[R]` where `R` is the body's type. It is sugar in the strict sense:
+it erases at elaboration to the loop-carried traversal pattern above —
+binder to head/rest state threading, body result to `list/append`, `:max`
+to the loop bound — introducing no new node kinds or runtime semantics.
+Exceeding `:max` raises the named fail-closed node error
+`list_map_effect_cap_exceeded`.
 
-```lisp
-(defproc map-proc
-  :forall (T R)
-  ((f ProcRef[(T) -> R])
-   (items List[T])
-   (max_items Int))
-  -> List[R]
-  :lowering inline
-  ;; loop/recur over (remaining, results); exceeding max_items raises the
-  ;; named fail-closed node error list_map_proc_cap_exceeded rather than
-  ;; returning a routable variant.
-  ...)
-```
-
-Multi-argument mapped procedures use existing `bind-proc` partial
-application to freeze loop-invariant arguments; no lambda or capture
-mechanism is introduced. Each mapped invocation is an ordinary loop-scoped
-attempt with its own identity, snapshot, and evidence, and resuming
-mid-list is ordinary mid-loop resume.
+The body is an ordinary effectful expression with the binder in scope and
+normal lexical access to enclosing bindings, so loop-invariant values are
+referenced directly (as `loop/recur` bodies already reference enclosing
+workflow bindings in `std/drain`); no partial application or reference
+machinery appears at the map site. Each iteration is an ordinary
+loop-scoped attempt with its own identity, snapshot, and evidence;
+resuming mid-list is ordinary mid-loop resume. The body's effects join the
+form's effect summary per iteration exactly as a loop body's do.
 
 ## Semantics and invariants
 
@@ -166,10 +165,12 @@ mid-list is ordinary mid-loop resume.
 
 ## Non-goals
 
-- No function values anywhere: `list/map`'s binder is a syntactic binding
-  position, and `map-proc`'s `f` is a compile-time `ProcRef`; nothing in
-  this design may introduce a lambda literal, a runtime callable, or a
-  capture mechanism beyond existing `bind-proc`.
+- No function values anywhere: both comprehension binders are syntactic
+  binding positions; nothing in this design may introduce a lambda
+  literal, a runtime callable, or any capture mechanism.
+- No `ProcRef`-taking stdlib map: deferred until a consumer needs to map
+  behavior received as a parameter across a module boundary; local mapping
+  is fully served by the binder forms and lexical scope.
 - No `filter`/`fold` operators or comprehension guards until a consumer
   justifies each.
 - No exhaustion result union on `map-proc`: the cap is a spend guard and
