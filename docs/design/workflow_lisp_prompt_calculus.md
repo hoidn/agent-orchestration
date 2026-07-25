@@ -66,19 +66,28 @@ composable like a type or procedure:
 
 ```lisp
 (defprompt lens-review
-  (:fills (criteria CriteriaDoc)      ; slot: injected document
-          (target   DocContent)       ; slot: injected document
-          (report_target ReportTargetPath))  ; slot: rendered value
+  (:fills (criteria :doc)        ; slot kind: injected document content
+          (target   :doc)
+          (report_target :path)) ; slot kind: rendered path value
   "Review the target strictly according to the criteria.
    Ground every finding in a specific section.
    Write your review to {report_target}.")
 ```
 
-Slots are typed holes. A provider call site must discharge every slot of
-its composed prompt — with a typed value, an injected document, or another
-fragment — and an unfilled or ill-typed slot is a compile error with the
-slot and expected type named. "Fully specified prompt" becomes a checkable
-proposition, exactly like an unbound variable.
+Slots are holes with **kinds**, drawn from a closed, small vocabulary —
+`:doc` (injected document content), `:text` (rendered string), `:value`
+(rendered transportable value), `:path` (rendered path) — mirroring the
+injection channels that already exist. A provider call site must discharge
+every slot of its composed prompt — with a value, a document, or another
+fragment of the matching kind — and an unfilled or wrong-kind slot is a
+compile error with the slot and expected kind named. "Fully specified
+prompt" becomes a checkable proposition, exactly like an unbound variable.
+
+A slot *may* refine its kind with a specific type
+(`(criteria :doc CriteriaDoc)`) when a particular path family or value
+shape genuinely matters, but refinement is optional and not the idiom:
+the calculus's value is discharge checking, not nominal branding, and a
+fragment usable only with bespoke types is a worse fragment.
 
 Fragments compose: a call's prompt is a fragment application tree,
 flattened deterministically at composition time into the same rendered
@@ -88,7 +97,8 @@ is the existing per-attempt runtime step.
 
 ### 2. Fragment/result coherence
 
-A fragment that instructs a classification declares the union it elicits:
+Optionally, a fragment that instructs a classification declares the type
+it elicits:
 
 ```lisp
 (defprompt classify-blocker
@@ -146,6 +156,13 @@ composition of components 1–4 with `list/map-effect`.
   the parked E-series; if ever revived they operate over this layer under
   the program-search boundary invariants, which this direction neither
   relaxes nor anticipates.
+- **Type parsimony (owner direction, 2026-07-25).** The calculus mints no
+  new nominal types and imposes no obligation to define any: slot
+  signatures are kinds from the closed vocabulary, refinement is optional,
+  and any value, path, or document satisfying the kind discharges the
+  slot. `:elicits` is likewise optional. A design that makes fragment
+  authors build type taxonomies before writing prose has failed this
+  boundary.
 - **Union parsimony (owner direction, 2026-07-25).** This layer must not
   multiply unions. `:elicits` targets any transportable type — enums,
   records, scalars — not preferentially unions; judgments are records
