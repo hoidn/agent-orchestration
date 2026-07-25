@@ -773,15 +773,25 @@ compile caching) are each a separate frontend change requiring its own design
 treatment and an explicit amendment to this roadmap; Stage 8 must not absorb
 them.
 
-### Post-Stage-8 Salvaged Items (from the parked evolution follow-on roadmap)
+### Post-Stage-8 Successor Handoff (input list; closed at Stage 8)
 
-The 2026-07-22 evolution follow-on roadmap is parked by owner decision
-(2026-07-24), on the recommendation of the architectural critique at
-`artifacts/review/roadmap-follow-on/architectural-critique.md`. Its durable
-boundary invariants now live in
-`docs/design/workflow_lisp_program_search_boundaries.md`, which constrains
-any future search/evolution design. Exactly two work items are salvaged;
-neither is selected, and the parked roadmap is not a selector:
+This section is the input manifest for a successor roadmap, not additional
+stages of this one. This roadmap's charter completes at Stage 8; at that
+closure, a deliberately small successor roadmap ("language quality and
+domain semantics") is authored from the items below as the next selector,
+and this document goes historical. Items accrete here only until Stage 8
+closes; none is selected by listing, each enters the successor through its
+own design review under principles 28 and 29 and the standing
+proportionality rule (named consumer, smallest truthful scope,
+revert-able).
+
+Provenance: items 1 and 4 are the two salvaged survivors of the parked
+2026-07-22 evolution follow-on roadmap (owner decision 2026-07-24, per the
+architectural critique at
+`artifacts/review/roadmap-follow-on/architectural-critique.md`; boundary
+invariants extracted to
+`docs/design/workflow_lisp_program_search_boundaries.md`). Items 2 and 3
+are the 2026-07-25 owner-directed language directions:
 
 1. **Slimmed E0 discriminating-benchmark probe.** Eligible only after Stage 8
    closes. Scope: a bounded (order one week) experiment answering whether any
