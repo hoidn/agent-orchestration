@@ -4,12 +4,15 @@ import importlib
 import json
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 from orchestrator.state import StateManager
+from orchestrator.workflow.executable_ir import ExecutableNodeKind
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.runtime_step import RuntimeStep
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
@@ -28,6 +31,10 @@ def _module():
 
 def _policy_module():
     return importlib.import_module("orchestrator.workflow_lisp.lexical_checkpoint_effect_policies")
+
+
+def _restore_module():
+    return importlib.import_module("orchestrator.workflow_lisp.lexical_checkpoint_restore")
 
 
 def _compile_fixture(tmp_path: Path):
@@ -85,6 +92,60 @@ def _compile_policy_fixture(tmp_path: Path):
                 name="run_checks",
                 stable_command=("python", "scripts/run_checks.py"),
             )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    return next(
+        bundle
+        for name, bundle in result.validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
+
+
+def _compile_provider_supervision_checkpoint_fixture(tmp_path: Path):
+    fixture = tmp_path / "checkpoint_provider_supervision.orc"
+    fixture.write_text(
+        """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.16")
+  (defmodule checkpoint_provider_supervision)
+  (export orchestrate)
+  (defworkflow orchestrate () -> String
+    (with-live-providers
+      ((worker
+        (provider-result providers.worker
+          :prompt prompts.worker
+          :inputs ()
+          :timeout-sec 30
+          :returns String))
+       (supervisor
+        (provider-result providers.supervisor
+          :prompt prompts.supervisor
+          :inputs ()
+          :timeout-sec 20
+          :returns ProviderSteeringDirective)
+        :observes worker))
+      worker)))
+""",
+        encoding="utf-8",
+    )
+    for prompt_path in ("prompts/worker.md", "prompts/supervisor.md"):
+        target = tmp_path / prompt_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("prompt\n", encoding="utf-8")
+    result = compile_stage3_entrypoint(
+        fixture,
+        source_roots=(tmp_path,),
+        entry_workflow="orchestrate",
+        provider_externs={
+            "providers.worker": "worker-provider",
+            "providers.supervisor": "supervisor-provider",
+        },
+        prompt_externs={
+            "prompts.worker": "prompts/worker.md",
+            "prompts.supervisor": "prompts/supervisor.md",
         },
         validate_shared=True,
         workspace_root=tmp_path,
@@ -430,6 +491,168 @@ def test_effect_resume_policy_digest_is_canonical_and_source_lineage_sensitive()
     assert first["schema_version"] == "workflow_lisp_effect_resume_policy.v1"
     assert first["policy_digest"] == same_meaning["policy_digest"]
     assert first["policy_digest"] != changed_origin["policy_digest"]
+
+
+def test_provider_supervision_uses_generic_completed_effect_checkpoint_route(
+    tmp_path: Path,
+) -> None:
+    checkpoints = _module()
+    policies = _policy_module()
+    bundle = _compile_provider_supervision_checkpoint_fixture(tmp_path)
+
+    assert len(bundle.ir.nodes) == 1
+    node = next(iter(bundle.ir.nodes.values()))
+    assert node.kind is ExecutableNodeKind.PROVIDER_SUPERVISION
+
+    points = [
+        point
+        for point in bundle.runtime_plan.lexical_checkpoint_points
+        if point.node_id == node.node_id and point.point_kind == "effect_boundary"
+    ]
+    assert len(points) == 1
+    point = points[0]
+    point_payload = checkpoints._point_payload(point)
+    checkpoints.validate_checkpoint_point_payload(point_payload)
+
+    effect_boundary = point.details["effect_boundary"]
+    policy = effect_boundary["policy"]
+    assert point.details["step_kind"] == "provider_supervision"
+    assert effect_boundary["effect_kind"] == "provider_supervision"
+    assert effect_boundary["boundary_kind"] == "provider_supervision"
+    assert policy["policy_kind"] == "fail_closed_non_idempotent"
+    assert policy["effect_kind"] == "provider_supervision"
+    assert policy["boundary_kind"] == "provider_supervision"
+    assert policy["evidence_requirements"] == {}
+    assert policies.derive_effect_resume_policy_digest(policy) == policy["policy_digest"]
+    policies.validate_effect_resume_policy(
+        policy,
+        expected_origin_key=point.origin_key,
+    )
+    assert (
+        checkpoints.checkpoint_record_effect_policy_digest(point_payload)
+        == policy["policy_digest"]
+    )
+
+    runtime_step = RuntimeStep(
+        node=node,
+        name=point.presentation_key,
+        step_id=point.step_id,
+    )
+    fake_executor = SimpleNamespace(
+        state_manager=SimpleNamespace(
+            state={
+                "steps": {
+                    runtime_step.name: {
+                        "status": "completed",
+                        "step_id": point.step_id,
+                    }
+                }
+            }
+        ),
+        _runtime_step_for_node_id=lambda *args, **kwargs: runtime_step,
+    )
+    completed_effect_refs = checkpoints.collect_completed_effect_refs(
+        fake_executor,
+        point=point,
+    )
+    assert completed_effect_refs == []
+
+    binding_schema_digest = checkpoints.checkpoint_record_binding_schema_digest(
+        point_payload
+    )
+    effect_policy_digest = checkpoints.checkpoint_record_effect_policy_digest(
+        point_payload
+    )
+    storage_allocation_id = point.details["storage"]["allocation_id"]
+    record = {
+        "schema_version": checkpoints.CHECKPOINT_RECORD_SCHEMA_VERSION,
+        "checkpoint_id": point.checkpoint_id,
+        "program_point_id": point.program_point_id,
+        "point_kind": point.point_kind,
+        "binding_schema_digest": binding_schema_digest,
+        "storage_allocation_id": storage_allocation_id,
+        "origin_key": point.origin_key,
+        "validity_envelope": {
+            "binding_schema_digest": binding_schema_digest,
+            "effect_policy_digest": effect_policy_digest,
+            "completed_effect_refs_digest": checkpoints._completed_effect_refs_digest(
+                completed_effect_refs
+            ),
+            "source_map_origin_key": point.origin_key,
+            "storage_allocation_id": storage_allocation_id,
+        },
+        "completed_effect_refs": completed_effect_refs,
+    }
+    checkpoints.validate_checkpoint_record(record, expected_point=point_payload)
+    assert checkpoints.describe_checkpoint_record_policy(
+        record,
+        expected_point=point_payload,
+    ) == {
+        "record_policy_status": "policy_enforced",
+        "restore_authorized": True,
+        "diagnostic": None,
+    }
+
+
+def test_provider_supervision_missing_terminal_checkpoint_is_not_restore_candidate(
+    tmp_path: Path,
+) -> None:
+    checkpoints = _module()
+    restore = _restore_module()
+    bundle = _compile_provider_supervision_checkpoint_fixture(tmp_path)
+
+    assert len(bundle.ir.nodes) == 1
+    node = next(iter(bundle.ir.nodes.values()))
+    assert node.kind is ExecutableNodeKind.PROVIDER_SUPERVISION
+    point = next(
+        point
+        for point in bundle.runtime_plan.lexical_checkpoint_points
+        if point.node_id == node.node_id and point.point_kind == "effect_boundary"
+    )
+    assert _effect_policy(point)["policy_kind"] == "fail_closed_non_idempotent"
+
+    state_manager = StateManager(
+        tmp_path,
+        run_id="provider-supervision-missing-terminal",
+    )
+    state_manager.initialize(str(bundle.provenance.workflow_path))
+    runtime_step = RuntimeStep(
+        node=node,
+        name=point.presentation_key,
+        step_id=point.step_id,
+    )
+    executor = SimpleNamespace(
+        runtime_plan=bundle.runtime_plan,
+        state_manager=state_manager,
+        loaded_bundle=bundle,
+        workspace=tmp_path,
+        _runtime_step_for_node_id=lambda *args, **kwargs: runtime_step,
+    )
+    record = checkpoints.emit_runtime_shadow_record(
+        executor=executor,
+        step_id=point.step_id,
+        execution_index=bundle.runtime_plan.nodes[node.node_id].execution_index,
+        visit_count=1,
+    )
+
+    assert record is not None
+    assert record["completed_effect_refs"] == []
+    state = state_manager.load().to_dict()
+    assert point.presentation_key not in state["steps"]
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state,
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == restore.RESTORE_DECISION_NOT_RESTORABLE
+    assert decision.restore_payload is None
+    assert decision.diagnostics == (restore.DIAGNOSTIC_CODES.pending_effect_unsafe,)
+    assert decision.selection_observation == restore.RESTORE_SELECTION_RECORD_PRESENT
 
 
 def test_effect_resume_policy_validation_rejects_unknown_policy_kind() -> None:

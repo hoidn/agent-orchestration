@@ -1447,7 +1447,11 @@ def _loop_frame_restore_descriptor(
     }
 
 
-def _effect_boundary_step_kind(value: WccPerform | WccCall) -> str:
+def _effect_boundary_step_kind(
+    value: WccPerform | WccCall | WccProviderSupervision,
+) -> str:
+    if isinstance(value, WccProviderSupervision):
+        return "provider_supervision"
     if isinstance(value, WccCall):
         return "call"
     if (
@@ -1476,7 +1480,7 @@ def _build_effect_resume_policy_payload(
     step_id: str,
     origin_key: str,
     binding_schema_digest: str,
-    value: WccPerform | WccCall | None,
+    value: WccPerform | WccCall | WccProviderSupervision | None,
     terminal: _TerminalResult,
 ) -> Mapping[str, Any]:
     if step_kind == "pure_projection":
@@ -1617,6 +1621,15 @@ def _build_effect_resume_policy_payload(
             },
             unsafe_pending_behavior="audit_barrier",
         )
+    if step_kind == "provider_supervision":
+        return build_effect_resume_policy(
+            policy_kind="fail_closed_non_idempotent",
+            effect_kind=step_kind,
+            boundary_kind=step_kind,
+            step_id=step_id,
+            source_map_origin_key=origin_key,
+            evidence_requirements={},
+        )
     return build_effect_resume_policy(
         policy_kind="recompute_or_reuse_checkpoint",
         effect_kind=step_kind,
@@ -1630,7 +1643,7 @@ def _build_effect_resume_policy_payload(
 def _effect_boundary_checkpoint_point_payload(
     *,
     workflow_name: str,
-    value: WccPerform | WccCall,
+    value: WccPerform | WccCall | WccProviderSupervision,
     terminal: _TerminalResult,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
@@ -1856,6 +1869,16 @@ def _defunctionalize_body(
                     local_values=updated_locals,
                 )
             )
+            if lexical_checkpoint_points is not None:
+                lexical_checkpoint_points.append(
+                    _effect_boundary_checkpoint_point_payload(
+                        workflow_name=context.workflow_name,
+                        value=body.bound_value,
+                        terminal=binding_terminal,
+                        context=context,
+                        local_values=updated_locals,
+                    )
+                )
             local_value = _binding_local_value_from_terminal(
                 body.bound_value,
                 binding_type=binding_type,

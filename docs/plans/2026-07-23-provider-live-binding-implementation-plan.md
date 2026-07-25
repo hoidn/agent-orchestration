@@ -1196,7 +1196,9 @@ compilation, and scoped diff checks. Ordered independent verdicts were
 - Modify: `orchestrator/workflow/runtime_plan.py`
 - Modify: `orchestrator/workflow/semantic_ir.py`
 - Modify: `orchestrator/workflow_lisp/source_map.py`
-- Modify: `orchestrator/workflow_lisp/build_artifacts.py`
+- Inspect (generic serializer was sufficient; no edit required):
+  `orchestrator/workflow_lisp/build_artifacts.py`
+- Modify: `orchestrator/workflow_lisp/wcc/defunctionalize.py`
 - Modify only if the generic-checkpoint RED proof fails:
   `orchestrator/workflow_lisp/lexical_checkpoints.py`
 - Modify only if the generic-checkpoint RED proof fails:
@@ -1206,10 +1208,10 @@ compilation, and scoped diff checks. Ordered independent verdicts were
 - Test: `tests/test_workflow_lisp_source_map.py`
 - Test: `tests/test_workflow_lisp_projection_dual_run.py`
 
-- [ ] Add executable/runtime-plan/semantic/source-map/checkpoint/build
+- [x] Add executable/runtime-plan/semantic/source-map/checkpoint/build
   projection tests for one `PROVIDER_SUPERVISION` node and unchanged envelope
   versions.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q \
@@ -1220,15 +1222,45 @@ compilation, and scoped diff checks. Ordered independent verdicts were
     -k 'provider_supervision or live_providers or checkpoint or source_map'
   ```
 
-- [ ] First prove the existing generic completed-effect/checkpoint route
+- [x] First prove the existing generic completed-effect/checkpoint route
   projects the new group without a special case. If the RED proof fails,
   implement only the missing generic case in the two explicitly listed
   checkpoint owners and rerun the command.
-- [ ] Implement runtime-plan, Semantic IR, source-map, and build-artifact
+- [x] Implement runtime-plan, Semantic IR, source-map, and build-artifact
   projections without changing their envelope versions.
-- [ ] Rerun the concrete command above.
-- [ ] Complete specification review, quality review, and commit:
+- [x] Rerun the concrete command above.
+- [x] Complete specification review, quality review, and commit:
   `Project live provider supervision build artifacts`.
+
+The RED checkpoint proof showed that the checkpoint validators and serializers
+were already generic, but WCC defunctionalization did not publish an effect
+boundary for the composite node. The smallest load-bearing correction therefore
+belongs in `wcc/defunctionalize.py`: emit the ordinary effect-boundary point and
+bind it to the existing fail-closed non-idempotent policy. Neither checkpoint
+production module nor `build_artifacts.py` required a change. The concrete
+combined selector was rerun after implementation: all 19 provider-supervision
+tests passed, while its broader keyword set retained the independently observed
+pre-existing resource-transition fixture failure
+`test_source_map_no_bundle_finalize_selected_item_resource_transition_regression`
+(99 passed, 1 failed, 102 deselected).
+
+**Task 12C evidence (2026-07-24):** Runtime-plan v1 now carries one typed
+two-member topology summary, Semantic IR v1 carries exactly one composite
+effect, and the source-map v1 sidecar binds the five authored owners plus both
+member prompt-dependency lineages without emitting member provider nodes.
+Validation rejects missing, relabelled, orphaned, duplicated, or detached
+semantic projections; malformed/detached source lineage; and topology
+tampering. The ordinary effect-boundary checkpoint projection now covers the
+composite node with the existing fail-closed non-idempotent policy, and a real
+shadow-record selection proves a missing-terminal group is not restorable.
+Public build serialization kept every envelope version unchanged and omits the
+new optional runtime field from ordinary nodes. Fresh post-review verification
+passed 19 focused provider-supervision tests, 47 full runtime/checkpoint
+projection tests, collection of 202 tests, Python compilation, and scoped diff
+checks. The full four-module parallel run passed 199 tests and retained only
+the three independently established design-delta resource-transition fixture
+failures. Ordered independent verdicts were `TASK12C_SPEC_APPROVED` and
+`TASK12C_QUALITY_APPROVED`.
 
 ### Task 13: Fixture End-To-End Compile, Run, And Resume
 

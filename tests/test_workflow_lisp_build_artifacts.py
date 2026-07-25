@@ -659,6 +659,86 @@ def _build_request(tmp_path: Path, *, manifest_path: Path | None = None):
     )
 
 
+def _provider_supervision_build_request(tmp_path: Path):
+    source_path = tmp_path / "provider_supervision_build.orc"
+    source_path.write_text(
+        """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.16")
+  (defmodule provider_supervision_build)
+  (export orchestrate)
+  (defpath RequiredContext :kind relpath :under "." :must-exist false)
+  (defworkflow orchestrate ((required_path RequiredContext)) -> String
+    (with-live-providers
+      ((worker
+        (provider-result providers.worker
+          :prompt prompts.worker
+          :inputs ()
+          :prompt-dependencies
+          (:required (required_path)
+           :position append
+           :instruction "Inspect worker context.")
+          :timeout-sec 30
+          :returns String))
+       (supervisor
+        (provider-result providers.supervisor
+          :prompt prompts.supervisor
+          :inputs ()
+          :prompt-dependencies
+          (:required (required_path)
+           :position prepend
+           :instruction "Inspect supervisor context.")
+          :timeout-sec 20
+          :returns ProviderSteeringDirective)
+        :observes worker))
+      worker)))
+""",
+        encoding="utf-8",
+    )
+    prompt_root = tmp_path / "prompts"
+    prompt_root.mkdir()
+    worker_prompt = prompt_root / "worker.md"
+    supervisor_prompt = prompt_root / "supervisor.md"
+    worker_prompt.write_text("worker\n", encoding="utf-8")
+    supervisor_prompt.write_text("supervisor\n", encoding="utf-8")
+
+    provider_externs_path = tmp_path / "providers.json"
+    provider_externs_path.write_text(
+        json.dumps(
+            {
+                "providers.worker": "worker-provider",
+                "providers.supervisor": "supervisor-provider",
+            }
+        ),
+        encoding="utf-8",
+    )
+    prompt_externs_path = tmp_path / "prompts.json"
+    prompt_externs_path.write_text(
+        json.dumps(
+            {
+                "prompts.worker": str(worker_prompt),
+                "prompts.supervisor": str(supervisor_prompt),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    request_cls = getattr(_build_module(), "FrontendBuildRequest")
+    return request_cls(
+        source_path=source_path,
+        source_roots=(tmp_path,),
+        entry_workflow="orchestrate",
+        provider_externs_path=provider_externs_path,
+        prompt_externs_path=prompt_externs_path,
+        imported_workflow_bundles_path=None,
+        command_boundaries_path=None,
+        emit_debug_yaml=False,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+
+
 def test_frontend_build_request_has_no_yaml_deprecation_policy(
     tmp_path: Path,
 ) -> None:
@@ -2363,6 +2443,153 @@ def test_build_runtime_plan_artifact_matches_selected_workflow_lineage_and_manif
     assert result.manifest.artifact_status["runtime_plan"] == "emitted"
     assert result.manifest.artifact_status["core_workflow_ast"] == "emitted"
     assert result.manifest.artifact_status["semantic_ir"] == "emitted"
+
+
+def test_provider_supervision_public_build_artifacts_share_one_atomic_node(
+    tmp_path: Path,
+) -> None:
+    result = _build_module().build_frontend_bundle(
+        _provider_supervision_build_request(tmp_path)
+    )
+    executable_ir = json.loads(
+        result.artifact_paths["executable_ir"].read_text(encoding="utf-8")
+    )
+    core_workflow_ast = json.loads(
+        result.artifact_paths["core_workflow_ast"].read_text(encoding="utf-8")
+    )
+    runtime_plan = json.loads(
+        result.artifact_paths["runtime_plan"].read_text(encoding="utf-8")
+    )
+    semantic_ir = json.loads(
+        result.artifact_paths["semantic_ir"].read_text(encoding="utf-8")
+    )
+    source_map = json.loads(
+        result.artifact_paths["source_map"].read_text(encoding="utf-8")
+    )
+    workflow_name = result.selected_workflow_name
+
+    assert result.manifest.schema_version == "workflow_lisp_build.v2"
+    assert executable_ir["schema_version"] == "workflow_executable_ir.v1"
+    assert core_workflow_ast["schema_version"] == "core_workflow_ast.v1"
+    assert runtime_plan["schema_version"] == "workflow_runtime_plan.v1"
+    assert semantic_ir["schema_version"] == "workflow_semantic_ir.v1"
+    assert source_map["schema_version"] == "workflow_lisp_source_map.v1"
+
+    [(node_id, executable_node)] = executable_ir["nodes"].items()
+    execution_config = executable_node["execution_config"]
+    assert executable_node["kind"] == "provider_supervision"
+    assert execution_config["schema_version"] == "provider_supervision.v1"
+    assert execution_config["node_id"] == node_id
+    assert {
+        execution_config[role]["member_id"]
+        for role in ("worker", "supervisor")
+    } == {"worker", "supervisor"}
+    assert all(
+        node["kind"] != "provider"
+        for node in executable_ir["nodes"].values()
+    )
+
+    [core_statement] = core_workflow_ast["body"]
+    assert core_statement["kind"] == "provider_supervision"
+    assert (
+        core_statement["provider_supervision"]["schema_version"]
+        == "provider_supervision.v1"
+    )
+
+    assert set(runtime_plan["nodes"]) == {node_id}
+    runtime_node = runtime_plan["nodes"][node_id]
+    assert runtime_node["kind"] == "provider_supervision"
+    assert runtime_node["provider_supervision"] == {
+        "atomic_workflow_result_commit": True,
+        "max_resume_transitions": 1,
+        "supervisor_member_id": "supervisor",
+        "worker_member_id": "worker",
+    }
+
+    semantic_workflow = semantic_ir["workflows"][workflow_name]
+    [semantic_statement] = semantic_workflow["statements"].values()
+    assert semantic_statement["step_kind"] == "provider_supervision"
+    assert semantic_statement["executable_node_ids"] == [node_id]
+    supervision_effects = [
+        effect
+        for effect in semantic_ir["effects"].values()
+        if effect["effect_kind"] == "provider_supervision"
+    ]
+    [supervision_effect] = supervision_effects
+    assert set(supervision_effect["details"]) == {
+        "directive_type",
+        "members",
+        "observation",
+        "settlement_type",
+    }
+    assert {
+        role: member["member_id"]
+        for role, member in supervision_effect["details"]["members"].items()
+    } == {
+        "supervisor": "supervisor",
+        "worker": "worker",
+    }
+
+    source_workflow = source_map["workflows"][workflow_name]
+    [source_executable_node] = source_workflow["executable_nodes"]
+    assert source_executable_node["kind"] == "provider_supervision"
+    assert source_executable_node["node_id"] == node_id
+    assert source_executable_node["step_id"] == executable_node["step_id"]
+    [source_lineage] = source_workflow["provider_supervision"]
+    assert source_lineage["node_id"] == node_id
+    assert source_lineage["step_id"] == executable_node["step_id"]
+    assert set(source_lineage["owners"]) == {
+        "form",
+        "observation",
+        "settlement",
+        "supervisor_binding",
+        "worker_binding",
+    }
+    assert len(
+        {
+            owner["source_origin_key"]
+            for owner in source_lineage["owners"].values()
+        }
+    ) == 5
+    assert source_lineage["member_ids"] == {
+        "supervisor": "supervisor",
+        "worker": "worker",
+    }
+    assert [
+        lineage["member_id"]
+        for lineage in source_lineage["member_prompt_dependencies"]
+    ] == ["worker", "supervisor"]
+    member_lineages = {
+        lineage["member_id"]: lineage
+        for lineage in source_lineage["member_prompt_dependencies"]
+    }
+    assert set(member_lineages) == {"worker", "supervisor"}
+    for role in ("worker", "supervisor"):
+        contract = execution_config[role]["provider_config"][
+            "compiler_prompt_dependency_contract"
+        ]
+        lineage = member_lineages[role]
+        assert lineage["source_origin_key"] == contract["source_origin_key"]
+        assert lineage["origin_kind"] == contract["origin_kind"]
+        assert lineage["position"] == contract["position"]
+        assert [row["binding_ref"] for row in lineage["rows"]] == (
+            contract["required_binding_refs"]
+            + contract["optional_binding_refs"]
+        )
+
+    artifact_names = {
+        "executable_ir": "executable_ir.json",
+        "core_workflow_ast": "core_workflow_ast.json",
+        "runtime_plan": "runtime_plan.json",
+        "semantic_ir": "semantic_ir.json",
+        "source_map": "source_map.json",
+    }
+    for artifact_name, file_name in artifact_names.items():
+        assert result.artifact_paths[artifact_name].name == file_name
+        assert result.manifest.artifact_paths[artifact_name].endswith(
+            f"/{file_name}"
+        )
+        assert result.manifest.artifact_status[artifact_name] == "emitted"
 
 
 def test_prompt_extern_object_entries_are_accepted_by_build_service(tmp_path: Path) -> None:

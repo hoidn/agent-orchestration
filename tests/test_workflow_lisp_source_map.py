@@ -103,6 +103,108 @@ def _build_source_map_document(
     return source_map_module, document, canonical_name
 
 
+def _provider_supervision_source_map_document(
+    tmp_path: Path,
+    *,
+    explicit_prompt_dependencies: bool,
+):
+    worker_dependencies = (
+        """
+          :prompt-dependencies
+          (:required (required_path)
+           :position append
+           :instruction "Inspect worker context.")"""
+        if explicit_prompt_dependencies
+        else ""
+    )
+    supervisor_dependencies = (
+        """
+          :prompt-dependencies
+          (:required (required_path)
+           :position prepend
+           :instruction "Inspect supervisor context.")"""
+        if explicit_prompt_dependencies
+        else ""
+    )
+    source = f"""(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.16")
+  (defpath RequiredContext :kind relpath :under "." :must-exist false)
+  (defworkflow orchestrate ((required_path RequiredContext))
+    -> String
+    (with-live-providers
+      ((worker
+        (provider-result providers.worker
+          :prompt prompts.worker
+          :inputs (){worker_dependencies}
+          :timeout-sec 30
+          :returns String))
+       (supervisor
+        (provider-result providers.supervisor
+          :prompt prompts.supervisor
+          :inputs (){supervisor_dependencies}
+          :timeout-sec 20
+          :returns ProviderSteeringDirective)
+        :observes worker))
+      worker)))
+"""
+    path = tmp_path / (
+        "provider_supervision_explicit.orc"
+        if explicit_prompt_dependencies
+        else "provider_supervision_implicit.orc"
+    )
+    path.write_text(source, encoding="utf-8")
+    prompt_root = tmp_path / "prompts"
+    prompt_root.mkdir()
+    (prompt_root / "worker.md").write_text("worker\n", encoding="utf-8")
+    (prompt_root / "supervisor.md").write_text("supervisor\n", encoding="utf-8")
+    result = compile_stage3_module(
+        path,
+        entry_workflow="orchestrate",
+        provider_externs={
+            "providers.worker": "worker-provider",
+            "providers.supervisor": "supervisor-provider",
+        },
+        prompt_externs={
+            "prompts.worker": "prompts/worker.md",
+            "prompts.supervisor": "prompts/supervisor.md",
+        },
+        lowering_route="wcc_m4",
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    source_map_module = importlib.import_module(
+        "orchestrator.workflow_lisp.source_map"
+    )
+    document = source_map_module.build_source_map_document(
+        SimpleNamespace(
+            compiled_results_by_name={"__main__": result},
+            validated_bundles_by_name=result.validated_bundles,
+        ),
+        selected_name="orchestrate",
+        display_name_resolver=lambda workflow_name: workflow_name,
+    )
+    bundle = result.validated_bundles["orchestrate"]
+    assert len(bundle.ir.nodes) == 1
+    node = next(iter(bundle.ir.nodes.values()))
+    return source_map_module, document, node, source
+
+
+def _source_for_entry(source: str, entry) -> str:
+    lines = source.splitlines(keepends=True)
+    start_line = entry.line - 1
+    end_line = entry.end_line - 1
+    if start_line == end_line:
+        return lines[start_line][entry.column - 1 : entry.end_column - 1]
+    return "".join(
+        (
+            lines[start_line][entry.column - 1 :],
+            *lines[start_line + 1 : end_line],
+            lines[end_line][: entry.end_column - 1],
+        )
+    )
+
+
 def _build_procedure_identity_source_map_document(tmp_path: Path):
     source_map_module = importlib.import_module("orchestrator.workflow_lisp.source_map")
     command_payload = json.loads(
@@ -1387,3 +1489,293 @@ def test_source_map_keeps_r3_lexical_checkpoint_policy_lineage_route_neutral(tmp
     assert "wcc_m4" not in source_map_text
     assert "lowering_route" not in source_map_text
     assert "wcc-node" not in source_map_text
+
+
+def test_source_map_projects_provider_supervision_owners_and_member_prompt_lineages(
+    tmp_path: Path,
+) -> None:
+    _, document, node, source = _provider_supervision_source_map_document(
+        tmp_path,
+        explicit_prompt_dependencies=True,
+    )
+    workflow = document.workflows["orchestrate"]
+    (node_lineage,) = workflow.provider_supervision
+    config = node.execution_config
+
+    assert document.schema_version == "workflow_lisp_source_map.v1"
+    assert [
+        (entry.node_id, entry.step_id, entry.kind)
+        for entry in workflow.executable_nodes
+    ] == [(node.node_id, node.step_id, "provider_supervision")]
+    assert node_lineage.node_id == node.node_id
+    assert node_lineage.step_id == node.step_id
+
+    expected_owner_keys = config.source_ownership.to_dict()
+    assert set(node_lineage.owners) == set(expected_owner_keys)
+    assert len(
+        {
+            owner.source_origin_key
+            for owner in node_lineage.owners.values()
+        }
+    ) == 5
+    for role, expected_origin_key in expected_owner_keys.items():
+        owner = node_lineage.owners[role]
+        assert owner.role == role
+        assert owner.source_origin_key == expected_origin_key
+        assert owner.origin.origin_key == expected_origin_key
+
+    owner_sources = {
+        role: _source_for_entry(source, owner.origin)
+        for role, owner in node_lineage.owners.items()
+    }
+    assert owner_sources["form"].startswith("(with-live-providers")
+    assert owner_sources["worker_binding"].startswith("(worker")
+    assert owner_sources["supervisor_binding"].startswith("(supervisor")
+    assert owner_sources["observation"] == ":observes worker"
+    assert owner_sources["settlement"] == "worker"
+
+    member_configs = {
+        config.worker.member_id: config.worker,
+        config.supervisor.member_id: config.supervisor,
+    }
+    member_lineages = {
+        lineage.member_id: lineage
+        for lineage in node_lineage.member_prompt_dependencies
+    }
+    assert dict(node_lineage.member_ids) == {
+        "worker": config.worker.member_id,
+        "supervisor": config.supervisor.member_id,
+    }
+    assert [
+        lineage.member_id
+        for lineage in node_lineage.member_prompt_dependencies
+    ] == [
+        node_lineage.member_ids[role]
+        for role in ("worker", "supervisor")
+    ]
+    assert set(member_lineages) == {"worker", "supervisor"}
+    for member_id, member_config in member_configs.items():
+        lineage = member_lineages[member_id]
+        contract = (
+            member_config.provider_config
+            .compiler_prompt_dependency_contract
+        )
+        assert lineage.source_origin_key == contract.source_origin_key
+        assert lineage.origin.origin_key == contract.source_origin_key
+        assert lineage.origin_kind == contract.origin_kind.value
+        assert [
+            (row.role, row.authored_index, row.binding_ref)
+            for row in lineage.rows
+        ] == [("required", 0, "inputs.required_path")]
+        assert _source_for_entry(source, lineage.origin).startswith(
+            "(:required (required_path)"
+        )
+        assert _source_for_entry(source, lineage.rows[0].origin) == (
+            "required_path"
+        )
+        assert lineage.position == contract.position.value
+        assert lineage.position_origin is not None
+        assert _source_for_entry(
+            source,
+            lineage.position_origin,
+        ).startswith("(:required (required_path)")
+        assert lineage.instruction == (
+            f"Inspect {member_id} context."
+        )
+        assert lineage.instruction_origin is not None
+        assert _source_for_entry(
+            source,
+            lineage.instruction_origin,
+        ).startswith("(:required (required_path)")
+
+
+def test_source_map_projects_implicit_empty_provider_supervision_prompt_origins(
+    tmp_path: Path,
+) -> None:
+    _, document, node, source = _provider_supervision_source_map_document(
+        tmp_path,
+        explicit_prompt_dependencies=False,
+    )
+    (node_lineage,) = document.workflows[
+        "orchestrate"
+    ].provider_supervision
+    config = node.execution_config
+    member_configs = {
+        config.worker.member_id: config.worker,
+        config.supervisor.member_id: config.supervisor,
+    }
+
+    assert len(node_lineage.member_prompt_dependencies) == 2
+    for lineage in node_lineage.member_prompt_dependencies:
+        contract = (
+            member_configs[lineage.member_id]
+            .provider_config.compiler_prompt_dependency_contract
+        )
+        assert lineage.source_origin_key == contract.source_origin_key
+        assert lineage.origin.origin_key == contract.source_origin_key
+        assert lineage.origin_kind == (
+            "workflow_lisp_provider_supervision_member_implicit_empty"
+        )
+        assert _source_for_entry(source, lineage.origin).startswith(
+            "(provider-result providers."
+        )
+        assert lineage.rows == ()
+        assert lineage.position == "prepend"
+        assert lineage.position_origin is None
+        assert lineage.instruction is None
+        assert lineage.instruction_origin is None
+
+
+@pytest.mark.parametrize("dangling_kind", ("owner", "member_prompt"))
+def test_source_map_validator_rejects_dangling_provider_supervision_lineage(
+    tmp_path: Path,
+    dangling_kind: str,
+) -> None:
+    source_map_module, document, _, _ = (
+        _provider_supervision_source_map_document(
+            tmp_path,
+            explicit_prompt_dependencies=True,
+        )
+    )
+    workflow = document.workflows["orchestrate"]
+    (node_lineage,) = workflow.provider_supervision
+    if dangling_kind == "owner":
+        owner = node_lineage.owners["observation"]
+        broken_node_lineage = replace(
+            node_lineage,
+            owners={
+                **node_lineage.owners,
+                "observation": replace(
+                    owner,
+                    source_origin_key="missing-provider-supervision-owner",
+                ),
+            },
+        )
+    else:
+        first, *remaining = node_lineage.member_prompt_dependencies
+        broken_node_lineage = replace(
+            node_lineage,
+            member_prompt_dependencies=(
+                replace(
+                    first,
+                    source_origin_key="missing-member-prompt-origin",
+                ),
+                *remaining,
+            ),
+        )
+    broken = replace(
+        document,
+        workflows={
+            **document.workflows,
+            "orchestrate": replace(
+                workflow,
+                provider_supervision=(broken_node_lineage,),
+            ),
+        },
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        source_map_module.validate_source_map_document(broken)
+
+    assert excinfo.value.diagnostics[0].code == (
+        "source_map_provider_supervision_invalid"
+    )
+
+
+def test_source_map_validator_rejects_malformed_nested_prompt_row(
+    tmp_path: Path,
+) -> None:
+    source_map_module, document, _, _ = (
+        _provider_supervision_source_map_document(
+            tmp_path,
+            explicit_prompt_dependencies=True,
+        )
+    )
+    workflow = document.workflows["orchestrate"]
+    (node_lineage,) = workflow.provider_supervision
+    first, *remaining = node_lineage.member_prompt_dependencies
+    (row,) = first.rows
+    broken_node_lineage = replace(
+        node_lineage,
+        member_prompt_dependencies=(
+            replace(
+                first,
+                rows=(
+                    replace(
+                        row,
+                        role="garbage",
+                        authored_index=91,
+                        binding_ref="",
+                    ),
+                ),
+            ),
+            *remaining,
+        ),
+    )
+    broken = replace(
+        document,
+        workflows={
+            **document.workflows,
+            "orchestrate": replace(
+                workflow,
+                provider_supervision=(broken_node_lineage,),
+            ),
+        },
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        source_map_module.validate_source_map_document(broken)
+
+    assert excinfo.value.diagnostics[0].code == (
+        "source_map_provider_supervision_invalid"
+    )
+
+
+@pytest.mark.parametrize(
+    "tamper_kind",
+    ("arbitrary", "swapped"),
+)
+def test_source_map_validator_rejects_tampered_provider_member_association(
+    tmp_path: Path,
+    tamper_kind: str,
+) -> None:
+    source_map_module, document, _, _ = (
+        _provider_supervision_source_map_document(
+            tmp_path,
+            explicit_prompt_dependencies=True,
+        )
+    )
+    workflow = document.workflows["orchestrate"]
+    (node_lineage,) = workflow.provider_supervision
+    first, second = node_lineage.member_prompt_dependencies
+    if tamper_kind == "arbitrary":
+        member_prompt_dependencies = (
+            replace(first, member_id="arbitrary-member"),
+            second,
+        )
+    else:
+        member_prompt_dependencies = (
+            replace(first, member_id=second.member_id),
+            replace(second, member_id=first.member_id),
+        )
+    broken_node_lineage = replace(
+        node_lineage,
+        member_prompt_dependencies=member_prompt_dependencies,
+    )
+    broken = replace(
+        document,
+        workflows={
+            **document.workflows,
+            "orchestrate": replace(
+                workflow,
+                provider_supervision=(broken_node_lineage,),
+            ),
+        },
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        source_map_module.validate_source_map_document(broken)
+
+    assert excinfo.value.diagnostics[0].code == (
+        "source_map_provider_supervision_invalid"
+    )
