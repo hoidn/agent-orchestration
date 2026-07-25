@@ -133,6 +133,12 @@ class LoweringOriginMap:
     provider_supervision_prompt_dependency_lineages: tuple[
         PromptDependencyLineage, ...
     ] = ()
+    provider_peer_group_origins: Mapping[str, LoweringOrigin] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+    provider_peer_group_prompt_dependency_lineages: tuple[
+        PromptDependencyLineage, ...
+    ] = ()
 
     @property
     def workflow_span(self) -> SourceSpan:
@@ -701,6 +707,12 @@ def _rekey_origin_map(origin_map: LoweringOriginMap, *, workflow_name: str) -> L
         ),
         provider_supervision_prompt_dependency_lineages=(
             origin_map.provider_supervision_prompt_dependency_lineages
+        ),
+        provider_peer_group_origins=MappingProxyType(
+            dict(origin_map.provider_peer_group_origins)
+        ),
+        provider_peer_group_prompt_dependency_lineages=(
+            origin_map.provider_peer_group_prompt_dependency_lineages
         ),
     )
 

@@ -42,6 +42,7 @@ class _TerminalResult:
     output_kind: str
     hidden_inputs: Mapping[str, LoweringOrigin]
     provider_bundle_identity: Mapping[str, Any] | None = None
+    checkpoint_identity_component_digest: str | None = None
     returned_union_type_name: str | None = None
     returned_union_variant_name: str | None = None
 
@@ -102,6 +103,12 @@ class _LoweringContext:
         default_factory=dict
     )
     provider_supervision_prompt_dependency_lineages: list[
+        PromptDependencyLineage
+    ] = field(default_factory=list)
+    provider_peer_group_origins: dict[str, LoweringOrigin] = field(
+        default_factory=dict
+    )
+    provider_peer_group_prompt_dependency_lineages: list[
         PromptDependencyLineage
     ] = field(default_factory=list)
     phase_scope: _ActivePhaseScope | None = None

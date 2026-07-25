@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -13,7 +14,15 @@ from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.providers.types import (
     INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION,
 )
+from orchestrator.workflow import core_ast as core_ast_module
 from orchestrator.workflow import executable_ir as ir_module
+from orchestrator.workflow import semantic_ir as semantic_ir_module
+from orchestrator.workflow.core_ast import (
+    build_core_workflow_ast,
+    lower_core_workflow_ast,
+    workflow_core_ast_to_json,
+)
+from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.executable_ir import (
     WORKFLOW_EXECUTABLE_IR_SCHEMA_VERSION,
     ExecutableContract,
@@ -30,7 +39,11 @@ from orchestrator.workflow.executable_ir import (
     validate_executable_workflow,
     workflow_executable_ir_to_json,
 )
-from orchestrator.workflow.lowering import _IRBuilder
+from orchestrator.workflow.lowering import (
+    LoweringError,
+    _IRBuilder,
+    build_loaded_workflow_bundle,
+)
 from orchestrator.workflow.prompt_dependency_contract import (
     PromptDependencyOriginKind,
     PromptDependencyPosition,
@@ -49,7 +62,19 @@ from orchestrator.workflow.state_projection import (
     CompatibilityNodeProjection,
     WorkflowStateProjection,
 )
-from orchestrator.workflow.surface_ast import SurfaceWorkflow, WorkflowProvenance
+from orchestrator.workflow.surface_ast import (
+    SurfaceStep,
+    SurfaceStepCommonConfig,
+    SurfaceStepKind,
+    SurfaceWorkflow,
+    WorkflowProvenance,
+)
+from orchestrator.workflow.validation import (
+    WorkflowBoundaryValidationPolicy,
+    WorkflowMappingBuildRequest,
+    WorkflowMappingValidationOptions,
+    validate_workflow_mapping,
+)
 
 
 _STRING_TYPE = MappingProxyType({"kind": "primitive", "name": "String"})
@@ -74,7 +99,7 @@ def _provider_config(member_id: str, timeout_sec: int) -> ProviderStepConfig:
         source_workflow_bytes=b"; generated provider peer group\n",
         origin_kind=(
             PromptDependencyOriginKind
-            .WORKFLOW_LISP_PROVIDER_SUPERVISION_MEMBER_IMPLICIT_EMPTY
+            .WORKFLOW_LISP_PROVIDER_PEER_GROUP_MEMBER_IMPLICIT_EMPTY
         ),
     )
     return ProviderStepConfig(
@@ -197,6 +222,38 @@ def _workflow(
     return workflow, node
 
 
+def _generated_surface(
+    config: ProviderPeerGroupStepConfig,
+) -> SurfaceWorkflow:
+    provenance = WorkflowProvenance(
+        workflow_path=Path("/tmp/generated.orc"),
+        source_root=Path("/tmp"),
+        frontend_kind="workflow_lisp",
+    )
+    return SurfaceWorkflow(
+        version="2.17",
+        name="generated-peers",
+        steps=(
+            SurfaceStep(
+                name="Peers",
+                step_id="root.peers",
+                authored_id="peers",
+                kind=SurfaceStepKind.PROVIDER_PEER_GROUP,
+                common=SurfaceStepCommonConfig(
+                    timeout_sec=config.common.timeout_sec,
+                ),
+                provider_peer_group=config,
+            ),
+        ),
+        provenance=provenance,
+    )
+
+
+def _peer_bundle():
+    surface = _generated_surface(_config(node_id="peers"))
+    return build_loaded_workflow_bundle(surface, imports={})
+
+
 def _projection(node: LeafExecutableNode) -> WorkflowStateProjection:
     entry = CompatibilityNodeProjection(
         node_id=node.node_id,
@@ -244,6 +301,586 @@ def test_provider_peer_group_has_a_separate_executable_node_kind() -> None:
     assert (
         ir_module.ExecutableNodeKind.PROVIDER_PEER_GROUP.value
         == "provider_peer_group"
+    )
+
+
+def test_provider_peer_group_has_a_distinct_generated_surface_slot() -> None:
+    assert SurfaceStepKind.PROVIDER_PEER_GROUP.value == "provider_peer_group"
+    assert "provider_peer_group" in SurfaceStep.__dataclass_fields__
+
+
+def test_generated_peer_group_traverses_one_core_and_executable_node() -> None:
+    original_config = _config(node_id="peers")
+    surface = _generated_surface(original_config)
+
+    core = build_core_workflow_ast(surface, {}, surface.provenance)
+    assert len(core.body) == 1
+    assert isinstance(
+        core.body[0],
+        getattr(core_ast_module, "CoreProviderPeerGroupStep"),
+    )
+    assert core.body[0].provider_peer_group is original_config
+
+    executable, _projection = lower_core_workflow_ast(core)
+    assert executable.schema_version == WORKFLOW_EXECUTABLE_IR_SCHEMA_VERSION
+    assert tuple(executable.nodes) == ("root.peers",)
+    node = executable.nodes["root.peers"]
+    assert node.kind is ExecutableNodeKind.PROVIDER_PEER_GROUP
+    assert isinstance(node.execution_config, ProviderPeerGroupStepConfig)
+    assert node.execution_config.node_id == node.node_id
+    assert tuple(
+        member.member_id for member in node.execution_config.members
+    ) == ("author", "reviewer", "builder")
+    assert node.execution_config.paths == derive_provider_peer_group_paths(
+        node_id=node.node_id,
+        member_ids=("author", "reviewer", "builder"),
+    )
+    assert original_config.node_id == "peers"
+
+
+def test_peer_group_core_json_is_canonical_without_changing_envelope() -> None:
+    config = _config(node_id="peers")
+    surface = _generated_surface(config)
+    core = build_core_workflow_ast(surface, {}, surface.provenance)
+
+    payload = workflow_core_ast_to_json(core)
+
+    assert payload["schema_version"] == "core_workflow_ast.v1"
+    [statement] = payload["body"]
+    assert statement["kind"] == "provider_peer_group"
+    peer_group = statement["provider_peer_group"]
+    assert set(peer_group) == {
+        "common",
+        "schema_version",
+        "node_id",
+        "members",
+        "messaging_policy",
+        "settlement_payload",
+        "settlement_result_contract",
+        "interactive_session_schema_version",
+        "max_steers",
+        "paths",
+        "source_ownership",
+    }
+    assert [
+        member["member_id"] for member in peer_group["members"]
+    ] == ["author", "reviewer", "builder"]
+    assert [
+        member["member_id"] for member in peer_group["paths"]["members"]
+    ] == ["author", "reviewer", "builder"]
+    assert (
+        peer_group["members"][0]["provider_config"][
+            "compiler_prompt_dependency_contract"
+        ]["origin_kind"]
+        == "workflow_lisp_provider_peer_group_member_implicit_empty"
+    )
+    assert peer_group["max_steers"] == 0
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (
+            lambda config: MappingProxyType({}),
+            "typed compiler-generated config",
+        ),
+        (
+            lambda config: _config(node_id="other"),
+            "generated node id",
+        ),
+        (
+            lambda config: replace(
+                config,
+                common=replace(config.common, timeout_sec=99),
+            ),
+            "common config",
+        ),
+        (
+            lambda config: replace(
+                config,
+                paths=derive_provider_peer_group_paths(
+                    node_id=config.node_id,
+                    member_ids=("builder", "reviewer", "author"),
+                ),
+            ),
+            "path plan",
+        ),
+        (
+            lambda config: replace(
+                config,
+                paths=derive_provider_peer_group_paths(
+                    node_id=config.node_id,
+                    member_ids=("author", "reviewer"),
+                ),
+            ),
+            "path plan",
+        ),
+        (
+            lambda config: replace(
+                config,
+                paths=derive_provider_peer_group_paths(
+                    node_id=config.node_id,
+                    member_ids=(
+                        "author",
+                        "reviewer",
+                        "builder",
+                        "intruder",
+                    ),
+                ),
+            ),
+            "path plan",
+        ),
+    ],
+    ids=(
+        "untyped",
+        "node_id",
+        "common",
+        "paths_reordered",
+        "paths_missing",
+        "paths_extra",
+    ),
+)
+def test_peer_group_lowering_rejects_prebind_contract_tampering(
+    mutate,
+    message: str,
+) -> None:
+    config = _config(node_id="peers")
+    surface = _generated_surface(config)
+    tampered_step = replace(
+        surface.steps[0],
+        provider_peer_group=mutate(config),
+    )
+    tampered_surface = replace(surface, steps=(tampered_step,))
+    core = build_core_workflow_ast(
+        tampered_surface,
+        {},
+        tampered_surface.provenance,
+    )
+
+    with pytest.raises(LoweringError, match=message):
+        lower_core_workflow_ast(core)
+
+
+def test_peer_group_semantic_ir_projects_the_exact_executable_contract() -> None:
+    config = _config(node_id="peers")
+    surface = _generated_surface(config)
+
+    bundle = build_loaded_workflow_bundle(surface, imports={})
+
+    assert bundle.semantic_ir.schema_version == "workflow_semantic_ir.v1"
+    workflow = bundle.semantic_ir.workflows["generated-peers"]
+    assert len(workflow.statements) == 1
+    [statement] = workflow.statements.values()
+    assert statement.step_kind == "provider_peer_group"
+    assert statement.executable_node_ids == ("root.peers",)
+    assert len(statement.effect_ids) == 1
+    [effect_id] = statement.effect_ids
+    effect = bundle.semantic_ir.effects[effect_id]
+    assert effect.effect_kind == "provider_peer_group"
+
+    semantic_payload = semantic_ir_module.workflow_semantic_ir_to_json(
+        bundle.semantic_ir
+    )
+    details = semantic_payload["effects"][effect_id]["details"]
+    executable_config = workflow_executable_ir_to_json(bundle.ir)["nodes"][
+        "root.peers"
+    ]["execution_config"]
+    assert details == {
+        "target_dsl_version": "2.17",
+        **executable_config,
+    }
+    assert [
+        member["member_id"] for member in details["members"]
+    ] == ["author", "reviewer", "builder"]
+    assert details["messaging_policy"] == "all_other_members"
+    assert details["max_steers"] == 0
+    assert details["interactive_session_schema_version"] == (
+        "interactive_terminal_turn_queue.v1"
+    )
+    assert set(details["settlement_payload"]["bindings"]) == {
+        "author",
+        "reviewer",
+        "builder",
+    }
+    assert [
+        member["member_id"] for member in details["paths"]["members"]
+    ] == ["author", "reviewer", "builder"]
+    assert all(
+        candidate.effect_kind
+        not in {"provider_call", "provider_supervision"}
+        for candidate in bundle.semantic_ir.effects.values()
+    )
+
+
+def _tamper_peer_semantic_details(
+    details: dict[str, object],
+    defect: str,
+) -> dict[str, object]:
+    if defect == "target":
+        details["target_dsl_version"] = "2.18"
+    elif defect == "common":
+        details["common"]["timeout_sec"] = 999  # type: ignore[index]
+    elif defect == "members_reordered":
+        details["members"] = list(reversed(details["members"]))  # type: ignore[arg-type]
+    elif defect == "members_missing":
+        details["members"] = details["members"][:-1]  # type: ignore[index]
+    elif defect == "members_extra":
+        extra = deepcopy(details["members"][0])  # type: ignore[index]
+        extra["member_id"] = "intruder"
+        details["members"] = [*details["members"], extra]  # type: ignore[misc]
+    elif defect == "provider":
+        details["members"][0]["provider_config"]["provider"] = "wrong"  # type: ignore[index]
+    elif defect == "result_contract":
+        details["members"][0]["result_contract"]["name"] = "Wrong"  # type: ignore[index]
+    elif defect == "policy":
+        details["messaging_policy"] = "directed_edges"
+    elif defect == "capability":
+        details["interactive_session_schema_version"] = "wrong.v1"
+    elif defect == "max_steers":
+        details["max_steers"] = 1
+    elif defect == "settlement_payload":
+        details["settlement_payload"]["expr"]["name"] = "reviewer"  # type: ignore[index]
+    elif defect == "settlement_contract":
+        details["settlement_result_contract"]["name"] = "Wrong"  # type: ignore[index]
+    elif defect == "paths_reordered":
+        members = details["paths"]["members"]  # type: ignore[index]
+        details["paths"]["members"] = list(reversed(members))  # type: ignore[index,arg-type]
+    elif defect == "paths_missing":
+        members = details["paths"]["members"]  # type: ignore[index]
+        details["paths"]["members"] = members[:-1]  # type: ignore[index]
+    elif defect == "paths_extra":
+        members = details["paths"]["members"]  # type: ignore[index]
+        extra = deepcopy(members[0])  # type: ignore[index]
+        extra["member_id"] = "intruder"
+        details["paths"]["members"] = [*members, extra]  # type: ignore[index,misc]
+    elif defect == "prompt_ownership":
+        contract = details["members"][0]["provider_config"][  # type: ignore[index]
+            "compiler_prompt_dependency_contract"
+        ]
+        contract["source_origin_key"] = "source:wrong"
+    elif defect == "source_ownership":
+        members = details["source_ownership"]["members"]  # type: ignore[index]
+        details["source_ownership"]["members"] = list(  # type: ignore[index]
+            reversed(members)  # type: ignore[arg-type]
+        )
+    else:
+        raise AssertionError(f"unknown semantic defect {defect}")
+    return details
+
+
+@pytest.mark.parametrize(
+    "defect",
+    (
+        "target",
+        "common",
+        "members_reordered",
+        "members_missing",
+        "members_extra",
+        "provider",
+        "result_contract",
+        "policy",
+        "capability",
+        "max_steers",
+        "settlement_payload",
+        "settlement_contract",
+        "paths_reordered",
+        "paths_missing",
+        "paths_extra",
+        "prompt_ownership",
+        "source_ownership",
+    ),
+)
+def test_peer_group_semantic_ir_rejects_exact_contract_tampering(
+    defect: str,
+) -> None:
+    bundle = _peer_bundle()
+    workflow = bundle.semantic_ir.workflows["generated-peers"]
+    [statement] = workflow.statements.values()
+    [effect_id] = statement.effect_ids
+    effect = bundle.semantic_ir.effects[effect_id]
+    serialized_details = (
+        semantic_ir_module.workflow_semantic_ir_to_json(
+            bundle.semantic_ir
+        )["effects"][effect_id]["details"]
+    )
+    tampered_effect = replace(
+        effect,
+        details=MappingProxyType(
+            _tamper_peer_semantic_details(
+                deepcopy(serialized_details),
+                defect,
+            )
+        ),
+    )
+    tampered = replace(
+        bundle.semantic_ir,
+        effects=MappingProxyType(
+            {
+                **dict(bundle.semantic_ir.effects),
+                effect_id: tampered_effect,
+            }
+        ),
+    )
+
+    with pytest.raises(
+        WorkflowValidationError,
+        match="provider peer group effect",
+    ):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            tampered,
+            ir=bundle.ir,
+            projection=bundle.projection,
+            runtime_plan=bundle.runtime_plan,
+            surface=bundle.surface,
+            imports={},
+        )
+
+
+@pytest.mark.parametrize(
+    "defect",
+    (
+        "workflow_name",
+        "boundary_metadata",
+        "call_target",
+        "output_validation_surface",
+        "source_map_behavior",
+        "ref_ids",
+    ),
+)
+def test_peer_group_semantic_ir_rejects_effect_metadata_tampering(
+    defect: str,
+) -> None:
+    bundle = _peer_bundle()
+    workflow = bundle.semantic_ir.workflows["generated-peers"]
+    [statement] = workflow.statements.values()
+    [effect_id] = statement.effect_ids
+    effect = bundle.semantic_ir.effects[effect_id]
+    kwargs: dict[str, object]
+    if defect == "workflow_name":
+        kwargs = {"workflow_name": "wrong"}
+    elif defect == "boundary_metadata":
+        kwargs = {
+            "boundary_kind": "certified_adapter",
+            "boundary_name": "fake",
+        }
+    elif defect == "call_target":
+        kwargs = {"call_target": "wrong"}
+    elif defect == "output_validation_surface":
+        kwargs = {"output_validation_surface": "wrong"}
+    elif defect == "source_map_behavior":
+        kwargs = {"source_map_behavior": "wrong"}
+    elif defect == "ref_ids":
+        assert bundle.semantic_ir.refs
+        kwargs = {"ref_ids": (next(iter(bundle.semantic_ir.refs)),)}
+    else:
+        raise AssertionError(f"unknown effect metadata defect {defect}")
+    tampered_effect = replace(effect, **kwargs)
+    tampered = replace(
+        bundle.semantic_ir,
+        effects=MappingProxyType(
+            {
+                **dict(bundle.semantic_ir.effects),
+                effect_id: tampered_effect,
+            }
+        ),
+    )
+
+    with pytest.raises(
+        WorkflowValidationError,
+        match="provider peer group effect",
+    ):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            tampered,
+            ir=bundle.ir,
+            projection=bundle.projection,
+            runtime_plan=bundle.runtime_plan,
+            surface=bundle.surface,
+            imports={},
+        )
+
+
+@pytest.mark.parametrize(
+    "defect",
+    (
+        "missing_effect",
+        "extra_effect_listed",
+        "extra_effect_catalog_only",
+        "relabelled_effect",
+        "relabelled_statement",
+        "relabelled_statement_to_v1",
+        "erased_node_and_effect",
+        "missing_statement",
+    ),
+)
+def test_peer_group_semantic_ir_rejects_noncanonical_projection(
+    defect: str,
+) -> None:
+    bundle = _peer_bundle()
+    workflow_name = "generated-peers"
+    workflow = bundle.semantic_ir.workflows[workflow_name]
+    [statement] = workflow.statements.values()
+    [effect_id] = statement.effect_ids
+    effect = bundle.semantic_ir.effects[effect_id]
+    effects = dict(bundle.semantic_ir.effects)
+    statements = dict(workflow.statements)
+
+    if defect == "missing_effect":
+        statements[statement.statement_id] = replace(
+            statement,
+            effect_ids=(),
+        )
+        effects.pop(effect_id)
+    elif defect in {"extra_effect_listed", "extra_effect_catalog_only"}:
+        extra_effect_id = f"{effect_id}:extra"
+        effects[extra_effect_id] = replace(
+            effect,
+            effect_id=extra_effect_id,
+            effect_kind="unknown_test_effect",
+        )
+        if defect == "extra_effect_listed":
+            statements[statement.statement_id] = replace(
+                statement,
+                effect_ids=(*statement.effect_ids, extra_effect_id),
+            )
+    elif defect == "relabelled_effect":
+        effects[effect_id] = replace(
+            effect,
+            effect_kind="provider_supervision",
+        )
+    elif defect == "relabelled_statement":
+        statements[statement.statement_id] = replace(
+            statement,
+            step_kind="provider",
+        )
+    elif defect == "relabelled_statement_to_v1":
+        statements[statement.statement_id] = replace(
+            statement,
+            step_kind="provider_supervision",
+        )
+    elif defect == "erased_node_and_effect":
+        statements[statement.statement_id] = replace(
+            statement,
+            executable_node_ids=(),
+            effect_ids=(),
+        )
+        effects.pop(effect_id)
+    elif defect == "missing_statement":
+        statements.pop(statement.statement_id)
+        effects.pop(effect_id)
+    else:
+        raise AssertionError(f"unknown projection defect {defect}")
+
+    tampered_workflow = replace(
+        workflow,
+        authored_statement_ids=tuple(statements),
+        statements=MappingProxyType(statements),
+    )
+    tampered = replace(
+        bundle.semantic_ir,
+        workflows=MappingProxyType(
+            {
+                **dict(bundle.semantic_ir.workflows),
+                workflow_name: tampered_workflow,
+            }
+        ),
+        effects=MappingProxyType(effects),
+    )
+
+    with pytest.raises(
+        WorkflowValidationError,
+        match="provider peer group",
+    ):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            tampered,
+            ir=bundle.ir,
+            projection=bundle.projection,
+            runtime_plan=bundle.runtime_plan,
+            surface=bundle.surface,
+            imports={},
+        )
+
+
+def test_generated_mapping_elaborates_one_typed_peer_group_surface() -> None:
+    config = _config(node_id="peers")
+    surface = elaborate_surface_workflow(
+        {
+            "version": "2.17",
+            "name": "generated-peers",
+            "steps": [
+                {
+                    "name": "Peers",
+                    "id": "peers",
+                    "timeout_sec": config.common.timeout_sec,
+                    "provider_peer_group": config,
+                }
+            ],
+        },
+        workflow_path=Path("/tmp/generated.orc"),
+        imported_bundles={},
+        allow_generated_step_kinds=True,
+    )
+
+    assert surface is not None
+    assert len(surface.steps) == 1
+    [step] = surface.steps
+    assert step.kind is SurfaceStepKind.PROVIDER_PEER_GROUP
+    assert step.provider_peer_group is config
+    assert step.step_id == "root.peers"
+    assert step.authored_id == "peers"
+
+
+@pytest.mark.parametrize(
+    "steps",
+    [
+        [
+            {
+                "name": "ForbiddenPeers",
+                "provider_peer_group": {},
+            }
+        ],
+        [
+            {
+                "name": "Nested",
+                "for_each": {
+                    "items": ["one"],
+                    "as": "item",
+                    "steps": [
+                        {
+                            "name": "ForbiddenPeers",
+                            "provider_peer_group": {},
+                        }
+                    ],
+                },
+            }
+        ],
+    ],
+    ids=("top_level", "nested"),
+)
+def test_classic_authored_mapping_cannot_construct_provider_peer_group(
+    tmp_path: Path,
+    steps: list[dict[str, object]],
+) -> None:
+    result = validate_workflow_mapping(
+        WorkflowMappingBuildRequest(
+            authored_mapping={
+                "version": "2.17",
+                "name": "classic-authored",
+                "steps": steps,
+            },
+            workflow_path=tmp_path / "classic.orc",
+        ),
+        options=WorkflowMappingValidationOptions(
+            workspace_root=tmp_path,
+            boundary_validation_policy=(
+                WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
+            ),
+        ),
+    )
+
+    assert result.bundle is None
+    assert any(
+        "provider_peer_group is compiler-generated only" in error.message
+        for error in result.errors
     )
 
 

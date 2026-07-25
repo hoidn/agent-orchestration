@@ -821,6 +821,19 @@ caller target.
 
 ## Task 9: Lower Through Every Executable Projection
 
+**Outcome:** Complete. The target-2.17 peer group now follows the ordinary
+post-WCC route through typed Core, executable IR, runtime plan, Semantic IR,
+source map, public build exports, and lexical checkpoints without a
+surface-to-runtime escape. Checkpoint identity binds the complete peer
+configuration and exact fail-closed peer policy; source-map member ownership
+and prompt lineage are checked against the non-persisted authoritative
+executable configuration. Fresh verification passed 399 combined
+projection/v1 regressions, 175 peer IR/source-map/E2E regressions, collection
+of all 14 peer projection tests, compilation and scoped diff checks, and the
+exact target-2.16 artifact oracle. Ordered specification and quality reviews
+approved the complete candidate after both identified identity/authority
+tamper gaps were closed.
+
 **Files:**
 
 - Modify: `orchestrator/workflow_lisp/wcc/defunctionalize.py`
@@ -844,7 +857,7 @@ caller target.
 - Modify: `tests/test_workflow_lisp_build_artifacts.py`
 - Modify: `tests/test_workflow_lisp_source_map.py`
 
-- [ ] **Step 1: Add failing lowering/projection tests**
+- [x] **Step 1: Add failing lowering/projection tests**
 
 Compile target-2.17 two-, three-, and eight-member fixtures and assert authored
 order, independent member configs/result contracts, closed messaging policy,
@@ -852,13 +865,13 @@ order, independent member configs/result contracts, closed messaging policy,
 paths, prompt ownership, and exact checkpoint inputs in Core, executable IR,
 runtime plan, Semantic IR, source map, and public build exports.
 
-- [ ] **Step 2: Add tamper and v1-separation tests**
+- [x] **Step 2: Add tamper and v1-separation tests**
 
 Reject extra/missing/reordered members and paths at every parser/validator.
 Assert the target-2.16 compatibility oracle from Task 1 remains identical and
 target 2.17 still emits the old node for `with-live-providers`.
 
-- [ ] **Step 3: Confirm the projection tests fail**
+- [x] **Step 3: Confirm the projection tests fail**
 
 ```bash
 pytest -q tests/test_workflow_lisp_provider_peer_group_e2e.py \
@@ -869,13 +882,13 @@ pytest -q tests/test_workflow_lisp_provider_peer_group_e2e.py \
 
 Expected: FAIL because defunctionalization/projections are absent.
 
-- [ ] **Step 4: Implement WCC-to-Core-to-executable lowering**
+- [x] **Step 4: Implement WCC-to-Core-to-executable lowering**
 
 Carry the peer group only through the ordinary post-WCC route and add explicit
 cases to established projections. Do not change envelope schema versions and
 do not add a surface-to-runtime escape.
 
-- [ ] **Step 5: Run narrow and adjacent projection regressions**
+- [x] **Step 5: Run narrow and adjacent projection regressions**
 
 ```bash
 pytest -q tests/test_workflow_lisp_provider_peer_group.py \
@@ -889,7 +902,7 @@ pytest --collect-only -q tests/test_workflow_lisp_provider_peer_group_e2e.py
 
 Expected: all pass.
 
-- [ ] **Step 6: Obtain ordered reviews and commit**
+- [x] **Step 6: Obtain ordered reviews and commit**
 
 Commit message: `Lower provider peer groups through executable artifacts`.
 

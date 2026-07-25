@@ -20,7 +20,12 @@ from .core_ast import (
     CoreWorkflowAST,
     _surface_step_from_core_statement,
 )
-from .executable_ir import ExecutableWorkflow, ProviderSupervisionStepConfig
+from .executable_ir import (
+    ExecutableWorkflow,
+    ProviderPeerGroupStepConfig,
+    ProviderSupervisionStepConfig,
+    provider_peer_group_config_to_runtime_dict,
+)
 from .prompt_dependency_contract import (
     CompilerPromptDependencyContract,
     serialize_compiler_prompt_dependency_contract,
@@ -28,7 +33,14 @@ from .prompt_dependency_contract import (
 from .references import ReferenceResolutionError, StructuredStepReference, parse_structured_ref
 from .runtime_plan import WorkflowRuntimePlan
 from .state_projection import WorkflowStateProjection
-from .surface_ast import SurfaceStep, SurfaceStepKind, SurfaceWorkflow, WorkflowProvenance, empty_frozen_mapping
+from .surface_ast import (
+    SurfaceStep,
+    SurfaceStepKind,
+    SurfaceWorkflow,
+    WorkflowProvenance,
+    empty_frozen_mapping,
+    freeze_mapping,
+)
 from .transition_contract import ValidatedTransitionDeclaration
 from .view_renderer import VIEW_RENDERER_SCHEMA_VERSION
 
@@ -432,6 +444,44 @@ def derive_workflow_semantic_ir(
                 statement_id=statement_id,
                 effect_kind="provider_supervision",
                 details=_provider_supervision_effect_details(config),
+            )
+            statement_effect_ids.append(effect_id)
+
+        if step.kind is SurfaceStepKind.PROVIDER_PEER_GROUP:
+            config = _provider_peer_group_config_for_node_ids(
+                ir,
+                statement_node_ids,
+            )
+            if config is None:
+                _raise_semantic_ir_invalid(
+                    (
+                        "semantic_ir_invalid: provider peer group statement "
+                        f"`{statement_surface.surface_step_id}` requires "
+                        "exactly one typed executable node"
+                    ),
+                    workflow_name=workflow_name,
+                    subject_refs=(
+                        ValidationSubjectRef(
+                            subject_kind="step_id",
+                            subject_name=statement_surface.surface_step_id,
+                            workflow_name=workflow_name,
+                        ),
+                    ),
+                )
+            effect_id = _effect_id(
+                workflow_name,
+                statement_surface.surface_step_id,
+                "provider_peer_group",
+            )
+            effects[effect_id] = SemanticEffectEntry(
+                effect_id=effect_id,
+                workflow_name=workflow_name,
+                statement_id=statement_id,
+                effect_kind="provider_peer_group",
+                details=_provider_peer_group_effect_details(
+                    config,
+                    target_dsl_version=ir.version,
+                ),
             )
             statement_effect_ids.append(effect_id)
 
@@ -966,6 +1016,12 @@ def validate_workflow_semantic_ir(
                     workflow_name=workflow_name,
                     subject_refs=_subject_refs_for_statement(workflow_name, statement),
                 )
+    _validate_provider_peer_group_projection(
+        semantic_ir=semantic_ir,
+        workflow=workflow,
+        workflow_name=workflow_name,
+        ir=ir,
+    )
     _validate_provider_supervision_projection(
         semantic_ir=semantic_ir,
         workflow=workflow,
@@ -1063,6 +1119,13 @@ def validate_workflow_semantic_ir(
             )
         elif effect.effect_kind == "provider_supervision":
             _validate_provider_supervision_effect(
+                workflow=workflow,
+                workflow_name=workflow_name,
+                effect=effect,
+                ir=ir,
+            )
+        elif effect.effect_kind == "provider_peer_group":
+            _validate_provider_peer_group_effect(
                 workflow=workflow,
                 workflow_name=workflow_name,
                 effect=effect,
@@ -1397,6 +1460,35 @@ def _provider_supervision_effect_details(
             "observation": MappingProxyType(config.observation.to_dict()),
             "directive_type": supervisor_type,
             "settlement_type": settlement_type,
+        }
+    )
+
+
+def _provider_peer_group_config_for_node_ids(
+    ir: ExecutableWorkflow,
+    node_ids: tuple[str, ...],
+) -> ProviderPeerGroupStepConfig | None:
+    if len(node_ids) != 1:
+        return None
+    node = ir.nodes.get(node_ids[0])
+    if node is None or not isinstance(
+        node.execution_config,
+        ProviderPeerGroupStepConfig,
+    ):
+        return None
+    return node.execution_config
+
+
+def _provider_peer_group_effect_details(
+    config: ProviderPeerGroupStepConfig,
+    *,
+    target_dsl_version: str,
+) -> Mapping[str, Any]:
+    return freeze_mapping(
+        {
+            "target_dsl_version": target_dsl_version,
+            "common": _json_value(config.common),
+            **provider_peer_group_config_to_runtime_dict(config),
         }
     )
 
@@ -2637,6 +2729,72 @@ def _validate_provider_supervision_effect(
         )
 
 
+def _validate_provider_peer_group_effect(
+    *,
+    workflow: SemanticWorkflow,
+    workflow_name: str,
+    effect: SemanticEffectEntry,
+    ir: ExecutableWorkflow,
+) -> None:
+    statement = workflow.statements[effect.statement_id]
+    config = _provider_peer_group_config_for_node_ids(
+        ir,
+        statement.executable_node_ids,
+    )
+    expected_effect_id = _effect_id(
+        workflow_name,
+        statement.step_id,
+        "provider_peer_group",
+    )
+    if config is None or effect.effect_id != expected_effect_id:
+        _raise_semantic_ir_invalid(
+            (
+                f"semantic_ir_invalid: provider peer group effect "
+                f"`{effect.effect_id}` is not bound to its typed executable "
+                "node"
+            ),
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(
+                workflow_name,
+                statement,
+            ),
+        )
+    expected_details = _provider_peer_group_effect_details(
+        config,
+        target_dsl_version=ir.version,
+    )
+    expected_effect = SemanticEffectEntry(
+        effect_id=expected_effect_id,
+        workflow_name=workflow_name,
+        statement_id=statement.statement_id,
+        effect_kind="provider_peer_group",
+        details=expected_details,
+    )
+    if (
+        replace(
+            effect,
+            details=empty_frozen_mapping(),
+        )
+        != replace(
+            expected_effect,
+            details=empty_frozen_mapping(),
+        )
+        or _normalize_semantic_detail_value(effect.details)
+        != _normalize_semantic_detail_value(expected_details)
+    ):
+        _raise_semantic_ir_invalid(
+            (
+                f"semantic_ir_invalid: provider peer group effect "
+                f"`{effect.effect_id}` does not match its executable contract"
+            ),
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(
+                workflow_name,
+                statement,
+            ),
+        )
+
+
 def _validate_provider_supervision_projection(
     *,
     semantic_ir: SemanticWorkflowIR,
@@ -2740,6 +2898,115 @@ def _validate_provider_supervision_projection(
             (
                 "semantic_ir_invalid: provider supervision statement coverage "
                 "must exactly match typed provider supervision executable nodes"
+            ),
+            workflow_name=workflow_name,
+        )
+
+
+def _validate_provider_peer_group_projection(
+    *,
+    semantic_ir: SemanticWorkflowIR,
+    workflow: SemanticWorkflow,
+    workflow_name: str,
+    ir: ExecutableWorkflow,
+) -> None:
+    expected_node_ids = tuple(
+        sorted(
+            node_id
+            for node_id, node in ir.nodes.items()
+            if isinstance(
+                node.execution_config,
+                ProviderPeerGroupStepConfig,
+            )
+        )
+    )
+    projected_node_ids: list[str] = []
+    for statement in workflow.statements.values():
+        typed_node_ids = tuple(
+            node_id
+            for node_id in statement.executable_node_ids
+            if (
+                (node := ir.nodes.get(node_id)) is not None
+                and isinstance(
+                    node.execution_config,
+                    ProviderPeerGroupStepConfig,
+                )
+            )
+        )
+        is_peer_group_statement = (
+            statement.step_kind
+            == SurfaceStepKind.PROVIDER_PEER_GROUP.value
+        )
+        if not is_peer_group_statement and not typed_node_ids:
+            continue
+        if not is_peer_group_statement:
+            _raise_semantic_ir_invalid(
+                (
+                    "semantic_ir_invalid: typed provider peer group "
+                    f"executable node `{typed_node_ids[0]}` must be owned by "
+                    "a provider peer group statement"
+                ),
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(
+                    workflow_name,
+                    statement,
+                ),
+            )
+        if (
+            len(statement.executable_node_ids) != 1
+            or len(typed_node_ids) != 1
+        ):
+            _raise_semantic_ir_invalid(
+                (
+                    "semantic_ir_invalid: provider peer group statement "
+                    f"`{statement.step_id}` must reference exactly one typed "
+                    "provider peer group executable node"
+                ),
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(
+                    workflow_name,
+                    statement,
+                ),
+            )
+
+        projected_node_ids.append(typed_node_ids[0])
+        expected_effect_id = _effect_id(
+            workflow_name,
+            statement.step_id,
+            "provider_peer_group",
+        )
+        catalog_effect_ids = tuple(
+            sorted(
+                effect.effect_id
+                for effect in semantic_ir.effects.values()
+                if effect.statement_id == statement.statement_id
+            )
+        )
+        canonical_effect = semantic_ir.effects.get(expected_effect_id)
+        if (
+            statement.effect_ids != (expected_effect_id,)
+            or catalog_effect_ids != (expected_effect_id,)
+            or canonical_effect is None
+            or canonical_effect.effect_kind != "provider_peer_group"
+        ):
+            _raise_semantic_ir_invalid(
+                (
+                    "semantic_ir_invalid: provider peer group statement "
+                    f"`{statement.step_id}` must own exactly one canonical "
+                    f"effect `{expected_effect_id}`"
+                ),
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(
+                    workflow_name,
+                    statement,
+                ),
+            )
+
+    if tuple(sorted(projected_node_ids)) != expected_node_ids:
+        _raise_semantic_ir_invalid(
+            (
+                "semantic_ir_invalid: provider peer group statement coverage "
+                "must exactly match typed provider peer group executable nodes"
             ),
             workflow_name=workflow_name,
         )

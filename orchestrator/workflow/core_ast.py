@@ -126,6 +126,14 @@ class CoreProviderSupervisionStep:
 
 
 @dataclass(frozen=True)
+class CoreProviderPeerGroupStep:
+    meta: CoreStmtMeta
+    common: Any
+    provider_peer_group: Any
+    _surface_step: SurfaceStep | None = field(default=None, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
 class CoreAdjudicatedProviderStep:
     meta: CoreStmtMeta
     common: Any
@@ -543,6 +551,13 @@ def _build_statement(
             provider_supervision=step.provider_supervision,
             _surface_step=step,
         )
+    if step.kind is SurfaceStepKind.PROVIDER_PEER_GROUP:
+        return CoreProviderPeerGroupStep(
+            meta=meta,
+            common=step.common,
+            provider_peer_group=step.provider_peer_group,
+            _surface_step=step,
+        )
     if step.kind is SurfaceStepKind.ADJUDICATED_PROVIDER:
         return CoreAdjudicatedProviderStep(
             meta=meta,
@@ -934,6 +949,8 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
         )
     elif isinstance(statement, CoreProviderSupervisionStep):
         kwargs["provider_supervision"] = statement.provider_supervision
+    elif isinstance(statement, CoreProviderPeerGroupStep):
+        kwargs["provider_peer_group"] = statement.provider_peer_group
     elif isinstance(statement, CoreAdjudicatedProviderStep):
         kwargs["adjudicated_provider"] = statement.adjudicated_provider
     elif isinstance(statement, CoreWaitForStep):
@@ -1148,6 +1165,16 @@ def _statement_to_json(statement: Any) -> dict[str, Any]:
             }
         )
         return payload
+    if isinstance(statement, CoreProviderPeerGroupStep):
+        payload.update(
+            {
+                "kind": "provider_peer_group",
+                "provider_peer_group": _provider_peer_group_to_json(
+                    statement.provider_peer_group
+                ),
+            }
+        )
+        return payload
     if isinstance(statement, CoreAdjudicatedProviderStep):
         payload.update({"kind": "adjudicated_provider", "adjudicated_provider": _json_data(statement.adjudicated_provider)})
         return payload
@@ -1281,3 +1308,21 @@ def _json_data(value: Any) -> Any:
             if not key.startswith("_")
         }
     return repr(value)
+
+
+def _provider_peer_group_to_json(value: Any) -> dict[str, Any]:
+    """Serialize only the new peer config without changing v1 Core bytes."""
+
+    from .executable_ir import (
+        ProviderPeerGroupStepConfig,
+        provider_peer_group_config_to_runtime_dict,
+    )
+
+    if not isinstance(value, ProviderPeerGroupStepConfig):
+        raise TypeError(
+            "provider_peer_group core statement requires a typed config"
+        )
+    return {
+        "common": _json_data(value.common),
+        **provider_peer_group_config_to_runtime_dict(value),
+    }

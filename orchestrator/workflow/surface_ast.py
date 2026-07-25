@@ -42,6 +42,7 @@ class SurfaceStepKind(str, Enum):
     COMMAND = "command"
     PROVIDER = "provider"
     PROVIDER_SUPERVISION = "provider_supervision"
+    PROVIDER_PEER_GROUP = "provider_peer_group"
     ADJUDICATED_PROVIDER = "adjudicated_provider"
     WAIT_FOR = "wait_for"
     ASSERT = "assert"
@@ -265,6 +266,10 @@ class SurfaceStep:
         metadata={"json_omit_if_none": True},
     )
     provider_supervision: Any = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    provider_peer_group: Any = field(
         default=None,
         metadata={"json_omit_if_none": True},
     )

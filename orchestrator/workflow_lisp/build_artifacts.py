@@ -38,6 +38,7 @@ from .lexical_checkpoints import (
     CHECKPOINT_POINTS_SCHEMA_VERSION,
     CHECKPOINT_RECORD_SCHEMA_VERSION,
     CHECKPOINT_SHADOW_REPORT_SCHEMA_VERSION,
+    _checkpoint_identity_component_digest,
     canonical_json_dumps,
 )
 from .phase_family_boundary import is_structural_pure_projection_effect_summary
@@ -317,6 +318,17 @@ def _serialize_lexical_checkpoint_points(
 ) -> dict[str, object]:
     from orchestrator.workflow_lisp.lexical_checkpoint_restore import public_restore_metadata
 
+    def executable_identity(point: Any) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "node_id": point.node_id,
+            "step_id": point.step_id,
+            "presentation_key": point.presentation_key,
+        }
+        component_digest = _checkpoint_identity_component_digest(point)
+        if component_digest is not None:
+            payload["identity_component_digest"] = component_digest
+        return payload
+
     points = [
         {
             "checkpoint_id": point.checkpoint_id,
@@ -324,11 +336,7 @@ def _serialize_lexical_checkpoint_points(
             "point_kind": point.point_kind,
             "workflow_name": point.workflow_name,
             "wcc_identity": point.details.get("wcc_identity"),
-            "executable_identity": {
-                "node_id": point.node_id,
-                "step_id": point.step_id,
-                "presentation_key": point.presentation_key,
-            },
+            "executable_identity": executable_identity(point),
             "source_lineage": {
                 "origin_key": point.origin_key,
             },
@@ -385,6 +393,15 @@ def _validate_lexical_checkpoint_artifacts(
         )
         if program_identity.get("source_module_digest") != expected_program_identity["source_module_digest"]:
             raise ValueError("lexical checkpoint program identity drift")
+    runtime_points_by_checkpoint_id = {
+        point.get("checkpoint_id"): point
+        for point in runtime_plan_payload.get(
+            "lexical_checkpoint_points",
+            [],
+        )
+        if isinstance(point, Mapping)
+        and isinstance(point.get("checkpoint_id"), str)
+    }
     for point in points_payload.get("points", []):
         if not isinstance(point.get("wcc_identity", {}), Mapping):
             raise ValueError("lexical checkpoint point missing WCC identity")
@@ -392,7 +409,45 @@ def _validate_lexical_checkpoint_artifacts(
             raise ValueError("lexical checkpoint point missing binding schema digest")
         if not point.get("storage", {}).get("allocation_id"):
             raise ValueError("lexical checkpoint point missing storage allocation")
-        if point.get("executable_identity", {}).get("node_id") not in runtime_node_ids:
+        runtime_point = runtime_points_by_checkpoint_id.get(
+            point.get("checkpoint_id")
+        )
+        if runtime_point is None:
+            raise ValueError("lexical checkpoint point missing runtime-plan linkage")
+        runtime_details = runtime_point.get("details")
+        if not isinstance(runtime_details, Mapping):
+            raise ValueError(
+                "lexical checkpoint executable identity drift"
+            )
+        runtime_executable_identity = runtime_details.get(
+            "executable_identity"
+        )
+        if not isinstance(runtime_executable_identity, Mapping):
+            raise ValueError(
+                "lexical checkpoint executable identity drift"
+            )
+        expected_executable_identity = {
+            "node_id": runtime_point.get("node_id"),
+            "step_id": runtime_point.get("step_id"),
+            "presentation_key": runtime_point.get("presentation_key"),
+        }
+        expected_component_digest = runtime_executable_identity.get(
+            "identity_component_digest"
+        )
+        if expected_component_digest is not None:
+            expected_executable_identity["identity_component_digest"] = (
+                expected_component_digest
+            )
+        observed_executable_identity = point.get("executable_identity")
+        if (
+            not isinstance(observed_executable_identity, Mapping)
+            or dict(observed_executable_identity)
+            != expected_executable_identity
+        ):
+            raise ValueError(
+                "lexical checkpoint executable identity drift"
+            )
+        if expected_executable_identity["node_id"] not in runtime_node_ids:
             raise ValueError("lexical checkpoint point missing executable node linkage")
         if point.get("source_lineage", {}).get("origin_key") not in origin_keys:
             raise ValueError("lexical checkpoint point missing source-map origin coverage")

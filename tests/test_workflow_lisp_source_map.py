@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import re
@@ -107,6 +108,7 @@ def _provider_supervision_source_map_document(
     tmp_path: Path,
     *,
     explicit_prompt_dependencies: bool,
+    target_dsl: str = "2.16",
 ):
     worker_dependencies = (
         """
@@ -128,7 +130,7 @@ def _provider_supervision_source_map_document(
     )
     source = f"""(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.16")
+  (:target-dsl "{target_dsl}")
   (defpath RequiredContext :kind relpath :under "." :must-exist false)
   (defworkflow orchestrate ((required_path RequiredContext))
     -> String
@@ -149,9 +151,9 @@ def _provider_supervision_source_map_document(
       worker)))
 """
     path = tmp_path / (
-        "provider_supervision_explicit.orc"
+        f"provider_supervision_{target_dsl.replace('.', '_')}_explicit.orc"
         if explicit_prompt_dependencies
-        else "provider_supervision_implicit.orc"
+        else f"provider_supervision_{target_dsl.replace('.', '_')}_implicit.orc"
     )
     path.write_text(source, encoding="utf-8")
     prompt_root = tmp_path / "prompts"
@@ -188,6 +190,118 @@ def _provider_supervision_source_map_document(
     assert len(bundle.ir.nodes) == 1
     node = next(iter(bundle.ir.nodes.values()))
     return source_map_module, document, node, source
+
+
+_PROVIDER_PEER_MEMBER_IDS = (
+    "planner",
+    "reviewer",
+    "builder",
+    "tester",
+    "analyst",
+    "editor",
+    "auditor",
+    "publisher",
+)
+
+
+def _provider_peer_group_source_map_document(
+    tmp_path: Path,
+    *,
+    member_count: int,
+    explicit_prompt_dependencies: bool,
+):
+    member_ids = _PROVIDER_PEER_MEMBER_IDS[:member_count]
+    bindings: list[str] = []
+    for index, member_id in enumerate(member_ids):
+        dependencies = (
+            (
+                "\n          :prompt-dependencies\n"
+                "          (:required (required_path)\n"
+                f"           :position {'append' if index % 2 else 'prepend'}\n"
+                f'           :instruction "member instruction {index}")'
+            )
+            if explicit_prompt_dependencies
+            else ""
+        )
+        bindings.append(
+            "\n".join(
+                (
+                    f"       ({member_id}",
+                    f"        (provider-result providers.{member_id}",
+                    f"          :prompt prompts.{member_id}",
+                    f"          :inputs (){dependencies}",
+                    f"          :timeout-sec {20 + index}",
+                    "          :returns String))",
+                )
+            )
+        )
+    source = "\n".join(
+        (
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.17")',
+            "  (defpath RequiredContext :kind relpath :under \".\" :must-exist false)",
+            "  (defworkflow orchestrate ((required_path RequiredContext))",
+            "    -> String",
+            "    (with-live-provider-peers",
+            f"      ({chr(10).join(bindings)})",
+            f"      {member_ids[-1]})))",
+            "",
+        )
+    )
+    path = tmp_path / (
+        f"provider_peer_group_{member_count}_"
+        f"{'explicit' if explicit_prompt_dependencies else 'implicit'}.orc"
+    )
+    path.write_text(source, encoding="utf-8")
+    prompt_root = tmp_path / "prompts"
+    prompt_root.mkdir(exist_ok=True)
+    for member_id in member_ids:
+        (prompt_root / f"{member_id}.md").write_text(
+            f"{member_id}\n",
+            encoding="utf-8",
+        )
+    result = compile_stage3_module(
+        path,
+        entry_workflow="orchestrate",
+        provider_externs={
+            f"providers.{member_id}": f"{member_id}-provider"
+            for member_id in member_ids
+        },
+        prompt_externs={
+            f"prompts.{member_id}": f"prompts/{member_id}.md"
+            for member_id in member_ids
+        },
+        lowering_route="wcc_m4",
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    source_map_module = importlib.import_module(
+        "orchestrator.workflow_lisp.source_map"
+    )
+    document = source_map_module.build_source_map_document(
+        SimpleNamespace(
+            compiled_results_by_name={"__main__": result},
+            validated_bundles_by_name=result.validated_bundles,
+        ),
+        selected_name="orchestrate",
+        display_name_resolver=lambda workflow_name: workflow_name,
+    )
+    bundle = result.validated_bundles["orchestrate"]
+    assert len(bundle.ir.nodes) == 1
+    node = next(iter(bundle.ir.nodes.values()))
+    return source_map_module, result, document, node, source
+
+
+def _provider_peer_group_authority(result):
+    bundle = result.validated_bundles["orchestrate"]
+    return {
+        "orchestrate": {
+            node.node_id: node.execution_config
+            for node in bundle.ir.nodes.values()
+            if node.kind.value == "provider_peer_group"
+        }
+    }
 
 
 def _source_for_entry(source: str, entry) -> str:
@@ -1587,6 +1701,770 @@ def test_source_map_projects_provider_supervision_owners_and_member_prompt_linea
             source,
             lineage.instruction_origin,
         ).startswith("(:required (required_path)")
+
+
+@pytest.mark.parametrize("member_count", (2, 3, 8))
+def test_source_map_projects_ordered_provider_peer_group_owners_and_member_prompt_lineages(
+    tmp_path: Path,
+    member_count: int,
+) -> None:
+    _, _, document, node, source = (
+        _provider_peer_group_source_map_document(
+            tmp_path,
+            member_count=member_count,
+            explicit_prompt_dependencies=True,
+        )
+    )
+    workflow = document.workflows["orchestrate"]
+    (node_lineage,) = workflow.provider_peer_groups
+    config = node.execution_config
+    member_ids = tuple(member.member_id for member in config.members)
+
+    assert document.schema_version == "workflow_lisp_source_map.v1"
+    assert [
+        (entry.node_id, entry.step_id, entry.kind)
+        for entry in workflow.executable_nodes
+    ] == [(node.node_id, node.step_id, "provider_peer_group")]
+    assert node_lineage.node_id == node.node_id
+    assert node_lineage.step_id == node.step_id
+    assert node_lineage.member_ids == member_ids
+
+    owners = node_lineage.owners
+    assert len(owners) == member_count + 2
+    assert tuple((owner.role, owner.member_id) for owner in owners) == (
+        ("form", None),
+        *(("member_binding", member_id) for member_id in member_ids),
+        ("settlement", None),
+    )
+    expected_owner_keys = (
+        config.source_ownership.form,
+        *(member.binding for member in config.source_ownership.members),
+        config.source_ownership.settlement,
+    )
+    assert tuple(owner.source_origin_key for owner in owners) == (
+        expected_owner_keys
+    )
+    assert len({owner.source_origin_key for owner in owners}) == (
+        member_count + 2
+    )
+    assert all(
+        owner.source_origin_key == owner.origin.origin_key
+        and owner.origin.entity_kind == "provider_peer_group_owner"
+        for owner in owners
+    )
+    assert _source_for_entry(source, owners[0].origin).startswith(
+        "(with-live-provider-peers"
+    )
+    for member_id, owner in zip(
+        member_ids,
+        owners[1:-1],
+        strict=True,
+    ):
+        assert _source_for_entry(source, owner.origin).startswith(
+            f"({member_id}"
+        )
+    assert _source_for_entry(source, owners[-1].origin) == member_ids[-1]
+
+    prompt_lineages = node_lineage.member_prompt_dependencies
+    assert tuple(
+        lineage.member_id
+        for lineage in prompt_lineages
+    ) == member_ids
+    for member_config, lineage in zip(
+        config.members,
+        prompt_lineages,
+        strict=True,
+    ):
+        contract = (
+            member_config.provider_config
+            .compiler_prompt_dependency_contract
+        )
+        assert lineage.source_origin_key == contract.source_origin_key
+        assert lineage.origin.origin_key == contract.source_origin_key
+        assert lineage.origin.entity_kind == (
+            "provider_peer_group_member_prompt_dependencies"
+        )
+        assert lineage.origin_kind == contract.origin_kind.value
+        assert [
+            (row.role, row.authored_index, row.binding_ref)
+            for row in lineage.rows
+        ] == [("required", 0, "inputs.required_path")]
+        assert _source_for_entry(source, lineage.rows[0].origin) == (
+            "required_path"
+        )
+        assert lineage.position == contract.position.value
+        assert lineage.position_origin is not None
+        assert lineage.instruction is not None
+        assert (
+            "sha256:"
+            + hashlib.sha256(
+                lineage.instruction.encode("utf-8")
+            ).hexdigest()
+        ) == contract.instruction_utf8_sha256_or_null
+        assert lineage.instruction_origin is not None
+
+
+def test_source_map_projects_ordered_implicit_empty_provider_peer_group_prompt_origins(
+    tmp_path: Path,
+) -> None:
+    _, _, document, node, source = (
+        _provider_peer_group_source_map_document(
+            tmp_path,
+            member_count=3,
+            explicit_prompt_dependencies=False,
+        )
+    )
+    (node_lineage,) = document.workflows[
+        "orchestrate"
+    ].provider_peer_groups
+    config = node.execution_config
+
+    assert node_lineage.member_ids == tuple(
+        member.member_id
+        for member in config.members
+    )
+    assert tuple(
+        lineage.member_id
+        for lineage in node_lineage.member_prompt_dependencies
+    ) == node_lineage.member_ids
+    for member_config, lineage in zip(
+        config.members,
+        node_lineage.member_prompt_dependencies,
+        strict=True,
+    ):
+        contract = (
+            member_config.provider_config
+            .compiler_prompt_dependency_contract
+        )
+        assert lineage.source_origin_key == contract.source_origin_key
+        assert lineage.origin.origin_key == contract.source_origin_key
+        assert lineage.origin_kind == (
+            "workflow_lisp_provider_peer_group_member_implicit_empty"
+        )
+        assert _source_for_entry(source, lineage.origin).startswith(
+            "(provider-result providers."
+        )
+        assert lineage.rows == ()
+        assert lineage.position == "prepend"
+        assert lineage.position_origin is None
+        assert lineage.instruction is None
+        assert lineage.instruction_origin is None
+
+
+@pytest.mark.parametrize("target_dsl", ("2.16", "2.17"))
+def test_source_map_keeps_provider_supervision_and_peer_group_lineage_separate(
+    tmp_path: Path,
+    target_dsl: str,
+) -> None:
+    _, document, node, _ = (
+        _provider_supervision_source_map_document(
+            tmp_path,
+            explicit_prompt_dependencies=False,
+            target_dsl=target_dsl,
+        )
+    )
+    workflow = document.workflows["orchestrate"]
+    payload = _source_map_payload(document)["workflows"]["orchestrate"]
+
+    assert node.kind.value == "provider_supervision"
+    assert workflow.provider_supervision is not None
+    assert workflow.provider_peer_groups is None
+    assert "provider_supervision" in payload
+    assert "provider_peer_groups" not in payload
+
+
+@pytest.mark.parametrize(
+    "tamper_kind",
+    ("missing", "duplicate", "wrong_node", "wrong_step"),
+)
+def test_source_map_validator_rejects_provider_peer_group_executable_coverage_tampering(
+    tmp_path: Path,
+    tamper_kind: str,
+) -> None:
+    source_map_module, result, document, _, _ = (
+        _provider_peer_group_source_map_document(
+            tmp_path,
+            member_count=3,
+            explicit_prompt_dependencies=True,
+        )
+    )
+    workflow = document.workflows["orchestrate"]
+    (lineage,) = workflow.provider_peer_groups
+    if tamper_kind == "missing":
+        peer_groups = ()
+    elif tamper_kind == "duplicate":
+        peer_groups = (lineage, lineage)
+    elif tamper_kind == "wrong_node":
+        peer_groups = (
+            replace(lineage, node_id="unknown-peer-node"),
+        )
+    else:
+        peer_groups = (
+            replace(lineage, step_id="unknown-peer-step"),
+        )
+    broken = replace(
+        document,
+        workflows={
+            **document.workflows,
+            "orchestrate": replace(
+                workflow,
+                provider_peer_groups=peer_groups,
+            ),
+        },
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        source_map_module.validate_source_map_document(
+            broken,
+            authoritative_provider_peer_groups=(
+                _provider_peer_group_authority(result)
+            ),
+        )
+
+    assert "source_map_provider_peer_group_invalid" in {
+        diagnostic.code
+        for diagnostic in excinfo.value.diagnostics
+    }
+
+
+@pytest.mark.parametrize(
+    "tamper_kind",
+    ("missing", "extra", "reordered", "duplicate", "arbitrary"),
+)
+def test_source_map_validator_rejects_provider_peer_group_member_identity_tampering(
+    tmp_path: Path,
+    tamper_kind: str,
+) -> None:
+    source_map_module, result, document, _, _ = (
+        _provider_peer_group_source_map_document(
+            tmp_path,
+            member_count=3,
+            explicit_prompt_dependencies=True,
+        )
+    )
+    workflow = document.workflows["orchestrate"]
+    (lineage,) = workflow.provider_peer_groups
+    member_ids = lineage.member_ids
+    if tamper_kind == "missing":
+        broken_member_ids = member_ids[:-1]
+    elif tamper_kind == "extra":
+        broken_member_ids = (*member_ids, "extra-member")
+    elif tamper_kind == "reordered":
+        broken_member_ids = tuple(reversed(member_ids))
+    elif tamper_kind == "duplicate":
+        broken_member_ids = (
+            member_ids[0],
+            member_ids[0],
+            *member_ids[2:],
+        )
+    else:
+        broken_member_ids = (
+            "arbitrary-member",
+            *member_ids[1:],
+        )
+    broken = replace(
+        document,
+        workflows={
+            **document.workflows,
+            "orchestrate": replace(
+                workflow,
+                provider_peer_groups=(
+                    replace(
+                        lineage,
+                        member_ids=broken_member_ids,
+                    ),
+                ),
+            ),
+        },
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        source_map_module.validate_source_map_document(
+            broken,
+            authoritative_provider_peer_groups=(
+                _provider_peer_group_authority(result)
+            ),
+        )
+
+    assert "source_map_provider_peer_group_invalid" in {
+        diagnostic.code
+        for diagnostic in excinfo.value.diagnostics
+    }
+
+
+@pytest.mark.parametrize(
+    "tamper_kind",
+    ("missing", "extra", "reordered"),
+)
+def test_source_map_validator_binds_provider_peer_group_lineage_to_authoritative_members(
+    tmp_path: Path,
+    tamper_kind: str,
+) -> None:
+    source_map_module, result, document, node, _ = (
+        _provider_peer_group_source_map_document(
+            tmp_path,
+            member_count=3,
+            explicit_prompt_dependencies=True,
+        )
+    )
+    workflow = document.workflows["orchestrate"]
+    (lineage,) = workflow.provider_peer_groups
+    member_ids = lineage.member_ids
+    owners_by_member = {
+        owner.member_id: owner
+        for owner in lineage.owners
+        if owner.member_id is not None
+    }
+    prompts_by_member = {
+        prompt.member_id: prompt
+        for prompt in lineage.member_prompt_dependencies
+    }
+
+    if tamper_kind == "missing":
+        broken_member_ids = member_ids[:-1]
+    elif tamper_kind == "reordered":
+        broken_member_ids = tuple(reversed(member_ids))
+    else:
+        extra_member_id = "extra-member"
+        extra_owner_origin_key = (
+            "orchestrate::provider_peer_group_owner::extra-member"
+        )
+        extra_prompt_origin_key = (
+            "orchestrate::provider_peer_group_prompt::extra-member"
+        )
+        owners_by_member[extra_member_id] = replace(
+            owners_by_member[member_ids[-1]],
+            member_id=extra_member_id,
+            source_origin_key=extra_owner_origin_key,
+            origin=replace(
+                owners_by_member[member_ids[-1]].origin,
+                origin_key=extra_owner_origin_key,
+            ),
+        )
+        prompts_by_member[extra_member_id] = replace(
+            prompts_by_member[member_ids[-1]],
+            member_id=extra_member_id,
+            source_origin_key=extra_prompt_origin_key,
+            origin=replace(
+                prompts_by_member[member_ids[-1]].origin,
+                origin_key=extra_prompt_origin_key,
+            ),
+        )
+        broken_member_ids = (*member_ids, extra_member_id)
+
+    broken_lineage = replace(
+        lineage,
+        member_ids=broken_member_ids,
+        owners=(
+            lineage.owners[0],
+            *(owners_by_member[member_id] for member_id in broken_member_ids),
+            lineage.owners[-1],
+        ),
+        member_prompt_dependencies=tuple(
+            prompts_by_member[member_id]
+            for member_id in broken_member_ids
+        ),
+    )
+    broken = replace(
+        document,
+        workflows={
+            **document.workflows,
+            "orchestrate": replace(
+                workflow,
+                provider_peer_groups=(broken_lineage,),
+            ),
+        },
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        source_map_module.validate_source_map_document(
+            broken,
+            authoritative_provider_peer_groups=(
+                _provider_peer_group_authority(result)
+            ),
+        )
+
+    assert any(
+        "authoritative executable member order"
+        in diagnostic.message
+        for diagnostic in excinfo.value.diagnostics
+    )
+    assert tuple(
+        member.member_id
+        for member in node.execution_config.members
+    ) == member_ids
+
+
+@pytest.mark.parametrize(
+    "tamper_kind",
+    (
+        "missing",
+        "extra",
+        "reordered",
+        "wrong_role",
+        "wrong_member",
+        "duplicate_key",
+        "dangling",
+    ),
+)
+def test_source_map_validator_rejects_provider_peer_group_owner_tampering(
+    tmp_path: Path,
+    tamper_kind: str,
+) -> None:
+    source_map_module, result, document, _, _ = (
+        _provider_peer_group_source_map_document(
+            tmp_path,
+            member_count=3,
+            explicit_prompt_dependencies=True,
+        )
+    )
+    workflow = document.workflows["orchestrate"]
+    (lineage,) = workflow.provider_peer_groups
+    owners = lineage.owners
+    if tamper_kind == "missing":
+        broken_owners = owners[:-1]
+    elif tamper_kind == "extra":
+        broken_owners = (*owners, owners[-1])
+    elif tamper_kind == "reordered":
+        broken_owners = (
+            owners[0],
+            owners[2],
+            owners[1],
+            *owners[3:],
+        )
+    elif tamper_kind == "wrong_role":
+        broken_owners = (
+            replace(owners[0], role="member_binding"),
+            *owners[1:],
+        )
+    elif tamper_kind == "wrong_member":
+        broken_owners = (
+            owners[0],
+            replace(owners[1], member_id="arbitrary-member"),
+            *owners[2:],
+        )
+    elif tamper_kind == "duplicate_key":
+        broken_owners = (
+            owners[0],
+            replace(
+                owners[1],
+                source_origin_key=owners[0].source_origin_key,
+            ),
+            *owners[2:],
+        )
+    else:
+        broken_owners = (
+            owners[0],
+            replace(
+                owners[1],
+                source_origin_key="missing-peer-owner-origin",
+            ),
+            *owners[2:],
+        )
+    broken = replace(
+        document,
+        workflows={
+            **document.workflows,
+            "orchestrate": replace(
+                workflow,
+                provider_peer_groups=(
+                    replace(
+                        lineage,
+                        owners=broken_owners,
+                    ),
+                ),
+            ),
+        },
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        source_map_module.validate_source_map_document(
+            broken,
+            authoritative_provider_peer_groups=(
+                _provider_peer_group_authority(result)
+            ),
+        )
+
+    assert "source_map_provider_peer_group_invalid" in {
+        diagnostic.code
+        for diagnostic in excinfo.value.diagnostics
+    }
+
+
+@pytest.mark.parametrize(
+    "tamper_kind",
+    (
+        "missing",
+        "extra",
+        "reordered",
+        "arbitrary",
+        "duplicate_member",
+        "duplicate_key",
+        "dangling",
+    ),
+)
+def test_source_map_validator_rejects_provider_peer_group_member_prompt_tampering(
+    tmp_path: Path,
+    tamper_kind: str,
+) -> None:
+    source_map_module, result, document, _, _ = (
+        _provider_peer_group_source_map_document(
+            tmp_path,
+            member_count=3,
+            explicit_prompt_dependencies=True,
+        )
+    )
+    workflow = document.workflows["orchestrate"]
+    (lineage,) = workflow.provider_peer_groups
+    prompts = lineage.member_prompt_dependencies
+    if tamper_kind == "missing":
+        broken_prompts = prompts[:-1]
+    elif tamper_kind == "extra":
+        broken_prompts = (*prompts, prompts[-1])
+    elif tamper_kind == "reordered":
+        broken_prompts = (
+            prompts[1],
+            prompts[0],
+            *prompts[2:],
+        )
+    elif tamper_kind == "arbitrary":
+        broken_prompts = (
+            replace(prompts[0], member_id="arbitrary-member"),
+            *prompts[1:],
+        )
+    elif tamper_kind == "duplicate_member":
+        broken_prompts = (
+            prompts[0],
+            replace(prompts[1], member_id=prompts[0].member_id),
+            *prompts[2:],
+        )
+    elif tamper_kind == "duplicate_key":
+        broken_prompts = (
+            prompts[0],
+            replace(
+                prompts[1],
+                source_origin_key=prompts[0].source_origin_key,
+            ),
+            *prompts[2:],
+        )
+    else:
+        broken_prompts = (
+            replace(
+                prompts[0],
+                source_origin_key="missing-peer-prompt-origin",
+            ),
+            *prompts[1:],
+        )
+    broken = replace(
+        document,
+        workflows={
+            **document.workflows,
+            "orchestrate": replace(
+                workflow,
+                provider_peer_groups=(
+                    replace(
+                        lineage,
+                        member_prompt_dependencies=broken_prompts,
+                    ),
+                ),
+            ),
+        },
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        source_map_module.validate_source_map_document(
+            broken,
+            authoritative_provider_peer_groups=(
+                _provider_peer_group_authority(result)
+            ),
+        )
+
+    assert "source_map_provider_peer_group_invalid" in {
+        diagnostic.code
+        for diagnostic in excinfo.value.diagnostics
+    }
+
+
+@pytest.mark.parametrize(
+    "tamper_kind",
+    (
+        "malformed_row",
+        "missing_position_origin",
+        "incomplete_instruction",
+        "implicit_nonempty",
+        "wrong_implicit_enum",
+    ),
+)
+def test_source_map_validator_rejects_malformed_provider_peer_group_prompt_contract(
+    tmp_path: Path,
+    tamper_kind: str,
+) -> None:
+    explicit = tamper_kind in {
+        "malformed_row",
+        "missing_position_origin",
+        "incomplete_instruction",
+    }
+    source_map_module, result, document, _, _ = (
+        _provider_peer_group_source_map_document(
+            tmp_path,
+            member_count=3,
+            explicit_prompt_dependencies=explicit,
+        )
+    )
+    workflow = document.workflows["orchestrate"]
+    (lineage,) = workflow.provider_peer_groups
+    first, *remaining = lineage.member_prompt_dependencies
+    if tamper_kind == "malformed_row":
+        (row,) = first.rows
+        broken_first = replace(
+            first,
+            rows=(
+                replace(
+                    row,
+                    role="garbage",
+                    authored_index=91,
+                    binding_ref="",
+                ),
+            ),
+        )
+    elif tamper_kind == "missing_position_origin":
+        broken_first = replace(first, position_origin=None)
+    elif tamper_kind == "incomplete_instruction":
+        broken_first = replace(first, instruction_origin=None)
+    elif tamper_kind == "implicit_nonempty":
+        broken_first = replace(first, position="append")
+    else:
+        broken_first = replace(
+            first,
+            origin_kind=(
+                "workflow_lisp_provider_supervision_member_implicit_empty"
+            ),
+        )
+    broken = replace(
+        document,
+        workflows={
+            **document.workflows,
+            "orchestrate": replace(
+                workflow,
+                provider_peer_groups=(
+                    replace(
+                        lineage,
+                        member_prompt_dependencies=(
+                            broken_first,
+                            *remaining,
+                        ),
+                    ),
+                ),
+            ),
+        },
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        source_map_module.validate_source_map_document(
+            broken,
+            authoritative_provider_peer_groups=(
+                _provider_peer_group_authority(result)
+            ),
+        )
+
+    assert "source_map_provider_peer_group_invalid" in {
+        diagnostic.code
+        for diagnostic in excinfo.value.diagnostics
+    }
+
+
+@pytest.mark.parametrize(
+    "tamper_kind",
+    (
+        "missing_owner",
+        "missing_prompt_origin",
+        "missing_explicit_lineage",
+        "extra_origin",
+        "leftover_prompt_lineage",
+        "duplicate_prompt_lineage",
+    ),
+)
+def test_source_map_builder_rejects_provider_peer_group_retained_catalog_tampering(
+    tmp_path: Path,
+    tamper_kind: str,
+) -> None:
+    source_map_module, result, _, node, _ = (
+        _provider_peer_group_source_map_document(
+            tmp_path,
+            member_count=3,
+            explicit_prompt_dependencies=True,
+        )
+    )
+    (lowered,) = result.lowered_workflows
+    origin_map = lowered.origin_map
+    retained_origins = dict(origin_map.provider_peer_group_origins)
+    retained_lineages = tuple(
+        origin_map.provider_peer_group_prompt_dependency_lineages
+    )
+    config = node.execution_config
+    owner_key = config.source_ownership.form
+    prompt_key = (
+        config.members[0].provider_config
+        .compiler_prompt_dependency_contract.source_origin_key
+    )
+    if tamper_kind == "missing_owner":
+        retained_origins.pop(owner_key)
+    elif tamper_kind == "missing_prompt_origin":
+        retained_origins.pop(prompt_key)
+    elif tamper_kind == "missing_explicit_lineage":
+        retained_lineages = retained_lineages[1:]
+    elif tamper_kind == "extra_origin":
+        extra_key = "orchestrate::provider_peer_group_owner::leftover"
+        retained_origins[extra_key] = replace(
+            retained_origins[owner_key],
+            origin_key=extra_key,
+        )
+    elif tamper_kind == "leftover_prompt_lineage":
+        retained_lineages = (
+            *retained_lineages,
+            replace(
+                retained_lineages[0],
+                source_origin_key=owner_key,
+                clause_origin=retained_origins[owner_key],
+            ),
+        )
+    else:
+        retained_lineages = (
+            *retained_lineages,
+            retained_lineages[0],
+        )
+    tampered_lowered = replace(
+        lowered,
+        origin_map=replace(
+            origin_map,
+            provider_peer_group_origins=retained_origins,
+            provider_peer_group_prompt_dependency_lineages=(
+                retained_lineages
+            ),
+        ),
+    )
+    tampered_result = replace(
+        result,
+        lowered_workflows=(tampered_lowered,),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        source_map_module.build_source_map_document(
+            SimpleNamespace(
+                compiled_results_by_name={
+                    "__main__": tampered_result,
+                },
+                validated_bundles_by_name=(
+                    tampered_result.validated_bundles
+                ),
+            ),
+            selected_name="orchestrate",
+            display_name_resolver=lambda workflow_name: workflow_name,
+        )
+
+    assert excinfo.value.diagnostics[0].code == (
+        "source_map_provider_peer_group_invalid"
+    )
 
 
 def test_source_map_projects_implicit_empty_provider_supervision_prompt_origins(

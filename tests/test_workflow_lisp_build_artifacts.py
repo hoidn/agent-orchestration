@@ -739,6 +739,84 @@ def _provider_supervision_build_request(tmp_path: Path):
     )
 
 
+def _provider_peer_group_build_request(tmp_path: Path):
+    source_path = tmp_path / "provider_peer_group_build.orc"
+    source_path.write_text(
+        """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.17")
+  (defmodule provider_peer_group_build)
+  (export orchestrate)
+  (defpath RequiredContext :kind relpath :under "." :must-exist false)
+  (defworkflow orchestrate ((required_path RequiredContext)) -> String
+    (with-live-provider-peers
+      ((writer
+        (provider-result providers.writer
+          :prompt prompts.writer
+          :inputs ()
+          :prompt-dependencies
+          (:required (required_path) :position append)
+          :timeout-sec 20
+          :returns String))
+       (reviewer
+        (provider-result providers.reviewer
+          :prompt prompts.reviewer
+          :inputs ()
+          :prompt-dependencies
+          (:required (required_path) :position prepend)
+          :timeout-sec 30
+          :returns String))
+       (builder
+        (provider-result providers.builder
+          :prompt prompts.builder
+          :inputs ()
+          :prompt-dependencies
+          (:required (required_path) :position append)
+          :timeout-sec 40
+          :returns String)))
+      builder)))
+""",
+        encoding="utf-8",
+    )
+    prompt_root = tmp_path / "prompts"
+    prompt_root.mkdir()
+    prompt_externs: dict[str, str] = {}
+    provider_externs: dict[str, str] = {}
+    for member_id in ("writer", "reviewer", "builder"):
+        prompt_path = prompt_root / f"{member_id}.md"
+        prompt_path.write_text(f"{member_id}\n", encoding="utf-8")
+        prompt_externs[f"prompts.{member_id}"] = str(prompt_path)
+        provider_externs[f"providers.{member_id}"] = (
+            f"{member_id}-provider"
+        )
+
+    provider_externs_path = tmp_path / "peer-providers.json"
+    provider_externs_path.write_text(
+        json.dumps(provider_externs),
+        encoding="utf-8",
+    )
+    prompt_externs_path = tmp_path / "peer-prompts.json"
+    prompt_externs_path.write_text(
+        json.dumps(prompt_externs),
+        encoding="utf-8",
+    )
+
+    request_cls = getattr(_build_module(), "FrontendBuildRequest")
+    return request_cls(
+        source_path=source_path,
+        source_roots=(tmp_path,),
+        entry_workflow="orchestrate",
+        provider_externs_path=provider_externs_path,
+        prompt_externs_path=prompt_externs_path,
+        imported_workflow_bundles_path=None,
+        command_boundaries_path=None,
+        emit_debug_yaml=False,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+
+
 def test_frontend_build_request_has_no_yaml_deprecation_policy(
     tmp_path: Path,
 ) -> None:
@@ -2590,6 +2668,170 @@ def test_provider_supervision_public_build_artifacts_share_one_atomic_node(
             f"/{file_name}"
         )
         assert result.manifest.artifact_status[artifact_name] == "emitted"
+
+
+def test_provider_peer_group_public_build_artifacts_share_one_atomic_node(
+    tmp_path: Path,
+) -> None:
+    result = _build_module().build_frontend_bundle(
+        _provider_peer_group_build_request(tmp_path)
+    )
+    payloads = {
+        name: json.loads(path.read_text(encoding="utf-8"))
+        for name, path in result.artifact_paths.items()
+        if name
+        in {
+            "executable_ir",
+            "core_workflow_ast",
+            "runtime_plan",
+            "semantic_ir",
+            "source_map",
+            "lexical_checkpoint_points",
+        }
+    }
+    executable_ir = payloads["executable_ir"]
+    core_workflow_ast = payloads["core_workflow_ast"]
+    runtime_plan = payloads["runtime_plan"]
+    semantic_ir = payloads["semantic_ir"]
+    source_map = payloads["source_map"]
+    checkpoint_points = payloads["lexical_checkpoint_points"]
+    workflow_name = result.selected_workflow_name
+
+    assert result.manifest.schema_version == "workflow_lisp_build.v2"
+    assert executable_ir["schema_version"] == "workflow_executable_ir.v1"
+    assert core_workflow_ast["schema_version"] == "core_workflow_ast.v1"
+    assert runtime_plan["schema_version"] == "workflow_runtime_plan.v1"
+    assert semantic_ir["schema_version"] == "workflow_semantic_ir.v1"
+    assert source_map["schema_version"] == "workflow_lisp_source_map.v1"
+
+    [(node_id, executable_node)] = executable_ir["nodes"].items()
+    config = executable_node["execution_config"]
+    member_ids = ["writer", "reviewer", "builder"]
+    assert executable_node["kind"] == "provider_peer_group"
+    assert config["schema_version"] == "provider_peer_group.v1"
+    assert config["node_id"] == node_id
+    assert [member["member_id"] for member in config["members"]] == (
+        member_ids
+    )
+    assert config["messaging_policy"] == "all_other_members"
+    assert config["max_steers"] == 0
+    assert [
+        member["member_id"] for member in config["paths"]["members"]
+    ] == member_ids
+    assert all(
+        node["kind"] != "provider"
+        for node in executable_ir["nodes"].values()
+    )
+
+    [core_statement] = core_workflow_ast["body"]
+    assert core_statement["kind"] == "provider_peer_group"
+    assert (
+        core_statement["provider_peer_group"]["schema_version"]
+        == "provider_peer_group.v1"
+    )
+
+    assert set(runtime_plan["nodes"]) == {node_id}
+    runtime_node = runtime_plan["nodes"][node_id]
+    assert runtime_node["kind"] == "provider_peer_group"
+    assert runtime_node["provider_peer_group"] == {
+        "atomic_workflow_result_commit": True,
+        "interactive_session_schema_version": (
+            "interactive_terminal_turn_queue.v1"
+        ),
+        "max_steers": 0,
+        "member_ids": member_ids,
+        "messaging_policy": "all_other_members",
+    }
+
+    semantic_workflow = semantic_ir["workflows"][workflow_name]
+    [semantic_statement] = semantic_workflow["statements"].values()
+    assert semantic_statement["step_kind"] == "provider_peer_group"
+    assert semantic_statement["executable_node_ids"] == [node_id]
+    [effect_id] = semantic_statement["effect_ids"]
+    effect = semantic_ir["effects"][effect_id]
+    assert effect["effect_kind"] == "provider_peer_group"
+    assert effect["details"] == {
+        "target_dsl_version": "2.17",
+        **config,
+    }
+
+    source_workflow = source_map["workflows"][workflow_name]
+    [source_lineage] = source_workflow["provider_peer_groups"]
+    assert source_lineage["node_id"] == node_id
+    assert source_lineage["step_id"] == executable_node["step_id"]
+    assert source_lineage["member_ids"] == member_ids
+    assert len(source_lineage["owners"]) == len(member_ids) + 2
+    assert [
+        lineage["member_id"]
+        for lineage in source_lineage["member_prompt_dependencies"]
+    ] == member_ids
+
+    [runtime_checkpoint] = runtime_plan["lexical_checkpoint_points"]
+    component_digest = runtime_checkpoint["details"][
+        "executable_identity"
+    ]["identity_component_digest"]
+    assert component_digest.startswith("sha256:")
+    [checkpoint] = checkpoint_points["points"]
+    assert checkpoint["executable_identity"][
+        "identity_component_digest"
+    ] == component_digest
+
+    for artifact_name in payloads:
+        assert result.manifest.artifact_status[artifact_name] == "emitted"
+
+
+@pytest.mark.parametrize(
+    "defect",
+    (
+        "node_id",
+        "step_id",
+        "presentation_key",
+        "identity_component_digest",
+        "missing",
+        "extra",
+    ),
+)
+def test_provider_peer_group_checkpoint_artifact_rejects_executable_identity_drift(
+    tmp_path: Path,
+    defect: str,
+) -> None:
+    result = _build_module().build_frontend_bundle(
+        _provider_peer_group_build_request(tmp_path)
+    )
+    payloads = {
+        name: json.loads(result.artifact_paths[name].read_text(encoding="utf-8"))
+        for name in (
+            "lexical_checkpoint_points",
+            "runtime_plan",
+            "semantic_ir",
+            "source_map",
+        )
+    }
+    [checkpoint] = payloads["lexical_checkpoint_points"]["points"]
+    executable_identity = checkpoint["executable_identity"]
+    if defect == "identity_component_digest":
+        executable_identity[defect] = "sha256:" + "0" * 64
+    elif defect == "missing":
+        executable_identity.pop("step_id")
+    elif defect == "extra":
+        executable_identity["unexpected"] = "retarget"
+    else:
+        executable_identity[defect] = "retarget"
+    build_artifacts = importlib.import_module(
+        "orchestrator.workflow_lisp.build_artifacts"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="lexical checkpoint executable identity drift",
+    ):
+        build_artifacts._validate_lexical_checkpoint_artifacts(
+            payloads["lexical_checkpoint_points"],
+            validated_bundle=result.validated_bundle,
+            semantic_ir_payload=payloads["semantic_ir"],
+            runtime_plan_payload=payloads["runtime_plan"],
+            source_map_payload=payloads["source_map"],
+        )
 
 
 def test_prompt_extern_object_entries_are_accepted_by_build_service(tmp_path: Path) -> None:

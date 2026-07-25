@@ -11,6 +11,7 @@ from orchestrator.exceptions import ValidationSubjectRef
 from orchestrator.workflow.core_ast import CoreForEach, CoreIf, CoreMatch, CoreRepeatUntil, CoreWorkflowAST
 from orchestrator.workflow.executable_ir import (
     ExecutableNodeBase,
+    ProviderPeerGroupStepConfig,
     ProviderSupervisionStepConfig,
 )
 from orchestrator.workflow.prompt_dependency_contract import (
@@ -214,6 +215,56 @@ class ProviderSupervisionLineage:
 
 
 @dataclass(frozen=True)
+class ProviderPeerGroupOwnerLineage:
+    """One ordered provider-peer-group source owner and its origin."""
+
+    role: str
+    source_origin_key: str
+    origin: SourceMapEntry
+    member_id: str | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+
+
+@dataclass(frozen=True)
+class ProviderPeerGroupMemberPromptLineage:
+    """One peer member's compiler-owned prompt contract and source lineage."""
+
+    member_id: str
+    source_origin_key: str
+    origin_kind: str
+    origin: SourceMapEntry
+    rows: tuple[PromptDependencyRowLineage, ...]
+    position: str
+    position_origin: SourceMapEntry | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    instruction: str | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    instruction_origin: SourceMapEntry | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+
+
+@dataclass(frozen=True)
+class ProviderPeerGroupLineage:
+    """One generated peer-group node and its authored-order provenance."""
+
+    node_id: str
+    step_id: str
+    member_ids: tuple[str, ...]
+    owners: tuple[ProviderPeerGroupOwnerLineage, ...]
+    member_prompt_dependencies: tuple[
+        ProviderPeerGroupMemberPromptLineage, ...
+    ]
+
+
+@dataclass(frozen=True)
 class WorkflowSourceMap:
     """Per-workflow lineage sections nested under the top-level document."""
 
@@ -234,6 +285,10 @@ class WorkflowSourceMap:
     validation_subjects: tuple[ValidationSubjectBinding, ...]
     executable_nodes: tuple[ExecutableNodeLineage, ...]
     provider_supervision: tuple[ProviderSupervisionLineage, ...] | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    provider_peer_groups: tuple[ProviderPeerGroupLineage, ...] | None = field(
         default=None,
         metadata={"json_omit_if_none": True},
     )
@@ -394,6 +449,166 @@ def _provider_supervision_lineage_error(
     return None
 
 
+def _provider_peer_group_lineage_error(
+    lineage: ProviderPeerGroupLineage,
+    *,
+    executable_nodes_by_id: Mapping[str, ExecutableNodeLineage],
+    authoritative_config: ProviderPeerGroupStepConfig | None,
+    origin_keys: set[str],
+) -> str | None:
+    executable_node = executable_nodes_by_id.get(lineage.node_id)
+    if (
+        executable_node is None
+        or executable_node.kind != "provider_peer_group"
+        or executable_node.step_id != lineage.step_id
+    ):
+        return f"lineage `{lineage.node_id}` does not match its executable node"
+
+    if not isinstance(authoritative_config, ProviderPeerGroupStepConfig):
+        return (
+            f"lineage `{lineage.node_id}` has no authoritative validated "
+            "executable config"
+        )
+    member_ids = lineage.member_ids
+    if (
+        not isinstance(member_ids, tuple)
+        or not 2 <= len(member_ids) <= 8
+        or any(
+            not isinstance(member_id, str) or not member_id
+            for member_id in member_ids
+        )
+        or len(set(member_ids)) != len(member_ids)
+    ):
+        return f"lineage `{lineage.node_id}` has invalid authored member ids"
+    authoritative_member_ids = tuple(
+        member.member_id
+        for member in authoritative_config.members
+    )
+    if member_ids != authoritative_member_ids:
+        return (
+            f"lineage `{lineage.node_id}` does not match the authoritative "
+            "executable member order"
+        )
+
+    owners = lineage.owners
+    expected_owner_identities = (
+        ("form", None),
+        *(("member_binding", member_id) for member_id in member_ids),
+        ("settlement", None),
+    )
+    if (
+        not isinstance(owners, tuple)
+        or len(owners) != len(member_ids) + 2
+        or any(
+            not isinstance(owner, ProviderPeerGroupOwnerLineage)
+            for owner in owners
+        )
+        or tuple(
+            (owner.role, owner.member_id)
+            for owner in owners
+        )
+        != expected_owner_identities
+    ):
+        return (
+            f"lineage `{lineage.node_id}` must retain the exact ordered "
+            "form/member-binding/settlement owners"
+        )
+    owner_keys: list[str] = []
+    for owner in owners:
+        owner_keys.append(owner.source_origin_key)
+        if (
+            owner.source_origin_key != owner.origin.origin_key
+            or owner.origin.origin_key not in origin_keys
+        ):
+            return (
+                f"source owner `{lineage.node_id}:{owner.role}` is dangling"
+            )
+    if len(set(owner_keys)) != len(member_ids) + 2:
+        return (
+            f"lineage `{lineage.node_id}` must retain "
+            f"{len(member_ids) + 2} distinct source owners"
+        )
+
+    member_lineages = lineage.member_prompt_dependencies
+    if (
+        not isinstance(member_lineages, tuple)
+        or len(member_lineages) != len(member_ids)
+        or any(
+            not isinstance(
+                member,
+                ProviderPeerGroupMemberPromptLineage,
+            )
+            for member in member_lineages
+        )
+        or tuple(
+            member.member_id
+            for member in member_lineages
+        )
+        != member_ids
+    ):
+        return (
+            f"lineage `{lineage.node_id}` must retain the exact authored-order "
+            "member prompt association"
+        )
+
+    implicit_origin_kind = (
+        PromptDependencyOriginKind
+        .WORKFLOW_LISP_PROVIDER_PEER_GROUP_MEMBER_IMPLICIT_EMPTY
+        .value
+    )
+    explicit_origin_kind = (
+        PromptDependencyOriginKind
+        .WORKFLOW_LISP_PROVIDER_RESULT_PROMPT_DEPENDENCIES
+        .value
+    )
+    prompt_origin_keys: list[str] = []
+    for member in member_lineages:
+        member_ref = f"{lineage.node_id}:{member.member_id}"
+        prompt_origin_keys.append(member.source_origin_key)
+        if (
+            member.source_origin_key != member.origin.origin_key
+            or member.origin.origin_key not in origin_keys
+        ):
+            return f"member prompt origin `{member_ref}` is dangling"
+        implicit_empty = member.origin_kind == implicit_origin_kind
+        rows_policy_error = _prompt_dependency_rows_policy_error(
+            member.rows,
+            position=member.position,
+            require_rows=not implicit_empty,
+        )
+        if rows_policy_error is not None:
+            return (
+                f"member prompt lineage `{member_ref}` has invalid rows or "
+                f"policy: {rows_policy_error}"
+            )
+        if implicit_empty:
+            if (
+                member.rows
+                or member.position != "prepend"
+                or member.position_origin is not None
+                or member.instruction is not None
+                or member.instruction_origin is not None
+            ):
+                return (
+                    "implicit-empty peer member prompt lineage must stay empty"
+                )
+            continue
+        if member.origin_kind != explicit_origin_kind:
+            return "peer member prompt lineage has an unsupported origin kind"
+        if member.position_origin is None:
+            return "authored peer member prompt lineage is incomplete"
+        if (member.instruction is None) != (
+            member.instruction_origin is None
+        ):
+            return "peer member prompt instruction lineage is incomplete"
+    if len(set(prompt_origin_keys)) != len(member_ids):
+        return (
+            f"lineage `{lineage.node_id}` must retain one distinct prompt "
+            "origin per authored member"
+        )
+    return None
+
+
 def build_source_map_document(
     compile_result: "LinkedStage3CompileResult",
     *,
@@ -403,6 +618,10 @@ def build_source_map_document(
     """Build and validate the persisted Workflow Lisp source-map document."""
 
     workflows: dict[str, WorkflowSourceMap] = {}
+    authoritative_provider_peer_groups: dict[
+        str,
+        dict[str, ProviderPeerGroupStepConfig],
+    ] = {}
     for module_result in compile_result.compiled_results_by_name.values():
         bindings = module_result.command_boundary_environment.bindings_by_name
         for lowered in module_result.lowered_workflows:
@@ -468,6 +687,19 @@ def build_source_map_document(
                 generated_internal_inputs=generated_internal_inputs,
             )
             validated_bundle = compile_result.validated_bundles_by_name.get(workflow_name)
+            if validated_bundle is not None:
+                peer_configs = {
+                    node.node_id: node.execution_config
+                    for node in validated_bundle.ir.nodes.values()
+                    if isinstance(
+                        node.execution_config,
+                        ProviderPeerGroupStepConfig,
+                    )
+                }
+                if peer_configs:
+                    authoritative_provider_peer_groups[workflow_name] = (
+                        peer_configs
+                    )
             executable_nodes = _executable_nodes_for_workflow(
                 workflow_name=workflow_name,
                 workflow_origin=workflow_origin,
@@ -476,6 +708,14 @@ def build_source_map_document(
             )
             provider_supervision = (
                 _provider_supervision_lineages_for_workflow(
+                    lowered=lowered,
+                    workflow_name=workflow_name,
+                    workflow_origin=workflow_origin,
+                    validated_bundle=validated_bundle,
+                )
+            )
+            provider_peer_groups = (
+                _provider_peer_group_lineages_for_workflow(
                     lowered=lowered,
                     workflow_name=workflow_name,
                     workflow_origin=workflow_origin,
@@ -510,6 +750,7 @@ def build_source_map_document(
                 validation_subjects=validation_subjects,
                 executable_nodes=executable_nodes,
                 provider_supervision=provider_supervision or None,
+                provider_peer_groups=provider_peer_groups or None,
                 prompt_dependencies=prompt_dependencies or None,
             )
 
@@ -518,11 +759,24 @@ def build_source_map_document(
         coverage=dict(SOURCE_MAP_COVERAGE),
         workflows=workflows,
     )
-    validate_source_map_document(document)
+    validate_source_map_document(
+        document,
+        authoritative_provider_peer_groups=(
+            authoritative_provider_peer_groups
+        ),
+    )
     return document
 
 
-def validate_source_map_document(document: WorkflowLispSourceMap) -> None:
+def validate_source_map_document(
+    document: WorkflowLispSourceMap,
+    *,
+    authoritative_provider_peer_groups: Mapping[
+        str,
+        Mapping[str, ProviderPeerGroupStepConfig],
+    ]
+    | None = None,
+) -> None:
     """Reject inconsistent lineage claims with deterministic frontend diagnostics."""
 
     diagnostics: list[LispFrontendDiagnostic] = []
@@ -692,6 +946,72 @@ def validate_source_map_document(document: WorkflowLispSourceMap) -> None:
                         workflow_origin,
                         code="source_map_provider_supervision_invalid",
                         message=f"provider-supervision {lineage_error}",
+                    )
+                )
+        peer_node_ids = {
+            node.node_id
+            for node in workflow.executable_nodes
+            if node.kind == "provider_peer_group"
+        }
+        peer_lineages = workflow.provider_peer_groups or ()
+        peer_lineage_node_ids = {
+            lineage.node_id
+            for lineage in peer_lineages
+        }
+        authoritative_peer_configs = (
+            authoritative_provider_peer_groups.get(
+                workflow.workflow_name,
+                {},
+            )
+            if authoritative_provider_peer_groups is not None
+            else {}
+        )
+        if not isinstance(authoritative_peer_configs, Mapping):
+            authoritative_peer_configs = {}
+        authoritative_peer_node_ids = set(
+            authoritative_peer_configs
+        )
+        if (
+            len(peer_lineage_node_ids) != len(peer_lineages)
+            or peer_lineage_node_ids != peer_node_ids
+        ):
+            diagnostics.append(
+                _diagnostic_for_entry(
+                    workflow_origin,
+                    code="source_map_provider_peer_group_invalid",
+                    message=(
+                        "provider-peer-group lineage must match the exact "
+                        "executable provider-peer-group node set"
+                    ),
+                )
+            )
+        if authoritative_peer_node_ids != peer_node_ids:
+            diagnostics.append(
+                _diagnostic_for_entry(
+                    workflow_origin,
+                    code="source_map_provider_peer_group_invalid",
+                    message=(
+                        "provider-peer-group authoritative validated "
+                        "executable configs must match the exact executable "
+                        "provider-peer-group node set"
+                    ),
+                )
+            )
+        for lineage in peer_lineages:
+            lineage_error = _provider_peer_group_lineage_error(
+                lineage,
+                executable_nodes_by_id=executable_nodes_by_id,
+                authoritative_config=authoritative_peer_configs.get(
+                    lineage.node_id
+                ),
+                origin_keys=origin_keys,
+            )
+            if lineage_error is not None:
+                diagnostics.append(
+                    _diagnostic_for_entry(
+                        workflow_origin,
+                        code="source_map_provider_peer_group_invalid",
+                        message=f"provider-peer-group {lineage_error}",
                     )
                 )
         seen_effect_keys: set[str] = set()
@@ -1023,6 +1343,17 @@ def _iter_origin_entries(workflow: WorkflowSourceMap) -> Iterable[SourceMapEntry
                 yield member.position_origin
             if member.instruction_origin is not None:
                 yield member.instruction_origin
+    for lineage in workflow.provider_peer_groups or ():
+        for owner in lineage.owners:
+            yield owner.origin
+        for member in lineage.member_prompt_dependencies:
+            yield member.origin
+            for row in member.rows:
+                yield row.origin
+            if member.position_origin is not None:
+                yield member.position_origin
+            if member.instruction_origin is not None:
+                yield member.instruction_origin
     for lineage in workflow.prompt_dependencies or ():
         yield lineage.clause
         for row in lineage.rows:
@@ -1030,6 +1361,326 @@ def _iter_origin_entries(workflow: WorkflowSourceMap) -> Iterable[SourceMapEntry
         yield lineage.position.origin
         if lineage.instruction is not None:
             yield lineage.instruction.origin
+
+
+def _provider_peer_group_lineages_for_workflow(
+    *,
+    lowered: "LoweredWorkflow",
+    workflow_name: str,
+    workflow_origin: SourceMapEntry,
+    validated_bundle,
+) -> tuple[ProviderPeerGroupLineage, ...]:
+    retained_origins = dict(
+        getattr(
+            lowered.origin_map,
+            "provider_peer_group_origins",
+            {},
+        )
+        or {}
+    )
+    retained_prompt_lineages = tuple(
+        getattr(
+            lowered.origin_map,
+            "provider_peer_group_prompt_dependency_lineages",
+            (),
+        )
+        or ()
+    )
+    if validated_bundle is None:
+        return ()
+
+    prompt_lineages_by_origin: dict[str, object] = {}
+    for lineage in retained_prompt_lineages:
+        source_origin_key = lineage.source_origin_key
+        if source_origin_key in prompt_lineages_by_origin:
+            _raise_provider_peer_group_source_map_error(
+                workflow_origin,
+                "provider-peer-group member prompt lineage is duplicated",
+            )
+        prompt_lineages_by_origin[source_origin_key] = lineage
+    projected: list[ProviderPeerGroupLineage] = []
+    claimed_origin_keys: set[str] = set()
+    claimed_prompt_lineage_keys: set[str] = set()
+    for node in sorted(
+        validated_bundle.ir.nodes.values(),
+        key=lambda candidate: candidate.node_id,
+    ):
+        config = node.execution_config
+        if not isinstance(config, ProviderPeerGroupStepConfig):
+            continue
+        member_ids = tuple(member.member_id for member in config.members)
+        ownership_members = config.source_ownership.members
+        if tuple(
+            owner.member_id
+            for owner in ownership_members
+        ) != member_ids:
+            _raise_provider_peer_group_source_map_error(
+                workflow_origin,
+                "provider-peer-group source ownership changed authored member order",
+            )
+
+        owner_specs = (
+            ("form", None, config.source_ownership.form),
+            *(
+                ("member_binding", owner.member_id, owner.binding)
+                for owner in ownership_members
+            ),
+            ("settlement", None, config.source_ownership.settlement),
+        )
+        owners: list[ProviderPeerGroupOwnerLineage] = []
+        for role, member_id, source_origin_key in owner_specs:
+            origin = retained_origins.get(source_origin_key)
+            if origin is None:
+                owner_subject = (
+                    f"{node.node_id}:{role}"
+                    if member_id is None
+                    else f"{node.node_id}:{role}:{member_id}"
+                )
+                _raise_provider_peer_group_source_map_error(
+                    workflow_origin,
+                    (
+                        "provider-peer-group source owner "
+                        f"`{owner_subject}` has no retained origin"
+                    ),
+                )
+            claimed_origin_keys.add(source_origin_key)
+            subject_name = (
+                f"{node.node_id}:{role}"
+                if member_id is None
+                else f"{node.node_id}:{role}:{member_id}"
+            )
+            owners.append(
+                ProviderPeerGroupOwnerLineage(
+                    role=role,
+                    member_id=member_id,
+                    source_origin_key=source_origin_key,
+                    origin=_entry_from_origin(
+                        origin,
+                        workflow_name=workflow_name,
+                        entity_kind="provider_peer_group_owner",
+                        subject_name=subject_name,
+                    ),
+                )
+            )
+
+        member_prompt_dependencies: list[
+            ProviderPeerGroupMemberPromptLineage
+        ] = []
+        for member in config.members:
+            contract = (
+                member.provider_config
+                .compiler_prompt_dependency_contract
+            )
+            if not isinstance(
+                contract,
+                CompilerPromptDependencyContract,
+            ):
+                _raise_provider_peer_group_source_map_error(
+                    workflow_origin,
+                    (
+                        "provider-peer-group member "
+                        f"`{node.node_id}:{member.member_id}` has no typed "
+                        "prompt dependency contract"
+                    ),
+                )
+            source_origin_key = contract.source_origin_key
+            origin = retained_origins.get(source_origin_key)
+            if origin is None:
+                _raise_provider_peer_group_source_map_error(
+                    workflow_origin,
+                    (
+                        "provider-peer-group member prompt contract "
+                        f"`{node.node_id}:{member.member_id}` has no retained "
+                        "origin"
+                    ),
+                )
+            claimed_origin_keys.add(source_origin_key)
+            authored_lineage = prompt_lineages_by_origin.get(
+                source_origin_key
+            )
+            implicit_empty = contract.origin_kind is (
+                PromptDependencyOriginKind
+                .WORKFLOW_LISP_PROVIDER_PEER_GROUP_MEMBER_IMPLICIT_EMPTY
+            )
+            explicit = contract.origin_kind is (
+                PromptDependencyOriginKind
+                .WORKFLOW_LISP_PROVIDER_RESULT_PROMPT_DEPENDENCIES
+            )
+            if implicit_empty and authored_lineage is not None:
+                _raise_provider_peer_group_source_map_error(
+                    workflow_origin,
+                    "implicit-empty peer member prompt contract has authored lineage",
+                )
+            if explicit and authored_lineage is None:
+                _raise_provider_peer_group_source_map_error(
+                    workflow_origin,
+                    "authored peer member prompt contract has no retained lineage",
+                )
+            if not implicit_empty and not explicit:
+                _raise_provider_peer_group_source_map_error(
+                    workflow_origin,
+                    "peer member prompt contract has an unsupported origin kind",
+                )
+
+            rows: tuple[PromptDependencyRowLineage, ...] = ()
+            position_origin: SourceMapEntry | None = None
+            instruction: str | None = None
+            instruction_origin: SourceMapEntry | None = None
+            if authored_lineage is not None:
+                claimed_prompt_lineage_keys.add(source_origin_key)
+                expected_rows = (
+                    *(
+                        ("required", index, binding_ref)
+                        for index, binding_ref in enumerate(
+                            contract.required_binding_refs
+                        )
+                    ),
+                    *(
+                        ("optional", index, binding_ref)
+                        for index, binding_ref in enumerate(
+                            contract.optional_binding_refs
+                        )
+                    ),
+                )
+                actual_rows = tuple(
+                    (
+                        row.role,
+                        row.authored_index,
+                        row.binding_ref,
+                    )
+                    for row in authored_lineage.rows
+                )
+                if (
+                    actual_rows != expected_rows
+                    or authored_lineage.position.value
+                    != contract.position.value
+                ):
+                    _raise_provider_peer_group_source_map_error(
+                        workflow_origin,
+                        (
+                            "provider-peer-group member prompt lineage "
+                            "contradicts its typed contract"
+                        ),
+                    )
+                rows = tuple(
+                    PromptDependencyRowLineage(
+                        role=row.role,
+                        authored_index=row.authored_index,
+                        binding_ref=row.binding_ref,
+                        origin=_entry_from_origin(
+                            row.origin,
+                            workflow_name=workflow_name,
+                            entity_kind="prompt_dependency_row",
+                            subject_name=(
+                                f"{authored_lineage.step_id}:"
+                                f"{row.role}:{row.authored_index}"
+                            ),
+                        ),
+                    )
+                    for row in authored_lineage.rows
+                )
+                position_origin = _entry_from_origin(
+                    authored_lineage.position.origin,
+                    workflow_name=workflow_name,
+                    entity_kind="prompt_dependency_position",
+                    subject_name=authored_lineage.step_id,
+                )
+                if authored_lineage.instruction is not None:
+                    instruction = authored_lineage.instruction.value
+                    observed_digest = (
+                        "sha256:"
+                        + hashlib.sha256(
+                            instruction.encode("utf-8")
+                        ).hexdigest()
+                    )
+                    if (
+                        observed_digest
+                        != contract.instruction_utf8_sha256_or_null
+                    ):
+                        _raise_provider_peer_group_source_map_error(
+                            workflow_origin,
+                            (
+                                "provider-peer-group member prompt instruction "
+                                "contradicts its typed contract"
+                            ),
+                        )
+                    instruction_origin = _entry_from_origin(
+                        authored_lineage.instruction.origin,
+                        workflow_name=workflow_name,
+                        entity_kind="prompt_dependency_instruction",
+                        subject_name=authored_lineage.step_id,
+                    )
+                elif contract.instruction_utf8_sha256_or_null is not None:
+                    _raise_provider_peer_group_source_map_error(
+                        workflow_origin,
+                        (
+                            "provider-peer-group member prompt instruction "
+                            "lineage is missing"
+                        ),
+                    )
+
+            member_prompt_dependencies.append(
+                ProviderPeerGroupMemberPromptLineage(
+                    member_id=member.member_id,
+                    source_origin_key=source_origin_key,
+                    origin_kind=contract.origin_kind.value,
+                    origin=_entry_from_origin(
+                        origin,
+                        workflow_name=workflow_name,
+                        entity_kind=(
+                            "provider_peer_group_member_prompt_dependencies"
+                        ),
+                        subject_name=(
+                            f"{node.node_id}:{member.member_id}"
+                        ),
+                    ),
+                    rows=rows,
+                    position=contract.position.value,
+                    position_origin=position_origin,
+                    instruction=instruction,
+                    instruction_origin=instruction_origin,
+                )
+            )
+        projected.append(
+            ProviderPeerGroupLineage(
+                node_id=node.node_id,
+                step_id=node.step_id,
+                member_ids=member_ids,
+                owners=tuple(owners),
+                member_prompt_dependencies=tuple(
+                    member_prompt_dependencies
+                ),
+            )
+        )
+    if set(retained_origins) != claimed_origin_keys:
+        _raise_provider_peer_group_source_map_error(
+            workflow_origin,
+            "provider-peer-group retained origin catalog is not exact",
+        )
+    if (
+        set(prompt_lineages_by_origin)
+        != claimed_prompt_lineage_keys
+    ):
+        _raise_provider_peer_group_source_map_error(
+            workflow_origin,
+            "provider-peer-group retained member prompt lineage is not exact",
+        )
+    return tuple(projected)
+
+
+def _raise_provider_peer_group_source_map_error(
+    workflow_origin: SourceMapEntry,
+    message: str,
+) -> None:
+    raise LispFrontendCompileError(
+        (
+            _diagnostic_for_entry(
+                workflow_origin,
+                code="source_map_provider_peer_group_invalid",
+                message=message,
+            ),
+        )
+    )
 
 
 def _provider_supervision_lineages_for_workflow(

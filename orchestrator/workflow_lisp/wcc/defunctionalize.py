@@ -134,6 +134,8 @@ from .model import (
     WccPhaseScope,
     WccPhaseTargetAtom,
     WccPureOp,
+    WccProviderPeerGroup,
+    WccProviderPeerGroupMember,
     WccProviderSupervision,
     WccProviderSupervisionMember,
     WccProduceOneOfPayload,
@@ -145,12 +147,26 @@ from .model import (
 )
 from .analysis import WccScopeAnalysis, analyze_wcc_body
 from orchestrator.workflow.executable_ir import (
+    PROVIDER_PEER_GROUP_MESSAGING_POLICY,
+    PROVIDER_PEER_GROUP_SCHEMA_VERSION,
     PROVIDER_SUPERVISION_SCHEMA_VERSION,
     ExecutableContract,
+    ProviderPeerGroupMemberConfig,
+    ProviderPeerGroupMemberSourceOwnership,
+    ProviderPeerGroupSourceOwnership,
+    ProviderPeerGroupStepConfig,
     ProviderStepConfig,
     ProviderSupervisionMemberConfig,
     ProviderSupervisionStepConfig,
     StepCommonConfig,
+    _json_value as _executable_ir_json_value,
+    provider_peer_group_config_to_runtime_dict,
+)
+from orchestrator.providers.types import (
+    INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION,
+)
+from orchestrator.workflow.provider_peer_group.paths import (
+    derive_provider_peer_group_paths,
 )
 from orchestrator.workflow.provider_supervision.models import (
     ProviderSupervisionObservation,
@@ -891,6 +907,12 @@ def _lower_one_wcc_workflow(
         provider_supervision_prompt_dependency_lineages=tuple(
             context.provider_supervision_prompt_dependency_lineages
         ),
+        provider_peer_group_origins=MappingProxyType(
+            dict(context.provider_peer_group_origins)
+        ),
+        provider_peer_group_prompt_dependency_lineages=tuple(
+            context.provider_peer_group_prompt_dependency_lineages
+        ),
     )
     emitted_step_ids = {
         step_id
@@ -1156,16 +1178,18 @@ def _binding_schema_digest_for_point(
     step_id: str,
     type_ref: TypeRef,
     form_path: tuple[str, ...],
+    identity_component_digest: str | None = None,
 ) -> str:
-    return _sha256_json(
-        {
-            "workflow_name": workflow_name,
-            "point_kind": point_kind,
-            "step_id": step_id,
-            "type_ref": repr(type_ref),
-            "form_path": form_path,
-        }
-    )
+    payload = {
+        "workflow_name": workflow_name,
+        "point_kind": point_kind,
+        "step_id": step_id,
+        "type_ref": repr(type_ref),
+        "form_path": form_path,
+    }
+    if identity_component_digest is not None:
+        payload["identity_component_digest"] = identity_component_digest
+    return _sha256_json(payload)
 
 
 def _base_checkpoint_point_payload(
@@ -1180,24 +1204,43 @@ def _base_checkpoint_point_payload(
     wcc_scope_id: str,
     binding_schema_digest: str,
     storage_scope: str,
+    identity_component_digest: str | None = None,
 ) -> Mapping[str, object]:
+    point_identity = {
+        "wcc_node_id": wcc_node_id,
+        "wcc_scope_id": wcc_scope_id,
+        "step_id": step_id,
+        "storage_scope": storage_scope,
+    }
+    checkpoint_executable_identity = (
+        f"{wcc_node_id}:{step_id}"
+        if point_kind == "effect_boundary"
+        else f"{wcc_scope_id}:{step_id}"
+    )
+    executable_identity: dict[str, object] = {
+        "step_id": step_id,
+    }
+    if identity_component_digest is not None:
+        point_identity["identity_component_digest"] = (
+            identity_component_digest
+        )
+        checkpoint_executable_identity = (
+            f"{checkpoint_executable_identity}:"
+            f"{identity_component_digest}"
+        )
+        executable_identity["identity_component_digest"] = (
+            identity_component_digest
+        )
     program_point_id = derive_program_point_id(
         workflow_name=workflow_name,
         point_kind=point_kind,
         origin_key=origin_key,
-        identity_digest=_sha256_json(
-            {
-                "wcc_node_id": wcc_node_id,
-                "wcc_scope_id": wcc_scope_id,
-                "step_id": step_id,
-                "storage_scope": storage_scope,
-            }
-        ),
+        identity_digest=_sha256_json(point_identity),
     )
     checkpoint_id = derive_checkpoint_id(
         workflow_name=workflow_name,
         program_point_id=program_point_id,
-        executable_identity=f"{wcc_node_id}:{step_id}" if point_kind == "effect_boundary" else f"{wcc_scope_id}:{step_id}",
+        executable_identity=checkpoint_executable_identity,
         lowering_schema_version=route_schema_version,
         storage_scope=storage_scope,
     )
@@ -1225,9 +1268,7 @@ def _base_checkpoint_point_payload(
                 "wcc_node_id": wcc_node_id,
                 "wcc_scope_id": wcc_scope_id,
             },
-            "executable_identity": {
-                "step_id": step_id,
-            },
+            "executable_identity": executable_identity,
             "binding_schema": {
                 "schema_digest": binding_schema_digest,
                 "bindings": [],
@@ -1448,8 +1489,15 @@ def _loop_frame_restore_descriptor(
 
 
 def _effect_boundary_step_kind(
-    value: WccPerform | WccCall | WccProviderSupervision,
+    value: (
+        WccPerform
+        | WccCall
+        | WccProviderSupervision
+        | WccProviderPeerGroup
+    ),
 ) -> str:
+    if isinstance(value, WccProviderPeerGroup):
+        return "provider_peer_group"
     if isinstance(value, WccProviderSupervision):
         return "provider_supervision"
     if isinstance(value, WccCall):
@@ -1480,7 +1528,13 @@ def _build_effect_resume_policy_payload(
     step_id: str,
     origin_key: str,
     binding_schema_digest: str,
-    value: WccPerform | WccCall | WccProviderSupervision | None,
+    value: (
+        WccPerform
+        | WccCall
+        | WccProviderSupervision
+        | WccProviderPeerGroup
+        | None
+    ),
     terminal: _TerminalResult,
 ) -> Mapping[str, Any]:
     if step_kind == "pure_projection":
@@ -1621,7 +1675,7 @@ def _build_effect_resume_policy_payload(
             },
             unsafe_pending_behavior="audit_barrier",
         )
-    if step_kind == "provider_supervision":
+    if step_kind in {"provider_supervision", "provider_peer_group"}:
         return build_effect_resume_policy(
             policy_kind="fail_closed_non_idempotent",
             effect_kind=step_kind,
@@ -1643,7 +1697,12 @@ def _build_effect_resume_policy_payload(
 def _effect_boundary_checkpoint_point_payload(
     *,
     workflow_name: str,
-    value: WccPerform | WccCall | WccProviderSupervision,
+    value: (
+        WccPerform
+        | WccCall
+        | WccProviderSupervision
+        | WccProviderPeerGroup
+    ),
     terminal: _TerminalResult,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
@@ -1665,6 +1724,9 @@ def _effect_boundary_checkpoint_point_payload(
         step_id=terminal.step_id,
         type_ref=value.metadata.type_ref,
         form_path=value.metadata.form_path,
+        identity_component_digest=(
+            terminal.checkpoint_identity_component_digest
+        ),
     )
     payload = dict(
         _base_checkpoint_point_payload(
@@ -1678,6 +1740,9 @@ def _effect_boundary_checkpoint_point_payload(
             wcc_scope_id=value.metadata.scope_id,
             binding_schema_digest=binding_schema_digest,
             storage_scope="step_visit",
+            identity_component_digest=(
+                terminal.checkpoint_identity_component_digest
+            ),
         )
     )
     payload["origin_key"] = origin_key
@@ -1848,7 +1913,45 @@ def _defunctionalize_body(
         updated_locals = dict(local_values)
         binding_steps: list[dict[str, Any]] = []
         binding_hidden_inputs: dict[str, Any] = {}
-        if isinstance(body.bound_value, WccProviderSupervision):
+        if isinstance(body.bound_value, WccProviderPeerGroup):
+            binding_context = _context_with_wcc_phase_scope(
+                context,
+                phase_scope=body.bound_value.metadata.phase_scope,
+                local_values=updated_locals,
+            )
+            step_context = lowering_core._copy_context_with_step_prefix(
+                binding_context,
+                step_name_prefix=_binding_step_prefix(
+                    context,
+                    body.bound_name,
+                ),
+            )
+            binding_steps, binding_terminal = (
+                _lower_provider_peer_group_binding(
+                    body.bound_value,
+                    binding_type=binding_type,
+                    context=step_context,
+                    local_values=updated_locals,
+                )
+            )
+            if lexical_checkpoint_points is not None:
+                lexical_checkpoint_points.append(
+                    _effect_boundary_checkpoint_point_payload(
+                        workflow_name=context.workflow_name,
+                        value=body.bound_value,
+                        terminal=binding_terminal,
+                        context=context,
+                        local_values=updated_locals,
+                    )
+                )
+            local_value = _binding_local_value_from_terminal(
+                body.bound_value,
+                binding_type=binding_type,
+                binding_terminal=binding_terminal,
+            )
+            if local_value is not None:
+                updated_locals[body.bound_name] = local_value
+        elif isinstance(body.bound_value, WccProviderSupervision):
             binding_context = _context_with_wcc_phase_scope(
                 context,
                 phase_scope=body.bound_value.metadata.phase_scope,
@@ -3183,6 +3286,181 @@ def _match_binding_name(subject_expr: Any) -> str:
     return "binding"
 
 
+def _raise_provider_peer_group_lowering_error(
+    owner: WccProviderPeerGroup | WccProviderPeerGroupMember,
+    *,
+    code: str,
+    message: str,
+) -> None:
+    metadata = owner.metadata
+    raise LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code=code,
+                message=message,
+                span=metadata.source_span,
+                form_path=metadata.form_path,
+                expansion_stack=metadata.expansion_stack,
+                phase="lowering",
+            ),
+        )
+    )
+
+
+def _isolated_provider_peer_group_member_context(
+    context: _LoweringContext,
+    *,
+    step_name_prefix: str,
+) -> _LoweringContext:
+    """Return a side-effect-isolated context for one peer member."""
+
+    return replace(
+        context,
+        step_name_prefix=step_name_prefix,
+        step_spans={},
+        generated_input_spans={},
+        authored_generated_inputs=set(),
+        internal_generated_input_reasons={},
+        internal_generated_input_contracts={},
+        private_exec_context_bindings=[],
+        generated_output_spans={},
+        generated_path_spans={},
+        generated_path_allocations=[],
+        generated_semantic_effects=[],
+        compiler_prompt_dependency_contracts={},
+        prompt_dependency_lineages=[],
+        output_projection_metadata={},
+        top_level_artifacts={},
+        inline_call_counters=dict(context.inline_call_counters),
+        generated_contract_field_bindings=(
+            context.generated_contract_field_bindings
+        ),
+        provider_supervision_origins={},
+        provider_supervision_prompt_dependency_lineages=[],
+        provider_peer_group_origins={},
+        provider_peer_group_prompt_dependency_lineages=[],
+    )
+
+
+def _provider_peer_group_origin(
+    metadata: object,
+    *,
+    owner_key: str,
+) -> LoweringOrigin:
+    return LoweringOrigin(
+        span=metadata.source_span,
+        form_path=metadata.form_path,
+        origin_key=owner_key,
+        expansion_stack=metadata.expansion_stack,
+    )
+
+
+def _record_provider_peer_group_origin(
+    context: _LoweringContext,
+    *,
+    owner_key: str,
+    metadata: object | None = None,
+    origin: LoweringOrigin | None = None,
+) -> None:
+    if (metadata is None) == (origin is None):
+        raise TypeError(
+            "provider peer group origin requires exactly one source owner"
+        )
+    resolved = (
+        _provider_peer_group_origin(metadata, owner_key=owner_key)
+        if metadata is not None
+        else replace(origin, origin_key=owner_key)
+    )
+    existing = context.provider_peer_group_origins.get(owner_key)
+    if existing is not None and existing != resolved:
+        raise TypeError(
+            f"provider peer group source owner collision: {owner_key}"
+        )
+    context.provider_peer_group_origins[owner_key] = resolved
+
+
+def _provider_peer_group_member_projection(
+    member: WccProviderPeerGroupMember,
+) -> tuple[WccPerform, Mapping[str, object], object]:
+    """Extract one provider perform and its pure projected peer value."""
+
+    env: dict[str, object] = {}
+    provider_perform: WccPerform | None = None
+    provider_env: dict[str, object] | None = None
+    current = member.normalized_body
+    while isinstance(current, WccLet):
+        if isinstance(current.bound_value, WccPerform):
+            if provider_perform is not None:
+                _raise_provider_peer_group_lowering_error(
+                    member,
+                    code="provider_peer_group_member_ineligible",
+                    message=(
+                        "provider peer group member lowered more than one "
+                        "provider owner"
+                    ),
+                )
+            provider_perform = current.bound_value
+            provider_env = dict(env)
+            env[current.bound_name] = NameExpr(
+                name=member.binding_name,
+                span=current.metadata.source_span,
+                form_path=current.metadata.form_path,
+                expansion_stack=current.metadata.expansion_stack,
+            )
+        else:
+            env[current.bound_name] = _frontend_expr_from_wcc_value_with_env(
+                current.bound_value,
+                env,
+            )
+        current = current.body
+    if (
+        provider_perform is None
+        or provider_env is None
+        or not isinstance(current, WccHalt)
+    ):
+        _raise_provider_peer_group_lowering_error(
+            member,
+            code="provider_peer_group_member_ineligible",
+            message=(
+                "provider peer group member did not retain one closed "
+                "provider projection"
+            ),
+        )
+    return (
+        provider_perform,
+        provider_env,
+        _frontend_expr_from_wcc_value_with_env(current.result, env),
+    )
+
+
+def _positive_provider_peer_group_timeout(
+    member: WccProviderPeerGroupMember,
+    perform: WccPerform,
+) -> int:
+    payload = (
+        perform.operation_payload
+        if isinstance(perform.operation_payload, Mapping)
+        else {}
+    )
+    timeout = payload.get("timeout_sec")
+    if (
+        not isinstance(timeout, WccLiteralAtom)
+        or timeout.literal_kind != "int"
+        or isinstance(timeout.value, bool)
+        or not isinstance(timeout.value, int)
+        or timeout.value <= 0
+    ):
+        _raise_provider_peer_group_lowering_error(
+            member,
+            code="provider_peer_group_member_timeout_required",
+            message=(
+                "provider peer group members require an explicit positive "
+                "integer :timeout-sec"
+            ),
+        )
+    return timeout.value
+
+
 def _raise_provider_supervision_lowering_error(
     owner: WccProviderSupervision | WccProviderSupervisionMember,
     *,
@@ -3234,6 +3512,8 @@ def _isolated_provider_supervision_member_context(
         ),
         provider_supervision_origins={},
         provider_supervision_prompt_dependency_lineages=[],
+        provider_peer_group_origins={},
+        provider_peer_group_prompt_dependency_lineages=[],
     )
 
 
@@ -3540,6 +3820,282 @@ def _provider_supervision_contract(
     )
 
 
+def _provider_peer_group_contract(
+    *,
+    name: str,
+    type_ref: TypeRef,
+    type_env: object,
+) -> ExecutableContract:
+    descriptor = _type_descriptor(type_ref, type_env=type_env)
+    canonical_name, contract_kind, value_type = (
+        derive_result_contract_identity(descriptor)
+    )
+    if name != type_ref.name:
+        raise ValueError(
+            "provider peer group result contract owner name changed"
+        )
+    return ExecutableContract(
+        name=canonical_name,
+        kind=contract_kind,
+        value_type=value_type,
+        definition=_frozen_mapping({"type": descriptor}),
+    )
+
+
+def _provider_peer_group_checkpoint_identity_payload(
+    config: ProviderPeerGroupStepConfig,
+    *,
+    target_dsl_version: str,
+) -> dict[str, Any]:
+    """Return the complete canonical peer config used by point identity."""
+
+    if not isinstance(target_dsl_version, str) or not target_dsl_version:
+        raise ValueError(
+            "provider peer group checkpoint identity requires target DSL"
+        )
+    common = _executable_ir_json_value(config.common)
+    if not isinstance(common, dict):
+        raise TypeError(
+            "provider peer group common config must serialize to an object"
+        )
+    return {
+        "target_dsl_version": target_dsl_version,
+        "common": common,
+        "provider_peer_group": (
+            provider_peer_group_config_to_runtime_dict(config)
+        ),
+    }
+
+
+def _lower_provider_peer_group_member(
+    member: WccProviderPeerGroupMember,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    group_step_name: str,
+) -> tuple[ProviderPeerGroupMemberConfig, object, TypeRef]:
+    perform, provider_env, projection = (
+        _provider_peer_group_member_projection(member)
+    )
+    timeout_sec = _positive_provider_peer_group_timeout(
+        member,
+        perform,
+    )
+    payload = (
+        perform.operation_payload
+        if isinstance(perform.operation_payload, Mapping)
+        else {}
+    )
+    member_step_name = f"{group_step_name}__{member.binding_name}"
+    member_context = _isolated_provider_peer_group_member_context(
+        context,
+        step_name_prefix=member_step_name,
+    )
+    member_steps, _terminal = _lower_provider_result_operation(
+        LowerableProviderResult(
+            provider_name=perform.target_name,
+            prompt_name=perform.prompt_name or "",
+            inputs=tuple(
+                _frontend_expr_from_wcc_value_with_env(
+                    argument,
+                    provider_env,
+                )
+                for argument in perform.positional_args
+            ),
+            span=perform.metadata.source_span,
+            form_path=perform.metadata.form_path,
+            expansion_stack=perform.metadata.expansion_stack,
+            guidance=(
+                payload["return_spec"].guidance
+                if payload.get("return_spec") is not None
+                else None
+            ),
+            model=(
+                _frontend_expr_from_wcc_value_with_env(
+                    payload["model"],
+                    provider_env,
+                )
+                if payload.get("model") is not None
+                else None
+            ),
+            effort=(
+                _frontend_expr_from_wcc_value_with_env(
+                    payload["effort"],
+                    provider_env,
+                )
+                if payload.get("effort") is not None
+                else None
+            ),
+            timeout_sec=_frontend_expr_from_wcc_value_with_env(
+                payload["timeout_sec"],
+                provider_env,
+            ),
+            prompt_dependencies=_prompt_dependency_spec_from_wcc_payload(
+                payload.get("prompt_dependencies")
+            ),
+        ),
+        result_type=perform.metadata.type_ref,
+        context=member_context,
+        local_values={**dict(local_values), **dict(provider_env)},
+        step_name=member_step_name,
+    )
+    if (
+        len(member_steps) != 1
+        or not isinstance(member_steps[0], Mapping)
+        or "provider" not in member_steps[0]
+    ):
+        _raise_provider_peer_group_lowering_error(
+            member,
+            code="provider_peer_group_member_translation_invalid",
+            message=(
+                "provider peer group member translation must produce exactly "
+                "one provider owner and no prelude steps"
+            ),
+        )
+    provider_step = member_steps[0]
+    provider_step_id = provider_step.get("id")
+    prompt_contract = (
+        member_context.compiler_prompt_dependency_contracts.get(
+            provider_step_id
+        )
+        if isinstance(provider_step_id, str)
+        else None
+    )
+    if prompt_contract is None:
+        try:
+            source_workflow_bytes = context.workflow_path.read_bytes()
+        except OSError:
+            _raise_provider_peer_group_lowering_error(
+                member,
+                code="provider_peer_group_member_source_unreadable",
+                message=(
+                    "provider peer group member source bytes could not be "
+                    "read for its prompt-dependency contract"
+                ),
+            )
+        prompt_origin_key = (
+            f"{context.workflow_name}::"
+            "provider_peer_group_member_prompt_dependencies::"
+            f"{provider_step_id}"
+        )
+        prompt_contract = _build_compiler_prompt_dependency_contract(
+            required_binding_refs=(),
+            optional_binding_refs=(),
+            position=PromptDependencyPosition.PREPEND,
+            instruction=None,
+            source_origin_key=prompt_origin_key,
+            source_workflow_bytes=source_workflow_bytes,
+            origin_kind=(
+                PromptDependencyOriginKind
+                .WORKFLOW_LISP_PROVIDER_PEER_GROUP_MEMBER_IMPLICIT_EMPTY
+            ),
+        )
+        provider_step = {
+            **provider_step,
+            "depends_on": {
+                "required": [],
+                "optional": [],
+                "inject": {
+                    "mode": "content",
+                    "position": "prepend",
+                },
+            },
+        }
+        _record_provider_peer_group_origin(
+            context,
+            owner_key=prompt_origin_key,
+            metadata=perform.metadata,
+        )
+    else:
+        lineage = next(
+            (
+                candidate
+                for candidate in member_context.prompt_dependency_lineages
+                if candidate.step_id == provider_step_id
+                and candidate.source_origin_key
+                == prompt_contract.source_origin_key
+            ),
+            None,
+        )
+        if lineage is None:
+            _raise_provider_peer_group_lowering_error(
+                member,
+                code="provider_peer_group_member_prompt_lineage_missing",
+                message=(
+                    "provider peer group member prompt-dependency contract "
+                    "has no exact source lineage"
+                ),
+            )
+        _record_provider_peer_group_origin(
+            context,
+            owner_key=prompt_contract.source_origin_key,
+            origin=lineage.clause_origin,
+        )
+        lineage_identity = (
+            lineage.step_id,
+            lineage.source_origin_key,
+        )
+        existing_lineage = next(
+            (
+                candidate
+                for candidate in (
+                    context
+                    .provider_peer_group_prompt_dependency_lineages
+                )
+                if (
+                    candidate.step_id,
+                    candidate.source_origin_key,
+                )
+                == lineage_identity
+            ),
+            None,
+        )
+        if existing_lineage is not None and existing_lineage != lineage:
+            _raise_provider_peer_group_lowering_error(
+                member,
+                code="provider_peer_group_member_prompt_lineage_duplicate",
+                message=(
+                    "provider peer group member prompt-dependency lineage "
+                    "conflicts with an existing nested member"
+                ),
+            )
+        if existing_lineage is None:
+            context.provider_peer_group_prompt_dependency_lineages.append(
+                lineage
+            )
+    try:
+        provider_config = _provider_step_config_from_generated_mapping(
+            provider_step,
+            timeout_sec=timeout_sec,
+            compiler_prompt_dependency_contract=prompt_contract,
+        )
+        result_contract = _provider_peer_group_contract(
+            name=perform.metadata.type_ref.name,
+            type_ref=perform.metadata.type_ref,
+            type_env=context.type_env,
+        )
+    except (TypeError, ValueError) as exc:
+        _raise_provider_peer_group_lowering_error(
+            member,
+            code="provider_peer_group_member_translation_invalid",
+            message=(
+                "provider peer group member translation did not produce one "
+                "closed typed provider config"
+            ),
+        )
+        raise AssertionError("unreachable") from exc
+    return (
+        ProviderPeerGroupMemberConfig(
+            member_id=member.binding_name,
+            provider_config=provider_config,
+            result_contract=result_contract,
+            timeout_sec=timeout_sec,
+        ),
+        projection,
+        perform.metadata.type_ref,
+    )
+
+
 def _lower_provider_supervision_member(
     member: WccProviderSupervisionMember,
     *,
@@ -3795,6 +4351,237 @@ def _pure_wcc_body_expr(
     return _frontend_expr_from_wcc_value_with_env(
         current.result,
         resolved,
+    )
+
+
+def _lower_provider_peer_group_binding(
+    group: WccProviderPeerGroup,
+    *,
+    binding_type: TypeRef,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    group_step_name = (
+        f"{context.workflow_name}__result"
+        if context.step_name_prefix == context.workflow_name
+        else context.step_name_prefix
+    )
+    group_step_id = lowering_core._normalize_generated_step_id(
+        group_step_name
+    )
+    member_ids = tuple(member.binding_name for member in group.members)
+    source_origins = {
+        group.metadata.node_id: group.metadata,
+        **{
+            member.binding_metadata.node_id: member.binding_metadata
+            for member in group.members
+        },
+        group.settlement_body.metadata.node_id: (
+            group.settlement_body.metadata
+        ),
+    }
+    if len(source_origins) != len(group.members) + 2:
+        _raise_provider_peer_group_lowering_error(
+            group,
+            code="provider_peer_group_source_ownership_collision",
+            message=(
+                "provider peer group source ownership must contain the form, "
+                "each authored member binding, and settlement as distinct "
+                "WCC owners"
+            ),
+        )
+    for owner_key, metadata in source_origins.items():
+        _record_provider_peer_group_origin(
+            context,
+            owner_key=owner_key,
+            metadata=metadata,
+        )
+
+    lowered_members = tuple(
+        _lower_provider_peer_group_member(
+            member,
+            context=context,
+            local_values=local_values,
+            group_step_name=group_step_name,
+        )
+        for member in group.members
+    )
+    member_configs = tuple(item[0] for item in lowered_members)
+    member_projections = {
+        member.binding_name: lowered[1]
+        for member, lowered in zip(
+            group.members,
+            lowered_members,
+            strict=True,
+        )
+    }
+    member_types = {
+        member.binding_name: lowered[2]
+        for member, lowered in zip(
+            group.members,
+            lowered_members,
+            strict=True,
+        )
+    }
+    settlement_expr = _pure_wcc_body_expr(
+        group.settlement_body,
+        env=member_projections,
+    )
+    settlement_context = context
+    for member_id in member_ids:
+        settlement_context = _context_with_local_type_binding(
+            settlement_context,
+            binding_name=member_id,
+            binding_type=member_types[member_id],
+        )
+    settlement_payload, binding_refs = build_pure_projection_payload(
+        settlement_expr,
+        result_type=binding_type,
+        context=settlement_context,
+        local_values={
+            **dict(local_values),
+            **{
+                member_id: f"provider_peer_group.members.{member_id}"
+                for member_id in member_ids
+            },
+        },
+    )
+    dynamic_captures = set(binding_refs) - set(member_ids)
+    if dynamic_captures:
+        metadata = group.settlement_body.metadata
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code=(
+                        "provider_peer_group_settlement_dynamic_capture_"
+                        "unsupported"
+                    ),
+                    message=(
+                        "provider peer group settlement may capture only its "
+                        "authored member bindings"
+                    ),
+                    span=metadata.source_span,
+                    form_path=metadata.form_path,
+                    expansion_stack=metadata.expansion_stack,
+                    phase="lowering",
+                ),
+            )
+        )
+    settlement_payload = {
+        **settlement_payload,
+        "bindings": {
+            member_id: {
+                "type": _type_descriptor(
+                    member_types[member_id],
+                    type_env=context.type_env,
+                )
+            }
+            for member_id in member_ids
+        },
+    }
+    validate_pure_expr_payload(settlement_payload)
+    whole_timeout = max(member.timeout_sec for member in member_configs)
+    try:
+        settlement_result_contract = _provider_peer_group_contract(
+            name=binding_type.name,
+            type_ref=binding_type,
+            type_env=context.type_env,
+        )
+    except (TypeError, ValueError) as exc:
+        _raise_provider_peer_group_lowering_error(
+            group,
+            code="provider_peer_group_settlement_contract_invalid",
+            message=(
+                "provider peer group settlement did not produce one closed "
+                "transportable result contract"
+            ),
+        )
+        raise AssertionError("unreachable") from exc
+    config = ProviderPeerGroupStepConfig(
+        common=StepCommonConfig(timeout_sec=whole_timeout),
+        schema_version=PROVIDER_PEER_GROUP_SCHEMA_VERSION,
+        node_id=group_step_id,
+        members=member_configs,
+        messaging_policy=PROVIDER_PEER_GROUP_MESSAGING_POLICY,
+        settlement_payload=_frozen_mapping(settlement_payload),
+        settlement_result_contract=settlement_result_contract,
+        interactive_session_schema_version=(
+            INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION
+        ),
+        max_steers=0,
+        paths=derive_provider_peer_group_paths(
+            node_id=group_step_id,
+            member_ids=member_ids,
+        ),
+        source_ownership=ProviderPeerGroupSourceOwnership(
+            form=group.metadata.node_id,
+            members=tuple(
+                ProviderPeerGroupMemberSourceOwnership(
+                    member_id=member.binding_name,
+                    binding=member.binding_metadata.node_id,
+                )
+                for member in group.members
+            ),
+            settlement=group.settlement_body.metadata.node_id,
+        ),
+    )
+    try:
+        checkpoint_identity_component_digest = _sha256_json(
+            _provider_peer_group_checkpoint_identity_payload(
+                config,
+                target_dsl_version=(
+                    context.type_env.target_dsl_version or ""
+                ),
+            )
+        )
+    except (TypeError, ValueError) as exc:
+        _raise_provider_peer_group_lowering_error(
+            group,
+            code="provider_peer_group_checkpoint_identity_invalid",
+            message=(
+                "provider peer group typed config could not produce one "
+                "canonical checkpoint identity"
+            ),
+        )
+        raise AssertionError("unreachable") from exc
+    source = SimpleNamespace(
+        span=group.metadata.source_span,
+        form_path=group.metadata.form_path,
+        expansion_stack=group.metadata.expansion_stack,
+    )
+    _record_step_origin(
+        context,
+        step_name=group_step_name,
+        step_id=group_step_id,
+        source=source,
+    )
+    return (
+        [
+            {
+                "name": group_step_name,
+                "id": group_step_id,
+                "timeout_sec": whole_timeout,
+                "provider_peer_group": config,
+            }
+        ],
+        _TerminalResult(
+            step_name=group_step_name,
+            step_id=group_step_id,
+            output_refs=lowering_core._record_output_refs(
+                group_step_name,
+                binding_type,
+            ),
+            output_kind="step",
+            hidden_inputs={},
+            checkpoint_identity_component_digest=(
+                checkpoint_identity_component_digest
+            ),
+            returned_union_type_name=(
+                binding_type.name
+                if isinstance(binding_type, UnionTypeRef)
+                else None
+            ),
+        ),
     )
 
 

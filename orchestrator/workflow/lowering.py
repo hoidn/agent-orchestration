@@ -37,6 +37,7 @@ from .executable_ir import (
     ManagedJobsConfig,
     ManagedJobsRoutes,
     NodeResultAddress,
+    ProviderPeerGroupStepConfig,
     ProviderStepConfig,
     ProviderSupervisionStepConfig,
     PureProjectionStepConfig,
@@ -53,6 +54,7 @@ from .executable_ir import (
     validate_executable_workflow,
 )
 from .loaded_bundle import LoadedWorkflowBundle
+from .provider_peer_group.paths import derive_provider_peer_group_paths
 from .provider_supervision.paths import derive_provider_supervision_paths
 from .references import SelfOutputReference, StructuredStepReference, WorkflowInputReference
 from .runtime_plan import derive_workflow_runtime_plan
@@ -925,6 +927,7 @@ def _leaf_node_kind(kind: SurfaceStepKind, region: WorkflowRegion) -> Executable
         SurfaceStepKind.COMMAND: ExecutableNodeKind.COMMAND,
         SurfaceStepKind.PROVIDER: ExecutableNodeKind.PROVIDER,
         SurfaceStepKind.PROVIDER_SUPERVISION: ExecutableNodeKind.PROVIDER_SUPERVISION,
+        SurfaceStepKind.PROVIDER_PEER_GROUP: ExecutableNodeKind.PROVIDER_PEER_GROUP,
         SurfaceStepKind.ADJUDICATED_PROVIDER: ExecutableNodeKind.ADJUDICATED_PROVIDER,
         SurfaceStepKind.WAIT_FOR: ExecutableNodeKind.WAIT_FOR,
         SurfaceStepKind.ASSERT: ExecutableNodeKind.ASSERT,
@@ -1047,6 +1050,42 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
                 supervisor_member_id=(
                     step.provider_supervision.supervisor.member_id
                 ),
+            ),
+        )
+    if step.kind is SurfaceStepKind.PROVIDER_PEER_GROUP:
+        config = step.provider_peer_group
+        if not isinstance(config, ProviderPeerGroupStepConfig):
+            raise LoweringError(
+                "provider_peer_group requires a typed compiler-generated config"
+            )
+        member_ids = tuple(member.member_id for member in config.members)
+        if not isinstance(step.authored_id, str) or (
+            config.node_id != step.authored_id
+        ):
+            raise LoweringError(
+                "provider_peer_group generated node id does not match its "
+                "surface owner"
+            )
+        if config.common != common:
+            raise LoweringError(
+                "provider_peer_group common config does not match its "
+                "generated surface config"
+            )
+        if config.paths != derive_provider_peer_group_paths(
+            node_id=config.node_id,
+            member_ids=member_ids,
+        ):
+            raise LoweringError(
+                "provider_peer_group path plan does not match its generated "
+                "node id and authored member order"
+            )
+        return replace(
+            config,
+            common=common,
+            node_id=step.step_id,
+            paths=derive_provider_peer_group_paths(
+                node_id=step.step_id,
+                member_ids=member_ids,
             ),
         )
     if step.kind is SurfaceStepKind.ADJUDICATED_PROVIDER:

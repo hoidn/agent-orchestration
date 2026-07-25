@@ -27,6 +27,7 @@ from orchestrator.workflow.prompt_dependency_contract import (
     PromptDependencyPathInterpretation,
     PromptDependencyPosition,
     _normalized_contract_sha256,
+    is_implicit_empty_prompt_dependency_origin_kind,
     serialize_compiler_prompt_dependency_contract,
 )
 from orchestrator.workflow.provider_attempts import (
@@ -338,10 +339,8 @@ def _validate_contract(value: Any) -> Mapping[str, Any]:
         contract["required_binding_refs"]
         or contract["optional_binding_refs"]
     )
-    implicit_empty = (
+    implicit_empty = is_implicit_empty_prompt_dependency_origin_kind(
         origin_kind
-        is PromptDependencyOriginKind
-        .WORKFLOW_LISP_PROVIDER_SUPERVISION_MEMBER_IMPLICIT_EMPTY
     )
     if implicit_empty and has_dependency_rows:
         raise ValueError(

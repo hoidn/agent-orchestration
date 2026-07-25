@@ -23,6 +23,9 @@ class PromptDependencyOriginKind(Enum):
     WORKFLOW_LISP_PROVIDER_SUPERVISION_MEMBER_IMPLICIT_EMPTY = (
         "workflow_lisp_provider_supervision_member_implicit_empty"
     )
+    WORKFLOW_LISP_PROVIDER_PEER_GROUP_MEMBER_IMPLICIT_EMPTY = (
+        "workflow_lisp_provider_peer_group_member_implicit_empty"
+    )
 
 
 class PromptDependencyPathInterpretation(Enum):
@@ -157,6 +160,19 @@ def _validate_refs(name: str, refs: object) -> tuple[str, ...]:
     return refs
 
 
+def is_implicit_empty_prompt_dependency_origin_kind(
+    origin_kind: PromptDependencyOriginKind,
+) -> bool:
+    """Return whether one closed origin denotes a generated empty contract."""
+
+    return origin_kind in {
+        PromptDependencyOriginKind
+        .WORKFLOW_LISP_PROVIDER_SUPERVISION_MEMBER_IMPLICIT_EMPTY,
+        PromptDependencyOriginKind
+        .WORKFLOW_LISP_PROVIDER_PEER_GROUP_MEMBER_IMPLICIT_EMPTY,
+    }
+
+
 def _validate_contract_fields(contract: CompilerPromptDependencyContract) -> None:
     if contract.schema != COMPILER_PROMPT_DEPENDENCY_CONTRACT_SCHEMA:
         raise ValueError("unsupported compiler prompt dependency contract schema")
@@ -174,10 +190,8 @@ def _validate_contract_fields(contract: CompilerPromptDependencyContract) -> Non
         raise ValueError("source_workflow_sha256 must be sha256:<lowercase-hex>")
     required = _validate_refs("required_binding_refs", contract.required_binding_refs)
     optional = _validate_refs("optional_binding_refs", contract.optional_binding_refs)
-    implicit_empty = (
+    implicit_empty = is_implicit_empty_prompt_dependency_origin_kind(
         contract.origin_kind
-        is PromptDependencyOriginKind
-        .WORKFLOW_LISP_PROVIDER_SUPERVISION_MEMBER_IMPLICIT_EMPTY
     )
     if implicit_empty and (required or optional):
         raise ValueError(

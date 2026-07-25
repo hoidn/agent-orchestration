@@ -30,7 +30,10 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_output_contracts,
 )
 from orchestrator.workflow.lowering import build_loaded_workflow_bundle
-from orchestrator.workflow.executable_ir import ProviderSupervisionStepConfig
+from orchestrator.workflow.executable_ir import (
+    ProviderPeerGroupStepConfig,
+    ProviderSupervisionStepConfig,
+)
 from orchestrator.workflow.prompt_dependency_contract import (
     CompilerPromptDependencyContract,
     validate_compiler_prompt_dependency_contract,
@@ -4825,6 +4828,22 @@ class _WorkflowMappingValidator:
                     derive_result_bundle_contract(
                         provider_supervision.settlement_result_contract,
                         path='<provider-supervision-settlement>',
+                    )
+                )
+                step = {
+                    **step,
+                    contract_kind: contract,
+                }
+
+            provider_peer_group = step.get('provider_peer_group')
+            if isinstance(
+                provider_peer_group,
+                ProviderPeerGroupStepConfig,
+            ):
+                contract_kind, contract, _descriptor = (
+                    derive_result_bundle_contract(
+                        provider_peer_group.settlement_result_contract,
+                        path='<provider-peer-group-settlement>',
                     )
                 )
                 step = {

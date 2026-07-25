@@ -165,6 +165,107 @@ def _point_payload(point: Any) -> dict[str, Any]:
     return payload
 
 
+def _checkpoint_identity_component_digest(
+    point: Any,
+    *,
+    required: bool = False,
+) -> str | None:
+    """Return a validated optional executable identity component."""
+
+    details = _point_details(point)
+    payload = details if details else _mapping(point)
+    step_kind = payload.get("step_kind")
+    executable_identity = _mapping(payload.get("executable_identity"))
+    component_digest = executable_identity.get("identity_component_digest")
+    if component_digest is None:
+        if required or step_kind == "provider_peer_group":
+            raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
+        return None
+    if not isinstance(component_digest, str) or re.fullmatch(
+        r"sha256:[0-9a-f]{64}",
+        component_digest,
+    ) is None:
+        raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
+    return component_digest
+
+
+def _peer_checkpoint_policy_digest(
+    point: Any,
+    *,
+    required: bool = False,
+) -> str | None:
+    """Validate and return the peer-only fail-closed boundary policy."""
+
+    details = _point_details(point)
+    payload = details if details else _mapping(point)
+    step_kind = payload.get("step_kind")
+    if not required and step_kind != "provider_peer_group":
+        return None
+    effect_boundary = _mapping(payload.get("effect_boundary"))
+    policy = _mapping(effect_boundary.get("policy"))
+    executable_identity = _mapping(payload.get("executable_identity"))
+    if (
+        _point_field(point, "point_kind") != "effect_boundary"
+        or step_kind != "provider_peer_group"
+        or effect_boundary.get("effect_kind")
+        != "provider_peer_group"
+        or effect_boundary.get("boundary_kind")
+        != "provider_peer_group"
+        or policy.get("policy_kind")
+        != "fail_closed_non_idempotent"
+        or policy.get("effect_kind") != "provider_peer_group"
+        or policy.get("boundary_kind") != "provider_peer_group"
+        or policy.get("step_id") != executable_identity.get("step_id")
+        or policy.get("unsafe_pending_behavior") != "fail_closed"
+        or dict(_mapping(policy.get("evidence_requirements")))
+    ):
+        raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
+    try:
+        validate_effect_resume_policy(
+            policy,
+            expected_origin_key=str(
+                _point_field(point, "origin_key") or ""
+            ),
+        )
+    except ValueError as exc:
+        raise ValueError(
+            DIAGNOSTIC_CODES.program_identity_mismatch
+        ) from exc
+    policy_digest = policy.get("policy_digest")
+    if not isinstance(policy_digest, str) or re.fullmatch(
+        r"sha256:[0-9a-f]{64}",
+        policy_digest,
+    ) is None:
+        raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
+    return policy_digest
+
+
+def _runtime_program_identity_point(
+    point: Any,
+    *,
+    component_required: bool = False,
+) -> dict[str, Any]:
+    payload = {
+        "checkpoint_id": _point_field(point, "checkpoint_id"),
+        "program_point_id": _point_field(point, "program_point_id"),
+        "point_kind": _point_field(point, "point_kind"),
+        "step_id": _point_field(point, "step_id"),
+    }
+    component_digest = _checkpoint_identity_component_digest(
+        point,
+        required=component_required,
+    )
+    if component_digest is not None:
+        payload["identity_component_digest"] = component_digest
+    policy_digest = _peer_checkpoint_policy_digest(
+        point,
+        required=component_digest is not None,
+    )
+    if policy_digest is not None:
+        payload["effect_policy_digest"] = policy_digest
+    return payload
+
+
 def _require_non_empty_string(value: Any, diagnostic: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(diagnostic)
@@ -197,6 +298,11 @@ def validate_checkpoint_point_payload(point: Mapping[str, Any]) -> None:
     point_kind = _require_non_empty_string(point.get("point_kind"), DIAGNOSTIC_CODES.program_identity_mismatch)
     if point_kind not in POINT_KINDS:
         raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
+    component_digest = _checkpoint_identity_component_digest(point)
+    _peer_checkpoint_policy_digest(
+        point,
+        required=component_digest is not None,
+    )
     _require_non_empty_string(point.get("origin_key"), DIAGNOSTIC_CODES.source_lineage_mismatch)
     _validate_wcc_identity(point)
     binding_schema = _mapping(point.get("binding_schema"))
@@ -1221,14 +1327,50 @@ def checkpoint_runtime_program_identity(
         if isinstance(workflow_path, Path) and workflow_path.exists()
         else _digest("source", workflow_name)
     )
+    runtime_points = tuple(
+        getattr(runtime_plan, "lexical_checkpoint_points", ())
+    )
+    required_component_nodes: dict[str, str] = {}
+    for node in _mapping(getattr(runtime_plan, "nodes", {})).values():
+        if (
+            _point_field(node, "kind") != "provider_peer_group"
+            and _point_field(node, "provider_peer_group") is None
+        ):
+            continue
+        step_id = _point_field(node, "step_id")
+        node_id = _point_field(node, "node_id")
+        if (
+            not isinstance(step_id, str)
+            or not step_id
+            or not isinstance(node_id, str)
+            or not node_id
+            or step_id in required_component_nodes
+        ):
+            raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
+        required_component_nodes[step_id] = node_id
+    observed_required_points: dict[str, list[Any]] = {
+        step_id: [] for step_id in required_component_nodes
+    }
+    for point in runtime_points:
+        step_id = _point_field(point, "step_id")
+        if step_id in observed_required_points:
+            observed_required_points[step_id].append(point)
+    for step_id, points in observed_required_points.items():
+        if (
+            len(points) != 1
+            or _point_field(points[0], "node_id")
+            != required_component_nodes[step_id]
+        ):
+            raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
     lexical_points = [
-        {
-            "checkpoint_id": _point_field(point, "checkpoint_id"),
-            "program_point_id": _point_field(point, "program_point_id"),
-            "point_kind": _point_field(point, "point_kind"),
-            "step_id": _point_field(point, "step_id"),
-        }
-        for point in getattr(runtime_plan, "lexical_checkpoint_points", ())
+        _runtime_program_identity_point(
+            point,
+            component_required=(
+                _point_field(point, "step_id")
+                in required_component_nodes
+            ),
+        )
+        for point in runtime_points
     ]
     executable_ir_digest = _sha256_json(
         {
