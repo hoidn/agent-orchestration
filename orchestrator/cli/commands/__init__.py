@@ -10,6 +10,12 @@ from .monitor import monitor_workflows
 from .migration_parity import migration_parity_workflow
 from .post_wcc_inventory import post_wcc_inventory_workflow
 from .route_readiness import route_readiness_workflow
+from .peer import (
+    peer_ack_workflow,
+    peer_finish_workflow,
+    peer_ready_workflow,
+    peer_send_workflow,
+)
 
 __all__ = [
     'compile_workflow',
@@ -22,4 +28,8 @@ __all__ = [
     'migration_parity_workflow',
     'post_wcc_inventory_workflow',
     'route_readiness_workflow',
+    'peer_ack_workflow',
+    'peer_finish_workflow',
+    'peer_ready_workflow',
+    'peer_send_workflow',
 ]

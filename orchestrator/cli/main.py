@@ -518,6 +518,35 @@ def create_parser() -> argparse.ArgumentParser:
         help='Validate inventory and exit nonzero on stale or invalid authority state'
     )
 
+    subparsers.add_parser(
+        'peer-ready',
+        help='Declare this exact peer-group member attempt ready',
+    )
+    peer_send_parser = subparsers.add_parser(
+        'peer-send',
+        help='Queue a message for another active peer binding',
+    )
+    peer_send_parser.add_argument(
+        'target_binding',
+        help='Authored binding name of the receiving peer',
+    )
+    peer_send_parser.add_argument(
+        'message',
+        help='Verbatim message to queue at the receiver turn boundary',
+    )
+    peer_ack_parser = subparsers.add_parser(
+        'peer-ack',
+        help='Acknowledge a received peer message',
+    )
+    peer_ack_parser.add_argument(
+        'message_id',
+        help='Runtime-issued peer message id',
+    )
+    subparsers.add_parser(
+        'peer-finish',
+        help='Request cooperative natural close for this member',
+    )
+
     return parser
 
 
@@ -574,6 +603,21 @@ def main(args: Optional[list] = None) -> int:
     elif parsed_args.command == 'workflow-lisp-post-wcc-inventory':
         from orchestrator.cli.commands import post_wcc_inventory_workflow
         return post_wcc_inventory_workflow(parsed_args)
+    elif parsed_args.command == 'peer-ready':
+        from orchestrator.cli.commands import peer_ready_workflow
+        return peer_ready_workflow()
+    elif parsed_args.command == 'peer-send':
+        from orchestrator.cli.commands import peer_send_workflow
+        return peer_send_workflow(
+            target_binding=parsed_args.target_binding,
+            message=parsed_args.message,
+        )
+    elif parsed_args.command == 'peer-ack':
+        from orchestrator.cli.commands import peer_ack_workflow
+        return peer_ack_workflow(message_id=parsed_args.message_id)
+    elif parsed_args.command == 'peer-finish':
+        from orchestrator.cli.commands import peer_finish_workflow
+        return peer_finish_workflow()
     else:
         parser.print_help()
         return 1

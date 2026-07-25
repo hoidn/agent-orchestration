@@ -397,6 +397,16 @@ Commit message: `Add provider peer group contracts and ledgers`.
 
 ## Task 4: Add The Bound Endpoint And Thin Peer Clients
 
+**Outcome:** Complete. One visit-bound Unix-domain endpoint now accepts only
+bounded canonical requests, hands immutable events to the future
+single-writer coordinator, and resolves clients only through typed receipts.
+The four thin commands use one opaque environment binding and expose no
+runtime selectors. Fresh verification passed 13 focused transport tests, 100
+transport/CLI/report regressions, collection, and Pyright. Independent
+reviews returned `TASK4_SPEC_APPROVED` and `TASK4_QUALITY_APPROVED`; the
+quality pass also closed unowned-path cleanup, failure-atomic startup, and
+coordinator-waiter wakeup defects before approval.
+
 **Files:**
 
 - Create: `orchestrator/workflow/provider_peer_group/protocol.py`
@@ -406,7 +416,7 @@ Commit message: `Add provider peer group contracts and ledgers`.
 - Modify: `orchestrator/cli/commands/__init__.py`
 - Modify: `tests/test_workflow_lisp_cli.py`
 
-- [ ] **Step 1: Add failing endpoint/client tests**
+- [x] **Step 1: Add failing endpoint/client tests**
 
 Test one local endpoint bound to
 `run_id/step_name/node_id/visit_count/endpoint_instance_id`, opaque
@@ -424,7 +434,7 @@ peer-finish
 
 and offers no sender, root, endpoint, pane, state, ledger, or run selector.
 
-- [ ] **Step 2: Confirm the selectors fail**
+- [x] **Step 2: Confirm the selectors fail**
 
 ```bash
 pytest -q tests/test_provider_peer_group_protocol.py \
@@ -433,7 +443,7 @@ pytest -q tests/test_provider_peer_group_protocol.py \
 
 Expected: FAIL because the transport and commands are absent.
 
-- [ ] **Step 3: Implement listener/event handoff and thin clients**
+- [x] **Step 3: Implement listener/event handoff and thin clients**
 
 The listener decodes and bounds requests, enqueues immutable events, and
 waits for coordinator receipts. It never touches state, ledgers, bundles, or
@@ -441,7 +451,7 @@ the adapter. Client helpers read only the opaque active-group environment,
 perform one request, print/return the receipt, and map closed errors to
 nonzero exit.
 
-- [ ] **Step 4: Run narrow and CLI regressions**
+- [x] **Step 4: Run narrow and CLI regressions**
 
 ```bash
 pytest -q tests/test_provider_peer_group_protocol.py
@@ -451,7 +461,7 @@ pytest --collect-only -q tests/test_provider_peer_group_protocol.py
 
 Expected: all pass.
 
-- [ ] **Step 5: Obtain ordered reviews and commit**
+- [x] **Step 5: Obtain ordered reviews and commit**
 
 Commit message: `Add attempt-bound provider peer protocol`.
 
