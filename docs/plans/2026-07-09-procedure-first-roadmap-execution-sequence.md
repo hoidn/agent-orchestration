@@ -790,7 +790,22 @@ neither is selected, and the parked roadmap is not a selector:
    intent but without its gate lattice or decision-record machinery. Requires
    its own small plan; a null result parks the search program permanently
    without further process.
-2. **Prompt-identity diagnostics (E4P discipline).** Independent of any
+2. **Prompt calculus direction (owner-directed 2026-07-25) — head of this
+   queue.** `docs/design/workflow_lisp_prompt_calculus.md`: a typed
+   compositional prompt layer (defprompt fragments with typed slots,
+   completeness checking, fragment/result coherence, E4P-based prompt
+   identity, judgment views). Subsumes the E4P diagnostics item below as
+   its component 3/4. First tranche after its design review: defprompt +
+   slot-discharge checking.
+3. **Union-parsimony remedies (owner taste direction, 2026-07-25).** Two
+   ergonomics-wave candidates, each needing a small design: (a) a declared
+   authored failure channel — typed fail-closed workflow failure with
+   diagnostic payload, giving propagate-only outcomes a home outside
+   nominal unions and reserving unions for outcomes callers route on;
+   (b) structural union coercion — eliminating hand-written re-wrap
+   matches between structurally identical unions, using the existing
+   structural-constraint machinery as the checker.
+4. **Prompt-identity diagnostics (E4P discipline).** Independent of any
    search program and schedulable any time as a small item: apply the
    role-separated prompt-identity split (boundary invariant 8) to the
    existing system's diagnostics for provider hangs, context drift, and
