@@ -332,6 +332,16 @@ Commit message: `Add turn-boundary interactive provider adapter`.
 
 ## Task 3: Add Closed Peer Contracts, Paths, And Ledgers
 
+**Outcome:** Complete. Closed runtime bindings, protocol unions, lifecycle
+and terminal-evidence records now exclude ephemeral endpoint and pane
+handles; deterministic authored-order path plans cover two through eight
+members; and each receiver owns a canonical, fsynced, mutation-detecting
+append-only ledger. Fresh verification passed 43 focused tests, 158 adjacent
+evidence/supervision regressions, collection, and Pyright. Split independent
+specification audits returned `TASK3_MODELS_SPEC_APPROVED` and
+`TASK3_PERSISTENCE_SPEC_APPROVED`; the ordered implementation review returned
+`TASK3_QUALITY_APPROVED`.
+
 **Files:**
 
 - Create: `orchestrator/workflow/provider_peer_group/__init__.py`
@@ -340,7 +350,7 @@ Commit message: `Add turn-boundary interactive provider adapter`.
 - Create: `orchestrator/workflow/provider_peer_group/ledger.py`
 - Create: `tests/test_provider_peer_group_contracts.py`
 
-- [ ] **Step 1: Write closed-schema and path tests**
+- [x] **Step 1: Write closed-schema and path tests**
 
 Test exact keys/types for group/member configs, lifecycle states, endpoint
 identity, opaque sender binding, request/receipt unions, immutable frozen
@@ -348,7 +358,7 @@ member results, and terminal evidence. Test deterministic safe paths for
 `2..8` members and rejection of absolute, parent, colliding, duplicate, or
 pre-existing nonempty path plans.
 
-- [ ] **Step 2: Write ledger ordering tests**
+- [x] **Step 2: Write ledger ordering tests**
 
 Test an explicit fsynced header, canonical monotonically sequenced
 `recorded`, `offered|offer_failed`, and `receiver_acknowledged` rows,
@@ -356,7 +366,7 @@ record-before-offer ordering, exact sender/receiver attempt identities,
 verbatim content/digest, final digest/counts, and rejection of mutation,
 replacement, malformed tails, duplicate ids, or wrong-attempt ack.
 
-- [ ] **Step 3: Confirm tests fail**
+- [x] **Step 3: Confirm tests fail**
 
 ```bash
 pytest -q tests/test_provider_peer_group_contracts.py
@@ -364,13 +374,13 @@ pytest -q tests/test_provider_peer_group_contracts.py
 
 Expected: FAIL because the package is absent.
 
-- [ ] **Step 4: Implement minimal immutable contracts and ledger**
+- [x] **Step 4: Implement minimal immutable contracts and ledger**
 
 Use canonical JSON with sorted keys and compact separators. Open ledgers in
 exclusive-create/append mode, flush and `fsync` every lifecycle row, and
 never store messages in prompt dependency snapshots or workflow values.
 
-- [ ] **Step 5: Run narrow and adjacent evidence tests**
+- [x] **Step 5: Run narrow and adjacent evidence tests**
 
 ```bash
 pytest -q tests/test_provider_peer_group_contracts.py
@@ -381,7 +391,7 @@ pytest --collect-only -q tests/test_provider_peer_group_contracts.py
 
 Expected: all pass.
 
-- [ ] **Step 6: Obtain ordered reviews and commit**
+- [x] **Step 6: Obtain ordered reviews and commit**
 
 Commit message: `Add provider peer group contracts and ledgers`.
 
