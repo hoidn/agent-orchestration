@@ -99,6 +99,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
 | `2026-07-07-yaml-retirement-program.md` | Stage 6 complete. Tasks 1-7 are complete: all five queues are drained, exactly the two specified `.orc` ports are primary, no authored workflow YAML/YML remains, fresh execution is ORC-only, and the user-facing loader and project PyYAML dependency are absent. The 1,020-passed/5-skipped focused gate, fresh non-mutating `.orc` smoke, scoped broad comparison with zero new failures against the owner-adopted baseline, and ordered specification PASS/quality APPROVED reviews closed the stage at `d9baa120`. Stage 7 has an accepted design; its implementation selector remains gated on a reviewed plan. |
 | `2026-07-23-refusal-diagnosability-fixes-plan.md` | Queued small fix; not a competing selector. Applies design principle 28 (refusals name their rule) to the entry-bootstrap name-allowlist gate: denial diagnostic, declared-property rule replacing the name key, and promoted-route identity non-drift verification. Execute after the current YAML-retirement task or opportunistically between capture windows. |
+| `2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md` | Parked by owner decision 2026-07-24 per the architectural critique; not a selector. Boundary invariants extracted to `docs/design/workflow_lisp_program_search_boundaries.md`; the slimmed E0 probe and E4P prompt-identity diagnostics are the only salvaged items (see Post-Stage-8 Salvaged Items). Revival requires an explicit owner decision and fresh proportionality review. |
 
 ## Concrete Execution Sequence
 
@@ -713,6 +714,29 @@ accumulation, reader error recovery, hover type sidecar, source overlay,
 compile caching) are each a separate frontend change requiring its own design
 treatment and an explicit amendment to this roadmap; Stage 8 must not absorb
 them.
+
+### Post-Stage-8 Salvaged Items (from the parked evolution follow-on roadmap)
+
+The 2026-07-22 evolution follow-on roadmap is parked by owner decision
+(2026-07-24), on the recommendation of the architectural critique at
+`artifacts/review/roadmap-follow-on/architectural-critique.md`. Its durable
+boundary invariants now live in
+`docs/design/workflow_lisp_program_search_boundaries.md`, which constrains
+any future search/evolution design. Exactly two work items are salvaged;
+neither is selected, and the parked roadmap is not a selector:
+
+1. **Slimmed E0 discriminating-benchmark probe.** Eligible only after Stage 8
+   closes. Scope: a bounded (order one week) experiment answering whether any
+   benchmark discriminates guided program search from enumeration and
+   hill-climbing baselines on this substrate, per the parked roadmap's E0
+   intent but without its gate lattice or decision-record machinery. Requires
+   its own small plan; a null result parks the search program permanently
+   without further process.
+2. **Prompt-identity diagnostics (E4P discipline).** Independent of any
+   search program and schedulable any time as a small item: apply the
+   role-separated prompt-identity split (boundary invariant 8) to the
+   existing system's diagnostics for provider hangs, context drift, and
+   prompt provenance. Requires its own small plan.
 
 ## Concurrency Rules
 
