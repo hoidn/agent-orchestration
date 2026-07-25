@@ -16,7 +16,7 @@ Informative guidance and mental models live in `docs/`.
 | Review the retired YAML/YML workflow estate | [YAML Workflow Estate Triage](workflow_yaml_estate_triage.md) | Frozen historical projection of the content-addressed five-queue handoff; all queues are drained and the authored workflow estate is empty. |
 | Check the current Workflow Lisp pure-expression, projection, materialized-view, resource-transition, or stdlib phase/drain surface | [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md) | Documents the closed operator set, computed-`if` proof boundary, generated `pure_projection` / `materialize_view` runtime surfaces, the declared/runtime-native `resource-transition` lane, and the `phase-scope` / `finalize-selected-item` / `backlog-drain` stdlib contract. |
 | Author or audit bounded live provider supervision | [Workflow Lisp Provider Live Binding](design/workflow_lisp_provider_live_binding.md) | v1 target-2.16 is implemented for exactly one worker and one supervisor; recorded peer messaging remains a separate v1.1 phase. |
-| Review the Stage-7 v1.1 recorded peer-messaging contract | [Workflow Lisp Provider Peer Messaging](design/workflow_lisp_provider_peer_messaging.md) | Independently approved additive target-2.17 static peer groups with exact attempt-bound ingress, append-before-offer ledgers, cooperative receipts, and no forcing edge; a reviewed execution plan is pending. |
+| Execute or review Stage-7 v1.1 recorded peer messaging | [Provider Peer Messaging v1.1 Implementation Plan](plans/2026-07-24-provider-peer-messaging-v1.1-implementation-plan.md) | Independently approved additive target-2.17 static peer groups with exact attempt-bound ingress, append-before-offer ledgers, cooperative receipts, and no forcing edge. |
 | Check whether imported generic helpers can compose constrained `match`, imported transitions/resources, and `materialize-view` through ordinary specialization | [Capability Status Matrix](capability_status_matrix.md) | Routes to the landed G5A proof surface and its owning evidence lanes. |
 | Choose a design doc | [Design Documentation Index](design/README.md) | Groups current contracts, migration guidance, frontend direction, and deferred work. |
 | Author new workflows | [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) | Preferred `.orc` authoring route, availability guidance, and typed-contract patterns. |
@@ -395,7 +395,12 @@ document owns the answer.
 ### [Workflow Lisp Provider Peer Messaging](design/workflow_lisp_provider_peer_messaging.md)
 **Description:** Accepted Stage-7 v1.1 additive contract for target-2.17 `with-live-provider-peers` and `provider_peer_group.v1`: static 2..8-member groups, exact attempt-bound runtime peer-ready/send/ack/finish, receiver-ledger-before-offer, cooperative natural close, typed bundles, and one atomic settlement with no forcing edge.
 **Keywords:** lisp-frontend, provider-peer-messaging, turn-boundary-delivery, provider-peer-group, injected-message-ledger, structured-concurrency
-**Use this when:** Drafting or reviewing the v1.1 execution plan, or auditing the accepted owner amendment. Do not infer this surface from shipped v1.
+**Use this when:** Auditing the accepted owner amendment or resolving implementation semantics. Do not infer this surface from shipped v1.
+
+### [Provider Peer Messaging v1.1 Implementation Plan](plans/2026-07-24-provider-peer-messaging-v1.1-implementation-plan.md)
+**Description:** Active, independently reviewed Stage-7 v1.1 TDD sequence for the structural interactive capability, exact-attempt peer protocol and ledger, single-writer `provider_peer_group.v1` coordinator, target-2.17 frontend/projections, real-provider gates, and Gate S7-v1.1 closure.
+**Keywords:** lisp-frontend, provider-peer-messaging, implementation-plan, tdd, runtime, target-2.17
+**Use this when:** Executing or reviewing Stage 7 v1.1 before Stage 8; this is the active selector and preserves target-2.16 v1 byte-for-byte.
 
 ### [Workflow Lisp Language Server](design/workflow_lisp_language_server.md)
 **Description:** Proposed design for an `.orc` LSP server: a stdio server that is a pure consumer of the existing compile entry points (per frontend spec §76.1), delivering diagnostics on save, go-to-definition, document symbols, and completion in v1, with error-tolerance, hover, and as-you-type checking deferred behind named frontend prerequisites.

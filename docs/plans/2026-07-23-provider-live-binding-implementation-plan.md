@@ -49,7 +49,10 @@ messaging/static-peer-group phase is now specified by
 `docs/design/workflow_lisp_provider_peer_messaging.md` at its required
 design gate. It resolved the initial `CHANGES_REQUIRED` review and received
 `DESIGN_SPEC_APPROVED` and ordered `DESIGN_QUALITY_APPROVED`; its reviewed
-execution-plan delta remains required before Stage 8.
+execution plan is now
+`docs/plans/2026-07-24-provider-peer-messaging-v1.1-implementation-plan.md`,
+approved as `PLAN_SPEC_APPROVED` then `PLAN_QUALITY_APPROVED`. That plan is
+the active selector before Stage 8.
 
 **Plan-review evidence:** Independent specification/sequence review: `PASS`.
 Independent path/selector/shell-order audit: `PASS` for the pre-amendment plan.

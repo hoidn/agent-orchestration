@@ -1,13 +1,16 @@
 # Workflow Lisp Provider Peer Messaging
 
-- **Status:** accepted Stage-7 v1.1 design; implementation requires a reviewed
-  execution plan
+- **Status:** accepted Stage-7 v1.1 design; reviewed execution plan approved
+  for implementation
 - **Kind:** feature / recorded provider-to-provider messaging and static
   provider-group composition
 - **Owner:** Workflow Lisp frontend + provider runtime
 - **Created:** 2026-07-24
 - **Review:** independent specification `DESIGN_SPEC_APPROVED`; ordered
   quality `DESIGN_QUALITY_APPROVED` on 2026-07-24
+- **Execution plan:**
+  `docs/plans/2026-07-24-provider-peer-messaging-v1.1-implementation-plan.md`
+  (`PLAN_SPEC_APPROVED`, then `PLAN_QUALITY_APPROVED`)
 - **Related design:**
   - `docs/design/workflow_lisp_provider_live_binding.md`
   - `docs/design/workflow_lisp_frontend_specification.md`
