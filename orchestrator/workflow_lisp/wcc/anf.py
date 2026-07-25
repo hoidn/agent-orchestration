@@ -26,6 +26,7 @@ from .model import (
     WccOpaqueFrontendValue,
     WccPhaseTargetAtom,
     WccPerform,
+    WccProviderPeerGroup,
     WccProviderSupervision,
     WccPureOp,
     WccRecJoin,
@@ -238,7 +239,10 @@ def _normalize_binding_value(value) -> tuple[tuple[_PendingLet, ...], object]:
         return _normalize_perform(value)
     if isinstance(value, WccCall):
         return _normalize_call(value)
-    if isinstance(value, WccProviderSupervision):
+    if isinstance(
+        value,
+        (WccProviderSupervision, WccProviderPeerGroup),
+    ):
         return (
             (),
             replace(

@@ -34,6 +34,8 @@ from .expressions import (
     ProcedureCallExpr,
     RecordExpr,
     ResumeOrStartExpr,
+    WithLiveProviderPeersExpr,
+    WithLiveProvidersExpr,
     WithPhaseExpr,
     elaborate_expression,
 )
@@ -228,6 +230,9 @@ def typecheck_procedure_definitions(
                 function_name_resolver=function_name_resolver,
                 procedure_name_resolver=procedure_name_resolver,
                 workflow_name_resolver=workflow_name_resolver,
+                target_dsl_version=(
+                    current_type_env.target_dsl_version
+                ),
             )
         else:
             body_expr = procedure_def.body
@@ -1212,6 +1217,7 @@ def _typecheck_let_proc_expr_impl(
         outer_body_expr,
         generated_name,
         procedure_catalog=generated_catalog,
+        target_dsl_version=type_env.target_dsl_version,
     ):
         _raise_error(
             f"`let-proc` local procedure `{expr.binding.local_name}` escaped its lexical scope",
@@ -1364,6 +1370,7 @@ def _expr_returns_local_proc_value(
     expr: ExprNode,
     generated_name: str,
     *,
+    target_dsl_version: str,
     value_bindings: Mapping[str, bool] | None = None,
     procedure_catalog: ProcedureCatalog | None = None,
     proc_ref_env: Mapping[str, ResolvedProcRefValue] | None = None,
@@ -1377,6 +1384,7 @@ def _expr_returns_local_proc_value(
         if _expr_returns_local_proc_value(
             expr.base_expr,
             generated_name,
+            target_dsl_version=target_dsl_version,
             value_bindings=bindings,
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
@@ -1387,6 +1395,7 @@ def _expr_returns_local_proc_value(
             _expr_returns_local_proc_value(
                 binding.value_expr,
                 generated_name,
+                target_dsl_version=target_dsl_version,
                 value_bindings=bindings,
                 procedure_catalog=procedure_catalog,
                 proc_ref_env=active_proc_ref_env,
@@ -1400,6 +1409,7 @@ def _expr_returns_local_proc_value(
         return _procedure_call_returns_local_proc_value(
             expr,
             generated_name,
+            target_dsl_version=target_dsl_version,
             value_bindings=bindings,
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
@@ -1409,6 +1419,7 @@ def _expr_returns_local_proc_value(
         return _function_call_returns_local_proc_value(
             expr,
             generated_name,
+            target_dsl_version=target_dsl_version,
             value_bindings=bindings,
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
@@ -1419,6 +1430,7 @@ def _expr_returns_local_proc_value(
             _expr_returns_local_proc_value(
                 field_expr,
                 generated_name,
+                target_dsl_version=target_dsl_version,
                 value_bindings=bindings,
                 procedure_catalog=procedure_catalog,
                 proc_ref_env=active_proc_ref_env,
@@ -1432,6 +1444,7 @@ def _expr_returns_local_proc_value(
             local_bindings[binding_name] = _expr_returns_local_proc_value(
                 binding_expr,
                 generated_name,
+                target_dsl_version=target_dsl_version,
                 value_bindings=local_bindings,
                 procedure_catalog=procedure_catalog,
                 proc_ref_env=active_proc_ref_env,
@@ -1440,6 +1453,7 @@ def _expr_returns_local_proc_value(
         return _expr_returns_local_proc_value(
             expr.body,
             generated_name,
+            target_dsl_version=target_dsl_version,
             value_bindings=local_bindings,
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
@@ -1449,6 +1463,7 @@ def _expr_returns_local_proc_value(
         return _expr_returns_local_proc_value(
             expr.then_expr,
             generated_name,
+            target_dsl_version=target_dsl_version,
             value_bindings=bindings,
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
@@ -1456,6 +1471,7 @@ def _expr_returns_local_proc_value(
         ) or _expr_returns_local_proc_value(
             expr.else_expr,
             generated_name,
+            target_dsl_version=target_dsl_version,
             value_bindings=bindings,
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
@@ -1468,6 +1484,7 @@ def _expr_returns_local_proc_value(
             if _expr_returns_local_proc_value(
                 arm.body,
                 generated_name,
+                target_dsl_version=target_dsl_version,
                 value_bindings=arm_bindings,
                 procedure_catalog=procedure_catalog,
                 proc_ref_env=active_proc_ref_env,
@@ -1479,6 +1496,17 @@ def _expr_returns_local_proc_value(
         return _expr_returns_local_proc_value(
             expr.body,
             generated_name,
+            target_dsl_version=target_dsl_version,
+            value_bindings=bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=active_proc_ref_env,
+            visited_calls=visited_calls,
+        )
+    if isinstance(expr, (WithLiveProvidersExpr, WithLiveProviderPeersExpr)):
+        return _expr_returns_local_proc_value(
+            expr.body,
+            generated_name,
+            target_dsl_version=target_dsl_version,
             value_bindings=bindings,
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
@@ -1488,6 +1516,7 @@ def _expr_returns_local_proc_value(
         return _expr_returns_local_proc_value(
             expr.state_expr,
             generated_name,
+            target_dsl_version=target_dsl_version,
             value_bindings=bindings,
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
@@ -1497,6 +1526,7 @@ def _expr_returns_local_proc_value(
         return _expr_returns_local_proc_value(
             expr.result_expr,
             generated_name,
+            target_dsl_version=target_dsl_version,
             value_bindings=bindings,
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
@@ -1508,6 +1538,7 @@ def _expr_returns_local_proc_value(
         return _expr_returns_local_proc_value(
             expr.initial_state_expr,
             generated_name,
+            target_dsl_version=target_dsl_version,
             value_bindings=bindings,
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
@@ -1515,6 +1546,7 @@ def _expr_returns_local_proc_value(
         ) or _expr_returns_local_proc_value(
             expr.body_expr,
             generated_name,
+            target_dsl_version=target_dsl_version,
             value_bindings=loop_bindings,
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
@@ -1524,6 +1556,7 @@ def _expr_returns_local_proc_value(
         return _expr_returns_local_proc_value(
             expr.resume_from_expr,
             generated_name,
+            target_dsl_version=target_dsl_version,
             value_bindings=bindings,
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
@@ -1531,6 +1564,7 @@ def _expr_returns_local_proc_value(
         ) or _expr_returns_local_proc_value(
             expr.start_expr,
             generated_name,
+            target_dsl_version=target_dsl_version,
             value_bindings=bindings,
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
@@ -1542,6 +1576,7 @@ def _procedure_call_returns_local_proc_value(
     expr: ProcedureCallExpr,
     generated_name: str,
     *,
+    target_dsl_version: str,
     value_bindings: Mapping[str, bool],
     procedure_catalog: ProcedureCatalog | None,
     proc_ref_env: Mapping[str, ResolvedProcRefValue],
@@ -1567,6 +1602,7 @@ def _procedure_call_returns_local_proc_value(
         local_bindings[bound_arg.name] = _expr_returns_local_proc_value(
             bound_arg.value_expr,
             generated_name,
+            target_dsl_version=target_dsl_version,
             value_bindings=value_bindings,
             procedure_catalog=procedure_catalog,
             proc_ref_env=proc_ref_env,
@@ -1591,6 +1627,7 @@ def _procedure_call_returns_local_proc_value(
         local_bindings[param_name] = _expr_returns_local_proc_value(
             arg_expr,
             generated_name,
+            target_dsl_version=target_dsl_version,
             value_bindings=value_bindings,
             procedure_catalog=procedure_catalog,
             proc_ref_env=proc_ref_env,
@@ -1609,14 +1646,22 @@ def _procedure_call_returns_local_proc_value(
         return False
     body_expr = definition.body
     if isinstance(body_expr, SyntaxNode):
+        function_catalog = get_session_state().function_catalog
         body_expr = elaborate_expression(
             body_expr,
             bound_names=frozenset(name for name, _ in signature_params),
             procedure_names=frozenset(procedure_catalog.signatures_by_name),
+            function_names=(
+                frozenset()
+                if function_catalog is None
+                else frozenset(function_catalog.signatures_by_name)
+            ),
+            target_dsl_version=target_dsl_version,
         )
     return _expr_returns_local_proc_value(
         body_expr,
         generated_name,
+        target_dsl_version=target_dsl_version,
         value_bindings=local_bindings,
         procedure_catalog=procedure_catalog,
         proc_ref_env=local_proc_ref_env,
@@ -1627,6 +1672,7 @@ def _function_call_returns_local_proc_value(
     expr: FunctionCallExpr,
     generated_name: str,
     *,
+    target_dsl_version: str,
     value_bindings: Mapping[str, bool],
     procedure_catalog: ProcedureCatalog | None,
     proc_ref_env: Mapping[str, ResolvedProcRefValue],
@@ -1645,6 +1691,7 @@ def _function_call_returns_local_proc_value(
         local_bindings[param_name] = _expr_returns_local_proc_value(
             arg_expr,
             generated_name,
+            target_dsl_version=target_dsl_version,
             value_bindings=value_bindings,
             procedure_catalog=procedure_catalog,
             proc_ref_env=proc_ref_env,
@@ -1667,10 +1714,12 @@ def _function_call_returns_local_proc_value(
                 else frozenset(procedure_catalog.signatures_by_name)
             ),
             function_names=frozenset(function_catalog.signatures_by_name),
+            target_dsl_version=target_dsl_version,
         )
     return _expr_returns_local_proc_value(
         body_expr,
         generated_name,
+        target_dsl_version=target_dsl_version,
         value_bindings=local_bindings,
         procedure_catalog=procedure_catalog,
         proc_ref_env=proc_ref_env,

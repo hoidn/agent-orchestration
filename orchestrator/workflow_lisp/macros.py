@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -20,17 +21,24 @@ from .syntax import (
     SyntaxNode,
     SyntaxString,
     WorkflowLispSyntaxModule,
+    MAX_STATIC_LIVE_PROVIDER_PEERS,
     clone_template_syntax,
     introduced_identifier,
     syntax_expansion_stack,
     syntax_head_name,
     syntax_node_datum,
     top_level_form_path,
+    target_dsl_supports_provider_peer_messaging,
 )
 
 _RESERVED_MACRO_NAMES = reserved_macro_names()
 
 _ALLOWED_TOP_LEVEL_HEADS = admitted_top_level_heads()
+
+_PEER_FORM_IS_CORE_DURING_HYGIENE: ContextVar[bool] = ContextVar(
+    "workflow_lisp_peer_form_is_core_during_hygiene",
+    default=True,
+)
 
 
 @dataclass(frozen=True)
@@ -55,6 +63,7 @@ class MacroCatalog:
 
 @dataclass
 class _ExpansionAllocator:
+    peer_form_is_core: bool
     next_id: int = 1
 
     def allocate(self) -> str:
@@ -80,6 +89,26 @@ def collect_macro_catalog_with_imports(
     imported_names = set(definitions_by_name)
     local_names: set[str] = set()
     diagnostics: list[LispFrontendDiagnostic] = []
+    if (
+        target_dsl_supports_provider_peer_messaging(
+            module_syntax.target_dsl_version
+        )
+        and "with-live-provider-peers" in imported_names
+    ):
+        imported_peer_macro = definitions_by_name[
+            "with-live-provider-peers"
+        ]
+        diagnostics.append(
+            LispFrontendDiagnostic(
+                code="macro_reserved_name",
+                message=(
+                    "imported macro may not bind reserved head "
+                    "`with-live-provider-peers`"
+                ),
+                span=imported_peer_macro.span,
+                form_path=imported_peer_macro.form_path,
+            )
+        )
     for form in module_syntax.forms:
         datum = syntax_node_datum(form)
         if syntax_head_name(datum) != "defmacro":
@@ -89,7 +118,14 @@ def collect_macro_catalog_with_imports(
         except LispFrontendCompileError as error:
             diagnostics.extend(error.diagnostics)
             continue
-        if macro_def.name in _RESERVED_MACRO_NAMES:
+        reserved_names = _RESERVED_MACRO_NAMES
+        if not target_dsl_supports_provider_peer_messaging(
+            module_syntax.target_dsl_version
+        ):
+            reserved_names = (
+                reserved_names - {"with-live-provider-peers"}
+            )
+        if macro_def.name in reserved_names:
             diagnostics.append(
                 LispFrontendDiagnostic(
                     code="macro_reserved_name",
@@ -129,7 +165,13 @@ def expand_module_forms(
 ) -> WorkflowLispSyntaxModule:
     """Expand all non-`defmacro` forms recursively through the macro catalog."""
 
-    allocator = _ExpansionAllocator()
+    allocator = _ExpansionAllocator(
+        peer_form_is_core=(
+            target_dsl_supports_provider_peer_messaging(
+                module_syntax.target_dsl_version
+            )
+        )
+    )
     expanded_forms: list[SyntaxNode] = []
     for form in module_syntax.forms:
         datum = syntax_node_datum(form)
@@ -303,11 +345,17 @@ def _expand_macro_call(
         frame=frame,
         macro_def=macro_def,
     )
-    hygienic = _apply_hygiene(
-        instantiated,
-        macro_name=macro_def.name,
-        expansion_id=expansion_id,
+    peer_form_token = _PEER_FORM_IS_CORE_DURING_HYGIENE.set(
+        allocator.peer_form_is_core
     )
+    try:
+        hygienic = _apply_hygiene(
+            instantiated,
+            macro_name=macro_def.name,
+            expansion_id=expansion_id,
+        )
+    finally:
+        _PEER_FORM_IS_CORE_DURING_HYGIENE.reset(peer_form_token)
     expanded = _expand_datum(
         hygienic,
         catalog=catalog,
@@ -455,6 +503,16 @@ def _apply_hygiene(
         return _hygienic_defworkflow(datum, macro_name=macro_name, expansion_id=expansion_id, env=active_env)
     if head_name == "with-live-providers":
         return _hygienic_with_live_providers(
+            datum,
+            macro_name=macro_name,
+            expansion_id=expansion_id,
+            env=active_env,
+        )
+    if (
+        head_name == "with-live-provider-peers"
+        and _PEER_FORM_IS_CORE_DURING_HYGIENE.get()
+    ):
+        return _hygienic_with_live_provider_peers(
             datum,
             macro_name=macro_name,
             expansion_id=expansion_id,
@@ -649,6 +707,97 @@ def _hygienic_with_live_providers(
 
     updated = list(datum.items)
     updated[1] = replace(bindings_node, items=tuple(new_bindings))
+    updated[2] = _apply_hygiene(
+        datum.items[2],
+        macro_name=macro_name,
+        expansion_id=expansion_id,
+        env=local_env,
+    )
+    return replace(datum, items=tuple(updated))
+
+
+def _hygienic_with_live_provider_peers(
+    datum: SyntaxList,
+    *,
+    macro_name: str,
+    expansion_id: str,
+    env: Mapping[str, str],
+) -> SyntaxDatum:
+    if len(datum.items) != 3:
+        return _hygienic_generic_list(
+            datum,
+            macro_name=macro_name,
+            expansion_id=expansion_id,
+            env=env,
+        )
+    bindings_node = datum.items[1]
+    if (
+        not isinstance(bindings_node, SyntaxList)
+        or not 2
+        <= len(bindings_node.items)
+        <= MAX_STATIC_LIVE_PROVIDER_PEERS
+    ):
+        return _hygienic_generic_list(
+            datum,
+            macro_name=macro_name,
+            expansion_id=expansion_id,
+            env=env,
+        )
+
+    raw_bindings: list[SyntaxList] = []
+    for raw_binding in bindings_node.items:
+        if (
+            not isinstance(raw_binding, SyntaxList)
+            or len(raw_binding.items) != 2
+            or not isinstance(
+                raw_binding.items[0],
+                SyntaxIdentifier,
+            )
+        ):
+            return _hygienic_generic_list(
+                datum,
+                macro_name=macro_name,
+                expansion_id=expansion_id,
+                env=env,
+            )
+        raw_bindings.append(raw_binding)
+
+    local_env = dict(env)
+    renamed_binders: list[SyntaxIdentifier] = []
+    for raw_binding in raw_bindings:
+        name_node = raw_binding.items[0]
+        assert isinstance(name_node, SyntaxIdentifier)
+        if name_node.introduced_by_expansion_id == expansion_id:
+            renamed = introduced_identifier(
+                name_node,
+                macro_name=macro_name,
+                expansion_id=expansion_id,
+            )
+            local_env[name_node.resolved_name] = renamed.resolved_name
+            name_node = renamed
+        renamed_binders.append(name_node)
+
+    new_bindings = tuple(
+        replace(
+            raw_binding,
+            items=(
+                name_node,
+                _apply_hygiene(
+                    raw_binding.items[1],
+                    macro_name=macro_name,
+                    expansion_id=expansion_id,
+                    env=env,
+                ),
+            ),
+        )
+        for raw_binding, name_node in zip(
+            raw_bindings,
+            renamed_binders,
+            strict=True,
+        )
+    )
+    updated = list(datum.items)
+    updated[1] = replace(bindings_node, items=new_bindings)
     updated[2] = _apply_hygiene(
         datum.items[2],
         macro_name=macro_name,

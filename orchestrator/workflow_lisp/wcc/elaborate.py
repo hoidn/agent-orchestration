@@ -41,6 +41,7 @@ from ..expressions import (
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
+    WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
     WithPhaseExpr,
     WorkflowRefLiteralExpr,
@@ -93,6 +94,8 @@ from .model import (
     WccPhaseScope,
     WccPhaseTargetAtom,
     WccPerform,
+    WccProviderPeerGroup,
+    WccProviderPeerGroupMember,
     WccProviderSupervision,
     WccProviderSupervisionMember,
     WccPureOp,
@@ -269,7 +272,10 @@ def elaborate_typed_workflow_body(
         compile_time_bindings or {}
     )
     if any(
-        isinstance(node, WithLiveProvidersExpr)
+        isinstance(
+            node,
+            (WithLiveProvidersExpr, WithLiveProviderPeersExpr),
+        )
         for node in walk_expr(typed_body.expr)
     ):
         initial_compile_time_bindings[
@@ -324,17 +330,17 @@ def elaborate_typed_workflow(
 
 
 def close_wcc_provider_supervision_members(
-    node: WccBody | WccProviderSupervision,
+    node: WccBody | WccProviderSupervision | WccProviderPeerGroup,
     *,
     resolved_procedures_by_name: Mapping[str, TypedProcedureDef],
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment],
     type_env: FrontendTypeEnvironment,
     procedure_return_types: Mapping[str, TypeRef],
     workflow_return_types: Mapping[str, TypeRef] | None = None,
-) -> WccBody | WccProviderSupervision:
-    """Close every live-provider member by recursively inlining explicit procedures."""
+) -> WccBody | WccProviderSupervision | WccProviderPeerGroup:
+    """Close every live-provider region by recursively inlining explicit procedures."""
 
-    context = _ProviderSupervisionClosureContext(
+    context = _ProviderRegionClosureContext(
         resolved_procedures_by_name=resolved_procedures_by_name,
         procedure_type_envs=procedure_type_envs,
         type_env=type_env,
@@ -343,11 +349,35 @@ def close_wcc_provider_supervision_members(
     )
     if isinstance(node, WccProviderSupervision):
         return _close_provider_supervision(node, context=context)
-    return _close_provider_supervision_groups_in_body(node, context=context)
+    if isinstance(node, WccProviderPeerGroup):
+        return _close_provider_peer_group(node, context=context)
+    return _close_provider_groups_in_body(node, context=context)
+
+
+def close_wcc_provider_peer_group_members(
+    node: WccBody | WccProviderPeerGroup,
+    *,
+    resolved_procedures_by_name: Mapping[str, TypedProcedureDef],
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment],
+    type_env: FrontendTypeEnvironment,
+    procedure_return_types: Mapping[str, TypeRef],
+    workflow_return_types: Mapping[str, TypeRef] | None = None,
+) -> WccBody | WccProviderPeerGroup:
+    """Close peer-group members through the shared provider-region contract."""
+
+    closed = close_wcc_provider_supervision_members(
+        node,
+        resolved_procedures_by_name=resolved_procedures_by_name,
+        procedure_type_envs=procedure_type_envs,
+        type_env=type_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types,
+    )
+    return closed
 
 
 @dataclass(frozen=True)
-class _ProviderSupervisionClosureContext:
+class _ProviderRegionClosureContext:
     resolved_procedures_by_name: Mapping[str, TypedProcedureDef]
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment]
     type_env: FrontendTypeEnvironment
@@ -355,10 +385,10 @@ class _ProviderSupervisionClosureContext:
     procedure_return_types: Mapping[str, TypeRef]
 
 
-def _close_provider_supervision_groups_in_body(
+def _close_provider_groups_in_body(
     body: WccBody,
     *,
-    context: _ProviderSupervisionClosureContext,
+    context: _ProviderRegionClosureContext,
 ) -> WccBody:
     if isinstance(body, WccLet):
         bound_value = body.bound_value
@@ -367,10 +397,15 @@ def _close_provider_supervision_groups_in_body(
                 bound_value,
                 context=context,
             )
+        elif isinstance(bound_value, WccProviderPeerGroup):
+            bound_value = _close_provider_peer_group(
+                bound_value,
+                context=context,
+            )
         return replace(
             body,
             bound_value=bound_value,
-            body=_close_provider_supervision_groups_in_body(
+            body=_close_provider_groups_in_body(
                 body.body,
                 context=context,
             ),
@@ -381,7 +416,7 @@ def _close_provider_supervision_groups_in_body(
             arms=tuple(
                 replace(
                     arm,
-                    body=_close_provider_supervision_groups_in_body(
+                    body=_close_provider_groups_in_body(
                         arm.body,
                         context=context,
                     ),
@@ -392,11 +427,11 @@ def _close_provider_supervision_groups_in_body(
     if isinstance(body, WccIf):
         return replace(
             body,
-            then_body=_close_provider_supervision_groups_in_body(
+            then_body=_close_provider_groups_in_body(
                 body.then_body,
                 context=context,
             ),
-            else_body=_close_provider_supervision_groups_in_body(
+            else_body=_close_provider_groups_in_body(
                 body.else_body,
                 context=context,
             ),
@@ -404,11 +439,11 @@ def _close_provider_supervision_groups_in_body(
     if isinstance(body, WccJoin):
         return replace(
             body,
-            body=_close_provider_supervision_groups_in_body(
+            body=_close_provider_groups_in_body(
                 body.body,
                 context=context,
             ),
-            continuation=_close_provider_supervision_groups_in_body(
+            continuation=_close_provider_groups_in_body(
                 body.continuation,
                 context=context,
             ),
@@ -416,12 +451,12 @@ def _close_provider_supervision_groups_in_body(
     if isinstance(body, WccRecJoin):
         return replace(
             body,
-            body=_close_provider_supervision_groups_in_body(
+            body=_close_provider_groups_in_body(
                 body.body,
                 context=context,
             ),
             exhaustion=(
-                _close_provider_supervision_groups_in_body(
+                _close_provider_groups_in_body(
                     body.exhaustion,
                     context=context,
                 )
@@ -435,7 +470,7 @@ def _close_provider_supervision_groups_in_body(
 def _close_provider_supervision(
     group: WccProviderSupervision,
     *,
-    context: _ProviderSupervisionClosureContext,
+    context: _ProviderRegionClosureContext,
 ) -> WccProviderSupervision:
     from .anf import normalize_wcc_body_to_anf
     from .analysis import validate_wcc_provider_supervision
@@ -445,7 +480,7 @@ def _close_provider_supervision(
         members=tuple(
             replace(
                 member,
-                normalized_body=_inline_provider_supervision_member(
+                normalized_body=_inline_provider_region_member(
                     replace(
                         member,
                         normalized_body=normalize_wcc_body_to_anf(
@@ -462,10 +497,42 @@ def _close_provider_supervision(
     return validate_wcc_provider_supervision(closed)
 
 
-def _inline_provider_supervision_member(
-    member: WccProviderSupervisionMember,
+def _close_provider_peer_group(
+    group: WccProviderPeerGroup,
     *,
-    context: _ProviderSupervisionClosureContext,
+    context: _ProviderRegionClosureContext,
+) -> WccProviderPeerGroup:
+    from .anf import normalize_wcc_body_to_anf
+    from .analysis import validate_wcc_provider_peer_group
+
+    closed = replace(
+        group,
+        members=tuple(
+            replace(
+                member,
+                normalized_body=_inline_provider_region_member(
+                    replace(
+                        member,
+                        normalized_body=normalize_wcc_body_to_anf(
+                            member.normalized_body
+                        ),
+                    ),
+                    context=context,
+                ),
+            )
+            for member in group.members
+        ),
+        settlement_body=normalize_wcc_body_to_anf(
+            group.settlement_body
+        ),
+    )
+    return validate_wcc_provider_peer_group(closed)
+
+
+def _inline_provider_region_member(
+    member: WccProviderSupervisionMember | WccProviderPeerGroupMember,
+    *,
+    context: _ProviderRegionClosureContext,
 ) -> WccBody:
     return _inline_linear_provider_region(
         member.normalized_body,
@@ -484,8 +551,8 @@ def _inline_linear_provider_region(
     *,
     substitutions: Mapping[str, WccValue],
     namespace: str | None,
-    member: WccProviderSupervisionMember,
-    context: _ProviderSupervisionClosureContext,
+    member: WccProviderSupervisionMember | WccProviderPeerGroupMember,
+    context: _ProviderRegionClosureContext,
     active_procedures: frozenset[str],
     deferred_specialization_captures: tuple[
         tuple[str, str, WccValue],
@@ -516,6 +583,7 @@ def _inline_linear_provider_region(
     bound_ref = _provider_inline_name_ref(
         body,
         name=bound_name,
+        member=member,
     )
     continuation = _inline_linear_provider_region(
         body.body,
@@ -546,7 +614,10 @@ def _inline_linear_provider_region(
                 deferred_specialization_captures
             ),
         )
-    if isinstance(bound_value, WccProviderSupervision):
+    if isinstance(
+        bound_value,
+        (WccProviderSupervision, WccProviderPeerGroup),
+    ):
         _raise_provider_member_ineligible(
             member,
             offending_metadata=bound_value.metadata,
@@ -565,8 +636,8 @@ def _inline_provider_procedure_call(
     *,
     output_let: WccLet,
     continuation: WccBody,
-    member: WccProviderSupervisionMember,
-    context: _ProviderSupervisionClosureContext,
+    member: WccProviderSupervisionMember | WccProviderPeerGroupMember,
+    context: _ProviderRegionClosureContext,
     active_procedures: frozenset[str],
     caller_substitutions: Mapping[str, WccValue],
     deferred_specialization_captures: tuple[
@@ -662,6 +733,10 @@ def _inline_provider_procedure_call(
     )
     capture_substitutions: dict[str, WccValue] = {}
     rewritten_specialization_values: dict[str, object] = {}
+    peer_group_member = isinstance(
+        member,
+        WccProviderPeerGroupMember,
+    )
     for ordinal, (name, value) in enumerate(
         specialization_values.items()
     ):
@@ -670,8 +745,12 @@ def _inline_provider_procedure_call(
             caller_substitutions=effective_caller_substitutions,
             member=member,
             token_prefix=(
-                "__wcc_supervision_capture_"
-                f"{call.metadata.node_id.rsplit(':', 1)[-1]}_"
+                (
+                    "__wcc_peer_group_capture_"
+                    if peer_group_member
+                    else "__wcc_supervision_capture_"
+                )
+                + f"{call.metadata.node_id.rsplit(':', 1)[-1]}_"
                 f"{ordinal}_"
             ),
         )
@@ -705,7 +784,7 @@ def _inline_provider_procedure_call(
         procedure.typed_body,
         owner_name=(
             f"{procedure.definition.name}"
-            f"@provider-supervision:{call.metadata.node_id}"
+            f"@{_provider_region_role(member)}:{call.metadata.node_id}"
         ),
         type_env=procedure_env,
         value_env=procedure_value_env,
@@ -726,8 +805,12 @@ def _inline_provider_procedure_call(
         )
     }
     namespace = (
-        "__wcc_supervision_inline_"
-        f"{call.metadata.node_id.rsplit(':', 1)[-1]}__"
+        (
+            "__wcc_peer_group_inline_"
+            if peer_group_member
+            else "__wcc_supervision_inline_"
+        )
+        + f"{call.metadata.node_id.rsplit(':', 1)[-1]}__"
     )
 
     def bind_call_result(
@@ -763,8 +846,8 @@ def _partition_call_specialization_captures(
     call: WccCall,
     *,
     procedure: TypedProcedureDef,
-    context: _ProviderSupervisionClosureContext,
-    member: WccProviderSupervisionMember,
+    context: _ProviderRegionClosureContext,
+    member: WccProviderSupervisionMember | WccProviderPeerGroupMember,
     deferred_specialization_captures: tuple[
         tuple[str, str, WccValue],
         ...,
@@ -877,7 +960,7 @@ def _rewrite_specialization_value_captures(
     value: object,
     *,
     caller_substitutions: Mapping[str, WccValue],
-    member: WccProviderSupervisionMember,
+    member: WccProviderSupervisionMember | WccProviderPeerGroupMember,
     token_prefix: str,
 ) -> tuple[object, Mapping[str, WccValue]]:
     capture_substitutions: dict[str, WccValue] = {}
@@ -1022,12 +1105,14 @@ def _provider_inline_name_ref(
     binding: WccLet,
     *,
     name: str,
+    member: WccProviderSupervisionMember | WccProviderPeerGroupMember,
 ) -> WccNameAtom:
+    region_role = _provider_region_role(member)
     factory = WccIdentityFactory(
         owner_name=binding.metadata.node_id,
         lexical_owner_chain=(
             binding.metadata.scope_id,
-            "provider-supervision-inline-ref",
+            f"{region_role}-inline-ref",
             name,
         ),
         route_schema_version=_wcc_route_schema_version(binding.metadata),
@@ -1085,7 +1170,10 @@ def _substitute_wcc_binding_value(
                 for capture in value.specialization_captures
             ),
         )
-    if isinstance(value, WccProviderSupervision):
+    if isinstance(
+        value,
+        (WccProviderSupervision, WccProviderPeerGroup),
+    ):
         return value
     return _substitute_wcc_value(value, substitutions)
 
@@ -1195,11 +1283,15 @@ def _substitute_wcc_payload(
 
 
 def _raise_provider_member_ineligible(
-    member: WccProviderSupervisionMember,
+    member: WccProviderSupervisionMember | WccProviderPeerGroupMember,
     *,
     offending_metadata,
     message: str,
 ) -> None:
+    is_peer_group = isinstance(
+        member,
+        WccProviderPeerGroupMember,
+    )
     offending_span = getattr(
         offending_metadata,
         "source_span",
@@ -1217,7 +1309,11 @@ def _raise_provider_member_ineligible(
     )
     diagnostics = [
         LispFrontendDiagnostic(
-            code="provider_supervision_member_ineligible",
+            code=(
+                "provider_peer_group_member_ineligible"
+                if is_peer_group
+                else "provider_supervision_member_ineligible"
+            ),
             message=message,
             span=member.metadata.source_span,
             form_path=member.metadata.form_path,
@@ -1231,7 +1327,11 @@ def _raise_provider_member_ineligible(
     ):
         diagnostics.append(
             LispFrontendDiagnostic(
-                code="provider_supervision_member_disqualifying_form",
+                code=(
+                    "provider_peer_group_member_disqualifying_form"
+                    if is_peer_group
+                    else "provider_supervision_member_disqualifying_form"
+                ),
                 message="specialized member contains this disqualifying form",
                 span=offending_span,
                 form_path=offending_form_path,
@@ -1240,6 +1340,14 @@ def _raise_provider_member_ineligible(
             )
         )
     raise LispFrontendCompileError(tuple(diagnostics))
+
+
+def _provider_region_role(
+    member: WccProviderSupervisionMember | WccProviderPeerGroupMember,
+) -> str:
+    if isinstance(member, WccProviderPeerGroupMember):
+        return "provider-peer-group"
+    return "provider-supervision"
 
 
 def _wcc_route_schema_version(metadata) -> str:
@@ -1437,6 +1545,7 @@ def _elaborate_expr_to_body(
             FinalizeSelectedItemExpr,
             CallExpr,
             ProcedureCallExpr,
+            WithLiveProviderPeersExpr,
             WithLiveProvidersExpr,
         ),
     ):
@@ -3637,6 +3746,106 @@ def _elaborate_live_provider_supervision(
     )
 
 
+def _elaborate_live_provider_peer_group(
+    expr: WithLiveProviderPeersExpr,
+    *,
+    scope: WccIdentityFactory,
+    type_env: FrontendTypeEnvironment,
+    value_env: Mapping[str, TypeRef],
+    workflow_return_types: Mapping[str, TypeRef],
+    procedure_return_types: Mapping[str, TypeRef],
+    effect_summary: EffectSummary,
+    procedure_edges_by_site: Mapping[
+        tuple[object, tuple[str, ...]],
+        str,
+    ],
+    compile_time_bindings: Mapping[str, object],
+    active_phase_scope: WccPhaseScope | None,
+) -> WccProviderPeerGroup:
+    member_types = {
+        binding.name: _infer_expr_type(
+            binding.value_expr,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
+        for binding in expr.bindings
+    }
+    members = tuple(
+        WccProviderPeerGroupMember(
+            metadata=scope.value_metadata(
+                role=f"provider-peer-group:member:{binding.name}",
+                type_ref=member_types[binding.name],
+                source_span=binding.value_expr.span,
+                form_path=binding.value_expr.form_path,
+                expansion_stack=binding.value_expr.expansion_stack,
+                effect_summary=effect_summary,
+                phase_scope=active_phase_scope,
+            ),
+            binding_metadata=scope.value_metadata(
+                role=f"provider-peer-group:binding:{binding.name}",
+                type_ref=member_types[binding.name],
+                source_span=binding.span,
+                form_path=binding.form_path,
+                expansion_stack=binding.expansion_stack,
+                effect_summary=effect_summary,
+                phase_scope=active_phase_scope,
+            ),
+            binding_name=binding.name,
+            lexical_capture_names=tuple(sorted(value_env)),
+            normalized_body=_elaborate_expr_to_body(
+                binding.value_expr,
+                scope=scope.child_scope(
+                    "provider-peer-group-member",
+                    authored_binding_name=binding.name,
+                ),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            ),
+        )
+        for binding in expr.bindings
+    )
+    settlement_env = member_types
+    settlement_body = _elaborate_expr_to_body(
+        expr.body,
+        scope=scope.child_scope("provider-peer-group-settlement"),
+        type_env=type_env,
+        value_env=settlement_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types,
+        effect_summary=EMPTY_EFFECT_SUMMARY,
+        procedure_edges_by_site={},
+        compile_time_bindings=compile_time_bindings,
+        active_phase_scope=active_phase_scope,
+    )
+    return WccProviderPeerGroup(
+        metadata=scope.value_metadata(
+            role="provider-peer-group",
+            type_ref=_infer_expr_type(
+                expr.body,
+                type_env=type_env,
+                value_env=settlement_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+            ),
+            source_span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+            effect_summary=effect_summary,
+            phase_scope=active_phase_scope,
+        ),
+        members=members,
+        settlement_body=settlement_body,
+    )
+
+
 def _elaborate_effect_expr_to_binding_value(
     expr,
     *,
@@ -3665,6 +3874,19 @@ def _elaborate_effect_expr_to_binding_value(
         effect_summary=effect_summary,
         phase_scope=active_phase_scope,
     )
+    if isinstance(expr, WithLiveProviderPeersExpr):
+        return _elaborate_live_provider_peer_group(
+            expr,
+            scope=scope,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
     if isinstance(expr, WithLiveProvidersExpr):
         return _elaborate_live_provider_supervision(
             expr,
@@ -4558,6 +4780,24 @@ def _infer_expr_type(
             expr.body,
             type_env=type_env,
             value_env={**value_env, **member_types},
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
+    if isinstance(expr, WithLiveProviderPeersExpr):
+        member_types = {
+            binding.name: _infer_expr_type(
+                binding.value_expr,
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+            )
+            for binding in expr.bindings
+        }
+        return _infer_expr_type(
+            expr.body,
+            type_env=type_env,
+            value_env=member_types,
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
         )

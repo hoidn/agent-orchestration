@@ -439,6 +439,18 @@ _FORM_SPECS = (
         rationale="Bounded live-provider supervision elaborates through one fixed compiler path.",
     ),
     _spec(
+        "with-live-provider-peers",
+        kind=FormKind.CORE_EFFECT,
+        owner_module="expressions",
+        introduced_in="workflow_lisp_provider_peer_messaging",
+        remove_by=None,
+        macro_bindable=False,
+        admitted_top_level=False,
+        elaboration_route="with_live_provider_peers",
+        feature_tags=("provider_peer_messaging",),
+        rationale="Static provider peer groups elaborate through one fixed compiler path.",
+    ),
+    _spec(
         "provider-bundle-path",
         kind=FormKind.CORE_SPECIAL,
         owner_module="expressions",

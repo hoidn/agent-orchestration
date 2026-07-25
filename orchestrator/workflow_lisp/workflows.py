@@ -2465,6 +2465,7 @@ def typecheck_workflow_definitions(
                 function_name_resolver=function_name_resolver,
                 procedure_name_resolver=procedure_name_resolver,
                 workflow_name_resolver=workflow_name_resolver,
+                target_dsl_version=type_env.target_dsl_version,
             )
         else:
             body_expr = workflow_def.body

@@ -725,6 +725,8 @@ Ordered specification and quality reviews approved the final slice.
 - Modify: `orchestrator/workflow_lisp/effects.py`
 - Modify: `orchestrator/workflow_lisp/macros.py`
 - Modify: `orchestrator/workflow_lisp/functions.py`
+- Modify: `orchestrator/workflow_lisp/procedure_typecheck.py`
+- Modify: `orchestrator/workflow_lisp/workflows.py`
 - Modify: `orchestrator/workflow_lisp/expression_traversal.py`
 - Modify: `orchestrator/workflow_lisp/__init__.py`
 - Modify: `orchestrator/workflow_lisp/typecheck_dispatch.py`
@@ -735,9 +737,10 @@ Ordered specification and quality reviews approved the final slice.
 - Modify: `orchestrator/workflow_lisp/wcc/elaborate.py`
 - Modify: `orchestrator/workflow_lisp/wcc/analysis.py`
 - Create: `tests/test_workflow_lisp_provider_peer_group.py`
+- Modify: `tests/test_workflow_lisp_expressions.py`
 - Modify: `tests/test_workflow_lisp_wcc_m4.py`
 
-- [ ] **Step 1: Add surface and type failures**
+- [x] **Step 1: Add surface and type failures**
 
 Test target `<2.17` rejection, target `2.17` acceptance, literal `2`, `3`, and
 `8` members, rejection of `1` and `9`, duplicate bindings, malformed binding
@@ -746,7 +749,7 @@ member/settlement type, effectful settlement, and pure settlement typing.
 Assert `LivePeerMessagingEffect(members=<authored order>)` plus member effects
 and no `LiveSupervisionEffect`.
 
-- [ ] **Step 2: Add WCC closure failures**
+- [x] **Step 2: Add WCC closure failures**
 
 Test recursive inline-specialized direct procedures, exactly one
 unconditional provider perform plus pure projection, and rejection of
@@ -754,7 +757,7 @@ residual call/branch/loop/second perform/non-provider effect/later-sibling
 reference. Assert one authored-order `WccProviderPeerGroup`, never a
 `WccProviderSupervision`.
 
-- [ ] **Step 3: Confirm the frontend tests fail**
+- [x] **Step 3: Confirm the frontend tests fail**
 
 ```bash
 pytest -q tests/test_workflow_lisp_provider_peer_group.py \
@@ -763,13 +766,13 @@ pytest -q tests/test_workflow_lisp_provider_peer_group.py \
 
 Expected: FAIL because target/form/effect/WCC cases are absent.
 
-- [ ] **Step 4: Implement the smallest separate frontend route**
+- [x] **Step 4: Implement the smallest separate frontend route**
 
 Add `MAX_STATIC_LIVE_PROVIDER_PEERS = 8`, the target gate, surface AST/type
 case, effect, and WCC term. Generalize an existing pure helper only where its
 contract is genuinely identical; do not rewrite v1 through the new form.
 
-- [ ] **Step 5: Run narrow and full v1 frontend regressions**
+- [x] **Step 5: Run narrow and full v1 frontend regressions**
 
 ```bash
 pytest -q tests/test_workflow_lisp_provider_peer_group.py \
@@ -786,9 +789,35 @@ pytest --collect-only -q tests/test_workflow_lisp_provider_peer_group.py
 
 Expected: all pass.
 
-- [ ] **Step 6: Obtain ordered reviews and commit**
+- [x] **Step 6: Obtain ordered reviews and commit**
 
 Commit message: `Add static provider peer group frontend`.
+
+**Outcome:** Target DSL 2.17 now has a distinct static
+`with-live-provider-peers` frontend and `WccProviderPeerGroup` closure for
+two through eight authored members. Target-2.16 ownership of the future
+spelling remains intact for local, imported-qualified, function, procedure,
+bound-ProcRef, macro-hygiene, and let-proc escape-analysis paths, while the
+bare name becomes unshadowable at 2.17. Member typing, transportability,
+effects, recursive inline closure, exact-member settlement scope, canonical
+one-provider regions, and authored-order WCC analysis all have
+both-direction coverage. Final fresh verification passed 116 Task-8
+frontend/WCC tests, 352 complete v1/WCC regressions, 271 adjacent frontend
+regressions, the exact target-2.16 artifact oracle, collection of 49 peer
+frontend tests, compilation, and scoped diff checks. Ordered specification
+and quality reviews approved the exact candidate.
+
+**Deferred adjacent correctness defect (non-selector):** a linked consumer
+can pass a lexical ProcRef through an imported generic identity/relay without
+triggering `let_proc_scope_escape`. The final bounded probe proved that this
+is a pre-existing base-call-to-specialization association gap and that Task 8
+neither introduced nor widened it; peer member and settlement transportability
+also prevent it from becoming a valid peer result. A future bounded fix should
+add a linked-module regression in `tests/test_workflow_lisp_modules.py`,
+associate an imported base call with its unique validated specialization
+under the owner module's type environment, and fail closed on missing or
+ambiguous association. Do not re-elaborate imported raw source under the
+caller target.
 
 ## Task 9: Lower Through Every Executable Projection
 

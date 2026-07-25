@@ -52,6 +52,7 @@ from .expressions import (
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
+    WithLiveProviderPeersExpr,
     WorkflowRefLiteralExpr,
     WithLiveProvidersExpr,
     WithPhaseExpr,
@@ -97,6 +98,7 @@ from .typecheck_effects import (
     typecheck_command_result_expr as _typecheck_command_result_expr,
     typecheck_provider_bundle_path_expr as _typecheck_provider_bundle_path_expr,
     typecheck_provider_result_expr as _typecheck_provider_result_expr,
+    typecheck_with_live_provider_peers_expr as _typecheck_with_live_provider_peers_expr,
     typecheck_with_live_providers_expr as _typecheck_with_live_providers_expr,
 )
 from .typecheck_pure_ops import typecheck_pure_expr as _typecheck_pure_expr
@@ -519,6 +521,13 @@ def _typecheck(
         )
     if isinstance(expr, WithLiveProvidersExpr):
         return _typecheck_with_live_providers_expr(
+            expr,
+            context=context,
+            recurse=recurse,
+            typed_factory=_typed,
+        )
+    if isinstance(expr, WithLiveProviderPeersExpr):
+        return _typecheck_with_live_provider_peers_expr(
             expr,
             context=context,
             recurse=recurse,

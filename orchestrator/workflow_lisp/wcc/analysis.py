@@ -8,6 +8,7 @@ from dataclasses import dataclass, fields, is_dataclass, replace
 
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import IfExpr
+from ..syntax import MAX_STATIC_LIVE_PROVIDER_PEERS
 from ..type_env import TypeRef
 from .model import (
     WccBody,
@@ -31,6 +32,8 @@ from .model import (
     WccPhaseTargetAtom,
     WccProviderSupervision,
     WccProviderSupervisionMember,
+    WccProviderPeerGroup,
+    WccProviderPeerGroupMember,
     WccPureOp,
     WccRecJoin,
     WccRecordAtom,
@@ -87,6 +90,8 @@ def analyze_wcc_body(body: WccBody) -> WccScopeAnalysis:
         if isinstance(node, WccLet):
             if isinstance(node.bound_value, WccProviderSupervision):
                 validate_wcc_provider_supervision(node.bound_value)
+            elif isinstance(node.bound_value, WccProviderPeerGroup):
+                validate_wcc_provider_peer_group(node.bound_value)
             walk(node.body)
             return
         if isinstance(node, WccCase):
@@ -211,9 +216,99 @@ def validate_wcc_provider_supervision(
     return replace(group, members=validated_members)
 
 
+def validate_wcc_provider_peer_group(
+    group: WccProviderPeerGroup,
+) -> WccProviderPeerGroup:
+    """Validate and annotate one closed provider-peer-group WCC term."""
+
+    if not (
+        2
+        <= len(group.members)
+        <= MAX_STATIC_LIVE_PROVIDER_PEERS
+    ):
+        _raise_peer_group_diagnostic(
+            code="provider_peer_group_member_ineligible",
+            message=(
+                "provider peer groups require between two and eight "
+                "closed members"
+            ),
+            metadata=group.metadata,
+        )
+    member_names = tuple(
+        member.binding_name
+        for member in group.members
+    )
+    if len(set(member_names)) != len(member_names):
+        _raise_peer_group_diagnostic(
+            code="provider_peer_group_member_ineligible",
+            message="provider peer group member identities must be unique",
+            metadata=group.metadata,
+        )
+
+    member_name_set = set(member_names)
+    validated_members: list[WccProviderPeerGroupMember] = []
+    for member in group.members:
+        sibling_references = (
+            _free_wcc_names_in_body(member.normalized_body)
+            & (
+                member_name_set
+                - {member.binding_name}
+                - set(member.lexical_capture_names)
+            )
+        )
+        if sibling_references:
+            _raise_member_ineligible(
+                member,
+                metadata=member.metadata,
+                reason=(
+                    "member references sibling result binding(s): "
+                    + ", ".join(sorted(sibling_references))
+                ),
+            )
+        validated_members.append(
+            _validate_wcc_provider_peer_group_member(member)
+        )
+
+    settlement_free_names = _free_wcc_names_in_body(
+        group.settlement_body
+    )
+    unsupported_settlement_names = (
+        settlement_free_names - member_name_set
+    )
+    if unsupported_settlement_names:
+        _raise_peer_group_diagnostic(
+            code=(
+                "provider_peer_group_settlement_"
+                "environment_invalid"
+            ),
+            message=(
+                "provider peer group settlement may reference only "
+                "closed peer member results; found: "
+                + ", ".join(sorted(unsupported_settlement_names))
+            ),
+            metadata=group.settlement_body.metadata,
+        )
+    _validate_wcc_provider_peer_group_settlement(
+        group.settlement_body
+    )
+    return replace(group, members=tuple(validated_members))
+
+
 def _validate_wcc_provider_supervision_member(
     member: WccProviderSupervisionMember,
 ) -> WccProviderSupervisionMember:
+    return _validate_wcc_provider_region_member(member)
+
+
+def _validate_wcc_provider_peer_group_member(
+    member: WccProviderPeerGroupMember,
+) -> WccProviderPeerGroupMember:
+    return _validate_wcc_provider_region_member(member)
+
+
+def _validate_wcc_provider_region_member(
+    member: WccProviderSupervisionMember | WccProviderPeerGroupMember,
+) -> WccProviderSupervisionMember | WccProviderPeerGroupMember:
     bindings: list[WccLet] = []
     current = member.normalized_body
     seen_names: set[str] = set()
@@ -237,6 +332,12 @@ def _validate_wcc_provider_supervision_member(
         seen_names.add(current.bound_name)
         bindings.append(current)
         bound_value = current.bound_value
+        if isinstance(bound_value, WccCall):
+            _raise_member_ineligible(
+                member,
+                metadata=bound_value.metadata,
+                reason="member contains a residual procedure call",
+            )
         forward_references = (
             _referenced_wcc_names(bound_value)
             & (all_local_names - seen_names)
@@ -277,12 +378,6 @@ def _validate_wcc_provider_supervision_member(
                 )
             provider_perform = bound_value
             provider_binding_name = current.bound_name
-        elif isinstance(bound_value, WccCall):
-            _raise_member_ineligible(
-                member,
-                metadata=bound_value.metadata,
-                reason="member contains a residual procedure call",
-            )
         elif not isinstance(bound_value, _WCC_VALUE_TYPES):
             _raise_member_ineligible(
                 member,
@@ -412,6 +507,40 @@ def _validate_wcc_provider_supervision_settlement(body: WccBody) -> None:
         )
 
 
+def _validate_wcc_provider_peer_group_settlement(
+    body: WccBody,
+) -> None:
+    current = body
+    while isinstance(current, WccLet):
+        if not isinstance(current.bound_value, _WCC_VALUE_TYPES):
+            _raise_peer_group_diagnostic(
+                code="provider_peer_group_settlement_effectful",
+                message=(
+                    "provider peer group settlement may contain only "
+                    "WCC value bindings"
+                ),
+                metadata=current.bound_value.metadata,
+            )
+        current = current.body
+    if not isinstance(current, WccHalt):
+        _raise_peer_group_diagnostic(
+            code="provider_peer_group_settlement_effectful",
+            message=(
+                "provider peer group settlement control spine must contain "
+                "only WccLet nodes followed by WccHalt"
+            ),
+            metadata=current.metadata,
+        )
+    if not isinstance(current.result, _WCC_VALUE_TYPES):
+        _raise_peer_group_diagnostic(
+            code="provider_peer_group_settlement_effectful",
+            message=(
+                "provider peer group settlement result must be a WCC value"
+            ),
+            metadata=current.metadata,
+        )
+
+
 def _nonidentity_supervisor_projection_metadata(
     member: WccProviderSupervisionMember,
 ):
@@ -498,6 +627,108 @@ def _referenced_wcc_names(value: object) -> set[str]:
             _referenced_wcc_names_in_payload(value.operation_payload)
         )
         return referenced
+    if isinstance(value, WccCall):
+        referenced = {
+            name
+            for arg in value.args
+            for name in _referenced_wcc_names(arg)
+        }
+        referenced.update(
+            name
+            for capture in value.specialization_captures
+            for name in _referenced_wcc_names(capture.value)
+        )
+        return referenced
+    return set()
+
+
+def _free_wcc_names_in_body(
+    body: WccBody,
+    *,
+    bound_names: frozenset[str] = frozenset(),
+) -> set[str]:
+    if isinstance(body, WccLet):
+        return (
+            _referenced_wcc_names(body.bound_value) - bound_names
+        ) | _free_wcc_names_in_body(
+            body.body,
+            bound_names=bound_names | {body.bound_name},
+        )
+    if isinstance(body, WccCase):
+        names = _referenced_wcc_names(body.subject) - bound_names
+        for arm in body.arms:
+            names.update(
+                _free_wcc_names_in_body(
+                    arm.body,
+                    bound_names=(
+                        bound_names | {arm.binding_name}
+                    ),
+                )
+            )
+        return names
+    if isinstance(body, WccIf):
+        return (
+            _referenced_wcc_names(body.condition) - bound_names
+        ) | _free_wcc_names_in_body(
+            body.then_body,
+            bound_names=bound_names,
+        ) | _free_wcc_names_in_body(
+            body.else_body,
+            bound_names=bound_names,
+        )
+    if isinstance(body, WccJoin):
+        join_bound_names = bound_names | {
+            param.name
+            for param in body.params
+        }
+        return _free_wcc_names_in_body(
+            body.body,
+            bound_names=bound_names,
+        ) | _free_wcc_names_in_body(
+            body.continuation,
+            bound_names=join_bound_names,
+        )
+    if isinstance(body, WccJump):
+        return {
+            name
+            for arg in body.args
+            for name in _referenced_wcc_names(arg)
+            if name not in bound_names
+        }
+    if isinstance(body, WccRecJoin):
+        names = _referenced_wcc_names(body.budget) - bound_names
+        if body.initial_state is not None:
+            names.update(
+                _referenced_wcc_names(body.initial_state)
+                - bound_names
+            )
+        loop_bound_names = bound_names | {
+            param.name
+            for param in body.params
+        }
+        names.update(
+            _free_wcc_names_in_body(
+                body.body,
+                bound_names=loop_bound_names,
+            )
+        )
+        if body.exhaustion is not None:
+            names.update(
+                _free_wcc_names_in_body(
+                    body.exhaustion,
+                    bound_names=bound_names,
+                )
+            )
+        return names
+    if isinstance(body, WccLoopContinue):
+        return {
+            name
+            for arg in body.state_args
+            for name in _referenced_wcc_names(arg)
+            if name not in bound_names
+        }
+    if isinstance(body, (WccLoopDone, WccHalt)):
+        return _referenced_wcc_names(body.result) - bound_names
     return set()
 
 
@@ -588,16 +819,29 @@ def _disqualifying_member_control_in_payload(value: object):
 
 
 def _raise_member_ineligible(
-    member: WccProviderSupervisionMember,
+    member: WccProviderSupervisionMember | WccProviderPeerGroupMember,
     *,
     metadata,
     reason: str,
 ) -> None:
+    is_peer_group = isinstance(
+        member,
+        WccProviderPeerGroupMember,
+    )
+    group_label = (
+        "provider peer group"
+        if is_peer_group
+        else "provider supervision"
+    )
     diagnostics = [
         LispFrontendDiagnostic(
-            code="provider_supervision_member_ineligible",
+            code=(
+                "provider_peer_group_member_ineligible"
+                if is_peer_group
+                else "provider_supervision_member_ineligible"
+            ),
             message=(
-                f"provider supervision member `{member.binding_name}` is "
+                f"{group_label} member `{member.binding_name}` is "
                 f"ineligible: {reason}"
             ),
             span=member.metadata.source_span,
@@ -612,7 +856,11 @@ def _raise_member_ineligible(
     ):
         diagnostics.append(
             LispFrontendDiagnostic(
-                code="provider_supervision_member_disqualifying_form",
+                code=(
+                    "provider_peer_group_member_disqualifying_form"
+                    if is_peer_group
+                    else "provider_supervision_member_disqualifying_form"
+                ),
                 message="specialized member contains this disqualifying form",
                 span=metadata.source_span,
                 form_path=metadata.form_path,
@@ -624,6 +872,26 @@ def _raise_member_ineligible(
 
 
 def _raise_supervision_diagnostic(
+    *,
+    code: str,
+    message: str,
+    metadata,
+) -> None:
+    raise LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code=code,
+                message=message,
+                span=metadata.source_span,
+                form_path=metadata.form_path,
+                expansion_stack=metadata.expansion_stack,
+                phase="lowering",
+            ),
+        )
+    )
+
+
+def _raise_peer_group_diagnostic(
     *,
     code: str,
     message: str,

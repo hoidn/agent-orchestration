@@ -59,6 +59,13 @@ class LiveSupervisionEffect:
 
 
 @dataclass(frozen=True)
+class LivePeerMessagingEffect:
+    """Compiler-inferred ownership of one static provider peer group."""
+
+    members: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class UsesCommandEffect:
     """Declared command or adapter invocation dependency."""
 
@@ -120,6 +127,7 @@ EffectAtom = (
     | PublishEffect
     | UsesProviderEffect
     | LiveSupervisionEffect
+    | LivePeerMessagingEffect
     | UsesCommandEffect
     | CallsWorkflowEffect
     | UpdatesStateEffect
@@ -308,6 +316,10 @@ def render_effect_atom(effect: EffectAtom) -> str:
             "live-supervision("
             f"supervisor={effect.supervisor}, worker={effect.worker})"
         )
+    elif isinstance(effect, LivePeerMessagingEffect):
+        return "live-peer-messaging(members=" + ",".join(
+            effect.members
+        ) + ")"
     elif isinstance(effect, UsesCommandEffect):
         label = "uses-command"
     elif isinstance(effect, CallsWorkflowEffect):

@@ -311,7 +311,30 @@ class WccProviderSupervision:
     settlement_body: "WccBody"
 
 
-WccBindingValue = WccValue | WccPerform | WccCall | WccProviderSupervision
+@dataclass(frozen=True)
+class WccProviderPeerGroupMember:
+    metadata: WccNodeMetadata
+    binding_metadata: WccNodeMetadata
+    binding_name: str
+    normalized_body: "WccBody"
+    provider_binding_name: str | None = None
+    lexical_capture_names: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class WccProviderPeerGroup:
+    metadata: WccNodeMetadata
+    members: tuple[WccProviderPeerGroupMember, ...]
+    settlement_body: "WccBody"
+
+
+WccBindingValue = (
+    WccValue
+    | WccPerform
+    | WccCall
+    | WccProviderSupervision
+    | WccProviderPeerGroup
+)
 
 
 @dataclass(frozen=True)

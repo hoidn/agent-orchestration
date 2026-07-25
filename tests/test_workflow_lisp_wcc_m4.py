@@ -6,19 +6,43 @@ from pathlib import Path
 
 import pytest
 
+import orchestrator.workflow_lisp.compiler as compiler_module
+import orchestrator.workflow_lisp.lowering as lowering_module
+import orchestrator.workflow_lisp.wcc.elaborate as wcc_elaborate_module
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
+from orchestrator.workflow_lisp.compiler import (
+    _definition_only_syntax_module,
+    _validate_definition_module,
+)
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
+from orchestrator.workflow_lisp.definitions import (
+    elaborate_definition_module,
+)
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.procedures import (
+    build_procedure_catalog,
+    elaborate_procedure_definitions,
+)
+from orchestrator.workflow_lisp.reader import read_sexpr_text
+from orchestrator.workflow_lisp.syntax import build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
-from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from orchestrator.workflow_lisp.workflows import (
+    ExternalToolBinding,
+    build_command_boundary_environment,
+    build_extern_environment,
+    build_workflow_catalog,
+    elaborate_workflow_definitions,
+)
 from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow
 from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.analysis import analyze_wcc_body
+from orchestrator.workflow_lisp.wcc import analysis as wcc_analysis
 from orchestrator.workflow_lisp.wcc import model as wcc_model
 from orchestrator.workflow_lisp.wcc.route import (
     DEFAULT_LOWERING_ROUTE,
     LoweringRoute,
     normalize_lowering_route,
+    validate_wcc_m4_route_supported,
 )
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.type_env import PrimitiveTypeRef
@@ -766,6 +790,30 @@ def _synthetic_provider_supervision_body(*, defect: str | None = None):
                 args=(),
             ),
         )
+    elif defect == "residual_call_with_forward_arg":
+        worker_values = (
+            WccCall(
+                metadata=_supervision_metadata(
+                    factory,
+                    "call:worker",
+                    kind="value",
+                ),
+                callee_name="worker",
+                specialized_callee_name="worker",
+                args=(
+                    _supervision_name(factory, "worker_1"),
+                ),
+            ),
+            WccLiteralAtom(
+                metadata=_supervision_metadata(
+                    factory,
+                    "worker:later-pure",
+                    kind="atom",
+                ),
+                value="later",
+                literal_kind="string",
+            ),
+        )
     elif defect == "second_perform":
         worker_values += (_supervision_perform(factory, "worker-again"),)
     elif defect == "non_provider_perform":
@@ -879,6 +927,1051 @@ def test_wcc_m4_analysis_rejects_noncanonical_provider_supervision(
         analyze_wcc_body(_synthetic_provider_supervision_body(defect=defect))
 
     _assert_diagnostic_code(excinfo, expected_code)
+
+
+def test_wcc_m4_supervision_residual_call_diagnostic_precedes_forward_arg(
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        analyze_wcc_body(
+            _synthetic_provider_supervision_body(
+                defect="residual_call_with_forward_arg",
+            )
+        )
+
+    _assert_diagnostic_code(
+        excinfo,
+        "provider_supervision_member_ineligible",
+    )
+    assert "residual procedure call" in (
+        excinfo.value.diagnostics[0].message
+    )
+
+
+_PEER_GROUP_FORM_PATH = (
+    "workflow-lisp",
+    "defworkflow",
+    "with-live-provider-peers",
+)
+
+
+def _peer_group_metadata(
+    factory: WccIdentityFactory,
+    role: str,
+    *,
+    kind: str = "body",
+):
+    return getattr(factory, f"{kind}_metadata")(
+        role=role,
+        type_ref=_SUPERVISION_STRING,
+        source_span=_span(),
+        form_path=_PEER_GROUP_FORM_PATH,
+    )
+
+
+def _peer_group_name(
+    factory: WccIdentityFactory,
+    name: str,
+) -> WccNameAtom:
+    return WccNameAtom(
+        metadata=_peer_group_metadata(
+            factory,
+            f"name:{name}",
+            kind="atom",
+        ),
+        name=name,
+    )
+
+
+def _peer_group_perform(
+    factory: WccIdentityFactory,
+    role: str,
+    *,
+    perform_kind: str = "provider_result",
+    positional_args: tuple[object, ...] = (),
+) -> WccPerform:
+    return WccPerform(
+        metadata=_peer_group_metadata(factory, role, kind="value"),
+        perform_kind=perform_kind,
+        target_name=f"providers.{role}",
+        prompt_name=(
+            f"prompts.{role}"
+            if perform_kind == "provider_result"
+            else None
+        ),
+        positional_args=positional_args,
+        keyword_args=(),
+        returns_type_name="String",
+    )
+
+
+def _peer_group_member(
+    factory: WccIdentityFactory,
+    name: str,
+    values: tuple[object, ...],
+    *,
+    terminal_result: object | None = None,
+):
+    result_names = tuple(
+        f"{name}_{index}"
+        for index in range(len(values))
+    )
+    body = WccHalt(
+        metadata=_peer_group_metadata(factory, f"{name}:halt"),
+        result=(
+            terminal_result
+            if terminal_result is not None
+            else _peer_group_name(factory, result_names[-1])
+        ),
+    )
+    for result_name, value in reversed(
+        tuple(zip(result_names, values, strict=True))
+    ):
+        body = WccLet(
+            metadata=_peer_group_metadata(
+                factory,
+                f"{name}:let:{result_name}",
+            ),
+            bound_name=result_name,
+            bound_type_ref=_SUPERVISION_STRING,
+            bound_value=value,
+            body=body,
+        )
+    return getattr(wcc_model, "WccProviderPeerGroupMember")(
+        metadata=_peer_group_metadata(
+            factory,
+            f"member:{name}",
+            kind="value",
+        ),
+        binding_metadata=_peer_group_metadata(
+            factory,
+            f"member-binding:{name}",
+            kind="value",
+        ),
+        binding_name=name,
+        normalized_body=body,
+    )
+
+
+def _synthetic_provider_peer_group_body(
+    *,
+    defect: str | None = None,
+    member_count: int = 3,
+):
+    factory = WccIdentityFactory(
+        owner_name="peer-group",
+        lexical_owner_chain=("workflow", "provider-peer-group"),
+        route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
+    )
+    names = tuple(
+        (
+            "planner",
+            "reviewer",
+            "builder",
+            "tester",
+            "publisher",
+            "observer",
+            "auditor",
+            "reporter",
+            "extra",
+        )[:member_count]
+    )
+    first_values: tuple[object, ...] = (
+        _peer_group_perform(factory, names[0]),
+    )
+    first_terminal: object | None = WccPureOp(
+        metadata=_peer_group_metadata(
+            factory,
+            f"{names[0]}:projection",
+            kind="value",
+        ),
+        operator="identity",
+        args=(_peer_group_name(factory, f"{names[0]}_0"),),
+    )
+    if defect == "residual_call":
+        first_values = (
+            WccCall(
+                metadata=_peer_group_metadata(
+                    factory,
+                    "call:planner",
+                    kind="value",
+                ),
+                callee_name="planner",
+                specialized_callee_name="planner",
+                args=(),
+            ),
+        )
+        first_terminal = None
+    elif defect == "zero_provider_perform":
+        first_values = (
+            WccLiteralAtom(
+                metadata=_peer_group_metadata(
+                    factory,
+                    f"{names[0]}:pure",
+                    kind="atom",
+                ),
+                value="pure",
+                literal_kind="string",
+            ),
+        )
+        first_terminal = None
+    elif defect == "provider_result_ignored":
+        first_values = (
+            _peer_group_perform(factory, names[0]),
+            WccLiteralAtom(
+                metadata=_peer_group_metadata(
+                    factory,
+                    f"{names[0]}:ignored-result",
+                    kind="atom",
+                ),
+                value="constant",
+                literal_kind="string",
+            ),
+        )
+        first_terminal = None
+    elif defect == "second_perform":
+        first_values += (
+            _peer_group_perform(factory, f"{names[0]}-again"),
+        )
+        first_terminal = None
+    elif defect == "non_provider_perform":
+        first_values = (
+            _peer_group_perform(
+                factory,
+                f"{names[0]}-command",
+                perform_kind="command_result",
+            ),
+        )
+        first_terminal = None
+    elif defect == "later_sibling_reference":
+        first_values = (
+            _peer_group_perform(
+                factory,
+                names[0],
+                positional_args=(
+                    _peer_group_name(factory, names[1]),
+                ),
+            ),
+        )
+        first_terminal = None
+
+    members = [
+        _peer_group_member(
+            factory,
+            names[0],
+            first_values,
+            terminal_result=first_terminal,
+        )
+    ]
+    members.extend(
+        _peer_group_member(
+            factory,
+            name,
+            (_peer_group_perform(factory, name),),
+        )
+        for name in names[1:]
+    )
+    if defect == "earlier_sibling_reference":
+        members[1] = _peer_group_member(
+            factory,
+            names[1],
+            (
+                _peer_group_perform(
+                    factory,
+                    names[1],
+                    positional_args=(
+                        _peer_group_name(factory, names[0]),
+                    ),
+                ),
+            ),
+        )
+    elif defect == "duplicate_member":
+        members[-1] = replace(
+            members[-1],
+            binding_name=names[0],
+        )
+    elif defect == "branch":
+        members[0] = replace(
+            members[0],
+            normalized_body=wcc_model.WccIf(
+                metadata=_peer_group_metadata(factory, "planner:if"),
+                condition=WccLiteralAtom(
+                    metadata=_peer_group_metadata(
+                        factory,
+                        "planner:condition",
+                        kind="atom",
+                    ),
+                    value=True,
+                    literal_kind="bool",
+                ),
+                condition_shape=object(),
+                then_body=members[0].normalized_body,
+                else_body=members[0].normalized_body,
+            ),
+        )
+    elif defect == "loop":
+        members[0] = replace(
+            members[0],
+            normalized_body=WccRecJoin(
+                metadata=_peer_group_metadata(factory, "planner:loop"),
+                loop_name="planner-loop",
+                params=(),
+                budget=WccLiteralAtom(
+                    metadata=_peer_group_metadata(
+                        factory,
+                        "planner:budget",
+                        kind="atom",
+                    ),
+                    value=1,
+                    literal_kind="int",
+                ),
+                body=WccLoopDone(
+                    metadata=_peer_group_metadata(
+                        factory,
+                        "planner:done",
+                    ),
+                    result=_peer_group_name(factory, "planner_0"),
+                ),
+                exhaustion=None,
+            ),
+        )
+
+    settlement = WccHalt(
+        metadata=_peer_group_metadata(factory, "settlement:halt"),
+        result=_peer_group_name(factory, names[0]),
+    )
+    if defect == "effectful_settlement":
+        settlement = WccLet(
+            metadata=_peer_group_metadata(factory, "settlement:let"),
+            bound_name="settlement_effect",
+            bound_type_ref=_SUPERVISION_STRING,
+            bound_value=_peer_group_perform(factory, "settlement"),
+            body=settlement,
+        )
+    elif defect == "settlement_outer_capture":
+        settlement = replace(
+            settlement,
+            result=_peer_group_name(factory, "outer_request"),
+        )
+    group = getattr(wcc_model, "WccProviderPeerGroup")(
+        metadata=_peer_group_metadata(
+            factory,
+            "provider-peer-group",
+            kind="value",
+        ),
+        members=tuple(members),
+        settlement_body=settlement,
+    )
+    return WccLet(
+        metadata=_peer_group_metadata(factory, "let:peer-group"),
+        bound_name="peer_group",
+        bound_type_ref=_SUPERVISION_STRING,
+        bound_value=group,
+        body=WccHalt(
+            metadata=_peer_group_metadata(factory, "halt:peer-group"),
+            result=_peer_group_name(factory, "peer_group"),
+        ),
+    )
+
+
+def test_wcc_m4_analysis_accepts_authored_order_provider_peer_group() -> None:
+    body = _synthetic_provider_peer_group_body()
+    assert isinstance(body, WccLet)
+    group = body.bound_value
+
+    validated = getattr(
+        wcc_analysis,
+        "validate_wcc_provider_peer_group",
+    )(group)
+    analyze_wcc_body(body)
+
+    assert isinstance(
+        validated,
+        getattr(wcc_model, "WccProviderPeerGroup"),
+    )
+    assert not isinstance(validated, wcc_model.WccProviderSupervision)
+    assert tuple(
+        member.binding_name
+        for member in validated.members
+    ) == ("planner", "reviewer", "builder")
+    assert all(
+        member.provider_binding_name is not None
+        for member in validated.members
+    )
+
+
+@pytest.mark.parametrize("member_count", (1, 9))
+def test_wcc_m4_analysis_rejects_provider_peer_group_outside_static_bounds(
+    member_count: int,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        analyze_wcc_body(
+            _synthetic_provider_peer_group_body(
+                member_count=member_count,
+            )
+        )
+
+    _assert_diagnostic_code(
+        excinfo,
+        "provider_peer_group_member_ineligible",
+    )
+
+
+@pytest.mark.parametrize(
+    ("defect", "expected_code"),
+    (
+        ("residual_call", "provider_peer_group_member_ineligible"),
+        (
+            "zero_provider_perform",
+            "provider_peer_group_member_ineligible",
+        ),
+        (
+            "provider_result_ignored",
+            "provider_peer_group_member_ineligible",
+        ),
+        ("branch", "provider_peer_group_member_ineligible"),
+        ("loop", "provider_peer_group_member_ineligible"),
+        ("second_perform", "provider_peer_group_member_ineligible"),
+        ("non_provider_perform", "provider_peer_group_member_ineligible"),
+        (
+            "earlier_sibling_reference",
+            "provider_peer_group_member_ineligible",
+        ),
+        (
+            "later_sibling_reference",
+            "provider_peer_group_member_ineligible",
+        ),
+        (
+            "duplicate_member",
+            "provider_peer_group_member_ineligible",
+        ),
+        (
+            "effectful_settlement",
+            "provider_peer_group_settlement_effectful",
+        ),
+        (
+            "settlement_outer_capture",
+            "provider_peer_group_settlement_environment_invalid",
+        ),
+    ),
+)
+def test_wcc_m4_analysis_rejects_noncanonical_provider_peer_group(
+    defect: str,
+    expected_code: str,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        analyze_wcc_body(
+            _synthetic_provider_peer_group_body(defect=defect)
+        )
+
+    _assert_diagnostic_code(excinfo, expected_code)
+
+
+def test_wcc_m4_peer_group_join_param_binds_continuation() -> None:
+    factory = WccIdentityFactory(
+        owner_name="peer-join-scope",
+        lexical_owner_chain=("workflow", "peer-settlement"),
+        route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
+    )
+    literal = WccLiteralAtom(
+        metadata=_peer_group_metadata(
+            factory,
+            "producer:literal",
+            kind="atom",
+        ),
+        value="producer",
+        literal_kind="string",
+    )
+    join = wcc_model.WccJoin(
+        metadata=_peer_group_metadata(factory, "join"),
+        join_name="settle",
+        params=(
+            WccJoinParam(
+                name="joined",
+                type_ref=_SUPERVISION_STRING,
+            ),
+        ),
+        body=WccHalt(
+            metadata=_peer_group_metadata(
+                factory,
+                "producer:halt",
+            ),
+            result=literal,
+        ),
+        continuation=WccHalt(
+            metadata=_peer_group_metadata(
+                factory,
+                "continuation:halt",
+            ),
+            result=_peer_group_name(factory, "joined"),
+        ),
+    )
+
+    assert wcc_analysis._free_wcc_names_in_body(join) == set()
+
+
+def test_wcc_m4_peer_group_join_param_does_not_bind_producer_body() -> None:
+    factory = WccIdentityFactory(
+        owner_name="peer-join-scope",
+        lexical_owner_chain=("workflow", "peer-settlement"),
+        route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
+    )
+    literal = WccLiteralAtom(
+        metadata=_peer_group_metadata(
+            factory,
+            "continuation:literal",
+            kind="atom",
+        ),
+        value="continuation",
+        literal_kind="string",
+    )
+    join = wcc_model.WccJoin(
+        metadata=_peer_group_metadata(factory, "join"),
+        join_name="settle",
+        params=(
+            WccJoinParam(
+                name="joined",
+                type_ref=_SUPERVISION_STRING,
+            ),
+        ),
+        body=WccHalt(
+            metadata=_peer_group_metadata(
+                factory,
+                "producer:halt",
+            ),
+            result=_peer_group_name(factory, "joined"),
+        ),
+        continuation=WccHalt(
+            metadata=_peer_group_metadata(
+                factory,
+                "continuation:halt",
+            ),
+            result=literal,
+        ),
+    )
+
+    assert wcc_analysis._free_wcc_names_in_body(join) == {
+        "joined"
+    }
+
+
+def _provider_peer_group_module_source(*forms: str) -> str:
+    return "\n".join(
+        (
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.17")',
+            *(f"  {form}" for form in forms),
+            ")",
+        )
+    )
+
+
+def _typed_provider_peer_group_wcc_context(
+    tmp_path: Path,
+    *forms: str,
+):
+    source = _provider_peer_group_module_source(*forms)
+    path = tmp_path / "provider_peer_group_wcc_probe.orc"
+    path.write_text(source, encoding="utf-8")
+    syntax_module = build_syntax_module(
+        read_sexpr_text(source, source_path=str(path))
+    )
+    module = elaborate_definition_module(
+        _definition_only_syntax_module(syntax_module)
+    )
+    _validate_definition_module(module)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    workflow_defs = elaborate_workflow_definitions(syntax_module)
+    procedure_defs = elaborate_procedure_definitions(syntax_module)
+    workflow_catalog = build_workflow_catalog(
+        module,
+        workflow_defs,
+        type_env,
+    )
+    procedure_catalog = build_procedure_catalog(
+        procedure_defs,
+        type_env=type_env,
+    )
+    extern_environment = build_extern_environment(
+        provider_externs={
+            "providers.planner": "planner-provider",
+            "providers.reviewer": "reviewer-provider",
+            "providers.builder": "builder-provider",
+            "providers.worker": "worker-provider",
+            "providers.supervisor": "supervisor-provider",
+        },
+        prompt_externs={
+            "prompts.planner": "prompts/planner.md",
+            "prompts.reviewer": "prompts/reviewer.md",
+            "prompts.builder": "prompts/builder.md",
+            "prompts.worker": "prompts/worker.md",
+            "prompts.supervisor": "prompts/supervisor.md",
+        },
+    )
+    command_boundary_environment = (
+        build_command_boundary_environment(
+            {
+                "run_checks": ExternalToolBinding(
+                    name="run_checks",
+                    stable_command=("echo",),
+                ),
+            }
+        )
+    )
+    typed_procedures, typed_workflows, _ = (
+        compiler_module._infer_stage3_effect_summaries(
+            procedure_defs,
+            module=module,
+            workflow_defs=workflow_defs,
+            type_env=type_env,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=(
+                command_boundary_environment
+            ),
+        )
+    )
+    procedure_type_envs = {
+        procedure.definition.name: type_env
+        for procedure in typed_procedures
+    }
+    resolved_procedures_by_name = (
+        lowering_module._resolve_procedure_lowering(
+            typed_procedures,
+            typed_workflows=typed_workflows,
+            workflow_path=path,
+            type_env=type_env,
+            procedure_type_envs=procedure_type_envs,
+        )
+    )
+    return {
+        "path": path,
+        "source": source,
+        "type_env": type_env,
+        "typed_workflow": next(
+            workflow
+            for workflow in typed_workflows
+            if workflow.definition.name == "orchestrate"
+        ),
+        "resolved_procedures_by_name": (
+            resolved_procedures_by_name
+        ),
+        "procedure_type_envs": procedure_type_envs,
+        "workflow_return_types": {
+            workflow.definition.name: (
+                workflow.signature.return_type_ref
+            )
+            for workflow in typed_workflows
+        },
+        "procedure_return_types": {
+            name: procedure.signature.return_type_ref
+            for name, procedure
+            in resolved_procedures_by_name.items()
+        },
+    }
+
+
+def _elaborate_closed_provider_group(context):
+    return elaborate_typed_workflow(
+        context["typed_workflow"],
+        type_env=context["type_env"],
+        workflow_return_types=context["workflow_return_types"],
+        procedure_return_types=context["procedure_return_types"],
+        resolved_procedures_by_name=context[
+            "resolved_procedures_by_name"
+        ],
+        procedure_type_envs=context["procedure_type_envs"],
+        route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
+    )
+
+
+def _first_provider_group(body):
+    current = body
+    while isinstance(current, WccLet):
+        if isinstance(
+            current.bound_value,
+            (
+                wcc_model.WccProviderPeerGroup,
+                wcc_model.WccProviderSupervision,
+            ),
+        ):
+            return current.bound_value
+        current = current.body
+    raise AssertionError("expected a provider group WCC binding")
+
+
+def test_wcc_m4_provider_peer_group_closes_nested_inline_procedures(
+    tmp_path: Path,
+) -> None:
+    context = _typed_provider_peer_group_wcc_context(
+        tmp_path,
+        (
+            "(defproc pure-project ((value String)) -> String "
+            ":effects () :lowering inline "
+            "(let* ((projected value)) projected))"
+        ),
+        (
+            "(defproc provider-leaf ((request String)) -> String "
+            ":effects ((uses-provider providers.planner)) "
+            ":lowering inline "
+            "(let* ((raw "
+            "(provider-result providers.planner "
+            ":prompt prompts.planner :inputs (request) "
+            ":returns String)) "
+            "(projected (pure-project raw))) "
+            "projected))"
+        ),
+        (
+            "(defproc member-entry ((request String)) -> String "
+            ":effects ((uses-provider providers.planner)) "
+            ":lowering inline "
+            "(provider-leaf request))"
+        ),
+        (
+            "(defworkflow orchestrate () -> String "
+            "(with-live-provider-peers "
+            '((planner (member-entry "request")) '
+            "(reviewer "
+            "(provider-result providers.reviewer "
+            ":prompt prompts.reviewer :inputs () "
+            ":returns String)) "
+            "(builder "
+            "(provider-result providers.builder "
+            ":prompt prompts.builder :inputs () "
+            ":returns String))) "
+            "planner))"
+        ),
+    )
+
+    group = _first_provider_group(
+        _elaborate_closed_provider_group(context)
+    )
+
+    assert isinstance(group, wcc_model.WccProviderPeerGroup)
+    assert not isinstance(group, wcc_model.WccProviderSupervision)
+    assert tuple(
+        member.binding_name
+        for member in group.members
+    ) == ("planner", "reviewer", "builder")
+    for member in group.members:
+        provider_performs = 0
+        current = member.normalized_body
+        while isinstance(current, WccLet):
+            assert not isinstance(current.bound_value, WccCall)
+            provider_performs += isinstance(
+                current.bound_value,
+                WccPerform,
+            )
+            current = current.body
+        assert isinstance(current, WccHalt)
+        assert provider_performs == 1
+
+
+def test_wcc_m4_route_validator_accepts_live_provider_peer_group(
+    tmp_path: Path,
+) -> None:
+    context = _typed_provider_peer_group_wcc_context(
+        tmp_path,
+        (
+            "(defworkflow orchestrate () -> String "
+            "(with-live-provider-peers "
+            "((planner "
+            "(provider-result providers.planner "
+            ":prompt prompts.planner :inputs () :returns String)) "
+            "(reviewer "
+            "(provider-result providers.reviewer "
+            ":prompt prompts.reviewer :inputs () :returns String))) "
+            "planner))"
+        ),
+    )
+
+    validate_wcc_m4_route_supported(
+        (context["typed_workflow"],),
+        tuple(
+            context["resolved_procedures_by_name"].values()
+        ),
+    )
+
+
+def test_wcc_m4_peer_settlement_type_inference_excludes_outer_names() -> None:
+    from orchestrator.workflow_lisp.expressions import (
+        LiveProviderPeerBinding,
+        LiteralExpr,
+        NameExpr,
+        WithLiveProviderPeersExpr,
+    )
+
+    span = _span()
+    form_path = _PEER_GROUP_FORM_PATH
+    peer_expr = WithLiveProviderPeersExpr(
+        bindings=tuple(
+            LiveProviderPeerBinding(
+                name=name,
+                value_expr=LiteralExpr(
+                    value=name,
+                    literal_kind="string",
+                    span=span,
+                    form_path=form_path,
+                ),
+                name_span=span,
+                span=span,
+                form_path=form_path,
+            )
+            for name in ("planner", "reviewer")
+        ),
+        body=NameExpr(
+            name="outer_only",
+            span=span,
+            form_path=form_path,
+        ),
+        span=span,
+        form_path=form_path,
+    )
+
+    with pytest.raises(KeyError, match="outer_only"):
+        wcc_elaborate_module._infer_expr_type(
+            peer_expr,
+            type_env=FrontendTypeEnvironment(
+                {},
+                target_dsl_version="2.17",
+            ),
+            value_env={
+                "outer_only": PrimitiveTypeRef(name="String"),
+            },
+            workflow_return_types={},
+            procedure_return_types={},
+        )
+
+
+def _ineligible_peer_member_forms(defect: str) -> tuple[str, ...]:
+    if defect == "residual_non_inline_call":
+        member_form = (
+            "(defproc bad-member () -> String "
+            ":effects ((uses-provider providers.planner)) "
+            ":lowering auto "
+            "(provider-result providers.planner "
+            ":prompt prompts.planner :inputs () :returns String))"
+        )
+    elif defect == "zero_provider_perform":
+        member_form = (
+            "(defproc bad-member () -> String "
+            ":effects () :lowering inline "
+            '"no provider")'
+        )
+    elif defect == "provider_result_ignored":
+        member_form = (
+            "(defproc bad-member () -> String "
+            ":effects ((uses-provider providers.planner)) "
+            ":lowering inline "
+            "(let* ((ignored "
+            "(provider-result providers.planner "
+            ":prompt prompts.planner :inputs () :returns String))) "
+            '"constant"))'
+        )
+    elif defect == "branch":
+        member_form = (
+            "(defproc bad-member () -> String "
+            ":effects ((uses-provider providers.planner)) "
+            ":lowering inline "
+            "(if true "
+            "(provider-result providers.planner "
+            ":prompt prompts.planner :inputs () :returns String) "
+            "(provider-result providers.planner "
+            ":prompt prompts.planner :inputs () :returns String)))"
+        )
+    elif defect == "loop":
+        member_form = (
+            "(defproc bad-member () -> String "
+            ":effects ((uses-provider providers.planner)) "
+            ":lowering inline "
+            "(let* ((result "
+            "(provider-result providers.planner "
+            ":prompt prompts.planner :inputs () :returns String))) "
+            "(loop/recur :max 1 :state result "
+            "(fn (state) (done state)))))"
+        )
+    elif defect == "second_perform":
+        member_form = (
+            "(defproc bad-member () -> String "
+            ":effects ((uses-provider providers.planner)) "
+            ":lowering inline "
+            "(let* ((first "
+            "(provider-result providers.planner "
+            ":prompt prompts.planner :inputs () :returns String)) "
+            "(second "
+            "(provider-result providers.planner "
+            ":prompt prompts.planner :inputs (first) "
+            ":returns String))) "
+            "second))"
+        )
+    elif defect == "non_provider_perform":
+        member_form = (
+            "(defproc bad-member () -> String "
+            ":effects ((uses-command run_checks)) "
+            ":lowering inline "
+            "(command-result run_checks "
+            ':argv ("echo" "ok") :returns String))'
+        )
+    else:
+        raise AssertionError(f"unknown peer member defect: {defect}")
+    workflow_form = (
+        "(defworkflow orchestrate () -> String "
+        "(with-live-provider-peers "
+        "((planner (bad-member)) "
+        "(reviewer "
+        "(provider-result providers.reviewer "
+        ":prompt prompts.reviewer :inputs () :returns String))) "
+        "planner))"
+    )
+    return member_form, workflow_form
+
+
+@pytest.mark.parametrize(
+    "defect",
+    (
+        "residual_non_inline_call",
+        "zero_provider_perform",
+        "provider_result_ignored",
+        "branch",
+        "loop",
+        "second_perform",
+        "non_provider_perform",
+    ),
+)
+def test_wcc_m4_provider_peer_group_rejects_source_member_defects(
+    tmp_path: Path,
+    defect: str,
+) -> None:
+    context = _typed_provider_peer_group_wcc_context(
+        tmp_path,
+        *_ineligible_peer_member_forms(defect),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _elaborate_closed_provider_group(context)
+
+    _assert_diagnostic_code(
+        excinfo,
+        "provider_peer_group_member_ineligible",
+    )
+
+
+@pytest.mark.parametrize(
+    "bindings",
+    (
+        (
+            "(planner reviewer) "
+            "(reviewer "
+            "(provider-result providers.reviewer "
+            ":prompt prompts.reviewer :inputs () :returns String))"
+        ),
+        (
+            "(planner "
+            "(provider-result providers.planner "
+            ":prompt prompts.planner :inputs () :returns String)) "
+            "(reviewer planner)"
+        ),
+    ),
+)
+def test_wcc_m4_provider_peer_group_source_rejects_sibling_capture(
+    tmp_path: Path,
+    bindings: str,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typed_provider_peer_group_wcc_context(
+            tmp_path,
+            (
+                "(defworkflow orchestrate () -> String "
+                "(with-live-provider-peers "
+                f"({bindings}) "
+                "planner))"
+            ),
+        )
+
+    _assert_diagnostic_code(excinfo, "name_unknown")
+
+
+def test_wcc_m4_provider_peer_group_preserves_outer_capture_shadowed_by_peer(
+    tmp_path: Path,
+) -> None:
+    context = _typed_provider_peer_group_wcc_context(
+        tmp_path,
+        (
+            "(defworkflow orchestrate ((reviewer String)) "
+            "-> String "
+            "(with-live-provider-peers "
+            "((planner "
+            "(provider-result providers.planner "
+            ":prompt prompts.planner :inputs (reviewer) "
+            ":returns String)) "
+            "(reviewer "
+            "(provider-result providers.reviewer "
+            ":prompt prompts.reviewer :inputs () "
+            ":returns String))) "
+            "planner))"
+        ),
+    )
+
+    group = _first_provider_group(
+        _elaborate_closed_provider_group(context)
+    )
+
+    assert isinstance(group, wcc_model.WccProviderPeerGroup)
+    assert group.members[0].lexical_capture_names == ("reviewer",)
+
+
+def test_wcc_m4_provider_peer_group_source_rejects_outer_settlement_capture(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typed_provider_peer_group_wcc_context(
+            tmp_path,
+            (
+                "(defworkflow orchestrate ((request String)) "
+                "-> String "
+                "(with-live-provider-peers "
+                "((planner "
+                "(provider-result providers.planner "
+                ":prompt prompts.planner :inputs () "
+                ":returns String)) "
+                "(reviewer "
+                "(provider-result providers.reviewer "
+                ":prompt prompts.reviewer :inputs () "
+                ":returns String))) "
+                "request))"
+            ),
+        )
+
+    _assert_diagnostic_code(excinfo, "name_unknown")
+
+
+def test_wcc_m4_target_217_keeps_v1_provider_supervision_term(
+    tmp_path: Path,
+) -> None:
+    context = _typed_provider_peer_group_wcc_context(
+        tmp_path,
+        (
+            "(defworkflow orchestrate () -> String "
+            "(with-live-providers "
+            "((worker "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () :returns String)) "
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+
+    group = _first_provider_group(
+        _elaborate_closed_provider_group(context)
+    )
+
+    assert isinstance(group, wcc_model.WccProviderSupervision)
+    assert not isinstance(group, wcc_model.WccProviderPeerGroup)
 
 
 def test_wcc_m4_defunctionalizes_loop_recur_to_repeat_until(tmp_path: Path) -> None:

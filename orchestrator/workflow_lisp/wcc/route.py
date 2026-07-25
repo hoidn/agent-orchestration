@@ -40,6 +40,7 @@ from ..expressions import (
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
+    WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
     WithPhaseExpr,
 )
@@ -690,7 +691,10 @@ def _validate_wcc_m4_expr_supported(
     local_workflow_signatures: Mapping[str, WorkflowSignature],
     workflow_ref_value_names: frozenset[str],
 ) -> None:
-    if isinstance(expr, WithLiveProvidersExpr):
+    if isinstance(
+        expr,
+        (WithLiveProvidersExpr, WithLiveProviderPeersExpr),
+    ):
         for binding in expr.bindings:
             _validate_wcc_m4_expr_supported(
                 binding.value_expr,

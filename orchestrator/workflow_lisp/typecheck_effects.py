@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from .effects import (
     EMPTY_EFFECT_SUMMARY,
+    LivePeerMessagingEffect,
     LiveSupervisionEffect,
     UsesCommandEffect,
     UsesProviderEffect,
@@ -17,15 +18,19 @@ from .expressions import (
     EnumMemberExpr,
     ExprNode,
     FieldAccessExpr,
+    LiveProviderPeerBinding,
     LiveProviderBinding,
     LiteralExpr,
     NameExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
+    WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
 )
 from .syntax import (
+    MAX_STATIC_LIVE_PROVIDER_PEERS,
     PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
+    target_dsl_supports_provider_peer_messaging,
     target_dsl_supports_provider_supervision,
 )
 from .phase import is_implementation_attempt_result_type
@@ -176,6 +181,152 @@ def typecheck_with_live_providers_expr(
             live_summary,
         ),
     )
+
+
+def typecheck_with_live_provider_peers_expr(
+    expr: WithLiveProviderPeersExpr,
+    *,
+    context,
+    recurse,
+    typed_factory,
+):
+    """Type one static provider peer group and infer its ownership effect."""
+
+    if not target_dsl_supports_provider_peer_messaging(
+        context.type_env.target_dsl_version
+    ):
+        raise_error(
+            (
+                "`with-live-provider-peers` requires target DSL "
+                "2.17 or newer"
+            ),
+            code="provider_peer_messaging_target_dsl_unsupported",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+
+    bindings = _validated_live_provider_peer_bindings(expr)
+    typed_members = {
+        binding.name: recurse(binding.value_expr)
+        for binding in bindings
+    }
+
+    from .contracts import is_transportable_result_type
+
+    for binding in bindings:
+        typed_member = typed_members[binding.name]
+        if not is_transportable_result_type(typed_member.type_ref):
+            raise_error(
+                (
+                    f"provider-peer member `{binding.name}` must return "
+                    "a transportable result type"
+                ),
+                code="provider_peer_messaging_member_type_invalid",
+                span=binding.value_expr.span,
+                form_path=binding.value_expr.form_path,
+                expansion_stack=(
+                    binding.value_expr.expansion_stack
+                ),
+            )
+
+    typed_body = recurse(
+        expr.body,
+        value_env={
+            binding.name: typed_members[binding.name].type_ref
+            for binding in bindings
+        },
+    )
+    body_effects = typed_body.effect_summary
+    if (
+        body_effects.direct_effects
+        or body_effects.transitive_effects
+        or body_effects.procedure_edges
+    ):
+        raise_error(
+            (
+                "`with-live-provider-peers` settlement body must be "
+                "pure"
+            ),
+            code="provider_peer_messaging_settlement_effectful",
+            span=expr.body.span,
+            form_path=expr.body.form_path,
+            expansion_stack=expr.body.expansion_stack,
+        )
+    if not is_transportable_result_type(typed_body.type_ref):
+        raise_error(
+            (
+                "`with-live-provider-peers` settlement must return a "
+                "transportable result type"
+            ),
+            code="provider_peer_messaging_settlement_type_invalid",
+            span=expr.body.span,
+            form_path=expr.body.form_path,
+            expansion_stack=expr.body.expansion_stack,
+        )
+
+    rewritten_bindings = tuple(
+        replace(
+            binding,
+            value_expr=typed_members[binding.name].expr,
+        )
+        for binding in bindings
+    )
+    live_summary = effect_summary_from_direct(
+        direct_effects=(
+            LivePeerMessagingEffect(
+                members=tuple(
+                    binding.name for binding in bindings
+                ),
+            ),
+        )
+    )
+    return typed_factory(
+        expr=replace(
+            expr,
+            bindings=rewritten_bindings,
+            body=typed_body.expr,
+        ),
+        type_ref=typed_body.type_ref,
+        effect=merge_effect_summaries(
+            *(
+                typed_members[binding.name].effect_summary
+                for binding in bindings
+            ),
+            typed_body.effect_summary,
+            live_summary,
+        ),
+    )
+
+
+def _validated_live_provider_peer_bindings(
+    expr: WithLiveProviderPeersExpr,
+) -> tuple[LiveProviderPeerBinding, ...]:
+    """Revalidate exported peer AST invariants before type selection."""
+
+    if not 2 <= len(expr.bindings) <= MAX_STATIC_LIVE_PROVIDER_PEERS:
+        raise_error(
+            (
+                "`with-live-provider-peers` requires between two and "
+                f"{MAX_STATIC_LIVE_PROVIDER_PEERS} bindings"
+            ),
+            code="with_live_provider_peers_bindings_invalid",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    seen_names: set[str] = set()
+    for binding in expr.bindings:
+        if binding.name in seen_names:
+            raise_error(
+                f"duplicate provider-peer binding `{binding.name}`",
+                code="with_live_provider_peers_binding_duplicate",
+                span=binding.name_span,
+                form_path=binding.form_path,
+                expansion_stack=binding.expansion_stack,
+            )
+        seen_names.add(binding.name)
+    return expr.bindings
 
 
 def _validated_live_provider_roles(

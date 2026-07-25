@@ -25,6 +25,7 @@ from .result_guidance import ReturnSpec, parse_return_spec
 from .spans import SourceSpan
 from .syntax import (
     ExpansionStack,
+    MAX_STATIC_LIVE_PROVIDER_PEERS,
     SyntaxBool,
     SyntaxFloat,
     SyntaxIdentifier,
@@ -36,6 +37,7 @@ from .syntax import (
     syntax_head,
     syntax_identifier,
     syntax_node_datum,
+    target_dsl_supports_provider_peer_messaging,
 )
 
 if TYPE_CHECKING:
@@ -375,6 +377,29 @@ class WithLiveProvidersExpr:
 
 
 @dataclass(frozen=True)
+class LiveProviderPeerBinding:
+    """One named member of a static provider peer group."""
+
+    name: str
+    value_expr: "ExprNode"
+    name_span: SourceSpan
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class WithLiveProviderPeersExpr:
+    """Two through eight provider peers plus a pure settlement body."""
+
+    bindings: tuple[LiveProviderPeerBinding, ...]
+    body: "ExprNode"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class PromptDependencySpec:
     """Typed authored exact-path inputs for one provider prompt."""
 
@@ -638,6 +663,7 @@ ExprNode = (
     | BindProcExpr
     | LetProcExpr
     | WithLiveProvidersExpr
+    | WithLiveProviderPeersExpr
     | ProviderResultExpr
     | ProviderBundlePathExpr
     | CommandResultExpr
@@ -661,6 +687,7 @@ _ACTIVE_LOCAL_PROC_NAMES = frozenset()
 _ACTIVE_LOOP_BODY_DEPTH = 0
 _ACTIVE_LET_PROC_DEPTH = 0
 _ACTIVE_GUIDANCE_EXAMPLE = False
+_ACTIVE_TARGET_DSL_VERSION: str | None = None
 
 _ElaborationRouteHandler = Callable[
     [SyntaxList, tuple[str, ...], frozenset[str], frozenset[str]],
@@ -678,11 +705,12 @@ def elaborate_expression(
     procedure_name_resolver=None,
     workflow_name_resolver=None,
     guidance_example: bool = False,
+    target_dsl_version: str | None = None,
 ) -> ExprNode:
     """Elaborate one syntax node into a supported Workflow Lisp expression."""
 
     global _ACTIVE_FUNCTION_NAME_RESOLVER, _ACTIVE_FUNCTION_NAMES, _ACTIVE_PROCEDURE_NAME_RESOLVER, _ACTIVE_WORKFLOW_NAME_RESOLVER
-    global _ACTIVE_LOCAL_PROC_NAMES, _ACTIVE_LET_PROC_DEPTH, _ACTIVE_GUIDANCE_EXAMPLE
+    global _ACTIVE_LOCAL_PROC_NAMES, _ACTIVE_LET_PROC_DEPTH, _ACTIVE_GUIDANCE_EXAMPLE, _ACTIVE_TARGET_DSL_VERSION
 
     previous_function_resolver = _ACTIVE_FUNCTION_NAME_RESOLVER
     previous_function_names = _ACTIVE_FUNCTION_NAMES
@@ -691,6 +719,7 @@ def elaborate_expression(
     previous_local_proc_names = _ACTIVE_LOCAL_PROC_NAMES
     previous_let_proc_depth = _ACTIVE_LET_PROC_DEPTH
     previous_guidance_example = _ACTIVE_GUIDANCE_EXAMPLE
+    previous_target_dsl_version = _ACTIVE_TARGET_DSL_VERSION
     _ACTIVE_FUNCTION_NAME_RESOLVER = function_name_resolver
     _ACTIVE_FUNCTION_NAMES = function_names
     _ACTIVE_PROCEDURE_NAME_RESOLVER = procedure_name_resolver
@@ -698,6 +727,7 @@ def elaborate_expression(
     _ACTIVE_LOCAL_PROC_NAMES = frozenset()
     _ACTIVE_LET_PROC_DEPTH = 0
     _ACTIVE_GUIDANCE_EXAMPLE = guidance_example
+    _ACTIVE_TARGET_DSL_VERSION = target_dsl_version
     try:
         return _elaborate(
             syntax_node_datum(node),
@@ -713,6 +743,7 @@ def elaborate_expression(
         _ACTIVE_LOCAL_PROC_NAMES = previous_local_proc_names
         _ACTIVE_LET_PROC_DEPTH = previous_let_proc_depth
         _ACTIVE_GUIDANCE_EXAMPLE = previous_guidance_example
+        _ACTIVE_TARGET_DSL_VERSION = previous_target_dsl_version
 
 
 def _elaborate(
@@ -839,6 +870,19 @@ def _elaborate_list(
             expansion_stack=datum.expansion_stack,
         )
     form_spec = get_form_spec(head.resolved_name)
+    if (
+        head.resolved_name == "with-live-provider-peers"
+        and _ACTIVE_TARGET_DSL_VERSION is not None
+        and not target_dsl_supports_provider_peer_messaging(
+            _ACTIVE_TARGET_DSL_VERSION
+        )
+        and (
+            head.resolved_name in _ACTIVE_FUNCTION_NAMES
+            or head.resolved_name in procedure_names
+            or head.resolved_name in bound_names
+        )
+    ):
+        form_spec = None
     if form_spec is not None:
         if form_spec.kind is FormKind.TOP_LEVEL_DEFINITION:
             _raise_error(
@@ -1077,6 +1121,7 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
         "bind_proc": _elaborate_bind_proc,
         "let_proc_guard": _guard_let_proc_route,
         "with_live_providers": _elaborate_with_live_providers,
+        "with_live_provider_peers": _elaborate_with_live_provider_peers,
         "provider_result": _elaborate_provider_result,
         "provider_bundle_path": _elaborate_provider_bundle_path,
         "command_result": _elaborate_command_result,
@@ -2227,6 +2272,108 @@ def _elaborate_with_live_providers(
         ) in parsed
     )
     return WithLiveProvidersExpr(
+        bindings=bindings,
+        body=_elaborate(
+            datum.items[2],
+            form_path=form_path,
+            bound_names=frozenset(set(bound_names) | names),
+            procedure_names=procedure_names,
+        ),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_with_live_provider_peers(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> WithLiveProviderPeersExpr:
+    if len(datum.items) != 3:
+        _raise_error(
+            (
+                "`with-live-provider-peers` requires one binding list "
+                "and one settlement body"
+            ),
+            code="with_live_provider_peers_arity_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    raw_bindings = datum.items[1]
+    if (
+        not isinstance(raw_bindings, SyntaxList)
+        or not 2
+        <= len(raw_bindings.items)
+        <= MAX_STATIC_LIVE_PROVIDER_PEERS
+    ):
+        _raise_error(
+            (
+                "`with-live-provider-peers` requires between two and "
+                f"{MAX_STATIC_LIVE_PROVIDER_PEERS} bindings"
+            ),
+            code="with_live_provider_peers_bindings_invalid",
+            span=raw_bindings.span,
+            form_path=form_path,
+            expansion_stack=raw_bindings.expansion_stack,
+        )
+
+    parsed: list[
+        tuple[SyntaxList, SyntaxIdentifier, SyntaxNode | Any]
+    ] = []
+    names: set[str] = set()
+    for raw_binding in raw_bindings.items:
+        if (
+            not isinstance(raw_binding, SyntaxList)
+            or len(raw_binding.items) != 2
+        ):
+            _raise_error(
+                "provider-peer bindings must be `(name expr)`",
+                code="with_live_provider_peers_binding_invalid",
+                span=raw_binding.span,
+                form_path=form_path,
+                expansion_stack=raw_binding.expansion_stack,
+            )
+        name_node = syntax_identifier(raw_binding.items[0])
+        if name_node is None:
+            _raise_error(
+                "provider-peer binding names must be symbols",
+                code="with_live_provider_peers_binding_invalid",
+                span=raw_binding.items[0].span,
+                form_path=form_path,
+                expansion_stack=raw_binding.items[0].expansion_stack,
+            )
+        if name_node.resolved_name in names:
+            _raise_error(
+                f"duplicate provider-peer binding `{name_node.display_name}`",
+                code="with_live_provider_peers_binding_duplicate",
+                span=name_node.span,
+                form_path=form_path,
+                expansion_stack=name_node.expansion_stack,
+            )
+        names.add(name_node.resolved_name)
+        parsed.append((raw_binding, name_node, raw_binding.items[1]))
+
+    bindings = tuple(
+        LiveProviderPeerBinding(
+            name=name_node.resolved_name,
+            value_expr=_elaborate(
+                value_node,
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            ),
+            name_span=name_node.span,
+            span=raw_binding.span,
+            form_path=form_path,
+            expansion_stack=raw_binding.expansion_stack,
+        )
+        for raw_binding, name_node, value_node in parsed
+    )
+    return WithLiveProviderPeersExpr(
         bindings=bindings,
         body=_elaborate(
             datum.items[2],

@@ -20,6 +20,7 @@ from .expressions import (
     FunctionCallExpr,
     IfExpr,
     LetStarExpr,
+    LiveProviderPeerBinding,
     LiveProviderBinding,
     LiteralExpr,
     MaterializeViewExpr,
@@ -41,6 +42,7 @@ from .expressions import (
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
+    WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
     WithPhaseExpr,
     elaborate_expression,
@@ -248,6 +250,7 @@ def typecheck_function_definitions(
             function_name_resolver=function_name_resolver,
             procedure_name_resolver=procedure_name_resolver,
             workflow_name_resolver=workflow_name_resolver,
+            target_dsl_version=type_env.target_dsl_version,
         )
         _validate_pure_function_expr(body_expr, function_def=function_def)
         typed_body = typecheck_expression(
@@ -578,6 +581,30 @@ def _normalize_expr(
                 typed_functions_by_name=typed_functions_by_name,
             ),
         )
+    if isinstance(expr, WithLiveProviderPeersExpr):
+        return replace(
+            expr,
+            bindings=tuple(
+                LiveProviderPeerBinding(
+                    name=binding.name,
+                    value_expr=_normalize_expr(
+                        binding.value_expr,
+                        typed_functions_by_name=(
+                            typed_functions_by_name
+                        ),
+                    ),
+                    name_span=binding.name_span,
+                    span=binding.span,
+                    form_path=binding.form_path,
+                    expansion_stack=binding.expansion_stack,
+                )
+                for binding in expr.bindings
+            ),
+            body=_normalize_expr(
+                expr.body,
+                typed_functions_by_name=typed_functions_by_name,
+            ),
+        )
     if isinstance(expr, WithPhaseExpr):
         return replace(
             expr,
@@ -897,6 +924,8 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
         return "materialize-view"
     if isinstance(expr, WithLiveProvidersExpr):
         return "with-live-providers"
+    if isinstance(expr, WithLiveProviderPeersExpr):
+        return "with-live-provider-peers"
     if isinstance(expr, FinalizeSelectedItemExpr):
         return "finalize-selected-item"
     if isinstance(expr, LoopRecurExpr):
