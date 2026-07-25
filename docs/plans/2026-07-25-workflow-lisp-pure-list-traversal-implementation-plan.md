@@ -299,9 +299,9 @@ pytest -q \
 - [x] Reject unsupported schema versions and schema/node mismatches with
       `pure_expr_schema_mismatch` or the accepted target diagnostic.
 - [x] Rerun the RED selector and existing pure-expression/build regressions.
-- [ ] Obtain `TASK1_SPEC_APPROVED`, then `TASK1_QUALITY_APPROVED`, and commit.
+- [x] Obtain `TASK1_SPEC_APPROVED`, then `TASK1_QUALITY_APPROVED`, and commit.
 
-**Implementation record (2026-07-25; implementation commit pending):**
+**Implementation record (2026-07-25; complete):**
 
 - RED collection produced 8 tests; the focused selector failed only at the
   intended missing gates/dispatch seams (`5 failed, 386 passed`). A follow-up
@@ -315,8 +315,10 @@ pytest -q \
   live in the focused list-traversal module, while the pre-existing modules
   remain part of the passing regression selector.
 - Ordered preliminary review verdicts are `TASK1_SPEC_APPROVED` then
-  `TASK1_QUALITY_APPROVED`. The implementation commit is pending final
-  exact-diff reaffirmation.
+  `TASK1_QUALITY_APPROVED`; final exact-diff verdicts are
+  `TASK1_SPEC_REAFFIRMED` then `TASK1_QUALITY_REAFFIRMED`.
+- Implementation commit:
+  `3f6453b456e9ca2b496c9238b1be0d14a0e149f0`.
 
 ## Task 2: Implement The Schema-2 Pure Kernel
 
