@@ -31,8 +31,11 @@ That commit includes the independently approved amendment and its routing
 updates. Implementation may begin only after this plan itself receives both
 ordered reviews and is committed.
 
-**Status:** Independently reviewed and approved for subagent-driven
-execution. No v1.1 implementation code began before this plan gate.
+**Status:** Complete. Tasks 1-11 landed through `b08c04a6`; Task 12's
+normative/routing updates, focused/broad/compatibility/real-provider
+verification, and ordered `TASK12_FINAL_SPEC_APPROVED` /
+`TASK12_FINAL_QUALITY_APPROVED` reviews close Gate S7-v1.1 and Stage 7. No
+v1.1 implementation code began before this plan gate.
 
 **Plan review:** Independent design/sequence review:
 `PLAN_SPEC_APPROVED`. Ordered path/selector/execution-quality review:
@@ -1072,21 +1075,34 @@ Commit message: `Prove real provider peer groups`.
 - Modify: `docs/plans/2026-07-23-provider-live-binding-implementation-plan.md`
 - Modify: this plan
 - Modify: `tests/test_workflow_lisp_drain_roadmap_routing.py`
+- Modify: `tests/e2e/test_e2e_provider_supervision.py`
 
-- [ ] **Step 1: Update normative and authoring contracts**
+**Outcome:** Complete. The documentation and routing contracts are current,
+the final focused/broad/compatibility/real-provider gates introduced zero new
+failures, both ordered reviews approved, and the exact owned candidate closes
+Gate S7-v1.1 and Stage 7 with target-2.16 unchanged.
+
+**Final reviews:** `TASK12_FINAL_SPEC_APPROVED`, followed by
+`TASK12_FINAL_QUALITY_APPROVED`.
+
+- [x] **Step 1: Update normative and authoring contracts**
 
 Document only implemented behavior: capability/config schema, endpoint/client
 surface, ledger claims, lifecycle/cleanup, state/report evidence, target
 2.17, node version, authoring rules, and exclusions. Mark the accepted design
 implemented and this plan complete only after fresh checks.
 
-- [ ] **Step 2: Update routing and Stage 7 status**
+- [x] **Step 2: Update routing and Stage 7 status**
 
-Close Gate S7-v1.1, preserve Gate S7-v1 history, select Stage 8 next, and
-leave the parked evolution roadmap/effectiveness experiments non-selectable.
-Retain only the two explicitly salvaged post-Stage-8 items.
+Record Tasks 1-11 through `b08c04a6` without claiming the still-pending Task
+12 checks or reviews, preserve Gate S7-v1 history, and route the final
+`bef65fdf` list-traversal design through independent review plus one small
+implementation plan immediately after v1.1 and before or alongside Stage 8
+planning. Stage 8 remains the next numbered roadmap stage. Leave the parked
+evolution roadmap/effectiveness experiments non-selectable and preserve the
+Post-Stage-8 Successor Handoff verbatim.
 
-- [ ] **Step 3: Run docs/routing and focused gates**
+- [x] **Step 3: Run docs/routing and focused gates**
 
 ```bash
 pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py
@@ -1108,17 +1124,22 @@ pytest -q \
 
 Expected: all pass.
 
-- [ ] **Step 4: Run the broad non-security suite in tmux**
+Fresh result: routing `50 passed`; the focused selector `717 passed`.
 
-Build an explicit collection manifest excluding the three named security
+- [x] **Step 4: Run the broad non-security suite in tmux**
+
+Build an explicit collection manifest excluding the five named security
 modules, then run:
 
 ```bash
 pytest -q -n 16 --dist=worksteal \
   --ignore=tests/test_at61_at62_wait_for_path_safety.py \
   --ignore=tests/test_cli_safety.py \
+  --ignore=tests/test_provider_isolation_environment.py \
+  --ignore=tests/test_provider_isolation_environment_cli.py \
   --ignore=tests/test_provider_isolation_policy.py \
   --ignore=tests/test_provider_isolation_schema_resources.py \
+  --ignore=tests/test_provider_launch_shim.py \
   --ignore=tests/test_secrets.py \
   -k 'not security and not secret and not isolation'
 ```
@@ -1127,7 +1148,15 @@ Compare against the last Stage-7 v1 baseline: `6,978` passed, `17` skipped,
 and only the four exact retained Stage-6 failures. Any new failure must be
 fixed or truthfully classified before closure; never weaken a test.
 
-- [ ] **Step 5: Run real smoke and compatibility checks again**
+Fresh result: `7,479 passed`, `21 skipped`, and the same four exact retained
+failures, with zero new failures. The three additional provider-isolation
+modules were present concurrently in the workspace and were excluded under
+the owner's complete security-work exclusion; an earlier manifest that did
+not name `test_provider_launch_shim.py` collected that ambient module, so it
+was discarded and the corrected explicit manifest above was rerun without
+changing implementation code.
+
+- [x] **Step 5: Run real smoke and compatibility checks again**
 
 ```bash
 ORCHESTRATE_E2E=1 PYTHONWARNINGS=error pytest -q -s \
@@ -1140,7 +1169,16 @@ git diff --check
 
 Expected: all pass and v1 digests are unchanged.
 
-- [ ] **Step 6: Obtain final ordered independent reviews**
+Fresh result: the combined real v1/v1.1 smoke passed all `6` cases in
+`393.76s`, with no forcing input and no residual peer sockets. The target-2.16
+artifact oracle passed (`1 passed`, `11 deselected`). Before the final combined
+run, the CONTINUE fixture was tightened so the final assistant turn must echo
+the observed marker: the first combined run exposed that the runtime result
+was correct but the transcript did not independently prove marker delivery;
+the corrected targeted case passed in `60.65s`, followed by the complete
+six-case pass. The scoped owned-file diff check is clean.
+
+- [x] **Step 6: Obtain final ordered independent reviews**
 
 The specification reviewer must compare the complete implementation and
 fresh verification against every Gate S7-v1.1 bullet and the accepted
@@ -1149,18 +1187,21 @@ separate quality reviewer inspect maintainability, genericity, lifecycle
 ordering, failure cleanup, and v1 non-regression. Security review remains
 excluded.
 
-- [ ] **Step 7: Stage only owned hunks and commit**
+- [x] **Step 7: Stage only owned hunks and commit**
 
 Use `git add -p docs/index.md` so the parked-roadmap owner hunk remains
 unstaged.
 
 Commit message: `Complete Stage 7 provider peer messaging`.
 
-- [ ] **Step 8: Continue without confirmation**
+- [x] **Step 8: Continue without confirmation**
 
-Proceed immediately to the Stage 8 `.orc` language-server reviewed-plan gate.
-Do not execute or evidence against the parked evolution roadmap or its
-effectiveness experiment plans.
+Proceed without confirmation to independent review of the final `bef65fdf`
+list-traversal design and its one small implementation plan. This work occurs
+before or alongside Stage 8 planning; Stage 8 remains the next numbered
+roadmap stage and is eligible after Gate S7-v1.1 closes. Do not execute or
+evidence against the parked evolution roadmap or its effectiveness experiment
+plans.
 
 ## Completion Gate
 

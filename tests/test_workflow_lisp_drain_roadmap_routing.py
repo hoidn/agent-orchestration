@@ -28,6 +28,12 @@ CURRENT_SELECTOR_PATH = (
 PROVIDER_LIVE_BINDING_PLAN_PATH = (
     "docs/plans/2026-07-23-provider-live-binding-implementation-plan.md"
 )
+PROVIDER_PEER_MESSAGING_PLAN_PATH = (
+    "docs/plans/2026-07-24-provider-peer-messaging-v1.1-implementation-plan.md"
+)
+PURE_LIST_TRAVERSAL_DESIGN_PATH = (
+    "docs/design/workflow_lisp_pure_list_traversal.md"
+)
 TRACKED_DESIGN_RETIREMENT_PLAN_PATH = (
     "docs/plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md"
 )
@@ -665,22 +671,27 @@ def _procedure_sequence_selector_surfaces() -> dict[str, str]:
     }
 
 
-def _assert_stage_7_v1_implemented_and_v1_1_next(
+def _assert_stage_7_v1_landed_and_v1_1_routed(
     surface: str,
     label: str,
 ) -> None:
     normalized = _normalized_routing_text(surface)
     assert "4d4f05c7" in normalized, label
     assert re.search(
-        r"\bstage 7\b.{0,180}\bv1\b.{0,120}\bimplement\w*\b"
-        r"|\bprovider supervision v1\b.{0,180}\bimplement\w*\b",
+        r"\bstage 7\b.{0,180}\bv1\b.{0,120}\b(?:implement|complet|land|clos)\w*\b"
+        r"|\bprovider (?:live binding|supervision) v1\b.{0,180}"
+        r"\b(?:implement|complet|land|clos)\w*\b",
         normalized,
     ), label
     assert "v1.1" in normalized, label
     assert (
         "before stage 8" in normalized
         or "before the language server" in normalized
+        or "before or alongside stage 8 planning" in normalized
         or "remains next" in normalized
+        or "stage 8 is the next numbered stage" in normalized
+        or "next stage selection remain owned by the execution sequence roadmap"
+        in normalized
     ), label
     assert "stage 7 has not started" not in normalized, label
     assert "awaits an owner scheduled design review" not in normalized, label
@@ -733,7 +744,7 @@ def _assert_migration_wave_complete_and_yaml_stage_closed(
         "independent review" in normalized
         or ("pass" in normalized and "approved" in normalized)
     ), label
-    _assert_stage_7_v1_implemented_and_v1_1_next(surface, label)
+    _assert_stage_7_v1_landed_and_v1_1_routed(surface, label)
     for stale_task in range(1, 8):
         assert re.search(
             rf"\byaml retirement\b[^.;]{{0,120}}\btask {stale_task}\b"
@@ -825,7 +836,7 @@ def test_procedure_first_status_surfaces_close_stage_6_and_route_stage_7_v1_1() 
             r"|\byaml retirement\b.{0,160}\btask 7\b.{0,100}\bcomplete\w*\b",
             normalized,
         ), label
-        _assert_stage_7_v1_implemented_and_v1_1_next(surface, label)
+        _assert_stage_7_v1_landed_and_v1_1_routed(surface, label)
         assert "migration waves remain blocked" not in normalized, label
         assert "runtime hardening remains pending" not in normalized, label
 
@@ -857,6 +868,70 @@ def test_procedure_first_status_surfaces_close_stage_6_and_route_stage_7_v1_1() 
     assert "scoped broad" in stage_6 and "zero new" in stage_6
     assert "d9baa120" in stage_6
     assert "pass" in stage_6 and "approved" in stage_6
+
+
+def test_stage_7_task_11_handoff_routes_list_traversal_before_stage_8_planning() -> None:
+    sequence = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
+    ).read_text(encoding="utf-8")
+    live_binding_plan = (REPO_ROOT / PROVIDER_LIVE_BINDING_PLAN_PATH).read_text(
+        encoding="utf-8"
+    )
+    peer_plan = (REPO_ROOT / PROVIDER_PEER_MESSAGING_PLAN_PATH).read_text(
+        encoding="utf-8"
+    )
+    stage_7, after_stage_7 = sequence.split(
+        "### Stage 7: Deliver Provider Live Binding", 1
+    )[1].split("### Stage 8: Deliver The `.orc` Language Server", 1)
+    interstage = stage_7.split("### Selected Interstage:", 1)[1]
+    normalized_stage_7 = _normalized_routing_text(stage_7)
+    normalized_interstage = _normalized_routing_text(interstage)
+
+    assert "b08c04a6" in normalized_stage_7
+    assert "tasks 1 11" in normalized_stage_7
+    assert "task 12" in normalized_stage_7
+    assert "continues with that plan s implementation" not in normalized_stage_7
+    assert PURE_LIST_TRAVERSAL_DESIGN_PATH in interstage
+    assert "bef65fdf" in normalized_interstage
+    assert "independent design review" in normalized_interstage
+    assert "one small implementation plan" in normalized_interstage
+    assert "principle 29" in normalized_interstage
+    assert "before or alongside stage 8 planning" in normalized_interstage
+    assert "stage 8 remains the next numbered roadmap stage" in normalized_interstage
+    assert after_stage_7.startswith("\n\nStage 8 is the final stage")
+
+    normalized_live_plan = _normalized_routing_text(live_binding_plan)
+    assert "v1 handoff is complete" in normalized_live_plan
+    assert "b08c04a6" in normalized_live_plan
+    assert (
+        "- [x] Immediately draft/review/execute its focused Stage-7 plan delta"
+        in live_binding_plan
+    )
+
+    task_12 = peer_plan.split("## Task 12:", 1)[1].split(
+        "## Completion Gate", 1
+    )[0]
+    normalized_task_12 = _normalized_routing_text(task_12)
+    assert "- [x] **Step 1: Update normative and authoring contracts**" in task_12
+    assert "- [x] **Step 2: Update routing and Stage 7 status**" in task_12
+    assert "five named security modules" in normalized_task_12
+    assert "before or alongside stage 8 planning" in normalized_task_12
+    assert "- [x] **Step 3:" in task_12
+    assert "- [x] **Step 4:" in task_12
+    assert "- [x] **Step 5:" in task_12
+    assert "7,479 passed" in task_12
+    assert "zero new failures" in normalized_task_12
+    assert "combined real v1/v1.1 smoke passed all `6` cases" in task_12
+    assert "TASK12_FINAL_SPEC_APPROVED" in task_12
+    assert "TASK12_FINAL_QUALITY_APPROVED" in task_12
+    assert "- [x] **Step 6:" in task_12
+    assert "- [x] **Step 7:" in task_12
+    assert "- [x] **Step 8:" in task_12
+    assert "**Status:** Complete." in peer_plan
+    assert "**Gate status:** complete." in stage_7
 
 
 def test_stage_6_numbered_sequence_closes_task_7_after_completed_queues() -> None:

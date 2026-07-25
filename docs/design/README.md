@@ -67,7 +67,7 @@ page, not a replacement for the linked docs.
 | [workflow_lisp_pure_list_traversal.md](workflow_lisp_pure_list_traversal.md) | Closed pure-surface list construction and traversal (`list/head`, `list/rest`, `list/empty?`, `list/append`, `list/length`) | Proposed (owner-directed; design review pending) | No | Enables runtime-cardinality fan-out via bounded loop/recur over list-typed state; total operators, Optional head, shared golden vectors; explicitly not a higher-order/lambda proposal. Schedulable after Stage 7 v1.1; no Stage 8 dependency. |
 | [workflow_lisp_program_search_boundaries.md](workflow_lisp_program_search_boundaries.md) | Permanent boundary invariants for any future program-search/evolution feature | Adopted position statement | No | Owner-directed 2026-07-24 extraction from the parked evolution follow-on roadmap: immutable generation boundaries, untrusted provider output, neutral substrate vs feature, whole-candidate fitness authority, evidence separation, honest security boundary, no kind erasure, role-separated prompt identity. Constrains future designs; schedules no work. |
 | [workflow_lisp_provider_live_binding.md](workflow_lisp_provider_live_binding.md) | Live provider supervision through observation panes and one bounded provider-session correction | v1 implemented through `4d4f05c7` | Yes for the exact v1 target-2.16 form | Adverse T3a retired *same-turn* `send-keys` steering. Implemented v1 composes one worker and one supervisor with a validated directive and one fail-closed turn-boundary resume under a single-writer coordinator. |
-| [workflow_lisp_provider_peer_messaging.md](workflow_lisp_provider_peer_messaging.md) | Recorded turn-boundary peer messaging and static provider-peer groups | Accepted Stage-7 v1.1 design; reviewed execution plan pending | No | Independently specification/quality approved additive target-2.17 `with-live-provider-peers` / `provider_peer_group.v1` contract with exact attempt-bound ingress, append-before-offer ledgers, cooperative receipts, and no forcing edge. Target 2.16 and `provider_supervision.v1` remain unchanged. |
+| [workflow_lisp_provider_peer_messaging.md](workflow_lisp_provider_peer_messaging.md) | Recorded turn-boundary peer messaging and static provider-peer groups | Implemented through `b08c04a6` | Yes for the exact target-2.17 static-group form | Target-2.17 `with-live-provider-peers` lowers through WCC to `provider_peer_group.v1` with 2..8 members, exact attempt-bound ingress, append-before-offer receiver ledgers, cooperative receipts/natural close, and no forcing edge. Target 2.16 and `provider_supervision.v1` remain unchanged. |
 | [workflow_lisp_language_server.md](workflow_lisp_language_server.md) | `.orc` LSP server (editor diagnostics and navigation) | Proposed (design review pending) | No | Pure consumer of existing compile entry points per frontend spec §76.1; v1 is save-driven diagnostics plus navigation; tolerance/hover/overlay deferred behind named frontend prerequisites. Roadmap-scheduled as final Stage 8 of the procedure-first execution sequence; implementation gated on design review acceptance. |
 | [workflow_lisp_proc_refs_partial_application.md](workflow_lisp_proc_refs_partial_application.md) | Compile-time ProcRefs and `bind-proc` | Yes | Yes | Current direction for reusable procedure hooks without runtime procedure values. |
 | [workflow_lisp_let_proc_local_proc_refs.md](workflow_lisp_let_proc_local_proc_refs.md) | Local compile-time procedure bindings | Designed | No | Follow-on ergonomics; not normal current authoring unless implemented on branch. |
@@ -96,8 +96,11 @@ Stage 7 provider-live-binding v1 is complete through Task 15 and Gate S7-v1.
 The owner-amended v1.1 recorded-peer-messaging revision in
 `workflow_lisp_provider_peer_messaging.md` received independent specification
 and ordered quality approval after its initial review returned
-`CHANGES_REQUIRED`; reviewed planning and implementation remain gated before
-Stage 8.
+`CHANGES_REQUIRED`. Its reviewed structural capability, runtime, target-2.17
+frontend/projections, deterministic integration, and real one-, two-, and
+three-member gates (one-member adapter, two-/three-member groups) landed
+through `b08c04a6`; final Stage-7 gate and roadmap routing status remain owned
+by the execution-sequence roadmap.
 
 | Doc | Applies to | Current checkout? | Normal authoring guidance? | Notes |
 | --- | --- | ---: | ---: | --- |

@@ -17,7 +17,9 @@ middle-end, runtime migration, and composition/stdlib behavior:
 and
 [Workflow Lisp Native Transportable Returns And Typed Result Guidance](workflow_lisp_native_transportable_returns.md),
 and
-[Workflow Lisp Provider Live Binding](workflow_lisp_provider_live_binding.md).
+[Workflow Lisp Provider Live Binding](workflow_lisp_provider_live_binding.md),
+and
+[Workflow Lisp Provider Peer Messaging](workflow_lisp_provider_peer_messaging.md).
 
 Design principles: this specification follows the language-wide principles in
 [Workflow Language Design Principles](workflow_language_design_principles.md).
@@ -29,6 +31,8 @@ The compact operating rule is:
 - freshness requires snapshot/hash evidence, not mtime;
 - validate before committing canonical state;
 - contracts may only narrow;
+- type specificity is opt-in: structural or general transportable contracts
+  may narrow later, and nominal taxonomies are not an admission requirement;
 - variant-specific references require proof;
 - frontends lower to core AST and shared semantic IR, not YAML text;
 - macros cannot hide effects;
@@ -3346,6 +3350,83 @@ transcripts are invocation evidence. Only the selected validated worker value
 and directive enter settlement, and only the validated settlement value is the
 node result.
 
+## 54.2 `with-live-provider-peers` Elaboration (Target 2.17)
+
+Source:
+
+```lisp
+(with-live-provider-peers
+  ((planner
+     (provider-result providers.planner
+       :prompt prompts.planner
+       :inputs ()
+       :timeout-sec 300
+       :returns String))
+   (reviewer
+     (provider-result providers.reviewer
+       :prompt prompts.reviewer
+       :inputs ()
+       :timeout-sec 300
+       :returns Bool))
+   (builder
+     (provider-result providers.builder
+       :prompt prompts.builder
+       :inputs ()
+       :timeout-sec 300
+       :returns String)))
+  (record TeamResult
+    :plan planner
+    :approved reviewer
+    :notes builder))
+```
+
+The literal binding list contains two through eight unique members in authored
+order. Each binding has only a name and provider-producing expression: there
+is no `:observes`, role, access-control, or dynamic-membership spelling.
+Every member may address every other member by binding name, while self-send
+is rejected. A member expression cannot capture a sibling result.
+
+After recursive specialization of direct `:lowering inline` procedures, each
+member must close to exactly one unconditional provider perform followed only
+by a pure result projection. Residual calls, workflow boundaries, branches,
+loops, extra effects, or a second provider perform reject with source-mapped
+diagnostics.
+
+Member results and the settlement result may use any declared transportable
+type. The form imposes no peer-specific nominal wrapper: an author may use
+ordinary scalar, collection, record, or union contracts and narrow them only
+when the workflow needs stronger guarantees. The settlement body is a pure
+expression over exactly the authored member bindings, and its type is the
+form's result type.
+
+WCC elaboration produces one closed `WccProviderPeerGroup`, preserving authored
+member order, each member's provider effects, and
+`LivePeerMessagingEffect(members=<authored-order ids>)`. It does not produce
+`LiveSupervisionEffect`. Defunctionalization emits one compiler-generated Core
+peer-group statement and one `provider_peer_group.v1` executable node. The
+closed config preserves the member provider/result contracts, pure settlement
+payload and contract, `all_other_members` policy, required
+`interactive_terminal_turn_queue.v1` capability, generated paths, source
+ownership, positive timeouts, and `max_steers: 0`.
+
+At runtime every member has one attempt-bound opaque endpoint credential.
+`peer-ready` forms an all-member barrier; accepted `peer-send` requests are
+fsynced into the exact receiver attempt's ledger before input is offered;
+`peer-ack` records the receiver's exact message-id acknowledgement; and
+`peer-finish` freezes the validated member bundle before the declared natural
+close is offered. Only after every member proves natural termination does the
+coordinator evaluate and atomically publish the pure settlement.
+
+The endpoint and client handles are ephemeral runtime values. Message content,
+pane text, transcripts, member provisional bundles, and message ledgers do not
+become workflow values or alternate result authorities. An interrupted
+nonterminal visit is quarantined on ordinary resume rather than retargeting
+messages or replaying member sessions.
+
+Targets below `2.17` reject `with-live-provider-peers`. Target `2.17` continues
+to accept the target-`2.16` `with-live-providers` form without changing its
+`provider_supervision.v1` lowering.
+
 ## 55. `produce-one-of` Elaboration
 
 Source:
@@ -3602,6 +3683,10 @@ Checks:
 - `with-live-providers` preserves both member provider effects and one
   source-owned `LiveSupervisionEffect(supervisor, worker)`; its settlement
   body contributes no effects
+- `with-live-provider-peers` preserves every member provider effect and one
+  source-owned `LivePeerMessagingEffect` with the exact authored-order member
+  ids; its settlement body contributes no effects and it contributes no
+  `LiveSupervisionEffect`
 - child-workflow, bridge, and publication effects remain explicit and
   publication ownership remains on the public workflow boundary
 
@@ -3617,6 +3702,9 @@ Checks:
 - provider supervision has exactly one transportable worker contract, the
   exact compiler-owned steering-directive contract, and one pure settlement
   result contract
+- provider peer groups have two through eight transportable member contracts,
+  the closed all-other-members policy, the queued-interactive capability
+  requirement, `max_steers: 0`, and one pure settlement result contract
 - stdlib review findings validate the `ReviewFindings.v1` carrier contract
 - review-loop terminal projection cannot replace carried evidence identity with
   a review-provider-produced field
@@ -4754,11 +4842,23 @@ and unselected provisional bundles never become workflow values or result
 channels. Interrupted in-flight groups are quarantined rather than replayed by
 ordinary resume.
 
-Recorded peer messaging and static provider-peer composition have a separate
-accepted v1.1 design in `workflow_lisp_provider_peer_messaging.md`; they are
-not part of the implemented v1 surface and are not yet authoring surfaces.
-Same-turn or unrecorded raw-pane steering remains outside the language
-contract.
+Target `2.17` implements the separate
+`with-live-provider-peers` surface described in Section 54.2 and
+`workflow_lisp_provider_peer_messaging.md`:
+
+- a literal authored-order group of two through eight members;
+- one eligible provider region and any transportable result type per member;
+- the structural `interactive_terminal_turn_queue.v1` provider capability;
+- exact-attempt ready/send/ack/finish through a runtime-owned endpoint;
+- receiver-ledger record-before-offer ordering;
+- cooperative natural close; and
+- one pure atomic settlement through `provider_peer_group.v1`.
+
+The v1.1 group has no observation or forcing edge and cannot use `STEER`,
+cancel, resume, replace, or separately settle a member. Same-turn or
+unrecorded raw-pane steering, dynamic membership, mixed peer-plus-STEER, and
+cross-run messaging remain outside the language contract. Target `2.16` and
+its `provider_supervision.v1` artifacts and behavior are unchanged.
 
 ## Part XIX. Resolved Design Decisions
 
@@ -4844,6 +4944,7 @@ The minimal acceptable architecture is:
 - `let*`
 - `match`
 - `with-live-providers`
+- `with-live-provider-peers`
 - effect signatures
 - source maps
 - WCC elaboration and Core AST projection

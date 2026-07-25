@@ -14,6 +14,25 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     - `fresh_command`
     - optional `resume_command`
     - optional boolean `turn_boundary_resume` (default `false`)
+  - v2.17 peer-group-capable templates may also declare the closed
+    `interactive_session_support` object:
+    - `schema_version: "interactive_terminal_turn_queue.v1"`
+    - `turn_boundary_messages: true`
+    - `command`: non-empty ordered tokens containing exactly one unescaped
+      `${PROMPT}` and no unescaped `${SESSION_ID}`
+    - `message_submit_keys`: non-empty ordered tokens from the adapter's
+      closed, non-forcing key vocabulary (v1 tokens are exactly `ENTER` and
+      `TAB`)
+    - `graceful_close_text`: non-empty ordinary provider-client command
+    - `graceful_close_submit_keys`: non-empty ordered tokens from the same
+      closed, non-forcing key vocabulary
+  - `interactive_session_support` is an explicit structural capability. It is
+    never inferred from provider name, argv/stdin mode, TTY behavior,
+    observation support, `session_support`, or
+    `session_support.turn_boundary_resume`. Its command, graceful-close
+    command, and submit sequences are separate from the v2.16 resume/steering
+    surface. Unknown capability fields, unsupported schema versions, malformed
+    placeholders, and forcing key/action tokens reject the template.
   - `${SESSION_ID}` is legal only inside `session_support.resume_command`, which must contain exactly one placeholder when present.
   - `turn_boundary_resume: true` is a structural capability declaration. It
     is valid only when `fresh_command` and `resume_command` are non-empty
@@ -272,6 +291,67 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     process-local execution data: they may occur in debug prompt evidence but
     never become workflow values, output bundles, persisted state, or resume
     authority.
+
+- Workflow Lisp live-provider peer groups (v2.17)
+  - `with-live-provider-peers` is a `.orc`-only form with a literal,
+    authored-order list of two through eight uniquely named members. Each
+    member is a direct `provider-result` or a direct call that recursively
+    specializes through `defproc :lowering inline` to exactly one
+    unconditional provider perform followed by a pure projection. Sibling
+    results, branches, loops, residual calls, and additional member effects
+    are rejected.
+  - Every member result may be any transportable type. The settlement body is
+    pure, may read exactly the complete member-result environment, and must
+    produce a transportable value. The compiler lowers the form to one closed
+    `provider_peer_group.v1` executable node with messaging policy
+    `all_other_members`, `interactive_session_schema_version:
+    "interactive_terminal_turn_queue.v1"`, and `max_steers: 0`.
+  - Static and runtime validation require every resolved member provider to
+    declare the exact structural `interactive_session_support` capability.
+    Providers without it remain valid outside a peer-group member position.
+    The interactive adapter owns the provider client pane; the observation
+    manager and its display pane are not an input path.
+  - One runtime endpoint is created per group visit and is bound to the exact
+    run, step, node, visit, and endpoint instance. After crash-durable member
+    attempt allocation, each provider receives an opaque binding that resolves
+    server-side to one exact member id, attempt scope, attempt ordinal, and
+    endpoint instance. The endpoint and opaque bindings are process-local
+    handles, not workflow values, result state, checkpoint identity, or
+    reusable evidence.
+  - The member-visible client surface is exactly:
+    `orchestrator peer-ready`, `orchestrator peer-send <target-binding>
+    <message>`, `orchestrator peer-ack <message-id>`, and
+    `orchestrator peer-finish`. Clients submit one bounded request through
+    their runtime-provided endpoint/binding and return its receipt; they cannot
+    choose a sender, run root, arbitrary endpoint, state path, ledger path, or
+    pane, and cannot write state, ledgers, bundles, or terminal results.
+    Messages are non-empty UTF-8 of at most 65,536 encoded bytes; newlines and
+    ordinary Unicode are preserved.
+  - `peer-ready` is an all-members barrier. Only after every exact member
+    attempt is ready does one coordinator transition make the group active.
+    Sends while the group is not active, self sends, and sends involving
+    stale, closing, terminal, unknown, ambiguous, or cross-group
+    member/attempt identities fail without delivery.
+  - For an accepted send, the single-writer coordinator durably appends the
+    receiver's `recorded` ledger row before asking the exact receiver adapter
+    to offer the message at its next natural turn boundary. It then durably
+    appends `offered` or `offer_failed`; client success requires `offered`.
+    `peer-ack` appends `receiver_acknowledged` only for the exact receiver
+    attempt and message id. Exact request-id replay returns the prior durable
+    receipt; reuse with a different payload fails closed.
+  - `peer-finish` is cooperative and separate from messaging. It is retryable
+    with `pending_messages` while any accepted incoming message lacks an
+    acknowledgement. Once eligible, it validates and freezes the member's
+    exact typed bundle bytes, offers the declared graceful-close command, and
+    returns success so the current provider turn can finish naturally. A
+    member is terminal only after the client, pane, helper, and process
+    boundary are joined with a complete natural-shutdown proof.
+  - A peer message cannot cancel, resume, steer, replace, select, settle, or
+    directly publish a member. There is no peer-group forcing edge,
+    provider-session resume delivery, dynamic membership, cross-run messaging,
+    or YAML spelling. Any member, protocol, delivery, bundle, deadline,
+    endpoint, or cleanup failure fails the whole group, performs failed
+    cleanup, and publishes no settlement.
 
 - Adjudicated provider prompt and evaluator delivery (v2.11)
   - Each candidate uses the ordinary provider prompt composition contract, including step-wide `asset_depends_on`, `depends_on`, `consumes` injection, and deterministic output-contract suffixes. A candidate `asset_file` or `input_file` override replaces only the base prompt source.

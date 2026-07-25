@@ -98,6 +98,28 @@ Executable validation checks the complete typed config, structural worker
 resume capability, exact directive contract, generated paths, and settlement
 contract before runtime use.
 
+The inventory also includes the distinct
+`ExecutableNodeKind.PROVIDER_PEER_GROUP` with
+`ProviderPeerGroupStepConfig` and required node-local schema
+`provider_peer_group.v1`. Its closed config contains:
+
+- an authored-order tuple of two through eight immutable member provider
+  configs, result contracts, and positive timeouts;
+- `messaging_policy: all_other_members`;
+- one validated pure settlement payload and result contract;
+- the required `interactive_terminal_turn_queue.v1` capability version;
+- generated visit/member prompt, message-ledger, evidence, and provisional
+  bundle paths;
+- exact source ownership for the form, members, and settlement; and
+- `max_steers: 0`.
+
+Executable validation checks the complete member set and order, result
+contract identities, settlement bindings, generated paths, capability
+requirement, timeout relation, source ownership, policy, and zero-steer
+boundary before runtime use. The endpoint instance, opaque sender bindings,
+interactive handles, and message contents are per-visit runtime data and do
+not enter executable IR or checkpoint identity.
+
 ## Validation Ownership
 
 Executable IR validation is owned by the shared workflow layer, not by ad hoc
@@ -145,6 +167,15 @@ composite node with two initial member invocations, one observation edge, an
 optional bounded worker-resume transition, and one atomic settlement/result
 boundary. Member panes, display streams, transcripts, cancellation evidence,
 and provisional bundles are not alternate executable or result authorities.
+
+For provider peer groups, runtime-plan and Semantic-IR derivation expose one
+composite authored-order node with two through eight initial member
+invocations, the closed all-other-members messaging policy, the interactive
+capability requirement, member/result contracts, pure settlement, and one
+atomic result boundary. Source maps retain exact form/member/settlement and
+prompt-dependency ownership. The runtime endpoint, opaque credentials, client
+panes, ledger rows, and provisional bundles remain attempt/visit state or
+evidence, never competing executable or result authority.
 
 These layers may summarize, enrich, or explain executable structure, but they
 do not redefine what the runtime-facing executable contract is.
@@ -205,6 +236,15 @@ Workflow Lisp build path:
   and real provider-supervision E2E modules provide current evidence for the
   typed composite node, coordinator-owned settlement, bounded resume, build
   projections, and live provider boundary.
+- `tests/test_provider_peer_group_ir.py`,
+  `tests/test_provider_peer_group_runtime.py`,
+  `tests/test_provider_peer_group_resume.py`,
+  `tests/test_workflow_lisp_provider_peer_group.py`,
+  `tests/test_workflow_lisp_provider_peer_group_e2e.py`, and
+  `tests/e2e/test_e2e_provider_peer_delivery.py` provide current evidence for
+  the closed peer-group node, target-`2.17` WCC route, executable/build
+  projections, attempt-bound protocol and ledgers, atomic settlement,
+  interruption quarantine, real queued delivery, and natural cleanup.
 
 Those artifacts are durable evidence for the implemented layer; they do not
 change the rule that validated executable IR is the authority and the other

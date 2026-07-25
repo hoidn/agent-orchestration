@@ -15,6 +15,9 @@
   - `finalization`: v2.3+ workflow finalization bookkeeping (`status`, `body_status`, `current_index`, `completed_indices`, `workflow_outputs_status`, optional `failure`)
   - `error`: optional run-level error object for workflow-boundary failures such as output export contract violations
     - v2.10 also uses this surface for provider-session quarantine failures (`type: "provider_session_interrupted_visit_quarantined"`)
+    - v2.16 and v2.17 use this surface for interrupted composite-provider
+      visit quarantine failures (`provider_supervision_interrupted_visit_quarantined`
+      and `provider_peer_group_interrupted_visit_quarantined`)
   - `runtime_observability`: optional additive executor-session accounting used only for reports and status projections. It records one session per `run` or `resume` executor process under `executor_sessions[]`, with `session_id`, `entrypoint`, `pid`, optional `process_start_time`, `started_at`, `ended_at`, `status`, and `duration_ms`. Closed session durations contribute to active runtime; gaps between sessions do not.
   - `steps`: map of step results
   - `for_each`: loop bookkeeping: `items`, `completed_indices`, `current_index`
@@ -42,6 +45,13 @@
     - runtime-owned audit and recovery sidecars live under `.orchestrate/runs/<run_id>/managed_jobs/<step-id-or-name>/`
     - managed provider step results may expose `steps.<Step>.managed_jobs = {phase, audit_path, outcome, recovery_status, jobs, ...}`
     - outstanding managed jobs leave the provider step in a resumable recovery state so `resume <run_id>` re-enters recovery without relaunching the provider
+  - v2.17 provider-peer-group evidence:
+    - visit metadata lives under
+      `.orchestrate/runs/<run_id>/provider-peer-group/<encoded-node>/visit-metadata/<visit>.json`
+    - exact member attempt records live under
+      `.orchestrate/runs/<run_id>/provider-peer-group/<encoded-node>/visits/<visit>/members/<member>/attempt-<ordinal>/`
+    - terminal group evidence lives at the corresponding
+      `visits/<visit>/evidence.json`
   - v2.14 declared resource-transition sidecars:
     - runtime-native resource/state transitions may own private generated `resource_state` documents outside `state.json`; native documents carry `transition_schema_version`, a runtime version token, resource identity metadata, and the typed resource state payload
     - resource transitions may also own append-only private generated `transition_audit` JSONL ledgers; audit rows record committed, replayed, rejected, and partial-failure outcomes together with idempotency evidence and request digest
@@ -208,6 +218,68 @@
   replays a quarantined visit or reuses its member sessions. Only explicit
   force restart or a new run may cross the quarantine boundary; existing root,
   callee, checkpoint, and projection-integrity guards remain unchanged.
+
+## Provider-Peer-Group State And Resume (v2.17)
+
+- State schema remains `2.1`. One running peer group owns one ordinary live
+  cursor whose `current_step` has `type: "provider_peer_group"`, the generated
+  step id, status `running`, and its visit count. The group is one atomic
+  workflow step; members, messages, ledgers, and endpoints do not publish
+  independent workflow results or checkpoints.
+- The group visit is not a provider attempt. Every member allocates one
+  distinct crash-durable root-owned provider-attempt ordinal in authored order
+  before member launch. Attempt scopes derive from the group step identity,
+  visit, and member id. A peer group has no member resume turn and no
+  fresh-to-resume attempt transition.
+- The runtime preflights the complete visit root before allocation and the
+  exact attempt-qualified path set after allocation. Each member attempt owns
+  one immutable prompt-dependency snapshot, one append-only
+  `injected-messages.jsonl` ledger with a durable header even when empty, one
+  member terminal `evidence.json`, and one `provisional-result.json`.
+  Preimages, collisions, missing identities, and authored-order/path-set
+  mismatches fail closed.
+- Receiver ledgers contain canonical monotonically sequenced `recorded`,
+  `offered` or `offer_failed`, and `receiver_acknowledged` rows. Their terminal
+  summaries bind the exact receiver attempt, canonical digest, row count, and
+  lifecycle counts. Message content stays in the receiver ledger; it is not
+  copied into `state.json`, result artifacts, Semantic IR, checkpoint
+  identity, or prompt-dependency snapshots.
+- Terminal group evidence uses
+  `provider_peer_group_terminal_evidence.v1`. Completed evidence binds the
+  exact visit, authored-order member attempts, each member's terminal
+  lifecycle, ledger summary, frozen-bundle digest, complete natural-shutdown
+  proof, endpoint drain/close/worker-join proofs, and settlement digest. Failed
+  evidence has no settlement digest, carries a bounded failure code/message,
+  and records available failed-cleanup proof instead of reclassifying forced
+  cleanup as natural completion.
+- On successful settlement, `steps.<Step>.artifacts` contains only the
+  validated settlement projection. When the coordinator can close terminal
+  group evidence, `steps.<Step>.debug.provider_peer_group` contains only the
+  run-root-relative terminal evidence path, terminal evidence schema version,
+  and `completed|failed` outcome. Endpoint paths/bindings, pane targets,
+  message bodies, provisional member values, and member bundle paths are not
+  competing state or resume authorities.
+- For a reportable terminal group, the coordinator alone commits the validated
+  settlement (when successful), ordinary artifact/dataflow publications,
+  terminal step result, bounded evidence reference, and exact matching
+  `current_step` clearance as one state transaction. Any
+  member/protocol/delivery/bundle/settlement/endpoint/cleanup failure publishes
+  no settlement. A startup cleanup failure that cannot truthfully construct
+  complete terminal peer evidence propagates after cleaning all known
+  resources; it must not fabricate a terminal evidence record.
+- If ordinary resume finds a matching running peer-group visit without that
+  visit's terminal group result, it quarantines before restart-index planning,
+  state preparation for another visit, or provider launch. Quarantine sets the
+  run failed, clears only the exact matching `current_step`, preserves older
+  terminal results and partial ledgers/evidence, records sticky
+  `provider_peer_group_interrupted_visit_quarantined`, and marks the visit
+  `interrupted` with publication state `quarantined_interrupted_visit`.
+- A mismatched or malformed peer-group cursor/visit relationship fails with
+  `provider_peer_group_resume_state_integrity_error`. Ordinary resume never
+  replays a quarantined visit or reuses its attempts, endpoint, panes, bundles,
+  or ledgers. Only explicit force restart or a new run may cross the
+  quarantine boundary; root/callee checksums, lexical checkpoint validation,
+  and projection-integrity guards remain unchanged.
 
 ## Reusable-Call State Contract (v2.5)
 

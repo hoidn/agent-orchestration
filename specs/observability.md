@@ -11,6 +11,10 @@
   - Provider observation writes invocation-local normalized display streams
     and finalized transcripts under `RUN_ROOT/provider-observation/display/`
     and `RUN_ROOT/provider-observation/transcripts/`.
+  - v2.17 provider-peer-group visits write exact attempt ledgers, member
+    evidence, provisional bundles, and terminal group evidence under
+    `RUN_ROOT/provider-peer-group/`. These are run-owned evidence, not
+    additional workflow results.
 
 - Provider observation (v2.16)
   - Ordinary provider observation is attempted by default at both workflow and
@@ -33,6 +37,35 @@
     supervisor's composed prompt and debug prompt evidence but never enter
     workflow values, `state.json`, stable status records, checkpoints, or
     resume selection.
+
+- Provider peer-group evidence (v2.17)
+  - The `interactive_terminal_turn_queue.v1` adapter pane owns the actual
+    provider client and is part of execution lifecycle, not a writable
+    observation pane. Pane text, normalized display text, transcripts, and
+    provider stdout/stderr remain non-authoritative views; typed direct-root
+    bundle validation is result authority.
+  - Each receiver attempt has one append-only
+    `injected-messages.jsonl`. A durable header binds the exact group visit and
+    receiver attempt even when no messages are sent. Canonical sequenced rows
+    record `recorded`, `offered` or `offer_failed`, and
+    `receiver_acknowledged` lifecycle events.
+  - Ledger claims are intentionally narrow: `recorded` means validation
+    passed and the receiver row is durable; `offered` means the exact adapter
+    submitted literal input to the exact provider client; and
+    `receiver_acknowledged` means the exact receiver returned the message id
+    through its ordinary tool channel. No event or report may rename these
+    claims as `seen`, `model_seen`, `understood`, or `applied`.
+  - Terminal group evidence uses
+    `provider_peer_group_terminal_evidence.v1` and reports the exact visit,
+    authored-order member attempt identities, terminal member lifecycles,
+    ledger digests/counts, frozen bundle digests, natural-shutdown or
+    failed-cleanup evidence, endpoint drain/close/worker-join proofs, and
+    either a settlement digest or bounded failure.
+  - Endpoint paths, endpoint instance ids, opaque sender bindings, tmux
+    targets, and live pane/server handles are process-local. They may appear in
+    transient runtime diagnostics but never become workflow values, ordinary
+    artifacts, stable report fields, checkpoint identity, or resume
+    authority. A completed cleanup leaves no endpoint or adapter socket.
 
 - Error context (normative)
   - On step failure, record message, exit code, tails of stdout/stderr, and error context details (undefined variables, missing deps, substituted command, missing secrets, etc.).
@@ -100,6 +133,16 @@ derives solely from the validated `.orc` executable and `state.json`.
     quarantine may expose its stable error type and visit metadata path, but
     member panes, targets, provisional bundles, and transcripts are not result
     or resume authority.
+  - v2.17 provider-peer-group snapshots render one outer step with kind
+    `provider_peer_group`. Its ordinary `output.artifacts` are the settlement
+    projection. `output.debug.provider_peer_group` may expose only
+    `terminal_evidence_path`, `terminal_evidence_schema_version`, and
+    `outcome`; detailed members, ledgers, bundles, and lifecycle proof remain
+    in the referenced run-owned evidence. Interrupted-visit quarantine may
+    expose the stable `provider_peer_group_interrupted_visit_quarantined`
+    error type and visit metadata path. Message bodies, endpoint/binding
+    handles, pane targets, and provisional member values are not stable report
+    or result fields.
 
 - Workflow monitor notifications
   - `orchestrator monitor` is a read-only observer over configured workspace roots. It scans `.orchestrate/runs/*/state.json` and must not mutate `state.json`, reconcile run status, resume runs, kill processes, or execute workflow control.

@@ -70,6 +70,35 @@
     - Only the selected worker value and validated directive enter the pure
       settlement expression. The validated settlement value alone becomes
       the node result and ordinary artifacts/dataflow publication.
+  - Provider-peer-group IO (v2.17):
+    - Each member invocation receives one distinct attempt-qualified
+      `provisional-result.json` path under the group visit root and the
+      runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding for that exact
+      path. The file must be absent before launch. A pre-existing file or
+      member/path mismatch fails before provider execution.
+    - Every member bundle is a direct JSON root value: the provider writes the
+      JSON encoding of its declared transportable return value directly,
+      whether that value is a scalar, enum, relpath, optional, list, map,
+      record, or union. The compiler-owned internal result name does not
+      introduce a `{"result": ...}` or `{"value": ...}` wire envelope.
+    - Provider stdout/stderr, interactive pane bytes, transcripts, peer
+      receipts, message text, and ledger rows are execution or observability
+      evidence only. They are never parsed or promoted as a member's typed
+      result.
+    - An eligible `peer-finish` reads and validates only the exact bound bundle
+      against that member's declared result contract, verifies its bytes
+      remain unchanged during validation, and freezes those exact bytes and
+      their digest in coordinator-owned memory/evidence. Later path mutation
+      cannot change the frozen member value.
+    - No member writes the group result directly. After every member has a
+      complete natural-shutdown proof, the coordinator evaluates the pure
+      settlement over the authored-order frozen member values, validates the
+      settlement's transportable type, and commits only that settlement as the
+      node result and ordinary artifacts/dataflow publication.
+    - Any invalid/missing member bundle, bundle mutation, non-natural member
+      exit, peer-protocol failure, failed delivery, failed close, or failed
+      cleanup fails the whole node. Provisional member bundles and message
+      ledgers remain run evidence and no settlement is published.
   - Reusable-call boundary:
     - `output_file`, `expected_outputs.path`, `output_bundle.path`, `consume_bundle.path`, and all deterministic `relpath` outputs stay workspace-relative whether a workflow runs top-level or under `call`.
     - `call` namespaces runtime-owned identities, provenance, and logs; it does not namespace authored output paths.

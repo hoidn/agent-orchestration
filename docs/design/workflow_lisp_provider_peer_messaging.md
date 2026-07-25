@@ -1,7 +1,6 @@
 # Workflow Lisp Provider Peer Messaging
 
-- **Status:** accepted Stage-7 v1.1 design; reviewed execution plan approved
-  for implementation
+- **Status:** implemented Stage-7 v1.1 contract for target DSL `2.17`
 - **Kind:** feature / recorded provider-to-provider messaging and static
   provider-group composition
 - **Owner:** Workflow Lisp frontend + provider runtime
@@ -11,6 +10,9 @@
 - **Execution plan:**
   `docs/plans/2026-07-24-provider-peer-messaging-v1.1-implementation-plan.md`
   (`PLAN_SPEC_APPROVED`, then `PLAN_QUALITY_APPROVED`)
+- **Implementation:** structural capability through real-provider proof landed
+  in `4f28ffde` through `b08c04a6`; every implementation task received
+  specification review followed by quality review
 - **Related design:**
   - `docs/design/workflow_lisp_provider_live_binding.md`
   - `docs/design/workflow_lisp_frontend_specification.md`
@@ -23,7 +25,7 @@
 
 ## Summary
 
-Stage 7 v1.1 adds recorded free-form messaging among a statically declared
+Stage 7 v1.1 implements recorded free-form messaging among a statically declared
 group of provider members. A member addresses another member by binding name
 through the runtime-owned `orchestrator peer-send` surface. The single-writer
 group coordinator records each accepted message in the exact receiver
@@ -113,9 +115,10 @@ design. The probe proves that an interactive queued-input adapter is viable.
 It does not make pane text authoritative and does not by itself prove that a
 model semantically understood a message.
 
-The implementation gate must reproduce the behavior through the runtime
-adapter and cooperative receipts described below. Fixtures alone cannot ship
-the live-delivery claim.
+The implemented runtime reproduced that behavior through the declared adapter
+and cooperative receipts. Its real gates cover one adapter member, a
+two-member send/ack exchange, and a three-member target-`2.17` `.orc`
+workflow; fixture-only evidence is not used to claim live delivery.
 
 ## Goals
 
@@ -683,21 +686,39 @@ fresh-to-resume retargeting rule.
 
 Tests assert behavior and contracts, never literal prompt wording.
 
-## Implementation Sequence
+## Implementation Record
+
+The implementation follows the reviewed sequence:
 
 1. Capability schema, fake interactive adapter, and strict validation.
 2. Runtime endpoint, thin peer clients, message ledger, and serialized
    coordinator protocol.
 3. Cooperative readiness/ack/finish and natural-close process proof.
-4. Hand-built `provider_peer_group.v1` runtime fixtures and real one-member
+4. Hand-built `provider_peer_group.v1` runtime fixtures and a real one-member
    adapter gate.
 5. Target-`2.17` frontend/WCC/IR/source-map/build surface.
 6. Real two-member and three-member end-to-end gates.
 7. Normative specs, authoring guidance, routing, broad comparison, and
    ordered independent reviews.
 
-Every phase uses TDD and receives specification-compliance then code-quality
-review before the next dependent phase.
+The capability, adapter, contracts, protocol, coordinator, executable node,
+frontend, projections, deterministic integration, and real-provider gates
+landed in `4f28ffde` through `b08c04a6`. The focused evidence suites are:
+
+- `tests/test_provider_interactive_terminal.py`;
+- `tests/test_provider_peer_group_contracts.py`;
+- `tests/test_provider_peer_group_protocol.py`;
+- `tests/test_provider_peer_group_ir.py`;
+- `tests/test_provider_peer_group_runtime.py`;
+- `tests/test_provider_peer_group_resume.py`;
+- `tests/test_workflow_lisp_provider_peer_group.py`;
+- `tests/test_workflow_lisp_provider_peer_group_e2e.py`; and
+- `tests/e2e/test_e2e_provider_peer_delivery.py`.
+
+Each landed phase used TDD and received specification-compliance review
+followed by code-quality review before its commit. Final Stage-7 gate status
+and broad-suite evidence remain owned by the execution plan and roadmap
+rather than this durable behavior contract.
 
 ## Success Criteria
 

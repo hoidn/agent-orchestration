@@ -210,6 +210,37 @@
     `provider_supervision.v1` config tag and interrupted-visit quarantine
     provide the additive compatibility boundary.
 
+- v2.17 additions (Workflow Lisp provider peer groups)
+  - Target DSL `2.17` reserves and accepts the `.orc`-only
+    `with-live-provider-peers` form. It declares an authored-order static group
+    of two through eight provider members, all-other-members messaging, and one
+    pure transportable settlement.
+  - The form lowers through ordinary specialization and WCC to one separate
+    `provider_peer_group.v1` executable node. The closed node config binds the
+    complete member set/order, typed member and settlement contracts,
+    messaging policy, path plan, source ownership, target version,
+    `interactive_terminal_turn_queue.v1` capability requirement, and
+    `max_steers: 0` into checkpoint identity.
+  - Provider templates used by peer members must declare the closed structural
+    `interactive_session_support` capability. Provider name, stdin/argv mode,
+    observation, session support, or v2.16 turn-boundary resume support cannot
+    imply it.
+  - The runtime exposes only exact-attempt `peer-ready`, `peer-send`,
+    `peer-ack`, and `peer-finish` ingress. Receiver ledgers are durable before
+    message offer; member output uses typed direct-root JSON bundles; and only
+    the validated pure settlement crosses the node's single atomic
+    workflow-result boundary.
+  - Target `2.17` continues to accept `with-live-providers` without upgrading
+    or rewriting its `provider_supervision.v1` artifact. Existing target-2.16
+    source, artifacts, state, and behavior remain unchanged. Targets below
+    `2.17` do not reserve the peer-group form, so an older authored binding or
+    macro of the same name retains its prior meaning. There is no YAML
+    spelling.
+  - `workflow_executable_ir.v1`, runtime-plan v1, Semantic IR v1, source-map
+    v1, and state schema `2.1` remain their envelope versions. Older runtimes
+    reject the unknown peer-group node kind; interrupted visits use the
+    additive peer-group quarantine contract rather than a schema migration.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -232,6 +263,8 @@
   - `v2.14`: materialization, snapshots, and variant-output contracts
   - `v2.15`: native transportable returns and typed result guidance
   - `v2.16`: bounded Workflow Lisp provider supervision
+  - `v2.17`: static Workflow Lisp provider peer groups and recorded
+    turn-boundary messaging
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -365,5 +398,6 @@ Planned acceptance:
 | 2.14 | `materialize_artifacts`, `pre_snapshot`, `variant_output`, `select_variant_output`, and `requires_variant` | Adds deterministic typed materialization, durable snapshot-diff evidence, tagged-union output validation, atomic variant bundle selection, and author-time variant availability proof. |
 | 2.15 | Direct JSON root results (`output_bundle` fields with `json_pointer: ""`), public `optional\|list\|map` output and structured-result schemas, strict effect-boundary `guidance` / `guidance_context` / `guidance_by_variant`, and top-level workflow `result_guidance` | Promoted after the combined native-transportable-return and typed-result-guidance gate. Ordinary loader entrypoints, Workflow Lisp shared validation, CLI run/resume/report, dashboard projection, and imported-bundle loading accept the same version. v2.14 rejects the new guidance containers and retains its existing record/union contracts. Guidance is non-runtime metadata and does not change artifact names, value validity, source identities, checkpoint identities, or resume behavior. |
 | 2.16 | `.orc` `with-live-providers`, reserved `ProviderSteeringDirective`, structural `session_support.turn_boundary_resume`, default provider observation, and `provider_supervision.v1` | Adds exactly-two-member bounded provider overlap inside one atomic workflow node, one validated observation edge, pure settlement, at most one exact-session resume, and interrupted-visit quarantine. General authored concurrency and parallel blocks remain unsupported. State schema remains `2.1`. |
+| 2.17 | `.orc` `with-live-provider-peers`, structural `interactive_session_support`, exact-attempt peer ingress, and `provider_peer_group.v1` | Adds static two-through-eight-member bounded provider overlap with durable record-before-offer receiver ledgers, cooperative acknowledgement/finish, typed direct-root member bundles, pure atomic settlement, natural-shutdown proof, failed cleanup, and interrupted-visit quarantine. It adds no forcing edge and leaves target-2.16 supervision artifacts unchanged. State schema remains `2.1`. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

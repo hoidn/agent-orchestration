@@ -5,7 +5,7 @@ headless email notifications when workflow runs complete, fail, crash, or stall.
 It is an external observer: it does not mutate run state, resume workflows, kill
 processes, or depend on workflow-authored finalization steps.
 
-## Provider Observation Is A Different Surface
+## Provider Observation And Peer Messaging Are Different Surfaces
 
 Runtime provider observation panes are ephemeral, process-local execution
 views. Ordinary provider invocations attempt them by default and degrade
@@ -19,6 +19,56 @@ Pane bytes and transcripts do not replace provider transport or validated
 output bundles, and live tmux targets do not enter persisted workflow state.
 Use `orchestrator report` and `state.json` for workflow truth. Do not use raw
 tmux `send-keys` to steer provider panes.
+
+A target-2.17 `with-live-provider-peers` group uses separate
+runtime-owned interactive client panes and an attempt-bound local endpoint.
+Those resources exist only to implement natural turn-boundary
+`peer-ready`/`peer-send`/`peer-ack`/`peer-finish`; they are not monitor
+targets, and an operator must not inject raw pane input. The endpoint and
+opaque member credentials are ephemeral and never enter persisted workflow
+values, checkpoints, or reusable evidence.
+
+While a peer group is active, `state.json` identifies the running cursor with
+`current_step.type: provider_peer_group`. A normally completed or reportable
+failed group stores a small `debug.provider_peer_group` record containing:
+
+- `terminal_evidence_path`;
+- `terminal_evidence_schema_version`, with value
+  `provider_peer_group_terminal_evidence.v1`; and
+- `outcome: completed|failed`.
+
+`orchestrator report` preserves that typed step kind and debug pointer,
+including when it must build a state-only report. The referenced group
+evidence records the exact visit, terminal member attempts and lifecycles,
+receiver-ledger digests/counts, frozen-bundle digests, available
+natural-shutdown or failed-cleanup proofs, endpoint
+drain/close/worker-join proof, and settlement digest or structured failure.
+Per-member run-owned paths retain:
+
+```text
+provider-peer-group/<node>/visits/<visit>/members/<member>/attempt-<ordinal>/
+  prompt-dependencies.json
+  injected-messages.jsonl
+  evidence.json
+  provisional-result.json
+```
+
+The message ledger distinguishes `recorded`, `offered`, `offer_failed`, and
+`receiver_acknowledged`. These names are deliberately narrow: none asserts
+that a model saw, understood, or acted on content. The settled step result
+remains the workflow value; ledgers, panes, transcripts, and provisional
+member bundles are evidence only.
+
+Fail-closed launch cleanup that cannot prove a complete boundary before a
+member handle exists deliberately publishes no terminal group evidence; do
+not infer a successful or complete peer lifecycle from an ordinary failed
+step record in that case.
+
+If a process crash leaves a running peer-group visit, ordinary resume
+quarantines that whole visit before any new provider launch. The quarantine
+is sticky and messages are never retargeted to replacement attempts. Use the
+persisted failure/report evidence to decide whether an explicit force restart
+or a new run is appropriate.
 
 ## Configuration
 

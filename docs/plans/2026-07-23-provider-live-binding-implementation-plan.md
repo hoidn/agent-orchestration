@@ -51,8 +51,9 @@ design gate. It resolved the initial `CHANGES_REQUIRED` review and received
 `DESIGN_SPEC_APPROVED` and ordered `DESIGN_QUALITY_APPROVED`; its reviewed
 execution plan is now
 `docs/plans/2026-07-24-provider-peer-messaging-v1.1-implementation-plan.md`,
-approved as `PLAN_SPEC_APPROVED` then `PLAN_QUALITY_APPROVED`. That plan is
-the active selector before Stage 8.
+approved as `PLAN_SPEC_APPROVED` then `PLAN_QUALITY_APPROVED`. The v1 handoff
+is complete: that plan has executed Tasks 1-11 through `b08c04a6`, and its
+Task 12 is the active Stage-7 closing selector.
 
 **Plan-review evidence:** Independent specification/sequence review: `PASS`.
 Independent path/selector/shell-order audit: `PASS` for the pre-amendment plan.
@@ -1551,9 +1552,10 @@ including re-review after the observation-proof correction, concluded
 
   The additive target-`2.17` peer-group design received
   `DESIGN_SPEC_APPROVED` and ordered `DESIGN_QUALITY_APPROVED`.
-- [ ] Immediately draft/review/execute its focused Stage-7 plan delta without
-  requesting confirmation. Advance to Stage 8 only after Gate S7-v1.1 also
-  closes.
+- [x] Immediately draft/review/execute its focused Stage-7 plan delta without
+  requesting confirmation. The handoff completed: the reviewed v1.1 plan
+  landed Tasks 1-11 through `b08c04a6`; its Task 12 now owns Gate S7-v1.1
+  closure before the selected list-traversal interstage and Stage 8.
 
 ## Global Stop / Revise Conditions
 

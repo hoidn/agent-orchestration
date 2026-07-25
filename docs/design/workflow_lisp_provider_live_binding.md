@@ -1,8 +1,7 @@
 # Workflow Lisp Provider Live Binding
 
-- **Status:** v1 implemented; owner-amended v1.1 peer messaging is accepted
-  in `workflow_lisp_provider_peer_messaging.md` and pending a reviewed
-  execution plan
+- **Status:** v1 target-`2.16` supervision and additive v1.1 target-`2.17`
+  peer messaging are implemented
 - **Kind:** feature / provider observation, bounded concurrency, and
   turn-boundary supervision architecture
 - **Owner:** Workflow Lisp frontend + provider runtime
@@ -11,7 +10,8 @@
   `SPEC_COMPLIANT`, quality `APPROVED`, and behavior simulation `PASS` on
   2026-07-23; the initial 2026-07-24 peer-messaging amendment review returned
   `CHANGES_REQUIRED`, and the revised additive design then received
-  `DESIGN_SPEC_APPROVED` and ordered `DESIGN_QUALITY_APPROVED`
+  `DESIGN_SPEC_APPROVED` and ordered `DESIGN_QUALITY_APPROVED`; v1.1
+  implementation tasks received ordered specification and quality review
 - **Created:** 2026-07-13
 - **Last material update:** 2026-07-24
 - **Related docs / plans:**
@@ -25,8 +25,9 @@
   - `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
   - `specs/providers.md`, `specs/io.md`, `specs/state.md`,
     `specs/versioning.md`, and `specs/observability.md`
-- **Implementation target:** v1 is complete; the additive Stage-7 v1.1
-  design and execution plan require independent approval before implementation
+- **Implementation target:** v1 is complete through `4d4f05c7`; the additive
+  v1.1 capability, runtime, target-`2.17` frontend, executable projections,
+  and real-provider gates landed in `4f28ffde` through `b08c04a6`
 
 ## Summary
 
@@ -59,7 +60,7 @@ This revision follows the roadmap's adverse-T3 stop/revise path. It adds:
    turn with the guidance. Only the selected completed turn's validated
    bundle can become the worker result.
 
-4. **Recorded peer messaging (owner amendment, 2026-07-24).** The revised
+4. **Recorded peer messaging (owner amendment, 2026-07-24).** The implemented
    additive contract lives in
    `workflow_lisp_provider_peer_messaging.md`: target `2.17` adds a separate
    static peer-group form and node, while target `2.16` and this v1
@@ -244,7 +245,7 @@ provider, and append-before-delivery proves only a runtime offer rather than
 model consumption. It also left readiness, exact attempt attribution,
 completion races, teardown, and static N-member settlement unspecified.
 
-The revised v1.1 decision is therefore additive and is normative in
+The implemented v1.1 decision is therefore additive and is normative in
 `workflow_lisp_provider_peer_messaging.md`:
 
 - target `2.16`, `with-live-providers`, and
@@ -265,6 +266,14 @@ The revised v1.1 decision is therefore additive and is normative in
 
 Mixing queued messages with forced worker replacement is deferred because a
 message must never be silently retargeted across provider attempts.
+
+The shipped v1.1 route uses the declared
+`interactive_terminal_turn_queue.v1` capability, one attempt-bound local
+endpoint per group visit, receiver-owned append-only ledgers, and one
+single-writer `provider_peer_group.v1` coordinator. A real one-member adapter
+gate plus real two- and three-member peer gates proved natural queued delivery
+and cleanup without changing the target-`2.16` `provider_supervision.v1`
+artifacts or behavior.
 
 ### Alternatives rejected
 

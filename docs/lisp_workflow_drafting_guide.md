@@ -29,6 +29,7 @@ Design references:
 - [Workflow Lisp Unified Frontend Design](design/workflow_lisp_unified_frontend_design.md)
 - [Workflow Lisp Native Transportable Returns And Typed Result Guidance](design/workflow_lisp_native_transportable_returns.md)
 - [Workflow Lisp Provider Live Binding](design/workflow_lisp_provider_live_binding.md)
+- [Workflow Lisp Provider Peer Messaging](design/workflow_lisp_provider_peer_messaging.md)
 - [Workflow Language Design Principles](design/workflow_language_design_principles.md)
 - [Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md)
 - [Workflow Lisp Generic Core, Expression Surface, And Adapter Retirement](design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md)
@@ -352,6 +353,8 @@ The currently implemented authoring surface includes:
 - `provider-result`
 - target-2.16 `with-live-providers` for exactly one eligible worker and one
   supervisor with pure settlement
+- target-2.17 `with-live-provider-peers` for two through eight eligible
+  provider members with recorded turn-boundary messaging and pure settlement
 - `command-result`
 - `with-phase`
 - `phase-target`
@@ -1240,10 +1243,135 @@ the selected worker value and directive into one atomic workflow result.
 Observation panes are process-local views; do not capture or pass their tmux
 targets as workflow data.
 
-Recorded peer messaging and static provider-peer composition are not yet
-authoring surfaces. Their revised target-`2.17` contract is
-`docs/design/workflow_lisp_provider_peer_messaging.md`; do not emulate it with
-raw tmux `send-keys` or prompt-parsed control text.
+Target `2.17` adds the separate cooperative peer-group form below. It does not
+change this target-`2.16` supervision form or its
+`provider_supervision.v1` executable node.
+
+## 8B. Recorded Provider Peer Groups
+
+Use `with-live-provider-peers` when two through eight providers must exchange
+free-form messages at natural turn boundaries and then contribute typed values
+to one pure settlement:
+
+```lisp
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.17")
+
+  (defrecord TeamResult
+    (plan String)
+    (approved Bool)
+    (notes String))
+
+  (defworkflow orchestrate () -> TeamResult
+    (with-live-provider-peers
+      ((planner
+         (provider-result providers.planner
+           :prompt prompts.planner
+           :inputs ()
+           :timeout-sec 300
+           :returns String))
+       (reviewer
+         (provider-result providers.reviewer
+           :prompt prompts.reviewer
+           :inputs ()
+           :timeout-sec 300
+           :returns Bool))
+       (builder
+         (provider-result providers.builder
+           :prompt prompts.builder
+           :inputs ()
+           :timeout-sec 300
+           :returns String)))
+      (record TeamResult
+        :plan planner
+        :approved reviewer
+        :notes builder))))
+```
+
+Authoring rules:
+
+- Declare a literal list of two through eight unique bindings. Authored order
+  is preserved through WCC, executable projections, runtime allocation, and
+  settlement.
+- Each binding is only `(<name> <provider-producing-expression>)`. There is no
+  `:observes`, dynamic membership, role, or per-edge permission syntax.
+- A member may send to every other binding name but cannot send to itself. A
+  member expression cannot refer to a sibling result.
+- Each member must be a direct `provider-result` or an inline procedure call
+  that specializes to exactly one unconditional provider effect followed by a
+  pure result projection. Residual calls, branches, loops, a second provider
+  perform, or another effect are rejected.
+- Every member and the settlement may return any transportable type. Do not
+  invent a nominal wrapper only to enter a peer group; start with the ordinary
+  structural or general transportable contract and narrow it when the workflow
+  needs stronger guarantees.
+- The body is a pure expression over exactly the member values. It cannot run
+  another provider, command, workflow, or state effect.
+
+Every selected provider template must explicitly declare the closed queued
+interactive capability. The relevant provider-template field has this shape:
+
+```json
+{
+  "interactive_session_support": {
+    "schema_version": "interactive_terminal_turn_queue.v1",
+    "turn_boundary_messages": true,
+    "command": ["provider-client", "${PROMPT}"],
+    "message_submit_keys": ["ENTER"],
+    "graceful_close_text": "/exit",
+    "graceful_close_submit_keys": ["ENTER"]
+  }
+}
+```
+
+The command must contain exactly one `${PROMPT}` and no `${SESSION_ID}`.
+Submit-key sequences use the adapter's closed non-forcing vocabulary. The
+capability is never inferred from provider name, stdin/TTY mode, session
+support, observation panes, or tmux availability. Provider extern bindings
+still select registered provider templates in the ordinary way; they do not
+redeclare this capability in `.orc` source.
+
+The runtime injects the member protocol and gives each attempt one opaque
+endpoint binding:
+
+```text
+orchestrator peer-ready
+orchestrator peer-send <target-binding> <message>
+orchestrator peer-ack <message-id>
+orchestrator peer-finish
+```
+
+`peer-ready` is an all-members barrier. An accepted non-empty UTF-8 message,
+up to 65,536 encoded bytes, is appended and fsynced to the exact receiver
+attempt's ledger before the adapter offers it to that provider client.
+`offered` means literal input was submitted at the natural-turn queue; it does
+not mean the model saw or understood it. `peer-ack` records only that the exact
+receiver returned the message id through its ordinary tool channel.
+
+A member writes its ordinary typed output bundle before `peer-finish`.
+Outstanding incoming messages make finish retryable rather than successful.
+Once all incoming messages are acknowledged, the coordinator freezes the
+validated bundle, offers the provider-declared graceful close, and requires a
+complete natural process/pane/server join before marking the member terminal.
+Only after every member is terminal does the runtime validate and atomically
+publish the pure settlement.
+
+The runtime endpoint, opaque credentials, panes, member ledgers, provisional
+bundles, and message text are not workflow values. A normally completed or
+reportable failed group exposes a `provider_peer_group` debug record pointing
+to `provider_peer_group_terminal_evidence.v1`; each allocated receiver attempt
+retains `injected-messages.jsonl`, `evidence.json`, and
+`provisional-result.json` below the run-owned peer-group visit root. A startup
+failure whose cleanup cannot be proved before a member handle exists fails
+without inventing terminal group evidence.
+
+Do not use this form for same-turn steering, mixed peer messaging plus
+`STEER`, dynamic groups, cross-run messaging, effectful settlement, or
+unrecorded raw-pane input. A peer message cannot cancel, resume, replace,
+select, or settle a member. If a controller interruption leaves a nonterminal
+visit, ordinary resume quarantines the whole visit; it does not replay the
+group or retarget messages.
 
 ## 9. Structured Command Results
 
@@ -2482,7 +2610,7 @@ Before running a new `.orc` workflow, confirm:
 | Types | All boundary values are typed. In public DSL v2.15, every currently transportable type is valid in function, procedure, provider-result, command-result, workflow-call, and public-workflow return positions; direct roots use compiler-owned `__result__` carriage and no authored wrapper. Optional `(result T ...)` and payload-field guidance is typed, prompt-only metadata and never changes runtime validity. |
 | Paths | Path contracts are reusable `defpath` definitions. |
 | Authority | Structured bundles/artifacts are authority; reports are views. |
-| Providers | Provider decisions return structured state through `provider-result`. Target-2.16 live supervision uses exactly one eligible worker, one supervisor returning `ProviderSteeringDirective`, one observation edge, and a pure settlement body; panes are never result transport. |
+| Providers | Provider decisions return structured state through `provider-result`. Target-2.16 live supervision uses exactly one eligible worker, one supervisor returning `ProviderSteeringDirective`, one observation edge, and a pure settlement body. Target-2.17 peer groups use 2..8 eligible provider members, an explicitly declared queued-interactive capability, recorded turn-boundary messages, and pure settlement. Panes and ledgers are never result transport. |
 | Commands | Command semantics use `command-result` or certified adapters. |
 | Reports | No markdown report is parsed for semantic state in new high-level code. |
 | Pointers | Pointer files are not treated as artifact values. |

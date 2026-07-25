@@ -139,8 +139,14 @@ def _write_continue_fixture(workspace: Path) -> dict[str, Path]:
             f"until the pane contains {_OBSERVATION_MARKER_PREFIX} followed "
             "immediately by exactly 32 lowercase hexadecimal characters. Do "
             "not decide before observing that complete worker-generated "
-            "marker. Once observed, write the direct JSON object "
-            '`{"variant":"CONTINUE"}` to the required output-bundle path. '
+            "marker, and do not invent or transform its token. Once observed, "
+            "write the CONTINUE directive with this exact shell command:\n\n"
+            f"`{shlex.quote(sys.executable)} -c "
+            "'import json, os; from pathlib import Path; "
+            'Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text('
+            'json.dumps({"variant":"CONTINUE"}), encoding="utf-8")\'`\n\n'
+            "After the command succeeds, finish with one concise assistant "
+            "message that contains the complete observed marker exactly. "
             "Never return STEER. Do not create or edit any other file.\n"
         ),
         encoding="utf-8",
