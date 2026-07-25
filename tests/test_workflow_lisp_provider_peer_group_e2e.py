@@ -2,11 +2,28 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from argparse import Namespace
+from dataclasses import dataclass, field, replace
+import hashlib
+import json
 from pathlib import Path
+from queue import Empty, Queue
+from threading import Event, Thread
+import time
+from typing import Any
 
 import pytest
 
+from orchestrator.cli.commands.run import run_workflow
+from orchestrator.providers.interactive_terminal import (
+    CloseOfferReceipt,
+    FailedCleanupProof,
+    InteractiveMemberHandle,
+    InteractiveMemberInvocation,
+    InteractiveTerminalError,
+    NaturalShutdownProof,
+    OfferReceipt,
+)
 from orchestrator.workflow_lisp.wcc import defunctionalize as defunctionalize_module
 from orchestrator.providers.types import (
     INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION,
@@ -27,6 +44,23 @@ from orchestrator.workflow.prompt_dependency_contract import (
 from orchestrator.workflow.provider_peer_group.paths import (
     derive_provider_peer_group_paths,
 )
+from orchestrator.workflow.provider_peer_group.bindings import (
+    PEER_DELIVERY_FRAME_HEADER,
+    WorkflowProviderPeerGroupBindings,
+)
+from orchestrator.workflow.provider_peer_group.models import (
+    PeerAcknowledgeReceipt,
+    PeerFinishReceipt,
+    PeerReadyReceipt,
+    PeerSendReceipt,
+)
+from orchestrator.workflow.provider_peer_group.protocol import (
+    _decode_active_peer_binding,
+    peer_ack,
+    peer_finish,
+    peer_ready,
+    peer_send,
+)
 from orchestrator.state import StateManager
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp import (
@@ -39,6 +73,21 @@ from orchestrator.workflow_lisp.lexical_checkpoints import (
     checkpoint_runtime_program_identity,
     validate_checkpoint_point_payload,
 )
+
+
+_PUBLIC_FIXTURE_ROOT = (
+    Path(__file__).parent
+    / "fixtures"
+    / "workflow_lisp"
+    / "provider_peer_group"
+)
+_PUBLIC_FIXTURE_FILES = (
+    "provider_peer_group_three.orc",
+    "providers.json",
+    "prompts.json",
+    "real_adapter_prompt.md",
+)
+_PUBLIC_MESSAGE = "Review this literal 🌍 payload.\nSecond line: Ω"
 
 
 def _peer_group_source() -> str:
@@ -754,3 +803,548 @@ def test_peer_implicit_empty_prompt_contract_is_evidence_valid_and_closed() -> N
                 .WORKFLOW_LISP_PROVIDER_PEER_GROUP_MEMBER_IMPLICIT_EMPTY
             ),
         )
+
+
+def _public_two_member_source() -> str:
+    return "\n".join(
+        (
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.17")',
+            "  (defmodule provider_peer_group_three)",
+            "  (export orchestrate)",
+            "  (defworkflow orchestrate () -> String",
+            "    (with-live-provider-peers",
+            "      ((planner",
+            "         (provider-result providers.planner",
+            "           :prompt prompts.planner",
+            "           :inputs ()",
+            "           :timeout-sec 10",
+            "           :returns String))",
+            "       (reviewer",
+            "         (provider-result providers.reviewer",
+            "           :prompt prompts.reviewer",
+            "           :inputs ()",
+            "           :timeout-sec 10",
+            "           :returns String)))",
+            "      reviewer)))",
+        )
+    )
+
+
+def _copy_public_fixture(
+    workspace: Path,
+    *,
+    member_count: int,
+) -> dict[str, Path]:
+    copied: dict[str, Path] = {}
+    for name in _PUBLIC_FIXTURE_FILES:
+        destination = workspace / name
+        destination.write_bytes((_PUBLIC_FIXTURE_ROOT / name).read_bytes())
+        copied[name] = destination
+    if member_count == 2:
+        copied["provider_peer_group_three.orc"].write_text(
+            _public_two_member_source(),
+            encoding="utf-8",
+        )
+        for manifest_name in ("providers.json", "prompts.json"):
+            payload = json.loads(
+                copied[manifest_name].read_text(encoding="utf-8")
+            )
+            payload = {
+                key: value
+                for key, value in payload.items()
+                if not key.endswith(".builder")
+            }
+            copied[manifest_name].write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+    return copied
+
+
+def _public_run_args(files: dict[str, Path]) -> Namespace:
+    source = files["provider_peer_group_three.orc"]
+    return Namespace(
+        workflow=str(source),
+        context=None,
+        context_file=None,
+        input=None,
+        input_file=None,
+        clean_processed=False,
+        archive_processed=None,
+        debug=False,
+        stream_output=False,
+        dry_run=False,
+        backup_state=False,
+        state_dir=None,
+        on_error="stop",
+        max_retries=0,
+        retry_delay=0,
+        quiet=True,
+        verbose=False,
+        log_level="error",
+        step_summaries=False,
+        summary_mode=None,
+        summary_provider="claude_sonnet_summary",
+        summary_timeout_sec=120,
+        summary_max_input_chars=12000,
+        summary_profile=None,
+        live_agent_notes=False,
+        live_agent_note_provider=None,
+        live_agent_note_interval_sec=15.0,
+        live_agent_note_timeout_sec=30,
+        live_agent_note_max_tail_chars=6000,
+        entry_workflow="orchestrate",
+        source_root=[str(source.parent)],
+        provider_externs_file=str(files["providers.json"]),
+        prompt_externs_file=str(files["prompts.json"]),
+        imported_workflow_bundles_file=None,
+        command_boundaries_file=None,
+        emit_debug_yaml=False,
+    )
+
+
+def _only_public_run(workspace: Path) -> tuple[Path, dict[str, Any]]:
+    run_roots = list((workspace / ".orchestrate" / "runs").iterdir())
+    assert len(run_roots) == 1
+    run_root = run_roots[0]
+    return run_root, json.loads(
+        (run_root / "state.json").read_text(encoding="utf-8")
+    )
+
+
+@dataclass
+class _ControlledPeerHarness:
+    member_ids: tuple[str, ...]
+    values: dict[str, object]
+    failure_mode: str | None = None
+    message_acknowledged: Event = field(default_factory=Event)
+    adapters: dict[str, "_ControlledPeerAdapter"] = field(
+        default_factory=dict
+    )
+    offered_targets: list[str] = field(default_factory=list)
+    exact_bundle_bytes: dict[str, bytes] = field(default_factory=dict)
+    endpoint_paths: set[Path] = field(default_factory=set)
+
+    def create_adapter(
+        self,
+        member: object,
+    ) -> "_ControlledPeerAdapter":
+        member_id = member.runtime.attempt.member_id
+        adapter = _ControlledPeerAdapter(self, member_id)
+        self.adapters[member_id] = adapter
+        return adapter
+
+
+class _ControlledPeerAdapter:
+    def __init__(
+        self,
+        harness: _ControlledPeerHarness,
+        member_id: str,
+    ) -> None:
+        self.harness = harness
+        self.member_id = member_id
+        self.handle: InteractiveMemberHandle | None = None
+        self.offers: Queue[tuple[str, str] | None] = Queue()
+        self.stop_requested = Event()
+        self.done = Event()
+        self.thread: Thread | None = None
+        self.error: BaseException | None = None
+        self.joined = False
+        self.aborted = False
+
+    def start(
+        self,
+        invocation: InteractiveMemberInvocation,
+    ) -> InteractiveMemberHandle:
+        endpoint_path, _sender_binding = _decode_active_peer_binding(
+            invocation.env
+        )
+        self.harness.endpoint_paths.add(endpoint_path)
+        if (
+            self.harness.failure_mode == "launch"
+            and self.member_id == self.harness.member_ids[0]
+        ):
+            raise InteractiveTerminalError(
+                "injected_launch_failure",
+            )
+        handle = InteractiveMemberHandle(
+            adapter_instance_id=f"controlled-adapter:{self.member_id}",
+            handle_id=f"controlled-handle:{self.member_id}",
+            invocation_id=invocation.invocation_id,
+            member_id=invocation.member_id,
+            attempt_scope_key=invocation.attempt_scope_key,
+            attempt_ordinal=invocation.attempt_ordinal,
+            target=f"controlled:{self.member_id}",
+            socket_path=Path(
+                f"/tmp/provider-peer-controlled-{self.member_id}.sock"
+            ),
+        )
+        self.handle = handle
+        self.thread = Thread(
+            target=self._run_script,
+            args=(invocation,),
+            name=f"controlled-peer:{self.member_id}",
+            daemon=True,
+        )
+        self.thread.start()
+        return handle
+
+    def offer(
+        self,
+        handle: InteractiveMemberHandle,
+        literal_message: str,
+    ) -> OfferReceipt:
+        assert handle == self.handle
+        self.harness.offered_targets.append(self.member_id)
+        if (
+            self.harness.failure_mode == "offer"
+            and self.member_id == self.harness.member_ids[1]
+        ):
+            raise InteractiveTerminalError(
+                "injected_offer_failure",
+            )
+        lines = literal_message.split("\n", 4)
+        assert lines[0] == PEER_DELIVERY_FRAME_HEADER
+        assert lines[1].startswith("message_id: ")
+        assert lines[2].startswith("sender_member_id: ")
+        assert lines[3] == ""
+        self.offers.put((lines[1].removeprefix("message_id: "), lines[4]))
+        payload = literal_message.encode("utf-8")
+        return OfferReceipt(
+            status="offered",
+            handle_id=handle.handle_id,
+            byte_count=len(payload),
+            content_sha256=(
+                "sha256:" + hashlib.sha256(payload).hexdigest()
+            ),
+        )
+
+    def offer_close(
+        self,
+        handle: InteractiveMemberHandle,
+    ) -> CloseOfferReceipt:
+        assert handle == self.handle
+        return CloseOfferReceipt(
+            status="close_offered",
+            handle_id=handle.handle_id,
+        )
+
+    def join(
+        self,
+        handle: InteractiveMemberHandle,
+        deadline: float,
+    ) -> NaturalShutdownProof:
+        assert handle == self.handle
+        thread = self.thread
+        assert thread is not None
+        thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        self.joined = not thread.is_alive()
+        return NaturalShutdownProof(
+            disposition="natural_exit",
+            handle_id=handle.handle_id,
+            return_code=0,
+            pane_absent=self.joined,
+            server_absent=self.joined,
+            proof_complete=self.joined,
+        )
+
+    def abort(
+        self,
+        handle: InteractiveMemberHandle,
+        deadline: float,
+    ) -> FailedCleanupProof:
+        assert handle == self.handle
+        self.aborted = True
+        self.stop_requested.set()
+        self.offers.put(None)
+        thread = self.thread
+        assert thread is not None
+        thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        complete = not thread.is_alive()
+        return FailedCleanupProof(
+            disposition="failed_cleanup",
+            handle_id=handle.handle_id,
+            pane_absent=complete,
+            server_absent=complete,
+            cleanup_complete=complete,
+            error_code=None if complete else "controlled_thread_alive",
+        )
+
+    def _run_script(
+        self,
+        invocation: InteractiveMemberInvocation,
+    ) -> None:
+        environ = dict(invocation.env)
+        try:
+            ready = peer_ready(
+                request_id=f"ready:{self.member_id}",
+                environ=environ,
+            )
+            assert isinstance(ready, PeerReadyReceipt)
+            if self.member_id == self.harness.member_ids[0]:
+                sent = peer_send(
+                    target_binding=self.harness.member_ids[1],
+                    message=_PUBLIC_MESSAGE,
+                    request_id=f"send:{self.member_id}",
+                    environ=environ,
+                )
+                assert isinstance(sent, PeerSendReceipt)
+            elif self.member_id == self.harness.member_ids[1]:
+                try:
+                    offered = self.offers.get(timeout=5)
+                except Empty as exc:
+                    raise AssertionError(
+                        "controlled peer message was not offered"
+                    ) from exc
+                if offered is None:
+                    return
+                message_id, content = offered
+                assert content == _PUBLIC_MESSAGE
+                acknowledged = peer_ack(
+                    message_id=message_id,
+                    request_id=f"ack:{self.member_id}",
+                    environ=environ,
+                )
+                assert isinstance(
+                    acknowledged,
+                    PeerAcknowledgeReceipt,
+                )
+                self.harness.message_acknowledged.set()
+            while not self.harness.message_acknowledged.wait(0.01):
+                if self.stop_requested.is_set():
+                    return
+
+            value = self.harness.values[self.member_id]
+            exact_bytes = json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            if (
+                self.harness.failure_mode == "bundle"
+                and self.member_id == self.harness.member_ids[1]
+            ):
+                exact_bytes = b"{invalid"
+            output_path = Path(
+                invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+            )
+            output_path.write_bytes(exact_bytes)
+            self.harness.exact_bundle_bytes[self.member_id] = exact_bytes
+            finished = peer_finish(
+                request_id=f"finish:{self.member_id}",
+                environ=environ,
+            )
+            assert isinstance(finished, PeerFinishReceipt)
+            assert finished.status == "close_offered"
+        except BaseException as exc:
+            self.error = exc
+        finally:
+            self.done.set()
+
+
+def _install_controlled_public_adapters(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    member_ids: tuple[str, ...],
+    values: dict[str, object],
+    failure_mode: str | None = None,
+) -> _ControlledPeerHarness:
+    harness = _ControlledPeerHarness(
+        member_ids=member_ids,
+        values=values,
+        failure_mode=failure_mode,
+    )
+
+    def create_adapter(
+        _self: WorkflowProviderPeerGroupBindings,
+        member: object,
+    ) -> _ControlledPeerAdapter:
+        return harness.create_adapter(member)
+
+    monkeypatch.setattr(
+        WorkflowProviderPeerGroupBindings,
+        "create_adapter",
+        create_adapter,
+    )
+    return harness
+
+
+@pytest.mark.parametrize("member_count", (2, 3))
+def test_public_run_executes_controlled_provider_peer_group_atomically(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    member_count: int,
+) -> None:
+    files = _copy_public_fixture(tmp_path, member_count=member_count)
+    member_ids = ("planner", "reviewer", "builder")[:member_count]
+    values: dict[str, object] = {
+        "planner": "plan 🌍\nline two",
+        "reviewer": (
+            "review ✓\naccepted"
+            if member_count == 2
+            else True
+        ),
+        "builder": "notes Ω\nfinal",
+    }
+    monkeypatch.chdir(tmp_path)
+    harness = _install_controlled_public_adapters(
+        monkeypatch,
+        member_ids=member_ids,
+        values=values,
+    )
+
+    assert run_workflow(_public_run_args(files)) == 0
+
+    run_root, state = _only_public_run(tmp_path)
+    assert state["status"] == "completed"
+    [step] = state["steps"].values()
+    assert step["status"] == "completed"
+    expected_artifacts = (
+        {"__result__": values["reviewer"]}
+        if member_count == 2
+        else {
+            "plan": values["planner"],
+            "approved": values["reviewer"],
+            "notes": values["builder"],
+        }
+    )
+    assert step["artifacts"] == expected_artifacts
+    assert state["workflow_outputs"] == (
+        expected_artifacts
+        if member_count == 2
+        else {
+            f"return__{name}": value
+            for name, value in expected_artifacts.items()
+        }
+    )
+    assert harness.offered_targets == ["reviewer"]
+    assert set(harness.exact_bundle_bytes) == set(member_ids)
+    assert {
+        path.read_bytes()
+        for path in run_root.rglob("provisional-result.json")
+    } == set(harness.exact_bundle_bytes.values())
+    assert all(
+        adapter.error is None
+        and adapter.joined
+        and not adapter.aborted
+        and adapter.thread is not None
+        and not adapter.thread.is_alive()
+        for adapter in harness.adapters.values()
+    )
+
+    terminal_path = (
+        run_root
+        / step["debug"]["provider_peer_group"][
+            "terminal_evidence_path"
+        ]
+    )
+    terminal = json.loads(terminal_path.read_text(encoding="ascii"))
+    assert terminal["outcome"] == "completed"
+    assert terminal["settlement_sha256"].startswith("sha256:")
+    assert terminal["endpoint_drained"] is True
+    assert terminal["endpoint_closed"] is True
+    assert terminal["endpoint_workers_joined"] is True
+    assert len(terminal["members"]) == member_count
+    for member in terminal["members"]:
+        member_id = member["attempt"]["member_id"]
+        exact = harness.exact_bundle_bytes[member_id]
+        assert member["frozen_bundle_sha256"] == (
+            "sha256:" + hashlib.sha256(exact).hexdigest()
+        )
+        counts = member["ledger"]["counts"]
+        assert counts == (
+            {
+                "recorded": 1,
+                "offered": 1,
+                "offer_failed": 0,
+                "receiver_acknowledged": 1,
+            }
+            if member_id == "reviewer"
+            else {
+                "recorded": 0,
+                "offered": 0,
+                "offer_failed": 0,
+                "receiver_acknowledged": 0,
+            }
+        )
+    ledger_rows = [
+        json.loads(line)
+        for path in run_root.rglob("injected-messages.jsonl")
+        for line in path.read_text(encoding="ascii").splitlines()
+    ]
+    recorded = [
+        row for row in ledger_rows if row["row_kind"] == "recorded"
+    ]
+    assert len(recorded) == 1
+    assert recorded[0]["content"] == _PUBLIC_MESSAGE
+    assert recorded[0]["receiver_attempt"]["member_id"] == "reviewer"
+    assert harness.endpoint_paths
+    assert all(not path.exists() for path in harness.endpoint_paths)
+
+
+@pytest.mark.parametrize(
+    "failure_mode",
+    ("launch", "offer", "bundle", "settlement"),
+)
+def test_public_run_peer_group_failures_never_publish_or_retarget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_mode: str,
+) -> None:
+    files = _copy_public_fixture(tmp_path, member_count=3)
+    member_ids = ("planner", "reviewer", "builder")
+    values: dict[str, object] = {
+        "planner": "plan",
+        "reviewer": True,
+        "builder": "notes",
+    }
+    monkeypatch.chdir(tmp_path)
+    harness = _install_controlled_public_adapters(
+        monkeypatch,
+        member_ids=member_ids,
+        values=values,
+        failure_mode=failure_mode,
+    )
+    if failure_mode == "settlement":
+        def fail_settlement(
+            _self: WorkflowProviderPeerGroupBindings,
+            *,
+            resolved_bindings: object,
+        ) -> object:
+            del resolved_bindings
+            raise ValueError("injected settlement failure")
+
+        monkeypatch.setattr(
+            WorkflowProviderPeerGroupBindings,
+            "evaluate_settlement",
+            fail_settlement,
+        )
+
+    assert run_workflow(_public_run_args(files)) == 1
+
+    run_root, state = _only_public_run(tmp_path)
+    assert state["status"] == "failed"
+    assert state["workflow_outputs"] == {}
+    assert state.get("artifact_versions", {}) == {}
+    [step] = state["steps"].values()
+    assert step["status"] == "failed"
+    assert not step.get("artifacts")
+    terminal_path = (
+        run_root
+        / step["debug"]["provider_peer_group"][
+            "terminal_evidence_path"
+        ]
+    )
+    terminal = json.loads(terminal_path.read_text(encoding="ascii"))
+    assert terminal["outcome"] == "failed"
+    assert terminal["settlement_sha256"] is None
+    assert set(harness.offered_targets) <= {"reviewer"}
+    assert all(
+        adapter.thread is None or not adapter.thread.is_alive()
+        for adapter in harness.adapters.values()
+    )
+    assert harness.endpoint_paths
+    assert all(not path.exists() for path in harness.endpoint_paths)

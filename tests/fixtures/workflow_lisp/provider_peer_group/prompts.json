@@ -1,0 +1,5 @@
+{
+  "prompts.builder": "real_adapter_prompt.md",
+  "prompts.planner": "real_adapter_prompt.md",
+  "prompts.reviewer": "real_adapter_prompt.md"
+}

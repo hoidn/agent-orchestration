@@ -100,6 +100,7 @@ def test_report_supports_json_format(tmp_path, capsys, monkeypatch):
     assert result == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["run"]["run_id"] == "20260227T000003Z-cccccc"
+    assert payload["steps"][0]["kind"] == "unknown"
 
 
 def test_report_reads_persisted_legacy_state_without_reopening_source(
@@ -319,6 +320,121 @@ steps:
     out = capsys.readouterr().out
     assert "## Advisory Lint" not in out
     assert "state-only report" in out
+
+
+def test_state_only_report_infers_peer_group_kind_from_unique_persisted_debug(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    run_id = "20260227T000008Z-peergroup"
+    run_dir = _write_run(runs_root, run_id)
+    state_file = run_dir / "state.json"
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    evidence = {
+        "report_path": "provider_peer_groups/visit/report.json",
+        "ledger_path": "provider_peer_groups/visit/ledger.jsonl",
+    }
+    state["status"] = "completed"
+    state["steps"] = {
+        "PeerGroup": {
+            "status": "completed",
+            "step_id": "root.peer_group",
+            "exit_code": 0,
+            "debug": {"provider_peer_group": evidence},
+        }
+    }
+    state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+    result = report_workflow(
+        run_id=run_id,
+        runs_root=str(runs_root),
+        format="json",
+    )
+
+    assert result == 0
+    payload = json.loads(capsys.readouterr().out)
+    [step] = payload["steps"]
+    assert step["kind"] == "provider_peer_group"
+    assert step["output"]["debug"]["provider_peer_group"] == evidence
+
+
+def test_state_only_report_prefers_explicit_persisted_type_over_debug(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    run_id = "20260227T000008Z-explicittype"
+    run_dir = _write_run(runs_root, run_id)
+    state_file = run_dir / "state.json"
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    state["status"] = "completed"
+    state["steps"] = {
+        "Explicit": {
+            "status": "completed",
+            "type": "provider_supervision",
+            "exit_code": 0,
+            "debug": {
+                "provider_peer_group": {"report_path": "group.json"},
+                "provider_supervision": {"selected_attempt": {"ordinal": 1}},
+            },
+        }
+    }
+    state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+    result = report_workflow(
+        run_id=run_id,
+        runs_root=str(runs_root),
+        format="json",
+    )
+
+    assert result == 0
+    payload = json.loads(capsys.readouterr().out)
+    [step] = payload["steps"]
+    assert step["kind"] == "provider_supervision"
+
+
+def test_state_only_report_rejects_ambiguous_debug_kind_discriminators(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    run_id = "20260227T000008Z-ambiguouskind"
+    run_dir = _write_run(runs_root, run_id)
+    state_file = run_dir / "state.json"
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    state["status"] = "completed"
+    state["steps"] = {
+        "Ambiguous": {
+            "status": "completed",
+            "exit_code": 0,
+            "debug": {
+                "provider_peer_group": {"report_path": "group.json"},
+                "provider_supervision": {"selected_attempt": {"ordinal": 1}},
+            },
+        }
+    }
+    state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+    result = report_workflow(
+        run_id=run_id,
+        runs_root=str(runs_root),
+        format="json",
+    )
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert captured.out == ""
+    assert (
+        "ambiguous persisted step kind debug discriminators: "
+        "provider_peer_group, provider_supervision"
+    ) in captured.err
 
 
 def test_report_markdown_surfaces_provider_session_quarantine_context(tmp_path, capsys, monkeypatch):

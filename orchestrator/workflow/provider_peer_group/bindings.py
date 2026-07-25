@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import tempfile
 from typing import Any, Mapping, Protocol, runtime_checkable
 from uuid import uuid4
 
@@ -73,6 +74,40 @@ from .protocol import (
 
 
 PEER_DELIVERY_FRAME_HEADER = "ORCHESTRATOR_PROVIDER_PEER_MESSAGE_V1"
+_PORTABLE_UNIX_SOCKET_PATH_MAX_BYTES = 103
+_PEER_ENDPOINT_PATH_UNAVAILABLE = (
+    "provider_peer_group_endpoint_path_unavailable"
+)
+
+
+def _provider_peer_endpoint_socket_path(
+    endpoint_instance_id: str,
+    *,
+    candidate_roots: tuple[Path, ...] | None = None,
+) -> Path:
+    """Choose a writable endpoint path within the portable AF_UNIX budget."""
+
+    endpoint_id = _nonempty(
+        endpoint_instance_id,
+        field="endpoint_instance_id",
+    )
+    if candidate_roots is None:
+        roots = [Path(tempfile.gettempdir())]
+        if os.name == "posix" and Path("/tmp") not in roots:
+            roots.append(Path("/tmp"))
+        candidate_roots = tuple(roots)
+
+    filename = f"orchestrator-peer-{endpoint_id}.sock"
+    for root in candidate_roots:
+        candidate = root / filename
+        if (
+            root.is_dir()
+            and os.access(root, os.W_OK | os.X_OK)
+            and len(os.fsencode(candidate))
+            <= _PORTABLE_UNIX_SOCKET_PATH_MAX_BYTES
+        ):
+            return candidate
+    raise ValueError(_PEER_ENDPOINT_PATH_UNAVAILABLE)
 
 
 def _nonempty(value: object, *, field: str) -> str:
@@ -665,7 +700,9 @@ class WorkflowProviderPeerGroupBindings:
             group_visit=visit,
             endpoint_instance_id=uuid4().hex,
         )
-        endpoint_socket_path = realized.visit_root / "endpoint.sock"
+        endpoint_socket_path = _provider_peer_endpoint_socket_path(
+            endpoint.endpoint_instance_id
+        )
         self._reportable_identity = PeerGroupReportableIdentity(
             runtime=runtime,
             realized_paths=realized,

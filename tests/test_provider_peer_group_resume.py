@@ -2,25 +2,101 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+from dataclasses import replace
+import json
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
+from orchestrator.cli.commands.resume import resume_workflow
+from orchestrator.providers import (
+    InputMode,
+    InteractiveSessionSupport,
+    ProviderTemplate,
+)
 from orchestrator.state import StateManager
-from orchestrator.workflow.executable_ir import WorkflowRegion
+from orchestrator.workflow.executable_ir import (
+    ProviderPeerGroupStepConfig,
+    WorkflowRegion,
+)
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.lowering import build_loaded_workflow_bundle
 from orchestrator.workflow import provider_attempts
 from orchestrator.workflow.provider_attempts import ProviderAttemptScope
+from orchestrator.workflow.provider_peer_group.coordinator import (
+    ProviderPeerGroupCoordinator,
+)
 from orchestrator.workflow.resume_planner import ResumePlanner
 from orchestrator.workflow.state_projection import (
     CompatibilityNodeProjection,
     CompatibilityStepDefinition,
     WorkflowStateProjection,
 )
+from orchestrator.workflow.surface_ast import WorkflowProvenance
+from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 PEER_GROUP_KIND = "provider_peer_group"
+
+
+def _run_tree_snapshot(root: Path) -> tuple[tuple[str, str, bytes], ...]:
+    entries: list[tuple[str, str, bytes]] = []
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root).as_posix()
+        if path.is_dir():
+            entries.append((relative, "directory", b""))
+        else:
+            entries.append((relative, "file", path.read_bytes()))
+    return tuple(entries)
+
+
+def _peer_group_bundle(workflow_path: Path):
+    from tests.test_provider_peer_group_ir import (
+        _config,
+        _generated_surface,
+    )
+
+    provenance = WorkflowProvenance(
+        workflow_path=workflow_path,
+        source_root=workflow_path.parent,
+        frontend_kind="workflow_lisp",
+    )
+    surface = replace(
+        _generated_surface(
+            _config(
+                node_id="peers",
+                member_ids=("planner", "reviewer"),
+            )
+        ),
+        provenance=provenance,
+    )
+    return build_loaded_workflow_bundle(surface, imports={})
+
+
+def _register_peer_test_providers(executor: WorkflowExecutor) -> None:
+    [node_id] = executor.executable_ir.body_region
+    config = executor.executable_ir.nodes[node_id].execution_config
+    assert isinstance(config, ProviderPeerGroupStepConfig)
+    support = InteractiveSessionSupport(
+        schema_version="interactive_terminal_turn_queue.v1",
+        turn_boundary_messages=True,
+        command=("peer-test-provider", "${PROMPT}"),
+        message_submit_keys=("ENTER",),
+        graceful_close_text="/exit",
+        graceful_close_submit_keys=("ENTER",),
+    )
+    for member in config.members:
+        executor.provider_registry.register(
+            ProviderTemplate(
+                name=member.provider_config.provider,
+                command=["peer-test-provider", "${PROMPT}"],
+                input_mode=InputMode.ARGV,
+                interactive_session_support=support,
+            )
+        )
 
 
 def _peer_group_projection(
@@ -402,3 +478,221 @@ def test_executor_quarantine_retains_partial_peer_visit_and_clears_exact_step(
         "publication_state": "quarantined_interrupted_visit",
         "metadata_synthesized": True,
     }
+
+
+def test_controller_interruption_quarantines_stickily_and_force_restarts_fresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.workflow.provider_peer_group import (
+        coordinator as coordinator_module,
+    )
+
+    workflow_path = tmp_path / "peer_group.orc"
+    workflow_path.write_text(
+        "; typed peer-group lifecycle test\n",
+        encoding="utf-8",
+    )
+    bundle = _peer_group_bundle(workflow_path)
+    interrupted_run_id = "interrupted-peer-group-lifecycle"
+    manager = StateManager(tmp_path, run_id=interrupted_run_id)
+    manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+    )
+    interrupted_allocations = []
+
+    class InterruptAfterAllocationCoordinator:
+        def __init__(self, bindings) -> None:
+            self.bindings = bindings
+
+        def run(self):
+            interrupted_allocations.append(
+                self.bindings.allocate_group()
+            )
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        coordinator_module,
+        "ProviderPeerGroupCoordinator",
+        InterruptAfterAllocationCoordinator,
+    )
+    executor = WorkflowExecutor(
+        workflow=bundle,
+        workspace=tmp_path,
+        state_manager=manager,
+        provider_observation_enabled=False,
+        step_heartbeat_interval_sec=0,
+    )
+    _register_peer_test_providers(executor)
+
+    with pytest.raises(KeyboardInterrupt):
+        executor.execute()
+
+    [interrupted_allocation] = interrupted_allocations
+    interrupted_state = manager.load()
+    assert "Peers" not in interrupted_state.steps
+    assert interrupted_state.current_step == {
+        "name": "Peers",
+        "index": 0,
+        "type": PEER_GROUP_KIND,
+        "status": "running",
+        "step_id": "root.peers",
+        "visit_count": 1,
+        "started_at": interrupted_state.current_step["started_at"],
+        "last_heartbeat_at": interrupted_state.current_step[
+            "last_heartbeat_at"
+        ],
+    }
+    interrupted_visit_root = interrupted_allocation.realized_paths.visit_root
+    interrupted_visit_snapshot = _run_tree_snapshot(
+        interrupted_visit_root
+    )
+    interrupted_attempt_allocations = deepcopy(
+        interrupted_state.provider_attempt_allocations
+    )
+    launched_after_interrupt = 0
+
+    class ForbidPeerLaunchCoordinator:
+        def __init__(self, _bindings) -> None:
+            nonlocal launched_after_interrupt
+            launched_after_interrupt += 1
+            raise AssertionError(
+                "ordinary resume must not relaunch a quarantined peer group"
+            )
+
+    monkeypatch.setattr(
+        coordinator_module,
+        "ProviderPeerGroupCoordinator",
+        ForbidPeerLaunchCoordinator,
+    )
+    monkeypatch.chdir(tmp_path)
+    with patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=bundle,
+    ):
+        assert (
+            resume_workflow(
+                run_id=interrupted_run_id,
+                force_restart=False,
+            )
+            == 1
+        )
+
+    quarantined = manager.load()
+    assert quarantined.status == "failed"
+    assert quarantined.current_step is None
+    assert quarantined.error is not None
+    assert quarantined.error["type"] == (
+        "provider_peer_group_interrupted_visit_quarantined"
+    )
+    assert launched_after_interrupt == 0
+    assert _run_tree_snapshot(interrupted_visit_root) == (
+        interrupted_visit_snapshot
+    )
+    assert quarantined.provider_attempt_allocations == (
+        interrupted_attempt_allocations
+    )
+    quarantined_run_snapshot = _run_tree_snapshot(manager.run_root)
+    quarantined_semantics = quarantined.to_dict()
+
+    with patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=bundle,
+    ):
+        assert (
+            resume_workflow(
+                run_id=interrupted_run_id,
+                force_restart=False,
+            )
+            == 1
+        )
+
+    assert launched_after_interrupt == 0
+    assert _run_tree_snapshot(manager.run_root) == quarantined_run_snapshot
+    assert manager.load().to_dict() == quarantined_semantics
+
+    from tests.test_workflow_lisp_provider_peer_group_e2e import (
+        _install_controlled_public_adapters,
+    )
+
+    controlled = _install_controlled_public_adapters(
+        monkeypatch,
+        member_ids=("planner", "reviewer"),
+        values={
+            "planner": "planner",
+            "reviewer": "reviewer",
+        },
+    )
+    monkeypatch.setattr(
+        coordinator_module,
+        "ProviderPeerGroupCoordinator",
+        ProviderPeerGroupCoordinator,
+    )
+    real_executor = WorkflowExecutor
+
+    def fresh_executor(**kwargs):
+        created = real_executor(
+            **kwargs,
+            provider_observation_enabled=False,
+            step_heartbeat_interval_sec=0,
+        )
+        _register_peer_test_providers(created)
+        return created
+
+    fresh_run_id = "force-restarted-peer-group-lifecycle"
+    with patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=bundle,
+    ), patch(
+        "orchestrator.cli.commands.resume.WorkflowExecutor",
+        side_effect=fresh_executor,
+    ), patch(
+        "uuid.uuid4",
+        return_value=SimpleNamespace(hex=fresh_run_id),
+    ):
+        assert (
+            resume_workflow(
+                run_id=interrupted_run_id,
+                force_restart=True,
+            )
+            == 0
+        )
+
+    fresh_manager = StateManager(tmp_path, run_id=fresh_run_id)
+    fresh_state = fresh_manager.load()
+    assert fresh_state.status == "completed"
+    assert fresh_state.steps["Peers"]["status"] == "completed"
+    assert fresh_state.steps["Peers"]["artifacts"] == {
+        "__result__": "planner"
+    }
+    terminal_evidence_path = (
+        fresh_manager.run_root
+        / fresh_state.steps["Peers"]["debug"]["provider_peer_group"][
+            "terminal_evidence_path"
+        ]
+    )
+    assert terminal_evidence_path.is_file()
+    terminal_evidence = json.loads(
+        terminal_evidence_path.read_text(encoding="ascii")
+    )
+    assert terminal_evidence["group_visit"]["run_id"] == fresh_run_id
+    assert terminal_evidence["group_visit"] != (
+        interrupted_allocation.runtime.visit.to_dict()
+    )
+    assert {
+        member["attempt"]["attempt_scope_key"]
+        for member in terminal_evidence["members"]
+    }.isdisjoint(
+        {
+            member.runtime.attempt.attempt_scope_key
+            for member in interrupted_allocation.members
+        }
+    )
+    assert set(controlled.adapters) == {"planner", "reviewer"}
+    assert all(
+        adapter.error is None and adapter.joined
+        for adapter in controlled.adapters.values()
+    )
+    assert _run_tree_snapshot(manager.run_root) == quarantined_run_snapshot
+    assert manager.load().to_dict() == quarantined_semantics

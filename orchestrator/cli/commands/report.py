@@ -17,6 +17,36 @@ from orchestrator.observability.report import (
 from orchestrator.runtime_observability import compute_active_runtime
 
 
+_STATE_ONLY_DEBUG_KIND_DISCRIMINATORS = frozenset(
+    {
+        "provider_peer_group",
+        "provider_supervision",
+    }
+)
+
+
+def _state_only_step_kind(payload: Mapping[str, Any]) -> Any:
+    """Resolve persisted kind without guessing across debug discriminators."""
+
+    if "type" in payload:
+        return payload.get("type") or "unknown"
+
+    debug_payload = payload.get("debug")
+    if not isinstance(debug_payload, Mapping):
+        return "unknown"
+    candidates = sorted(
+        discriminator
+        for discriminator in _STATE_ONLY_DEBUG_KIND_DISCRIMINATORS
+        if isinstance(debug_payload.get(discriminator), Mapping)
+    )
+    if len(candidates) > 1:
+        raise ValueError(
+            "ambiguous persisted step kind debug discriminators: "
+            + ", ".join(candidates)
+        )
+    return candidates[0] if candidates else "unknown"
+
+
 def _latest_run_dir(runs_root: Path) -> Optional[Path]:
     if not runs_root.exists():
         return None
@@ -80,30 +110,34 @@ def _state_only_snapshot(
 
     def step_entry(name: str, value: Any) -> dict[str, Any]:
         payload = value if isinstance(value, Mapping) else {}
+        debug_payload = payload.get("debug")
         raw_preview = payload.get("output")
         if raw_preview is None:
             raw_preview = payload.get("text")
         preview = str(raw_preview) if raw_preview is not None else ""
         if len(preview) > 200:
             preview = preview[:197] + "..."
+        output_payload = {
+            "exit_code": payload.get("exit_code"),
+            "duration_ms": payload.get("duration_ms"),
+            "output_preview": preview,
+            "artifacts": (
+                payload.get("artifacts")
+                if isinstance(payload.get("artifacts"), Mapping)
+                else {}
+            ),
+            "error": payload.get("error"),
+            "outcome": payload.get("outcome"),
+        }
+        if isinstance(debug_payload, Mapping) and debug_payload:
+            output_payload["debug"] = dict(debug_payload)
         return {
             "name": name,
             "step_id": payload.get("step_id"),
-            "kind": payload.get("type") or "unknown",
+            "kind": _state_only_step_kind(payload),
             "status": result_status(value),
             "input": {},
-            "output": {
-                "exit_code": payload.get("exit_code"),
-                "duration_ms": payload.get("duration_ms"),
-                "output_preview": preview,
-                "artifacts": (
-                    payload.get("artifacts")
-                    if isinstance(payload.get("artifacts"), Mapping)
-                    else {}
-                ),
-                "error": payload.get("error"),
-                "outcome": payload.get("outcome"),
-            },
+            "output": output_payload,
         }
 
     raw_steps = state.get("steps")
@@ -204,7 +238,11 @@ def report_workflow(
         print(f"Error: failed to load state: {exc}", file=sys.stderr)
         return 1
 
-    snapshot = _state_only_snapshot(state, run_dir)
+    try:
+        snapshot = _state_only_snapshot(state, run_dir)
+    except ValueError as exc:
+        print(f"Error: failed to project persisted state: {exc}", file=sys.stderr)
+        return 1
     run_snapshot = snapshot.get("run", {})
     original_status = state.get("status")
     derived_status = run_snapshot.get("status")

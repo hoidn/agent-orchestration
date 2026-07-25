@@ -908,6 +908,23 @@ Commit message: `Lower provider peer groups through executable artifacts`.
 
 ## Task 10: Close Deterministic Runtime Integration
 
+**Outcome:** Complete. Deterministic public `run_workflow` coverage now drives
+two- and three-member groups through ready/send/ack/finish, literal Unicode
+and newlines, exact provisional-bundle authority, ledger/evidence
+publication, pure settlement, terminal cleanup, and a compact public failure
+matrix. Controller interruption is quarantined on ordinary resume, remains
+sticky on repeated resume, and a force restart completes through the real
+coordinator with disjoint visit/member identities while the original run
+remains unchanged. State-only reports preserve peer evidence and recover a
+unique recognized kind without overriding explicit persisted type. The
+public harness exposed an AF_UNIX pathname-length defect; endpoint allocation
+now proves a portable encoded-path budget before launch, uses a deterministic
+short fallback, and fails with a stable preflight diagnostic when exhausted.
+Fresh deterministic integration passed 51 tests, full peer runtime passed 38
+tests, the complete Stage-7 focused set passed 707 tests, and real endpoint
+bind/close/cleanup controls passed in both directions. Ordered specification
+and quality reviews approved the final candidate.
+
 **Files:**
 
 - Create:
@@ -921,21 +938,21 @@ Commit message: `Lower provider peer groups through executable artifacts`.
 - Modify runtime/report modules only where a failing test proves a missing
   established projection.
 
-- [ ] **Step 1: Add deterministic two- and three-member execution tests**
+- [x] **Step 1: Add deterministic two- and three-member execution tests**
 
 Use controlled interactive provider fixtures to exercise
 ready/send/ack/finish, literal Unicode/newlines, one pure aggregate result,
 member ledger/evidence reports, exact provisional-bundle authority, one
 atomic published settlement, and full endpoint/process cleanup.
 
-- [ ] **Step 2: Add both-direction failure and restart tests**
+- [x] **Step 2: Add both-direction failure and restart tests**
 
 Cover launch/barrier/send/offer/ack/bundle/finish/close/join/settlement
 failures, controller interruption, sticky ordinary-resume rejection, and one
 force restart with wholly new visit identities. Assert no failed path
 publishes a settlement or retargets a message.
 
-- [ ] **Step 3: Run deterministic integration**
+- [x] **Step 3: Run deterministic integration**
 
 ```bash
 pytest -q tests/test_workflow_lisp_provider_peer_group_e2e.py \
@@ -945,7 +962,7 @@ pytest -q tests/test_workflow_lisp_provider_peer_group_e2e.py \
 
 Expected: all pass.
 
-- [ ] **Step 4: Run the complete Stage-7 focused set**
+- [x] **Step 4: Run the complete Stage-7 focused set**
 
 ```bash
 pytest -q \
@@ -966,7 +983,7 @@ pytest -q \
 
 Expected: all pass.
 
-- [ ] **Step 5: Obtain ordered reviews and commit**
+- [x] **Step 5: Obtain ordered reviews and commit**
 
 Commit message: `Integrate provider peer group execution`.
 

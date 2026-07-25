@@ -1,0 +1,5 @@
+{
+  "providers.builder": "codex",
+  "providers.planner": "codex",
+  "providers.reviewer": "codex"
+}

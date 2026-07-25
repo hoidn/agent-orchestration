@@ -8,14 +8,17 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 import hashlib
 import json
+import os
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Event, Lock, Thread
 import time
 from typing import Any
+from uuid import uuid4
 
 import pytest
 
+import orchestrator.workflow.provider_peer_group.bindings as peer_bindings
 from orchestrator.providers.interactive_terminal import (
     CloseOfferReceipt,
     FailedCleanupProof,
@@ -63,6 +66,7 @@ from orchestrator.workflow.provider_peer_group.protocol import (
     PeerEndpointCloseProof,
     PeerProtocolClosedError,
     PeerProtocolEvent,
+    PeerProtocolListener,
 )
 
 
@@ -543,6 +547,71 @@ def _allocation(
         ),
         members=members,
     )
+
+
+def test_endpoint_socket_path_falls_back_and_real_listener_cleans_up(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    long_tempdir = tmp_path / ("configured-" + ("x" * 120))
+    long_tempdir.mkdir()
+    monkeypatch.setattr(
+        peer_bindings.tempfile,
+        "gettempdir",
+        lambda: str(long_tempdir),
+    )
+    base_endpoint = _allocation(tmp_path).endpoint
+    paths: list[Path] = []
+
+    for visit_count in (1, 2):
+        endpoint = replace(
+            base_endpoint,
+            group_visit=replace(
+                base_endpoint.group_visit,
+                visit_count=visit_count,
+            ),
+            endpoint_instance_id=uuid4().hex,
+        )
+        path = peer_bindings._provider_peer_endpoint_socket_path(
+            endpoint.endpoint_instance_id
+        )
+        paths.append(path)
+        assert path.parent == Path("/tmp")
+        assert len(os.fsencode(path)) <= 103
+
+        listener = PeerProtocolListener(endpoint, path)
+        listener.start()
+        assert path.exists()
+        proof = listener.close()
+
+        assert proof == PeerEndpointCloseProof(
+            drained=True,
+            closed=True,
+            workers_joined=True,
+        )
+        assert not path.exists()
+
+    assert paths[0] != paths[1]
+
+
+def test_endpoint_socket_path_rejects_exhausted_candidates_before_listener(
+    tmp_path: Path,
+) -> None:
+    long_roots = tuple(
+        tmp_path / (label + ("x" * 120))
+        for label in ("first-", "second-")
+    )
+    for root in long_roots:
+        root.mkdir()
+
+    with pytest.raises(
+        ValueError,
+        match="^provider_peer_group_endpoint_path_unavailable$",
+    ):
+        peer_bindings._provider_peer_endpoint_socket_path(
+            uuid4().hex,
+            candidate_roots=long_roots,
+        )
 
 
 @dataclass
