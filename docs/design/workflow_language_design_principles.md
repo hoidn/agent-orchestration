@@ -41,6 +41,8 @@ Use these labels:
 - Per-step decisions and terminal workflow outcomes are distinct state layers.
 - Fail-closed refusals name the rule that refused; authority never keys on
   identifier spelling.
+- Types are opt-in constraints: structure over names, loose-then-narrow
+  over mandatory taxonomies.
 
 ## Design Review Practices To Retain
 
@@ -535,6 +537,40 @@ This principle adds diagnostics, not process: no registries, audits, or
 review ceremonies follow from it. New denial paths comply on introduction;
 existing silent paths are fixed when touched or when they cost someone a
 debugging session.
+
+## 29. Types Are Opt-In Constraints, Not Mandatory Taxonomies
+
+Status: `language direction` (owner-directed 2026-07-25)
+
+Typing exists to let authors buy guarantees where guarantees matter — not
+as a taxonomy tax on every boundary. Four rules:
+
+- **Opt-in density.** Authoring may begin with generic primitives
+  (`String`, `Int`, `List[...]`, the general path families, and — once
+  available — a transportable top value type) and tighten later under
+  "contracts may only narrow." A loose contract is a loose check, chosen
+  deliberately; the language never forces nominal specificity as the
+  price of admission.
+- **Constraints over names.** Reuse targets structure: procedures, stdlib
+  forms, and new language surfaces constrain what they actually need
+  (`is-record`, `has-field`, `has-union-variant`, slot kinds) rather than
+  demanding callers mint or convert to bespoke nominal types. Structurally
+  sufficient shapes should be admissible without re-wrapping ceremony;
+  hand-written coercion between identical shapes is a defect of this
+  principle, not caller diligence.
+- **Nominal types where names carry contracts.** Specific types remain the
+  right tool exactly where the name is load-bearing: rooted path families
+  with existence semantics, variant outcomes callers route on with proof,
+  and persisted identities. Reserving nominal force for these keeps it
+  meaningful.
+- **New designs inherit this.** A language or stdlib proposal that makes
+  authors build type taxonomies before expressing behavior has failed
+  review under this principle (see the prompt calculus's kind-based slots
+  for the compliant shape).
+
+This principle governs design direction; it does not weaken any existing
+boundary's declared contract or the fail-closed validation of whatever
+contract is declared.
 
 ## Relationship To Normative Specs
 

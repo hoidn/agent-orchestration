@@ -797,14 +797,19 @@ neither is selected, and the parked roadmap is not a selector:
    identity, judgment views). Subsumes the E4P diagnostics item below as
    its component 3/4. First tranche after its design review: defprompt +
    slot-discharge checking.
-3. **Union-parsimony remedies (owner taste direction, 2026-07-25).** Two
-   ergonomics-wave candidates, each needing a small design: (a) a declared
-   authored failure channel — typed fail-closed workflow failure with
-   diagnostic payload, giving propagate-only outcomes a home outside
-   nominal unions and reserving unions for outcomes callers route on;
-   (b) structural union coercion — eliminating hand-written re-wrap
-   matches between structurally identical unions, using the existing
-   structural-constraint machinery as the checker.
+3. **Type-and-union parsimony wave (owner taste direction, 2026-07-25;
+   principle 29).** Ergonomics-wave candidates, each needing a small
+   design: (a) a declared authored failure channel — typed fail-closed
+   workflow failure with diagnostic payload, giving propagate-only
+   outcomes a home outside nominal unions; (b) structural union coercion —
+   eliminating hand-written re-wrap matches between structurally identical
+   unions; (c) structural record admissibility — constraint-satisfying
+   records usable where a structurally sufficient shape is expected,
+   without nominal conversion; (d) an opt-in transportable top value type
+   for loose-then-narrow authoring under "contracts may only narrow."
+   The existing structural-constraint machinery (`is-record`,
+   `has-field`, `has-union-variant`) is the checker substrate for all
+   four.
 4. **Prompt-identity diagnostics (E4P discipline).** Independent of any
    search program and schedulable any time as a small item: apply the
    role-separated prompt-identity split (boundary invariant 8) to the
