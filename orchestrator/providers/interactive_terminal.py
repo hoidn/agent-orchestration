@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import math
+import os
 from pathlib import Path
 import shlex
 import subprocess
@@ -20,6 +21,9 @@ from .types import (
     extract_provider_command_placeholders,
     validate_interactive_session_support_capability,
 )
+
+
+_MAX_ENCODED_UNIX_SOCKET_PATH_BYTES = 103
 
 
 class InteractiveTerminalError(RuntimeError):
@@ -600,6 +604,7 @@ class InteractiveTerminalTurnQueueAdapter:
         self,
         runtime_root: Path,
         *,
+        socket_root: Path | None = None,
         backend: _InteractiveTerminalBackend | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         wait: Callable[[float], None] = time.sleep,
@@ -621,13 +626,40 @@ class InteractiveTerminalTurnQueueAdapter:
         ):
             raise ValueError("operation_timeout_sec must be positive")
         root = Path(runtime_root)
+        token = uuid.uuid4().hex
+        if socket_root is None:
+            root.mkdir(parents=True, exist_ok=True)
+            selected_socket_root = root
+        else:
+            selected_socket_root = Path(socket_root)
+        try:
+            selected_socket_root = selected_socket_root.resolve(strict=True)
+            socket_path = (
+                selected_socket_root / f"orc-peer-{token}.sock"
+            )
+            socket_path_available = (
+                selected_socket_root.is_dir()
+                and os.access(
+                    selected_socket_root,
+                    os.W_OK | os.X_OK,
+                )
+                and len(os.fsencode(socket_path))
+                <= _MAX_ENCODED_UNIX_SOCKET_PATH_BYTES
+                and not socket_path.exists()
+                and not socket_path.is_symlink()
+            )
+        except (OSError, RuntimeError, TypeError, UnicodeError):
+            socket_path_available = False
+        if not socket_path_available:
+            raise InteractiveTerminalError(
+                "interactive_terminal_socket_path_unavailable"
+            )
         root.mkdir(parents=True, exist_ok=True)
-        socket_directory = Path(
+        state_directory = Path(
             tempfile.mkdtemp(prefix="orc-peer-", dir=root)
         )
-        token = uuid.uuid4().hex
-        self._socket_path = socket_directory / "tmux.sock"
-        self._exit_status_path = socket_directory / "provider.exit-status"
+        self._socket_path = socket_path
+        self._exit_status_path = state_directory / "provider.exit-status"
         self._session_name = f"orc-peer-{token[:12]}"
         self._adapter_instance_id = token
         self._backend = backend or _TmuxInteractiveTerminalBackend()
@@ -694,16 +726,22 @@ class InteractiveTerminalTurnQueueAdapter:
                 ):
                     raise InteractiveTerminalError("pane_start_failed")
             except InteractiveTerminalError as exc:
-                self._cleanup_start_failure()
                 self._state = "failed"
+                try:
+                    self._cleanup_start_failure()
+                except InteractiveTerminalError as cleanup_exc:
+                    raise cleanup_exc from exc
                 if exc.code == "backend_operation_timeout":
                     raise InteractiveTerminalError(
                         "start_timeout"
                     ) from exc
                 raise
             except (OSError, RuntimeError) as exc:
-                self._cleanup_start_failure()
                 self._state = "failed"
+                try:
+                    self._cleanup_start_failure()
+                except InteractiveTerminalError as cleanup_exc:
+                    raise cleanup_exc from exc
                 raise InteractiveTerminalError("pane_start_failed") from exc
 
             handle = InteractiveMemberHandle(
@@ -923,6 +961,7 @@ class InteractiveTerminalTurnQueueAdapter:
                     raise InteractiveTerminalError(
                         "server_teardown_incomplete"
                     )
+                self._remove_socket_after_server_absent()
             except InteractiveTerminalError as exc:
                 self._state = "failed"
                 if exc.code == "backend_operation_timeout":
@@ -1050,6 +1089,12 @@ class InteractiveTerminalTurnQueueAdapter:
             except Exception as exc:
                 remember_error(exc)
 
+            if server_absent:
+                try:
+                    self._remove_socket_after_server_absent()
+                except Exception as exc:
+                    remember_error(exc)
+
             cleanup_complete = (
                 pane_absent
                 and server_absent
@@ -1113,14 +1158,15 @@ class InteractiveTerminalTurnQueueAdapter:
     def _cleanup_start_failure(self) -> None:
         deadline = self._operation_deadline()
         try:
-            if self._backend.server_alive(
+            server_absent = not self._backend.server_alive(
                 self._socket_path,
                 self._session_name,
                 timeout_sec=self._remaining(
                     deadline,
                     timeout_code="start_timeout",
                 ),
-            ):
+            )
+            if not server_absent:
                 self._backend.close_server(
                     self._socket_path,
                     timeout_sec=self._remaining(
@@ -1128,8 +1174,45 @@ class InteractiveTerminalTurnQueueAdapter:
                         timeout_code="start_timeout",
                     ),
                 )
-        except (InteractiveTerminalError, OSError, RuntimeError):
-            pass
+                server_absent = not self._backend.server_alive(
+                    self._socket_path,
+                    self._session_name,
+                    timeout_sec=self._remaining(
+                        deadline,
+                        timeout_code="start_timeout",
+                    ),
+                )
+            if not server_absent:
+                raise InteractiveTerminalError(
+                    "interactive_terminal_start_cleanup_incomplete"
+                )
+            self._remove_socket_after_server_absent()
+        except Exception as exc:
+            if (
+                isinstance(exc, InteractiveTerminalError)
+                and exc.code
+                == "interactive_terminal_start_cleanup_incomplete"
+            ):
+                raise
+            raise InteractiveTerminalError(
+                "interactive_terminal_start_cleanup_incomplete"
+            ) from exc
+
+    def _remove_socket_after_server_absent(self) -> None:
+        try:
+            self._socket_path.unlink(missing_ok=True)
+            socket_absent = (
+                not self._socket_path.exists()
+                and not self._socket_path.is_symlink()
+            )
+        except OSError as exc:
+            raise InteractiveTerminalError(
+                "interactive_terminal_socket_cleanup_failed"
+            ) from exc
+        if not socket_absent:
+            raise InteractiveTerminalError(
+                "interactive_terminal_socket_cleanup_failed"
+            )
 
     def _operation_deadline(self) -> float:
         return self._monotonic() + self._operation_timeout_sec

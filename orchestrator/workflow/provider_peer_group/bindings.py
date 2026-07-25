@@ -1029,9 +1029,15 @@ class WorkflowProviderPeerGroupBindings:
             raise ValueError(
                 "provider peer interactive adapter schema is unsupported"
             )
+        reportable = self._reportable_identity
+        if reportable is None:
+            raise ValueError(
+                "provider peer group reportable identity is missing"
+            )
         return InteractiveTerminalTurnQueueAdapter(
             member.realized_paths.evidence_path.parent
-            / "interactive-terminal"
+            / "interactive-terminal",
+            socket_root=reportable.endpoint_socket_path.parent,
         )
 
     def validate_member_bundle(

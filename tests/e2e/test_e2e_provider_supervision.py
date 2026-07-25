@@ -6,7 +6,9 @@ from argparse import Namespace
 import json
 from pathlib import Path
 import re
+import shlex
 import subprocess
+import sys
 
 import pytest
 
@@ -107,13 +109,39 @@ def _write_fixture(workspace: Path) -> dict[str, Path]:
             "immediately by exactly 32 lowercase hexadecimal characters. Do "
             "not decide before observing that complete worker-generated "
             "marker, and do not invent or transform its token. Once observed, "
-            "write a STEER directive to the required output-bundle path. Its "
-            "guidance must copy the complete observed marker exactly and must "
-            "direct the resumed worker "
-            "to skip all waiting, write the JSON string "
-            f'"{_CORRECTED_VALUE}" to its required output-bundle path, and '
-            "finish. Never return CONTINUE. Do not create or edit any other "
-            "file.\n"
+            "write the STEER directive with the following exact shell command, "
+            "replacing `<complete-observed-marker>` with the complete marker "
+            "you observed:\n\n"
+            f"`{shlex.quote(sys.executable)} -c "
+            "'import json, os, sys; from pathlib import Path; "
+            'Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text('
+            'json.dumps({"variant":"STEER","guidance":"Observed marker "'
+            f'+sys.argv[1]+". Skip all waiting. Write {_CORRECTED_VALUE} as a '
+            'JSON string to the required output-bundle path, then finish."}), '
+            'encoding="utf-8")\' \'<complete-observed-marker>\'`\n\n'
+            "The guidance produced by that command copies the complete "
+            "observed marker exactly and directs the resumed worker to write "
+            f"`{_CORRECTED_VALUE}`. Never return CONTINUE. Do not create or "
+            "edit any other file.\n"
+        ),
+        encoding="utf-8",
+    )
+    return files
+
+
+def _write_continue_fixture(workspace: Path) -> dict[str, Path]:
+    files = _write_fixture(workspace)
+    files["supervisor"].write_text(
+        (
+            "Act as the live supervisor. The runtime appends a JSON observation "
+            "target containing socket_path and target. Use the shell command "
+            "`tmux -S <socket_path> capture-pane -p -J -t <target>` repeatedly "
+            f"until the pane contains {_OBSERVATION_MARKER_PREFIX} followed "
+            "immediately by exactly 32 lowercase hexadecimal characters. Do "
+            "not decide before observing that complete worker-generated "
+            "marker. Once observed, write the direct JSON object "
+            '`{"variant":"CONTINUE"}` to the required output-bundle path. '
+            "Never return STEER. Do not create or edit any other file.\n"
         ),
         encoding="utf-8",
     )
@@ -206,6 +234,7 @@ def test_real_supervisor_steers_session_worker_to_distinct_typed_result(
     [node] = built.validated_bundle.ir.nodes.values()
     assert node.kind is ExecutableNodeKind.PROVIDER_SUPERVISION
     config = node.execution_config
+    assert config.schema_version == "provider_supervision.v1"
 
     monkeypatch.chdir(workspace)
     assert run_workflow(_run_args(files)) == 0
@@ -260,3 +289,90 @@ def test_real_supervisor_steers_session_worker_to_distinct_typed_result(
     assert len(worker_markers) == 1
     [worker_marker] = worker_markers
     assert worker_marker in directive["guidance"]
+
+
+@pytest.mark.e2e
+def test_real_supervisor_continues_session_worker_fresh_typed_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Observe one live target and select its exact fresh result."""
+
+    skip_if_no_e2e()
+    for executable in ("codex", "git", "tmux"):
+        skip_if_no_cli(executable)
+
+    workspace = tmp_path / "provider-supervision-continue"
+    workspace.mkdir()
+    subprocess.run(
+        ["git", "init", "--quiet"],
+        cwd=workspace,
+        check=True,
+        capture_output=True,
+    )
+    files = _write_continue_fixture(workspace)
+    built = build_frontend_bundle(_build_request(workspace, files))
+    [node] = built.validated_bundle.ir.nodes.values()
+    assert node.kind is ExecutableNodeKind.PROVIDER_SUPERVISION
+    config = node.execution_config
+    assert config.schema_version == "provider_supervision.v1"
+
+    monkeypatch.chdir(workspace)
+    assert run_workflow(_run_args(files)) == 0
+
+    [run_root] = (workspace / ".orchestrate" / "runs").iterdir()
+    state = json.loads(
+        (run_root / "state.json").read_text(encoding="utf-8")
+    )
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {
+        "__result__": "uncorrected-value"
+    }
+    [step] = state["steps"].values()
+    assert step["artifacts"] == {"__result__": "uncorrected-value"}
+    assert len(state["provider_attempt_allocations"]) == 2
+
+    fresh_bundle = _realize(
+        run_root,
+        config.paths.worker_fresh.provisional_bundle_relpath,
+    )
+    resume_bundle = _realize(
+        run_root,
+        config.paths.worker_resume.provisional_bundle_relpath,
+    )
+    directive_bundle = _realize(
+        run_root,
+        config.paths.supervisor_directive.provisional_bundle_relpath,
+    )
+    assert json.loads(fresh_bundle.read_text(encoding="utf-8")) == (
+        "uncorrected-value"
+    )
+    assert not resume_bundle.exists()
+    assert json.loads(directive_bundle.read_text(encoding="utf-8")) == {
+        "variant": "CONTINUE"
+    }
+
+    transcripts = tuple(sorted(
+        (run_root / "provider-observation" / "transcripts").glob(
+            "*.transcript"
+        )
+    ))
+    assert len(transcripts) == 2
+    worker_markers = set(
+        _OBSERVATION_MARKER_PATTERN.findall(
+            transcripts[0].read_text(
+                encoding="utf-8",
+                errors="strict",
+            )
+        )
+    )
+    supervisor_markers = set(
+        _OBSERVATION_MARKER_PATTERN.findall(
+            transcripts[1].read_text(
+                encoding="utf-8",
+                errors="strict",
+            )
+        )
+    )
+    assert len(worker_markers) == 1
+    assert supervisor_markers == worker_markers

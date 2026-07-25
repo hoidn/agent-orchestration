@@ -909,12 +909,74 @@ def _interactive_adapter(
     active_clock = clock or _ManualClock()
     return InteractiveTerminalTurnQueueAdapter(
         runtime_root=tmp_path,
+        socket_root=Path(tempfile.gettempdir()),
         backend=backend,
         monotonic=active_clock.monotonic,
         wait=active_clock.wait,
         poll_interval_sec=0.01,
         operation_timeout_sec=0.5,
     )
+
+
+def test_interactive_adapter_separates_short_socket_from_runtime_artifacts(
+    tmp_path: Path,
+) -> None:
+    runtime_root = tmp_path / ("runtime-" + ("r" * 100))
+    with tempfile.TemporaryDirectory(
+        prefix="orc-peer-sockets-",
+        dir="/tmp",
+    ) as socket_root_text:
+        socket_root = Path(socket_root_text)
+        adapters = tuple(
+            InteractiveTerminalTurnQueueAdapter(
+                runtime_root=runtime_root,
+                socket_root=socket_root,
+                backend=_FakeInteractiveBackend(),
+            )
+            for _ in range(2)
+        )
+        handles = tuple(
+            adapter.start(_interactive_invocation(tmp_path))
+            for adapter in adapters
+        )
+
+        assert all(
+            handle.socket_path.parent == socket_root
+            and handle.socket_path.name.startswith("orc-peer-")
+            and handle.socket_path.name.endswith(".sock")
+            and len(os.fsencode(handle.socket_path)) <= 103
+            for handle in handles
+        )
+        assert handles[0].socket_path != handles[1].socket_path
+        assert len(
+            os.fsencode(runtime_root / handles[0].socket_path.name)
+        ) > 103
+        assert all(
+            adapter._exit_status_path.is_relative_to(runtime_root)
+            for adapter in adapters
+        )
+
+
+def test_interactive_adapter_rejects_long_socket_path_before_backend_start(
+    tmp_path: Path,
+) -> None:
+    socket_root = tmp_path / ("socket-" + ("s" * 120))
+    socket_root.mkdir()
+    runtime_root = tmp_path / "runtime-artifacts"
+    backend = _FakeInteractiveBackend()
+
+    with pytest.raises(InteractiveTerminalError) as exc_info:
+        InteractiveTerminalTurnQueueAdapter(
+            runtime_root=runtime_root,
+            socket_root=socket_root,
+            backend=backend,
+        )
+
+    assert exc_info.value.code == (
+        "interactive_terminal_socket_path_unavailable"
+    )
+    assert backend.server_started is False
+    assert not runtime_root.exists()
 
 
 def test_interactive_adapter_starts_exact_attempt_bound_handle(
@@ -991,6 +1053,51 @@ def test_interactive_adapter_join_requires_zero_natural_exit_and_full_cleanup(
     assert proof.server_absent is True
     assert backend.close_pane_calls == [backend.target]
     assert backend.close_server_calls == 1
+
+
+def test_interactive_adapter_natural_join_removes_owned_socket_after_absence(
+    tmp_path: Path,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    adapter = _interactive_adapter(tmp_path, backend)
+    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle.socket_path.touch()
+    adapter.offer_close(handle)
+    backend.pane_status = PaneProcessStatus(
+        state="exited",
+        return_code=0,
+    )
+
+    proof = adapter.join(handle, deadline=101.0)
+
+    assert proof.server_absent is True
+    assert backend.server_live is False
+    assert not handle.socket_path.exists()
+
+
+def test_interactive_adapter_natural_join_types_socket_unlink_failure(
+    tmp_path: Path,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    adapter = _interactive_adapter(tmp_path, backend)
+    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle.socket_path.mkdir()
+    adapter.offer_close(handle)
+    backend.pane_status = PaneProcessStatus(
+        state="exited",
+        return_code=0,
+    )
+
+    try:
+        with pytest.raises(InteractiveTerminalError) as exc_info:
+            adapter.join(handle, deadline=101.0)
+        assert exc_info.value.code == (
+            "interactive_terminal_socket_cleanup_failed"
+        )
+        assert backend.server_live is False
+        assert handle.socket_path.is_dir()
+    finally:
+        handle.socket_path.rmdir()
 
 
 def test_tmux_dead_pane_without_recorded_status_remains_unproved() -> None:
@@ -1402,6 +1509,7 @@ def test_interactive_adapter_start_failure_closes_private_server(
         "pane_start_failed"
     )
     adapter = _interactive_adapter(tmp_path, backend)
+    adapter._socket_path.touch()
 
     with pytest.raises(InteractiveTerminalError) as exc_info:
         adapter.start(_interactive_invocation(tmp_path))
@@ -1409,6 +1517,38 @@ def test_interactive_adapter_start_failure_closes_private_server(
     assert exc_info.value.code == "pane_start_failed"
     assert backend.close_server_calls == 1
     assert backend.server_live is False
+    assert not adapter._socket_path.exists()
+
+
+@pytest.mark.parametrize(
+    "start_error",
+    (
+        InteractiveTerminalError("pane_start_failed"),
+        OSError("pane start failed"),
+    ),
+)
+def test_interactive_adapter_start_failure_requires_complete_socket_cleanup(
+    tmp_path: Path,
+    start_error: Exception,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    backend.start_pane_error = start_error  # type: ignore[assignment]
+    adapter = _interactive_adapter(tmp_path, backend)
+    adapter._socket_path.mkdir()
+
+    try:
+        with pytest.raises(InteractiveTerminalError) as exc_info:
+            adapter.start(_interactive_invocation(tmp_path))
+        assert exc_info.value.code == (
+            "interactive_terminal_start_cleanup_incomplete"
+        )
+        assert backend.server_live is False
+        assert adapter._socket_path.is_dir()
+        assert adapter._natural_proof is None
+        assert adapter._cleanup_proof is None
+        assert adapter._state == "failed"
+    finally:
+        adapter._socket_path.rmdir()
 
 
 def test_interactive_adapter_rejects_foreign_and_stale_handles(
@@ -1437,6 +1577,7 @@ def test_interactive_adapter_abort_is_cleanup_only_and_reports_failure(
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
     handle = adapter.start(_interactive_invocation(tmp_path))
+    handle.socket_path.touch()
 
     proof = adapter.abort(handle, deadline=101.0)
 
@@ -1445,7 +1586,28 @@ def test_interactive_adapter_abort_is_cleanup_only_and_reports_failure(
     assert proof.cleanup_complete is True
     assert proof.pane_absent is True
     assert proof.server_absent is True
+    assert not handle.socket_path.exists()
     assert not isinstance(proof, NaturalShutdownProof)
+
+
+def test_interactive_adapter_abort_reports_owned_socket_unlink_failure(
+    tmp_path: Path,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    adapter = _interactive_adapter(tmp_path, backend)
+    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle.socket_path.mkdir()
+
+    try:
+        proof = adapter.abort(handle, deadline=101.0)
+        assert proof.server_absent is True
+        assert proof.cleanup_complete is False
+        assert proof.error_code == (
+            "interactive_terminal_socket_cleanup_failed"
+        )
+        assert handle.socket_path.is_dir()
+    finally:
+        handle.socket_path.rmdir()
 
 
 def test_interactive_adapter_abort_surfaces_incomplete_cleanup(

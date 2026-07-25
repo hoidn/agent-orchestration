@@ -1,0 +1,5 @@
+{
+  "prompts.receiver": "real_peer_group_receiver.md",
+  "prompts.sender": "real_peer_group_sender.md",
+  "prompts.witness": "real_peer_group_witness.md"
+}

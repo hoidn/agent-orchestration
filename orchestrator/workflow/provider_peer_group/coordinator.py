@@ -21,6 +21,7 @@ from ...providers.interactive_terminal import (
     CloseOfferReceipt,
     FailedCleanupProof,
     InteractiveMemberHandle,
+    InteractiveTerminalError,
     NaturalShutdownProof,
     OfferReceipt,
 )
@@ -345,6 +346,21 @@ class ProviderPeerGroupCoordinator:
                 if result is not None:
                     return result
                 raise
+            propagate_after_cleanup = (
+                exc
+                if (
+                    isinstance(exc, InteractiveTerminalError)
+                    and exc.code
+                    == "interactive_terminal_start_cleanup_incomplete"
+                    and any(
+                        member.lifecycle
+                        is PeerMemberLifecycle.STARTING
+                        and member.handle is None
+                        for member in members
+                    )
+                )
+                else None
+            )
             return self._finalize_failure(
                 allocation=allocation,
                 members=members,
@@ -354,6 +370,7 @@ class ProviderPeerGroupCoordinator:
                 replays=replays,
                 code="provider_peer_group_failed",
                 message=str(exc) or type(exc).__name__,
+                propagate_after_cleanup=propagate_after_cleanup,
             )
 
     def _finalize_reportable_preparation_failure(
@@ -961,6 +978,7 @@ class ProviderPeerGroupCoordinator:
         replays: Mapping[str, _Replay],
         code: str,
         message: str,
+        propagate_after_cleanup: Exception | None = None,
     ) -> dict[str, Any]:
         cleanup_errors: list[str] = []
         if endpoint is not None:
@@ -1095,6 +1113,8 @@ class ProviderPeerGroupCoordinator:
                 "provider_peer_group_cleanup_incomplete",
                 "; ".join(cleanup_errors),
             )
+        if propagate_after_cleanup is not None:
+            raise propagate_after_cleanup
         evidence = PeerGroupTerminalEvidence(
             outcome="failed",
             group_visit=allocation.runtime.visit,

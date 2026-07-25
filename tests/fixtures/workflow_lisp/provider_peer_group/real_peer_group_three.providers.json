@@ -1,0 +1,5 @@
+{
+  "providers.receiver": "codex",
+  "providers.sender": "codex",
+  "providers.witness": "codex"
+}

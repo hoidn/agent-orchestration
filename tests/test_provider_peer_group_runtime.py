@@ -796,6 +796,96 @@ def test_all_members_are_allocated_before_the_first_launch(
         assert group.outcome.result(_WAIT_SECONDS)["status"] == "completed"
 
 
+def test_start_cleanup_incomplete_propagates_after_cleanup_without_terminal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    allocation = _allocation(
+        tmp_path,
+        ("writer", "reviewer", "critic"),
+    )
+    bindings = _FakeBindings(allocation)
+    listener = _FakeListener(
+        allocation.endpoint,
+        allocation.endpoint_socket_path,
+    )
+    startup_error = InteractiveTerminalError(
+        "interactive_terminal_start_cleanup_incomplete"
+    )
+    bindings.adapters["critic"].start_error = startup_error
+    cleanup_order: list[str] = []
+    close_listener = listener.close
+
+    def record_endpoint_close() -> PeerEndpointCloseProof:
+        cleanup_order.append("endpoint")
+        return close_listener()
+
+    monkeypatch.setattr(listener, "close", record_endpoint_close)
+    for member_id in ("writer", "reviewer"):
+        adapter = bindings.adapters[member_id]
+        abort_member = adapter.abort
+
+        def record_abort(
+            handle: InteractiveMemberHandle,
+            deadline: float,
+            *,
+            _member_id: str = member_id,
+            _abort: Callable[
+                [InteractiveMemberHandle, float],
+                FailedCleanupProof,
+            ] = abort_member,
+        ) -> FailedCleanupProof:
+            cleanup_order.append(f"abort:{_member_id}")
+            return _abort(handle, deadline)
+
+        monkeypatch.setattr(adapter, "abort", record_abort)
+    coordinator = ProviderPeerGroupCoordinator(
+        bindings,
+        lambda _endpoint, _path: listener,
+        bindings.create_adapter,
+    )
+
+    with pytest.raises(InteractiveTerminalError) as exc_info:
+        coordinator.run()
+
+    assert exc_info.value is startup_error
+    assert listener.closed.is_set()
+    assert listener.workers_joined is True
+    assert cleanup_order[0] == "endpoint"
+    assert set(cleanup_order[1:]) == {
+        "abort:writer",
+        "abort:reviewer",
+    }
+    assert all(
+        bindings.adapters[member_id].aborted.is_set()
+        for member_id in ("writer", "reviewer")
+    )
+    abort_deadlines = tuple(
+        next(
+            call[1]
+            for call in bindings.adapters[member_id].calls
+            if call[0] == "abort"
+        )
+        for member_id in ("writer", "reviewer")
+    )
+    assert abort_deadlines[0] == abort_deadlines[1]
+    assert bindings.adapters["critic"].handle is None
+    assert all(
+        call[0] != "abort"
+        for call in bindings.adapters["critic"].calls
+    )
+    assert bindings.success_calls == 0
+    assert bindings.failure_calls == 0
+    assert all(
+        event[0] != "finalize_failure" for event in bindings.events
+    )
+    assert not allocation.realized_paths.terminal_evidence_path.exists()
+    assert all(
+        not member.realized_paths.evidence_path.exists()
+        for member in allocation.members
+    )
+
+
 def test_prompt_snapshot_digest_is_checked_before_any_launch(
     tmp_path: Path,
 ) -> None:
@@ -2000,6 +2090,59 @@ def test_workflow_peer_bindings_allocate_freeze_and_finalize_exact_visit(
         allocation.realized_paths.terminal_evidence_path,
     ]
     assert executor.finalized == [result]
+
+
+def test_workflow_peer_adapter_reuses_allocated_short_socket_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.workflow.provider_peer_group import bindings as module
+
+    _config, _manager, _executor, bindings = _workflow_peer_bindings(
+        tmp_path
+    )
+    allocation = bindings.allocate_group()
+    member = allocation.members[0]
+    captured: list[tuple[Path, Path]] = []
+    sentinel = object()
+
+    def build_adapter(
+        runtime_root: Path,
+        *,
+        socket_root: Path,
+    ) -> object:
+        captured.append((runtime_root, socket_root))
+        return sentinel
+
+    monkeypatch.setattr(
+        module,
+        "InteractiveTerminalTurnQueueAdapter",
+        build_adapter,
+    )
+
+    assert bindings.create_adapter(member) is sentinel
+    assert captured == [
+        (
+            member.realized_paths.evidence_path.parent
+            / "interactive-terminal",
+            allocation.endpoint_socket_path.parent,
+        )
+    ]
+
+
+def test_workflow_peer_adapter_requires_reportable_group_identity(
+    tmp_path: Path,
+) -> None:
+    _config, _manager, _executor, bindings = _workflow_peer_bindings(
+        tmp_path
+    )
+    foreign_member = _allocation(tmp_path / "foreign").members[0]
+
+    with pytest.raises(
+        ValueError,
+        match="^provider peer group reportable identity is missing$",
+    ):
+        bindings.create_adapter(foreign_member)
 
 
 def test_stale_visit_preimage_consumes_zero_attempt_ordinals(

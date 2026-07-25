@@ -989,6 +989,21 @@ Commit message: `Integrate provider peer group execution`.
 
 ## Task 11: Pass The Real Two- And Three-Member Gates
 
+**Outcome:** Complete. Real Codex
+sessions passed the exact two-member peer-send gate (1 passed in 69.22s), the
+three-member target-2.17 public `.orc` gate (1 passed in 80.31s), both shipped
+v1 `provider_supervision.v1` directions (2 passed in 164.89s), and the complete
+v1.1 delivery module (4 passed in 180.39s). The first v1 STEER replay exposed a
+test-fixture JSON-escaping defect: the runtime correctly rejected the malformed
+directive, the prompt was narrowed to an exact `json.dumps` write, and the
+single STEER selector then passed in 77.39s before the full v1 rerun. Real
+AF_UNIX path pressure also required short adapter sockets plus fail-closed
+natural, abort, and handle-less startup cleanup; 168 focused adapter/coordinator
+tests cover the corrected boundary, including endpoint-first concurrent cleanup
+without terminal publication. Every successful peer gate left zero endpoint or
+adapter socket nodes. Final ordered specification and quality reviews approved
+the exact commit candidate with no blocking findings.
+
 **Files:**
 
 - Extend: `tests/e2e/test_e2e_provider_peer_delivery.py`
@@ -997,20 +1012,20 @@ Commit message: `Integrate provider peer group execution`.
 - Create only the minimal real-provider prompt/extern fixtures required by
   the test.
 
-- [ ] **Step 1: Run a real two-member protocol group in tmux**
+- [x] **Step 1: Run a real two-member protocol group in tmux**
 
 One member must invoke `peer-send` through its ordinary shell tool. The
 receiver must durably ack it, include the content in its valid typed result,
 cooperatively finish, and close naturally. Assert exact ledgers, bundles,
 cleanup, and one aggregate result.
 
-- [ ] **Step 2: Run a real three-member `.orc` workflow in tmux**
+- [x] **Step 2: Run a real three-member `.orc` workflow in tmux**
 
 Compile and execute the target-2.17 fixture through the public run surface.
 Assert static composition, at least one recorded peer message, pure
 settlement, reports, and one atomic result.
 
-- [ ] **Step 3: Re-run the shipped v1 real smoke**
+- [x] **Step 3: Re-run the shipped v1 real smoke**
 
 ```bash
 ORCHESTRATE_E2E=1 PYTHONWARNINGS=error pytest -q -s \
@@ -1020,7 +1035,7 @@ ORCHESTRATE_E2E=1 PYTHONWARNINGS=error pytest -q -s \
 Expected: both v1 `CONTINUE|STEER` cases remain green and use
 `provider_supervision.v1`.
 
-- [ ] **Step 4: Run the real v1.1 gates**
+- [x] **Step 4: Run the real v1.1 gates**
 
 ```bash
 ORCHESTRATE_E2E=1 PYTHONWARNINGS=error pytest -q -s \
@@ -1030,7 +1045,7 @@ ORCHESTRATE_E2E=1 PYTHONWARNINGS=error pytest -q -s \
 Expected: the one-member adapter, two-member peer-send, and three-member
 `.orc` cases all pass without forcing input.
 
-- [ ] **Step 5: Obtain ordered reviews and commit**
+- [x] **Step 5: Obtain ordered reviews and commit**
 
 Commit message: `Prove real provider peer groups`.
 
