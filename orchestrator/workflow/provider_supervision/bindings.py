@@ -32,6 +32,9 @@ from ..provider_attempts import (
     resolve_aggregate_run_owner,
 )
 from ..pure_expr import evaluate_pure_expr
+from .contracts import (
+    bind_member_result_contract as _bind_member_result_contract,
+)
 
 if TYPE_CHECKING:
     from ..executable_ir import (
@@ -348,195 +351,10 @@ def _descriptor(contract: ExecutableContract) -> dict[str, Any]:
     return _thaw(descriptor)
 
 
-def _pointer(path: tuple[str, ...]) -> str:
-    return "/" + "/".join(
-        part.replace("~", "~0").replace("/", "~1")
-        for part in path
-    )
-
-
-def _leaf_contract(descriptor: Mapping[str, Any]) -> dict[str, Any]:
-    kind = descriptor.get("kind")
-    if kind == "primitive":
-        names = {
-            "String": "string",
-            "Int": "integer",
-            "Float": "float",
-            "Bool": "bool",
-        }
-        name = descriptor.get("name")
-        if name not in names:
-            raise ValueError(f"unsupported primitive result type: {name!r}")
-        return {"type": names[name]}
-    if kind == "enum":
-        allowed = descriptor.get("allowed")
-        if (
-            not isinstance(allowed, list)
-            or not allowed
-            or any(not isinstance(item, str) for item in allowed)
-        ):
-            raise ValueError("enum result descriptor is invalid")
-        return {"type": "enum", "allowed": list(allowed)}
-    if kind == "path":
-        under = descriptor.get("under")
-        must_exist = descriptor.get("must_exist_target")
-        if not isinstance(under, str) or not isinstance(must_exist, bool):
-            raise ValueError(
-                "path result descriptor must preserve under and "
-                "must_exist_target refinement metadata"
-            )
-        return {
-            "type": "relpath",
-            "under": under,
-            "must_exist_target": must_exist,
-        }
-    if kind == "optional":
-        return {
-            "type": "optional",
-            "item": _leaf_contract(_mapping(descriptor.get("item"), "optional.item")),
-        }
-    if kind == "list":
-        return {
-            "type": "list",
-            "items": _leaf_contract(_mapping(descriptor.get("item"), "list.item")),
-        }
-    if kind == "map":
-        key = _mapping(descriptor.get("key"), "map.key")
-        if key.get("kind") != "primitive" or key.get("name") != "String":
-            raise ValueError("transportable map result keys must be String")
-        return {
-            "type": "map",
-            "keys": {"type": "string"},
-            "values": _leaf_contract(
-                _mapping(descriptor.get("value"), "map.value")
-            ),
-        }
-    raise ValueError(f"unsupported leaf result descriptor kind: {kind!r}")
-
-
 def _mapping(value: Any, field: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{field} must be a mapping")
     return value
-
-
-def _fields(
-    fields: Any,
-    *,
-    prefix: tuple[str, ...] = (),
-) -> list[dict[str, Any]]:
-    if not isinstance(fields, list):
-        raise ValueError("result descriptor fields must be a list")
-    output: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for field in fields:
-        node = _mapping(field, "result descriptor field")
-        name = node.get("name")
-        if not isinstance(name, str) or not name or name in seen:
-            raise ValueError("result descriptor field names must be unique")
-        seen.add(name)
-        descriptor = _mapping(node.get("type"), f"field {name}.type")
-        path = (*prefix, name)
-        if descriptor.get("kind") == "record":
-            output.extend(_fields(descriptor.get("fields"), prefix=path))
-            continue
-        output.append(
-            {
-                "name": "__".join(path),
-                "json_pointer": _pointer(path),
-                **_leaf_contract(descriptor),
-            }
-        )
-    return output
-
-
-def _bundle_contract(
-    contract: ExecutableContract,
-    *,
-    path: str,
-) -> tuple[str, dict[str, Any], dict[str, Any]]:
-    """Derive ordinary validator and prompt contracts for one typed result."""
-
-    descriptor = _descriptor(contract)
-    kind = descriptor.get("kind")
-    if kind == "record":
-        payload = {
-            "path": path,
-            "fields": _fields(descriptor.get("fields")),
-        }
-        return "output_bundle", payload, descriptor
-    if kind == "union":
-        variants = descriptor.get("variants")
-        if not isinstance(variants, list) or not variants:
-            raise ValueError("union result descriptor variants are invalid")
-        variant_fields: dict[str, list[dict[str, Any]]] = {}
-        for variant in variants:
-            node = _mapping(variant, "union variant")
-            name = node.get("name")
-            if (
-                not isinstance(name, str)
-                or not name
-                or name in variant_fields
-            ):
-                raise ValueError("union variant names must be unique")
-            variant_fields[name] = _fields(node.get("fields"))
-
-        common_keys: set[str] | None = None
-        specs_by_variant: dict[str, dict[str, dict[str, Any]]] = {}
-        for name, fields in variant_fields.items():
-            indexed = {
-                json.dumps(
-                    field,
-                    ensure_ascii=True,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ): field
-                for field in fields
-            }
-            specs_by_variant[name] = indexed
-            common_keys = (
-                set(indexed)
-                if common_keys is None
-                else common_keys & set(indexed)
-            )
-        shared_keys = common_keys or set()
-        first_variant = next(iter(specs_by_variant.values()))
-        shared_fields = [
-            first_variant[key]
-            for key in sorted(shared_keys)
-        ]
-        payload = {
-            "path": path,
-            "discriminant": {
-                "name": "variant",
-                "json_pointer": "/variant",
-                "type": "enum",
-                "allowed": list(variant_fields),
-            },
-            "shared_fields": shared_fields,
-            "variants": {
-                name: {
-                    "fields": [
-                        field
-                        for key, field in indexed.items()
-                        if key not in shared_keys
-                    ]
-                }
-                for name, indexed in specs_by_variant.items()
-            },
-        }
-        return "variant_output", payload, descriptor
-    payload = {
-        "path": path,
-        "fields": [
-            {
-                "name": "__result__",
-                "json_pointer": "",
-                **_leaf_contract(descriptor),
-            }
-        ],
-    }
-    return "output_bundle", payload, descriptor
 
 
 def _extract_path(value: Any, path: tuple[str, ...]) -> Any:
@@ -849,12 +667,16 @@ class WorkflowProviderSupervisionBindings:
             runtime_step_id=turn.runtime_step_id,
         )
         prompt_contract_path = str(turn.provisional_bundle_path)
-        contract_kind, prompt_contract, descriptor = _bundle_contract(
-            member.result_contract,
-            path=prompt_contract_path,
+        contract_kind, prompt_contract, descriptor = (
+            _bind_member_result_contract(
+                member,
+                path=prompt_contract_path,
+            )
         )
+        member_step.pop("output_bundle", None)
+        member_step.pop("variant_output", None)
+        member_step[contract_kind] = prompt_contract
         contract_step = dict(member_step)
-        contract_step[contract_kind] = prompt_contract
         compiler_contract = (
             member.provider_config.compiler_prompt_dependency_contract
         )
@@ -896,12 +718,20 @@ class WorkflowProviderSupervisionBindings:
             raise ValueError(
                 "provider supervision prompt dependency injection is invalid"
             )
-        instruction = inject.get(
-            "instruction",
-            self.executor.dependency_injector._get_default_instruction(
-                "content",
-                bool(depends_on.get("required")),
-            ),
+        has_dependency_rows = bool(
+            compiler_contract.required_binding_refs
+            or compiler_contract.optional_binding_refs
+        )
+        instruction = (
+            inject.get(
+                "instruction",
+                self.executor.dependency_injector._get_default_instruction(
+                    "content",
+                    bool(depends_on.get("required")),
+                ),
+            )
+            if has_dependency_rows
+            else ""
         )
         if not isinstance(instruction, str):
             raise ValueError(
@@ -913,7 +743,11 @@ class WorkflowProviderSupervisionBindings:
             else (
                 "default_required"
                 if compiler_contract.required_binding_refs
-                else "default_optional"
+                else (
+                    "default_optional"
+                    if compiler_contract.optional_binding_refs
+                    else "none"
+                )
             )
         )
         base_step = dict(member_step)
@@ -979,12 +813,16 @@ class WorkflowProviderSupervisionBindings:
             member,
             runtime_step_id=turn.runtime_step_id,
         )
-        contract_kind, prompt_contract, descriptor = _bundle_contract(
-            member.result_contract,
-            path=str(turn.provisional_bundle_path),
+        contract_kind, prompt_contract, descriptor = (
+            _bind_member_result_contract(
+                member,
+                path=str(turn.provisional_bundle_path),
+            )
         )
+        member_step.pop("output_bundle", None)
+        member_step.pop("variant_output", None)
+        member_step[contract_kind] = prompt_contract
         contract_step = dict(member_step)
-        contract_step[contract_kind] = prompt_contract
         compiler_contract = (
             member.provider_config.compiler_prompt_dependency_contract
         )
@@ -1026,12 +864,20 @@ class WorkflowProviderSupervisionBindings:
             raise ValueError(
                 "provider supervision prompt dependency injection is invalid"
             )
-        instruction = inject.get(
-            "instruction",
-            self.executor.dependency_injector._get_default_instruction(
-                "content",
-                bool(depends_on.get("required")),
-            ),
+        has_dependency_rows = bool(
+            compiler_contract.required_binding_refs
+            or compiler_contract.optional_binding_refs
+        )
+        instruction = (
+            inject.get(
+                "instruction",
+                self.executor.dependency_injector._get_default_instruction(
+                    "content",
+                    bool(depends_on.get("required")),
+                ),
+            )
+            if has_dependency_rows
+            else ""
         )
         if not isinstance(instruction, str):
             raise ValueError(
@@ -1043,7 +889,11 @@ class WorkflowProviderSupervisionBindings:
             else (
                 "default_required"
                 if compiler_contract.required_binding_refs
-                else "default_optional"
+                else (
+                    "default_optional"
+                    if compiler_contract.optional_binding_refs
+                    else "none"
+                )
             )
         )
         self._steps[turn.turn_role] = member_step

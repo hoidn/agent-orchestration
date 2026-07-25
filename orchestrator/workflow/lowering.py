@@ -53,6 +53,7 @@ from .executable_ir import (
     validate_executable_workflow,
 )
 from .loaded_bundle import LoadedWorkflowBundle
+from .provider_supervision.paths import derive_provider_supervision_paths
 from .references import SelfOutputReference, StructuredStepReference, WorkflowInputReference
 from .runtime_plan import derive_workflow_runtime_plan
 from .semantic_ir import derive_workflow_semantic_ir
@@ -1040,6 +1041,13 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
             step.provider_supervision,
             common=common,
             node_id=step.step_id,
+            paths=derive_provider_supervision_paths(
+                node_id=step.step_id,
+                worker_member_id=step.provider_supervision.worker.member_id,
+                supervisor_member_id=(
+                    step.provider_supervision.supervisor.member_id
+                ),
+            ),
         )
     if step.kind is SurfaceStepKind.ADJUDICATED_PROVIDER:
         return AdjudicatedProviderStepConfig(

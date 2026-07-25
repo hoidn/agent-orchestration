@@ -264,7 +264,10 @@ class SurfaceStep:
         default=None,
         metadata={"json_omit_if_none": True},
     )
-    provider_supervision: Any = None
+    provider_supervision: Any = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
     wait_for: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     set_scalar: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     resource_transition: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)

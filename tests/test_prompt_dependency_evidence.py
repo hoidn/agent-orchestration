@@ -20,6 +20,7 @@ from orchestrator.deps.content_snapshot import (
 )
 from orchestrator.state import RunState, StateManager
 from orchestrator.workflow.prompt_dependency_contract import (
+    PromptDependencyOriginKind,
     PromptDependencyPosition,
     _build_compiler_prompt_dependency_contract,
 )
@@ -56,6 +57,21 @@ def _contract(*, authored_instruction: bool = True):
         instruction="Read these inputs." if authored_instruction else None,
         source_origin_key="provider-result",
         source_workflow_bytes=b"(workflow evidence)",
+    )
+
+
+def _implicit_empty_contract():
+    return _build_compiler_prompt_dependency_contract(
+        required_binding_refs=(),
+        optional_binding_refs=(),
+        position=PromptDependencyPosition.PREPEND,
+        instruction=None,
+        source_origin_key="provider-supervision:worker",
+        source_workflow_bytes=b"(workflow evidence)",
+        origin_kind=(
+            PromptDependencyOriginKind
+            .WORKFLOW_LISP_PROVIDER_SUPERVISION_MEMBER_IMPLICIT_EMPTY
+        ),
     )
 
 
@@ -193,6 +209,72 @@ def test_success_build_operation_renders_exactly_once_and_returns_authoritative_
     assert result.final_prompt == result.rendered.block + b"\n\nbase"
     assert result.evidence["injection"]["block_sha256"] == _sha(result.rendered.block)
     assert result.evidence["final_prompt"]["sha256"] == _sha(result.final_prompt)
+
+
+def test_implicit_empty_success_evidence_records_byte_exact_prompt_noop() -> None:
+    from orchestrator.workflow.prompt_dependency_evidence import (
+        build_success_evidence,
+        validate_success_evidence,
+    )
+
+    snapshot = build_content_snapshot((), ())
+    base_prompt = b"Unchanged base prompt.\n"
+    composed_from = []
+
+    def compose_final_prompt(rendered):
+        composed_from.append(rendered)
+        assert rendered.block == b""
+        return base_prompt
+
+    build = build_success_evidence(
+        run_state=_run_state(),
+        scope=_scope(),
+        ordinal=1,
+        compiler_contract=_implicit_empty_contract(),
+        snapshot=snapshot,
+        instruction="",
+        instruction_source="none",
+        compose_final_prompt=compose_final_prompt,
+    )
+
+    assert composed_from == [build.rendered]
+    assert build.final_prompt == base_prompt
+    assert build.rendered.block == b""
+    assert build.rendered.pre_truncation_bytes == 0
+    assert build.rendered.group_truncations == ()
+    record = build.evidence
+    assert record["authored_rows"] == []
+    assert record["canonical_groups"] == []
+    assert record["instruction"] == {
+        "source": "none",
+        "bytes": 0,
+        "sha256": _sha(b""),
+    }
+    assert record["injection"] == {
+        "mode": "content",
+        "max_bytes": 262144,
+        "instruction_max_bytes": 261630,
+        "summary_reserve_bytes": 512,
+        "position": "prepend",
+        "was_truncated": False,
+        "pre_truncation_bytes": 0,
+        "block_bytes": 0,
+        "block_sha256": _sha(b""),
+        "normalized_total_bytes": 0,
+        "retained_bytes": 0,
+        "shown_bytes": 0,
+        "files_total": 0,
+        "files_shown": 0,
+        "files_truncated": 0,
+        "files_omitted": 0,
+        "summary_bytes": 0,
+        "summary_sha256": None,
+    }
+    assert record["final_prompt"] == {
+        "bytes": len(base_prompt),
+        "sha256": _sha(base_prompt),
+    }
+    assert validate_success_evidence(record) == record
 
 
 @pytest.mark.parametrize(

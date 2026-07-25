@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, fields, is_dataclass
 from enum import Enum
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -23,6 +24,11 @@ from .provider_supervision.directive import (
     PROVIDER_STEERING_DIRECTIVE_CONTRACT_VALUE_TYPE,
     PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
     provider_steering_directive_type_descriptor,
+)
+from .provider_supervision.contracts import (
+    bind_member_result_contract,
+    derive_result_bundle_contract,
+    validate_result_contract_identity,
 )
 from .provider_supervision.paths import (
     ProviderSupervisionPaths,
@@ -272,6 +278,15 @@ class ProviderSupervisionStepConfig:
     max_steers: int
     paths: ProviderSupervisionPaths
     source_ownership: ProviderSupervisionSourceOwnership
+
+    def __deepcopy__(
+        self,
+        memo: dict[int, Any],
+    ) -> ProviderSupervisionStepConfig:
+        """Preserve the immutable typed contract across mapping copies."""
+
+        memo[id(self)] = self
+        return self
 
 
 @dataclass(frozen=True)
@@ -796,16 +811,17 @@ def _validate_node_shape(
                 node=node,
             )
         if isinstance(node.execution_config, ProviderStepConfig):
-            contract = node.execution_config.compiler_prompt_dependency_contract
-            if contract is not None:
-                try:
-                    validate_compiler_prompt_dependency_contract(contract)
-                except (TypeError, ValueError):
-                    _raise_executable_ir_invalid(
-                        "executable_ir_invalid: provider prompt dependency contract is invalid",
-                        workflow_name=workflow_name,
-                        node=node,
-                    )
+            try:
+                _validate_provider_prompt_dependency_binding(
+                    node.execution_config,
+                    required=False,
+                )
+            except (TypeError, ValueError):
+                _raise_executable_ir_invalid(
+                    "executable_ir_invalid: provider prompt dependency contract is invalid",
+                    workflow_name=workflow_name,
+                    node=node,
+                )
         if isinstance(node.execution_config, ProviderSupervisionStepConfig):
             _validate_provider_supervision_step_config(
                 node.execution_config,
@@ -869,6 +885,67 @@ def _validate_node_shape(
         )
 
 
+def _validate_provider_prompt_dependency_binding(
+    config: ProviderStepConfig,
+    *,
+    required: bool,
+) -> None:
+    """Validate one typed contract and its exact compatibility mapping."""
+
+    contract = config.compiler_prompt_dependency_contract
+    if contract is None:
+        if required:
+            raise ValueError("compiler prompt dependency contract is required")
+        return
+    validate_compiler_prompt_dependency_contract(contract)
+    depends_on = config.depends_on
+    if not isinstance(depends_on, Mapping) or set(depends_on) != {
+        "required",
+        "optional",
+        "inject",
+    }:
+        raise ValueError("prompt dependency mapping is not closed")
+    required_templates = depends_on.get("required")
+    optional_templates = depends_on.get("optional")
+    if not isinstance(required_templates, (list, tuple)) or not isinstance(
+        optional_templates,
+        (list, tuple),
+    ):
+        raise ValueError("prompt dependency templates must be sequences")
+    if tuple(required_templates) != tuple(
+        f"${{{ref}}}"
+        for ref in contract.required_binding_refs
+    ) or tuple(optional_templates) != tuple(
+        f"${{{ref}}}"
+        for ref in contract.optional_binding_refs
+    ):
+        raise ValueError("prompt dependency templates contradict the contract")
+    inject = depends_on.get("inject")
+    expected_inject_keys = {"mode", "position"}
+    instruction_digest = contract.instruction_utf8_sha256_or_null
+    if instruction_digest is not None:
+        expected_inject_keys.add("instruction")
+    if (
+        not isinstance(inject, Mapping)
+        or set(inject) != expected_inject_keys
+        or inject.get("mode") != "content"
+        or inject.get("position") != contract.position.value
+    ):
+        raise ValueError("prompt dependency injection contradicts the contract")
+    if instruction_digest is not None:
+        instruction = inject.get("instruction")
+        if not isinstance(instruction, str):
+            raise ValueError("prompt dependency instruction must be a string")
+        observed_digest = (
+            "sha256:"
+            + sha256(instruction.encode("utf-8")).hexdigest()
+        )
+        if observed_digest != instruction_digest:
+            raise ValueError(
+                "prompt dependency instruction contradicts the contract"
+            )
+
+
 def _validate_provider_supervision_step_config(
     config: ProviderSupervisionStepConfig,
     *,
@@ -914,6 +991,8 @@ def _validate_provider_supervision_step_config(
         fail("schema is unsupported")
     if not isinstance(config.node_id, str) or config.node_id != node.node_id:
         fail("node id does not match its executable node")
+    if not isinstance(config.common, StepCommonConfig):
+        fail("step common config must be StepCommonConfig")
     if (
         isinstance(config.common.timeout_sec, bool)
         or not isinstance(config.common.timeout_sec, int)
@@ -933,19 +1012,57 @@ def _validate_provider_supervision_step_config(
             fail(f"{role} member id must be non-empty")
         if not isinstance(member.provider_config, ProviderStepConfig):
             fail(f"{role} provider config must be ProviderStepConfig")
+        if not isinstance(
+            member.provider_config.common,
+            StepCommonConfig,
+        ):
+            fail(f"{role} provider common config must be StepCommonConfig")
         if (
             not isinstance(member.provider_config.provider, str)
             or not member.provider_config.provider
         ):
             fail(f"{role} provider must be non-empty")
+        if member.provider_config.inject_output_contract is not True:
+            fail(f"{role} provider must inject its output contract")
+        try:
+            _validate_provider_prompt_dependency_binding(
+                member.provider_config,
+                required=True,
+            )
+        except (TypeError, ValueError):
+            fail(
+                f"{role} provider prompt dependency binding is invalid"
+            )
         if not isinstance(member.result_contract, ExecutableContract):
             fail(f"{role} result contract must be ExecutableContract")
+        try:
+            validate_result_contract_identity(member.result_contract)
+        except (TypeError, ValueError):
+            fail(
+                (
+                    "supervisor directive contract descriptor or identity "
+                    "is invalid"
+                    if role == "supervisor"
+                    else "worker member contract identity is invalid"
+                )
+            )
         if (
             isinstance(member.timeout_sec, bool)
             or not isinstance(member.timeout_sec, int)
             or member.timeout_sec <= 0
         ):
             fail(f"{role} timeout must be a positive integer")
+        if member.provider_config.common.timeout_sec != member.timeout_sec:
+            fail(f"{role} provider timeout contradicts its member timeout")
+    expected_step_timeout = (
+        max(config.worker.timeout_sec, config.supervisor.timeout_sec)
+        + config.worker.timeout_sec
+    )
+    if config.common.timeout_sec != expected_step_timeout:
+        fail(
+            "whole-step timeout budget must equal the concurrent initial turn "
+            "plus one worker resume"
+        )
     if config.worker.member_id == config.supervisor.member_id:
         fail("worker and supervisor member ids must be distinct")
     directive_contract = config.supervisor.result_contract
@@ -974,6 +1091,19 @@ def _validate_provider_supervision_step_config(
 
     if not isinstance(config.settlement_result_contract, ExecutableContract):
         fail("settlement result contract must be ExecutableContract")
+    try:
+        validate_result_contract_identity(
+            config.settlement_result_contract
+        )
+        derive_result_bundle_contract(
+            config.settlement_result_contract,
+            path=(
+                ".orchestrate/provider-supervision-validation/"
+                "settlement-result.json"
+            ),
+        )
+    except (TypeError, ValueError):
+        fail("settlement result contract identity is invalid")
     if not isinstance(config.settlement_payload, Mapping):
         fail("settlement payload must be a mapping")
     try:
@@ -1011,6 +1141,17 @@ def _validate_provider_supervision_step_config(
         malformed_reason="settlement result contract descriptor is invalid",
     ):
         fail("settlement result contract is incompatible with the pure result type")
+    for role, member in zip(("worker", "supervisor"), members):
+        try:
+            bind_member_result_contract(
+                member,
+                path=(
+                    ".orchestrate/provider-supervision-validation/"
+                    f"{role}-result.json"
+                ),
+            )
+        except (TypeError, ValueError):
+            fail(f"{role} result contract prototype is invalid")
 
     if not isinstance(config.source_ownership, ProviderSupervisionSourceOwnership):
         fail("source ownership must be typed")

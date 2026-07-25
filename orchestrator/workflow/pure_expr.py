@@ -7,7 +7,7 @@ execution share one authoritative implementation.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
 import json
@@ -194,6 +194,12 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
+def _is_sequence(value: Any) -> bool:
+    """Accept JSON arrays and their immutable executable-IR representation."""
+
+    return isinstance(value, (list, tuple))
+
+
 def _descriptor_key(descriptor: Mapping[str, Any]) -> str:
     return canonical_json_for_pure_value(descriptor)
 
@@ -220,7 +226,7 @@ def _validate_type_descriptor(descriptor: Any, *, context: str) -> None:
         if not isinstance(descriptor.get("name"), str) or not descriptor.get("name"):
             _raise("pure_expr_payload_invalid", f"{context}.name must be a non-empty string")
         allowed = descriptor.get("allowed")
-        if not isinstance(allowed, list) or not allowed or any(not isinstance(item, str) for item in allowed):
+        if not _is_sequence(allowed) or not allowed or any(not isinstance(item, str) for item in allowed):
             _raise("pure_expr_payload_invalid", f"{context}.allowed must be a non-empty string list")
         return
 
@@ -248,7 +254,7 @@ def _validate_type_descriptor(descriptor: Any, *, context: str) -> None:
 
     if kind == "union":
         variants = descriptor.get("variants")
-        if not isinstance(variants, list) or not variants:
+        if not _is_sequence(variants) or not variants:
             _raise("pure_expr_payload_invalid", f"{context}.variants must be a non-empty list")
         seen: set[str] = set()
         for index, variant in enumerate(variants):
@@ -275,7 +281,7 @@ def _validate_type_descriptor(descriptor: Any, *, context: str) -> None:
 
 
 def _validate_field_descriptor_list(fields: Any, *, context: str) -> None:
-    if not isinstance(fields, list):
+    if not _is_sequence(fields):
         _raise("pure_expr_payload_invalid", f"{context} must be a list")
     seen: set[str] = set()
     for index, field in enumerate(fields):
@@ -334,7 +340,7 @@ def _validate_expr_node(node: Any, *, bindings: Mapping[str, Any]) -> int:
         if _descriptor_kind(node["type"]) != "record":
             _raise("pure_expr_payload_invalid", "record nodes require a record type descriptor")
         fields = node.get("fields")
-        if not isinstance(fields, list):
+        if not _is_sequence(fields):
             _raise("pure_expr_payload_invalid", "record nodes must declare a `fields` list")
         for field in fields:
             if not isinstance(field, Mapping):
@@ -349,7 +355,7 @@ def _validate_expr_node(node: Any, *, bindings: Mapping[str, Any]) -> int:
         if not isinstance(node.get("variant"), str) or not node.get("variant"):
             _raise("pure_expr_payload_invalid", "union nodes must declare a non-empty `variant`")
         fields = node.get("fields")
-        if not isinstance(fields, list):
+        if not _is_sequence(fields):
             _raise("pure_expr_payload_invalid", "union nodes must declare a `fields` list")
         for field in fields:
             if not isinstance(field, Mapping):
@@ -363,7 +369,7 @@ def _validate_expr_node(node: Any, *, bindings: Mapping[str, Any]) -> int:
             _raise("pure_expr_payload_invalid", "record_update nodes require a record_type descriptor")
         count += _validate_expr_node(node.get("base"), bindings=bindings)
         fields = node.get("fields")
-        if not isinstance(fields, list) or not fields:
+        if not _is_sequence(fields) or not fields:
             _raise("pure_expr_payload_invalid", "record_update nodes must declare a non-empty `fields` list")
         for field in fields:
             if not isinstance(field, Mapping):
@@ -385,7 +391,7 @@ def _validate_expr_node(node: Any, *, bindings: Mapping[str, Any]) -> int:
                 metadata={"operator": operator},
             )
         args = node.get("args")
-        if not isinstance(args, list):
+        if not _is_sequence(args):
             _raise("pure_expr_payload_invalid", f"operator `{operator}` args must be a list")
         if len(args) < spec.min_arity or (spec.max_arity is not None and len(args) > spec.max_arity):
             _raise(
@@ -561,12 +567,12 @@ def _evaluate_expr(
 
 def _evaluate_record_fields(
     descriptor: Mapping[str, Any],
-    authored_fields: list[Any],
+    authored_fields: Sequence[Any],
     *,
     bindings: Mapping[str, Any],
     resolved_bindings: Mapping[str, Any],
 ) -> dict[str, Any]:
-    if not isinstance(authored_fields, list):
+    if not _is_sequence(authored_fields):
         _raise("pure_expr_payload_invalid", "record-like nodes must declare a field list")
     authored_lookup: dict[str, Mapping[str, Any]] = {}
     for field in authored_fields:

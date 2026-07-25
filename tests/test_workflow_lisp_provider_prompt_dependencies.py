@@ -1138,6 +1138,79 @@ def test_compiler_prompt_dependency_contract_canonical_digest_preserves_authored
     assert reordered.normalized_contract_sha256 != contract.normalized_contract_sha256
 
 
+def test_implicit_empty_prompt_dependency_contract_serializes_and_validates() -> None:
+    contract = _build_compiler_prompt_dependency_contract(
+        required_binding_refs=(),
+        optional_binding_refs=(),
+        position=PromptDependencyPosition.PREPEND,
+        instruction=None,
+        source_origin_key="workflow:provider-supervision:worker",
+        source_workflow_bytes=b"(workflow-lisp\n)",
+        origin_kind=(
+            PromptDependencyOriginKind
+            .WORKFLOW_LISP_PROVIDER_SUPERVISION_MEMBER_IMPLICIT_EMPTY
+        ),
+    )
+
+    assert validate_compiler_prompt_dependency_contract(contract) is contract
+    serialized = serialize_compiler_prompt_dependency_contract(contract)
+    assert serialized["origin_kind"] == (
+        "workflow_lisp_provider_supervision_member_implicit_empty"
+    )
+    assert serialized["required_binding_refs"] == []
+    assert serialized["optional_binding_refs"] == []
+    assert serialized["instruction_utf8_sha256_or_null"] is None
+    assert canonical_compiler_prompt_dependency_contract_json(contract) == (
+        json.dumps(
+            serialized,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("required_binding_refs", "optional_binding_refs"),
+    [
+        (("inputs.report",), ()),
+        ((), ("root.steps.prepare.artifacts.notes",)),
+    ],
+)
+def test_implicit_empty_prompt_dependency_contract_rejects_dependency_refs(
+    required_binding_refs: tuple[str, ...],
+    optional_binding_refs: tuple[str, ...],
+) -> None:
+    with pytest.raises(ValueError, match="forbid dependency refs"):
+        _build_compiler_prompt_dependency_contract(
+            required_binding_refs=required_binding_refs,
+            optional_binding_refs=optional_binding_refs,
+            position=PromptDependencyPosition.PREPEND,
+            instruction=None,
+            source_origin_key="workflow:provider-supervision:worker",
+            source_workflow_bytes=b"(workflow-lisp\n)",
+            origin_kind=(
+                PromptDependencyOriginKind
+                .WORKFLOW_LISP_PROVIDER_SUPERVISION_MEMBER_IMPLICIT_EMPTY
+            ),
+        )
+
+
+def test_ordinary_prompt_dependency_contract_still_rejects_zero_refs() -> None:
+    with pytest.raises(
+        ValueError,
+        match="at least one prompt dependency binding ref is required",
+    ):
+        _build_compiler_prompt_dependency_contract(
+            required_binding_refs=(),
+            optional_binding_refs=(),
+            position=PromptDependencyPosition.PREPEND,
+            instruction=None,
+            source_origin_key="workflow:provider:prompt-dependencies",
+            source_workflow_bytes=b"(workflow-lisp\n)",
+        )
+
+
 @pytest.mark.parametrize(
     "changes",
     [

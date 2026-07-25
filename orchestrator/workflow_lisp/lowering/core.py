@@ -64,6 +64,7 @@ from ..contracts import (
     derive_structured_result_contract,
     derive_workflow_boundary_fields,
     derive_workflow_signature_contracts,
+    root_workflow_boundary_field,
 )
 from ..diagnostics import (
     LispFrontendCompileError,
@@ -1677,19 +1678,23 @@ def _output_contracts_for_type(
             definition["projection"] = metadata
             contracts[field.generated_name] = definition
         return contracts
-    fields = derive_workflow_boundary_fields(
-        type_ref,
-        generated_name="return",
-        source_path=("return",),
-        span=span,
-        form_path=form_path,
-    )
     if isinstance(type_ref, RecordTypeRef):
+        fields = derive_workflow_boundary_fields(
+            type_ref,
+            generated_name="return",
+            source_path=("return",),
+            span=span,
+            form_path=form_path,
+        )
         return {
             field.generated_name: dict(field.contract_definition)
             for field in fields
         }
-    (root_field,) = fields
+    root_field = root_workflow_boundary_field(
+        type_ref,
+        span=span,
+        form_path=form_path,
+    )
     return {"__result__": dict(root_field.contract_definition)}
 
 
@@ -1739,13 +1744,27 @@ def _inline_output_refs_for_expr(
     """Resolve direct branch output refs without synthesizing a child step."""
 
     output_refs: dict[str, str] = {}
-    for field in derive_workflow_boundary_fields(
-        type_ref,
-        generated_name="return",
-        source_path=("return",),
-        span=expr.span,
-        form_path=expr.form_path,
-    ):
+    fields = (
+        derive_workflow_boundary_fields(
+            type_ref,
+            generated_name="return",
+            source_path=("return",),
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        if isinstance(type_ref, (RecordTypeRef, UnionTypeRef))
+        else (
+            replace(
+                root_workflow_boundary_field(
+                    type_ref,
+                    span=expr.span,
+                    form_path=expr.form_path,
+                ),
+                generated_name="return",
+            ),
+        )
+    )
+    for field in fields:
         leaf_value = _inline_expr_field_value(
             expr,
             field_path=field.source_path[1:],

@@ -9,6 +9,7 @@ from types import MappingProxyType, SimpleNamespace
 import pytest
 
 from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block
+from orchestrator.deps.content_snapshot import build_content_snapshot
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.prompting import PromptComposer
@@ -1181,6 +1182,48 @@ def test_provider_prompt_injection_renders_collection_consumed_value(tmp_path: P
     assert "## Consumed Artifacts" in prompt
     assert '- context_docs: ["docs/design/state-layout.md", "docs/design/runtime-foundation.md"]' in prompt
     assert "Review the design docs." in prompt
+
+
+@pytest.mark.parametrize("position", ["prepend", "append"])
+def test_empty_content_dependency_attempt_preserves_base_prompt(
+    tmp_path: Path,
+    position: str,
+) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+    base_prompt = "Unchanged base prompt.\n"
+    finished_prompts: list[str] = []
+
+    def finish_prompt(prompt: str) -> str:
+        finished_prompts.append(prompt)
+        return prompt
+
+    composition = composer.compose_content_dependency_attempt(
+        base_prompt=base_prompt,
+        snapshot=build_content_snapshot((), ()),
+        instruction="",
+        position=position,
+        finish_prompt=finish_prompt,
+    )
+
+    assert finished_prompts == [base_prompt]
+    assert composition.rendered.block == b""
+    assert composition.final_prompt == base_prompt.encode("utf-8")
+    assert composition.debug_injection is None
+
+
+def test_empty_content_dependency_attempt_rejects_invalid_position(
+    tmp_path: Path,
+) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+
+    with pytest.raises(ValueError, match="invalid_injection_contract"):
+        composer.compose_content_dependency_attempt(
+            base_prompt="Base prompt.\n",
+            snapshot=build_content_snapshot((), ()),
+            instruction="",
+            position="invalid",
+            finish_prompt=lambda prompt: prompt,
+        )
 
 
 def test_prompt_consumes_subset_renders_collection_value(tmp_path: Path) -> None:

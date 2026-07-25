@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
@@ -127,6 +127,12 @@ class LoweringOriginMap:
     validation_subject_bindings: tuple[ValidationSubjectBinding, ...] = ()
     generated_semantic_effects: tuple[GeneratedSemanticEffectBinding, ...] = ()
     prompt_dependency_lineages: tuple[PromptDependencyLineage, ...] = ()
+    provider_supervision_origins: Mapping[str, LoweringOrigin] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+    provider_supervision_prompt_dependency_lineages: tuple[
+        PromptDependencyLineage, ...
+    ] = ()
 
     @property
     def workflow_span(self) -> SourceSpan:
@@ -594,8 +600,10 @@ def _rekey_origin_map(origin_map: LoweringOriginMap, *, workflow_name: str) -> L
         )
         for effect in origin_map.generated_semantic_effects
     )
-    prompt_dependency_lineages = tuple(
-        PromptDependencyLineage(
+    def rekey_prompt_dependency_lineage(
+        lineage: PromptDependencyLineage,
+    ) -> PromptDependencyLineage:
+        return PromptDependencyLineage(
             step_id=lineage.step_id,
             source_origin_key=_lowering_origin_key(
                 workflow_name=workflow_name,
@@ -615,7 +623,10 @@ def _rekey_origin_map(origin_map: LoweringOriginMap, *, workflow_name: str) -> L
                         row.origin,
                         workflow_name=workflow_name,
                         entity_kind="prompt_dependency_row",
-                        subject_name=f"{lineage.step_id}:{row.role}:{row.authored_index}",
+                        subject_name=(
+                            f"{lineage.step_id}:{row.role}:"
+                            f"{row.authored_index}"
+                        ),
                     ),
                 )
                 for row in lineage.rows
@@ -643,6 +654,9 @@ def _rekey_origin_map(origin_map: LoweringOriginMap, *, workflow_name: str) -> L
                 else None
             ),
         )
+
+    prompt_dependency_lineages = tuple(
+        rekey_prompt_dependency_lineage(lineage)
         for lineage in origin_map.prompt_dependency_lineages
     )
     contract_field_bindings = tuple(
@@ -682,6 +696,12 @@ def _rekey_origin_map(origin_map: LoweringOriginMap, *, workflow_name: str) -> L
         ),
         generated_semantic_effects=generated_semantic_effects,
         prompt_dependency_lineages=prompt_dependency_lineages,
+        provider_supervision_origins=MappingProxyType(
+            dict(origin_map.provider_supervision_origins)
+        ),
+        provider_supervision_prompt_dependency_lineages=(
+            origin_map.provider_supervision_prompt_dependency_lineages
+        ),
     )
 
 

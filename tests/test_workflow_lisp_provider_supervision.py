@@ -11,6 +11,25 @@ import orchestrator.workflow_lisp.lowering as lowering_module
 import orchestrator.workflow_lisp.macros as workflow_lisp_macros
 import orchestrator.workflow_lisp.wcc.elaborate as wcc_elaborate_module
 import orchestrator.workflow_lisp.wcc.model as wcc_model
+import orchestrator.workflow_lisp.wcc.defunctionalize as wcc_defunctionalize_module
+from orchestrator.workflow.core_ast import CoreProviderSupervisionStep
+from orchestrator.workflow.executable_ir import (
+    ExecutableNodeKind,
+    ProviderSupervisionStepConfig,
+    WORKFLOW_EXECUTABLE_IR_SCHEMA_VERSION,
+)
+from orchestrator.workflow.provider_supervision.paths import (
+    derive_provider_supervision_paths,
+)
+from orchestrator.workflow.provider_supervision.contracts import (
+    derive_result_bundle_contract,
+    derive_result_contract_identity,
+)
+from orchestrator.workflow.prompt_dependency_contract import (
+    PromptDependencyOriginKind,
+    validate_compiler_prompt_dependency_contract,
+)
+from orchestrator.workflow.pure_expr import evaluate_pure_expr
 from orchestrator.workflow.validation import (
     WorkflowBoundaryValidationPolicy,
     WorkflowMappingBuildRequest,
@@ -22,6 +41,7 @@ from orchestrator.workflow_lisp.compiler import (
     _validate_definition_module,
     compile_stage1_entrypoint,
     compile_stage1_module,
+    compile_stage3_module,
 )
 from orchestrator.workflow_lisp.contracts import (
     derive_prompt_guided_structured_result_contract,
@@ -813,6 +833,1133 @@ def _live_provider_extern_environment():
             "prompts.body": "prompts/body.md",
         },
     )
+
+
+def _compile_task12b_live_provider(
+    tmp_path: Path,
+    *,
+    source_name: str,
+    definitions: tuple[str, ...] = (),
+    workflow_params: str = "()",
+    result_type: str,
+    worker_body: str | None = None,
+    settlement_body: str = "worker",
+):
+    worker = worker_body or (
+        "(provider-result providers.worker "
+        ":prompt prompts.worker :inputs () "
+        f":timeout-sec 30 :returns {result_type})"
+    )
+    source = _module_source(
+        "2.16",
+        *definitions,
+        (
+            f"(defworkflow orchestrate {workflow_params} -> {result_type} "
+            "(with-live-providers "
+            f"((worker {worker}) "
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            f"{settlement_body}))"
+        ),
+    )
+    path = _write_module(tmp_path / source_name, source)
+    for prompt_path in ("prompts/worker.md", "prompts/supervisor.md"):
+        target = tmp_path / prompt_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("prompt\n", encoding="utf-8")
+    return compile_stage3_module(
+        path,
+        entry_workflow="orchestrate",
+        provider_externs={
+            "providers.worker": "worker-provider",
+            "providers.supervisor": "supervisor-provider",
+        },
+        prompt_externs={
+            "prompts.worker": "prompts/worker.md",
+            "prompts.supervisor": "prompts/supervisor.md",
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+
+def _task12b_supervision_config(result) -> ProviderSupervisionStepConfig:
+    bundle = result.validated_bundles["orchestrate"]
+    assert len(bundle.ir.nodes) == 1
+    node = next(iter(bundle.ir.nodes.values()))
+    assert node.kind is ExecutableNodeKind.PROVIDER_SUPERVISION
+    assert isinstance(node.execution_config, ProviderSupervisionStepConfig)
+    return node.execution_config
+
+
+@pytest.mark.parametrize(
+    (
+        "result_type",
+        "definitions",
+        "expected_kind",
+        "expected_fields",
+    ),
+    (
+        pytest.param(
+            "String",
+            (),
+            "output_bundle",
+            [{"name": "__result__", "json_pointer": "", "type": "string"}],
+            id="string",
+        ),
+        pytest.param(
+            "Int",
+            (),
+            "output_bundle",
+            [{"name": "__result__", "json_pointer": "", "type": "integer"}],
+            id="int",
+        ),
+        pytest.param(
+            "Float",
+            (),
+            "output_bundle",
+            [{"name": "__result__", "json_pointer": "", "type": "float"}],
+            id="float",
+        ),
+        pytest.param(
+            "Bool",
+            (),
+            "output_bundle",
+            [{"name": "__result__", "json_pointer": "", "type": "bool"}],
+            id="bool",
+        ),
+        pytest.param(
+            "Decision",
+            ("(defenum Decision APPROVE REVISE)",),
+            "output_bundle",
+            [
+                {
+                    "name": "__result__",
+                    "json_pointer": "",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                }
+            ],
+            id="enum",
+        ),
+        pytest.param(
+            "Symbol",
+            (),
+            "output_bundle",
+            [{"name": "__result__", "json_pointer": "", "type": "string"}],
+            id="symbol",
+        ),
+        pytest.param(
+            "RunId",
+            (),
+            "output_bundle",
+            [{"name": "__result__", "json_pointer": "", "type": "string"}],
+            id="run-id",
+        ),
+        pytest.param(
+            "PathRel",
+            (),
+            "output_bundle",
+            [{"name": "__result__", "json_pointer": "", "type": "string"}],
+            id="path-rel",
+        ),
+        pytest.param(
+            "WorkReport",
+            (
+                "(defpath WorkReport :kind relpath "
+                ':under "artifacts/work" :must-exist true)',
+            ),
+            "output_bundle",
+            [
+                {
+                    "name": "__result__",
+                    "json_pointer": "",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                    "must_exist_target": True,
+                }
+            ],
+            id="refined-path",
+        ),
+        pytest.param(
+            "Optional[Bool]",
+            (),
+            "output_bundle",
+            [
+                {
+                    "name": "__result__",
+                    "json_pointer": "",
+                    "type": "optional",
+                    "item": {"type": "bool"},
+                }
+            ],
+            id="optional",
+        ),
+        pytest.param(
+            "List[Int]",
+            (),
+            "output_bundle",
+            [
+                {
+                    "name": "__result__",
+                    "json_pointer": "",
+                    "type": "list",
+                    "items": {"type": "integer"},
+                }
+            ],
+            id="list",
+        ),
+        pytest.param(
+            "Map[String, Float]",
+            (),
+            "output_bundle",
+            [
+                {
+                    "name": "__result__",
+                    "json_pointer": "",
+                    "type": "map",
+                    "keys": {"type": "string"},
+                    "values": {"type": "float"},
+                }
+            ],
+            id="map",
+        ),
+        pytest.param(
+            "Nested",
+            (
+                "(defrecord Inner (value String))",
+                "(defrecord Nested (inner Inner))",
+            ),
+            "output_bundle",
+            [
+                {
+                    "name": "inner__value",
+                    "json_pointer": "/inner/value",
+                    "type": "string",
+                }
+            ],
+            id="nested-record",
+        ),
+        pytest.param(
+            "Outcome",
+            (
+                "(defunion Outcome "
+                "(OK (value String)) "
+                "(RETRY (attempt Int)))",
+            ),
+            "variant_output",
+            None,
+            id="union",
+        ),
+    ),
+)
+def test_public_wcc_route_derives_every_transportable_member_and_settlement_contract(
+    tmp_path: Path,
+    result_type: str,
+    definitions: tuple[str, ...],
+    expected_kind: str,
+    expected_fields: list[dict[str, object]] | None,
+) -> None:
+    result = _compile_task12b_live_provider(
+        tmp_path,
+        source_name=f"transport_{result_type.replace('[', '_').replace(']', '').replace(',', '_')}.orc",
+        definitions=definitions,
+        result_type=result_type,
+    )
+    config = _task12b_supervision_config(result)
+
+    worker_kind, worker_payload, worker_descriptor = (
+        derive_result_bundle_contract(
+            config.worker.result_contract,
+            path="worker-result.json",
+        )
+    )
+    settlement_kind, settlement_payload, settlement_descriptor = (
+        derive_result_bundle_contract(
+            config.settlement_result_contract,
+            path="settlement-result.json",
+        )
+    )
+
+    assert worker_kind == settlement_kind == expected_kind
+    assert worker_descriptor == settlement_descriptor
+    expected_identity = derive_result_contract_identity(
+        worker_descriptor
+    )
+    assert (
+        config.worker.result_contract.name,
+        config.worker.result_contract.kind,
+        config.worker.result_contract.value_type,
+    ) == expected_identity
+    assert (
+        config.settlement_result_contract.name,
+        config.settlement_result_contract.kind,
+        config.settlement_result_contract.value_type,
+    ) == expected_identity
+    if expected_fields is not None:
+        assert worker_payload["fields"] == expected_fields
+        assert settlement_payload["fields"] == expected_fields
+    else:
+        assert worker_payload["discriminant"] == {
+            "name": "variant",
+            "json_pointer": "/variant",
+            "type": "enum",
+            "allowed": ["OK", "RETRY"],
+        }
+        assert settlement_payload["discriminant"] == (
+            worker_payload["discriminant"]
+        )
+        assert worker_payload["variants"] == {
+            "OK": {
+                "fields": [
+                    {
+                        "name": "value",
+                        "json_pointer": "/value",
+                        "type": "string",
+                    }
+                ]
+            },
+            "RETRY": {
+                "fields": [
+                    {
+                        "name": "attempt",
+                        "json_pointer": "/attempt",
+                        "type": "integer",
+                    }
+                ]
+            },
+        }
+        assert settlement_payload["variants"] == worker_payload["variants"]
+    assert set(config.settlement_payload["bindings"]) == {
+        "worker",
+        "supervisor",
+    }
+
+
+@pytest.mark.parametrize(
+    ("result_type", "definition", "expected_kind"),
+    [
+        (
+            "String",
+            "(defrecord String (value Bool))",
+            "record",
+        ),
+        (
+            "Bool",
+            "(defunion Bool (YES) (NO))",
+            "union",
+        ),
+        (
+            "Float",
+            "(defenum Float LOW HIGH)",
+            "scalar",
+        ),
+    ],
+)
+def test_public_wcc_route_preserves_nominal_identity_for_prelude_spelling(
+    tmp_path: Path,
+    result_type: str,
+    definition: str,
+    expected_kind: str,
+) -> None:
+    result = _compile_task12b_live_provider(
+        tmp_path,
+        source_name=f"nominal_{result_type}.orc",
+        definitions=(definition,),
+        result_type=result_type,
+    )
+    config = _task12b_supervision_config(result)
+
+    for contract in (
+        config.worker.result_contract,
+        config.settlement_result_contract,
+    ):
+        assert contract.name == result_type
+        assert contract.kind == expected_kind
+        assert contract.value_type == result_type
+
+
+def test_public_wcc_route_preserves_authored_union_shared_field_order(
+    tmp_path: Path,
+) -> None:
+    result = _compile_task12b_live_provider(
+        tmp_path,
+        source_name="shared_union_field_order.orc",
+        definitions=(
+            "(defunion Shared "
+            "(OK (z String) (a Int) (ok Bool)) "
+            "(BAD (z String) (a Int) (bad Bool)))",
+        ),
+        result_type="Shared",
+    )
+    config = _task12b_supervision_config(result)
+
+    for contract in (
+        config.worker.result_contract,
+        config.settlement_result_contract,
+    ):
+        kind, payload, _descriptor = derive_result_bundle_contract(
+            contract,
+            path="result.json",
+        )
+        assert kind == "variant_output"
+        assert [field["name"] for field in payload["shared_fields"]] == [
+            "z",
+            "a",
+        ]
+        assert payload["variants"] == {
+            "OK": {
+                "fields": [
+                    {
+                        "name": "ok",
+                        "json_pointer": "/ok",
+                        "type": "bool",
+                    }
+                ]
+            },
+            "BAD": {
+                "fields": [
+                    {
+                        "name": "bad",
+                        "json_pointer": "/bad",
+                        "type": "bool",
+                    }
+                ]
+            },
+        }
+
+
+def test_public_wcc_route_inlines_outer_literal_capture_into_settlement_payload(
+    tmp_path: Path,
+) -> None:
+    source = _module_source(
+        "2.16",
+        (
+            "(defworkflow orchestrate () -> String "
+            '(let* ((prefix "captured")) '
+            "(with-live-providers "
+            "((worker "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            ":timeout-sec 30 :returns String)) "
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            '(string/concat prefix ":" worker))))'
+        ),
+    )
+    source_path = tmp_path / "outer_literal_settlement.orc"
+    _write_module(source_path, source)
+    for prompt_path in ("prompts/worker.md", "prompts/supervisor.md"):
+        target = tmp_path / prompt_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("prompt\n", encoding="utf-8")
+    result = compile_stage3_module(
+        source_path,
+        entry_workflow="orchestrate",
+        provider_externs={
+            "providers.worker": "worker-provider",
+            "providers.supervisor": "supervisor-provider",
+        },
+        prompt_externs={
+            "prompts.worker": "prompts/worker.md",
+            "prompts.supervisor": "prompts/supervisor.md",
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    config = _task12b_supervision_config(result)
+
+    assert set(config.settlement_payload["bindings"]) == {
+        "worker",
+        "supervisor",
+    }
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "work",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == "captured:work"
+
+
+def test_public_wcc_route_rejects_dynamic_workflow_input_settlement_capture_at_authored_span(
+    tmp_path: Path,
+) -> None:
+    source = _module_source(
+        "2.16",
+        (
+            "(defworkflow orchestrate ((prefix String)) -> String "
+            "(with-live-providers "
+            "((worker "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            ":timeout-sec 30 :returns String)) "
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "(string/concat prefix worker)))"
+        ),
+    )
+    path = _write_module(
+        tmp_path / "dynamic_settlement_capture.orc",
+        source,
+    )
+    for prompt_path in ("prompts/worker.md", "prompts/supervisor.md"):
+        target = tmp_path / prompt_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("prompt\n", encoding="utf-8")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            entry_workflow="orchestrate",
+            provider_externs={
+                "providers.worker": "worker-provider",
+                "providers.supervisor": "supervisor-provider",
+            },
+            prompt_externs={
+                "prompts.worker": "prompts/worker.md",
+                "prompts.supervisor": "prompts/supervisor.md",
+            },
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    assert [diagnostic.code for diagnostic in excinfo.value.diagnostics] == [
+        "provider_supervision_settlement_dynamic_capture_unsupported"
+    ]
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.span.start.path == str(path)
+    assert source[
+        diagnostic.span.start.offset : diagnostic.span.end.offset
+    ] == "(string/concat prefix worker)"
+
+
+def test_public_wcc_route_composes_nested_projected_alias_in_member_inputs_and_result(
+    tmp_path: Path,
+) -> None:
+    result = _compile_task12b_live_provider(
+        tmp_path,
+        source_name="nested_projected_alias.orc",
+        definitions=(
+            "(defrecord Inner (value String))",
+            "(defrecord Nested (inner Inner))",
+        ),
+        workflow_params="((raw Nested))",
+        result_type="String",
+        worker_body=(
+            "(let* ((inner raw.inner) "
+            "(provider-value "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs (inner.value) "
+            ":timeout-sec 30 :returns Nested)) "
+            "(projected provider-value.inner)) "
+            "projected.value)"
+        ),
+    )
+    config = _task12b_supervision_config(result)
+
+    assert config.worker.result_contract.kind == "record"
+    assert config.worker.result_contract.name == "Nested"
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": {"inner": {"value": "projected"}},
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == "projected"
+
+
+@pytest.mark.parametrize("mutation", ("extra-step", "unknown-field"))
+def test_public_wcc_route_remaps_invalid_member_translation_to_authored_diagnostic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    original = (
+        wcc_defunctionalize_module._lower_provider_result_operation
+    )
+
+    def invalid_member_translation(*args, **kwargs):
+        steps, terminal = original(*args, **kwargs)
+        provider_result = args[0]
+        if provider_result.provider_name != "providers.worker":
+            return steps, terminal
+        if mutation == "extra-step":
+            return [{"name": "unexpected", "id": "unexpected"}, *steps], terminal
+        return [{**steps[0], "unexpected_field": True}], terminal
+
+    monkeypatch.setattr(
+        wcc_defunctionalize_module,
+        "_lower_provider_result_operation",
+        invalid_member_translation,
+    )
+    source_name = f"invalid_member_translation_{mutation}.orc"
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_task12b_live_provider(
+            tmp_path,
+            source_name=source_name,
+            result_type="String",
+        )
+
+    assert [diagnostic.code for diagnostic in excinfo.value.diagnostics] == [
+        "provider_supervision_member_translation_invalid"
+    ]
+    diagnostic = excinfo.value.diagnostics[0]
+    source = (tmp_path / source_name).read_text(encoding="utf-8")
+    assert source[
+        diagnostic.span.start.offset : diagnostic.span.end.offset
+    ].startswith("(provider-result providers.worker ")
+
+
+def test_public_wcc_route_remaps_member_contract_projection_collision(
+    tmp_path: Path,
+) -> None:
+    source_name = "member_contract_projection_collision.orc"
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_task12b_live_provider(
+            tmp_path,
+            source_name=source_name,
+            definitions=(
+                "(defrecord Inner (b String))",
+                "(defrecord Collision "
+                "(a__b String) "
+                "(a Inner))",
+            ),
+            result_type="String",
+            worker_body=(
+                "(let* ((raw "
+                "(provider-result providers.worker "
+                ":prompt prompts.worker :inputs () "
+                ":timeout-sec 30 :returns Collision))) "
+                "raw.a__b)"
+            ),
+        )
+
+    assert [diagnostic.code for diagnostic in excinfo.value.diagnostics] == [
+        "provider_supervision_member_translation_invalid"
+    ]
+    diagnostic = excinfo.value.diagnostics[0]
+    source = (tmp_path / source_name).read_text(encoding="utf-8")
+    owned_source = source[
+        diagnostic.span.start.offset : diagnostic.span.end.offset
+    ]
+    assert owned_source.startswith("(let* ")
+    assert "(provider-result providers.worker " in owned_source
+
+
+def test_public_wcc_route_projects_live_provider_group_as_one_executable_node(
+    tmp_path: Path,
+) -> None:
+    source = _module_source(
+        "2.16",
+        (
+            "(defworkflow orchestrate () -> String "
+            "(with-live-providers "
+            "((worker "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            ":timeout-sec 30 :returns String)) "
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+    path = _write_module(tmp_path / "live_provider_public_route.orc", source)
+    for prompt_path in ("prompts/worker.md", "prompts/supervisor.md"):
+        target = tmp_path / prompt_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("prompt\n", encoding="utf-8")
+
+    result = compile_stage3_module(
+        path,
+        entry_workflow="orchestrate",
+        provider_externs={
+            "providers.worker": "worker-provider",
+            "providers.supervisor": "supervisor-provider",
+        },
+        prompt_externs={
+            "prompts.worker": "prompts/worker.md",
+            "prompts.supervisor": "prompts/supervisor.md",
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    bundle = result.validated_bundles["orchestrate"]
+    assert result.lowering_schema_version == 2
+    assert len(bundle.surface.steps) == 1
+    assert len(bundle.core_workflow_ast.body) == 1
+    assert isinstance(
+        bundle.core_workflow_ast.body[0],
+        CoreProviderSupervisionStep,
+    )
+    assert len(bundle.ir.nodes) == 1
+    assert bundle.ir.schema_version == WORKFLOW_EXECUTABLE_IR_SCHEMA_VERSION
+    node = next(iter(bundle.ir.nodes.values()))
+    assert node.kind is ExecutableNodeKind.PROVIDER_SUPERVISION
+    assert isinstance(node.execution_config, ProviderSupervisionStepConfig)
+    config = node.execution_config
+    assert config.node_id == node.node_id == "root.orchestrate__result"
+    assert config.worker.member_id == "worker"
+    assert config.worker.provider_config.provider == "worker-provider"
+    assert config.worker.timeout_sec == 30
+    assert config.supervisor.member_id == "supervisor"
+    assert config.supervisor.provider_config.provider == "supervisor-provider"
+    assert config.supervisor.timeout_sec == 20
+    for member in (config.worker, config.supervisor):
+        contract_prototypes = [
+            contract
+            for contract in (
+                member.provider_config.common.output_bundle,
+                member.provider_config.common.variant_output,
+            )
+            if contract is not None
+        ]
+        assert len(contract_prototypes) == 1
+        assert "path" not in contract_prototypes[0]
+        prompt_contract = (
+            member.provider_config.compiler_prompt_dependency_contract
+        )
+        assert prompt_contract is not None
+        assert (
+            prompt_contract.origin_kind
+            is PromptDependencyOriginKind
+            .WORKFLOW_LISP_PROVIDER_SUPERVISION_MEMBER_IMPLICIT_EMPTY
+        )
+        assert prompt_contract.required_binding_refs == ()
+        assert prompt_contract.optional_binding_refs == ()
+        assert (
+            validate_compiler_prompt_dependency_contract(prompt_contract)
+            is prompt_contract
+        )
+        assert member.provider_config.depends_on == {
+            "required": (),
+            "optional": (),
+            "inject": {
+                "mode": "content",
+                "position": "prepend",
+            },
+        }
+    assert config.common.timeout_sec == 60
+    assert config.max_steers == 1
+    assert config.observation.observer_member_id == "supervisor"
+    assert config.observation.observed_member_id == "worker"
+    assert config.paths == derive_provider_supervision_paths(
+        node_id=node.node_id,
+        worker_member_id="worker",
+        supervisor_member_id="supervisor",
+    )
+    source_owners = (
+        config.source_ownership.form,
+        config.source_ownership.worker_binding,
+        config.source_ownership.supervisor_binding,
+        config.source_ownership.observation,
+        config.source_ownership.settlement,
+    )
+    assert len(set(source_owners)) == 5
+    assert all(
+        owner.startswith("wcc-node:wcc_m4:")
+        for owner in source_owners
+    )
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "orchestrate"
+    )
+    supervision_origins = (
+        lowered.origin_map.provider_supervision_origins
+    )
+    prompt_origin_keys = (
+        config.worker.provider_config
+        .compiler_prompt_dependency_contract.source_origin_key,
+        config.supervisor.provider_config
+        .compiler_prompt_dependency_contract.source_origin_key,
+    )
+    assert set((*source_owners, *prompt_origin_keys)) <= set(
+        supervision_origins
+    )
+    source_text = path.read_text(encoding="utf-8")
+
+    def owned_source(owner: str) -> str:
+        span = supervision_origins[owner].span
+        return source_text[span.start.offset : span.end.offset]
+
+    assert owned_source(config.source_ownership.form).startswith(
+        "(with-live-providers "
+    )
+    assert owned_source(
+        config.source_ownership.worker_binding
+    ).startswith("(worker ")
+    assert owned_source(
+        config.source_ownership.supervisor_binding
+    ).startswith("(supervisor ")
+    assert (
+        owned_source(config.source_ownership.observation)
+        == ":observes worker"
+    )
+    assert owned_source(config.source_ownership.settlement) == "worker"
+    assert owned_source(prompt_origin_keys[0]).startswith(
+        "(provider-result providers.worker "
+    )
+    assert owned_source(prompt_origin_keys[1]).startswith(
+        "(provider-result providers.supervisor "
+    )
+    assert config.settlement_payload["expr"] == {
+        "kind": "binding",
+        "name": "worker",
+    }
+
+
+def test_public_wcc_route_preserves_member_result_guidance_in_pathless_prototypes(
+    tmp_path: Path,
+) -> None:
+    source = _module_source(
+        "2.16",
+        (
+            "(defrecord WorkerResult "
+            '(answer String :description "Completed answer." '
+            ':format-hint "Plain text." :example "ready"))'
+        ),
+        (
+            "(defworkflow orchestrate () -> WorkerResult "
+            "(with-live-providers "
+            "((worker "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            ":timeout-sec 30 :returns WorkerResult)) "
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+    path = _write_module(
+        tmp_path / "live_provider_guided_prototypes.orc",
+        source,
+    )
+    for prompt_path in ("prompts/worker.md", "prompts/supervisor.md"):
+        target = tmp_path / prompt_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("prompt\n", encoding="utf-8")
+
+    result = compile_stage3_module(
+        path,
+        entry_workflow="orchestrate",
+        provider_externs={
+            "providers.worker": "worker-provider",
+            "providers.supervisor": "supervisor-provider",
+        },
+        prompt_externs={
+            "prompts.worker": "prompts/worker.md",
+            "prompts.supervisor": "prompts/supervisor.md",
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    node = next(
+        iter(result.validated_bundles["orchestrate"].ir.nodes.values())
+    )
+    assert isinstance(node.execution_config, ProviderSupervisionStepConfig)
+    worker_prototype = (
+        node.execution_config.worker.provider_config.common.output_bundle
+    )
+    assert worker_prototype is not None
+    assert "path" not in worker_prototype
+    worker_field = worker_prototype["fields"][0]
+    assert worker_field["description"] == "Completed answer."
+    assert worker_field["format_hint"] == "Plain text."
+    assert worker_field["example"] == "ready"
+
+    supervisor_prototype = (
+        node.execution_config.supervisor.provider_config.common.variant_output
+    )
+    assert supervisor_prototype is not None
+    assert "path" not in supervisor_prototype
+    guidance_field = (
+        supervisor_prototype["variants"]["STEER"]["fields"][0]
+    )
+    assert guidance_field["description"]
+    assert guidance_field["source_map_subject"]["subject_kind"] == (
+        "variant_output_field"
+    )
+    assert guidance_field["source_map_subject"]["workflow_name"] == (
+        "orchestrate"
+    )
+
+
+def test_public_wcc_route_composes_worker_projection_into_record_settlement(
+    tmp_path: Path,
+) -> None:
+    source = _module_source(
+        "2.16",
+        "(defrecord RawWorker (value String))",
+        "(defrecord SupervisedResult (work String))",
+        (
+            "(defworkflow orchestrate () -> SupervisedResult "
+            "(with-live-providers "
+            "((worker "
+            "(let* ((raw "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            ":timeout-sec 30 :returns RawWorker))) "
+            "raw.value)) "
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "(record SupervisedResult :work worker)))"
+        ),
+    )
+    path = _write_module(
+        tmp_path / "live_provider_projected_record.orc",
+        source,
+    )
+    for prompt_path in ("prompts/worker.md", "prompts/supervisor.md"):
+        target = tmp_path / prompt_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("prompt\n", encoding="utf-8")
+
+    result = compile_stage3_module(
+        path,
+        entry_workflow="orchestrate",
+        provider_externs={
+            "providers.worker": "worker-provider",
+            "providers.supervisor": "supervisor-provider",
+        },
+        prompt_externs={
+            "prompts.worker": "prompts/worker.md",
+            "prompts.supervisor": "prompts/supervisor.md",
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    bundle = result.validated_bundles["orchestrate"]
+    assert len(bundle.ir.nodes) == 1
+    node = next(iter(bundle.ir.nodes.values()))
+    assert isinstance(node.execution_config, ProviderSupervisionStepConfig)
+    config = node.execution_config
+    assert config.worker.result_contract.kind == "record"
+    assert config.worker.result_contract.name == "RawWorker"
+    assert config.settlement_result_contract.kind == "record"
+    assert config.settlement_result_contract.name == "SupervisedResult"
+    assert set(config.settlement_payload["bindings"]) == {
+        "worker",
+        "supervisor",
+    }
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": {"value": "projected"},
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == {"work": "projected"}
+    assert (
+        bundle.surface.outputs["return__work"].from_ref.member
+        == "work"
+    )
+
+
+def test_public_wcc_route_retains_member_contract_and_prompt_source_lineage(
+    tmp_path: Path,
+) -> None:
+    source = _module_source(
+        "2.16",
+        (
+            "(defpath RequiredContext :kind relpath :under \".\" "
+            ":must-exist false)"
+        ),
+        (
+            "(defworkflow orchestrate ((required_path RequiredContext)) "
+            "-> String "
+            "(with-live-providers "
+            "((worker "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            ":prompt-dependencies "
+            '(:required (required_path) :position append '
+            ':instruction "Inspect the required context.") '
+            ":timeout-sec 30 :returns String)) "
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+    path = _write_module(
+        tmp_path / "live_provider_member_lineage.orc",
+        source,
+    )
+    for prompt_path in ("prompts/worker.md", "prompts/supervisor.md"):
+        target = tmp_path / prompt_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("prompt\n", encoding="utf-8")
+
+    result = compile_stage3_module(
+        path,
+        entry_workflow="orchestrate",
+        provider_externs={
+            "providers.worker": "worker-provider",
+            "providers.supervisor": "supervisor-provider",
+        },
+        prompt_externs={
+            "prompts.worker": "prompts/worker.md",
+            "prompts.supervisor": "prompts/supervisor.md",
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    bundle = result.validated_bundles["orchestrate"]
+    node = next(iter(bundle.ir.nodes.values()))
+    assert isinstance(node.execution_config, ProviderSupervisionStepConfig)
+    worker = node.execution_config.worker
+    prompt_contract = (
+        worker.provider_config.compiler_prompt_dependency_contract
+    )
+    assert prompt_contract is not None
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "orchestrate"
+    )
+    assert lowered.compiler_prompt_dependency_contracts == {}
+    assert lowered.origin_map.prompt_dependency_lineages == ()
+    lineage = next(
+        lineage
+        for lineage in (
+            lowered.origin_map
+            .provider_supervision_prompt_dependency_lineages
+        )
+        if lineage.source_origin_key == prompt_contract.source_origin_key
+    )
+    assert [(row.role, row.binding_ref) for row in lineage.rows] == [
+        ("required", "inputs.required_path")
+    ]
+    assert lineage.position.value == "append"
+    assert lineage.instruction is not None
+    assert lineage.instruction.value == "Inspect the required context."
+    source_text = path.read_text(encoding="utf-8")
+
+    def source_for(origin) -> str:
+        return source_text[
+            origin.span.start.offset : origin.span.end.offset
+        ]
+
+    assert source_for(lineage.clause_origin).startswith(
+        "(:required (required_path)"
+    )
+    assert source_for(lineage.rows[0].origin) == "required_path"
+    assert source_for(lineage.position.origin).startswith(
+        "(:required (required_path)"
+    )
+    assert source_for(lineage.instruction.origin).startswith(
+        "(:required (required_path)"
+    )
+
+    output_bundle = worker.provider_config.common.output_bundle
+    assert output_bundle is not None
+    retained_bindings = {
+        binding.subject_ref.subject_name: binding
+        for binding in lowered.origin_map.validation_subject_bindings
+        if binding.subject_ref.subject_kind == "output_bundle_field"
+    }
+    worker_field_name = (
+        "orchestrate__result__worker::root-result::__result__"
+    )
+    assert worker_field_name in retained_bindings, sorted(
+        retained_bindings
+    )
+    worker_field = retained_bindings[worker_field_name]
+    assert worker_field.subject_ref.workflow_name == "orchestrate"
+    assert source_for(worker_field.origin).startswith(
+        "(provider-result providers.worker "
+    )
+
+
+@pytest.mark.parametrize(
+    ("worker_timeout", "expected_code"),
+    (
+        ("", "provider_supervision_member_timeout_required"),
+        (":timeout-sec 0", "provider_result_timeout_nonpositive"),
+        (":timeout-sec -1", "provider_result_timeout_nonpositive"),
+        (
+            ":timeout-sec delay",
+            "provider_result_timeout_literal_required",
+        ),
+    ),
+)
+def test_public_wcc_route_requires_explicit_positive_member_timeout(
+    tmp_path: Path,
+    worker_timeout: str,
+    expected_code: str,
+) -> None:
+    source = _module_source(
+        "2.16",
+        (
+            "(defworkflow orchestrate ((delay Int)) -> String "
+            "(with-live-providers "
+            "((worker "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            f"{worker_timeout} :returns String)) "
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+    path = _write_module(tmp_path / "invalid_live_timeout.orc", source)
+    for prompt_path in ("prompts/worker.md", "prompts/supervisor.md"):
+        target = tmp_path / prompt_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("prompt\n", encoding="utf-8")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            entry_workflow="orchestrate",
+            provider_externs={
+                "providers.worker": "worker-provider",
+                "providers.supervisor": "supervisor-provider",
+            },
+            prompt_externs={
+                "prompts.worker": "prompts/worker.md",
+                "prompts.supervisor": "prompts/supervisor.md",
+            },
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == expected_code
 
 
 def _elaborate_live_provider_group(

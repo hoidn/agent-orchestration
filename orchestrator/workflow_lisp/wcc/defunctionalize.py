@@ -72,7 +72,13 @@ from ..lowering.origins import GeneratedSemanticEffectBinding, LoweringOrigin, L
 from ..lowering.generated_paths import allocate_generated_result_bundle, allocate_materialized_value_view, allocation_reason
 from ..lowering.phase_scope import _resolve_active_phase_scope_parts
 from ..lowering.materialize_view import lower_materialize_view_step
-from ..lowering.pure_projection import is_pure_projection_expr, lower_pure_projection_step, try_evaluate_static_pure_expr
+from ..lowering.pure_projection import (
+    _type_descriptor,
+    build_pure_projection_payload,
+    is_pure_projection_expr,
+    lower_pure_projection_step,
+    try_evaluate_static_pure_expr,
+)
 from ..lowering.values import ProjectedPathRef, attach_provider_bundle_identity, _flatten_inline_output_refs, _procedure_signature_local_type_bindings, _resolve_inline_expr_value, _signature_local_values
 from ..lowering.effects import LowerableCommandResult, LowerableProviderResult, _lower_command_result_operation, _lower_provider_result_operation
 from ..lowering.phase_flow import (
@@ -128,6 +134,8 @@ from .model import (
     WccPhaseScope,
     WccPhaseTargetAtom,
     WccPureOp,
+    WccProviderSupervision,
+    WccProviderSupervisionMember,
     WccProduceOneOfPayload,
     WccRecJoin,
     WccRecordAtom,
@@ -136,6 +144,31 @@ from .model import (
     WccValue,
 )
 from .analysis import WccScopeAnalysis, analyze_wcc_body
+from orchestrator.workflow.executable_ir import (
+    PROVIDER_SUPERVISION_SCHEMA_VERSION,
+    ExecutableContract,
+    ProviderStepConfig,
+    ProviderSupervisionMemberConfig,
+    ProviderSupervisionStepConfig,
+    StepCommonConfig,
+)
+from orchestrator.workflow.provider_supervision.models import (
+    ProviderSupervisionObservation,
+    ProviderSupervisionSourceOwnership,
+)
+from orchestrator.workflow.provider_supervision.contracts import (
+    derive_result_contract_identity,
+)
+from orchestrator.workflow.provider_supervision.paths import (
+    derive_provider_supervision_paths,
+)
+from orchestrator.workflow.prompt_dependency_contract import (
+    PromptDependencyOriginKind,
+    PromptDependencyPosition,
+    _build_compiler_prompt_dependency_contract,
+)
+from orchestrator.workflow.pure_expr import validate_pure_expr_payload
+from orchestrator.workflow.surface_ast import freeze_value
 from ..lowering.control_match import (
     _binding_terminal_for_inline_match,
     _build_match_projection_anchor_step,
@@ -625,6 +658,8 @@ def _lower_one_wcc_workflow(
             type_env=type_env,
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
+            resolved_procedures_by_name=typed_procedures,
+            procedure_type_envs=procedure_type_envs,
             route_schema_version=route_schema_version,
         )
     )
@@ -850,6 +885,12 @@ def _lower_one_wcc_workflow(
         ),
         generated_semantic_effects=generated_semantic_effects,
         prompt_dependency_lineages=tuple(context.prompt_dependency_lineages),
+        provider_supervision_origins=MappingProxyType(
+            dict(context.provider_supervision_origins)
+        ),
+        provider_supervision_prompt_dependency_lineages=tuple(
+            context.provider_supervision_prompt_dependency_lineages
+        ),
     )
     emitted_step_ids = {
         step_id
@@ -1794,7 +1835,35 @@ def _defunctionalize_body(
         updated_locals = dict(local_values)
         binding_steps: list[dict[str, Any]] = []
         binding_hidden_inputs: dict[str, Any] = {}
-        if isinstance(body.bound_value, (WccPerform, WccCall)):
+        if isinstance(body.bound_value, WccProviderSupervision):
+            binding_context = _context_with_wcc_phase_scope(
+                context,
+                phase_scope=body.bound_value.metadata.phase_scope,
+                local_values=updated_locals,
+            )
+            step_context = lowering_core._copy_context_with_step_prefix(
+                binding_context,
+                step_name_prefix=_binding_step_prefix(
+                    context,
+                    body.bound_name,
+                ),
+            )
+            binding_steps, binding_terminal = (
+                _lower_provider_supervision_binding(
+                    body.bound_value,
+                    binding_type=binding_type,
+                    context=step_context,
+                    local_values=updated_locals,
+                )
+            )
+            local_value = _binding_local_value_from_terminal(
+                body.bound_value,
+                binding_type=binding_type,
+                binding_terminal=binding_terminal,
+            )
+            if local_value is not None:
+                updated_locals[body.bound_name] = local_value
+        elif isinstance(body.bound_value, (WccPerform, WccCall)):
             binding_context = _context_with_wcc_phase_scope(
                 context,
                 phase_scope=body.bound_value.metadata.phase_scope,
@@ -3091,6 +3160,849 @@ def _match_binding_name(subject_expr: Any) -> str:
     return "binding"
 
 
+def _raise_provider_supervision_lowering_error(
+    owner: WccProviderSupervision | WccProviderSupervisionMember,
+    *,
+    code: str,
+    message: str,
+) -> None:
+    metadata = owner.metadata
+    raise LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code=code,
+                message=message,
+                span=metadata.source_span,
+                form_path=metadata.form_path,
+                expansion_stack=metadata.expansion_stack,
+                phase="lowering",
+            ),
+        )
+    )
+
+
+def _isolated_provider_supervision_member_context(
+    context: _LoweringContext,
+    *,
+    step_name_prefix: str,
+) -> _LoweringContext:
+    """Return a side-effect-isolated context for one non-emitted member."""
+
+    return replace(
+        context,
+        step_name_prefix=step_name_prefix,
+        step_spans={},
+        generated_input_spans={},
+        authored_generated_inputs=set(),
+        internal_generated_input_reasons={},
+        internal_generated_input_contracts={},
+        private_exec_context_bindings=[],
+        generated_output_spans={},
+        generated_path_spans={},
+        generated_path_allocations=[],
+        generated_semantic_effects=[],
+        compiler_prompt_dependency_contracts={},
+        prompt_dependency_lineages=[],
+        output_projection_metadata={},
+        top_level_artifacts={},
+        inline_call_counters=dict(context.inline_call_counters),
+        generated_contract_field_bindings=(
+            context.generated_contract_field_bindings
+        ),
+        provider_supervision_origins={},
+        provider_supervision_prompt_dependency_lineages=[],
+    )
+
+
+def _provider_supervision_origin(
+    metadata: object,
+    *,
+    owner_key: str,
+) -> LoweringOrigin:
+    return LoweringOrigin(
+        span=metadata.source_span,
+        form_path=metadata.form_path,
+        origin_key=owner_key,
+        expansion_stack=metadata.expansion_stack,
+    )
+
+
+def _record_provider_supervision_origin(
+    context: _LoweringContext,
+    *,
+    owner_key: str,
+    metadata: object | None = None,
+    origin: LoweringOrigin | None = None,
+) -> None:
+    if (metadata is None) == (origin is None):
+        raise TypeError(
+            "provider supervision origin requires exactly one source owner"
+        )
+    resolved = (
+        _provider_supervision_origin(metadata, owner_key=owner_key)
+        if metadata is not None
+        else replace(origin, origin_key=owner_key)
+    )
+    existing = context.provider_supervision_origins.get(owner_key)
+    if existing is not None and existing != resolved:
+        raise TypeError(
+            f"provider supervision source owner collision: {owner_key}"
+        )
+    context.provider_supervision_origins[owner_key] = resolved
+
+
+def _provider_supervision_member_projection(
+    member: WccProviderSupervisionMember,
+) -> tuple[WccPerform, Mapping[str, object], object]:
+    """Extract one provider perform and its pure projected member value."""
+
+    env: dict[str, object] = {}
+    provider_perform: WccPerform | None = None
+    provider_env: dict[str, object] | None = None
+    current = member.normalized_body
+    while isinstance(current, WccLet):
+        if isinstance(current.bound_value, WccPerform):
+            if provider_perform is not None:
+                _raise_provider_supervision_lowering_error(
+                    member,
+                    code="provider_supervision_member_ineligible",
+                    message=(
+                        "provider supervision member lowered more than one "
+                        "provider owner"
+                    ),
+                )
+            provider_perform = current.bound_value
+            provider_env = dict(env)
+            env[current.bound_name] = NameExpr(
+                name=member.binding_name,
+                span=current.metadata.source_span,
+                form_path=current.metadata.form_path,
+                expansion_stack=current.metadata.expansion_stack,
+            )
+        else:
+            env[current.bound_name] = _frontend_expr_from_wcc_value_with_env(
+                current.bound_value,
+                env,
+            )
+        current = current.body
+    if (
+        provider_perform is None
+        or provider_env is None
+        or not isinstance(current, WccHalt)
+    ):
+        _raise_provider_supervision_lowering_error(
+            member,
+            code="provider_supervision_member_ineligible",
+            message=(
+                "provider supervision member did not retain one closed "
+                "provider projection"
+            ),
+        )
+    return (
+        provider_perform,
+        provider_env,
+        _frontend_expr_from_wcc_value_with_env(current.result, env),
+    )
+
+
+def _positive_provider_supervision_timeout(
+    member: WccProviderSupervisionMember,
+    perform: WccPerform,
+) -> int:
+    payload = (
+        perform.operation_payload
+        if isinstance(perform.operation_payload, Mapping)
+        else {}
+    )
+    timeout = payload.get("timeout_sec")
+    if (
+        not isinstance(timeout, WccLiteralAtom)
+        or timeout.literal_kind != "int"
+        or isinstance(timeout.value, bool)
+        or not isinstance(timeout.value, int)
+        or timeout.value <= 0
+    ):
+        _raise_provider_supervision_lowering_error(
+            member,
+            code="provider_supervision_member_timeout_required",
+            message=(
+                "provider supervision members require an explicit positive "
+                "integer :timeout-sec"
+            ),
+        )
+    return timeout.value
+
+
+def _frozen_mapping(value: object) -> Mapping[str, Any]:
+    frozen = freeze_value(value if isinstance(value, Mapping) else {})
+    if not isinstance(frozen, Mapping):
+        raise TypeError("expected a frozen mapping")
+    return frozen
+
+
+def _pathless_provider_contract_prototype(
+    step: Mapping[str, Any],
+    field_name: str,
+) -> Any:
+    value = step.get(field_name)
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise TypeError(
+            f"generated provider {field_name} must be a mapping"
+        )
+    if not isinstance(value.get("path"), str) or not value["path"]:
+        raise TypeError(
+            f"generated provider {field_name} must carry one path"
+        )
+    return freeze_value(
+        {
+            key: item
+            for key, item in value.items()
+            if key != "path"
+        }
+    )
+
+
+def _provider_step_config_from_generated_mapping(
+    step: Mapping[str, Any],
+    *,
+    timeout_sec: int,
+    compiler_prompt_dependency_contract: object | None,
+) -> ProviderStepConfig:
+    """Bind one ordinary generated provider mapping into its typed config."""
+
+    allowed_fields = {
+        "name",
+        "id",
+        "provider",
+        "provider_params",
+        "provider_call_policy",
+        "input_file",
+        "asset_file",
+        "depends_on",
+        "asset_depends_on",
+        "inject_output_contract",
+        "inject_consumes",
+        "prompt_consumes",
+        "typed_prompt_inputs",
+        "consumes_injection_position",
+        "consumes",
+        "consume_bundle",
+        "publishes",
+        "expected_outputs",
+        "output_bundle",
+        "variant_output",
+        "pre_snapshot",
+        "requires_variant",
+        "persist_artifacts_in_state",
+        "provider_session",
+        "max_visits",
+        "retries",
+        "env",
+        "secrets",
+        "timeout_sec",
+        "output_capture",
+        "output_file",
+        "allow_parse_error",
+    }
+    unknown = set(step) - allowed_fields
+    if unknown:
+        raise TypeError(
+            "unsupported generated provider fields in supervision member: "
+            + ", ".join(sorted(unknown))
+        )
+    provider = step.get("provider")
+    if not isinstance(provider, str) or not provider:
+        raise TypeError(
+            "provider supervision member requires one generated provider"
+        )
+    prompt_consumes = step.get("prompt_consumes")
+    call_policy = step.get("provider_call_policy")
+    return ProviderStepConfig(
+        common=StepCommonConfig(
+            consumes=tuple(
+                freeze_value(item)
+                for item in (step.get("consumes") or ())
+            ),
+            consume_bundle=freeze_value(step.get("consume_bundle")),
+            publishes=tuple(
+                freeze_value(item)
+                for item in (step.get("publishes") or ())
+            ),
+            expected_outputs=tuple(
+                freeze_value(item)
+                for item in (step.get("expected_outputs") or ())
+            ),
+            output_bundle=_pathless_provider_contract_prototype(
+                step,
+                "output_bundle",
+            ),
+            variant_output=_pathless_provider_contract_prototype(
+                step,
+                "variant_output",
+            ),
+            pre_snapshot=freeze_value(step.get("pre_snapshot")),
+            requires_variant=freeze_value(step.get("requires_variant")),
+            persist_artifacts_in_state=step.get(
+                "persist_artifacts_in_state"
+            ),
+            provider_session=_frozen_mapping(step.get("provider_session"))
+            if isinstance(step.get("provider_session"), Mapping)
+            else None,
+            max_visits=step.get("max_visits"),
+            retries=freeze_value(step.get("retries")),
+            env=_frozen_mapping(step.get("env"))
+            if isinstance(step.get("env"), Mapping)
+            else None,
+            secrets=tuple(str(item) for item in (step.get("secrets") or ())),
+            timeout_sec=timeout_sec,
+            output_capture=freeze_value(step.get("output_capture")),
+            output_file=freeze_value(step.get("output_file")),
+            allow_parse_error=step.get("allow_parse_error"),
+        ),
+        provider=provider,
+        provider_params=freeze_value(step.get("provider_params")),
+        provider_call_policy=(
+            _frozen_mapping(call_policy)
+            if isinstance(call_policy, Mapping)
+            else None
+        ),
+        input_file=freeze_value(step.get("input_file")),
+        asset_file=freeze_value(step.get("asset_file")),
+        depends_on=_frozen_mapping(step.get("depends_on")),
+        asset_depends_on=tuple(
+            freeze_value(item)
+            for item in (step.get("asset_depends_on") or ())
+        ),
+        inject_output_contract=step.get("inject_output_contract"),
+        inject_consumes=step.get("inject_consumes"),
+        prompt_consumes=(
+            tuple(freeze_value(item) for item in prompt_consumes)
+            if isinstance(prompt_consumes, (list, tuple))
+            else None
+        ),
+        typed_prompt_inputs=tuple(
+            freeze_value(item)
+            for item in (step.get("typed_prompt_inputs") or ())
+        ),
+        consumes_injection_position=step.get(
+            "consumes_injection_position"
+        ),
+        compiler_prompt_dependency_contract=(
+            compiler_prompt_dependency_contract
+        ),
+    )
+
+
+def _provider_supervision_contract(
+    *,
+    name: str,
+    type_ref: TypeRef,
+    type_env: object,
+) -> ExecutableContract:
+    descriptor = _type_descriptor(type_ref, type_env=type_env)
+    canonical_name, contract_kind, value_type = (
+        derive_result_contract_identity(descriptor)
+    )
+    if name != type_ref.name:
+        raise ValueError(
+            "provider supervision result contract owner name changed"
+        )
+    return ExecutableContract(
+        name=canonical_name,
+        kind=contract_kind,
+        value_type=value_type,
+        definition=_frozen_mapping({"type": descriptor}),
+    )
+
+
+def _lower_provider_supervision_member(
+    member: WccProviderSupervisionMember,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    group_step_name: str,
+) -> tuple[ProviderSupervisionMemberConfig, object, TypeRef]:
+    perform, provider_env, projection = (
+        _provider_supervision_member_projection(member)
+    )
+    timeout_sec = _positive_provider_supervision_timeout(
+        member,
+        perform,
+    )
+    payload = (
+        perform.operation_payload
+        if isinstance(perform.operation_payload, Mapping)
+        else {}
+    )
+    member_step_name = (
+        f"{group_step_name}__{member.binding_name}"
+    )
+    member_context = _isolated_provider_supervision_member_context(
+        context,
+        step_name_prefix=member_step_name,
+    )
+    member_steps, _terminal = _lower_provider_result_operation(
+        LowerableProviderResult(
+            provider_name=perform.target_name,
+            prompt_name=perform.prompt_name or "",
+            inputs=tuple(
+                _frontend_expr_from_wcc_value_with_env(
+                    argument,
+                    provider_env,
+                )
+                for argument in perform.positional_args
+            ),
+            span=perform.metadata.source_span,
+            form_path=perform.metadata.form_path,
+            expansion_stack=perform.metadata.expansion_stack,
+            guidance=(
+                payload["return_spec"].guidance
+                if payload.get("return_spec") is not None
+                else None
+            ),
+            model=(
+                _frontend_expr_from_wcc_value_with_env(
+                    payload["model"],
+                    provider_env,
+                )
+                if payload.get("model") is not None
+                else None
+            ),
+            effort=(
+                _frontend_expr_from_wcc_value_with_env(
+                    payload["effort"],
+                    provider_env,
+                )
+                if payload.get("effort") is not None
+                else None
+            ),
+            timeout_sec=_frontend_expr_from_wcc_value_with_env(
+                payload["timeout_sec"],
+                provider_env,
+            ),
+            prompt_dependencies=_prompt_dependency_spec_from_wcc_payload(
+                payload.get("prompt_dependencies")
+            ),
+        ),
+        result_type=perform.metadata.type_ref,
+        context=member_context,
+        local_values={**dict(local_values), **dict(provider_env)},
+        step_name=member_step_name,
+    )
+    if (
+        len(member_steps) != 1
+        or not isinstance(member_steps[0], Mapping)
+        or "provider" not in member_steps[0]
+    ):
+        _raise_provider_supervision_lowering_error(
+            member,
+            code="provider_supervision_member_translation_invalid",
+            message=(
+                "provider supervision member translation must produce "
+                "exactly one provider owner and no prelude steps"
+            ),
+        )
+    provider_step = member_steps[0]
+    provider_step_id = provider_step.get("id")
+    prompt_contract = (
+        member_context.compiler_prompt_dependency_contracts.get(
+            provider_step_id
+        )
+        if isinstance(provider_step_id, str)
+        else None
+    )
+    if prompt_contract is None:
+        try:
+            source_workflow_bytes = context.workflow_path.read_bytes()
+        except OSError:
+            _raise_provider_supervision_lowering_error(
+                member,
+                code="provider_supervision_member_source_unreadable",
+                message=(
+                    "provider supervision member source bytes could not "
+                    "be read for its prompt-dependency contract"
+                ),
+            )
+        prompt_origin_key = (
+            f"{context.workflow_name}::"
+            "provider_supervision_member_prompt_dependencies::"
+            f"{provider_step_id}"
+        )
+        prompt_contract = _build_compiler_prompt_dependency_contract(
+            required_binding_refs=(),
+            optional_binding_refs=(),
+            position=PromptDependencyPosition.PREPEND,
+            instruction=None,
+            source_origin_key=prompt_origin_key,
+            source_workflow_bytes=source_workflow_bytes,
+            origin_kind=(
+                PromptDependencyOriginKind
+                .WORKFLOW_LISP_PROVIDER_SUPERVISION_MEMBER_IMPLICIT_EMPTY
+            ),
+        )
+        provider_step = {
+            **provider_step,
+            "depends_on": {
+                "required": [],
+                "optional": [],
+                "inject": {
+                    "mode": "content",
+                    "position": "prepend",
+                },
+            },
+        }
+        _record_provider_supervision_origin(
+            context,
+            owner_key=prompt_origin_key,
+            metadata=perform.metadata,
+        )
+    else:
+        lineage = next(
+            (
+                candidate
+                for candidate in member_context.prompt_dependency_lineages
+                if candidate.step_id == provider_step_id
+                and candidate.source_origin_key
+                == prompt_contract.source_origin_key
+            ),
+            None,
+        )
+        if lineage is None:
+            _raise_provider_supervision_lowering_error(
+                member,
+                code="provider_supervision_member_prompt_lineage_missing",
+                message=(
+                    "provider supervision member prompt-dependency "
+                    "contract has no exact source lineage"
+                ),
+            )
+        _record_provider_supervision_origin(
+            context,
+            owner_key=prompt_contract.source_origin_key,
+            origin=lineage.clause_origin,
+        )
+        lineage_identity = (
+            lineage.step_id,
+            lineage.source_origin_key,
+        )
+        existing_lineage = next(
+            (
+                candidate
+                for candidate in (
+                    context
+                    .provider_supervision_prompt_dependency_lineages
+                )
+                if (
+                    candidate.step_id,
+                    candidate.source_origin_key,
+                )
+                == lineage_identity
+            ),
+            None,
+        )
+        if existing_lineage is not None and existing_lineage != lineage:
+            _raise_provider_supervision_lowering_error(
+                member,
+                code=(
+                    "provider_supervision_member_prompt_lineage_duplicate"
+                ),
+                message=(
+                    "provider supervision member prompt-dependency "
+                    "lineage conflicts with an existing nested member"
+                ),
+            )
+        if existing_lineage is None:
+            context.provider_supervision_prompt_dependency_lineages.append(
+                lineage
+            )
+    try:
+        provider_config = _provider_step_config_from_generated_mapping(
+            provider_step,
+            timeout_sec=timeout_sec,
+            compiler_prompt_dependency_contract=prompt_contract,
+        )
+        result_contract = _provider_supervision_contract(
+            name=perform.metadata.type_ref.name,
+            type_ref=perform.metadata.type_ref,
+            type_env=context.type_env,
+        )
+    except (TypeError, ValueError) as exc:
+        _raise_provider_supervision_lowering_error(
+            member,
+            code="provider_supervision_member_translation_invalid",
+            message=(
+                "provider supervision member translation did not produce "
+                "one closed typed provider config"
+            ),
+        )
+        raise AssertionError("unreachable") from exc
+    return (
+        ProviderSupervisionMemberConfig(
+            member_id=member.binding_name,
+            provider_config=provider_config,
+            result_contract=result_contract,
+            timeout_sec=timeout_sec,
+        ),
+        projection,
+        perform.metadata.type_ref,
+    )
+
+
+def _pure_wcc_body_expr(
+    body: WccBody,
+    *,
+    env: Mapping[str, object],
+) -> object:
+    resolved = dict(env)
+    current = body
+    while isinstance(current, WccLet):
+        resolved[current.bound_name] = (
+            _frontend_expr_from_wcc_value_with_env(
+                current.bound_value,
+                resolved,
+            )
+        )
+        current = current.body
+    if not isinstance(current, WccHalt):
+        raise TypeError(
+            "provider supervision settlement must be a pure linear WCC body"
+        )
+    return _frontend_expr_from_wcc_value_with_env(
+        current.result,
+        resolved,
+    )
+
+
+def _lower_provider_supervision_binding(
+    group: WccProviderSupervision,
+    *,
+    binding_type: TypeRef,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    group_step_name = (
+        f"{context.workflow_name}__result"
+        if context.step_name_prefix == context.workflow_name
+        else context.step_name_prefix
+    )
+    group_step_id = lowering_core._normalize_generated_step_id(
+        group_step_name
+    )
+    members = {
+        member.binding_name: member
+        for member in group.members
+    }
+    worker_member = members[group.worker_name]
+    supervisor_member = members[group.supervisor_name]
+    source_origins = {
+        group.metadata.node_id: group.metadata,
+        worker_member.binding_metadata.node_id: (
+            worker_member.binding_metadata
+        ),
+        supervisor_member.binding_metadata.node_id: (
+            supervisor_member.binding_metadata
+        ),
+        group.observation_metadata.node_id: group.observation_metadata,
+        group.settlement_body.metadata.node_id: (
+            group.settlement_body.metadata
+        ),
+    }
+    if len(source_origins) != 5:
+        _raise_provider_supervision_lowering_error(
+            group,
+            code="provider_supervision_source_ownership_collision",
+            message=(
+                "provider supervision source ownership must contain five "
+                "distinct WCC owners"
+            ),
+        )
+    for owner_key, metadata in source_origins.items():
+        _record_provider_supervision_origin(
+            context,
+            owner_key=owner_key,
+            metadata=metadata,
+        )
+    worker, worker_projection, worker_raw_type = (
+        _lower_provider_supervision_member(
+            worker_member,
+            context=context,
+            local_values=local_values,
+            group_step_name=group_step_name,
+        )
+    )
+    supervisor, supervisor_projection, supervisor_raw_type = (
+        _lower_provider_supervision_member(
+            supervisor_member,
+            context=context,
+            local_values=local_values,
+            group_step_name=group_step_name,
+        )
+    )
+    settlement_expr = _pure_wcc_body_expr(
+        group.settlement_body,
+        env={
+            group.worker_name: worker_projection,
+            group.supervisor_name: supervisor_projection,
+        },
+    )
+    settlement_context = _context_with_local_type_binding(
+        _context_with_local_type_binding(
+            context,
+            binding_name=group.worker_name,
+            binding_type=worker_raw_type,
+        ),
+        binding_name=group.supervisor_name,
+        binding_type=supervisor_raw_type,
+    )
+    settlement_payload, binding_refs = (
+        build_pure_projection_payload(
+            settlement_expr,
+            result_type=binding_type,
+            context=settlement_context,
+            local_values={
+                **dict(local_values),
+                group.worker_name: (
+                    f"provider_supervision.members.{group.worker_name}"
+                ),
+                group.supervisor_name: (
+                    f"provider_supervision.members.{group.supervisor_name}"
+                ),
+            },
+        )
+    )
+    dynamic_captures = set(binding_refs) - {
+        group.worker_name,
+        group.supervisor_name,
+    }
+    if dynamic_captures:
+        metadata = group.settlement_body.metadata
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code=(
+                        "provider_supervision_settlement_dynamic_capture_"
+                        "unsupported"
+                    ),
+                    message=(
+                        "provider supervision settlement may capture only "
+                        "compile-time outer values and its two member "
+                        "bindings"
+                    ),
+                    span=metadata.source_span,
+                    form_path=metadata.form_path,
+                    expansion_stack=metadata.expansion_stack,
+                    phase="lowering",
+                ),
+            )
+        )
+    settlement_bindings = dict(
+        settlement_payload.get("bindings", {})
+    )
+    settlement_bindings[group.worker_name] = {
+        "type": _type_descriptor(
+            worker_raw_type,
+            type_env=context.type_env,
+        )
+    }
+    settlement_bindings[group.supervisor_name] = {
+        "type": _type_descriptor(
+            supervisor_raw_type,
+            type_env=context.type_env,
+        )
+    }
+    settlement_payload = {
+        **settlement_payload,
+        "bindings": settlement_bindings,
+    }
+    validate_pure_expr_payload(settlement_payload)
+    whole_timeout = (
+        max(worker.timeout_sec, supervisor.timeout_sec)
+        + worker.timeout_sec
+    )
+    try:
+        settlement_result_contract = _provider_supervision_contract(
+            name=binding_type.name,
+            type_ref=binding_type,
+            type_env=context.type_env,
+        )
+    except (TypeError, ValueError) as exc:
+        _raise_provider_supervision_lowering_error(
+            group,
+            code="provider_supervision_settlement_contract_invalid",
+            message=(
+                "provider supervision settlement did not produce "
+                "one closed transportable result contract"
+            ),
+        )
+        raise AssertionError("unreachable") from exc
+    config = ProviderSupervisionStepConfig(
+        common=StepCommonConfig(timeout_sec=whole_timeout),
+        schema_version=PROVIDER_SUPERVISION_SCHEMA_VERSION,
+        node_id=group_step_id,
+        worker=worker,
+        supervisor=supervisor,
+        observation=ProviderSupervisionObservation(
+            observer_member_id=group.supervisor_name,
+            observed_member_id=group.worker_name,
+        ),
+        settlement_payload=_frozen_mapping(settlement_payload),
+        settlement_result_contract=settlement_result_contract,
+        max_steers=1,
+        paths=derive_provider_supervision_paths(
+            node_id=group_step_id,
+            worker_member_id=group.worker_name,
+            supervisor_member_id=group.supervisor_name,
+        ),
+        source_ownership=ProviderSupervisionSourceOwnership(
+            form=group.metadata.node_id,
+            worker_binding=worker_member.binding_metadata.node_id,
+            supervisor_binding=(
+                supervisor_member.binding_metadata.node_id
+            ),
+            observation=group.observation_metadata.node_id,
+            settlement=group.settlement_body.metadata.node_id,
+        ),
+    )
+    source = SimpleNamespace(
+        span=group.metadata.source_span,
+        form_path=group.metadata.form_path,
+        expansion_stack=group.metadata.expansion_stack,
+    )
+    _record_step_origin(
+        context,
+        step_name=group_step_name,
+        step_id=group_step_id,
+        source=source,
+    )
+    return (
+        [
+            {
+                "name": group_step_name,
+                "id": group_step_id,
+                "timeout_sec": whole_timeout,
+                "provider_supervision": config,
+            }
+        ],
+        _TerminalResult(
+            step_name=group_step_name,
+            step_id=group_step_id,
+            output_refs=lowering_core._record_output_refs(
+                group_step_name,
+                binding_type,
+            ),
+            output_kind="step",
+            hidden_inputs={},
+            returned_union_type_name=(
+                binding_type.name
+                if isinstance(binding_type, UnionTypeRef)
+                else None
+            ),
+        ),
+    )
+
+
 def _lower_effectful_binding(
     value: WccPerform | WccCall,
     *,
@@ -3790,6 +4702,14 @@ def _frontend_expr_from_wcc_value_with_env(value: WccValue, env: Mapping[str, ob
             return FieldAccessExpr(
                 base=base_expr,
                 fields=value.fields,
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                expansion_stack=value.metadata.expansion_stack,
+            )
+        if isinstance(base_expr, FieldAccessExpr):
+            return FieldAccessExpr(
+                base=base_expr.base,
+                fields=(*base_expr.fields, *value.fields),
                 span=value.metadata.source_span,
                 form_path=value.metadata.form_path,
                 expansion_stack=value.metadata.expansion_stack,

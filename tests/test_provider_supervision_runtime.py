@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import FrozenInstanceError, replace
 import json
 from pathlib import Path
@@ -593,6 +594,435 @@ def _config_with_prompt_snapshot_owners(config: Any) -> Any:
             origin="source:supervisor:prompt-dependencies",
         ),
     )
+
+
+def _guided_output_bundle_case() -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+]:
+    descriptor = {
+        "kind": "record",
+        "name": "ReviewResult",
+        "fields": [
+            {
+                "name": "blocker",
+                "type": {
+                    "kind": "record",
+                    "name": "Blocker",
+                    "fields": [
+                        {
+                            "name": "code",
+                            "type": {
+                                "kind": "primitive",
+                                "name": "String",
+                            },
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+    document = {"blocker": {"code": "MISSING_RESOURCE"}}
+    ordinary_contract = {
+        "path": "ordinary/generated-worker-result.json",
+        "guidance": {
+            "description": "Return the complete review result.",
+            "format_hint": "One review object.",
+            "example": document,
+        },
+        "fields": [
+            {
+                "name": "blocker__code",
+                "json_pointer": "/blocker/code",
+                "type": "string",
+                "guidance_context": [
+                    {
+                        "json_pointer": "/blocker",
+                        "description": "The blocking condition.",
+                        "format_hint": "One blocker object.",
+                        "example": document["blocker"],
+                    }
+                ],
+                "description": "Stable blocker code.",
+                "format_hint": "Uppercase token.",
+                "example": "MISSING_RESOURCE",
+                "source_map_subject": {
+                    "subject_kind": "output_bundle_field",
+                    "subject_name": "worker::blocker__code",
+                    "workflow_name": "guided-worker",
+                },
+            }
+        ],
+    }
+    return descriptor, ordinary_contract, document
+
+
+def _guided_variant_output_case() -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+]:
+    details_type = {
+        "kind": "record",
+        "name": "DecisionDetails",
+        "fields": [
+            {
+                "name": "code",
+                "type": {"kind": "primitive", "name": "String"},
+            }
+        ],
+    }
+    descriptor = {
+        "kind": "union",
+        "name": "Decision",
+        "variants": [
+            {
+                "name": "APPROVE",
+                "fields": [
+                    {
+                        "name": "confidence",
+                        "type": {
+                            "kind": "primitive",
+                            "name": "Float",
+                        },
+                    },
+                    {"name": "details", "type": details_type},
+                    {
+                        "name": "report",
+                        "type": {
+                            "kind": "primitive",
+                            "name": "String",
+                        },
+                    },
+                ],
+            },
+            {
+                "name": "REVISE",
+                "fields": [
+                    {
+                        "name": "confidence",
+                        "type": {
+                            "kind": "primitive",
+                            "name": "Float",
+                        },
+                    },
+                    {"name": "details", "type": details_type},
+                    {
+                        "name": "reason",
+                        "type": {
+                            "kind": "primitive",
+                            "name": "String",
+                        },
+                    },
+                ],
+            },
+        ],
+    }
+    document = {
+        "variant": "REVISE",
+        "confidence": 0.8,
+        "details": {"code": "INCOMPLETE"},
+        "reason": "Add the missing evidence.",
+    }
+    ordinary_contract = {
+        "path": "ordinary/generated-worker-decision.json",
+        "guidance": {
+            "description": "Choose one decision variant.",
+            "format_hint": "One tagged decision object.",
+            "example": document,
+        },
+        "discriminant": {
+            "name": "variant",
+            "json_pointer": "/variant",
+            "type": "enum",
+            "allowed": ["APPROVE", "REVISE"],
+        },
+        "shared_fields": [
+            {
+                "name": "confidence",
+                "json_pointer": "/confidence",
+                "type": "float",
+                "guidance_by_variant": {
+                    "APPROVE": {
+                        "description": "Confidence in approval.",
+                        "format_hint": "Inclusive range [0, 1].",
+                        "example": 0.95,
+                    },
+                    "REVISE": {
+                        "description": "Confidence revision is needed.",
+                        "format_hint": "Inclusive range [0, 1].",
+                        "example": 0.8,
+                    },
+                },
+                "source_map_subjects_by_variant": {
+                    "APPROVE": {
+                        "subject_kind": "variant_output_field",
+                        "subject_name": "worker::APPROVE::confidence",
+                        "workflow_name": "guided-worker",
+                    },
+                    "REVISE": {
+                        "subject_kind": "variant_output_field",
+                        "subject_name": "worker::REVISE::confidence",
+                        "workflow_name": "guided-worker",
+                    },
+                },
+            },
+            {
+                "name": "details__code",
+                "json_pointer": "/details/code",
+                "type": "string",
+                "guidance_context": [
+                    {
+                        "json_pointer": "/details",
+                        "description": "Decision details.",
+                        "example": {"code": "INCOMPLETE"},
+                    }
+                ],
+                "description": "Stable decision code.",
+                "example": "INCOMPLETE",
+            },
+        ],
+        "variants": {
+            "APPROVE": {
+                "fields": [
+                    {
+                        "name": "report",
+                        "json_pointer": "/report",
+                        "type": "string",
+                        "description": "Approval report.",
+                        "format_hint": "Concise prose.",
+                        "example": "All evidence is complete.",
+                        "source_map_subject": {
+                            "subject_kind": "variant_output_field",
+                            "subject_name": "worker::APPROVE::report",
+                            "workflow_name": "guided-worker",
+                        },
+                    }
+                ]
+            },
+            "REVISE": {
+                "fields": [
+                    {
+                        "name": "reason",
+                        "json_pointer": "/reason",
+                        "type": "string",
+                        "description": "Required correction.",
+                        "format_hint": "One actionable sentence.",
+                        "example": "Add the missing evidence.",
+                    }
+                ]
+            },
+        },
+    }
+    return descriptor, ordinary_contract, document
+
+
+def _config_with_worker_bundle_contract(
+    config: Any,
+    *,
+    contract_kind: str,
+    descriptor: dict[str, Any],
+    ordinary_contract: dict[str, Any],
+) -> Any:
+    from tests.test_provider_supervision_ir import _contract
+
+    contract_prototype = {
+        key: value
+        for key, value in ordinary_contract.items()
+        if key != "path"
+    }
+    common = replace(
+        config.worker.provider_config.common,
+        output_bundle=(
+            contract_prototype
+            if contract_kind == "output_bundle"
+            else None
+        ),
+        variant_output=(
+            contract_prototype
+            if contract_kind == "variant_output"
+            else None
+        ),
+    )
+    return replace(
+        config,
+        worker=replace(
+            config.worker,
+            provider_config=replace(
+                config.worker.provider_config,
+                common=common,
+            ),
+            result_contract=_contract(
+                descriptor["name"],
+                descriptor,
+                kind=(
+                    "record"
+                    if contract_kind == "output_bundle"
+                    else "union"
+                ),
+                value_type=descriptor["name"],
+            ),
+        ),
+    )
+
+
+def _real_member_binding(
+    tmp_path: Path,
+    config: Any,
+) -> tuple[
+    StateManager,
+    _RealBindingExecutor,
+    WorkflowProviderSupervisionBindings,
+    ProviderSupervisionTurnBinding,
+]:
+    workflow = tmp_path / "workflow.orc"
+    workflow.write_text("; generated test workflow\n", encoding="utf-8")
+    manager = StateManager(
+        tmp_path,
+        run_id="provider-supervision-guided-binding",
+    )
+    manager.initialize("workflow.orc")
+    manager.update_control_flow_counters(0, {"Live": 1})
+    manager.start_step(
+        "Live",
+        0,
+        "provider_supervision",
+        step_id="root.live",
+        visit_count=1,
+    )
+    executor = _RealBindingExecutor(tmp_path, manager)
+    bindings = WorkflowProviderSupervisionBindings(
+        executor,
+        step={"name": "Live", "step_id": "root.live"},
+        state=manager.load().to_dict(),
+        config=config,
+        step_name="Live",
+        runtime_step_id="root.live",
+    )
+    turns = bindings.derive_turn_bindings(
+        config=config,
+        visit_count=1,
+    )
+    return manager, executor, bindings, turns["worker_fresh"]
+
+
+def _assert_guided_worker_contract_is_rebased_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    contract_kind: str,
+    descriptor: dict[str, Any],
+    ordinary_contract: dict[str, Any],
+    document: dict[str, Any],
+) -> None:
+    from tests.test_provider_supervision_ir import (
+        _provider_supervision_config,
+    )
+
+    config = _config_with_worker_bundle_contract(
+        _provider_supervision_config(),
+        contract_kind=contract_kind,
+        descriptor=descriptor,
+        ordinary_contract=ordinary_contract,
+    )
+    manager, executor, bindings, turn = _real_member_binding(
+        tmp_path,
+        config,
+    )
+    composition_steps: list[
+        tuple[dict[str, Any], dict[str, Any]]
+    ] = []
+    original_compose = executor._compose_provider_attempt_for_step
+
+    def record_composition(
+        step: dict[str, Any],
+        context: dict[str, Any],
+        state: dict[str, Any],
+        *,
+        output_contract_step: dict[str, Any],
+        **kwargs: Any,
+    ) -> tuple[str, None, None]:
+        composition_steps.append((step, output_contract_step))
+        return original_compose(
+            step,
+            context,
+            state,
+            output_contract_step=output_contract_step,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(
+        executor,
+        "_compose_provider_attempt_for_step",
+        record_composition,
+    )
+    rendered_steps: list[dict[str, Any]] = []
+    apply_output_suffix = (
+        executor.prompt_composer.apply_output_contract_prompt_suffix
+    )
+
+    def record_rendered_contract(
+        step: dict[str, Any],
+        prompt: str,
+    ) -> str:
+        rendered_steps.append(step)
+        return apply_output_suffix(step, prompt)
+
+    monkeypatch.setattr(
+        executor.prompt_composer,
+        "apply_output_contract_prompt_suffix",
+        record_rendered_contract,
+    )
+
+    prompt = bindings.compose_prompt(
+        member=config.worker,
+        turn=turn,
+        observation_injection=None,
+    )
+    bindings.allocate_attempt(turn=turn, prompt=prompt)
+
+    expected_contract = {
+        **ordinary_contract,
+        "path": str(turn.provisional_bundle_path),
+    }
+
+    def strings_in(value: Any):
+        if isinstance(value, str):
+            yield value
+        elif isinstance(value, Mapping):
+            for item in value.values():
+                yield from strings_in(item)
+        elif isinstance(value, (tuple, list)):
+            for item in value:
+                yield from strings_in(item)
+
+    assert len(composition_steps) == 1
+    base_step, output_contract_step = composition_steps[0]
+    assert len(rendered_steps) == 1
+    for route_step in (
+        output_contract_step,
+        rendered_steps[0],
+    ):
+        assert route_step[contract_kind] == expected_contract
+        assert ordinary_contract["path"] not in set(
+            strings_in(route_step)
+        )
+    assert ordinary_contract["path"] not in set(strings_in(base_step))
+    if contract_kind in base_step:
+        assert base_step[contract_kind] == expected_contract
+
+    stale_path = manager.run_root / ordinary_contract["path"]
+    stale_path.parent.mkdir(parents=True, exist_ok=True)
+    stale_path.write_text("{}\n", encoding="utf-8")
+    turn.provisional_bundle_path.write_text(
+        json.dumps(document),
+        encoding="utf-8",
+    )
+
+    assert bindings.validate_member_bundle(
+        SimpleNamespace(turn=turn)
+    ) == document
 
 
 def _event_index(
@@ -1429,6 +1859,211 @@ def test_provider_supervision_rejects_current_step_drift_before_settlement_write
     assert "Live" not in manager.load().steps
 
 
+def test_provider_supervision_output_bundle_preserves_guidance_when_rebasing_only_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    descriptor, ordinary_contract, document = (
+        _guided_output_bundle_case()
+    )
+
+    _assert_guided_worker_contract_is_rebased_once(
+        tmp_path,
+        monkeypatch,
+        contract_kind="output_bundle",
+        descriptor=descriptor,
+        ordinary_contract=ordinary_contract,
+        document=document,
+    )
+
+
+def test_provider_supervision_variant_output_preserves_guidance_when_rebasing_only_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    descriptor, ordinary_contract, document = (
+        _guided_variant_output_case()
+    )
+
+    _assert_guided_worker_contract_is_rebased_once(
+        tmp_path,
+        monkeypatch,
+        contract_kind="variant_output",
+        descriptor=descriptor,
+        ordinary_contract=ordinary_contract,
+        document=document,
+    )
+
+
+@pytest.mark.parametrize(
+    "contract_kind,case_factory",
+    [
+        pytest.param(
+            "output_bundle",
+            _guided_output_bundle_case,
+            id="output-bundle",
+        ),
+        pytest.param(
+            "variant_output",
+            _guided_variant_output_case,
+            id="variant-output",
+        ),
+    ],
+)
+def test_provider_supervision_resume_preserves_guided_prototype_and_rebinds_only_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    contract_kind: str,
+    case_factory: Any,
+) -> None:
+    from tests.test_provider_supervision_ir import (
+        _provider_supervision_config,
+    )
+
+    descriptor, ordinary_contract, _document = case_factory()
+    config = _config_with_worker_bundle_contract(
+        _provider_supervision_config(),
+        contract_kind=contract_kind,
+        descriptor=descriptor,
+        ordinary_contract=ordinary_contract,
+    )
+    _manager, executor, bindings, _fresh_turn = _real_member_binding(
+        tmp_path,
+        config,
+    )
+    resume_turn = bindings.derive_resume_turn_binding(
+        config=config,
+        visit_count=1,
+    )
+    rendered_steps: list[dict[str, Any]] = []
+    apply_output_suffix = (
+        executor.prompt_composer.apply_output_contract_prompt_suffix
+    )
+
+    def record_rendered_contract(
+        step: dict[str, Any],
+        prompt: str,
+    ) -> str:
+        rendered_steps.append(step)
+        return apply_output_suffix(step, prompt)
+
+    monkeypatch.setattr(
+        executor.prompt_composer,
+        "apply_output_contract_prompt_suffix",
+        record_rendered_contract,
+    )
+
+    prompt = bindings.compose_resume_prompt(
+        member=config.worker,
+        turn=resume_turn,
+        guidance="Revise the previous result.",
+    )
+    bindings.allocate_attempt(turn=resume_turn, prompt=prompt)
+
+    assert len(rendered_steps) == 1
+    expected_contract = {
+        **ordinary_contract,
+        "path": str(resume_turn.provisional_bundle_path),
+    }
+    assert rendered_steps[0][contract_kind] == expected_contract
+    assert ordinary_contract["path"] != expected_contract["path"]
+    assert ordinary_contract["path"] not in json.dumps(
+        rendered_steps[0][contract_kind],
+        sort_keys=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "contract_kind,case_factory",
+    [
+        pytest.param(
+            "output_bundle",
+            _guided_output_bundle_case,
+            id="output-bundle",
+        ),
+        pytest.param(
+            "variant_output",
+            _guided_variant_output_case,
+            id="variant-output",
+        ),
+    ],
+)
+def test_provider_supervision_rejects_ordinary_member_contract_descriptor_mismatch(
+    tmp_path: Path,
+    contract_kind: str,
+    case_factory: Any,
+) -> None:
+    from tests.test_provider_supervision_ir import (
+        _provider_supervision_config,
+    )
+
+    descriptor, ordinary_contract, _document = case_factory()
+    mismatched_contract = json.loads(json.dumps(ordinary_contract))
+    if contract_kind == "output_bundle":
+        mismatched_contract["fields"][0]["type"] = "integer"
+    else:
+        mismatched_contract["shared_fields"][0]["type"] = "string"
+    config = _config_with_worker_bundle_contract(
+        _provider_supervision_config(),
+        contract_kind=contract_kind,
+        descriptor=descriptor,
+        ordinary_contract=mismatched_contract,
+    )
+
+    with pytest.raises(ValueError):
+        _manager, _executor, bindings, turn = _real_member_binding(
+            tmp_path,
+            config,
+        )
+        bindings.compose_prompt(
+            member=config.worker,
+            turn=turn,
+            observation_injection=None,
+        )
+
+
+def test_provider_supervision_rejects_path_bearing_member_contract_prototype(
+    tmp_path: Path,
+) -> None:
+    from tests.test_provider_supervision_ir import (
+        _provider_supervision_config,
+    )
+
+    descriptor, ordinary_contract, _document = (
+        _guided_output_bundle_case()
+    )
+    config = _config_with_worker_bundle_contract(
+        _provider_supervision_config(),
+        contract_kind="output_bundle",
+        descriptor=descriptor,
+        ordinary_contract=ordinary_contract,
+    )
+    config = replace(
+        config,
+        worker=replace(
+            config.worker,
+            provider_config=replace(
+                config.worker.provider_config,
+                common=replace(
+                    config.worker.provider_config.common,
+                    output_bundle=ordinary_contract,
+                ),
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError):
+        _manager, _executor, bindings, turn = _real_member_binding(
+            tmp_path,
+            config,
+        )
+        bindings.compose_prompt(
+            member=config.worker,
+            turn=turn,
+            observation_injection=None,
+        )
+
+
 def test_continue_real_binding_allocates_durable_attempts_and_validates_bundles(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1605,6 +2240,16 @@ def test_continue_real_binding_rejects_missing_compiler_prompt_snapshot_owner(
     state = manager.load().to_dict()
     executor = _RealBindingExecutor(tmp_path, manager)
     config = _provider_supervision_config()
+    config = replace(
+        config,
+        worker=replace(
+            config.worker,
+            provider_config=replace(
+                config.worker.provider_config,
+                compiler_prompt_dependency_contract=None,
+            ),
+        ),
+    )
     bindings = WorkflowProviderSupervisionBindings(
         executor,
         step={"name": "Live", "step_id": "root.live"},

@@ -170,11 +170,13 @@ class PromptComposer:
             block = rendered.block.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ValueError("rendered dependency block must be UTF-8") from exc
+        if position not in {"prepend", "append"}:
+            raise ValueError("invalid_injection_contract")
+        if not block:
+            return prompt
         if position == "prepend":
             return f"{block}\n\n{prompt}" if prompt else block
-        if position == "append":
-            return f"{prompt}\n\n{block}" if prompt else block
-        raise ValueError("invalid_injection_contract")
+        return f"{prompt}\n\n{block}" if prompt else block
 
     @staticmethod
     def content_dependency_debug(

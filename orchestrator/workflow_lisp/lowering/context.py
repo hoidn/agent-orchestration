@@ -98,6 +98,12 @@ class _LoweringContext:
     generated_contract_field_bindings: list[ValidationSubjectBinding] = field(
         default_factory=list
     )
+    provider_supervision_origins: dict[str, LoweringOrigin] = field(
+        default_factory=dict
+    )
+    provider_supervision_prompt_dependency_lineages: list[
+        PromptDependencyLineage
+    ] = field(default_factory=list)
     phase_scope: _ActivePhaseScope | None = None
     iteration_scope: str | None = None
     # Proc-shaped active signature for hidden-context eligibility while an

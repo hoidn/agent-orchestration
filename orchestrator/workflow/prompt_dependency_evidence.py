@@ -187,6 +187,11 @@ def authored_row_id(
 def _instruction_source(contract: Mapping[str, Any]) -> str:
     if contract["instruction_utf8_sha256_or_null"] is not None:
         return "authored"
+    if (
+        not contract["required_binding_refs"]
+        and not contract["optional_binding_refs"]
+    ):
+        return "none"
     return "default_required" if contract["required_binding_refs"] else "default_optional"
 
 
@@ -312,9 +317,12 @@ def build_success_evidence(
 
 def _validate_contract(value: Any) -> Mapping[str, Any]:
     contract = _closed(value, _CONTRACT_KEYS, "compiler contract")
+    try:
+        origin_kind = PromptDependencyOriginKind(contract["origin_kind"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("compiler contract origin is invalid") from exc
     if (
         contract["schema"] != COMPILER_PROMPT_DEPENDENCY_CONTRACT_SCHEMA
-        or contract["origin_kind"] != PromptDependencyOriginKind.WORKFLOW_LISP_PROVIDER_RESULT_PROMPT_DEPENDENCIES.value
         or contract["path_interpretation"] != PromptDependencyPathInterpretation.EXACT.value
         or contract["evidence_required"] is not True
     ):
@@ -326,7 +334,20 @@ def _validate_contract(value: Any) -> Mapping[str, Any]:
         refs = contract[name]
         if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref for ref in refs):
             raise ValueError("compiler binding refs are invalid")
-    if not contract["required_binding_refs"] and not contract["optional_binding_refs"]:
+    has_dependency_rows = bool(
+        contract["required_binding_refs"]
+        or contract["optional_binding_refs"]
+    )
+    implicit_empty = (
+        origin_kind
+        is PromptDependencyOriginKind
+        .WORKFLOW_LISP_PROVIDER_SUPERVISION_MEMBER_IMPLICIT_EMPTY
+    )
+    if implicit_empty and has_dependency_rows:
+        raise ValueError(
+            "implicit-empty compiler contract has dependency rows"
+        )
+    if not implicit_empty and not has_dependency_rows:
         raise ValueError("compiler contract has no dependency rows")
     try:
         position = PromptDependencyPosition(contract["position"])
@@ -335,6 +356,10 @@ def _validate_contract(value: Any) -> Mapping[str, Any]:
     instruction_digest = contract["instruction_utf8_sha256_or_null"]
     if instruction_digest is not None and not _is_sha(instruction_digest):
         raise ValueError("compiler instruction digest is invalid")
+    if implicit_empty and instruction_digest is not None:
+        raise ValueError(
+            "implicit-empty compiler contract has an instruction"
+        )
     expected = _normalized_contract_sha256(
         required_binding_refs=tuple(contract["required_binding_refs"]),
         optional_binding_refs=tuple(contract["optional_binding_refs"]),

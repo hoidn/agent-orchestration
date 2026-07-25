@@ -1083,20 +1083,83 @@ regression surface at 287 passed. The ordered independent verdicts were
 **Files:**
 
 - Modify: `orchestrator/workflow_lisp/wcc/defunctionalize.py`
-- Modify: `orchestrator/workflow_lisp/wcc/lower.py`
-- Modify: `orchestrator/workflow/core_ast.py`
+- Modify: `orchestrator/workflow_lisp/lowering/context.py`
+- Modify: `orchestrator/workflow_lisp/lowering/core.py`
+- Modify: `orchestrator/workflow_lisp/lowering/origins.py`
+- Modify: `orchestrator/workflow_lisp/lowering/pure_projection.py`
 - Modify: `orchestrator/workflow/lowering.py`
 - Modify: `orchestrator/workflow/executable_ir.py`
-- Modify: `orchestrator/workflow/runtime_step.py`
+- Create: `orchestrator/workflow/provider_supervision/contracts.py`
+- Modify: `orchestrator/workflow/provider_supervision/bindings.py`
+- Modify: `orchestrator/workflow/prompt_dependency_contract.py`
+- Modify: `orchestrator/workflow/prompt_dependency_evidence.py`
+- Modify: `orchestrator/workflow/prompting.py`
+- Modify: `orchestrator/workflow/pure_expr.py`
+- Modify: `orchestrator/workflow/surface_ast.py`
+- Modify: `orchestrator/workflow/validation.py`
+- Modify: `orchestrator/workflow_lisp/contracts.py`
 - Test: `tests/test_workflow_lisp_provider_supervision.py`
 - Test: `tests/test_workflow_ir_lowering.py`
 - Test: `tests/test_workflow_lisp_build_artifacts.py`
+- Test: `tests/test_provider_supervision_ir.py`
+- Test: `tests/test_provider_supervision_runtime.py`
+- Test: `tests/test_prompt_contract_injection.py`
+- Test: `tests/test_prompt_dependency_evidence.py`
+- Test: `tests/test_workflow_lisp_provider_prompt_dependencies.py`
+- Test: `tests/test_workflow_lisp_structured_results.py`
 
-- [ ] Write RED tests for defunctionalizing the closed WCC term through the
+The forecast edits to `orchestrator/workflow_lisp/wcc/lower.py`,
+`orchestrator/workflow/core_ast.py`, and
+`orchestrator/workflow/runtime_step.py` were unnecessary: the closed WCC
+group already entered defunctionalization through the ordinary route, and the
+typed Core/runtime envelopes already carried the group. Adjacent generic
+owners changed only where RED proofs exposed load-bearing gaps: typed result
+projection, immutable result-contract prototypes, prompt-dependency evidence,
+artifact catalogs, nominal-enum contract dispatch, and omission of an absent
+optional surface field.
+
+**Task 12B execution contract:**
+
+- The public WCC route must pass the exact resolved-procedure catalog and
+  procedure type environments into Task 12A elaboration. The group is lowered
+  only from the resulting closed `WccProviderSupervision`; recompiling or
+  reconstructing the frontend form is forbidden.
+- Defunctionalization emits one generated provider-supervision mapping step.
+  Member provider performs are translated with the existing provider-result
+  lowering contract but are never appended as sequential workflow steps.
+  A member translation that needs a prelude step, yields anything other than
+  one provider owner, or cannot produce a closed typed provider config fails
+  at the authored member.
+- Both provider performs must carry explicit positive integer
+  `:timeout-sec` values. The generated whole-step budget is
+  `max(worker_timeout, supervisor_timeout) + worker_timeout`: one concurrent
+  initial turn plus the only permitted worker resume. There is no implicit
+  timeout or unbounded fallback.
+- The supervisor provider result projection must remain the Task 12A-proved
+  identity. The worker's pure post-provider projection is composed into the
+  outer pure settlement payload so the runtime sees the authored worker
+  binding value while validating the provisional worker bundle against the
+  provider perform's raw result contract. Composition is generic over
+  transportable worker and settlement types.
+- The generated config carries exact binding-name member ids,
+  supervisor-to-worker observation, `max_steers=1`, compiler-owned directive
+  contract, source-owner keys for the form/bindings/observation/settlement,
+  and paths derived from its generated node id. It remains an immutable typed
+  object across the shared generated-mapping copy boundary.
+- When shared lowering binds the final executable node id, it must rederive
+  all node-derived provider-supervision paths in the same replacement. Tests
+  must reject stale node ids/paths, absent/nonliteral/nonpositive member
+  timeouts, a `common.timeout_sec` unequal to
+  `max(worker.timeout_sec, supervisor.timeout_sec) + worker.timeout_sec`,
+  member translations with extra steps, and any attempt to emit either member
+  as an ordinary provider node. Executable validation enforces that exact
+  whole-step/member-budget relation.
+
+- [x] Write RED tests for defunctionalizing the closed WCC term through the
   ordinary schema-2 route into exactly one Core and executable
   `PROVIDER_SUPERVISION` node, while preserving source ownership and
   unchanged executable/runtime envelope versions.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q \
@@ -1106,11 +1169,25 @@ regression surface at 287 passed. The ordered independent verdicts were
     -k 'provider_supervision or live_providers or executable'
   ```
 
-- [ ] Implement the smallest schema-2 defunctionalization/Core/executable
+- [x] Implement the smallest schema-2 defunctionalization/Core/executable
   projection; do not add a direct surface-to-runtime route.
-- [ ] Rerun the concrete command above.
-- [ ] Complete specification review, quality review, and commit:
+- [x] Rerun the concrete command above.
+- [x] Complete specification review, quality review, and commit:
   `Project live provider supervision into executable IR`.
+
+**Task 12B evidence (2026-07-24):** The public WCC route now projects each
+closed live-provider group as one immutable typed Core/executable node, keeps
+both member providers non-emitted, composes the worker projection into typed
+settlement, enforces the exact member/whole-step timeout relation, and
+atomically rebinds all node-derived paths. The shared result-contract layer
+derives every transportable return shape while preserving prompt guidance and
+source lineage, rejects malformed/cyclic/open or colliding descriptors and
+prototypes with translated diagnostics, and keeps implicit-empty dependency
+injection byte-exact while still validating its configuration. Fresh
+verification passed the exact plan selector at 133 passed/132 deselected, the
+affected regression surface at 579 passed, collection at 457 tests, Python
+compilation, and scoped diff checks. Ordered independent verdicts were
+`TASK12B_SPEC_APPROVED` and `TASK12B_QUALITY_APPROVED`.
 
 ### Task 12C: Runtime, Semantic, Source-Map, Checkpoint, And Build Projection
 

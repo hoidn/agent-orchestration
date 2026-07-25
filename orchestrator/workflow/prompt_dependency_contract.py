@@ -20,6 +20,9 @@ class PromptDependencyOriginKind(Enum):
     WORKFLOW_LISP_PROVIDER_RESULT_PROMPT_DEPENDENCIES = (
         "workflow_lisp_provider_result_prompt_dependencies"
     )
+    WORKFLOW_LISP_PROVIDER_SUPERVISION_MEMBER_IMPLICIT_EMPTY = (
+        "workflow_lisp_provider_supervision_member_implicit_empty"
+    )
 
 
 class PromptDependencyPathInterpretation(Enum):
@@ -111,6 +114,10 @@ def _build_compiler_prompt_dependency_contract(
     instruction: str | None,
     source_origin_key: str,
     source_workflow_bytes: bytes,
+    origin_kind: PromptDependencyOriginKind = (
+        PromptDependencyOriginKind
+        .WORKFLOW_LISP_PROVIDER_RESULT_PROMPT_DEPENDENCIES
+    ),
 ) -> CompilerPromptDependencyContract:
     """Build one validated contract from the lowering owner's typed inputs."""
 
@@ -129,9 +136,7 @@ def _build_compiler_prompt_dependency_contract(
     )
     return CompilerPromptDependencyContract(
         schema=COMPILER_PROMPT_DEPENDENCY_CONTRACT_SCHEMA,
-        origin_kind=(
-            PromptDependencyOriginKind.WORKFLOW_LISP_PROVIDER_RESULT_PROMPT_DEPENDENCIES
-        ),
+        origin_kind=origin_kind,
         path_interpretation=PromptDependencyPathInterpretation.EXACT,
         evidence_required=True,
         source_origin_key=source_origin_key,
@@ -169,7 +174,20 @@ def _validate_contract_fields(contract: CompilerPromptDependencyContract) -> Non
         raise ValueError("source_workflow_sha256 must be sha256:<lowercase-hex>")
     required = _validate_refs("required_binding_refs", contract.required_binding_refs)
     optional = _validate_refs("optional_binding_refs", contract.optional_binding_refs)
-    if not required and not optional:
+    implicit_empty = (
+        contract.origin_kind
+        is PromptDependencyOriginKind
+        .WORKFLOW_LISP_PROVIDER_SUPERVISION_MEMBER_IMPLICIT_EMPTY
+    )
+    if implicit_empty and (required or optional):
+        raise ValueError(
+            "implicit-empty provider supervision contracts forbid dependency refs"
+        )
+    if implicit_empty and contract.instruction_utf8_sha256_or_null is not None:
+        raise ValueError(
+            "implicit-empty provider supervision contracts forbid an instruction"
+        )
+    if not implicit_empty and not required and not optional:
         raise ValueError("at least one prompt dependency binding ref is required")
     if not isinstance(contract.position, PromptDependencyPosition):
         raise TypeError("position must be PromptDependencyPosition")

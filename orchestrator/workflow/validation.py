@@ -27,9 +27,13 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_output_contracts,
 )
 from orchestrator.workflow.lowering import build_loaded_workflow_bundle
+from orchestrator.workflow.executable_ir import ProviderSupervisionStepConfig
 from orchestrator.workflow.prompt_dependency_contract import (
     CompilerPromptDependencyContract,
     validate_compiler_prompt_dependency_contract,
+)
+from orchestrator.workflow.provider_supervision.contracts import (
+    derive_result_bundle_contract,
 )
 from orchestrator.workflow.state_layout import GeneratedPathAllocation
 from orchestrator.workflow.surface_ast import PrivateExecContextBinding
@@ -4757,6 +4761,22 @@ class _WorkflowMappingValidator:
                 outputs = self._collect_repeat_until_outputs(step)
                 artifact_map[name] = outputs
                 continue
+
+            provider_supervision = step.get('provider_supervision')
+            if isinstance(
+                provider_supervision,
+                ProviderSupervisionStepConfig,
+            ):
+                contract_kind, contract, _descriptor = (
+                    derive_result_bundle_contract(
+                        provider_supervision.settlement_result_contract,
+                        path='<provider-supervision-settlement>',
+                    )
+                )
+                step = {
+                    **step,
+                    contract_kind: contract,
+                }
 
             expected_outputs = step.get('expected_outputs')
             if isinstance(expected_outputs, list):

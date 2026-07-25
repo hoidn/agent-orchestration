@@ -16,7 +16,11 @@ from orchestrator.workflow.pure_expr import (
 )
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 
-from ..contracts import derive_union_workflow_boundary_projection, derive_workflow_boundary_fields
+from ..contracts import (
+    derive_union_workflow_boundary_projection,
+    derive_workflow_boundary_fields,
+    root_workflow_boundary_field,
+)
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import (
     EnumMemberExpr,
@@ -385,6 +389,8 @@ def _short_type_name(name: str) -> str:
 
 @lru_cache(maxsize=None)
 def _module_export_info(source_path: str) -> tuple[str, frozenset[str]] | None:
+    if source_path.startswith("<prelude:"):
+        return None
     path = Path(source_path)
     syntax_module = build_syntax_module(read_sexpr_file(path))
     if syntax_module.module_name is None:
@@ -834,7 +840,12 @@ def _type_descriptor(type_ref: TypeRef, *, type_env: FrontendTypeEnvironment) ->
             }
         return {"kind": "primitive", "name": type_ref.name}
     if isinstance(type_ref, PathTypeRef):
-        return {"kind": "path", "name": type_ref.name}
+        return {
+            "kind": "path",
+            "name": type_ref.name,
+            "under": type_ref.definition.under,
+            "must_exist_target": type_ref.definition.must_exist,
+        }
     if isinstance(type_ref, OptionalTypeRef):
         return {"kind": "optional", "item": _type_descriptor(type_ref.item_type_ref, type_env=type_env)}
     if isinstance(type_ref, ListTypeRef):
@@ -928,26 +939,12 @@ def _output_contracts_for_type(
             span=span,
             form_path=form_path,
         )
-    if isinstance(type_ref, PathTypeRef):
-        (root_field,) = derive_workflow_boundary_fields(
-            type_ref,
-            generated_name="return",
-            source_path=("return",),
-            span=span,
-            form_path=form_path,
-        )
-        return {"__result__": dict(root_field.contract_definition)}
-    return {
-        "__result__": {
-            "kind": "scalar",
-            "type": _scalar_contract_type(type_ref, span=span, form_path=form_path),
-            **(
-                {"allowed": list(type_ref.allowed_values)}
-                if isinstance(type_ref, PrimitiveTypeRef) and type_ref.allowed_values
-                else {}
-            ),
-        }
-    }
+    root_field = root_workflow_boundary_field(
+        type_ref,
+        span=span,
+        form_path=form_path,
+    )
+    return {"__result__": dict(root_field.contract_definition)}
 
 
 def _scalar_contract_type(type_ref: TypeRef, *, span, form_path: tuple[str, ...]) -> str:

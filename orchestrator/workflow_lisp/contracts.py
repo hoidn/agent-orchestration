@@ -1145,6 +1145,11 @@ def _field_contract_definition(
             "must_exist_target": type_ref.definition.must_exist,
         }
     if isinstance(type_ref, PrimitiveTypeRef):
+        if type_ref.allowed_values:
+            return {
+                "type": "enum",
+                "allowed": list(type_ref.allowed_values),
+            }
         if type_ref.name == "String":
             return {"type": "string"}
         if type_ref.name == "Int":
@@ -1167,11 +1172,6 @@ def _field_contract_definition(
                 span=span,
                 form_path=form_path,
             )
-        if type_ref.allowed_values:
-            return {
-                "type": "enum",
-                "allowed": list(type_ref.allowed_values),
-            }
         return {"type": "string"}
     raise TypeError(f"unsupported field contract type: {type(type_ref)!r}")
 
