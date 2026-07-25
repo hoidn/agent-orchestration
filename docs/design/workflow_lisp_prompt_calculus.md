@@ -83,6 +83,27 @@ fragment of the matching kind — and an unfilled or wrong-kind slot is a
 compile error with the slot and expected kind named. "Fully specified
 prompt" becomes a checkable proposition, exactly like an unbound variable.
 
+Kinds are **delivery channels**, and choosing between them is a real
+authoring decision the design makes explicit rather than implied:
+
+- `:doc` delivers **by injection**: the fill's content is frozen into the
+  attempt snapshot and the prompt identity — maximal "what did the agent
+  see" evidence, bounded by the injection size cap.
+- `:path` delivers **by reference**: the agent receives the path and reads
+  for itself — right for large or navigable material and tool-bearing
+  agents, at a stated evidence cost: identity records which path was
+  named, not what the file held when read. Choosing reference is choosing
+  that weaker evidence (an authoring decision in the principle-29 sense).
+  An open option, not machinery yet: recording a dispatch-time digest of
+  referenced files to evidence "what was there at call start" without
+  injection.
+
+Delivery mode is the fragment author's choice per slot, not the caller's
+per call: prose and delivery are coupled ("the injected content above"
+versus "read the file at {p}"), so caller-side overrides could silently
+contradict the fragment's own text. Same-fragment-both-modes is deferred
+until a consumer demonstrates the need.
+
 A slot *may* refine its kind with a specific type
 (`(criteria :doc CriteriaDoc)`) when a particular path family or value
 shape genuinely matters, but refinement is optional and not the idiom:
