@@ -239,6 +239,7 @@ class _InteractiveTerminalBackend(Protocol):
         socket_path: Path,
         session_name: str,
         *,
+        env: dict[str, str],
         timeout_sec: float,
     ) -> None: ...
 
@@ -249,7 +250,6 @@ class _InteractiveTerminalBackend(Protocol):
         command: Sequence[str],
         *,
         cwd: Path | None,
-        env: dict[str, str],
         exit_status_path: Path,
         timeout_sec: float,
     ) -> str: ...
@@ -318,6 +318,7 @@ class _TmuxInteractiveTerminalBackend:
         socket_path: Path,
         *args: str,
         input_bytes: bytes | None = None,
+        process_env: dict[str, str] | None = None,
         timeout_sec: float,
     ) -> subprocess.CompletedProcess[bytes]:
         if timeout_sec <= 0:
@@ -325,6 +326,7 @@ class _TmuxInteractiveTerminalBackend:
         try:
             return subprocess.run(
                 [self._executable, "-S", str(socket_path), *args],
+                env=process_env,
                 input=input_bytes,
                 check=False,
                 capture_output=True,
@@ -353,6 +355,7 @@ class _TmuxInteractiveTerminalBackend:
         socket_path: Path,
         session_name: str,
         *,
+        env: dict[str, str],
         timeout_sec: float,
     ) -> None:
         deadline = time.monotonic() + timeout_sec
@@ -364,6 +367,7 @@ class _TmuxInteractiveTerminalBackend:
             session_name,
             "-n",
             "anchor",
+            process_env=dict(env),
             timeout_sec=self._remaining(deadline),
         )
         if created.returncode != 0:
@@ -393,7 +397,6 @@ class _TmuxInteractiveTerminalBackend:
         command: Sequence[str],
         *,
         cwd: Path | None,
-        env: dict[str, str],
         exit_status_path: Path,
         timeout_sec: float,
     ) -> str:
@@ -413,8 +416,6 @@ class _TmuxInteractiveTerminalBackend:
         ]
         if cwd is not None:
             args.extend(("-c", str(cwd)))
-        for key, value in sorted(env.items()):
-            args.extend(("-e", f"{key}={value}"))
         helper = (
             'status_path=$1; shift; "$@"; status=$?; '
             'temporary="${status_path}.tmp.$$"; '
@@ -655,6 +656,7 @@ class InteractiveTerminalTurnQueueAdapter:
                 self._backend.start_server(
                     self._socket_path,
                     self._session_name,
+                    env=dict(invocation.env),
                     timeout_sec=self._remaining(
                         deadline,
                         timeout_code="start_timeout",
@@ -665,7 +667,6 @@ class InteractiveTerminalTurnQueueAdapter:
                     self._session_name,
                     invocation.resolved_command,
                     cwd=invocation.cwd,
-                    env=dict(invocation.env),
                     exit_status_path=self._exit_status_path,
                     timeout_sec=self._remaining(
                         deadline,

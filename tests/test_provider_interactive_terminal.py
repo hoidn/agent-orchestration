@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
+import sys
+import tempfile
+import time
 from types import MappingProxyType
 from typing import Sequence
 
@@ -480,6 +486,10 @@ def test_builtin_interactive_capability_is_explicit() -> None:
     assert codex.interactive_session_support.schema_version == SCHEMA_VERSION
     assert "${PROMPT}" not in codex.command
     assert "${PROMPT}" in codex.interactive_session_support.command
+    assert codex.interactive_session_support.graceful_close_submit_keys == (
+        "ENTER",
+        "TAB",
+    )
     assert codex.validate() == []
     assert codex_gpt55 is not None
     assert codex_gpt55.interactive_session_support is None
@@ -722,8 +732,9 @@ class _FakeInteractiveBackend:
             return_code=None,
         )
         self.pane_status_sequence: list[PaneProcessStatus] = []
+        self.server_envs: list[dict[str, str]] = []
         self.started_commands: list[
-            tuple[Path, str, tuple[str, ...], Path | None, dict[str, str]]
+            tuple[Path, str, tuple[str, ...], Path | None]
         ] = []
         self.literal_offers: list[tuple[str, str]] = []
         self.key_offers: list[tuple[str, tuple[str, ...]]] = []
@@ -747,6 +758,7 @@ class _FakeInteractiveBackend:
         socket_path: Path,
         session_name: str,
         *,
+        env: dict[str, str],
         timeout_sec: float,
     ) -> None:
         del socket_path, session_name, timeout_sec
@@ -754,6 +766,7 @@ class _FakeInteractiveBackend:
             raise self.start_error
         self.server_started = True
         self.server_live = True
+        self.server_envs.append(dict(env))
 
     def start_pane(
         self,
@@ -762,7 +775,6 @@ class _FakeInteractiveBackend:
         command: Sequence[str],
         *,
         cwd: Path | None,
-        env: dict[str, str],
         exit_status_path: Path,
         timeout_sec: float,
     ) -> str:
@@ -770,7 +782,7 @@ class _FakeInteractiveBackend:
         if self.start_pane_error is not None:
             raise self.start_pane_error
         self.started_commands.append(
-            (Path("opaque"), session_name, tuple(command), cwd, dict(env))
+            (Path("opaque"), session_name, tuple(command), cwd)
         )
         self.pane_live = True
         return self.target
@@ -923,7 +935,7 @@ def test_interactive_adapter_starts_exact_attempt_bound_handle(
     [started] = backend.started_commands
     assert started[2] == ("provider-client", "--prompt", "initial")
     assert started[3] == tmp_path
-    assert started[4] == {"EXAMPLE": "1"}
+    assert backend.server_envs == [{"EXAMPLE": "1"}]
 
 
 def test_interactive_adapter_preserves_literal_multiline_utf8_and_declared_keys(
@@ -1062,6 +1074,99 @@ def test_tmux_backend_types_subprocess_timeout(
         )
 
     assert exc_info.value.code == "backend_operation_timeout"
+
+
+@pytest.mark.skipif(shutil.which("tmux") is None, reason="tmux is unavailable")
+def test_tmux_backend_inherits_exact_composed_environment_from_private_server(
+) -> None:
+    environment = os.environ.copy()
+    environment["ORC_TEST_SEMICOLON"] = "history -a;_fasd_prompt_func;"
+    environment["ORC_TEST_NEWLINE"] = "first\nsecond"
+
+    with tempfile.TemporaryDirectory(prefix="orc-peer-env-") as root_text:
+        root = Path(root_text)
+        socket_path = root / "tmux.sock"
+        status_path = root / "provider.exit-status"
+        observed_path = root / "observed.json"
+        release_path = root / "release"
+        multiline_argument = "first; 'quoted' value\nsecond line"
+        backend = (
+            interactive_terminal_module._TmuxInteractiveTerminalBackend()
+        )
+        target: str | None = None
+        backend.start_server(
+            socket_path,
+            "peer-env",
+            env=environment,
+            timeout_sec=5.0,
+        )
+        try:
+            script = "\n".join(
+                (
+                    "import json, os, sys, time",
+                    "from pathlib import Path",
+                    f"observed = Path({str(observed_path)!r})",
+                    f"release = Path({str(release_path)!r})",
+                    "observed.write_text(json.dumps({",
+                    "    'semicolon': os.environ['ORC_TEST_SEMICOLON'],",
+                    "    'newline': os.environ['ORC_TEST_NEWLINE'],",
+                    "    'argument': sys.argv[1],",
+                    "}), encoding='utf-8')",
+                    "deadline = time.monotonic() + 5.0",
+                    (
+                        "while not release.exists() "
+                        "and time.monotonic() < deadline:"
+                    ),
+                    "    time.sleep(0.01)",
+                    "raise SystemExit(0 if release.exists() else 3)",
+                )
+            )
+            target = backend.start_pane(
+                socket_path,
+                "peer-env",
+                (sys.executable, "-c", script, multiline_argument),
+                cwd=root,
+                exit_status_path=status_path,
+                timeout_sec=5.0,
+            )
+            deadline = time.monotonic() + 2.0
+            while not observed_path.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert json.loads(observed_path.read_text(encoding="utf-8")) == {
+                "semicolon": "history -a;_fasd_prompt_func;",
+                "newline": "first\nsecond",
+                "argument": multiline_argument,
+            }
+            release_path.write_text("release\n", encoding="ascii")
+            deadline = time.monotonic() + 2.0
+            status = backend.pane_process_status(
+                socket_path,
+                target,
+                timeout_sec=1.0,
+            )
+            while (
+                status.state != "exited"
+                and time.monotonic() < deadline
+            ):
+                time.sleep(0.01)
+                status = backend.pane_process_status(
+                    socket_path,
+                    target,
+                    timeout_sec=1.0,
+                )
+            assert status == PaneProcessStatus(
+                state="exited",
+                return_code=0,
+            )
+            assert status_path.read_text(encoding="ascii") == "0\n"
+        finally:
+            if target is not None:
+                backend.close_pane(
+                    socket_path,
+                    target,
+                    timeout_sec=5.0,
+                )
+            backend.close_server(socket_path, timeout_sec=5.0)
 
 
 def test_interactive_adapter_join_waits_for_recorded_exit_status(

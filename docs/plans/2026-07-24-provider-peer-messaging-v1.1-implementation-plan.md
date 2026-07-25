@@ -654,7 +654,7 @@ adjacent run; the new peer modules are Pyright-clean.
 - Extend: `orchestrator/providers/interactive_terminal.py` only if required
   by behavior already specified in the accepted design.
 
-- [ ] **Step 1: Add a bounded real-adapter test**
+- [x] **Step 1: Add a bounded real-adapter test**
 
 The test owns a temporary endpoint, bundle path, ledger, and adapter handle.
 The initial real provider turn must call `peer-ready`; the harness then
@@ -675,7 +675,7 @@ joined process/pane/helper boundary
 no cancellation/resume/directive call
 ```
 
-- [ ] **Step 2: Run it in tmux**
+- [x] **Step 2: Run it in tmux**
 
 ```bash
 ORCHESTRATE_E2E=1 PYTHONWARNINGS=error pytest -q -s \
@@ -687,7 +687,7 @@ Expected: PASS with the installed supported provider. If delivery needs a
 forcing action, stop and revise the design; do not move the interruption
 point or substitute a fixture.
 
-- [ ] **Step 3: Run deterministic adapter regressions**
+- [x] **Step 3: Run deterministic adapter regressions**
 
 ```bash
 pytest -q tests/test_provider_interactive_terminal.py \
@@ -697,9 +697,22 @@ pytest -q tests/test_provider_interactive_terminal.py \
 
 Expected: all pass.
 
-- [ ] **Step 4: Obtain ordered reviews and commit**
+- [x] **Step 4: Obtain ordered reviews and commit**
 
 Commit message: `Prove real provider turn-boundary delivery`.
+
+**Outcome:** The installed builtin Codex provider completed the exact
+one-member gate through ready, durable record and offer, queued next-turn
+acknowledgement, direct typed scalar validation and freezing, cooperative
+finish, declared natural close, zero client exit, and complete endpoint/pane/
+server cleanup. The gate exposed and closed two provider-boundary defects:
+the attempt-private tmux server now inherits the exact composed child
+environment without routing arbitrary values through tmux command parsing,
+and the builtin Codex capability declares its observed non-forcing
+`("ENTER", "TAB")` natural-close sequence. The quality-corrected real gate
+passed in 41.79 seconds; 173 deterministic adapter/protocol/runtime tests,
+collection/default-skip checks, Pyright, compilation, and diff checks passed.
+Ordered specification and quality reviews approved the final slice.
 
 ## Task 8: Add Target-2.17 Surface, Types, Effects, And WCC Closure
 

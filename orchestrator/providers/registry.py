@@ -105,7 +105,7 @@ class ProviderRegistry:
                         ),
                         message_submit_keys=("ENTER", "TAB"),
                         graceful_close_text="/exit",
-                        graceful_close_submit_keys=("ENTER",),
+                        graceful_close_submit_keys=("ENTER", "TAB"),
                     )
                     if interactive_session
                     else None
