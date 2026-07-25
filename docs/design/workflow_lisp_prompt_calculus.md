@@ -140,6 +140,60 @@ fragment references or criteria documents, collect a list of judgments,
 render the matrix. No new machinery in this component; it is the
 composition of components 1–4 with `list/map-effect`.
 
+## Worked example: opt-in density across a workflow's life
+
+The same review panel at two moments, demonstrating the calculus together
+with design principle 29 (types are opt-in constraints). Day one —
+exploratory, nearly typeless:
+
+```lisp
+(defprompt lens-review
+  (:fills (criteria :doc) (target :doc) (report_target :path))
+  "Review the target according to the criteria.
+   Write your review to {report_target}.")
+
+(defworkflow entry
+  ((doc Path)                       ; generic path: no root/existence ceremony yet
+   (lens_names List[String]))       ; the panel is a list of strings
+  -> Value                          ; opt-in top type: no result contract yet
+  (list/map-effect ((name lens_names)) :max 8
+    (provider-result providers.reviewer
+      :prompt (lens-review
+                :criteria (path/join-under "lenses" (string/concat name ".md"))
+                :target doc
+                :report_target (path/join-under "artifacts/review" (string/concat name ".md")))
+      :returns Value)))
+```
+
+Zero `defrecord`, `defunion`, or `defpath` declarations — yet slot-discharge
+checking, path containment, per-attempt evidence, mid-panel resume, and the
+spend cap all hold, because they are structural. Result-shape validation is
+deliberately loose: a loose contract is a loose check, chosen.
+
+Hardened later, narrowing only where narrowing pays (each step legal under
+"contracts may only narrow"): `:returns` becomes a record once its fields
+are consumed; the report path becomes a rooted must-exist family once
+downstream relies on it; one `defenum` verdict appears at the single place
+a caller routes with `match`; and the irreconcilable-contradiction outcome
+becomes an authored failure (`fail :class "panel_contradiction" ...`)
+rather than a variant threaded through every caller. Reusable aggregation
+bridges both eras without re-wrapping through a structural constraint:
+
+```lisp
+(defproc worst-severity
+  :forall (T)
+  ((items List[T]))
+  :where ((T is-record) (T has-field severity_count Int))
+  -> Int
+  ...)
+```
+
+Feature status within this example: structural constraints, `string/concat`,
+evidence, and resume exist today; `list/map-effect`, `path/join-under`, and
+the list operators are the pure-list-traversal delta; `defprompt`/kinds are
+this design's first tranche; `Value` and authored `fail` are
+parsimony-wave candidates in the roadmap's post-Stage-8 queue.
+
 ## Boundaries
 
 - **Completeness is structural, not semantic.** The checker verifies that

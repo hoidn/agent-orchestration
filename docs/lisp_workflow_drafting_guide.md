@@ -614,6 +614,17 @@ Use the smallest unit that represents the behavior truthfully.
 
 Start every workflow family by defining the values it moves across boundaries.
 
+Scope note (design principle 29, adopted 2026-07-25): "types first" describes
+where a production workflow family should end up, not an admission price.
+Exploratory authoring may begin with generic primitives (`String`, `Int`,
+`List[...]`, general path families) and loose result contracts, then narrow
+under "contracts may only narrow" as fields get consumed and outcomes get
+routed on. Reserve specific nominal types for boundaries where the name
+carries a real contract — rooted/existence path families, variants callers
+route on with proof, persisted identities — and prefer structural
+constraints (`is-record`, `has-field`, `has-union-variant`) over demanding
+bespoke nominal types in reusable procedures.
+
 ### 5.1 Paths
 
 Use `defpath` for reusable path contracts.
