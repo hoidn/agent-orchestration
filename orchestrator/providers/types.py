@@ -12,6 +12,10 @@ _PROVIDER_COMMAND_PLACEHOLDER_PATTERN = re.compile(r"\$\{([^}]+)\}")
 _BARE_PROVIDER_PARAM_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 CALL_POLICY_OPTION_ORDER: Tuple[str, ...] = ("model", "effort")
+INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION = (
+    "interactive_terminal_turn_queue.v1"
+)
+INTERACTIVE_TERMINAL_SUBMIT_KEYS = frozenset({"ENTER", "TAB"})
 _RESERVED_CALL_POLICY_TARGETS = frozenset(
     {
         "PROMPT",
@@ -84,6 +88,105 @@ class ProviderSessionSupport:
     fresh_command: List[str]
     resume_command: Optional[List[str]] = None
     turn_boundary_resume: bool = False
+
+
+@dataclass(frozen=True)
+class InteractiveSessionSupport:
+    """Declared provider capability for queued interactive terminal turns."""
+
+    schema_version: str
+    turn_boundary_messages: bool
+    command: Tuple[str, ...]
+    message_submit_keys: Tuple[str, ...]
+    graceful_close_text: str
+    graceful_close_submit_keys: Tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        """Detach ordered public list input from caller-owned mutable storage."""
+        for field_name in (
+            "command",
+            "message_submit_keys",
+            "graceful_close_submit_keys",
+        ):
+            value = getattr(self, field_name)
+            if isinstance(value, list):
+                object.__setattr__(self, field_name, tuple(value))
+
+
+def validate_interactive_session_support_capability(
+    support: InteractiveSessionSupport,
+) -> Tuple[str, ...]:
+    """Validate the closed structural interactive-session declaration."""
+    errors: List[str] = []
+    if support.schema_version != INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION:
+        errors.append(
+            "schema_version must be "
+            f"{INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION!r}"
+        )
+
+    enabled = support.turn_boundary_messages
+    if not isinstance(enabled, bool):
+        errors.append("turn_boundary_messages must be a boolean")
+    elif enabled is not True:
+        errors.append("turn_boundary_messages must be true")
+
+    command = support.command
+    command_is_valid = (
+        isinstance(command, tuple)
+        and bool(command)
+        and all(
+            isinstance(token, str) and bool(token.strip())
+            for token in command
+        )
+    )
+    if not isinstance(command, tuple) or not command:
+        errors.append("command must be a non-empty ordered sequence")
+    elif not all(
+        isinstance(token, str) and bool(token.strip())
+        for token in command
+    ):
+        errors.append("command tokens must be non-empty strings")
+
+    if command_is_valid:
+        placeholders = tuple(
+            placeholder
+            for token in command
+            for placeholder in extract_provider_command_placeholders(token)
+        )
+        if placeholders.count("PROMPT") != 1:
+            errors.append(
+                "command must contain exactly one unescaped ${PROMPT} placeholder"
+            )
+        if "SESSION_ID" in placeholders:
+            errors.append(
+                "command must not contain an unescaped ${SESSION_ID} placeholder"
+            )
+
+    for field_name in (
+        "message_submit_keys",
+        "graceful_close_submit_keys",
+    ):
+        key_sequence = getattr(support, field_name)
+        if not isinstance(key_sequence, tuple) or not key_sequence:
+            errors.append(
+                f"{field_name} must be a non-empty ordered sequence"
+            )
+            continue
+        if not all(
+            isinstance(key, str) and bool(key.strip())
+            for key in key_sequence
+        ):
+            errors.append(f"{field_name} tokens must be non-empty strings")
+            continue
+        for key in key_sequence:
+            if key not in INTERACTIVE_TERMINAL_SUBMIT_KEYS:
+                errors.append(f"{field_name} contains unsupported key {key!r}")
+
+    close_text = support.graceful_close_text
+    if not isinstance(close_text, str) or not close_text.strip():
+        errors.append("graceful_close_text must be a non-empty string")
+
+    return tuple(errors)
 
 
 def validate_turn_boundary_resume_capability(
@@ -185,6 +288,8 @@ class ProviderTemplate:
         defaults: Default parameter values (supports nested for AT-44)
         input_mode: How to deliver the prompt (argv or stdin)
         session_support: Optional session-capable command variants
+        interactive_session_support: Optional queued interactive-session
+            capability
     """
     name: str
     command: List[str]
@@ -192,6 +297,7 @@ class ProviderTemplate:
     input_mode: InputMode = InputMode.ARGV
     session_support: Optional[ProviderSessionSupport] = None
     call_policy_bindings: Mapping[str, CallPolicyBinding] = field(default_factory=dict)
+    interactive_session_support: Optional[InteractiveSessionSupport] = None
 
     def validate(self) -> List[str]:
         """
@@ -247,6 +353,23 @@ class ProviderTemplate:
                 )
             )
 
+        if self.interactive_session_support is not None:
+            if not isinstance(
+                self.interactive_session_support,
+                InteractiveSessionSupport,
+            ):
+                errors.append(
+                    f"Provider '{self.name}': interactive_session_support "
+                    "must be an InteractiveSessionSupport"
+                )
+            else:
+                errors.extend(
+                    f"Provider '{self.name}': interactive_session_support.{error}"
+                    for error in validate_interactive_session_support_capability(
+                        self.interactive_session_support
+                    )
+                )
+
         errors.extend(self._validate_call_policy_bindings())
 
         return errors
@@ -272,6 +395,16 @@ class ProviderTemplate:
                         self.session_support.resume_command,
                     )
                 )
+        if isinstance(
+            self.interactive_session_support,
+            InteractiveSessionSupport,
+        ):
+            variants.append(
+                (
+                    "interactive_session_support.command",
+                    self.interactive_session_support.command,
+                )
+            )
 
         for canonical_option, binding in self.call_policy_bindings.items():
             context = f"Provider '{self.name}': call_policy_bindings[{canonical_option!r}]"
@@ -343,7 +476,7 @@ class ProviderTemplate:
     def _is_valid_command_container(command: object) -> bool:
         """Return whether structural command validation permits consumption checks."""
         return (
-            isinstance(command, list)
+            isinstance(command, (list, tuple))
             and bool(command)
             and all(isinstance(token, str) for token in command)
         )
@@ -351,7 +484,7 @@ class ProviderTemplate:
     @staticmethod
     def _placeholder_count(command: object, target: str) -> int:
         """Count one target across a command after template escape processing."""
-        if not isinstance(command, list):
+        if not isinstance(command, (list, tuple)):
             return 0
         return sum(
             placeholder == target

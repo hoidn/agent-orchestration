@@ -202,6 +202,10 @@ Do not move v1 implementation into common modules during this tranche.
 
 ## Task 1: Freeze v1 And Add The Structural Capability
 
+**Outcome:** Complete. The six-artifact target-2.16 oracle and structural
+capability passed fresh focused/adjacent validation and ordered
+`TASK1_SPEC_APPROVED` / `TASK1_QUALITY_APPROVED` reviews.
+
 **Files:**
 
 - Create:
@@ -212,7 +216,7 @@ Do not move v1 implementation into common modules during this tranche.
 - Modify: `orchestrator/providers/registry.py`
 - Modify: `orchestrator/providers/__init__.py`
 
-- [ ] **Step 1: Commit a target-2.16 compatibility oracle**
+- [x] **Step 1: Commit a target-2.16 compatibility oracle**
 
 Compile the existing
 `tests/fixtures/workflow_lisp/provider_supervision/provider_supervision_continue.orc`
@@ -220,7 +224,7 @@ at the accepted-design commit and record canonical digests for executable IR,
 Core AST, runtime plan, Semantic IR, source map, and build manifest. Add one
 test that recompiles the fixture and compares exactly to those digests.
 
-- [ ] **Step 2: Prove the new capability tests fail**
+- [x] **Step 2: Prove the new capability tests fail**
 
 Add tests for an immutable `InteractiveSessionSupport` with:
 
@@ -249,14 +253,14 @@ pytest -q tests/test_provider_interactive_terminal.py \
 Expected: FAIL only because the capability and compatibility helper do not
 exist.
 
-- [ ] **Step 3: Implement closed capability parsing and validation**
+- [x] **Step 3: Implement closed capability parsing and validation**
 
 Add the optional capability to `ProviderTemplate`, include it in builtin and
 workflow-manifest loading, and validate it structurally. Keep providers
 without it valid outside a peer group. Adapter selection may inspect only
 `schema_version`.
 
-- [ ] **Step 4: Run narrow and adjacent tests**
+- [x] **Step 4: Run narrow and adjacent tests**
 
 ```bash
 pytest -q tests/test_provider_interactive_terminal.py
@@ -267,7 +271,7 @@ pytest --collect-only -q tests/test_provider_interactive_terminal.py
 
 Expected: all pass and the v1 digest oracle is unchanged.
 
-- [ ] **Step 5: Obtain ordered reviews and commit**
+- [x] **Step 5: Obtain ordered reviews and commit**
 
 Commit message: `Add structural interactive provider capability`.
 

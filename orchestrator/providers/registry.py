@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from .types import (
     CallPolicyBinding,
     InputMode,
+    InteractiveSessionSupport,
     ProviderSessionMetadataMode,
     ProviderSessionSupport,
     ProviderTemplate,
@@ -47,6 +48,7 @@ class ProviderRegistry:
             model: str,
             *,
             turn_boundary_resume: bool = False,
+            interactive_session: bool = False,
         ) -> ProviderTemplate:
             unrestricted_flags = ["--dangerously-bypass-approvals-and-sandbox"]
             return ProviderTemplate(
@@ -88,6 +90,26 @@ class ProviderRegistry:
                     ],
                     turn_boundary_resume=turn_boundary_resume,
                 ),
+                interactive_session_support=(
+                    InteractiveSessionSupport(
+                        schema_version="interactive_terminal_turn_queue.v1",
+                        turn_boundary_messages=True,
+                        command=(
+                            "codex",
+                            "--model",
+                            "${model}",
+                            "--config",
+                            "reasoning_effort=${reasoning_effort}",
+                            *unrestricted_flags,
+                            "${PROMPT}",
+                        ),
+                        message_submit_keys=("ENTER", "TAB"),
+                        graceful_close_text="/exit",
+                        graceful_close_submit_keys=("ENTER",),
+                    )
+                    if interactive_session
+                    else None
+                ),
                 call_policy_bindings={
                     "model": CallPolicyBinding(target_param="model"),
                     "effort": CallPolicyBinding(target_param="reasoning_effort"),
@@ -127,6 +149,7 @@ class ProviderRegistry:
                 "codex",
                 "gpt-5.4",
                 turn_boundary_resume=True,
+                interactive_session=True,
             ),
             "codex_gpt55": codex_provider("codex_gpt55", "gpt-5.5"),
             "codex_unrestricted_workspace": ProviderTemplate(
@@ -208,12 +231,21 @@ class ProviderRegistry:
                 # Parse input mode
                 input_mode = InputMode(config.get("input_mode", "argv"))
 
+                interactive_session_support = None
+                if "interactive_session_support" in config:
+                    interactive_session_support = (
+                        self._parse_interactive_session_support(
+                            config["interactive_session_support"]
+                        )
+                    )
+
                 provider = ProviderTemplate(
                     name=name,
                     command=config.get("command", []),
                     defaults=config.get("defaults", {}),
                     input_mode=input_mode,
                     session_support=self._parse_session_support(config.get("session_support")),
+                    interactive_session_support=interactive_session_support,
                 )
 
                 # Validate before registering
@@ -241,6 +273,64 @@ class ProviderRegistry:
             fresh_command=fresh_command if isinstance(fresh_command, list) else [],
             resume_command=resume_command if isinstance(resume_command, list) else None,
             turn_boundary_resume=config.get("turn_boundary_resume", False),
+        )
+
+    def _parse_interactive_session_support(
+        self,
+        config: Any,
+    ) -> InteractiveSessionSupport:
+        """Parse one closed queued-interactive-session capability object."""
+        if not isinstance(config, dict):
+            raise ValueError(
+                "interactive_session_support must be an object"
+            )
+
+        required_fields = {
+            "schema_version",
+            "turn_boundary_messages",
+            "command",
+            "message_submit_keys",
+            "graceful_close_text",
+            "graceful_close_submit_keys",
+        }
+        observed_fields = set(config)
+        missing = sorted(required_fields - observed_fields)
+        extra = sorted(observed_fields - required_fields)
+        field_errors = []
+        if missing:
+            field_errors.append(f"missing fields: {', '.join(missing)}")
+        if extra:
+            field_errors.append(f"extra fields: {', '.join(extra)}")
+        if field_errors:
+            raise ValueError(
+                "interactive_session_support "
+                + "; ".join(field_errors)
+            )
+
+        expected_types = {
+            "schema_version": (str, "string"),
+            "turn_boundary_messages": (bool, "boolean"),
+            "command": (list, "list"),
+            "message_submit_keys": (list, "list"),
+            "graceful_close_text": (str, "string"),
+            "graceful_close_submit_keys": (list, "list"),
+        }
+        for field_name, (expected_type, type_label) in expected_types.items():
+            if type(config[field_name]) is not expected_type:
+                raise ValueError(
+                    "interactive_session_support."
+                    f"{field_name} must be a {type_label}"
+                )
+
+        return InteractiveSessionSupport(
+            schema_version=config["schema_version"],
+            turn_boundary_messages=config["turn_boundary_messages"],
+            command=config["command"],
+            message_submit_keys=config["message_submit_keys"],
+            graceful_close_text=config["graceful_close_text"],
+            graceful_close_submit_keys=config[
+                "graceful_close_submit_keys"
+            ],
         )
 
     def get(self, name: str) -> Optional[ProviderTemplate]:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from argparse import Namespace
 from concurrent.futures import Future
 from dataclasses import dataclass, field
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -42,6 +43,13 @@ FIXTURE_FILES = (
     "prompts.json",
     "worker.md",
     "supervisor.md",
+)
+TARGET_2_16_DIGESTS_PATH = (
+    Path(__file__).parent
+    / "fixtures"
+    / "workflow_lisp"
+    / "provider_peer_group"
+    / "v1_2_16_artifact_digests.json"
 )
 
 
@@ -158,6 +166,47 @@ def _build_request(
         emit_debug_yaml=False,
         workspace_root=workspace,
     )
+
+
+def _canonical_target_2_16_artifact_digest(
+    value: object,
+    *,
+    workspace_root: Path,
+    build_fingerprint: str,
+    persisted_surface_sha256: str,
+) -> str:
+    repository_root = Path(__file__).resolve().parents[1]
+
+    def canonicalize(candidate: object) -> object:
+        if isinstance(candidate, dict):
+            return {
+                key: canonicalize(item)
+                for key, item in candidate.items()
+            }
+        if isinstance(candidate, list):
+            return [canonicalize(item) for item in candidate]
+        if isinstance(candidate, str):
+            return (
+                candidate.replace(
+                    workspace_root.resolve().as_posix(),
+                    "${WORKSPACE}",
+                )
+                .replace(repository_root.as_posix(), "${REPOSITORY}")
+                .replace(build_fingerprint, "${BUILD_FINGERPRINT}")
+                .replace(
+                    persisted_surface_sha256,
+                    "${PERSISTED_SURFACE_SHA256}",
+                )
+            )
+        return candidate
+
+    canonical_bytes = json.dumps(
+        canonicalize(value),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(canonical_bytes).hexdigest()}"
 
 
 def _run_args(files: dict[str, Path]) -> Namespace:
@@ -385,6 +434,63 @@ def test_public_compile_emits_one_atomic_provider_supervision_node(
         candidate.kind is not ExecutableNodeKind.PROVIDER
         for candidate in built.validated_bundle.ir.nodes.values()
     )
+
+
+def test_target_2_16_artifact_digests_remain_exact(
+    tmp_path: Path,
+) -> None:
+    request = FrontendBuildRequest(
+        source_path=FIXTURE_ROOT / "provider_supervision_continue.orc",
+        source_roots=(FIXTURE_ROOT,),
+        entry_workflow="orchestrate",
+        provider_externs_path=FIXTURE_ROOT / "providers.json",
+        prompt_externs_path=FIXTURE_ROOT / "prompts.json",
+        imported_workflow_bundles_path=None,
+        command_boundaries_path=None,
+        emit_debug_yaml=False,
+        workspace_root=tmp_path,
+    )
+    built = build_frontend_bundle(request)
+    oracle = json.loads(
+        TARGET_2_16_DIGESTS_PATH.read_text(encoding="utf-8")
+    )
+    surface_sha256 = built.manifest.persisted_workflow_surface["sha256"]
+    artifact_paths = {
+        "build_manifest": built.artifact_paths["manifest"],
+        "core_workflow_ast": built.artifact_paths["core_workflow_ast"],
+        "executable_ir": built.artifact_paths["executable_ir"],
+        "runtime_plan": built.artifact_paths["runtime_plan"],
+        "semantic_ir": built.artifact_paths["semantic_ir"],
+        "source_map": built.artifact_paths["source_map"],
+    }
+
+    observed = {
+        name: _canonical_target_2_16_artifact_digest(
+            json.loads(path.read_text(encoding="utf-8")),
+            workspace_root=tmp_path,
+            build_fingerprint=built.manifest.fingerprint,
+            persisted_surface_sha256=surface_sha256,
+        )
+        for name, path in artifact_paths.items()
+    }
+
+    assert oracle == {
+        "artifacts": observed,
+        "canonicalization": {
+            "build_fingerprint": "${BUILD_FINGERPRINT}",
+            "persisted_surface_sha256": "${PERSISTED_SURFACE_SHA256}",
+            "repository_root": "${REPOSITORY}",
+            "workspace_root": "${WORKSPACE}",
+        },
+        "fixture": (
+            "tests/fixtures/workflow_lisp/provider_supervision/"
+            "provider_supervision_continue.orc"
+        ),
+        "schema_version": (
+            "provider_supervision_target_2_16_artifact_digests.v1"
+        ),
+        "target_version": "2.16",
+    }
 
 
 def test_compile_rejects_worker_without_turn_boundary_resume(

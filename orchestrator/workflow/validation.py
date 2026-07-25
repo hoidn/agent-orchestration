@@ -934,6 +934,18 @@ class _WorkflowMappingValidator:
                             ),
                         )
 
+            interactive_session_support = None
+            if "interactive_session_support" in config:
+                try:
+                    interactive_session_support = (
+                        self._provider_registry
+                        ._parse_interactive_session_support(
+                            config["interactive_session_support"]
+                        )
+                    )
+                except ValueError as exc:
+                    self._add_error(f"Provider '{name}': {exc}")
+
             if len(self.errors) != error_count:
                 continue
 
@@ -944,6 +956,7 @@ class _WorkflowMappingValidator:
                     defaults=config.get("defaults", {}),
                     input_mode=config.get("input_mode", "argv"),
                     session_support=session_support,
+                    interactive_session_support=interactive_session_support,
                 )
             except Exception as exc:
                 self._add_error(f"Provider '{name}': {exc}")

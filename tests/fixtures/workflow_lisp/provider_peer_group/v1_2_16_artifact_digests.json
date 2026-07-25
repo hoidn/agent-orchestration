@@ -1,0 +1,19 @@
+{
+  "artifacts": {
+    "build_manifest": "sha256:fc7a4dc099a122bf804ab7fe9ade547a2022c13c57c797000e276b0597835133",
+    "core_workflow_ast": "sha256:b6f3c076906ebc60d58fc919c3740d0ad39f73ab23886b66f4757e0c4b5b7e61",
+    "executable_ir": "sha256:289aa8b70234e966e7d12cd2d4e340f923285274f7a2ded504099643b47f9c50",
+    "runtime_plan": "sha256:a8e8c29f8eee7edae1cc38f3dbb7f24d5e820f03f9a7e44ae6ad8775dae76d79",
+    "semantic_ir": "sha256:3a3ed84df87c089bf13213c901dca0fa8133dafce408ddd9fd5a8d441d337c75",
+    "source_map": "sha256:665277258c8031bd6ac363c45973811f680f35f6779888576feed4256c4aa1e9"
+  },
+  "canonicalization": {
+    "build_fingerprint": "${BUILD_FINGERPRINT}",
+    "persisted_surface_sha256": "${PERSISTED_SURFACE_SHA256}",
+    "repository_root": "${REPOSITORY}",
+    "workspace_root": "${WORKSPACE}"
+  },
+  "fixture": "tests/fixtures/workflow_lisp/provider_supervision/provider_supervision_continue.orc",
+  "schema_version": "provider_supervision_target_2_16_artifact_digests.v1",
+  "target_version": "2.16"
+}

@@ -6,6 +6,7 @@ Provides registry, executor, and types for managing and executing provider templ
 
 from .types import (
     CallPolicyBinding,
+    InteractiveSessionSupport,
     ProviderTemplate,
     ProviderParams,
     ProviderInvocation,
@@ -47,6 +48,7 @@ from .isolation import (
 
 __all__ = [
     "CallPolicyBinding",
+    "InteractiveSessionSupport",
     "ProviderTemplate",
     "ProviderParams",
     "ProviderInvocation",
