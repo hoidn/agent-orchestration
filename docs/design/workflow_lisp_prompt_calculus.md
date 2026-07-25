@@ -74,6 +74,16 @@ composable like a type or procedure:
    Write your review to {report_target}.")
 ```
 
+A fragment's slots are one set seen two ways. The **templating view** is
+the text: fields in the prose, bindable one at a time until fully bound.
+The **signature view** is the interface: typed inputs and outputs,
+one-to-one with a procedure signature (component 2). The views cannot
+drift because they share the slots: for rendered kinds (`:text`, `:value`,
+`:path`) the compiler checks the placeholder/slot correspondence both
+ways — an undeclared `{placeholder}` or a declared rendered slot absent
+from the text is a compile error — while `:doc` slots deliver as injected
+blocks and need no inline placeholder.
+
 Slots are holes with **kinds**, drawn from a closed, small vocabulary —
 `:doc` (injected document content), `:text` (rendered string), `:value`
 (rendered transportable value), `:path` (rendered path) — mirroring the
@@ -104,11 +114,21 @@ versus "read the file at {p}"), so caller-side overrides could silently
 contradict the fragment's own text. Same-fragment-both-modes is deferred
 until a consumer demonstrates the need.
 
-A slot *may* refine its kind with a specific type
-(`(criteria :doc CriteriaDoc)`) when a particular path family or value
-shape genuinely matters, but refinement is optional and not the idiom:
-the calculus's value is discharge checking, not nominal branding, and a
-fragment usable only with bespoke types is a worse fragment.
+A `:path` slot may additionally be marked an **output position**
+(`(report_target :path :out)`): the prose instructs writing to that path,
+the signature declares it, and the runtime verifies existence there after
+the attempt — today's expected-output postcondition, relocated to the
+declaration the instruction lives in. This closes a real drift class
+(prompt instructs writing to X while the step checks Y) by making prose,
+signature, and postcondition one declaration.
+
+Kinds are not a vocabulary beside the type system; each kind is the loose
+top type of its delivery channel, and a slot *may* narrow it with a
+specific type (`(criteria :doc CriteriaDoc)`) when a particular path
+family or value shape genuinely matters. Refinement is ordinary
+principle-29 narrowing — optional, and not the idiom: the calculus's
+value is discharge checking, not nominal branding, and a fragment usable
+only with bespoke types is a worse fragment.
 
 Fragments compose: a call's prompt is a fragment application tree,
 flattened deterministically at composition time into the same rendered
@@ -116,28 +136,55 @@ bytes / attempt-snapshot / evidence pipeline that exists today. There are
 no runtime prompt values: composition is compile-time structure, rendering
 is the existing per-attempt runtime step.
 
-### 2. Fragment/result coherence
+Application may be partial. Binding a subset of slots by name yields a
+**residual fragment** whose signature is exactly the remaining slots,
+usable anywhere a fragment is: partial application is compile-time
+structural staging, not closure creation — a residual is never a runtime
+value. The discharge rule generalizes accordingly: a provider call
+applied to a fragment with a nonempty residual is the compile error
+`prompt_slot_undischarged`, naming the open slots and their kinds.
+Staging gives the generic-reviewer pattern its natural shape —
+panel-invariant slots bound once, the per-lens slot bound at each use.
 
-Optionally, a fragment that instructs a classification declares the type
-it elicits:
+### 2. Prompt-carried signatures
+
+Slots and return type together make a prompt a full procedure signature:
+slots are the parameters, and the declared return type is what the prompt
+elicits. A fully bound prompt handed to a provider is a call to a
+procedure whose body is stochastic.
 
 ```lisp
 (defprompt classify-blocker
-  (:elicits BlockerClass)
-  ...)
+  (:fills (evidence :doc))
+  -> BlockerClass
+  "...")
 ```
 
-A call composing this fragment must have a `:returns` compatible with the
-declared elicitation (the union itself, or a record/union containing it).
-This makes the existing output-contract bridge bidirectional: types render
-into prompts, and prompts declare the types they aim at, checked against
-each other.
+An unstated return type is `Value` — loose by choice, per principle 29.
+Provider call sites *derive* their result type from the composed prompt
+instead of re-declaring it, exactly as any call site takes its type from
+the callee's signature; a call-site annotation is optional and is checked
+against the signature, never trusted over it. The existing
+output-contract rendering keys off this one declaration, so the bridge
+runs both ways from a single source: the return type renders into the
+prompt as the contract block, and the provider's result validates against
+it at the runtime boundary.
+
+Two consequences follow. Prompts and procedures become
+signature-interchangeable: a deterministic `defproc` with the same
+signature can stand in for a prompt-backed call, making provider doubles
+in tests type-checked substitutions rather than conventions. And the
+anti-inference line is unmoved: the signature is authored at the
+`defprompt`, never derived from the prose — the checker reads structure,
+not meaning.
 
 ### 3. Prompt identity (E4P discipline, instantiated)
 
 Composed prompts get used-dependency-minimal identity per invariant 8: the
 fragments actually composed, the slots actually filled, and the resolved
-bindings — not unused imports, not ambient hashes. Consequences: "did this
+bindings — not unused imports, not ambient hashes; partial application
+adds no identity surface, since residuals are staging and identity
+attaches to the fully composed tree at the call. Consequences: "did this
 review run under the same prompt as last week" is a computable question;
 prompt drift is a diff between identities; and the evidence ledger's
 "what did this agent see" gains a stable name for the program half.
@@ -158,7 +205,9 @@ results and the evidence, and the views make them legible.
 With fragments as importable objects and the list-traversal delta landed,
 the review panel reaches its final form: map a procedure over a list of
 fragment references or criteria documents, collect a list of judgments,
-render the matrix. No new machinery in this component; it is the
+render the matrix. Partial application supplies the idiom —
+panel-invariant slots bound once outside the map, only the per-lens slot
+bound in the body. No new machinery in this component; it is the
 composition of components 1–4 with `list/map-effect`.
 
 ## Worked example: opt-in density across a workflow's life
@@ -178,12 +227,11 @@ exploratory, nearly typeless:
    (lens_names List[String]))       ; the panel is a list of strings
   -> Value                          ; opt-in top type: no result contract yet
   (list/map-effect ((name lens_names)) :max 8
-    (provider-result providers.reviewer
-      :prompt (lens-review
+    (provider-result providers.reviewer  ; result type from the prompt's
+      :prompt (lens-review               ; signature — unstated, so Value
                 :criteria (path/join-under "lenses" (string/concat name ".md"))
                 :target doc
-                :report_target (path/join-under "artifacts/review" (string/concat name ".md")))
-      :returns Value)))
+                :report_target (path/join-under "artifacts/review" (string/concat name ".md"))))))
 ```
 
 Zero `defrecord`, `defunion`, or `defpath` declarations — yet slot-discharge
@@ -192,8 +240,8 @@ spend cap all hold, because they are structural. Result-shape validation is
 deliberately loose: a loose contract is a loose check, chosen.
 
 Hardened later, narrowing only where narrowing pays (each step legal under
-"contracts may only narrow"): `:returns` becomes a record once its fields
-are consumed; the report path becomes a rooted must-exist family once
+"contracts may only narrow"): the prompt's declared return type becomes a
+record once its fields are consumed; the report path becomes a rooted must-exist family once
 downstream relies on it; one `defenum` verdict appears at the single place
 a caller routes with `match`; and the irreconcilable-contradiction outcome
 becomes an authored failure (`fail :class "panel_contradiction" ...`)
@@ -211,8 +259,8 @@ bridges both eras without re-wrapping through a structural constraint:
 
 Feature status within this example: structural constraints, `string/concat`,
 evidence, and resume exist today; `list/map-effect`, `path/join-under`, and
-the list operators are the pure-list-traversal delta; `defprompt`/kinds are
-this design's first tranche; `Value` and authored `fail` are
+the list operators are the pure-list-traversal delta; `defprompt` with
+prompt-carried signatures is this design's first tranche; `Value` and authored `fail` are
 parsimony-wave candidates in the roadmap's post-Stage-8 queue.
 
 ## Boundaries
@@ -227,6 +275,8 @@ parsimony-wave candidates in the roadmap's post-Stage-8 queue.
   branch on prompt content at runtime; composition is compile-time
   structure, and runtime contribution remains what it is today — typed
   value rendering and frozen document injection into declared slots.
+  Partial application stays inside the boundary: residuals are
+  compile-time structure, never values.
 - **No optimization semantics.** Prompt variation, search, and fitness are
   the parked E-series; if ever revived they operate over this layer under
   the program-search boundary invariants, which this direction neither
@@ -235,12 +285,13 @@ parsimony-wave candidates in the roadmap's post-Stage-8 queue.
   new nominal types and imposes no obligation to define any: slot
   signatures are kinds from the closed vocabulary, refinement is optional,
   and any value, path, or document satisfying the kind discharges the
-  slot. `:elicits` is likewise optional. A design that makes fragment
+  slot. The return type is likewise optional, defaulting to loose
+  `Value`. A design that makes fragment
   authors build type taxonomies before writing prose has failed this
   boundary.
 - **Union parsimony (owner direction, 2026-07-25).** This layer must not
-  multiply unions. `:elicits` targets any transportable type — enums,
-  records, scalars — not preferentially unions; judgments are records
+  multiply unions. Declared return types target any transportable type —
+  enums, records, scalars — not preferentially unions; judgments are records
   (result + provenance), not new outcome unions; and fragment machinery
   introduces no DONE/FAILED-shaped types anywhere. Unions remain reserved
   for outcomes a caller genuinely routes on; outcomes that are only ever
@@ -251,14 +302,20 @@ parsimony-wave candidates in the roadmap's post-Stage-8 queue.
 
 ## First tranche
 
-`defprompt` with typed slots, slot-discharge checking at provider call
-sites, and deterministic fragment flattening into the existing rendering
-pipeline — components 1 and the structural half of 2. Everything else
-(identity, judgment views, elicitation checking beyond direct unions)
-follows in separate small tranches, each with its own consumer named.
+`defprompt` with prompt-carried signatures (slots as parameters, return
+type defaulting to `Value`), partial application with residual
+signatures, discharge checking at provider call sites, call-site result
+derivation, and deterministic fragment flattening into the existing
+rendering pipeline — components 1 and 2. Output-position slots follow in
+a second tranche once the post-attempt verification wiring is in scope;
+identity and judgment views follow in separate small tranches, each with
+its own consumer named.
 
-Verification sketch for the tranche: RED fixtures for unfilled slot,
-ill-typed fill, and nested-fragment discharge; goldens proving composed
-rendering is byte-identical to an equivalent hand-authored prompt file;
-one end-to-end run converting the generic-reviewer example to fragments
-with unchanged provider behavior and evidence shape.
+Verification sketch for the first tranche: RED fixtures for an unfilled
+slot, an ill-typed fill, nested-fragment discharge, a provider call
+applied to a nonempty residual, a placeholder/slot mismatch inside a
+fragment, and a call-site annotation contradicting the prompt's
+signature; goldens proving composed rendering is byte-identical to an
+equivalent hand-authored prompt file; one end-to-end run converting the
+generic-reviewer example to fragments with unchanged provider behavior
+and evidence shape.
