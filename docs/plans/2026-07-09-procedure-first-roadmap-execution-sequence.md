@@ -100,6 +100,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-07-yaml-retirement-program.md` | Stage 6 complete. Tasks 1-7 are complete: all five queues are drained, exactly the two specified `.orc` ports are primary, no authored workflow YAML/YML remains, fresh execution is ORC-only, and the user-facing loader and project PyYAML dependency are absent. The 1,020-passed/5-skipped focused gate, fresh non-mutating `.orc` smoke, scoped broad comparison with zero new failures against the owner-adopted baseline, and ordered specification PASS/quality APPROVED reviews closed the stage at `d9baa120`. |
 | `2026-07-23-provider-live-binding-implementation-plan.md` | Completed Stage-7 v1 selector. Provider-supervision v1 implementation landed through `4d4f05c7` and completed Tasks 1-15 and Gate S7-v1: provider observation, structural turn-boundary resume, the `provider_supervision.v1` coordinator/runtime, target-2.16 frontend/IR, deterministic and real-provider integration, normative docs, 6,978-passed/17-skipped broad comparison with the four exact retained failures and zero new failures, and ordered `TASK15_SPEC_APPROVED` / `TASK15_QUALITY_APPROVED` reviews. The separately reviewed v1.1 selector in the next row subsequently closed Stage 7 before Stage 8. |
 | `2026-07-24-provider-peer-messaging-v1.1-implementation-plan.md` | Completed Stage-7 v1.1 selector. It binds accepted design commit `8001c016` / digest `4f21cec1...`; received ordered `PLAN_SPEC_APPROVED` / `PLAN_QUALITY_APPROVED`; and landed Tasks 1-11 through `b08c04a6`: the structural capability, interactive adapter, receiving-attempt ledger and peer protocol, single-writer `provider_peer_group.v1` runtime, target-2.17 frontend/projections, deterministic integration, and real two-/three-member gates. Task 12 completed normative/routing updates and final focused/broad/compatibility/real verification, then received ordered `TASK12_FINAL_SPEC_APPROVED` / `TASK12_FINAL_QUALITY_APPROVED`. Gate S7-v1.1 and Stage 7 are closed; the selected list-traversal interstage is now active. |
+| `2026-07-25-workflow-lisp-pure-list-traversal-implementation-plan.md` | Active reviewed post-Stage-7 interstage selector. It binds the accepted target-2.18 design at `80df0616` / digest `e161d45e...` and received ordered `LIST_PLAN_SPEC_APPROVED` / `LIST_PLAN_QUALITY_APPROVED` plus final exact-byte reaffirmations. Execute its seven TDD tasks before proceeding to the already eligible Stage 8; it neither renumbers nor expands Stage 8. |
 | `2026-07-23-refusal-diagnosability-fixes-plan.md` | Queued small fix; not a competing selector. Applies design principle 28 (refusals name their rule) to the entry-bootstrap name-allowlist gate: denial diagnostic, declared-property rule replacing the name key, and promoted-route identity non-drift verification. Execute after the current YAML-retirement task or opportunistically between capture windows. |
 | `2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md` | Parked by owner decision 2026-07-24 per the architectural critique; not a selector. Boundary invariants extracted to `docs/design/workflow_lisp_program_search_boundaries.md`; the slimmed E0 probe and E4P prompt-identity diagnostics are the only salvaged items (see Post-Stage-8 Salvaged Items). Revival requires an explicit owner decision and fresh proportionality review. |
 
@@ -258,9 +259,10 @@ complete. Stage 7 provider-supervision v1 implementation landed through
 v1.1 implementation then completed Tasks 1-11 through `b08c04a6`. Task 12
 completed its normative/routing and closing verification and received ordered
 `TASK12_FINAL_SPEC_APPROVED` / `TASK12_FINAL_QUALITY_APPROVED`, closing Gate
-S7-v1.1 and Stage 7. The final list-traversal design is selected immediately
-for independent review and one small plan before or alongside Stage 8
-planning; Stage 8 remains the next numbered stage and is eligible.
+S7-v1.1 and Stage 7. The amended list-traversal design passed ordered review
+and was accepted at `80df0616`; its independently reviewed seven-task
+implementation plan is now the active interstage selector. Stage 8 is the
+next numbered stage and is eligible.
 
 The completed Phase 1 execution order was:
 
@@ -443,9 +445,10 @@ compatibility or a family migration wave.
 The procedure-first migration wave and Stages 6-7 are complete.
 Provider-supervision v1 closed Gate S7-v1 through `4d4f05c7`; the
 owner-amended v1.1 component plan completed Tasks 1-11 through `b08c04a6` and
-Task 12 through both ordered reviews, closing Gate S7-v1.1. The selected
-list-traversal interstage is active before or alongside Stage 8 planning, and
-Stage 8 remains the next numbered eligible stage.
+Task 12 through both ordered reviews, closing Gate S7-v1.1. The accepted
+list-traversal design at `80df0616` and its reviewed implementation plan are
+the active interstage selector before Stage 8; Stage 8 is the next numbered
+stage and is eligible.
 
 Execute only accepted plans, in this order:
 
@@ -743,15 +746,21 @@ treatment and an explicit roadmap amendment.
 
 ### Selected Interstage: Review And Implement Pure List Traversal
 
-With Gate S7-v1.1 closed, review the final
-`docs/design/workflow_lisp_pure_list_traversal.md` shape from `bef65fdf`
-through independent design review under design principle 29. If approved,
-draft, review, and execute one small implementation plan for that closed
-list-traversal delta.
+**Current status:** Active implementation selector. Independent design review
+required amendments to the `bef65fdf` proposal; the corrected principle-29
+design was accepted at `80df0616` after ordered
+`LIST_DESIGN_SPEC_APPROVED` / `LIST_DESIGN_QUALITY_APPROVED`. Execute the
+reviewed
+`docs/plans/2026-07-25-workflow-lisp-pure-list-traversal-implementation-plan.md`,
+which received ordered `LIST_PLAN_SPEC_APPROVED` /
+`LIST_PLAN_QUALITY_APPROVED` and final exact-byte reaffirmations.
+Its governing accepted design is
+`docs/design/workflow_lisp_pure_list_traversal.md`.
+This is the one small implementation plan required by the interstage gate.
+
 This selected interstage work occurs before or alongside Stage 8 planning and
 has no Stage 8 dependency. Stage 8 remains the next numbered roadmap stage
-and is eligible; the interstage work neither
-renumbers nor expands it.
+and is eligible; the interstage work neither renumbers nor expands it.
 
 ### Stage 8: Deliver The `.orc` Language Server
 

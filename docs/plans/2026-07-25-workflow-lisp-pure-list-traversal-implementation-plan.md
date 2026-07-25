@@ -1,0 +1,607 @@
+# Workflow Lisp Pure List Traversal Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use
+> `superpowers:subagent-driven-development` to execute this plan task by
+> task. Every behavior change uses `superpowers:test-driven-development`.
+> Every task receives an independent specification-compliance review followed
+> by a distinct implementation-quality review before its commit. Steps use
+> checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Implement the accepted target-2.18 list construction/traversal
+surface, pure and bounded-effectful mapping binders, collection-valued loop
+state, and containment-safe rooted path construction without adding function
+values or a new executable control node.
+
+**Architecture:** Add schema-2 expression forms to the shared pure evaluator
+while preserving byte-identical schema-1 payload emission for older forms.
+Represent authored list/path forms in the frontend, admit only whole-list
+types accepted by the existing transport contract, and erase
+`list/map-effect` after specialization into pure projections plus the
+existing `repeat_until` loop. Carry only an optional generic exhaustion
+diagnostic code through existing loop metadata; all scheduling, settlement,
+and resume boundaries remain the established ones.
+
+**Tech stack:** Python 3.11+, immutable dataclasses, canonical JSON,
+Workflow Lisp target DSL 2.18, pure-expression schemas 1 and 2, WCC schema 2,
+Core/Executable/runtime-plan v1, state schema 2.1, pytest/pytest-xdist.
+
+**Accepted design:** `docs/design/workflow_lisp_pure_list_traversal.md` at
+commit `80df061659c035ef3e067fe75b770b4786246f43`, tree
+`d69457f34ce263ef970eb2a0df1aab6f9f14f297`, content digest
+`sha256:e161d45eeaa0a6b9924831467e6eced21c40014aa72d8f7e62bb1d2720e0a5d5`.
+That commit records ordered `LIST_DESIGN_SPEC_APPROVED` then
+`LIST_DESIGN_QUALITY_APPROVED`. Implementation may begin only after this
+plan receives ordered plan reviews and is committed.
+
+**Status:** Accepted for execution. Ordered plan review:
+`LIST_PLAN_SPEC_APPROVED` then `LIST_PLAN_QUALITY_APPROVED` (2026-07-25).
+No implementation code began before this gate.
+
+---
+
+## Scope And Deliberate Cost
+
+This plan implements only:
+
+- target-2.18 `(list ...)`, `list/empty?`, `list/head`, `list/rest`,
+  `list/append`, and `list/length`;
+- target-2.18 pure `list/map`;
+- target-2.18 `path/join-under` with an explicit rooted path family;
+- whole-list-contract-expressible `List[T]` loop state;
+- target-2.18 bounded `list/map-effect` with a single existing effectful call
+  body;
+- pure-expression schema 2 only for payloads using the new forms;
+- optional generic repeat-loop exhaustion diagnostic metadata; and
+- deterministic compile/run/resume evidence for ordered runtime-cardinality
+  fan-out.
+
+Do not add record/union elements to collection contracts, public partial list
+operations, Optional flow refinement, a public `list/case`, higher-order
+functions, `ProcRef` mapping, nested effectful maps, new Core/Executable
+nodes, a routable exhaustion union, or filesystem checks in pure evaluation.
+
+The direct binder-and-erasure approach makes future first-class mapping and
+general effectful comprehension composition harder: either would need a
+separate callable/lifecycle design rather than reusing this syntax
+accidentally. Deferring record/union collection elements also means an author
+must accumulate existing scalar, enum, path, or nested collection shapes in
+this tranche. Those costs are accepted to keep the named runtime-cardinality
+consumer small and structurally typed.
+
+Principle 29 is binding. Generic `List[T]` and the prelude path families are
+valid loose contracts; no task may require authors to mint nominal element
+types. The explicit path family remains nominal because its root and
+existence policy are load-bearing.
+
+## Governing Authorities
+
+Read before implementation:
+
+- `AGENTS.md`
+- `docs/index.md`
+- `docs/capability_status_matrix.md`
+- `docs/design/README.md`
+- `docs/design/workflow_lisp_pure_list_traversal.md`
+- `docs/design/workflow_lisp_frontend_specification.md`
+- `docs/design/workflow_lisp_native_transportable_returns.md`
+- `docs/design/workflow_lisp_state_layout.md`
+- `docs/design/workflow_lisp_lexical_execution_checkpoints.md`
+- `docs/design/workflow_language_design_principles.md`
+- `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
+- `specs/dsl.md`
+- `specs/state.md`
+- `specs/versioning.md`
+
+If this plan conflicts with the accepted design, correct the plan and repeat
+its ordered reviews; do not reinterpret the design in code.
+
+## Execution Contract
+
+Run every command from:
+
+```bash
+cd /home/ollie/Documents/agent-orchestration
+```
+
+Do not create a worktree. Preserve every pre-existing user or external
+change. Stage exact task-owned paths only; never use `git add .`,
+`git add -A`, destructive checkout/reset, or broad cleanup.
+
+For every task:
+
+1. add the smallest contract or behavioral test;
+2. run it and confirm RED for the intended missing behavior;
+3. implement only the selected behavior;
+4. rerun the narrow selector;
+5. run the task's adjacent regression selectors;
+6. run `pytest --collect-only -q` for every new or renamed test module;
+7. update this plan with fresh verification evidence and a truthful
+   `reviews pending` task status so the bookkeeping is part of the exact diff
+   under review;
+8. dispatch a fresh specification reviewer against the accepted design and
+   that exact task diff;
+9. resolve findings, refresh verification bookkeeping if needed, and repeat
+   until specification approval;
+10. dispatch a distinct quality reviewer against the spec-approved exact
+    diff;
+11. resolve findings and repeat the ordered reviews until preliminary quality
+    approval, then record both factual verdicts and `commit pending` status in
+    this plan;
+12. ask the same specification reviewer to reaffirm the final exact diff,
+    then ask the quality reviewer to reaffirm that spec-reaffirmed final
+    exact diff; and
+13. stage exact paths, run `git diff --cached --check`, inspect the staged
+    names/diff, and commit those re-affirmed bytes without any post-review
+    bookkeeping edit;
+14. obtain the implementation commit hash, update only this plan to replace
+    `commit pending` with the factual hash and mark the task complete, verify
+    the follow-up diff contains no behavior or other documentation change,
+    and create a separate plan-only bookkeeping commit.
+
+The plan-only bookkeeping commit records an event that already occurred; it
+does not alter the reviewed implementation tree or claim a verdict that did
+not exist. It does not substitute for either ordered review and must never
+carry source, test, fixture, normative-doc, or routing changes.
+
+Use the `tmux` skill for the closing broad suite and any integration selector
+that exceeds one minute. Keep the installed/default provider and model;
+wait instead of substituting a faster model.
+
+Security is excluded by standing owner direction. Do not implement, test, or
+review security behavior. The closing broad command must exclude the
+security/isolation modules and use:
+
+```bash
+pytest -q -n 16 --dist=worksteal \
+  --ignore=tests/test_at61_at62_wait_for_path_safety.py \
+  --ignore=tests/test_cli_safety.py \
+  --ignore=tests/test_provider_isolation_policy.py \
+  --ignore=tests/test_provider_isolation_schema_resources.py \
+  --ignore=tests/test_provider_isolation_environment.py \
+  --ignore=tests/test_provider_isolation_environment_cli.py \
+  --ignore=tests/test_provider_launch_shim.py \
+  --ignore=tests/test_secrets.py \
+  -k 'not security and not secret and not isolation'
+```
+
+## Protected Working Tree
+
+The following current changes are outside this plan. Do not edit, restore,
+stage, or commit them:
+
+```text
+docs/index.md                         # except exact list/Stage-8 routing hunks
+docs/plans/2026-06-20-workflow-step-back-non-progress-recovery-plan.md
+docs/plans/2026-07-01-workflow-audit-tier-fixes.md
+docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/remaining-neurips-migration-experiment/migration_experiment_recommendation_report.md
+docs/superpowers/plans/2026-07-23-provider-phase-information-isolation.md
+docs/superpowers/specs/2026-07-22-workflow-lisp-evolution-substrate-and-feature-design.md
+state/VERIFIED-ITERATION-DRAIN/iterations/22/checks-log.txt
+workflows/library/prompts/workflow_step_back/diagnose_non_progress.md
+docs/reports/2026-07-22-compelling-example-search-and-effectiveness-doubts.md
+docs/reports/provider-isolation-environment-feasibility/
+orchestrator/cli/commands/__init__.py
+orchestrator/cli/commands/provider_isolation_environment_manifest.py
+orchestrator/cli/main.py
+orchestrator/providers/isolation.py
+orchestrator/providers/isolation_environment.py
+orchestrator/providers/provider_launch_shim.py
+orchestrator/providers/schemas/provider-environment-manifest-v1.schema.json
+specs/cli.md
+specs/providers.md
+specs/security.md
+tests/test_provider_isolation_policy.py
+tests/test_provider_isolation_schema_resources.py
+tests/test_provider_isolation_environment.py
+tests/test_provider_isolation_environment_cli.py
+tests/test_provider_launch_shim.py
+```
+
+`docs/index.md` contains an unstaged owner-authored parked-roadmap hunk. The
+closing routing task may edit only list/Stage-8 status lines and must stage
+those hunks with a generated patch, leaving the owner hunk unstaged.
+
+## File And Responsibility Map
+
+Shared pure kernel:
+
+- `orchestrator/workflow/pure_expr.py`
+- `tests/test_workflow_pure_expr.py`
+- `tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json`
+
+Frontend and lowering:
+
+- `orchestrator/workflow_lisp/syntax.py`
+- `orchestrator/workflow_lisp/form_registry.py`
+- `orchestrator/workflow_lisp/expressions.py`
+- `orchestrator/workflow_lisp/expression_traversal.py`
+- `orchestrator/workflow_lisp/functions.py`
+- `orchestrator/workflow_lisp/procedure_specialization.py`
+- `orchestrator/workflow_lisp/typecheck_dispatch.py`
+- `orchestrator/workflow_lisp/typecheck_pure_ops.py`
+- `orchestrator/workflow_lisp/lowering/pure_projection.py`
+- `orchestrator/workflow_lisp/wcc/route.py`
+- `orchestrator/workflow_lisp/wcc/elaborate.py`
+- `orchestrator/workflow_lisp/wcc/defunctionalize.py`
+
+Loop carriage and generic diagnostic metadata:
+
+- `orchestrator/workflow_lisp/loops.py`
+- `orchestrator/workflow_lisp/loop_state.py`
+- `orchestrator/workflow_lisp/lowering/control_loops.py`
+- `orchestrator/workflow/surface_ast.py`
+- `orchestrator/workflow/core_ast.py`
+- `orchestrator/workflow/executable_ir.py`
+- `orchestrator/workflow/elaboration.py`
+- `orchestrator/workflow/lowering.py`
+- `orchestrator/workflow/runtime_step.py`
+- `orchestrator/workflow/loops.py`
+- `orchestrator/workflow/state_projection.py`
+- `orchestrator/workflow/validation.py`
+
+Focused integration:
+
+- new `tests/test_workflow_lisp_list_traversal.py`
+- `tests/test_workflow_lisp_loop_recur.py`
+- `tests/test_workflow_lisp_build_artifacts.py`
+- `tests/test_workflow_lisp_wcc_m4.py`
+- `tests/test_resume_command.py` or the narrow owning lexical-resume module,
+  selected from the actual seam before writing the test
+
+Keep new helpers in existing owning modules unless one module would otherwise
+mix frontend syntax with runtime evaluation. Do not create a general
+collection framework.
+
+---
+
+## Task 1: Freeze Target 2.18 And Dual Pure-Payload Versions
+
+**Outcome:** Target/version gates exist before any new source behavior.
+Existing target-2.14 through 2.17 inputs and schema-1 pure payloads remain
+byte-identical.
+
+**Files:**
+
+- Modify: `orchestrator/workflow_lisp/syntax.py`
+- Modify: `orchestrator/workflow/validation.py`
+- Modify: `orchestrator/workflow/pure_expr.py`
+- Modify: `orchestrator/workflow_lisp/lowering/pure_projection.py`
+- Modify: `tests/test_loader_validation.py`
+- Modify: `tests/test_workflow_pure_expr.py`
+- Modify: `tests/test_workflow_lisp_build_artifacts.py`
+- Create: `tests/test_workflow_lisp_list_traversal.py`
+
+**RED:**
+
+- [ ] Add collectable tests proving target 2.18 is currently rejected.
+- [ ] Add schema tests proving version 2 is currently rejected and version 1
+      remains canonical.
+- [ ] Freeze one representative target-2.17 schema-1 payload/build digest.
+- [ ] Run:
+
+```bash
+pytest --collect-only -q tests/test_workflow_lisp_list_traversal.py
+pytest -q \
+  tests/test_loader_validation.py \
+  tests/test_workflow_pure_expr.py \
+  tests/test_workflow_lisp_build_artifacts.py \
+  tests/test_workflow_lisp_list_traversal.py
+```
+
+**GREEN:**
+
+- [ ] Add `2.18` and a single list-traversal minimum-target constant.
+- [ ] Extend shared mapping validation's supported-version set/order so a
+      compiled target-2.18 mapping is accepted while unknown versions still
+      fail closed.
+- [ ] Make pure payload validation explicitly dispatch schemas 1 and 2.
+- [ ] Keep old-only lowering on schema 1 even in a target-2.18 module.
+- [ ] Reject unsupported schema versions and schema/node mismatches with
+      `pure_expr_schema_mismatch` or the accepted target diagnostic.
+- [ ] Rerun the RED selector and existing pure-expression/build regressions.
+- [ ] Obtain `TASK1_SPEC_APPROVED`, then `TASK1_QUALITY_APPROVED`, and commit.
+
+## Task 2: Implement The Schema-2 Pure Kernel
+
+**Outcome:** The shared evaluator and compile-time folder implement the five
+total list operators, constructor, pure map, rooted path join, and
+compiler-owned nonempty extraction from one golden-vector contract.
+
+**Files:**
+
+- Modify: `orchestrator/workflow/pure_expr.py`
+- Modify: `tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json`
+- Modify: `tests/test_workflow_pure_expr.py`
+- Modify: `tests/test_workflow_lisp_list_traversal.py`
+
+**RED:**
+
+- [ ] Add shared vectors for empty/single/multiple/nested collection values,
+      order-preserving map, Optional head, rest-on-empty, append immutability,
+      length, both general path families, and one narrower path descriptor.
+- [ ] Add both-direction failures for list element/descriptor mismatch,
+      binder scope/collision, malformed selected root, empty/malformed child,
+      absolute/escaping child, and compiler marker/nonempty invariant.
+- [ ] Assert schema 1 rejects every schema-2 node/operator and schema 2 counts
+      all nested item/body nodes against the existing node cap.
+- [ ] Run the focused pure-kernel selector and confirm failures are missing
+      behavior rather than malformed fixtures.
+
+**GREEN:**
+
+- [ ] Version catalog entries so new list operators are schema-2-only.
+- [ ] Add validated `list`, `list_map`, `path_join_under`, and compiler-owned
+      `list_nonempty_head` payload nodes.
+- [ ] Add evaluator-local binder scope; never merge it into top-level resolved
+      bindings.
+- [ ] Evaluate list sources once, preserve order, return fresh arrays, and
+      propagate existing body diagnostics.
+- [ ] Validate selected roots locally without changing `defpath` elaboration
+      globally.
+- [ ] Use the same evaluator for folding; do not duplicate operator semantics.
+- [ ] Rerun golden vectors twice—runtime evaluation and compile-time folding.
+- [ ] Obtain `TASK2_SPEC_APPROVED`, then `TASK2_QUALITY_APPROVED`, and commit.
+
+## Task 3: Add Frontend List, Map, Path, And Expected-Type Forms
+
+**Outcome:** Target-2.18 source parses, specializes, typechecks, traverses,
+and lowers the pure surface with exact contextual empty-list typing and no
+function values.
+
+**Files:**
+
+- Modify: `orchestrator/workflow_lisp/form_registry.py`
+- Modify: `orchestrator/workflow_lisp/expressions.py`
+- Modify: `orchestrator/workflow_lisp/expression_traversal.py`
+- Modify: `orchestrator/workflow_lisp/functions.py`
+- Modify: `orchestrator/workflow_lisp/procedure_specialization.py`
+- Modify: `orchestrator/workflow_lisp/typecheck_dispatch.py`
+- Modify: `orchestrator/workflow_lisp/typecheck_pure_ops.py`
+- Modify: `orchestrator/workflow_lisp/lowering/pure_projection.py`
+- Modify: `orchestrator/workflow_lisp/wcc/route.py`
+- Modify: `orchestrator/workflow_lisp/wcc/elaborate.py`
+- Modify: `orchestrator/workflow_lisp/wcc/defunctionalize.py`
+- Modify: `tests/test_workflow_lisp_list_traversal.py`
+- Modify: `tests/test_workflow_lisp_build_artifacts.py`
+
+**RED:**
+
+- [ ] Cover constructor/operator type synthesis and each exact diagnostic.
+- [ ] Cover `(list)` in loop-state, record/union field, direct callable
+      argument, declared return, and propagated `if`/`match` branch contexts.
+- [ ] Cover standalone and unannotated-`let*` empty-list rejection.
+- [ ] Cover valid/invalid pure-map binder shapes, lexical capture, input
+      evaluated once, body purity, ordering, and whole-list transport
+      admissibility including supported nested Optional/Map and rejected
+      record/union elements.
+- [ ] Cover explicit prelude/local/imported path families, exact result type,
+      deferred existence, and all three path refusal families.
+- [ ] Assert no new Core/Executable node kind and schema-1 projections remain
+      byte-identical.
+
+**GREEN:**
+
+- [ ] Add dedicated immutable frontend nodes for constructor, pure binder, and
+      rooted path form; keep binder syntax non-value-producing.
+- [ ] Prove every new source form/operator is rejected below target 2.18
+      through the accepted target/surface diagnostic.
+- [ ] Add a narrowly scoped expected-type argument only at the accepted
+      checked positions; do not add global inference or annotated `let*`.
+- [ ] Gate every form/operator at target 2.18.
+- [ ] Apply `is_transportable_result_type(List[T])` to complete source/result
+      list types and report `list_collection_contract_unsupported`.
+- [ ] Emit schema-2 pure payloads with resolved descriptors and source maps.
+- [ ] Route the new pure forms through WCC as values, not effects or nodes.
+- [ ] Rerun focused frontend, build-artifact, WCC M1/M2/M4, and pure
+      expression selectors.
+- [ ] Obtain `TASK3_SPEC_APPROVED`, then `TASK3_QUALITY_APPROVED`, and commit.
+
+## Task 4: Carry Collection-Contract Lists Through Loops And Resume
+
+**Outcome:** Eligible lists are one canonical JSON-array loop field with
+exact descriptor/digest validation across seed, iteration, checkpoint, and
+resume.
+
+**Files:**
+
+- Modify: `orchestrator/workflow_lisp/loops.py`
+- Modify: `orchestrator/workflow_lisp/loop_state.py`
+- Modify: `orchestrator/workflow_lisp/lowering/control_loops.py`
+- Modify: `tests/test_workflow_lisp_loop_recur.py`
+- Modify: `tests/test_workflow_lisp_list_traversal.py`
+- Modify: the narrow owning resume test selected from
+  `tests/test_resume_command.py` and
+  `tests/test_workflow_lisp_lexical_checkpoint_default_resume.py`
+
+**RED:**
+
+- [ ] Prove eligible `List[String]`, `List[Path.artifact-root]`, and one
+      supported nested Optional/Map list are currently rejected as loop state.
+- [ ] Prove top-level Optional/Map and list-of-record/union remain rejected.
+- [ ] Cover empty placeholder `[]`, one-field collection projection, canonical
+      JSON array persistence, and descriptor identity.
+- [ ] Add clean resume plus tampered descriptor, non-array, invalid element,
+      payload digest, and checkpoint digest failures.
+
+**GREEN:**
+
+- [ ] Replace the unconditional list rejection in
+      `ensure_loop_projectable_type` with the shared whole-list predicate.
+- [ ] Derive one collection contract field; do not flatten indices.
+- [ ] Add collection-aware empty placeholders without changing scalar,
+      record, union, relpath, Optional, or Map top-level rules.
+- [ ] Reuse existing contract coercion and checkpoint validation on write and
+      restore; do not create report/pointer artifacts.
+- [ ] Rerun loop, contract, state projection, lexical checkpoint, and resume
+      selectors.
+- [ ] Obtain `TASK4_SPEC_APPROVED`, then `TASK4_QUALITY_APPROVED`, and commit.
+
+## Task 5: Add Generic Repeat Exhaustion Diagnostic Metadata
+
+**Outcome:** Existing repeat loops may carry an optional compiler-owned code
+that changes only exhaustion diagnostics and identity; ordinary loops remain
+byte-for-byte and behaviorally unchanged.
+
+**Files:**
+
+- Modify: `orchestrator/workflow/surface_ast.py`
+- Modify: `orchestrator/workflow/core_ast.py`
+- Modify: `orchestrator/workflow/executable_ir.py`
+- Modify: `orchestrator/workflow/elaboration.py`
+- Modify: `orchestrator/workflow/lowering.py`
+- Modify: `orchestrator/workflow/runtime_step.py`
+- Modify: `orchestrator/workflow/statements.py`
+- Modify: `orchestrator/workflow/loops.py`
+- Modify: `orchestrator/workflow/state_projection.py`
+- Modify: `orchestrator/workflow/validation.py`
+- Modify: `orchestrator/workflow_lisp/loops.py`
+- Modify: `orchestrator/workflow_lisp/lowering/control_loops.py`
+- Modify: `tests/test_workflow_loops_exhaustion_state.py`
+- Modify: `tests/test_workflow_lisp_loop_recur.py`
+- Modify: `tests/test_workflow_lisp_build_artifacts.py`
+
+**RED:**
+
+- [ ] Freeze an ordinary repeat-loop Core/Executable/runtime-plan digest and
+      generic `repeat_until_iterations_exhausted` failure.
+- [ ] Add an internal emitter test requiring a supplied diagnostic code to
+      survive each projection, participate in executable identity, and appear
+      only as `error.code` on exhaustion.
+- [ ] Add invalid/undeclared metadata tests that fail closed.
+
+**GREEN:**
+
+- [ ] Add optional `exhaustion_diagnostic_code` through existing repeat-loop
+      dataclasses/configuration and canonical serialization.
+- [ ] Validate it as inert compiler-owned metadata.
+- [ ] Preserve `error.type = repeat_until_iterations_exhausted` and existing
+      state projection recognition; populate `error.code` only when supplied.
+- [ ] Prove `on_exhausted`, scheduling, settlement, and ordinary authored
+      `loop/recur` output/digests are unchanged.
+- [ ] Rerun executable IR, runtime plan, loop executor, state projection,
+      build artifact, and loop/recur selectors.
+- [ ] Obtain `TASK5_SPEC_APPROVED`, then `TASK5_QUALITY_APPROVED`, and commit.
+
+## Task 6: Erase `list/map-effect` Into Existing Loop Semantics
+
+**Outcome:** A target-2.18 bounded effectful binder executes one existing call
+per element in order and resumes without replay or duplication.
+
+**Files:**
+
+- Modify: `orchestrator/workflow_lisp/expressions.py`
+- Modify: `orchestrator/workflow_lisp/expression_traversal.py`
+- Modify: `orchestrator/workflow_lisp/functions.py`
+- Modify: `orchestrator/workflow_lisp/procedure_specialization.py`
+- Modify: `orchestrator/workflow_lisp/typecheck_dispatch.py`
+- Modify: `orchestrator/workflow_lisp/wcc/route.py`
+- Modify: `orchestrator/workflow_lisp/wcc/elaborate.py`
+- Modify: `orchestrator/workflow_lisp/wcc/defunctionalize.py`
+- Modify: `orchestrator/workflow_lisp/lowering/control_loops.py`
+- Modify: `orchestrator/workflow_lisp/source_map.py`
+- Modify: `tests/test_workflow_lisp_list_traversal.py`
+- Modify: `tests/test_workflow_lisp_wcc_m4.py`
+- Modify: `tests/test_workflow_lisp_build_artifacts.py`
+- Modify: the selected narrow resume module
+
+**RED:**
+
+- [ ] Cover malformed binder, absent/computed/zero/negative `:max`, impure
+      source, unsupported body composition, and unsupported complete source
+      or result list contract.
+- [ ] Cover empty, one, `N < max`, `N == max`, and `N > max`, asserting exact
+      call counts and order.
+- [ ] On `N > max`, require generic `error.type`, exact
+      `list_map_effect_cap_exceeded` code, and no `(max + 1)`th call.
+- [ ] Cover body failure with no append and interruption after committed body
+      effect but before accumulator commit with no replay, duplicate, skip, or
+      reorder.
+- [ ] Freeze stable loop/iteration/checkpoint/source-map identity and assert no
+      new executable node kind.
+
+**GREEN:**
+
+- [ ] Add the source binder node and validate the first-tranche body as one
+      specialized existing provider/command/workflow/procedure call with pure
+      arguments.
+- [ ] Evaluate/seed the source once, carry `remaining` and `results`, and use
+      compiler-owned schema-2 nonempty extraction only in the generated
+      nonempty branch.
+- [ ] Append only after the committed body boundary.
+- [ ] Return `done` in the iteration that consumes the last element so
+      `N == max` succeeds.
+- [ ] Attach the generic exhaustion code metadata and map all generated roles
+      to the authored form span.
+- [ ] Reuse existing prior-boundary resume validation; do not add a special
+      restart or recovery path.
+- [ ] Rerun focused list, WCC M4, loop, build, checkpoint, and resume selectors.
+- [ ] Obtain `TASK6_SPEC_APPROVED`, then `TASK6_QUALITY_APPROVED`, and commit.
+
+## Task 7: Prove The Runtime-Cardinality Consumer And Close The Interstage
+
+**Outcome:** One deterministic-provider workflow consumes a runtime list,
+produces ordered path results, synthesizes them, and proves clean/resumed
+equivalence. Normative/routing docs truthfully mark the bounded surface
+implemented.
+
+**Files:**
+
+- Create: one focused target-2.18 `.orc` fixture under
+  `tests/fixtures/workflow_lisp/valid/`
+- Modify: `tests/test_workflow_lisp_list_traversal.py`
+- Modify: `docs/design/workflow_lisp_frontend_specification.md`
+- Modify: `docs/design/workflow_lisp_pure_list_traversal.md`
+- Modify: `docs/design/README.md`
+- Modify: `docs/capability_status_matrix.md`
+- Modify: `docs/index.md` only at exact list/Stage-8 routing hunks
+- Modify: `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
+- Modify: this plan
+- Modify: relevant non-security normative specs if and only if the owning
+  doc router requires them
+
+**Verification:**
+
+- [ ] Run `pytest --collect-only -q` on every new/renamed module.
+- [ ] Run the focused pure/list/loop/WCC/build/resume selectors.
+- [ ] Run a clean deterministic-provider end-to-end execution.
+- [ ] Interrupt after a committed per-element effect and resume the same run;
+      compare ordered outputs, attempt identities, and call counts to clean.
+- [ ] Run target-2.17 compatibility and schema-1 frozen-artifact checks.
+- [ ] Run documentation routing/link/status tests, including:
+
+```bash
+pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py
+```
+
+- [ ] Launch the closing broad non-security suite in tmux with the exact
+      command in the Execution Contract and wait for completion.
+- [ ] Record fresh counts and distinguish any established external failures
+      without weakening selectors or repairing out-of-scope code.
+- [ ] Update docs from observed behavior only. Mark the accepted design
+      implemented and the selected interstage complete; leave Stage 8 as the
+      next numbered stage.
+- [ ] Obtain `TASK7_FINAL_SPEC_APPROVED`, then
+      `TASK7_FINAL_QUALITY_APPROVED`.
+- [ ] Stage only exact task-owned hunks. For every dirty protected file with
+      an explicit overlap exception above (currently only `docs/index.md`),
+      use patch-based staging and inspect the staged patch to verify every
+      protected pre-existing hunk is absent even though the file name may
+      appear. Verify every protected path without an explicit exception is
+      absent from the staged name list, then commit.
+
+## Interstage Completion Gate
+
+The selected list-traversal interstage is complete only when:
+
+- Tasks 1-7 are committed after their ordered reviews;
+- the target-2.17/schema-1 frozen oracle is unchanged;
+- all accepted diagnostics have both-direction coverage;
+- clean and interrupted/resumed deterministic-provider evidence proves exact
+  ordered results and no replay;
+- the focused and broad non-security gates pass or contain only truthfully
+  recorded pre-existing external failures;
+- docs and capability routing match the implemented bounded surface; and
+- ordered final specification and quality reviews approve the closing tree.
+
+After this gate, proceed directly to Stage 8 under the execution-sequence
+roadmap. Do not begin any post-Stage-8 successor item before Stage 8 closes.
