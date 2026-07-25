@@ -1279,12 +1279,12 @@ Any failure that requires a different production owner pauses this task for a
 reviewed amendment to this plan; it does not authorize post-hoc scope
 expansion.
 
-- [ ] Add deterministic fake worker/supervisor fixtures for `CONTINUE`,
+- [x] Add deterministic fake worker/supervisor fixtures for `CONTINUE`,
   `STEER`, invalid directive, missing identity, lingering child, stale bundle,
   settlement failure, and interrupted-visit quarantine.
-- [ ] Run:
+- [x] Run:
   `pytest --collect-only -q tests/test_workflow_lisp_provider_supervision_e2e.py`.
-- [ ] Run RED public compile/run tests:
+- [x] Run RED public compile/run tests:
 
   ```bash
   pytest -q tests/test_workflow_lisp_provider_supervision_e2e.py \
@@ -1293,15 +1293,15 @@ expansion.
 
   Confirm failures cross the ordinary CLI/compiler/executor path rather than
   helper-only construction.
-- [ ] Complete missing public-path integration only in the listed
+- [x] Complete missing public-path integration only in the listed
   `build.py`, compiler, build-artifact, CLI run/resume, and report owners,
   without prompt-text assertions or name-keyed branches. Reuse the source-map
   projection completed in Task 12C and
   `StateManager.finalize_step_with_dataflow` unchanged. A required source-map,
   state, or other unlisted production edit requires a reviewed plan amendment.
-- [ ] Run:
+- [x] Run:
   `pytest -q tests/test_workflow_lisp_provider_supervision_e2e.py`.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q \
@@ -1313,8 +1313,21 @@ expansion.
     tests/test_workflow_lisp_source_map.py \
     -k 'not security and not secret and not isolation'
   ```
-- [ ] Complete specification review, quality review, and commit:
+- [x] Complete specification review, quality review, and commit:
   `Run provider supervision end to end`.
+
+Task 13 implementation evidence: the target-2.16 fixture and nine public-path
+acceptance cases compile one atomic supervision node and exercise real
+`run_workflow`, `resume_workflow`, executor dispatch, coordinator settlement,
+generic status reporting, and sticky interrupted-visit quarantine. Deterministic
+fakes replace only provider process I/O and observation transport; lazy
+supervision observation allocation remains intact, and no production owner
+required a change. Fresh collection found 9 tests and the complete module
+passed 9 tests. The planned adjacent selector passed 147 tests and retained
+four pre-existing resource-transition fixture failures; because Task 13 added
+only new fixture/test files, those failures are outside its delta. Ordered
+independent verdicts were `TASK13_SPEC_APPROVED` and
+`TASK13_QUALITY_APPROVED`.
 
 ## Phase 4 — Capability Promotion, Real Smoke, And Closeout
 

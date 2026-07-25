@@ -1,0 +1,4 @@
+{
+  "prompts.worker": "worker.md",
+  "prompts.supervisor": "supervisor.md"
+}

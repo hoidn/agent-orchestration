@@ -1,0 +1,4 @@
+{
+  "providers.worker": "worker-provider",
+  "providers.supervisor": "supervisor-provider"
+}
