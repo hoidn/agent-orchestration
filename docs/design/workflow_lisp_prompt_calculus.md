@@ -296,6 +296,20 @@ parsimony-wave candidates in the roadmap's post-Stage-8 queue.
   introduces no DONE/FAILED-shaped types anywhere. Unions remain reserved
   for outcomes a caller genuinely routes on; outcomes that are only ever
   propagated belong to the failure channel, not the type.
+- **Type-parameterized fragments (deferred).** Type-generic prose — a
+  fragment whose instructions hold for a family of elicited types
+  ("classify into exactly one of the categories in the contract below")
+  — is admitted in one future form only: an explicit type parameter on
+  the `defprompt`, reusing the structural `:forall`/`:where` mechanism,
+  with the type argument instantiated visibly at the call site,
+  constraints bounded by contract-render totality (every admissible type
+  must render a coherent contract block), and prompt identity including
+  the instantiation. Deriving the contract block from a call-site
+  annotation or the enclosing procedure's return type is context flow
+  and remains ruled out regardless of duplication pressure. Admission
+  condition: two or more fragments with byte-identical prose differing
+  only in declared return type; until then the honest state is concrete
+  duplicated fragments.
 - **Migration is additive.** Extern prompt files remain valid; `defprompt`
   is the typed successor adopted per prompt, with the generic-reviewer
   pattern as the first migration candidate.
