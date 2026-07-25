@@ -16,9 +16,29 @@ from typing import Any
 
 
 PURE_EXPR_SCHEMA_VERSION = 1
+PURE_EXPR_SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2})
 DEFAULT_PURE_EXPR_MAX_NODES = 256
 INT64_MIN = -(2**63)
 INT64_MAX = 2**63 - 1
+
+_PURE_EXPR_SCHEMA_1_NODE_KINDS = frozenset(
+    {
+        "literal",
+        "binding",
+        "field_access",
+        "if",
+        "record",
+        "union",
+        "record_update",
+        "op",
+    }
+)
+PURE_EXPR_NODE_KINDS_BY_SCHEMA = MappingProxyType(
+    {
+        1: _PURE_EXPR_SCHEMA_1_NODE_KINDS,
+        2: _PURE_EXPR_SCHEMA_1_NODE_KINDS,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -107,13 +127,17 @@ def validate_pure_expr_payload(
 
     if not isinstance(payload, Mapping):
         _raise("pure_expr_payload_invalid", "pure-expression payload must be a mapping")
-    if payload.get("pure_expr_schema_version") != PURE_EXPR_SCHEMA_VERSION:
+    schema_version = payload.get("pure_expr_schema_version")
+    if (
+        type(schema_version) is not int
+        or schema_version not in PURE_EXPR_SUPPORTED_SCHEMA_VERSIONS
+    ):
         _raise(
             "pure_expr_schema_mismatch",
             "unsupported pure-expression schema version",
             metadata={
-                "observed": payload.get("pure_expr_schema_version"),
-                "expected": PURE_EXPR_SCHEMA_VERSION,
+                "observed": schema_version,
+                "supported": sorted(PURE_EXPR_SUPPORTED_SCHEMA_VERSIONS),
             },
         )
 
@@ -133,7 +157,11 @@ def validate_pure_expr_payload(
             _coerce_value(spec["value"], spec["type"], context=f"bindings.{name}.value")
 
     expr = payload.get("expr")
-    node_count = _validate_expr_node(expr, bindings=bindings)
+    node_count = _validate_expr_node(
+        expr,
+        bindings=bindings,
+        schema_version=schema_version,
+    )
     if node_count > max_nodes:
         _raise(
             "pure_expr_payload_too_large",
@@ -296,12 +324,26 @@ def _validate_field_descriptor_list(fields: Any, *, context: str) -> None:
         _validate_type_descriptor(field.get("type"), context=f"{context}[{index}].type")
 
 
-def _validate_expr_node(node: Any, *, bindings: Mapping[str, Any]) -> int:
+def _validate_expr_node(
+    node: Any,
+    *,
+    bindings: Mapping[str, Any],
+    schema_version: int,
+) -> int:
     if not isinstance(node, Mapping):
         _raise("pure_expr_payload_invalid", "pure-expression nodes must be mappings")
     kind = node.get("kind")
     if not isinstance(kind, str) or not kind:
         _raise("pure_expr_payload_invalid", "pure-expression nodes must declare a non-empty `kind`")
+    if kind not in PURE_EXPR_NODE_KINDS_BY_SCHEMA[schema_version]:
+        _raise(
+            "pure_expr_schema_mismatch",
+            "pure-expression node kind is unavailable in the declared schema",
+            metadata={
+                "kind": kind,
+                "schema_version": schema_version,
+            },
+        )
 
     count = 1
     if kind == "literal":
@@ -325,14 +367,30 @@ def _validate_expr_node(node: Any, *, bindings: Mapping[str, Any]) -> int:
         field = node.get("field")
         if not isinstance(field, str) or not field:
             _raise("pure_expr_payload_invalid", "field_access nodes must declare a non-empty `field`")
-        return count + _validate_expr_node(node.get("base"), bindings=bindings)
+        return count + _validate_expr_node(
+            node.get("base"),
+            bindings=bindings,
+            schema_version=schema_version,
+        )
 
     if kind == "if":
         return (
             count
-            + _validate_expr_node(node.get("condition"), bindings=bindings)
-            + _validate_expr_node(node.get("then"), bindings=bindings)
-            + _validate_expr_node(node.get("else"), bindings=bindings)
+            + _validate_expr_node(
+                node.get("condition"),
+                bindings=bindings,
+                schema_version=schema_version,
+            )
+            + _validate_expr_node(
+                node.get("then"),
+                bindings=bindings,
+                schema_version=schema_version,
+            )
+            + _validate_expr_node(
+                node.get("else"),
+                bindings=bindings,
+                schema_version=schema_version,
+            )
         )
 
     if kind == "record":
@@ -345,7 +403,11 @@ def _validate_expr_node(node: Any, *, bindings: Mapping[str, Any]) -> int:
         for field in fields:
             if not isinstance(field, Mapping):
                 _raise("pure_expr_payload_invalid", "record node fields must be mappings")
-            count += _validate_expr_node(field.get("value"), bindings=bindings)
+            count += _validate_expr_node(
+                field.get("value"),
+                bindings=bindings,
+                schema_version=schema_version,
+            )
         return count
 
     if kind == "union":
@@ -360,14 +422,22 @@ def _validate_expr_node(node: Any, *, bindings: Mapping[str, Any]) -> int:
         for field in fields:
             if not isinstance(field, Mapping):
                 _raise("pure_expr_payload_invalid", "union node fields must be mappings")
-            count += _validate_expr_node(field.get("value"), bindings=bindings)
+            count += _validate_expr_node(
+                field.get("value"),
+                bindings=bindings,
+                schema_version=schema_version,
+            )
         return count
 
     if kind == "record_update":
         _validate_type_descriptor(node.get("record_type"), context="expr.record_type")
         if _descriptor_kind(node["record_type"]) != "record":
             _raise("pure_expr_payload_invalid", "record_update nodes require a record_type descriptor")
-        count += _validate_expr_node(node.get("base"), bindings=bindings)
+        count += _validate_expr_node(
+            node.get("base"),
+            bindings=bindings,
+            schema_version=schema_version,
+        )
         fields = node.get("fields")
         if not _is_sequence(fields) or not fields:
             _raise("pure_expr_payload_invalid", "record_update nodes must declare a non-empty `fields` list")
@@ -376,7 +446,11 @@ def _validate_expr_node(node: Any, *, bindings: Mapping[str, Any]) -> int:
                 _raise("pure_expr_payload_invalid", "record_update fields must be mappings")
             if not isinstance(field.get("name"), str) or not field.get("name"):
                 _raise("pure_expr_payload_invalid", "record_update fields must declare a non-empty `name`")
-            count += _validate_expr_node(field.get("value"), bindings=bindings)
+            count += _validate_expr_node(
+                field.get("value"),
+                bindings=bindings,
+                schema_version=schema_version,
+            )
         return count
 
     if kind == "op":
@@ -405,7 +479,11 @@ def _validate_expr_node(node: Any, *, bindings: Mapping[str, Any]) -> int:
                 },
             )
         for arg in args:
-            count += _validate_expr_node(arg, bindings=bindings)
+            count += _validate_expr_node(
+                arg,
+                bindings=bindings,
+                schema_version=schema_version,
+            )
         return count
 
     _raise("pure_expr_payload_invalid", f"unsupported pure-expression node kind `{kind}`")

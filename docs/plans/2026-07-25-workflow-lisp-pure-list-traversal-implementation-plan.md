@@ -273,11 +273,11 @@ byte-identical.
 
 **RED:**
 
-- [ ] Add collectable tests proving target 2.18 is currently rejected.
-- [ ] Add schema tests proving version 2 is currently rejected and version 1
+- [x] Add collectable tests proving target 2.18 is currently rejected.
+- [x] Add schema tests proving version 2 is currently rejected and version 1
       remains canonical.
-- [ ] Freeze one representative target-2.17 schema-1 payload/build digest.
-- [ ] Run:
+- [x] Freeze one representative target-2.17 schema-1 payload/build digest.
+- [x] Run:
 
 ```bash
 pytest --collect-only -q tests/test_workflow_lisp_list_traversal.py
@@ -290,16 +290,33 @@ pytest -q \
 
 **GREEN:**
 
-- [ ] Add `2.18` and a single list-traversal minimum-target constant.
-- [ ] Extend shared mapping validation's supported-version set/order so a
+- [x] Add `2.18` and a single list-traversal minimum-target constant.
+- [x] Extend shared mapping validation's supported-version set/order so a
       compiled target-2.18 mapping is accepted while unknown versions still
       fail closed.
-- [ ] Make pure payload validation explicitly dispatch schemas 1 and 2.
-- [ ] Keep old-only lowering on schema 1 even in a target-2.18 module.
-- [ ] Reject unsupported schema versions and schema/node mismatches with
+- [x] Make pure payload validation explicitly dispatch schemas 1 and 2.
+- [x] Keep old-only lowering on schema 1 even in a target-2.18 module.
+- [x] Reject unsupported schema versions and schema/node mismatches with
       `pure_expr_schema_mismatch` or the accepted target diagnostic.
-- [ ] Rerun the RED selector and existing pure-expression/build regressions.
+- [x] Rerun the RED selector and existing pure-expression/build regressions.
 - [ ] Obtain `TASK1_SPEC_APPROVED`, then `TASK1_QUALITY_APPROVED`, and commit.
+
+**Implementation record (2026-07-25; implementation commit pending):**
+
+- RED collection produced 8 tests; the focused selector failed only at the
+  intended missing gates/dispatch seams (`5 failed, 386 passed`). A follow-up
+  strict-version RED added two intended failures for boolean and float schema
+  values.
+- GREEN collection is 13 tests. The exact focused selector above passes
+  (`396 passed in 12.60s`), and `git diff --check` is clean.
+- The frozen target-2.17 schema-1 payload digest is
+  `sha256:a40fe0237ee12f03aff127afcc613dfa89daad5a0e586c0a49072289a50f0323`.
+- The three pre-existing test modules required no edits: all new assertions
+  live in the focused list-traversal module, while the pre-existing modules
+  remain part of the passing regression selector.
+- Ordered preliminary review verdicts are `TASK1_SPEC_APPROVED` then
+  `TASK1_QUALITY_APPROVED`. The implementation commit is pending final
+  exact-diff reaffirmation.
 
 ## Task 2: Implement The Schema-2 Pure Kernel
 

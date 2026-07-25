@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from orchestrator.workflow.pure_expr import (
+    PURE_EXPR_SCHEMA_VERSION,
     PureExprEvaluationError,
     evaluate_pure_expr,
     pure_expr_payload_digest,
@@ -196,7 +197,7 @@ def evaluate_typed_constant(
     descriptor = _type_descriptor(result_type, type_env=type_env)
     return evaluate_pure_expr(
         {
-            "pure_expr_schema_version": 1,
+            "pure_expr_schema_version": PURE_EXPR_SCHEMA_VERSION,
             "result_type": descriptor,
             "bindings": {},
             "expr": {"kind": "literal", "type": descriptor, "value": value},
@@ -330,7 +331,7 @@ def build_pure_projection_payload(
             )
         )
     payload = {
-        "pure_expr_schema_version": 1,
+        "pure_expr_schema_version": PURE_EXPR_SCHEMA_VERSION,
         "result_type": _type_descriptor(result_type, type_env=context.type_env),
         "bindings": bindings,
         "expr": payload_expr,

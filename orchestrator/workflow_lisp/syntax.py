@@ -19,11 +19,12 @@ from .sexpr import BoolAtom, FloatAtom, IntAtom, KeywordAtom, ListExpr, SExpr, S
 from .spans import SourceSpan
 
 SUPPORTED_TARGET_DSL_VERSIONS = frozenset(
-    {"2.14", "2.15", "2.16", "2.17"}
+    {"2.14", "2.15", "2.16", "2.17", "2.18"}
 )
 PROVIDER_STEERING_DIRECTIVE_TYPE_NAME = "ProviderSteeringDirective"
 PROVIDER_SUPERVISION_MIN_TARGET_DSL_VERSION = "2.16"
 PROVIDER_PEER_MESSAGING_MIN_TARGET_DSL_VERSION = "2.17"
+LIST_TRAVERSAL_MIN_TARGET_DSL_VERSION = "2.18"
 MAX_STATIC_LIVE_PROVIDER_PEERS = 8
 
 
