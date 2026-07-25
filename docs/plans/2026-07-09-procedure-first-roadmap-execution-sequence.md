@@ -98,7 +98,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-16-design-delta-exported-workflow-retention-plan.md` | Complete after specification PASS and quality APPROVED. Seven calls remain active `effect-adapter` because their five unique callees are exported CLI-selectable workflows that cannot use reviewed internal retirement; five separate public-boundary records make that negative explicit. No source/run mutation or store/owner gate occurred. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
 | `2026-07-07-yaml-retirement-program.md` | Stage 6 complete. Tasks 1-7 are complete: all five queues are drained, exactly the two specified `.orc` ports are primary, no authored workflow YAML/YML remains, fresh execution is ORC-only, and the user-facing loader and project PyYAML dependency are absent. The 1,020-passed/5-skipped focused gate, fresh non-mutating `.orc` smoke, scoped broad comparison with zero new failures against the owner-adopted baseline, and ordered specification PASS/quality APPROVED reviews closed the stage at `d9baa120`. |
-| `2026-07-23-provider-live-binding-implementation-plan.md` | Active Stage-7 selector. Provider-supervision v1 implementation landed through `4d4f05c7` and completed Tasks 1-15 and Gate S7-v1: provider observation, structural turn-boundary resume, the `provider_supervision.v1` coordinator/runtime, target-2.16 frontend/IR, deterministic and real-provider integration, normative docs, 6,978-passed/17-skipped broad comparison with the four exact retained failures and zero new failures, and ordered `TASK15_SPEC_APPROVED` / `TASK15_QUALITY_APPROVED` reviews. The 2026-07-24 recorded-peer-messaging amendment is a subsequent v1.1 phase; its initial independent review returned `CHANGES_REQUIRED`, so design revision and approved re-review precede its execution-plan delta, implementation, and evidence before Stage 8. |
+| `2026-07-23-provider-live-binding-implementation-plan.md` | Active Stage-7 selector. Provider-supervision v1 implementation landed through `4d4f05c7` and completed Tasks 1-15 and Gate S7-v1: provider observation, structural turn-boundary resume, the `provider_supervision.v1` coordinator/runtime, target-2.16 frontend/IR, deterministic and real-provider integration, normative docs, 6,978-passed/17-skipped broad comparison with the four exact retained failures and zero new failures, and ordered `TASK15_SPEC_APPROVED` / `TASK15_QUALITY_APPROVED` reviews. The subsequent v1.1 design at `docs/design/workflow_lisp_provider_peer_messaging.md` resolved its initial `CHANGES_REQUIRED` review and received `DESIGN_SPEC_APPROVED` / `DESIGN_QUALITY_APPROVED`; its reviewed execution-plan delta, implementation, and evidence remain before Stage 8. |
 | `2026-07-23-refusal-diagnosability-fixes-plan.md` | Queued small fix; not a competing selector. Applies design principle 28 (refusals name their rule) to the entry-bootstrap name-allowlist gate: denial diagnostic, declared-property rule replacing the name key, and promoted-route identity non-drift verification. Execute after the current YAML-retirement task or opportunistically between capture windows. |
 | `2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md` | Parked by owner decision 2026-07-24 per the architectural critique; not a selector. Boundary invariants extracted to `docs/design/workflow_lisp_program_search_boundaries.md`; the slimmed E0 probe and E4P prompt-identity diagnostics are the only salvaged items (see Post-Stage-8 Salvaged Items). Revival requires an explicit owner decision and fresh proportionality review. |
 
@@ -254,8 +254,8 @@ owner-baseline failures with zero new failures; ordered independent review
 returned specification PASS and quality APPROVED at `d9baa120`. Stage 6 is
 complete. Stage 7 provider-supervision v1 implementation landed through
 `4d4f05c7` and completed Task 15 and Gate S7-v1; the recorded-peer-messaging
-v1.1 design revision, approved re-review, planning, implementation, and
-evidence phase remains before the language server.
+v1.1 design is accepted, while reviewed planning, implementation, and
+evidence remain before the language server.
 
 The completed Phase 1 execution order was:
 
@@ -610,19 +610,25 @@ validated provider-session resume turn with free-form guidance plus a fresh
 typed output contract.
 
 The 2026-07-24 owner amendment retains that v1 surface and adds a distinct
-v1.1 phase: declared members may send free-form text to peers by binding name
-through a runtime-owned surface; the receiver records each message in its
-injected-message ledger before natural turn-boundary delivery; the existing
-single-writer coordinator serializes delivery. Messaging never cancels,
-resumes, or settles a member, and `STEER` remains the only forcing move.
-Static N-member composition belongs to the same v1.1 phase. Same-turn or
-unrecorded raw-pane steering remains excluded.
+v1.1 phase, revised in
+`docs/design/workflow_lisp_provider_peer_messaging.md`: target `2.17` adds a
+separate static `2..8` member peer-group form and executable node. Declared
+members send free-form text by binding name through an exact attempt-bound
+runtime surface; the coordinator fsyncs the receiver ledger before an
+opt-in interactive adapter offers the text for a natural later turn.
+Cooperative readiness, acknowledgement, finish, and natural-close receipts
+close lifecycle ambiguity. Peer messaging never cancels, resumes, selects,
+or settles a member, and peer groups have no forcing edge; v1 `STEER` remains
+the only successful forcing move. Target `2.16` and
+`provider_supervision.v1` remain unchanged. Same-turn or unrecorded raw-pane
+steering remains excluded.
 
 **Current Stage 7 status:** v1 Tasks 1-15 and Gate S7-v1 are implemented
-through `4d4f05c7` and complete. The initial independent review of the
-owner-amended v1.1 contract returned `CHANGES_REQUIRED`; Stage 7 therefore
-continues with design revision, approved independent re-review, a reviewed v1.1 execution-plan delta,
-implementation, verification, and both ordered implementation reviews.
+through `4d4f05c7` and complete. The owner-amended v1.1 design resolved its
+initial `CHANGES_REQUIRED` review and received `DESIGN_SPEC_APPROVED` and
+ordered `DESIGN_QUALITY_APPROVED`; Stage 7 therefore continues with a
+reviewed v1.1 execution-plan delta, implementation, verification, and both
+ordered implementation reviews.
 Stage 8 may not start before Gate S7-v1.1 closes.
 
 It precedes the language server deliberately: it changes the authoring
@@ -661,12 +667,12 @@ Execution follows the design's phases:
    smoke, spec deltas, default observation enablement, capability matrix, and
    authoring/docs updates.
 5. Recorded peer messaging v1.1: independently review the amendment, add and
-   review a focused execution-plan delta, then implement runtime-owned
-   peer-send, receiver-ledger-before-delivery, natural turn-boundary delivery,
-   coordinator serialization, and a static N-member authoring boundary whose
-   exact contract is established by the revised, independently approved
-   design and execution-plan delta, without changing v1 settlement or `STEER`
-   semantics.
+   review a focused execution-plan delta, then implement target-`2.17`
+   `with-live-provider-peers`, `provider_peer_group.v1`, runtime-owned
+   peer-ready/send/ack/finish, receiver-ledger-before-offer, natural
+   turn-boundary delivery and close, coordinator serialization, and the
+   static `2..8` member authoring boundary without changing v1 settlement or
+   `STEER` semantics.
 
 Gate S7-v1 (the original design's success criteria):
 
@@ -693,12 +699,13 @@ Gate S7-v1.1 additionally requires:
 - the 2026-07-24 amendment has an independent approved design review and a
   reviewed execution-plan delta;
 - sender/receiver identity, receiver-ledger append, ordering, failure,
-  natural-boundary delivery, and coordinator single-writer behavior have
-  both-direction unit and integration coverage;
+  cooperative receipts, natural-boundary delivery and close, and coordinator
+  single-writer behavior have both-direction unit and integration coverage;
 - peer messaging cannot directly cancel, resume, steer, settle, or publish a
   member, and unrecorded/raw-pane delivery remains rejected;
-- static N-member type/effect/lowering and runtime ownership rules match the
-  reviewed plan, while the shipped two-member v1 form remains non-regressive;
+- static `2..8` member type/effect/lowering and runtime ownership rules match
+  the reviewed plan, while the shipped two-member v1 form remains
+  non-regressive;
   and
 - focused, broad non-security, real-provider smoke where load-bearing, and
   ordered independent specification/quality reviews pass.
@@ -706,8 +713,9 @@ Gate S7-v1.1 additionally requires:
 Gate S7 closes only after both sub-gates close.
 
 Scope guard: Stage 7 covers the shipped v1 plus the owner-proposed v1.1
-recorded-peer-messaging/static-N-member amendment after its required revision
-and approved independent review. Provider-native duplex protocols,
+recorded-peer-messaging/static-peer-group amendment after its required
+revision and approved independent review. Peer messaging combined with
+`STEER`, provider-native duplex protocols, dynamic membership,
 same-turn or unrecorded raw-pane steering, more than one forcing `STEER`,
 effectful settlement, cross-run binding, filesystem rollback, and general
 background/join primitives remain excluded; each requires its own design

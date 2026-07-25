@@ -1,28 +1,32 @@
 # Workflow Lisp Provider Live Binding
 
-- **Status:** accepted design with owner amendment (2026-07-24, recorded
-  peer messaging) pending amendment review; implementation in progress
+- **Status:** v1 implemented; owner-amended v1.1 peer messaging is accepted
+  in `workflow_lisp_provider_peer_messaging.md` and pending a reviewed
+  execution plan
 - **Kind:** feature / provider observation, bounded concurrency, and
   turn-boundary supervision architecture
 - **Owner:** Workflow Lisp frontend + provider runtime
 - **Review:** original independent specification PASS and quality APPROVED;
   evidence-driven resume-boundary amendment independently
   `SPEC_COMPLIANT`, quality `APPROVED`, and behavior simulation `PASS` on
-  2026-07-23
+  2026-07-23; the initial 2026-07-24 peer-messaging amendment review returned
+  `CHANGES_REQUIRED`, and the revised additive design then received
+  `DESIGN_SPEC_APPROVED` and ordered `DESIGN_QUALITY_APPROVED`
 - **Created:** 2026-07-13
 - **Last material update:** 2026-07-24
 - **Related docs / plans:**
   - `docs/design/workflow_lisp_frontend_specification.md`
   - `docs/design/workflow_lisp_executable_ir.md`
   - `docs/design/workflow_lisp_provider_prompt_queue.md`
+  - `docs/design/workflow_lisp_provider_peer_messaging.md`
   - `docs/design/workflow_lisp_lexical_execution_checkpoints.md`
   - `docs/design/workflow_lisp_native_transportable_returns.md`
   - `docs/plans/2026-07-23-provider-live-binding-t3-behavior-simulation.md`
   - `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
   - `specs/providers.md`, `specs/io.md`, `specs/state.md`,
     `specs/versioning.md`, and `specs/observability.md`
-- **Implementation target:** Stage 7 of the procedure-first roadmap after a
-  reviewed execution plan exists
+- **Implementation target:** v1 is complete; the additive Stage-7 v1.1
+  design and execution plan require independent approval before implementation
 
 ## Summary
 
@@ -55,10 +59,11 @@ This revision follows the roadmap's adverse-T3 stop/revise path. It adds:
    turn with the guidance. Only the selected completed turn's validated
    bundle can become the worker result.
 
-4. **Recorded peer messaging (owner amendment, 2026-07-24).** Declared
-   members may send free-form text to each other through a runtime-recorded
-   channel with explicitly turn-boundary delivery semantics; see the
-   amendment section under the Decision.
+4. **Recorded peer messaging (owner amendment, 2026-07-24).** The revised
+   additive contract lives in
+   `workflow_lisp_provider_peer_messaging.md`: target `2.17` adds a separate
+   static peer-group form and node, while target `2.16` and this v1
+   supervision contract remain unchanged.
 
 The runtime interprets only the directive discriminant. It never interprets
 the guidance, pane text, or provider stdout as workflow data.
@@ -191,9 +196,8 @@ feeding terminal-rendered bytes into strict provider metadata parsers.
 - provider-native duplex protocols such as Codex app-server or Claude
   stream-json;
 - more than one steering directive or more than one resume turn;
-- N-member directive supervision in v1 (recorded peer messaging and static
-  N-member composition are v1.1 scope under the 2026-07-24 owner
-  amendment);
+- N-member directive supervision in v1 or v1.1; the v1.1 amendment instead
+  adds static cooperative peer groups with no forcing edge;
 - dynamic member counts;
 - effectful settlement bodies;
 - durable live handles or durable provider-native session reuse;
@@ -229,37 +233,38 @@ runtime-mediated, typed turn-boundary directive.
 
 ### Recorded peer messaging (owner amendment, 2026-07-24)
 
-The adverse T3a result rejected *same-turn* steering; it did not test or
-reject free-form message passing with turn-boundary delivery, which is the
-capability the owner originally requested. This amendment restores it in
-recorded form:
+The adverse T3a result rejected *same-turn* steering; it did not reject
+free-form input queued for a later natural turn. A fresh real Codex
+`0.145.0` probe on 2026-07-24 confirmed that narrower capability without
+Escape, cancellation, or a resume command.
 
-- Any declared member of a live group may send free-form UTF-8 text to
-  another declared member, addressed by binding name, never by raw pane id.
-- Members send through a runtime-owned command surface (working name:
-  `orchestrator peer-send <binding> <message>`), invoked through the
-  member's ordinary shell tool. The runtime appends the message to the
-  receiving attempt's injected-message ledger and then delivers it into the
-  target session's input mechanism; whether delivery uses `send-keys`
-  against the runtime-owned pane or the session transport's input channel
-  is a runtime-owned detail.
-- Delivery semantics are explicitly turn-boundary: a message reaches the
-  receiving agent when its client next consumes queued input. No same-turn
-  claim is made anywhere; the T3a evidence stands unweakened.
-- Every injected message is evidence: sender binding, receiver binding,
-  verbatim content, and send timestamp are recorded beside the receiving
-  attempt's prompt-dependency snapshot, so "what did this agent see"
-  remains answerable after the fact.
-- The single-writer coordinator serializes message deliveries with
-  directive processing; concurrent senders queue.
-- Messaging never cancels, resumes, or settles a member. The `STEER`
-  resume path remains the only forcing move.
+The initial amendment text was nevertheless incomplete: the shipped executor
+closes stdin, its observation pane tails a file rather than hosting the
+provider, and append-before-delivery proves only a runtime offer rather than
+model consumption. It also left readiness, exact attempt attribution,
+completion races, teardown, and static N-member settlement unspecified.
 
-Phasing: the two-member worker/supervisor directive form remains the v1
-execution tranche exactly as specified above. Recorded peer messaging and
-static N-member composition (declared member lists; dynamic counts stay
-excluded) are the v1.1 tranche, layered on the same coordinator, pane, and
-evidence machinery.
+The revised v1.1 decision is therefore additive and is normative in
+`workflow_lisp_provider_peer_messaging.md`:
+
+- target `2.16`, `with-live-providers`, and
+  `provider_supervision.v1` remain unchanged;
+- target `2.17` adds `with-live-provider-peers` and
+  `provider_peer_group.v1` for a static `2..8` member group;
+- every member uses an explicit provider-neutral interactive queued-input
+  capability; neither stdin nor the observation pane implies it;
+- `peer-ready`, `peer-send`, `peer-ack`, and cooperative `peer-finish`
+  requests round-trip through an exact attempt-bound runtime endpoint;
+- the coordinator fsyncs an append-only receiver ledger before offering
+  literal text, and distinguishes `recorded`, `offered`, and
+  `receiver_acknowledged` without claiming semantic understanding;
+- a provider-declared normal close command and full process-boundary proof
+  are required before settlement; and
+- the peer group has no directive or forcing edge. This v1 `STEER` path
+  remains the only successful forcing move.
+
+Mixing queued messages with forced worker replacement is deferred because a
+message must never be silently retargeted across provider attempts.
 
 ### Alternatives rejected
 

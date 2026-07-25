@@ -4754,9 +4754,11 @@ and unselected provisional bundles never become workflow values or result
 channels. Interrupted in-flight groups are quarantined rather than replayed by
 ordinary resume.
 
-Recorded peer messaging and static N-member composition are a reviewed-design
-follow-on, not part of the implemented v1 surface. Same-turn or unrecorded raw-
-pane steering remains outside the language contract.
+Recorded peer messaging and static provider-peer composition have a separate
+accepted v1.1 design in `workflow_lisp_provider_peer_messaging.md`; they are
+not part of the implemented v1 surface and are not yet authoring surfaces.
+Same-turn or unrecorded raw-pane steering remains outside the language
+contract.
 
 ## Part XIX. Resolved Design Decisions
 

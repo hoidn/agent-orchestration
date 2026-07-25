@@ -64,7 +64,8 @@ page, not a replacement for the linked docs.
 | [workflow_lisp_native_transportable_returns.md](workflow_lisp_native_transportable_returns.md) | Uniform native returns and optional typed result guidance | Implemented | Yes in DSL v2.15 | Native direct-root carriage and typed root/payload guidance are implemented across classic/WCC lowering, shared IR, prompts, runtime neutrality, and ordinary loader paths. |
 | [workflow_lisp_provider_prompt_queue.md](workflow_lisp_provider_prompt_queue.md) | Multi-turn `prompt-queue` over one provider session | Proposed (design review pending) | No | Atomic provider step driving N same-session turns; output contract on the final turn only. Not roadmap-scheduled; implementation gated behind drain S3/P4 and the native-return waves. |
 | [workflow_lisp_program_search_boundaries.md](workflow_lisp_program_search_boundaries.md) | Permanent boundary invariants for any future program-search/evolution feature | Adopted position statement | No | Owner-directed 2026-07-24 extraction from the parked evolution follow-on roadmap: immutable generation boundaries, untrusted provider output, neutral substrate vs feature, whole-candidate fitness authority, evidence separation, honest security boundary, no kind erasure, role-separated prompt identity. Constrains future designs; schedules no work. |
-| [workflow_lisp_provider_live_binding.md](workflow_lisp_provider_live_binding.md) | Live provider supervision through observation panes, one bounded provider-session correction, and recorded peer messaging | v1 implemented through `4d4f05c7`; v1.1 amendment pending review and implementation | Yes for the exact v1 target-2.16 form | Adverse T3a retired *same-turn* `send-keys` steering only. Implemented v1 composes one worker and one supervisor with a validated directive and one fail-closed turn-boundary resume under a single-writer coordinator. The owner amendment adds recorded free-form turn-boundary peer messaging and static N-member composition as a distinct v1.1 phase; do not infer it from v1. |
+| [workflow_lisp_provider_live_binding.md](workflow_lisp_provider_live_binding.md) | Live provider supervision through observation panes and one bounded provider-session correction | v1 implemented through `4d4f05c7` | Yes for the exact v1 target-2.16 form | Adverse T3a retired *same-turn* `send-keys` steering. Implemented v1 composes one worker and one supervisor with a validated directive and one fail-closed turn-boundary resume under a single-writer coordinator. |
+| [workflow_lisp_provider_peer_messaging.md](workflow_lisp_provider_peer_messaging.md) | Recorded turn-boundary peer messaging and static provider-peer groups | Accepted Stage-7 v1.1 design; reviewed execution plan pending | No | Independently specification/quality approved additive target-2.17 `with-live-provider-peers` / `provider_peer_group.v1` contract with exact attempt-bound ingress, append-before-offer ledgers, cooperative receipts, and no forcing edge. Target 2.16 and `provider_supervision.v1` remain unchanged. |
 | [workflow_lisp_language_server.md](workflow_lisp_language_server.md) | `.orc` LSP server (editor diagnostics and navigation) | Proposed (design review pending) | No | Pure consumer of existing compile entry points per frontend spec §76.1; v1 is save-driven diagnostics plus navigation; tolerance/hover/overlay deferred behind named frontend prerequisites. Roadmap-scheduled as final Stage 8 of the procedure-first execution sequence; implementation gated on design review acceptance. |
 | [workflow_lisp_proc_refs_partial_application.md](workflow_lisp_proc_refs_partial_application.md) | Compile-time ProcRefs and `bind-proc` | Yes | Yes | Current direction for reusable procedure hooks without runtime procedure values. |
 | [workflow_lisp_let_proc_local_proc_refs.md](workflow_lisp_let_proc_local_proc_refs.md) | Local compile-time procedure bindings | Designed | No | Follow-on ergonomics; not normal current authoring unless implemented on branch. |
@@ -90,9 +91,11 @@ quality reviews. It is now historical implementation evidence; the current
 roadmap records Stage 6 complete in the
 [Procedure-First Roadmap Execution Sequence](../plans/2026-07-09-procedure-first-roadmap-execution-sequence.md).
 Stage 7 provider-live-binding v1 is complete through Task 15 and Gate S7-v1.
-The owner-amended v1.1 recorded-peer-messaging phase is at design revision
-after its initial independent review returned `CHANGES_REQUIRED`; approved
-re-review, planning, and implementation remain gated before Stage 8.
+The owner-amended v1.1 recorded-peer-messaging revision in
+`workflow_lisp_provider_peer_messaging.md` received independent specification
+and ordered quality approval after its initial review returned
+`CHANGES_REQUIRED`; reviewed planning and implementation remain gated before
+Stage 8.
 
 | Doc | Applies to | Current checkout? | Normal authoring guidance? | Notes |
 | --- | --- | ---: | ---: | --- |

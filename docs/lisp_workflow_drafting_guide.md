@@ -1229,9 +1229,10 @@ the selected worker value and directive into one atomic workflow result.
 Observation panes are process-local views; do not capture or pass their tmux
 targets as workflow data.
 
-Recorded peer messaging and static N-member composition are not yet authoring
-surfaces. Do not emulate them with raw tmux `send-keys` or prompt-parsed
-control text.
+Recorded peer messaging and static provider-peer composition are not yet
+authoring surfaces. Their revised target-`2.17` contract is
+`docs/design/workflow_lisp_provider_peer_messaging.md`; do not emulate it with
+raw tmux `send-keys` or prompt-parsed control text.
 
 ## 9. Structured Command Results
 

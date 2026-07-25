@@ -45,9 +45,11 @@ observable cancellation linearization or the narrower resume-boundary rule.
 **Status:** Provider-live-binding v1 is complete through Tasks 1-15 and Gate
 S7-v1. The closing tree passed focused, real-provider, broad-baseline,
 specification, and quality gates. The owner-amended v1.1 recorded-peer-
-messaging/static-N-member phase is now active at its required design-revision
-gate after the initial independent review returned `CHANGES_REQUIRED`; its
-reviewed execution-plan delta remains required before Stage 8.
+messaging/static-peer-group phase is now specified by
+`docs/design/workflow_lisp_provider_peer_messaging.md` at its required
+design gate. It resolved the initial `CHANGES_REQUIRED` review and received
+`DESIGN_SPEC_APPROVED` and ordered `DESIGN_QUALITY_APPROVED`; its reviewed
+execution-plan delta remains required before Stage 8.
 
 **Plan-review evidence:** Independent specification/sequence review: `PASS`.
 Independent path/selector/shell-order audit: `PASS` for the pre-amendment plan.
@@ -75,9 +77,11 @@ This plan's Tasks 1-15 implement only the accepted v1:
 - one pure settlement expression and one atomic workflow-state/result commit;
 - target DSL 2.16 and no YAML surface.
 
-The 2026-07-24 design amendment moves recorded peer messaging and static
-N-member groups into a subsequent v1.1 plan delta; their absence from Tasks
-1-15 is deliberate, not a rejection. Do not implement provider-native duplex
+The 2026-07-24 design amendment moves recorded peer messaging and static peer
+groups into a subsequent v1.1 plan delta; their absence from Tasks 1-15 is
+deliberate, not a rejection. The revised design keeps them additive through
+target `2.17` and `provider_peer_group.v1`, leaving the v1 target/node
+unchanged. Do not implement provider-native duplex
 protocols, repeated forcing steering, dynamic member counts, effectful
 settlement, multi-step members, cross-run binding,
 filesystem rollback, cgroups/namespaces, detached-child containment, general
@@ -96,6 +100,7 @@ Read these before implementation:
 - `docs/index.md`
 - `docs/capability_status_matrix.md`
 - `docs/design/workflow_lisp_provider_live_binding.md`
+- `docs/design/workflow_lisp_provider_peer_messaging.md`
 - `docs/plans/2026-07-23-provider-live-binding-t3-behavior-simulation.md`
 - `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
 - `docs/design/workflow_lisp_frontend_specification.md`
@@ -1539,9 +1544,12 @@ including re-review after the observation-proof correction, concluded
   `TASK15_QUALITY_APPROVED`. The final focused and routing reruns passed 473
   and 49 tests respectively, scoped diff checking was clean, and the closing
   commit is named `Complete Stage 7 provider live binding v1`.
-- [ ] Immediately advance without requesting confirmation to independent
-  review of the 2026-07-24 v1.1 amendment, then draft/review/execute its
-  focused Stage-7 plan delta. Advance to Stage 8 only after Gate S7-v1.1 also
+- [x] Independently re-review the revised 2026-07-24 v1.1 design.
+
+  The additive target-`2.17` peer-group design received
+  `DESIGN_SPEC_APPROVED` and ordered `DESIGN_QUALITY_APPROVED`.
+- [ ] Immediately draft/review/execute its focused Stage-7 plan delta without
+  requesting confirmation. Advance to Stage 8 only after Gate S7-v1.1 also
   closes.
 
 ## Global Stop / Revise Conditions
