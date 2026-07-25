@@ -780,7 +780,12 @@ def _transition_type_descriptor(type_ref: TypeRef) -> dict[str, Any]:
             return {"kind": "enum", "name": type_ref.name, "allowed": list(type_ref.allowed_values)}
         return {"kind": "primitive", "name": type_ref.name}
     if isinstance(type_ref, PathTypeRef):
-        return {"kind": "path", "name": type_ref.name}
+        return {
+            "kind": "path",
+            "name": type_ref.name,
+            "under": type_ref.definition.under,
+            "must_exist_target": type_ref.definition.must_exist,
+        }
     if isinstance(type_ref, OptionalTypeRef):
         return {"kind": "optional", "item": _transition_type_descriptor(type_ref.item_type_ref)}
     if isinstance(type_ref, ListTypeRef):

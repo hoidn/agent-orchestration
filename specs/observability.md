@@ -8,6 +8,31 @@
 - Execution logs
   - Under `RUN_ROOT/logs/`: `orchestrator.log`, `StepName.stdout` (>8 KiB or JSON parse error), `StepName.stderr` (when non-empty), `StepName.debug` (when enabled).
   - v2.10 provider-session visits also create visit-scoped metadata and optional retained transport spools under `RUN_ROOT/provider_sessions/`.
+  - Provider observation writes invocation-local normalized display streams
+    and finalized transcripts under `RUN_ROOT/provider-observation/display/`
+    and `RUN_ROOT/provider-observation/transcripts/`.
+
+- Provider observation (v2.16)
+  - Ordinary provider observation is attempted by default at both workflow and
+    provider executor boundaries. One private run-scoped tmux server owns
+    unique, non-reused panes with a 1:1 invocation-to-pane relationship.
+  - Ordinary manager creation, pane allocation, append, health, finalization,
+    and teardown failures are best-effort observability failures and cannot
+    change provider transport, timeout, metadata, bundle, or result semantics.
+  - A `provider_supervision` node's two initial panes are load-bearing until a
+    validated supervisor directive is committed to the serialized arbiter.
+    Initial allocation failure or pre-directive observation loss fails the
+    group and triggers member cleanup. The optional resume-turn pane and
+    post-directive mirror/teardown are best effort because they cannot change
+    the already selected control path.
+  - Session-aware panes mirror normalized assistant text, never raw session
+    JSONL. Pane bytes and transcripts are display evidence; parsers and result
+    validation continue to consume the authoritative provider transport and
+    declared output bundle.
+  - Live tmux socket and target values are process-local. They may occur in the
+    supervisor's composed prompt and debug prompt evidence but never enter
+    workflow values, `state.json`, stable status records, checkpoints, or
+    resume selection.
 
 - Error context (normative)
   - On step failure, record message, exit code, tails of stdout/stderr, and error context details (undefined variables, missing deps, substituted command, missing secrets, etc.).
@@ -68,6 +93,13 @@ derives solely from the validated `.orc` executable and `state.json`.
     - `run.error` quarantine context for interrupted provider-session visits
     - `output.provider_session` step summaries including `mode`, `session_id`, `metadata_path`, and `publication_state`
   - v2.11 adjudicated provider snapshots may expose selected candidate id, selected score or null score, selection reason, run-local score ledger path, workspace-visible score ledger mirror path, promotion status, and adjudication failure type. Candidate workspaces, evaluator packets, and ledgers are observability sidecars, not ordinary artifact lineage.
+  - v2.16 provider-supervision snapshots render one outer step with kind
+    `provider_supervision`. Its ordinary artifacts are the settlement result;
+    debug projection may expose only the selected worker-attempt and directive-
+    attempt references plus bounded terminal metadata. Interrupted-visit
+    quarantine may expose its stable error type and visit metadata path, but
+    member panes, targets, provisional bundles, and transcripts are not result
+    or resume authority.
 
 - Workflow monitor notifications
   - `orchestrator monitor` is a read-only observer over configured workspace roots. It scans `.orchestrate/runs/*/state.json` and must not mutate `state.json`, reconcile run status, resume runs, kill processes, or execute workflow control.

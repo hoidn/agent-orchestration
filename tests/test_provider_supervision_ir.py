@@ -339,6 +339,23 @@ def _validate_provider_supervision_settlement_mapping(
     mapping = {
         "version": "2.16",
         "name": "generated-live",
+        "providers": {
+            "worker-provider": {
+                "command": ["worker-tool"],
+                "input_mode": "stdin",
+                "session_support": {
+                    "metadata_mode": "codex_exec_jsonl_stdout",
+                    "fresh_command": ["worker-tool", "--json"],
+                    "resume_command": [
+                        "worker-tool",
+                        "resume",
+                        "${SESSION_ID}",
+                        "--json",
+                    ],
+                    "turn_boundary_resume": True,
+                },
+            }
+        },
         "steps": [
             {
                 "name": "Live",

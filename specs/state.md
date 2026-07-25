@@ -174,6 +174,41 @@
   resume never read it. A later authoritative state change makes an older
   index stale rather than changing runtime behavior.
 
+## Provider-Supervision State And Resume (v2.16)
+
+- State schema remains `2.1`. One running supervision group owns one ordinary
+  live cursor whose `current_step` has `type: "provider_supervision"`, the
+  generated step id, status `running`, and its visit count. The group is one
+  atomic workflow step; its members do not publish independent workflow
+  results or checkpoints.
+- The group visit is not a provider attempt. Worker-fresh and
+  supervisor-directive invocations each allocate a distinct crash-durable
+  root-owned provider-attempt ordinal; `STEER` allocates a third ordinal for
+  the worker resume turn only after the prior boundary is validated. Attempt
+  scopes are derived from group step id, visit, member id, and turn ordinal.
+- Visit evidence lives below
+  `provider-supervision/<encoded-node>/visits/<visit>/`. Its
+  `metadata.json` progresses from pending/running evidence to a terminal
+  disposition such as `committed_terminal_result`; provisional member bundles
+  and transcripts remain secondary evidence. A completed node exposes only
+  the selected worker-attempt and directive-attempt references in debug state,
+  not member values or live targets as competing state authorities.
+- The coordinator alone commits the validated settlement result, artifact and
+  dataflow publications, terminal step result, selected-attempt references,
+  and exact matching `current_step` clearance as one state transaction.
+- If ordinary resume finds a matching running supervision visit without that
+  visit's terminal group result, it quarantines before restart-index planning,
+  state preparation for another visit, or provider launch. Quarantine sets the
+  run failed, clears only the exact matching `current_step`, preserves older
+  terminal results, records sticky
+  `provider_supervision_interrupted_visit_quarantined`, and marks the visit
+  `interrupted` with disposition `quarantined_interrupted_visit`.
+- A mismatched or malformed supervision cursor/visit relationship fails with
+  `provider_supervision_resume_state_integrity_error`. Ordinary resume never
+  replays a quarantined visit or reuses its member sessions. Only explicit
+  force restart or a new run may cross the quarantine boundary; existing root,
+  callee, checkpoint, and projection-integrity guards remain unchanged.
+
 ## Reusable-Call State Contract (v2.5)
 
 - Caller-visible exports

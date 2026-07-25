@@ -15,7 +15,9 @@ middle-end, runtime migration, and composition/stdlib behavior:
 [Workflow Lisp Post-Foundation Composition And Stdlib Migration](workflow_lisp_post_foundation_composition_stdlib_migration.md),
 [Workflow Lisp Procedure-First Reuse Contract](workflow_lisp_procedure_first_reuse_contract.md),
 and
-[Workflow Lisp Native Transportable Returns And Typed Result Guidance](workflow_lisp_native_transportable_returns.md).
+[Workflow Lisp Native Transportable Returns And Typed Result Guidance](workflow_lisp_native_transportable_returns.md),
+and
+[Workflow Lisp Provider Live Binding](workflow_lisp_provider_live_binding.md).
 
 Design principles: this specification follows the language-wide principles in
 [Workflow Language Design Principles](workflow_language_design_principles.md).
@@ -74,7 +76,6 @@ flowchart LR
     SemanticIR --> ExecutableIR["Executable IR"]
     ExecutableIR --> Runtime["Existing runtime"]
 
-    YAML["YAML authoring surface"] --> CoreAST
     DebugYAML["Debug YAML projection"] -. debug only .-> CoreAST
 
     classDef authority fill:#e8f5e9,stroke:#2e7d32,color:#111;
@@ -82,7 +83,7 @@ flowchart LR
     classDef projection fill:#fff3e0,stroke:#ef6c00,color:#111,stroke-dasharray: 4 3;
 
     class CoreAST,SharedValidation,SemanticIR,ExecutableIR,Runtime authority;
-    class Source,Parse,FrontendAST,Expand,YAML frontend;
+    class Source,Parse,FrontendAST,Expand frontend;
     class DebugYAML projection;
 ```
 
@@ -2947,6 +2948,7 @@ Core statements:
 - `CorePublish`
 - `CoreAssert`
 - `CoreResourceTransitionStep`
+- `CoreProviderSupervisionStep`
 
 Generated pure projections, materialized views, and resource transitions are
 first-class Core statement families on the WCC/schema-2 route. Certified
@@ -3023,6 +3025,16 @@ SemanticWorkflowCall(
     return_type,
     version_policy,
 )
+
+SemanticProviderSupervision(
+    id,
+    worker_member,
+    supervisor_member,
+    observation_edge,
+    directive_type,
+    settlement_type,
+    effects,
+)
 ```
 
 Semantic IR is the authoritative compiler output.
@@ -3056,6 +3068,15 @@ Executable validation requires the side table and provider-step set to
 reconcile exactly. The public `runtime_plan` deliberately omits dependency
 operands, injection policy, compiler-contract data, content digests, and
 evidence metadata; it remains topology/checkpoint planning only.
+
+`ExecutableNodeKind.PROVIDER_SUPERVISION` carries a
+`provider_supervision.v1` node-local schema. Its validated config contains the
+two immutable member provider configs, the supervisor-to-worker observation
+edge, worker and directive result contracts, pure settlement payload and
+result contract, bounded member/step deadlines, `max_steers: 1`, and
+visit/member/turn-qualified provisional paths. Runtime-plan and Semantic-IR
+projections expose one composite node and one atomic result boundary, not two
+independent workflow steps.
 
 Executable IR no longer contains macros, procedures, or unresolved type forms.
 
@@ -3286,6 +3307,44 @@ SemanticProviderResult
   CompilerPromptDependencyContract(...)
   AtomicBundleValidation(...)
 ```
+
+## 54.1 `with-live-providers` Elaboration (Target 2.16)
+
+Source:
+
+```lisp
+(with-live-providers
+  ((worker (run-worker request))
+   (supervisor (run-supervisor policy)
+     :observes worker))
+  worker)
+```
+
+The form has exactly two bindings and one sibling `:observes` edge. The
+observed member is the worker; its peer is the supervisor. The worker returns
+any transportable type `T`, the supervisor returns the compiler-owned
+non-shadowable `ProviderSteeringDirective`, and the settlement body is a pure
+expression over both values whose type is the form's result type.
+
+A member is eligible only when post-specialization recursive expansion of
+direct `:lowering inline` procedure calls yields one straight-line region with
+exactly one unconditional provider perform and a pure result projection.
+Residual calls, workflow boundaries, branches, loops, a second perform, or
+other effects reject with source-mapped diagnostics.
+
+WCC elaboration produces one closed `WccProviderSupervision` term and records
+the member provider effects plus
+`LiveSupervisionEffect(supervisor, worker)`. Defunctionalization emits one
+generated Core provider-supervision statement. Shared validation requires the
+worker provider template's structural `turn_boundary_resume` capability; the
+supervisor needs no session capability.
+
+Semantic and executable projection preserve the two members, observation edge,
+directive contract, pure settlement contract, source ownership, and one
+atomic workflow-state/result boundary. Member provisional bundles, panes, and
+transcripts are invocation evidence. Only the selected validated worker value
+and directive enter settlement, and only the validated settlement value is the
+node result.
 
 ## 55. `produce-one-of` Elaboration
 
@@ -3540,6 +3599,9 @@ Checks:
   their bodies
 - selected compile-time ProcRef bodies contribute their provider/command effects
   to the caller-visible effect summary
+- `with-live-providers` preserves both member provider effects and one
+  source-owned `LiveSupervisionEffect(supervisor, worker)`; its settlement
+  body contributes no effects
 - child-workflow, bridge, and publication effects remain explicit and
   publication ownership remains on the public workflow boundary
 
@@ -3552,6 +3614,9 @@ Checks:
 - input/ref materialization inherits contracts
 - record fields map to valid contracts
 - union fields map to valid contracts
+- provider supervision has exactly one transportable worker contract, the
+  exact compiler-owned steering-directive contract, and one pure settlement
+  result contract
 - stdlib review findings validate the `ReviewFindings.v1` carrier contract
 - review-loop terminal projection cannot replace carried evidence identity with
   a review-provider-produced field
@@ -4668,6 +4733,31 @@ source annotation.
 Detailed rationale, feasibility cases, and verification requirements:
 [Workflow Lisp Procedure-First Reuse Contract](workflow_lisp_procedure_first_reuse_contract.md).
 
+## 105.5 Provider Live Binding
+
+The target-2.16 v1 surface is implemented as the bounded
+`with-live-providers` form described in Section 54.1. Its shipped boundary is:
+
+- exactly one worker and one supervisor;
+- exactly one supervisor-to-worker observation edge;
+- provider members that normalize to one unconditional provider effect plus a
+  pure projection;
+- the reserved `ProviderSteeringDirective` with `CONTINUE` and one bounded
+  `STEER` correction;
+- structural worker `turn_boundary_resume` eligibility;
+- a pure settlement expression; and
+- one `provider_supervision.v1` executable node and atomic result commit.
+
+Observation panes are process-local views. Provider transport and validated
+member bundles remain authoritative; pane bytes, transcripts, live targets,
+and unselected provisional bundles never become workflow values or result
+channels. Interrupted in-flight groups are quarantined rather than replayed by
+ordinary resume.
+
+Recorded peer messaging and static N-member composition are a reviewed-design
+follow-on, not part of the implemented v1 surface. Same-turn or unrecorded raw-
+pane steering remains outside the language contract.
+
 ## Part XIX. Resolved Design Decisions
 
 ## 106. Procedure Lowering Policy (Resolved)
@@ -4751,6 +4841,7 @@ The minimal acceptable architecture is:
 - `call`
 - `let*`
 - `match`
+- `with-live-providers`
 - effect signatures
 - source maps
 - WCC elaboration and Core AST projection

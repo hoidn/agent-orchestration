@@ -73,7 +73,8 @@ class TestPromptLiteralContents:
             workflow=load_workflow_bundle_for_test(workspace, workflow_path),
             workspace=workspace,
             state_manager=state_manager,
-            debug=False
+            debug=False,
+            provider_observation_enabled=False,
         )
 
         # Mock subprocess.run to capture the exact command
@@ -157,7 +158,8 @@ class TestPromptLiteralContents:
             workflow=load_workflow_bundle_for_test(workspace, workflow_path),
             workspace=workspace,
             state_manager=state_manager,
-            debug=False
+            debug=False,
+            provider_observation_enabled=False,
         )
 
         # Mock subprocess.run to capture the stdin
@@ -252,7 +254,8 @@ class TestPromptLiteralContents:
             workflow=load_workflow_bundle_for_test(workspace, workflow_path),
             workspace=workspace,
             state_manager=state_manager,
-            debug=False
+            debug=False,
+            provider_observation_enabled=False,
         )
 
         # Mock subprocess.run to capture the command
@@ -342,7 +345,8 @@ class TestPromptLiteralContents:
             workflow=load_workflow_bundle_for_test(workspace, workflow_path),
             workspace=workspace,
             state_manager=state_manager,
-            debug=False
+            debug=False,
+            provider_observation_enabled=False,
         )
 
         # Mock the provider executor's execute method directly
@@ -418,7 +422,8 @@ class TestPromptLiteralContents:
             workflow=load_workflow_bundle_for_test(workspace, workflow_path),
             workspace=workspace,
             state_manager=state_manager,
-            debug=False
+            debug=False,
+            provider_observation_enabled=False,
         )
 
         # Mock subprocess.run

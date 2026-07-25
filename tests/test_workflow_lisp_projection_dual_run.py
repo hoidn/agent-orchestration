@@ -419,7 +419,7 @@ def _compile_provider_supervision_projection_bundle(workspace: Path):
         module_path,
         source_roots=(workspace,),
         provider_externs={
-            "providers.worker": "worker-provider",
+            "providers.worker": "codex",
             "providers.supervisor": "supervisor-provider",
         },
         prompt_externs={
@@ -728,7 +728,7 @@ def test_provider_supervision_semantic_ir_projects_composite_effect_without_enve
     members = effect.details["members"]
     assert members["worker"] == {
         "member_id": "worker",
-        "provider": "worker-provider",
+        "provider": "codex",
         "result_type": config.worker.result_contract.definition["type"],
     }
     assert members["supervisor"] == {

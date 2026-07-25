@@ -406,7 +406,7 @@ def test_compile_stage3_entrypoint_emits_visible_pure_projection_step(tmp_path: 
     assert bundle.surface.steps[0].pure_projection["payload"]["pure_expr_schema_version"] == 1
 
 
-def test_pure_projection_collection_root_contract_emits_boundary_diagnostic() -> None:
+def test_pure_projection_collection_root_contract_uses_direct_result() -> None:
     span = SourceSpan(
         start=SourcePosition(path="collection_root.orc", line=1, column=1, offset=0),
         end=SourcePosition(path="collection_root.orc", line=1, column=2, offset=1),
@@ -417,17 +417,19 @@ def test_pure_projection_collection_root_contract_emits_boundary_diagnostic() ->
         value_type_ref=PrimitiveTypeRef(name="Int"),
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        pure_projection_lowering._output_contracts_for_type(
-            map_ref,
-            context=None,
-            span=span,
-            form_path=("workflow", "return"),
-        )
-
-    assert [diagnostic.code for diagnostic in excinfo.value.diagnostics] == [
-        "workflow_boundary_collection_unsupported"
-    ]
+    assert pure_projection_lowering._output_contracts_for_type(
+        map_ref,
+        context=None,
+        span=span,
+        form_path=("workflow", "return"),
+    ) == {
+        "__result__": {
+            "type": "map",
+            "keys": {"type": "string"},
+            "values": {"type": "integer"},
+            "kind": "collection",
+        }
+    }
 
 
 def test_pure_projection_runtime_reuses_committed_bundle_on_resume(tmp_path: Path) -> None:

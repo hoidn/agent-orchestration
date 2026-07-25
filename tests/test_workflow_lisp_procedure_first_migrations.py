@@ -161,7 +161,7 @@ DESIGN_DELTA_DRAIN_BUILDER_RETENTION_DECISION = (
 )
 DESIGN_DELTA_PUBLIC_ENTRY = "lisp_frontend_design_delta/drain::drain"
 _DESIGN_DELTA_RUNTIME_PROJECTION_DIGESTS = {
-    "artifacts": "sha256:0c0925b3d70fa64626186ecd608cf01c0039aae5d4edf2a74465f722157c3732",
+    "artifacts": "sha256:067f99dcd6c90cc9057b99a2904421cba224d74057f3a7d572e292f314a93ae1",
     "publications": "sha256:05496b544363c9d5b04dcda52e4d73e2b393c0114947efc8956d9c500f238442",
     "resource_transitions": "sha256:b8faac2156c83c89a400c4b8f58c323081871d4982700df810fbe420f62470b8",
     "source_owners": "sha256:f9d41e95505f2577b3ebe84b01974c4273e712a7ae5831bceb60cb1fe0c3b525",

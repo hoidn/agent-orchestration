@@ -875,7 +875,7 @@ def _compile_task12b_live_provider(
         path,
         entry_workflow="orchestrate",
         provider_externs={
-            "providers.worker": "worker-provider",
+            "providers.worker": "codex",
             "providers.supervisor": "supervisor-provider",
         },
         prompt_externs={
@@ -1265,7 +1265,7 @@ def test_public_wcc_route_inlines_outer_literal_capture_into_settlement_payload(
         source_path,
         entry_workflow="orchestrate",
         provider_externs={
-            "providers.worker": "worker-provider",
+            "providers.worker": "codex",
             "providers.supervisor": "supervisor-provider",
         },
         prompt_externs={
@@ -1325,7 +1325,7 @@ def test_public_wcc_route_rejects_dynamic_workflow_input_settlement_capture_at_a
             path,
             entry_workflow="orchestrate",
             provider_externs={
-                "providers.worker": "worker-provider",
+                "providers.worker": "codex",
                 "providers.supervisor": "supervisor-provider",
             },
             prompt_externs={
@@ -1490,7 +1490,7 @@ def test_public_wcc_route_projects_live_provider_group_as_one_executable_node(
         path,
         entry_workflow="orchestrate",
         provider_externs={
-            "providers.worker": "worker-provider",
+            "providers.worker": "codex",
             "providers.supervisor": "supervisor-provider",
         },
         prompt_externs={
@@ -1517,7 +1517,7 @@ def test_public_wcc_route_projects_live_provider_group_as_one_executable_node(
     config = node.execution_config
     assert config.node_id == node.node_id == "root.orchestrate__result"
     assert config.worker.member_id == "worker"
-    assert config.worker.provider_config.provider == "worker-provider"
+    assert config.worker.provider_config.provider == "codex"
     assert config.worker.timeout_sec == 30
     assert config.supervisor.member_id == "supervisor"
     assert config.supervisor.provider_config.provider == "supervisor-provider"
@@ -1665,7 +1665,7 @@ def test_public_wcc_route_preserves_member_result_guidance_in_pathless_prototype
         path,
         entry_workflow="orchestrate",
         provider_externs={
-            "providers.worker": "worker-provider",
+            "providers.worker": "codex",
             "providers.supervisor": "supervisor-provider",
         },
         prompt_externs={
@@ -1745,7 +1745,7 @@ def test_public_wcc_route_composes_worker_projection_into_record_settlement(
         path,
         entry_workflow="orchestrate",
         provider_externs={
-            "providers.worker": "worker-provider",
+            "providers.worker": "codex",
             "providers.supervisor": "supervisor-provider",
         },
         prompt_externs={
@@ -1824,7 +1824,7 @@ def test_public_wcc_route_retains_member_contract_and_prompt_source_lineage(
         path,
         entry_workflow="orchestrate",
         provider_externs={
-            "providers.worker": "worker-provider",
+            "providers.worker": "codex",
             "providers.supervisor": "supervisor-provider",
         },
         prompt_externs={
@@ -1948,7 +1948,7 @@ def test_public_wcc_route_requires_explicit_positive_member_timeout(
             path,
             entry_workflow="orchestrate",
             provider_externs={
-                "providers.worker": "worker-provider",
+                "providers.worker": "codex",
                 "providers.supervisor": "supervisor-provider",
             },
             prompt_externs={

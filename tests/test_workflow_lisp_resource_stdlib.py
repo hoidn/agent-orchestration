@@ -1564,16 +1564,24 @@ def test_declared_transition_result_extraction_relaxes_must_exist_only(
         for field in transition_step.common.output_bundle["fields"]
     }
 
-    assert request_fields["report"] == {"kind": "path", "name": "WorkReport"}
+    expected_report_type = {
+        "kind": "path",
+        "name": "WorkReport",
+        "under": "artifacts/work",
+        "must_exist_target": True,
+    }
+    assert request_fields["report"] == expected_report_type
     assert request_fields["reports"] == {
         "kind": "list",
-        "item": {"kind": "path", "name": "WorkReport"},
+        "item": expected_report_type,
     }
     assert projection_outputs["return__report"].definition["must_exist_target"] is True
     assert (
         projection_outputs["return__reports"].definition["items"]["must_exist_target"]
         is True
     )
+    assert transition_fields["report"]["under"] == "artifacts/work"
+    assert transition_fields["reports"]["items"]["under"] == "artifacts/work"
     assert "must_exist_target" not in transition_fields["report"]
     assert "must_exist_target" not in transition_fields["reports"]["items"]
 

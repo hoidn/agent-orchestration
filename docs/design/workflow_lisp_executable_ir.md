@@ -31,8 +31,8 @@ projections are views.
 The current shared pipeline is:
 
 ```text
-frontend source / YAML surface
-  -> frontend-specific loading or Workflow Lisp WCC/schema-2 lowering
+fresh .orc source or a supported persisted compatibility bundle
+  -> Workflow Lisp WCC/schema-2 lowering or state-only compatibility loading
   -> Core Workflow AST
   -> shared validation and lowering
   -> validated ExecutableWorkflow
@@ -40,9 +40,11 @@ frontend source / YAML surface
   -> existing runtime
 ```
 
-Workflow Lisp lowers through WCC/schema 2 into the same shared bundle boundary
-as imported YAML workflows. The frontend does not bypass this layer, and it
-does not compile directly into executor-owned state.
+Workflow Lisp lowers through WCC/schema 2 into the shared loaded-bundle
+boundary. Fresh authored execution is `.orc`-only; completed legacy runs may
+remain observable through state-only compatibility without reopening an
+authored source frontend. The frontend does not bypass this layer, and it does
+not compile directly into executor-owned state.
 
 ## Current Executable Surface
 
@@ -85,6 +87,17 @@ runtime receives a validated transition declaration payload, resolved resource
 metadata, resolved request bindings, and optional expected-version binding, then
 owns version checks, idempotent replay, audit append, and resume semantics.
 
+The inventory includes `ExecutableNodeKind.PROVIDER_SUPERVISION` with
+`ProviderSupervisionStepConfig` and required node-local schema
+`provider_supervision.v1`. The config contains exactly one worker and one
+supervisor, their immutable provider configs, one supervisor-to-worker
+observation edge, worker and compiler-owned directive contracts, a validated
+pure settlement payload/result contract, bounded deadlines, `max_steers: 1`,
+and visit/member/turn-qualified evidence and provisional-bundle paths.
+Executable validation checks the complete typed config, structural worker
+resume capability, exact directive contract, generated paths, and settlement
+contract before runtime use.
+
 ## Validation Ownership
 
 Executable IR validation is owned by the shared workflow layer, not by ad hoc
@@ -99,8 +112,8 @@ The current ownership checkpoints are:
   frontend `executable` pass rather than treating prior artifacts as trusted
   by convention alone.
 
-This contract therefore narrows the boundary: workflows may arrive from
-different authoring surfaces, but executable authority is recognized only
+This contract therefore narrows the boundary: fresh `.orc` compiles and
+supported persisted compatibility bundles become executable authority only
 after shared executable validation succeeds.
 
 ## Derived Layers
@@ -126,6 +139,12 @@ roles, injection position/instruction, snapshot metadata, evidence records,
 and the compiler contract itself. Semantic IR and source maps may explain the
 validated executable contract, while per-attempt state/evidence may describe
 an invocation; none replaces executable authority.
+
+For provider supervision, runtime-plan and Semantic-IR derivation expose one
+composite node with two initial member invocations, one observation edge, an
+optional bounded worker-resume transition, and one atomic settlement/result
+boundary. Member panes, display streams, transcripts, cancellation evidence,
+and provisional bundles are not alternate executable or result authorities.
 
 These layers may summarize, enrich, or explain executable structure, but they
 do not redefine what the runtime-facing executable contract is.
@@ -179,6 +198,13 @@ Workflow Lisp build path:
   evidence that generated `resource_transition` nodes serialize into executable
   IR, execute through the runtime, and expose the expected runtime-view debug
   metadata.
+- `tests/test_provider_supervision_ir.py`,
+  `tests/test_provider_supervision_runtime.py`,
+  `tests/test_provider_supervision_resume.py`,
+  `tests/test_workflow_lisp_provider_supervision.py`, and the deterministic
+  and real provider-supervision E2E modules provide current evidence for the
+  typed composite node, coordinator-owned settlement, bounded resume, build
+  projections, and live provider boundary.
 
 Those artifacts are durable evidence for the implemented layer; they do not
 change the rule that validated executable IR is the authority and the other
@@ -186,9 +212,10 @@ outputs are derived views.
 
 ## Out Of Scope
 
-This document does not define new executable node kinds, new validator
-behavior, runtime closures, dynamic dispatch, runtime-native effect expansion,
-or a direct frontend-to-executable lowerer that bypasses shared validation.
+Beyond the current inventory, this document does not define additional
+executable node kinds, validator behavior, runtime closures, dynamic dispatch,
+runtime-native effect expansion, or a direct frontend-to-executable lowerer
+that bypasses shared validation.
 
 Future executable extensions require their own reviewed contract. They must
 not be implied by this document merely because adjacent code or planning

@@ -97,7 +97,8 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-16-same-file-build-checks-identity-retirement-plan.md` | Complete by fail-closed route-eligibility stop. The containing route is live/current and therefore requires strict compatibility; the source stayed unchanged and the row moved to `effect-adapter` even though known-store scans found zero matching consumers. This was not a competing roadmap selector and authorized no run or owner gate. |
 | `2026-07-16-design-delta-exported-workflow-retention-plan.md` | Complete after specification PASS and quality APPROVED. Seven calls remain active `effect-adapter` because their five unique callees are exported CLI-selectable workflows that cannot use reviewed internal retirement; five separate public-boundary records make that negative explicit. No source/run mutation or store/owner gate occurred. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
-| `2026-07-07-yaml-retirement-program.md` | Stage 6 complete. Tasks 1-7 are complete: all five queues are drained, exactly the two specified `.orc` ports are primary, no authored workflow YAML/YML remains, fresh execution is ORC-only, and the user-facing loader and project PyYAML dependency are absent. The 1,020-passed/5-skipped focused gate, fresh non-mutating `.orc` smoke, scoped broad comparison with zero new failures against the owner-adopted baseline, and ordered specification PASS/quality APPROVED reviews closed the stage at `d9baa120`. Stage 7 has an accepted design; its implementation selector remains gated on a reviewed plan. |
+| `2026-07-07-yaml-retirement-program.md` | Stage 6 complete. Tasks 1-7 are complete: all five queues are drained, exactly the two specified `.orc` ports are primary, no authored workflow YAML/YML remains, fresh execution is ORC-only, and the user-facing loader and project PyYAML dependency are absent. The 1,020-passed/5-skipped focused gate, fresh non-mutating `.orc` smoke, scoped broad comparison with zero new failures against the owner-adopted baseline, and ordered specification PASS/quality APPROVED reviews closed the stage at `d9baa120`. |
+| `2026-07-23-provider-live-binding-implementation-plan.md` | Active Stage-7 selector. Provider-supervision v1 implementation landed through `4d4f05c7` and completed Tasks 1-15 and Gate S7-v1: provider observation, structural turn-boundary resume, the `provider_supervision.v1` coordinator/runtime, target-2.16 frontend/IR, deterministic and real-provider integration, normative docs, 6,978-passed/17-skipped broad comparison with the four exact retained failures and zero new failures, and ordered `TASK15_SPEC_APPROVED` / `TASK15_QUALITY_APPROVED` reviews. The 2026-07-24 recorded-peer-messaging amendment is a subsequent v1.1 phase; its initial independent review returned `CHANGES_REQUIRED`, so design revision and approved re-review precede its execution-plan delta, implementation, and evidence before Stage 8. |
 | `2026-07-23-refusal-diagnosability-fixes-plan.md` | Queued small fix; not a competing selector. Applies design principle 28 (refusals name their rule) to the entry-bootstrap name-allowlist gate: denial diagnostic, declared-property rule replacing the name key, and promoted-route identity non-drift verification. Execute after the current YAML-retirement task or opportunistically between capture windows. |
 | `2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md` | Parked by owner decision 2026-07-24 per the architectural critique; not a selector. Boundary invariants extracted to `docs/design/workflow_lisp_program_search_boundaries.md`; the slimmed E0 probe and E4P prompt-identity diagnostics are the only salvaged items (see Post-Stage-8 Salvaged Items). Revival requires an explicit owner decision and fresh proportionality review. |
 
@@ -251,9 +252,10 @@ gate, and passed a fresh non-mutating `.orc` dry-run smoke. Its final scoped
 broad comparison recorded 6,386 passed, 15 skipped, and the four exact retained
 owner-baseline failures with zero new failures; ordered independent review
 returned specification PASS and quality APPROVED at `d9baa120`. Stage 6 is
-complete. Stage 7 provider live binding has an accepted design; its
-implementation remains gated on a reviewed execution plan, and the language
-server remains later.
+complete. Stage 7 provider-supervision v1 implementation landed through
+`4d4f05c7` and completed Task 15 and Gate S7-v1; the recorded-peer-messaging
+v1.1 design revision, approved re-review, planning, implementation, and
+evidence phase remains before the language server.
 
 The completed Phase 1 execution order was:
 
@@ -434,8 +436,9 @@ compatibility or a family migration wave.
 ### Stage 5: Implement Procedure-First Reuse In Waves
 
 The procedure-first migration wave and Stage 6 YAML retirement are complete.
-Stage 7 provider live binding has an accepted design; no implementation
-selector is active until its execution plan passes review.
+Stage 7 provider-supervision v1 is implemented through `4d4f05c7` and complete
+through Gate S7-v1; its reviewed component plan remains the active selector for
+the owner-amended v1.1 phase before Stage 8.
 
 Execute only accepted plans, in this order:
 
@@ -544,10 +547,10 @@ loader and project PyYAML dependency are absent, the authored workflow estate
 is empty, the focused gate passed 1,020 tests with 5 skipped, and a fresh
 `.orc` dry-run smoke left the run-root count unchanged. The final scoped broad
 comparison matched the owner-adopted baseline with zero new failures, and both
-independent reviews approved the final product tree at `d9baa120`. Provider
-live binding and the `.orc` language server remain next, in that order, but
-Stage 7 has an accepted design and remains implementation-gated on a reviewed
-execution plan.
+independent reviews approved the final product tree at `d9baa120`.
+Provider-supervision v1 is complete through Gate S7-v1; Stage 7 remains active
+for the distinct v1.1 design-revision, planning, and implementation phase
+before the `.orc` language server.
 
 Use the procedure-first model as the target authoring architecture. The
 2026-07-14 steering amendment to
@@ -606,9 +609,21 @@ worker turn; `STEER` reaps the runtime-owned process group and performs one
 validated provider-session resume turn with free-form guidance plus a fresh
 typed output contract.
 
-**Current Stage 7 status:** the revised design passed independent
-specification and quality review on 2026-07-23. Implementation remains gated
-only on a reviewed component execution plan.
+The 2026-07-24 owner amendment retains that v1 surface and adds a distinct
+v1.1 phase: declared members may send free-form text to peers by binding name
+through a runtime-owned surface; the receiver records each message in its
+injected-message ledger before natural turn-boundary delivery; the existing
+single-writer coordinator serializes delivery. Messaging never cancels,
+resumes, or settles a member, and `STEER` remains the only forcing move.
+Static N-member composition belongs to the same v1.1 phase. Same-turn or
+unrecorded raw-pane steering remains excluded.
+
+**Current Stage 7 status:** v1 Tasks 1-15 and Gate S7-v1 are implemented
+through `4d4f05c7` and complete. The initial independent review of the
+owner-amended v1.1 contract returned `CHANGES_REQUIRED`; Stage 7 therefore
+continues with design revision, approved independent re-review, a reviewed v1.1 execution-plan delta,
+implementation, verification, and both ordered implementation reviews.
+Stage 8 may not start before Gate S7-v1.1 closes.
 
 It precedes the language server deliberately: it changes the authoring
 language and provider execution/observation contracts, and Stage 8's
@@ -622,6 +637,8 @@ Entry conditions:
    accepted design before planning.
 2. A component execution plan exists under `docs/plans/` following the
    design's four-phase implementation handoff.
+3. The v1.1 amendment receives independent design review before its execution
+   plan is drafted or implementation begins.
 
 Execution follows the design's phases:
 
@@ -643,8 +660,20 @@ Execution follows the design's phases:
    `session_support.turn_boundary_resume`, the real supervisor/worker T3b
    smoke, spec deltas, default observation enablement, capability matrix, and
    authoring/docs updates.
+5. Recorded peer messaging v1.1: independently review the amendment, add and
+   review a focused execution-plan delta, then implement runtime-owned
+   peer-send, receiver-ledger-before-delivery, natural turn-boundary delivery,
+   coordinator serialization, and a static N-member authoring boundary whose
+   exact contract is established by the revised, independently approved
+   design and execution-plan delta, without changing v1 settlement or `STEER`
+   semantics.
 
-Gate S7 (the design's success criteria):
+Gate S7-v1 (the original design's success criteria):
+
+**Gate status:** complete. Task 15 recorded 475 collected, 473 focused passed,
+both real-provider E2Es passed, a 6,978-passed/17-skipped broad comparison
+with only the four exact retained Stage-6 failures and zero new failures, and
+ordered `TASK15_SPEC_APPROVED` / `TASK15_QUALITY_APPROVED` reviews.
 
 - the observation non-interference suite is green for ordinary, streaming,
   session, adjudicated, and managed-provider invocation paths, and ordinary
@@ -659,12 +688,30 @@ Gate S7 (the design's success criteria):
 - spec deltas are landed and the capability matrix and documentation
   routing reflect implemented status.
 
-Scope guard: Stage 7 covers only the revised design's v1. Provider-native
-duplex protocols, more than one steering turn, N-member/bidirectional
-supervision, effectful settlement, multi-step members, cross-run binding,
-filesystem rollback, stronger process containment, and general
-background/join primitives are excluded; each requires its own design
-treatment and an explicit amendment to this roadmap.
+Gate S7-v1.1 additionally requires:
+
+- the 2026-07-24 amendment has an independent approved design review and a
+  reviewed execution-plan delta;
+- sender/receiver identity, receiver-ledger append, ordering, failure,
+  natural-boundary delivery, and coordinator single-writer behavior have
+  both-direction unit and integration coverage;
+- peer messaging cannot directly cancel, resume, steer, settle, or publish a
+  member, and unrecorded/raw-pane delivery remains rejected;
+- static N-member type/effect/lowering and runtime ownership rules match the
+  reviewed plan, while the shipped two-member v1 form remains non-regressive;
+  and
+- focused, broad non-security, real-provider smoke where load-bearing, and
+  ordered independent specification/quality reviews pass.
+
+Gate S7 closes only after both sub-gates close.
+
+Scope guard: Stage 7 covers the shipped v1 plus the owner-proposed v1.1
+recorded-peer-messaging/static-N-member amendment after its required revision
+and approved independent review. Provider-native duplex protocols,
+same-turn or unrecorded raw-pane steering, more than one forcing `STEER`,
+effectful settlement, cross-run binding, filesystem rollback, and general
+background/join primitives remain excluded; each requires its own design
+treatment and an explicit roadmap amendment.
 
 ### Stage 8: Deliver The `.orc` Language Server
 
@@ -793,9 +840,10 @@ This roadmap sequence is complete when:
   are retired;
 - YAML retirement proceeds against the procedure-first model rather than
   recreating reusable workflow wrappers;
-- provider live binding v1 has shipped through Gate S7, with the
-  observation non-interference evidence and the fixture/real
-  supervisor-turn-boundary proofs recorded;
+- provider live binding v1 and the recorded-peer-messaging/static-N-member
+  v1.1 amendment have shipped through Gate S7, with observation
+  non-interference, fixture/real supervisor-turn-boundary, message-ledger,
+  delivery-ordering, and non-forcing proofs recorded;
 - the `.orc` language server v1 has shipped through Gate S8, with editor
   diagnostics proven at parity with the CLI compile path.
 

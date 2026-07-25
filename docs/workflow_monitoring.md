@@ -5,6 +5,21 @@ headless email notifications when workflow runs complete, fail, crash, or stall.
 It is an external observer: it does not mutate run state, resume workflows, kill
 processes, or depend on workflow-authored finalization steps.
 
+## Provider Observation Is A Different Surface
+
+Runtime provider observation panes are ephemeral, process-local execution
+views. Ordinary provider invocations attempt them by default and degrade
+safely if observation is unavailable. A target-2.16
+`with-live-providers` group instead requires both initial panes through
+directive selection because the supervisor's observation edge is part of that
+node's control contract.
+
+Neither kind of pane is monitor, result, checkpoint, or resume authority.
+Pane bytes and transcripts do not replace provider transport or validated
+output bundles, and live tmux targets do not enter persisted workflow state.
+Use `orchestrator report` and `state.json` for workflow truth. Do not use raw
+tmux `send-keys` to steer provider panes.
+
 ## Configuration
 
 Create a monitor config outside the repository, for example:

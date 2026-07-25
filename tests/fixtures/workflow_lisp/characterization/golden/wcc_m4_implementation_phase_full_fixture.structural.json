@@ -2311,14 +2311,18 @@
                                           "name": "execution_report_path",
                                           "type": {
                                             "kind": "path",
-                                            "name": "WorkReport"
+                                            "must_exist_target": true,
+                                            "name": "WorkReport",
+                                            "under": "artifacts/work"
                                           }
                                         },
                                         {
                                           "name": "checks_report_path",
                                           "type": {
                                             "kind": "path",
-                                            "name": "WorkReport"
+                                            "must_exist_target": true,
+                                            "name": "WorkReport",
+                                            "under": "artifacts/work"
                                           }
                                         }
                                       ],
@@ -2333,7 +2337,9 @@
                                           "name": "review_report",
                                           "type": {
                                             "kind": "path",
-                                            "name": "ReviewReportPath"
+                                            "must_exist_target": true,
+                                            "name": "ReviewReportPath",
+                                            "under": "artifacts/review"
                                           }
                                         },
                                         {
@@ -2351,7 +2357,9 @@
                                                 "name": "items_path",
                                                 "type": {
                                                   "kind": "path",
-                                                  "name": "ReviewFindingsJsonPath"
+                                                  "must_exist_target": true,
+                                                  "name": "ReviewFindingsJsonPath",
+                                                  "under": "artifacts/work"
                                                 }
                                               }
                                             ],
@@ -2376,14 +2384,18 @@
                                                 "name": "execution_report_path",
                                                 "type": {
                                                   "kind": "path",
-                                                  "name": "WorkReport"
+                                                  "must_exist_target": true,
+                                                  "name": "WorkReport",
+                                                  "under": "artifacts/work"
                                                 }
                                               },
                                               {
                                                 "name": "checks_report_path",
                                                 "type": {
                                                   "kind": "path",
-                                                  "name": "WorkReport"
+                                                  "must_exist_target": true,
+                                                  "name": "WorkReport",
+                                                  "under": "artifacts/work"
                                                 }
                                               }
                                             ],
@@ -2399,14 +2411,18 @@
                                                 "name": "design_review_prompt",
                                                 "type": {
                                                   "kind": "path",
-                                                  "name": "WorkReport"
+                                                  "must_exist_target": true,
+                                                  "name": "WorkReport",
+                                                  "under": "artifacts/work"
                                                 }
                                               },
                                               {
                                                 "name": "fix_plan_prompt",
                                                 "type": {
                                                   "kind": "path",
-                                                  "name": "WorkReport"
+                                                  "must_exist_target": true,
+                                                  "name": "WorkReport",
+                                                  "under": "artifacts/work"
                                                 }
                                               }
                                             ],
@@ -2418,7 +2434,9 @@
                                           "name": "last_review_report",
                                           "type": {
                                             "kind": "path",
-                                            "name": "ReviewReportPath"
+                                            "must_exist_target": true,
+                                            "name": "ReviewReportPath",
+                                            "under": "artifacts/review"
                                           }
                                         },
                                         {
@@ -2436,7 +2454,9 @@
                                                 "name": "items_path",
                                                 "type": {
                                                   "kind": "path",
-                                                  "name": "ReviewFindingsJsonPath"
+                                                  "must_exist_target": true,
+                                                  "name": "ReviewFindingsJsonPath",
+                                                  "under": "artifacts/work"
                                                 }
                                               }
                                             ],
@@ -2463,7 +2483,9 @@
                                           "name": "items_path",
                                           "type": {
                                             "kind": "path",
-                                            "name": "ReviewFindingsJsonPath"
+                                            "must_exist_target": true,
+                                            "name": "ReviewFindingsJsonPath",
+                                            "under": "artifacts/work"
                                           }
                                         }
                                       ],
@@ -2515,14 +2537,18 @@
                                               "name": "execution_report_path",
                                               "type": {
                                                 "kind": "path",
-                                                "name": "WorkReport"
+                                                "must_exist_target": true,
+                                                "name": "WorkReport",
+                                                "under": "artifacts/work"
                                               }
                                             },
                                             {
                                               "name": "checks_report_path",
                                               "type": {
                                                 "kind": "path",
-                                                "name": "WorkReport"
+                                                "must_exist_target": true,
+                                                "name": "WorkReport",
+                                                "under": "artifacts/work"
                                               }
                                             }
                                           ],
@@ -2538,14 +2564,18 @@
                                               "name": "design_review_prompt",
                                               "type": {
                                                 "kind": "path",
-                                                "name": "WorkReport"
+                                                "must_exist_target": true,
+                                                "name": "WorkReport",
+                                                "under": "artifacts/work"
                                               }
                                             },
                                             {
                                               "name": "fix_plan_prompt",
                                               "type": {
                                                 "kind": "path",
-                                                "name": "WorkReport"
+                                                "must_exist_target": true,
+                                                "name": "WorkReport",
+                                                "under": "artifacts/work"
                                               }
                                             }
                                           ],
@@ -2557,7 +2587,9 @@
                                         "name": "last_review_report",
                                         "type": {
                                           "kind": "path",
-                                          "name": "ReviewReportPath"
+                                          "must_exist_target": true,
+                                          "name": "ReviewReportPath",
+                                          "under": "artifacts/review"
                                         }
                                       },
                                       {
@@ -2575,7 +2607,9 @@
                                               "name": "items_path",
                                               "type": {
                                                 "kind": "path",
-                                                "name": "ReviewFindingsJsonPath"
+                                                "must_exist_target": true,
+                                                "name": "ReviewFindingsJsonPath",
+                                                "under": "artifacts/work"
                                               }
                                             }
                                           ],
@@ -2599,14 +2633,18 @@
                                             "name": "execution_report_path",
                                             "type": {
                                               "kind": "path",
-                                              "name": "WorkReport"
+                                              "must_exist_target": true,
+                                              "name": "WorkReport",
+                                              "under": "artifacts/work"
                                             }
                                           },
                                           {
                                             "name": "checks_report_path",
                                             "type": {
                                               "kind": "path",
-                                              "name": "WorkReport"
+                                              "must_exist_target": true,
+                                              "name": "WorkReport",
+                                              "under": "artifacts/work"
                                             }
                                           }
                                         ],
@@ -2622,14 +2660,18 @@
                                             "name": "design_review_prompt",
                                             "type": {
                                               "kind": "path",
-                                              "name": "WorkReport"
+                                              "must_exist_target": true,
+                                              "name": "WorkReport",
+                                              "under": "artifacts/work"
                                             }
                                           },
                                           {
                                             "name": "fix_plan_prompt",
                                             "type": {
                                               "kind": "path",
-                                              "name": "WorkReport"
+                                              "must_exist_target": true,
+                                              "name": "WorkReport",
+                                              "under": "artifacts/work"
                                             }
                                           }
                                         ],
@@ -2641,7 +2683,9 @@
                                       "name": "last_review_report",
                                       "type": {
                                         "kind": "path",
-                                        "name": "ReviewReportPath"
+                                        "must_exist_target": true,
+                                        "name": "ReviewReportPath",
+                                        "under": "artifacts/review"
                                       }
                                     },
                                     {
@@ -2659,7 +2703,9 @@
                                             "name": "items_path",
                                             "type": {
                                               "kind": "path",
-                                              "name": "ReviewFindingsJsonPath"
+                                              "must_exist_target": true,
+                                              "name": "ReviewFindingsJsonPath",
+                                              "under": "artifacts/work"
                                             }
                                           }
                                         ],
@@ -2672,7 +2718,7 @@
                                   "name": "workflow_lisp/private::loop-state-carrier"
                                 }
                               },
-                              "payload_digest": "sha256:45ecb76c8ddf7764a8e1ccf9359cff4ae9f947cefd539373a206401abc7d1421"
+                              "payload_digest": "sha256:f4236b2805b2eea6c96e55e2c3671e7e2696504413d922d6d12f37f8d9d867d4"
                             }
                           },
                           {

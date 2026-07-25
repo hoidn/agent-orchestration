@@ -233,7 +233,12 @@ def test_at64_run_root_in_provider_params(tmp_path):
     expected_run_root = str(tmp_path / ".orchestrate" / "runs" / run_id)
 
     # Create executor
-    executor = WorkflowExecutor(workflow, tmp_path, state_manager)
+    executor = WorkflowExecutor(
+        workflow,
+        tmp_path,
+        state_manager,
+        provider_observation_enabled=False,
+    )
 
     # Mock subprocess
     with patch('subprocess.run') as mock_run:

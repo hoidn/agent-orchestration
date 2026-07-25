@@ -25,6 +25,9 @@ HARDENING_PLAN_PATH = (
 CURRENT_SELECTOR_PATH = (
     "docs/plans/2026-07-13-procedure-first-migration-waves-plan.md"
 )
+PROVIDER_LIVE_BINDING_PLAN_PATH = (
+    "docs/plans/2026-07-23-provider-live-binding-implementation-plan.md"
+)
 TRACKED_DESIGN_RETIREMENT_PLAN_PATH = (
     "docs/plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md"
 )
@@ -643,13 +646,45 @@ def _procedure_sequence_selector_surfaces() -> dict[str, str]:
         sequence_path,
         "2026-07-07-yaml-retirement-program.md",
     )
+    provider_live_binding_disposition = _markdown_table_row(
+        sequence_path,
+        "2026-07-23-provider-live-binding-implementation-plan.md",
+    )
     return {
-        "roadmap disposition": migration_disposition + "\n" + yaml_disposition,
+        "roadmap disposition": "\n".join(
+            (
+                migration_disposition,
+                yaml_disposition,
+                provider_live_binding_disposition,
+            )
+        ),
         "roadmap current routing": _procedure_sequence_current_routing(),
         "roadmap Stage 5 selector": sequence.split(
             "### Stage 5: Implement Procedure-First Reuse In Waves", 1
         )[1].split("### Stage 6: Resume YAML Retirement", 1)[0],
     }
+
+
+def _assert_stage_7_v1_implemented_and_v1_1_next(
+    surface: str,
+    label: str,
+) -> None:
+    normalized = _normalized_routing_text(surface)
+    assert "4d4f05c7" in normalized, label
+    assert re.search(
+        r"\bstage 7\b.{0,180}\bv1\b.{0,120}\bimplement\w*\b"
+        r"|\bprovider supervision v1\b.{0,180}\bimplement\w*\b",
+        normalized,
+    ), label
+    assert "v1.1" in normalized, label
+    assert (
+        "before stage 8" in normalized
+        or "before the language server" in normalized
+        or "remains next" in normalized
+    ), label
+    assert "stage 7 has not started" not in normalized, label
+    assert "awaits an owner scheduled design review" not in normalized, label
+    assert "implementation remains gated on a reviewed" not in normalized, label
 
 
 def _assert_migration_wave_complete_and_yaml_stage_closed(
@@ -698,15 +733,7 @@ def _assert_migration_wave_complete_and_yaml_stage_closed(
         "independent review" in normalized
         or ("pass" in normalized and "approved" in normalized)
     ), label
-    assert re.search(
-        r"\bstage 7\b.{0,180}\bowner\b.{0,80}\bschedul\w*\b"
-        r"|\bowner\b.{0,80}\bschedul\w*\b.{0,180}\bstage 7\b",
-        normalized,
-    ) or re.search(
-        r"\bprovider live binding\b.{0,180}\bowner\b.{0,80}\bschedul\w*\b"
-        r"|\bowner\b.{0,80}\bschedul\w*\b.{0,180}\bprovider live binding\b",
-        normalized,
-    ), label
+    _assert_stage_7_v1_implemented_and_v1_1_next(surface, label)
     for stale_task in range(1, 8):
         assert re.search(
             rf"\byaml retirement\b[^.;]{{0,120}}\btask {stale_task}\b"
@@ -715,11 +742,6 @@ def _assert_migration_wave_complete_and_yaml_stage_closed(
             rf"[^.;]{{0,80}}\btask {stale_task}\b",
             normalized,
         ) is None, (label, stale_task)
-    assert re.search(
-        r"\bstage 7\b[^.;]{0,120}\b(?:is current|has started|is started)\b"
-        r"|\bcurrent selector\b[^.;]{0,120}\bstage 7\b",
-        normalized,
-    ) is None, label
     for commit in MIGRATION_TASK_1_IMPLEMENTATION_COMMITS:
         assert normalized.count(commit) == 1, (label, commit)
 
@@ -771,7 +793,7 @@ def _assert_current_task_3_recovery_status(
     assert CONTRADICTORY_RECOVERY_STATUS.search(normalized) is None, label
 
 
-def test_procedure_first_status_surfaces_close_stage_6_without_starting_stage_7() -> None:
+def test_procedure_first_status_surfaces_close_stage_6_and_route_stage_7_v1_1() -> None:
     capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
     sequence = (
         REPO_ROOT
@@ -803,15 +825,7 @@ def test_procedure_first_status_surfaces_close_stage_6_without_starting_stage_7(
             r"|\byaml retirement\b.{0,160}\btask 7\b.{0,100}\bcomplete\w*\b",
             normalized,
         ), label
-        assert re.search(
-            r"\bstage 7\b.{0,180}\bowner\b.{0,80}\bschedul\w*\b"
-            r"|\bowner\b.{0,80}\bschedul\w*\b.{0,180}\bstage 7\b",
-            normalized,
-        ) or re.search(
-            r"\bprovider live binding\b.{0,180}\bowner\b.{0,80}\bschedul\w*\b"
-            r"|\bowner\b.{0,80}\bschedul\w*\b.{0,180}\bprovider live binding\b",
-            normalized,
-        ), label
+        _assert_stage_7_v1_implemented_and_v1_1_next(surface, label)
         assert "migration waves remain blocked" not in normalized, label
         assert "runtime hardening remains pending" not in normalized, label
 
@@ -1540,7 +1554,7 @@ def test_task_2_step_3_closes_on_live_route_strict_compatibility() -> None:
         "Stage 6 YAML retirement Task 5 is current.",
         "Stage 6 YAML retirement Task 6 is current.",
         "Stage 6 YAML retirement Task 7 is current.",
-        "Stage 7 provider live binding is current.",
+        "Stage 7 has not started and awaits an owner-scheduled design review.",
     ),
 )
 def test_stage_6_closeout_guard_rejects_stale_or_premature_routing(

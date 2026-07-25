@@ -192,6 +192,24 @@
   - Exhaustion overrides apply only to condition non-convergence after successful body execution and output resolution. Body-step failures, output contract failures, and predicate failures still fail the loop.
   - State schema remains `2.1`; loop-frame debug state adds `debug.structured_repeat_until.exhausted`.
 
+- v2.16 additions (Workflow Lisp provider supervision)
+  - Target DSL `2.16` installs the reserved non-shadowable prelude union
+    `ProviderSteeringDirective` and accepts the `.orc`-only
+    `with-live-providers` form.
+  - The form permits exactly one worker and one supervisor, one observation
+    edge, bounded overlap inside one atomic `provider_supervision.v1` node,
+    and at most one validated same-session worker resume.
+  - The worker must resolve to a provider template with structurally valid
+    `session_support.turn_boundary_resume: true`; the supervisor needs no
+    session capability. Provider observation is attempted by default, while
+    the group's two initial panes are required through directive arbitration.
+  - Targets below `2.16` neither accept the form nor reserve the prelude name.
+    An older module's authored type with the same name therefore retains its
+    prior meaning. There is no YAML spelling.
+  - State schema remains `2.1`; the node's required
+    `provider_supervision.v1` config tag and interrupted-visit quarantine
+    provide the additive compatibility boundary.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -210,6 +228,10 @@
   - `v2.10`: first-class provider-session resume
   - `v2.11`: adjudicated provider steps
   - `v2.12`: deterministic repeat-until exhaustion outputs
+  - `v2.13`: managed provider jobs
+  - `v2.14`: materialization, snapshots, and variant-output contracts
+  - `v2.15`: native transportable returns and typed result guidance
+  - `v2.16`: bounded Workflow Lisp provider supervision
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -342,5 +364,6 @@ Planned acceptance:
 | 2.13 | `managed_jobs` provider-step modifier | Adds runtime-owned managed job interception, guard/shim execution, watcher classification, audit/recovery state, and managed outcome routing for provider-launched training jobs. |
 | 2.14 | `materialize_artifacts`, `pre_snapshot`, `variant_output`, `select_variant_output`, and `requires_variant` | Adds deterministic typed materialization, durable snapshot-diff evidence, tagged-union output validation, atomic variant bundle selection, and author-time variant availability proof. |
 | 2.15 | Direct JSON root results (`output_bundle` fields with `json_pointer: ""`), public `optional\|list\|map` output and structured-result schemas, strict effect-boundary `guidance` / `guidance_context` / `guidance_by_variant`, and top-level workflow `result_guidance` | Promoted after the combined native-transportable-return and typed-result-guidance gate. Ordinary loader entrypoints, Workflow Lisp shared validation, CLI run/resume/report, dashboard projection, and imported-bundle loading accept the same version. v2.14 rejects the new guidance containers and retains its existing record/union contracts. Guidance is non-runtime metadata and does not change artifact names, value validity, source identities, checkpoint identities, or resume behavior. |
+| 2.16 | `.orc` `with-live-providers`, reserved `ProviderSteeringDirective`, structural `session_support.turn_boundary_resume`, default provider observation, and `provider_supervision.v1` | Adds exactly-two-member bounded provider overlap inside one atomic workflow node, one validated observation edge, pure settlement, at most one exact-session resume, and interrupted-visit quarantine. General authored concurrency and parallel blocks remain unsupported. State schema remains `2.1`. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

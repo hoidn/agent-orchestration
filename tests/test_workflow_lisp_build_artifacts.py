@@ -707,7 +707,7 @@ def _provider_supervision_build_request(tmp_path: Path):
     provider_externs_path.write_text(
         json.dumps(
             {
-                "providers.worker": "worker-provider",
+                "providers.worker": "codex",
                 "providers.supervisor": "supervisor-provider",
             }
         ),

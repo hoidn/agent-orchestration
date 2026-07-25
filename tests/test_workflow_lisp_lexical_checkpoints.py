@@ -140,7 +140,7 @@ def _compile_provider_supervision_checkpoint_fixture(tmp_path: Path):
         source_roots=(tmp_path,),
         entry_workflow="orchestrate",
         provider_externs={
-            "providers.worker": "worker-provider",
+            "providers.worker": "codex",
             "providers.supervisor": "supervisor-provider",
         },
         prompt_externs={

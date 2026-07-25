@@ -28,6 +28,7 @@ Design references:
 - [Workflow Lisp Runtime Closures Boundary](design/workflow_lisp_runtime_closures_boundary.md)
 - [Workflow Lisp Unified Frontend Design](design/workflow_lisp_unified_frontend_design.md)
 - [Workflow Lisp Native Transportable Returns And Typed Result Guidance](design/workflow_lisp_native_transportable_returns.md)
+- [Workflow Lisp Provider Live Binding](design/workflow_lisp_provider_live_binding.md)
 - [Workflow Language Design Principles](design/workflow_language_design_principles.md)
 - [Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md)
 - [Workflow Lisp Generic Core, Expression Surface, And Adapter Retirement](design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md)
@@ -349,6 +350,8 @@ The currently implemented authoring surface includes:
   providers, commands, procedures, and workflow calls when targeting the
   public DSL v2.15
 - `provider-result`
+- target-2.16 `with-live-providers` for exactly one eligible worker and one
+  supervisor with pure settlement
 - `command-result`
 - `with-phase`
 - `phase-target`
@@ -1176,6 +1179,59 @@ Prompts should usually avoid:
 - snapshot selection mechanics;
 - variant proof mechanics;
 - workflow routing internals.
+
+## 8A. Bounded Live Provider Supervision
+
+Target DSL 2.16 implements one deliberately narrow concurrent form:
+
+```lisp
+(defworkflow orchestrate () -> String
+  (with-live-providers
+    ((worker
+      (provider-result providers.worker
+        :prompt prompts.worker
+        :inputs ()
+        :timeout-sec 30
+        :returns String))
+     (supervisor
+      (provider-result providers.supervisor
+        :prompt prompts.supervisor
+        :inputs ()
+        :timeout-sec 30
+        :returns ProviderSteeringDirective)
+      :observes worker))
+    worker))
+```
+
+Use it only when all of these are true:
+
+- there are exactly two bindings and exactly one `:observes` edge;
+- the worker provider template declares validated structural
+  `session_support.turn_boundary_resume: true`; the supervisor does not need
+  session support;
+- each member is a direct `provider-result` or an inline procedure call that
+  normalizes to exactly one unconditional provider effect and a pure result
+  projection;
+- the worker returns a transportable type, while the supervisor returns the
+  reserved `ProviderSteeringDirective`; and
+- the body is a pure settlement expression over the two member values.
+
+The supervisor's structured bundle must be exactly
+`{"variant":"CONTINUE"}` or
+`{"variant":"STEER","guidance":"non-empty corrective text"}`. `CONTINUE`
+selects the fresh worker result. `STEER` permits at most one exact-session
+resume at a validated turn boundary and selects only the resumed result.
+
+Both member providers still write validated structured bundles at
+runtime-bound paths. Those bundles—not pane output, stdout, transcripts,
+session JSONL, or prompt prose—carry the member values. The runtime settles
+the selected worker value and directive into one atomic workflow result.
+Observation panes are process-local views; do not capture or pass their tmux
+targets as workflow data.
+
+Recorded peer messaging and static N-member composition are not yet authoring
+surfaces. Do not emulate them with raw tmux `send-keys` or prompt-parsed
+control text.
 
 ## 9. Structured Command Results
 
@@ -2414,7 +2470,7 @@ Before running a new `.orc` workflow, confirm:
 | Types | All boundary values are typed. In public DSL v2.15, every currently transportable type is valid in function, procedure, provider-result, command-result, workflow-call, and public-workflow return positions; direct roots use compiler-owned `__result__` carriage and no authored wrapper. Optional `(result T ...)` and payload-field guidance is typed, prompt-only metadata and never changes runtime validity. |
 | Paths | Path contracts are reusable `defpath` definitions. |
 | Authority | Structured bundles/artifacts are authority; reports are views. |
-| Providers | Provider decisions return structured state through `provider-result`. |
+| Providers | Provider decisions return structured state through `provider-result`. Target-2.16 live supervision uses exactly one eligible worker, one supervisor returning `ProviderSteeringDirective`, one observation edge, and a pure settlement body; panes are never result transport. |
 | Commands | Command semantics use `command-result` or certified adapters. |
 | Reports | No markdown report is parsed for semantic state in new high-level code. |
 | Pointers | Pointer files are not treated as artifact values. |

@@ -162,7 +162,7 @@ def _provider_supervision_source_map_document(
         path,
         entry_workflow="orchestrate",
         provider_externs={
-            "providers.worker": "worker-provider",
+            "providers.worker": "codex",
             "providers.supervisor": "supervisor-provider",
         },
         prompt_externs={

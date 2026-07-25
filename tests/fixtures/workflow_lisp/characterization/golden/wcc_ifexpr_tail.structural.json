@@ -84,13 +84,17 @@
                   "approved_report": {
                     "type": {
                       "kind": "path",
-                      "name": "ReportPath"
+                      "must_exist_target": false,
+                      "name": "ReportPath",
+                      "under": "artifacts/work"
                     }
                   },
                   "blocked_report": {
                     "type": {
                       "kind": "path",
-                      "name": "ReportPath"
+                      "must_exist_target": false,
+                      "name": "ReportPath",
+                      "under": "artifacts/work"
                     }
                   },
                   "enabled": {
@@ -122,7 +126,9 @@
                           "name": "report",
                           "type": {
                             "kind": "path",
-                            "name": "ReportPath"
+                            "must_exist_target": false,
+                            "name": "ReportPath",
+                            "under": "artifacts/work"
                           }
                         }
                       ],
@@ -148,7 +154,9 @@
                           "name": "report",
                           "type": {
                             "kind": "path",
-                            "name": "ReportPath"
+                            "must_exist_target": false,
+                            "name": "ReportPath",
+                            "under": "artifacts/work"
                           }
                         }
                       ],
@@ -164,7 +172,9 @@
                       "name": "report",
                       "type": {
                         "kind": "path",
-                        "name": "ReportPath"
+                        "must_exist_target": false,
+                        "name": "ReportPath",
+                        "under": "artifacts/work"
                       }
                     }
                   ],
@@ -172,7 +182,7 @@
                   "name": "Summary"
                 }
               },
-              "payload_digest": "sha256:73cda5c0d06873314c43bb3756453f6b5c4b7de2d502e9a2851515cd74ee7a45"
+              "payload_digest": "sha256:14b9a648cc3ecbf6782363184d4cac110c852d93808048e259171929a97e7451"
             }
           }
         ],

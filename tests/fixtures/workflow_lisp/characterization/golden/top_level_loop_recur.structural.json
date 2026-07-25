@@ -1003,7 +1003,9 @@
                                           "name": "execution_report",
                                           "type": {
                                             "kind": "path",
-                                            "name": "WorkReport"
+                                            "must_exist_target": true,
+                                            "name": "WorkReport",
+                                            "under": "artifacts/work"
                                           }
                                         }
                                       ],
@@ -1052,7 +1054,9 @@
                                         "name": "report",
                                         "type": {
                                           "kind": "path",
-                                          "name": "WorkReport"
+                                          "must_exist_target": true,
+                                          "name": "WorkReport",
+                                          "under": "artifacts/work"
                                         }
                                       }
                                     ],
@@ -1074,7 +1078,9 @@
                                       "name": "report",
                                       "type": {
                                         "kind": "path",
-                                        "name": "WorkReport"
+                                        "must_exist_target": true,
+                                        "name": "WorkReport",
+                                        "under": "artifacts/work"
                                       }
                                     }
                                   ],
@@ -1082,7 +1088,7 @@
                                   "name": "ImplementationSummary"
                                 }
                               },
-                              "payload_digest": "sha256:69124a8d7f551b1f0a7a52ff2209bb5ffbe51cc4349f389c591c8da7c824efdb"
+                              "payload_digest": "sha256:65875bde6d61dc49322b9e6461db6e7e8d2b5ef8c5a0844cff10a0f9bd6f1520"
                             }
                           },
                           {

@@ -53,6 +53,23 @@
       overall return and is carried only in workflow IR/artifact metadata.
     - If the provider exits `0` but writes the bundle to any other path, the
       step fails as an output-contract failure.
+  - Provider-supervision IO (v2.16):
+    - Provider stdin/stdout/stderr, the selected metadata codec, and validated
+      output bundles remain the execution and result transports. Observation
+      panes, display bytes, transcripts, raw logs, cancellation records, and
+      timing metadata are observability evidence only.
+    - Worker-fresh, supervisor-directive, and optional worker-resume
+      invocations each receive a distinct visit/member/turn-qualified
+      provisional bundle path under the run root. The runtime requires the
+      file to be absent and creates its parent before launch; a pre-existing
+      file is a prelaunch failure. No member writes the group result directly.
+    - `CONTINUE` validates the supervisor directive and fresh-worker bundle.
+      `STEER` validates the directive and resumed-worker bundle; it never
+      reads, promotes, or infers success from the fresh worker's business
+      bundle.
+    - Only the selected worker value and validated directive enter the pure
+      settlement expression. The validated settlement value alone becomes
+      the node result and ordinary artifacts/dataflow publication.
   - Reusable-call boundary:
     - `output_file`, `expected_outputs.path`, `output_bundle.path`, `consume_bundle.path`, and all deterministic `relpath` outputs stay workspace-relative whether a workflow runs top-level or under `call`.
     - `call` namespaces runtime-owned identities, provenance, and logs; it does not namespace authored output paths.

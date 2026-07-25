@@ -13,7 +13,16 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     - `metadata_mode`
     - `fresh_command`
     - optional `resume_command`
+    - optional boolean `turn_boundary_resume` (default `false`)
   - `${SESSION_ID}` is legal only inside `session_support.resume_command`, which must contain exactly one placeholder when present.
+  - `turn_boundary_resume: true` is a structural capability declaration. It
+    is valid only when `fresh_command` and `resume_command` are non-empty
+    string lists, the resume command contains exactly one unescaped
+    `${SESSION_ID}`, neither command contains an exact `--ephemeral` argument,
+    and the selected metadata codec can report one stable session identity and
+    a validated preterminal resume boundary. Provider name, input mode, TTY
+    behavior, or session support without that declaration never implies the
+    capability.
 
 - Step usage
   - `provider: <name>` uses the template; merge `defaults` overlaid by `provider_params` (step wins).
@@ -230,6 +239,40 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
   - The exact UTF-8 dependency block is limited to `262144` bytes as specified by `dependencies.md`; truncation is deterministic and explicit.
   - Prompt-dependency evidence is narrower than snapshot/render reuse: only an ordinary typed Workflow Lisp attempt carrying the validated compiler contract derives Workflow Lisp prompt-dependency evidence. Adjudicated paths without that ordinary typed carrier emit no such evidence; their existing debug/state output is separate. Historical YAML content-injection behavior remains comparison evidence only and is not reachable through fresh workflow execution.
 
+- Workflow Lisp live-provider supervision (v2.16)
+  - `with-live-providers` is a `.orc`-only form with exactly two bindings and
+    exactly one `:observes` edge. The observer is the supervisor and its peer
+    is the worker.
+  - Each member is either a direct `provider-result` expression or a direct
+    call to a recursively inline-normalizable `defproc :lowering inline`.
+    After specialization and inline expansion, each member must contain
+    exactly one unconditional provider perform followed by a pure result
+    projection. Branches, loops, residual calls, private workflow boundaries,
+    additional effects, and multiple provider performs are rejected.
+  - The worker may return any transportable type. The supervisor returns the
+    reserved compiler-owned `ProviderSteeringDirective`, whose only accepted
+    wire objects are exactly `{"variant":"CONTINUE"}` and
+    `{"variant":"STEER","guidance":<non-empty string>}`. Unknown fields,
+    missing or cross-variant fields, and empty guidance are rejected. Runtime
+    control interprets only the validated discriminant; guidance remains
+    free-form provider content.
+  - The settlement body is pure over the two validated member values, and the
+    form returns that body's type. The compiler lowers the whole form to one
+    `provider_supervision.v1` executable node with bounded initial overlap,
+    one workflow-state/result boundary, and `max_steers: 1`.
+  - Static and runtime validation both require the worker's resolved template
+    to have valid `turn_boundary_resume: true` support and use the cancellable
+    provider process-group lifecycle. The supervisor needs no session
+    capability. `STEER` may launch exactly one resume turn only after the
+    codec and process lifecycle prove the accepted boundary and exact
+    same-session identity; otherwise the group fails closed.
+  - The runtime composes the supervisor's structural observation injection
+    after ordinary source/dependency/input/consume composition and before the
+    output-contract suffix. Its tmux socket and worker target are
+    process-local execution data: they may occur in debug prompt evidence but
+    never become workflow values, output bundles, persisted state, or resume
+    authority.
+
 - Adjudicated provider prompt and evaluator delivery (v2.11)
   - Each candidate uses the ordinary provider prompt composition contract, including step-wide `asset_depends_on`, `depends_on`, `consumes` injection, and deterministic output-contract suffixes. A candidate `asset_file` or `input_file` override replaces only the base prompt source.
   - Candidate provider commands run with `cwd` set to that candidate's isolated workspace. Provider templates, provider params, env, secrets, and prompt transport otherwise follow the normal provider contract.
@@ -274,7 +317,12 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
 - Claude: `command: ["claude","-p","${PROMPT}","--model","${model}"]`, defaults `{ model: "claude-opus-4-6" }`.
 - Claude summary alias: `command: ["claude","-p","${PROMPT}","--model","${model}"]`, defaults `{ model: "claude-sonnet-4-6" }`.
 - Codex CLI: `command: ["codex","exec","--dangerously-bypass-approvals-and-sandbox","--model","${model}","--config","reasoning_effort=${reasoning_effort}"]`, `input_mode: 'stdin'` (prompt via stdin).
-- Codex session-capable CLI (v2.10): `session_support.fresh_command: ["codex","exec","--json",...]`, `session_support.resume_command: ["codex","exec","resume","${SESSION_ID}","--json",...]`.
+- Canonical Codex session-capable CLI (v2.10/v2.16):
+  `session_support.fresh_command: ["codex","exec","--json",...]`,
+  `session_support.resume_command:
+  ["codex","exec","resume","${SESSION_ID}","--json",...]`, and
+  `session_support.turn_boundary_resume: true`. This is an explicit property
+  of that template, not a capability inferred from the `codex` name.
 
 ## Direct CLI Integration (details)
 
