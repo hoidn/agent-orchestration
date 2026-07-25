@@ -807,9 +807,13 @@ neither is selected, and the parked roadmap is not a selector:
    records usable where a structurally sufficient shape is expected,
    without nominal conversion; (d) an opt-in transportable top value type
    for loose-then-narrow authoring under "contracts may only narrow."
-   The existing structural-constraint machinery (`is-record`,
-   `has-field`, `has-union-variant`) is the checker substrate for all
-   four.
+   (e) named constraint bundles — `defconstraint` aliases for recurring
+   `:where` clause sets, giving structural contracts a name for intent,
+   reuse, and tooling without any conformance mandate; existing consumer:
+   `std/drain`'s nine-clause `:where` block, currently repeated wherever a
+   compatible selection union is demanded. The existing
+   structural-constraint machinery (`is-record`, `has-field`,
+   `has-union-variant`) is the checker substrate for all five.
 4. **Prompt-identity diagnostics (E4P discipline).** Independent of any
    search program and schedulable any time as a small item: apply the
    role-separated prompt-identity split (boundary invariant 8) to the
