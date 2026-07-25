@@ -475,7 +475,7 @@ Commit message: `Add attempt-bound provider peer protocol`.
 - Extend: `orchestrator/workflow/provider_peer_group/models.py`
 - Extend: `orchestrator/workflow/provider_peer_group/protocol.py`
 
-- [ ] **Step 1: Test allocation and readiness fail-first**
+- [x] **Step 1: Test allocation and readiness fail-first**
 
 With a fake adapter and listener, prove every attempt, prompt snapshot, empty
 ledger, and provisional path is allocated before launch; `peer-ready` blocks
@@ -483,7 +483,7 @@ until every member reaches `READY_WAITING`; one coordinator transition makes
 all members `ACTIVE`; barrier failure resolves every waiter and joins all
 resources.
 
-- [ ] **Step 2: Test send/ack ordering fail-first**
+- [x] **Step 2: Test send/ack ordering fail-first**
 
 Cover exact attribution/targeting, self/unknown/ambiguous/stale/not-ready/
 closing/terminal rejection without a ledger row, record+fsync before adapter
@@ -491,7 +491,7 @@ offer, durable offered before client success, offer failure, exact ack,
 same-request replay, conflicting replay, two concurrent senders, and endpoint
 shutdown with waiting clients.
 
-- [ ] **Step 3: Test finish and race semantics fail-first**
+- [x] **Step 3: Test finish and race semantics fail-first**
 
 Cover `pending_messages`, both send-vs-finish orderings, freeze only after
 valid typed bundle and all incoming acks, close offered while the finish
@@ -499,7 +499,7 @@ request remains active, successful receipt before the caller's turn ends,
 natural join before `TERMINAL`, early provider exit, close/join timeout,
 failure cleanup, and no settlement publication on any failure.
 
-- [ ] **Step 4: Confirm the lifecycle suite fails**
+- [x] **Step 4: Confirm the lifecycle suite fails**
 
 ```bash
 pytest -q tests/test_provider_peer_group_runtime.py
@@ -507,7 +507,7 @@ pytest -q tests/test_provider_peer_group_runtime.py
 
 Expected: FAIL because the coordinator is absent.
 
-- [ ] **Step 5: Implement one serialized coordinator event loop**
+- [x] **Step 5: Implement one serialized coordinator event loop**
 
 Only the coordinator may mutate lifecycle, ledgers, frozen bundles, evidence,
 state, or settlement. Listener/member threads emit immutable events. Preserve
@@ -515,7 +515,7 @@ authored order, one atomic terminal commit, exact current-step clearance, and
 proved cleanup. A finish with outstanding incoming messages returns
 `pending_messages` and leaves the member `ACTIVE`.
 
-- [ ] **Step 6: Run narrow and adjacent coordinator tests**
+- [x] **Step 6: Run narrow and adjacent coordinator tests**
 
 ```bash
 pytest -q tests/test_provider_peer_group_runtime.py
@@ -527,9 +527,21 @@ pytest --collect-only -q tests/test_provider_peer_group_runtime.py
 
 Expected: all pass.
 
-- [ ] **Step 7: Obtain ordered reviews and commit**
+- [x] **Step 7: Obtain ordered reviews and commit**
 
 Commit message: `Implement provider peer group coordinator`.
+
+**Outcome:** Implemented the authored-order single-writer coordinator,
+immutable allocation/adapter bindings, group-wide readiness transition,
+append-before-offer delivery and exact acknowledgement, cooperative frozen
+finish, pure settlement, and fail-closed terminal cleanup. The lifecycle and
+transport suites include deterministic coverage for event-publication and
+worker-start shutdown races, mixed barrier snapshots, incomplete endpoint or
+member cleanup, and blocked close/join work. Split specification reviews and
+split independent quality reviews approved the corrected implementation.
+Fresh verification passed 91 focused contract/protocol/runtime tests, 31
+runtime tests collected, Pyright with zero errors, and 122 adjacent
+supervision/state tests under the required 16-worker work-stealing run.
 
 ## Task 6: Add The Executable Node, Runtime Dispatch, And Quarantine
 

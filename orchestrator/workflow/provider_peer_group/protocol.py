@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 from queue import Empty, Queue
 import socket
-from threading import Lock, Thread, current_thread
+from threading import Event, Lock, Thread, current_thread
 from typing import Any, Mapping
 
 from .models import (
@@ -197,12 +197,26 @@ def _decode_active_peer_binding(
 
 
 @dataclass(frozen=True, slots=True)
+class PeerEndpointCloseProof:
+    """Proof that endpoint ingress and all owned workers are closed."""
+
+    drained: bool
+    closed: bool
+    workers_joined: bool
+
+
+@dataclass(frozen=True, slots=True)
 class PeerProtocolEvent:
     """One immutable request handed from a listener to the coordinator."""
 
     endpoint_identity: PeerEndpointIdentity
     request: PeerRequest
     _waiter: Future[PeerReceipt] = field(
+        repr=False,
+        compare=False,
+    )
+    _response_sent: Future[None] = field(
+        default_factory=Future,
         repr=False,
         compare=False,
     )
@@ -234,6 +248,8 @@ class PeerProtocolListener:
         self._started = False
         self._closed = False
         self._owns_socket_path = False
+        self._close_proof: PeerEndpointCloseProof | None = None
+        self._close_complete = Event()
 
     @property
     def endpoint_identity(self) -> PeerEndpointIdentity:
@@ -364,58 +380,107 @@ class PeerProtocolListener:
             if waiter.done():
                 raise ValueError("peer protocol event is already resolved")
             waiter.set_result(receipt)
+        try:
+            event._response_sent.result()
+        except PeerProtocolClosedError:
+            raise
+        except Exception as exc:
+            raise PeerProtocolClosedError(
+                "peer receipt could not be sent to its waiting client"
+            ) from exc
 
-    def close(self) -> None:
+    def close(self) -> PeerEndpointCloseProof:
+        listener: socket.socket | None = None
+        owns_socket_path = False
+        connections: tuple[socket.socket, ...] = ()
         with self._lock:
-            if self._closed:
-                return
-            self._closed = True
-            listener = self._listener
-            self._listener = None
-            owns_socket_path = self._owns_socket_path
-            self._owns_socket_path = False
-            connections = tuple(self._connections)
-            for waiter in self._waiters.values():
-                if not waiter.done():
-                    waiter.set_exception(
-                        PeerProtocolClosedError(
-                            "peer protocol endpoint closed before receipt"
+            if self._close_proof is not None:
+                return self._close_proof
+            close_in_progress = self._closed
+            if not close_in_progress:
+                self._closed = True
+                listener = self._listener
+                self._listener = None
+                owns_socket_path = self._owns_socket_path
+                self._owns_socket_path = False
+                connections = tuple(self._connections)
+                for waiter in self._waiters.values():
+                    if not waiter.done():
+                        waiter.set_exception(
+                            PeerProtocolClosedError(
+                                "peer protocol endpoint closed before receipt"
+                            )
                         )
+                while True:
+                    try:
+                        self._events.get_nowait()
+                    except Empty:
+                        break
+                self._events.put(_CLOSED_EVENT)
+        if close_in_progress:
+            self._close_complete.wait()
+            with self._lock:
+                if self._close_proof is None:
+                    raise RuntimeError(
+                        "peer protocol listener close did not complete"
                     )
+                return self._close_proof
+        try:
+            if listener is not None:
+                try:
+                    listener.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                listener.close()
+            for connection in connections:
+                try:
+                    connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                connection.close()
+            accept_thread = self._accept_thread
+            if (
+                accept_thread is not None
+                and accept_thread is not current_thread()
+            ):
+                accept_thread.join()
+            with self._lock:
+                workers = tuple(self._workers)
+            for worker in workers:
+                if worker is not current_thread():
+                    worker.join()
+            if owns_socket_path:
+                try:
+                    self._socket_path.unlink()
+                except FileNotFoundError:
+                    pass
+            owned_threads = tuple(
+                thread
+                for thread in (accept_thread, *workers)
+                if thread is not None
+            )
+            residual_events: list[PeerProtocolEvent | object] = []
             while True:
                 try:
-                    self._events.get_nowait()
+                    residual_events.append(self._events.get_nowait())
                 except Empty:
                     break
+            drained = all(
+                event is _CLOSED_EVENT for event in residual_events
+            )
             self._events.put(_CLOSED_EVENT)
-        if listener is not None:
-            try:
-                listener.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
-            listener.close()
-        for connection in connections:
-            try:
-                connection.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
-            connection.close()
-        accept_thread = self._accept_thread
-        if (
-            accept_thread is not None
-            and accept_thread is not current_thread()
-        ):
-            accept_thread.join(timeout=1)
-        with self._lock:
-            workers = tuple(self._workers)
-        for worker in workers:
-            if worker is not current_thread():
-                worker.join(timeout=1)
-        if owns_socket_path:
-            try:
-                self._socket_path.unlink()
-            except FileNotFoundError:
-                pass
+            proof = PeerEndpointCloseProof(
+                drained=drained,
+                closed=True,
+                workers_joined=all(
+                    not thread.is_alive() for thread in owned_threads
+                ),
+            )
+            with self._lock:
+                self._close_proof = proof
+            return proof
+        finally:
+            self._close_complete.set()
 
     def _accept_loop(self) -> None:
         while True:
@@ -442,7 +507,13 @@ class PeerProtocolListener:
                     return
                 self._connections.add(connection)
                 self._workers.add(worker)
-            worker.start()
+                try:
+                    worker.start()
+                except BaseException:
+                    self._workers.discard(worker)
+                    self._connections.discard(connection)
+                    connection.close()
+                    raise
 
     def _handle_connection(self, connection: socket.socket) -> None:
         event: PeerProtocolEvent | None = None
@@ -468,21 +539,26 @@ class PeerProtocolListener:
                     if self._closed:
                         return
                     self._waiters[id(event)] = waiter
-                self._events.put(event)
+                    self._events.put(event)
                 try:
                     receipt = waiter.result()
                 except PeerProtocolClosedError:
                     return
                 try:
                     connection.sendall(_canonical_frame(receipt.to_dict()))
-                except OSError:
+                except OSError as exc:
+                    event._response_sent.set_exception(
+                        PeerProtocolClosedError(
+                            "peer client closed before receipt delivery"
+                        )
+                    )
                     return
+                event._response_sent.set_result(None)
         finally:
             with self._lock:
                 if event is not None:
                     self._waiters.pop(id(event), None)
                 self._connections.discard(connection)
-                self._workers.discard(current_thread())
 
 
 def _send_request(

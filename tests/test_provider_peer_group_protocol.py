@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from dataclasses import FrozenInstanceError
 import json
 import socket
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 
 import pytest
 
@@ -22,7 +22,9 @@ from orchestrator.workflow.provider_peer_group.models import (
 )
 from orchestrator.workflow.provider_peer_group.protocol import (
     ACTIVE_PEER_BINDING_ENV,
+    PeerEndpointCloseProof,
     PeerProtocolClosedError,
+    PeerProtocolEvent,
     PeerProtocolListener,
     encode_active_peer_binding,
     peer_ack,
@@ -135,6 +137,139 @@ def test_listener_close_wakes_a_coordinator_waiting_for_an_event(
     assert not thread.is_alive()
     assert len(outcomes) == 1
     assert isinstance(outcomes[0], PeerProtocolClosedError)
+
+
+def test_listener_close_returns_cached_immutable_proof(
+    tmp_path: Path,
+) -> None:
+    listener = PeerProtocolListener(
+        _endpoint_identity(),
+        tmp_path / "peer.sock",
+    )
+    listener.start()
+
+    first = listener.close()
+    second = listener.close()
+
+    assert first is second
+    assert first == PeerEndpointCloseProof(
+        drained=True,
+        closed=True,
+        workers_joined=True,
+    )
+    with pytest.raises(FrozenInstanceError):
+        first.closed = False  # type: ignore[misc]
+
+
+def test_listener_close_joins_workers_without_a_silent_timeout(
+    tmp_path: Path,
+) -> None:
+    class BlockingWorker:
+        def __init__(self) -> None:
+            self.join_timeouts: list[float | None] = []
+            self.alive = True
+
+        def join(self, timeout: float | None = None) -> None:
+            self.join_timeouts.append(timeout)
+            if timeout is None:
+                self.alive = False
+
+        def is_alive(self) -> bool:
+            return self.alive
+
+    listener = PeerProtocolListener(
+        _endpoint_identity(),
+        tmp_path / "peer.sock",
+    )
+    worker = BlockingWorker()
+    listener._workers.add(worker)  # type: ignore[arg-type]
+
+    proof = listener.close()
+
+    assert worker.join_timeouts == [None]
+    assert worker.is_alive() is False
+    assert proof.workers_joined is True
+
+
+def test_listener_close_serializes_with_event_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    socket_path = tmp_path / "peer.sock"
+    listener = PeerProtocolListener(_endpoint_identity(), socket_path)
+    listener.start()
+    publication_entered = Event()
+    allow_publication = Event()
+    original_put = listener._events.put
+
+    def controlled_put(item, *args, **kwargs) -> None:
+        if isinstance(item, PeerProtocolEvent):
+            publication_entered.set()
+            assert allow_publication.wait(1)
+        original_put(item, *args, **kwargs)
+
+    monkeypatch.setattr(listener._events, "put", controlled_put)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        client = pool.submit(
+            peer_ready,
+            request_id="request-publication-race",
+            environ=_environment(socket_path),
+        )
+        assert publication_entered.wait(1)
+        closing = pool.submit(listener.close)
+        try:
+            with pytest.raises(FutureTimeoutError):
+                closing.result(timeout=0.05)
+        finally:
+            allow_publication.set()
+        proof = closing.result(timeout=1)
+        with pytest.raises(PeerProtocolClosedError):
+            client.result(timeout=1)
+
+    assert proof.drained is True
+    assert listener._events.qsize() <= 1
+
+
+def test_listener_close_serializes_with_worker_start(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    socket_path = tmp_path / "peer.sock"
+    listener = PeerProtocolListener(_endpoint_identity(), socket_path)
+    listener.start()
+    worker_start_entered = Event()
+    allow_worker_start = Event()
+    original_start = Thread.start
+
+    def controlled_start(thread: Thread) -> None:
+        if thread.name == "provider-peer-request":
+            worker_start_entered.set()
+            assert allow_worker_start.wait(1)
+        original_start(thread)
+
+    monkeypatch.setattr(Thread, "start", controlled_start)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        client = pool.submit(
+            peer_ready,
+            request_id="request-worker-start-race",
+            environ=_environment(socket_path),
+        )
+        assert worker_start_entered.wait(1)
+        closing = pool.submit(listener.close)
+        try:
+            with pytest.raises(FutureTimeoutError):
+                closing.result(timeout=0.05)
+        finally:
+            allow_worker_start.set()
+        proof = closing.result(timeout=1)
+        with pytest.raises(PeerProtocolClosedError):
+            client.result(timeout=1)
+
+    assert proof == PeerEndpointCloseProof(
+        drained=True,
+        closed=True,
+        workers_joined=True,
+    )
 
 
 @pytest.mark.parametrize(
@@ -318,4 +453,5 @@ def test_receipt_frame_is_canonical_and_client_rejects_wrong_request_id(
             with pytest.raises(ValueError, match="request_id"):
                 listener.resolve(event, PeerReadyReceipt("other-request"))
             listener.resolve(event, PeerReadyReceipt("request-1"))
+            assert event._response_sent.done()
             assert future.result(timeout=1) == PeerReadyReceipt("request-1")
