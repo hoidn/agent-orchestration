@@ -277,12 +277,20 @@ Commit message: `Add structural interactive provider capability`.
 
 ## Task 2: Implement The Interactive Terminal Adapter
 
+**Outcome:** Complete. The provider-neutral adapter owns a private tmux
+boundary, records exact client exit through an atomic runtime sidecar, bounds
+every backend operation, and returns typed natural-shutdown or failed-cleanup
+proofs without consulting v1 forcing surfaces. Fresh verification passed 115
+focused tests, 123 adjacent provider regressions, collection, Pyright, and
+real zero/nonzero private-tmux checks. Ordered reviews returned
+`TASK2_SPEC_APPROVED` and `TASK2_QUALITY_APPROVED`.
+
 **Files:**
 
 - Create: `orchestrator/providers/interactive_terminal.py`
 - Extend: `tests/test_provider_interactive_terminal.py`
 
-- [ ] **Step 1: Add fake-driver failing tests**
+- [x] **Step 1: Add fake-driver failing tests**
 
 Cover `start`, literal `offer`, `offer_close`, `join`, and `abort` against a
 recording tmux/subprocess driver. Assert exact handle binding, literal UTF-8
@@ -290,7 +298,7 @@ and multiline preservation, only declared submit keys, natural-exit proof,
 pane/process loss, offer/close timeout, cleanup failure, and that no v1
 cancellation, resume, observation, or directive API is invoked.
 
-- [ ] **Step 2: Run the failing selector**
+- [x] **Step 2: Run the failing selector**
 
 ```bash
 pytest -q tests/test_provider_interactive_terminal.py -k 'adapter or handle'
@@ -298,7 +306,7 @@ pytest -q tests/test_provider_interactive_terminal.py -k 'adapter or handle'
 
 Expected: FAIL because adapter operations are absent.
 
-- [ ] **Step 3: Add the minimal provider-neutral adapter**
+- [x] **Step 3: Add the minimal provider-neutral adapter**
 
 Own a private tmux server/session and one provider TUI pane per handle. Build
 the launch command only from the validated capability and resolved
@@ -307,7 +315,7 @@ queued turn; `offer_close` submits only the declared close text; `join`
 requires natural client/process/pane completion. `abort` is cleanup evidence
 only and can never produce a successful member result.
 
-- [ ] **Step 4: Run narrow and provider regressions**
+- [x] **Step 4: Run narrow and provider regressions**
 
 ```bash
 pytest -q tests/test_provider_interactive_terminal.py
@@ -318,7 +326,7 @@ pytest -q tests/test_provider_observation.py \
 
 Expected: all pass.
 
-- [ ] **Step 5: Obtain ordered reviews and commit**
+- [x] **Step 5: Obtain ordered reviews and commit**
 
 Commit message: `Add turn-boundary interactive provider adapter`.
 
