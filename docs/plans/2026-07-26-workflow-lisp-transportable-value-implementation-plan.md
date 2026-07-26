@@ -647,6 +647,38 @@ Validate recursive transportable Value payloads
 
 ### Task 4: Propagate `kind: value` through consumers, state, and resume
 
+**Status:** complete at implementation commit `3a743e88`.
+
+**Preliminary reviews:** `VALUE_Q0_TASK4_SPEC_APPROVED`, then
+`VALUE_Q0_TASK4_QUALITY_APPROVED`.
+
+**Final exact-byte reviews:** `VALUE_Q0_TASK4_SPEC_REAFFIRMED`, then
+`VALUE_Q0_TASK4_QUALITY_REAFFIRMED`.
+
+**Changed paths:**
+
+- `orchestrator/workflow/dataflow.py`
+- `orchestrator/workflow/provider_supervision/contracts.py`
+- `orchestrator/workflow_lisp/lexical_checkpoint_restore.py`
+- `orchestrator/workflow_lisp/lowering/phase_scope.py`
+- `orchestrator/workflow_lisp/lowering/phase_stdlib.py`
+- `tests/test_workflow_lisp_transportable_value.py`
+- `tests/test_workflow_lisp_transportable_value_build.py`
+
+**TDD evidence:**
+
+- initial RED: 3 failures with 54 passing characterizations, exposing public
+  consume rejection, over-permissive checkpoint identity, and
+  provider-supervision translation refusal;
+- expanded RED: 9 failures and 3 passes, adding public publish validation,
+  both phase projection helpers, nested supervision descriptors, and exact
+  checkpoint identity;
+- quality-finding RED: the real scalar `Value` supervision wrapper failed
+  one of four exact-identity cases by accepting `String`; its existing scalar
+  wrapper classification is retained while authored identity is now exact;
+- GREEN: 64 focused Value/build tests and 548 tests across the complete
+  Task-4 consumer, state, resume, build, dashboard, and supervision matrix.
+
 **Files:**
 
 - Modify: `orchestrator/workflow/dataflow.py` if RED
@@ -663,7 +695,7 @@ Validate recursive transportable Value payloads
 - Test: `tests/test_dashboard_projection.py`
 - Test: `tests/test_workflow_lisp_provider_supervision.py`
 
-- [ ] **Step 1: Add consumer-switch and persistence tests**
+- [x] **Step 1: Add consumer-switch and persistence tests**
 
 Compile or construct one mixed `Value` artifact and prove:
 
@@ -682,7 +714,7 @@ Compile or construct one mixed `Value` artifact and prove:
 - provider-supervision and adjudication output-bundle consumers remain
   generic.
 
-- [ ] **Step 2: Run RED consumer matrix**
+- [x] **Step 2: Run RED consumer matrix**
 
 ```bash
 pytest -q tests/test_workflow_lisp_transportable_value.py \
@@ -699,7 +731,7 @@ pytest -q tests/test_workflow_lisp_transportable_value.py \
 Expected: FAIL only at descriptor switches that currently enumerate
 relpath/scalar/collection.
 
-- [ ] **Step 3: Patch only failing switches**
+- [x] **Step 3: Patch only failing switches**
 
 For `kind: value`, call `validate_contract_value` and pass the result through
 without scalar, collection, or relpath behavior. In checkpoint restore,
@@ -712,7 +744,7 @@ prove whether the existing generic output-bundle path already handles Value.
 Do not touch it unless the RED test is load-bearing and the edit can be
 isolated without overwriting the external work.
 
-- [ ] **Step 4: Run adjacent state/resume/consumer suites**
+- [x] **Step 4: Run adjacent state/resume/consumer suites**
 
 ```bash
 pytest -q tests/test_artifact_dataflow_integration.py \
@@ -726,7 +758,7 @@ pytest -q tests/test_artifact_dataflow_integration.py \
 
 Expected: PASS, or retain only documented pre-existing external failures.
 
-- [ ] **Step 5: Complete ordered reviews and commit**
+- [x] **Step 5: Complete ordered reviews and commit — `3a743e88`**
 
 Expected implementation commit subject:
 
