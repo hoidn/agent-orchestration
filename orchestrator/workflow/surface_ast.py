@@ -223,6 +223,7 @@ class SurfaceRepeatUntilBlock:
     condition: Any
     max_iterations: Optional[int]
     on_exhausted_outputs: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    exhaustion_diagnostic_code: str | None = None
 
 
 @dataclass(frozen=True)

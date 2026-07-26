@@ -960,6 +960,11 @@ def _lower_one_wcc_workflow(
         generated_repeat_until_on_exhausted_refs=(
             lowering_core._capture_generated_repeat_until_on_exhausted_refs(authored_mapping)
         ),
+        compiler_owned_repeat_until_metadata=(
+            lowering_core._capture_compiler_owned_repeat_until_metadata(
+                authored_mapping
+            )
+        ),
     )
 
 

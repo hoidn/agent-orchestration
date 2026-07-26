@@ -263,6 +263,7 @@ class CoreRepeatUntil:
     statements: tuple[Any, ...]
     outputs: Mapping[str, CoreWorkflowContract] = field(default_factory=empty_frozen_mapping)
     on_exhausted_outputs: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    exhaustion_diagnostic_code: str | None = None
     _surface_step: SurfaceStep | None = field(default=None, repr=False, compare=False)
 
 
@@ -715,6 +716,7 @@ def _build_statement(
                 {name: _contract_from_surface(contract) for name, contract in repeat_until.outputs.items()}
             ),
             on_exhausted_outputs=repeat_until.on_exhausted_outputs,
+            exhaustion_diagnostic_code=repeat_until.exhaustion_diagnostic_code,
             _surface_step=step,
         )
     raise ValueError(f"Unsupported core statement kind `{step.kind.value}`")
@@ -906,6 +908,7 @@ def _surface_repeat_until_from_core(statement: CoreRepeatUntil) -> SurfaceRepeat
         condition=statement.condition,
         max_iterations=statement.max_iterations,
         on_exhausted_outputs=statement.on_exhausted_outputs,
+        exhaustion_diagnostic_code=statement.exhaustion_diagnostic_code,
     )
 
 
@@ -1254,6 +1257,10 @@ def _statement_to_json(statement: Any) -> dict[str, Any]:
                 "statements": [_statement_to_json(item) for item in statement.statements],
             }
         )
+        if statement.exhaustion_diagnostic_code is not None:
+            payload["exhaustion_diagnostic_code"] = (
+                statement.exhaustion_diagnostic_code
+            )
         return payload
     raise TypeError(f"Unsupported core statement type `{type(statement).__name__}`")
 

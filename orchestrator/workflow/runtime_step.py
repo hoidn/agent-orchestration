@@ -355,6 +355,10 @@ class RuntimeStep(Mapping[str, Any]):
                     repeat_until["on_exhausted"] = {
                         "outputs": thaw_runtime_value(config.on_exhausted_outputs),
                     }
+                if config.exhaustion_diagnostic_code is not None:
+                    repeat_until["exhaustion_diagnostic_code"] = (
+                        config.exhaustion_diagnostic_code
+                    )
                 return repeat_until
             raise KeyError(key)
 

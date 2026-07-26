@@ -73,6 +73,10 @@ class RuntimePlanNode:
         default=None,
         metadata={"json_omit_if_none": True},
     )
+    exhaustion_diagnostic_code: str | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -326,6 +330,13 @@ def validate_workflow_runtime_plan(
             raise ValueError(
                 f"Runtime plan node '{node.node_id}' has inconsistent provider peer group topology"
             )
+        expected_exhaustion_code = _derive_exhaustion_diagnostic_code(
+            ir.nodes[node.node_id]
+        )
+        if node.exhaustion_diagnostic_code != expected_exhaustion_code:
+            raise ValueError(
+                f"Runtime plan node '{node.node_id}' has inconsistent exhaustion diagnostic metadata"
+            )
 
     for artifact in plan.artifacts:
         if artifact.source_node_id not in node_ids:
@@ -409,6 +420,7 @@ def _runtime_plan_node(
         call_alias=call_alias,
         provider_supervision=_derive_provider_supervision_plan(node),
         provider_peer_group=_derive_provider_peer_group_plan(node),
+        exhaustion_diagnostic_code=_derive_exhaustion_diagnostic_code(node),
     )
 
 
@@ -441,6 +453,14 @@ def _derive_provider_peer_group_plan(
         atomic_workflow_result_commit=True,
         max_steers=config.max_steers,
     )
+
+
+def _derive_exhaustion_diagnostic_code(
+    node: ExecutableNode,
+) -> str | None:
+    if not isinstance(node, RepeatUntilFrameNode):
+        return None
+    return node.exhaustion_diagnostic_code
 
 
 def _derive_dependency_node_ids(

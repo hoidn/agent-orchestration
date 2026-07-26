@@ -94,6 +94,7 @@ class RepeatUntilEmitterInput:
     form_path: tuple[str, ...]
     on_exhausted_result_expr: "ExprNode | None" = None
     source_expr: Any | None = None
+    exhaustion_diagnostic_code: str | None = None
 
 
 def ensure_loop_projectable_type(

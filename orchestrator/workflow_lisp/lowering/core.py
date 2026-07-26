@@ -52,6 +52,9 @@ from orchestrator.workflow.state_layout import (
     GeneratedPathAllocation,
     derive_entrypoint_managed_write_root_allocations,
 )
+from orchestrator.workflow.statements import (
+    COMPILER_OWNED_REPEAT_UNTIL_METADATA_FIELDS,
+)
 from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind
 
 from ..conditionals import classify_condition_expr, render_condition_predicate
@@ -353,6 +356,9 @@ class LoweredWorkflow:
     generated_repeat_until_on_exhausted_refs: Mapping[str, Mapping[str, str]] = field(
         default_factory=dict
     )
+    compiler_owned_repeat_until_metadata: Mapping[
+        str, Mapping[str, Any]
+    ] = field(default_factory=dict)
 
 
 def _capture_generated_repeat_until_on_exhausted_refs(
@@ -391,6 +397,71 @@ def _capture_generated_repeat_until_on_exhausted_refs(
         if refs:
             captured[step_name] = MappingProxyType(refs)
 
+    return MappingProxyType(captured)
+
+
+def _iter_authored_step_mappings(
+    steps: object,
+):
+    """Yield generated step mappings through every structured child block."""
+
+    if not isinstance(steps, Sequence) or isinstance(steps, (str, bytes)):
+        return
+    for step in steps:
+        if not isinstance(step, Mapping):
+            continue
+        yield step
+        for branch_name in ("then", "else"):
+            branch = step.get(branch_name)
+            branch_steps = (
+                branch.get("steps")
+                if isinstance(branch, Mapping)
+                else branch
+            )
+            yield from _iter_authored_step_mappings(branch_steps)
+        match_node = step.get("match")
+        cases = match_node.get("cases") if isinstance(match_node, Mapping) else None
+        if isinstance(cases, Mapping):
+            for case in cases.values():
+                case_steps = (
+                    case.get("steps")
+                    if isinstance(case, Mapping)
+                    else case
+                )
+                yield from _iter_authored_step_mappings(case_steps)
+        for container_name in ("repeat_until", "for_each"):
+            container = step.get(container_name)
+            nested_steps = (
+                container.get("steps")
+                if isinstance(container, Mapping)
+                else None
+            )
+            yield from _iter_authored_step_mappings(nested_steps)
+
+
+def _capture_compiler_owned_repeat_until_metadata(
+    authored_mapping: Mapping[str, object],
+) -> Mapping[str, Mapping[str, Any]]:
+    """Capture the closed inert metadata emitted on generated repeat loops."""
+
+    captured: dict[str, Mapping[str, Any]] = {}
+    for step in _iter_authored_step_mappings(authored_mapping.get("steps")):
+        step_id = step.get("id")
+        repeat_until = step.get("repeat_until")
+        if not isinstance(step_id, str) or not isinstance(repeat_until, Mapping):
+            continue
+        metadata = {
+            field_name: repeat_until[field_name]
+            for field_name in COMPILER_OWNED_REPEAT_UNTIL_METADATA_FIELDS
+            if field_name in repeat_until
+        }
+        if not metadata:
+            continue
+        if step_id in captured:
+            raise ValueError(
+                f"duplicate compiler-owned repeat_until metadata step id `{step_id}`"
+            )
+        captured[step_id] = MappingProxyType(metadata)
     return MappingProxyType(captured)
 
 
@@ -1360,6 +1431,9 @@ def _lower_one_workflow(
         runtime_proof_executable_parent_ref_allowances=runtime_proof_executable_parent_ref_allowances,
         generated_repeat_until_on_exhausted_refs=_capture_generated_repeat_until_on_exhausted_refs(
             authored_mapping
+        ),
+        compiler_owned_repeat_until_metadata=(
+            _capture_compiler_owned_repeat_until_metadata(authored_mapping)
         ),
     )
 
@@ -2466,6 +2540,9 @@ def _validate_one_lowered_workflow(
             private_artifact_ids=lowered_workflow.private_artifact_ids,
             compiler_prompt_dependency_contracts=(
                 lowered_workflow.compiler_prompt_dependency_contracts
+            ),
+            compiler_owned_repeat_until_metadata=(
+                lowered_workflow.compiler_owned_repeat_until_metadata
             ),
             runtime_proof_parent_ref_allowances=(
                 _runtime_proof_parent_ref_allowances_for_generated_private_steps(

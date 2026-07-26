@@ -52,6 +52,7 @@ from orchestrator.workflow.predicates import (
 from orchestrator.workflow.references import ReferenceResolutionError, parse_structured_ref
 from orchestrator.workflow.signatures import WORKFLOW_SIGNATURE_VERSION
 from orchestrator.workflow.statements import (
+    COMPILER_OWNED_REPEAT_UNTIL_METADATA_FIELDS,
     STRUCTURED_FINALLY_VERSION,
     STRUCTURED_IF_VERSION,
     STRUCTURED_MATCH_VERSION,
@@ -66,6 +67,7 @@ from orchestrator.workflow.statements import (
     normalize_branch_block,
     normalize_finally_block,
     normalize_repeat_until_block,
+    is_valid_exhaustion_diagnostic_code,
 )
 
 
@@ -163,6 +165,9 @@ class WorkflowMappingBuildRequest:
     compiler_prompt_dependency_contracts: Mapping[
         str, CompilerPromptDependencyContract
     ] = field(default_factory=dict)
+    compiler_owned_repeat_until_metadata: Mapping[
+        str, Mapping[str, Any]
+    ] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -216,6 +221,12 @@ class _WorkflowMappingValidator:
             name: dict(refs)
             for name, refs in options.generated_repeat_until_on_exhausted_refs.items()
         }
+        self._compiler_owned_repeat_until_metadata = {
+            str(step_id): dict(metadata)
+            if isinstance(metadata, Mapping)
+            else metadata
+            for step_id, metadata in request.compiler_owned_repeat_until_metadata.items()
+        }
         self.SUPPORTED_VERSIONS = options.supported_versions
         self.VERSION_ORDER = options.version_order
         self.SUPPORTED_OUTPUT_TYPES = options.supported_output_types
@@ -223,6 +234,81 @@ class _WorkflowMappingValidator:
         self.STRING_CONTRACT_VERSION = options.string_contract_version
         self.ENV_VAR_PATTERN = options.env_var_pattern
         self.INPUT_REF_PATTERN = options.input_ref_pattern
+
+    def _validate_compiler_owned_repeat_until_metadata(
+        self,
+        workflow: Mapping[str, Any],
+    ) -> None:
+        """Require exact compiler declarations for inert repeat-loop metadata."""
+
+        actual: dict[str, dict[str, Any]] = {}
+        steps = workflow.get("steps")
+        if isinstance(steps, list):
+            for step in self._collect_all_steps(steps):
+                repeat_until = step.get("repeat_until")
+                if not isinstance(repeat_until, Mapping):
+                    continue
+                metadata = {
+                    field_name: repeat_until[field_name]
+                    for field_name in COMPILER_OWNED_REPEAT_UNTIL_METADATA_FIELDS
+                    if field_name in repeat_until
+                }
+                if not metadata:
+                    continue
+                step_id = step.get("id")
+                if not isinstance(step_id, str) or not step_id:
+                    self._add_error(
+                        "compiler-owned repeat_until metadata requires a non-empty explicit step id"
+                    )
+                    continue
+                if step_id in actual:
+                    self._add_error(
+                        f"compiler-owned repeat_until metadata step id '{step_id}' is duplicated"
+                    )
+                    continue
+                actual[step_id] = metadata
+
+        declared = self._compiler_owned_repeat_until_metadata
+        if (actual or declared) and self._frontend_kind != "workflow_lisp":
+            self._add_error(
+                "compiler-owned repeat_until metadata requires the Workflow Lisp frontend"
+            )
+
+        for step_id, metadata in actual.items():
+            diagnostic_code = metadata.get("exhaustion_diagnostic_code")
+            if not is_valid_exhaustion_diagnostic_code(diagnostic_code):
+                self._add_error(
+                    f"Step id '{step_id}': repeat_until.exhaustion_diagnostic_code "
+                    "must be a lowercase ASCII diagnostic identifier of at most 128 characters"
+                )
+            declaration = declared.get(step_id)
+            if declaration is None:
+                self._add_error(
+                    f"Step id '{step_id}': compiler-owned repeat_until metadata is undeclared"
+                )
+                continue
+            if not isinstance(declaration, Mapping):
+                self._add_error(
+                    f"Step id '{step_id}': compiler-owned repeat_until metadata declaration must be a mapping"
+                )
+                continue
+            unknown = set(declaration) - set(
+                COMPILER_OWNED_REPEAT_UNTIL_METADATA_FIELDS
+            )
+            if unknown:
+                fields = ", ".join(sorted(str(field) for field in unknown))
+                self._add_error(
+                    f"Step id '{step_id}': compiler-owned repeat_until metadata declaration has unknown fields: {fields}"
+                )
+            if dict(declaration) != metadata:
+                self._add_error(
+                    f"Step id '{step_id}': compiler-owned repeat_until metadata declaration does not exactly match emitted metadata"
+                )
+
+        for step_id in set(declared) - set(actual):
+            self._add_error(
+                f"Step id '{step_id}': compiler-owned repeat_until metadata declaration has no emitted metadata"
+            )
 
     def _normalize_v214_ergonomics(self, workflow: Dict[str, Any], version: str) -> None:
         """Expand narrow v2.14 ergonomics shorthands into existing runtime shapes."""
@@ -6285,6 +6371,7 @@ def validate_workflow_mapping(
         validator._add_error(
             "compiler prompt dependency contracts require the Workflow Lisp frontend"
         )
+    validator._validate_compiler_owned_repeat_until_metadata(workflow)
     version = workflow.get("version")
     if not version:
         validator._add_error("'version' field is required")

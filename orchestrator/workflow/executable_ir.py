@@ -47,6 +47,7 @@ from .pure_expr import (
     validate_pure_expr_payload,
 )
 from .surface_ast import WorkflowProvenance, empty_frozen_mapping
+from .statements import is_valid_exhaustion_diagnostic_code
 
 
 WORKFLOW_EXECUTABLE_IR_SCHEMA_VERSION = "workflow_executable_ir.v1"
@@ -465,6 +466,10 @@ class RepeatUntilStepConfig:
     body_id: str = "repeat_until"
     max_iterations: int = 0
     on_exhausted_outputs: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    exhaustion_diagnostic_code: str | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
 
 
 ExecutableStepConfig = (
@@ -583,6 +588,10 @@ class RepeatUntilFrameNode(ExecutableNodeBase):
     max_iterations: Optional[int] = None
     output_contracts: Mapping[str, ExecutableContract] = field(default_factory=empty_frozen_mapping)
     on_exhausted_outputs: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    exhaustion_diagnostic_code: str | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -930,6 +939,26 @@ def _validate_node_shape(
         if not isinstance(node.execution_config, RepeatUntilStepConfig):
             _raise_executable_ir_invalid(
                 f"executable_ir_invalid: node `{node.node_id}` kind/config mismatch for `{node.kind.value}`",
+                workflow_name=workflow_name,
+                node=node,
+            )
+        if (
+            node.exhaustion_diagnostic_code
+            != node.execution_config.exhaustion_diagnostic_code
+        ):
+            _raise_executable_ir_invalid(
+                f"executable_ir_invalid: node `{node.node_id}` has inconsistent exhaustion diagnostic metadata",
+                workflow_name=workflow_name,
+                node=node,
+            )
+        if (
+            node.exhaustion_diagnostic_code is not None
+            and not is_valid_exhaustion_diagnostic_code(
+                node.exhaustion_diagnostic_code
+            )
+        ):
+            _raise_executable_ir_invalid(
+                f"executable_ir_invalid: node `{node.node_id}` has invalid exhaustion diagnostic metadata",
                 workflow_name=workflow_name,
                 node=node,
             )

@@ -11,6 +11,10 @@ STRUCTURED_FINALLY_VERSION = "2.3"
 STRUCTURED_MATCH_VERSION = "2.6"
 STRUCTURED_REPEAT_UNTIL_VERSION = "2.7"
 STRUCTURED_REPEAT_UNTIL_ON_EXHAUSTED_VERSION = "2.12"
+COMPILER_OWNED_REPEAT_UNTIL_METADATA_FIELDS = frozenset(
+    {"exhaustion_diagnostic_code"}
+)
+EXHAUSTION_DIAGNOSTIC_CODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,127}$")
 _NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]+")
 
 
@@ -96,7 +100,7 @@ def normalize_repeat_until_block(block: Any) -> Optional[Dict[str, Any]]:
     """Normalize authored repeat_until syntax into a dict form."""
     if not isinstance(block, dict):
         return None
-    return {
+    normalized = {
         "id": block.get("id"),
         "steps": block.get("steps"),
         "outputs": block.get("outputs", {}),
@@ -104,6 +108,20 @@ def normalize_repeat_until_block(block: Any) -> Optional[Dict[str, Any]]:
         "max_iterations": block.get("max_iterations"),
         "on_exhausted": block.get("on_exhausted"),
     }
+    if "exhaustion_diagnostic_code" in block:
+        normalized["exhaustion_diagnostic_code"] = block[
+            "exhaustion_diagnostic_code"
+        ]
+    return normalized
+
+
+def is_valid_exhaustion_diagnostic_code(value: Any) -> bool:
+    """Return whether one inert compiler-owned exhaustion code is canonical."""
+
+    return (
+        isinstance(value, str)
+        and EXHAUSTION_DIAGNOSTIC_CODE_PATTERN.fullmatch(value) is not None
+    )
 
 
 def repeat_until_body_token(block: Dict[str, Any]) -> str:

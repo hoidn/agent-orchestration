@@ -2,14 +2,31 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from orchestrator.state import StateManager
+from orchestrator.workflow.core_ast import CoreRepeatUntil, workflow_core_ast_to_json
+from orchestrator.workflow.executable_ir import (
+    RepeatUntilFrameNode,
+    workflow_executable_ir_to_json,
+)
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.runtime_step import RuntimeStep
+from orchestrator.workflow_lisp import build_artifacts
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.lowering import control_loops
+from orchestrator.workflow_lisp.lowering import core as lowering_core
+from orchestrator.workflow_lisp.wcc import defunctionalize
+from orchestrator.workflow.validation import (
+    WorkflowBoundaryValidationPolicy,
+    WorkflowMappingBuildRequest,
+    WorkflowMappingValidationOptions,
+    _WorkflowMappingValidator,
+)
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
@@ -63,6 +80,33 @@ def _compile_entrypoint(path: Path, *, source_root: Path, tmp_path: Path, valida
 
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
     assert excinfo.value.diagnostics[0].code == code
+
+
+def _compile_with_internal_exhaustion_code(
+    path: Path,
+    *,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    diagnostic_code: str = "bounded_traversal_cap_exceeded",
+    validate_shared: bool = False,
+):
+    original_emit = control_loops._emit_repeat_until_from_emitter_input
+
+    def emit_with_diagnostic(emitter_input, **kwargs):
+        return original_emit(
+            replace(
+                emitter_input,
+                exhaustion_diagnostic_code=diagnostic_code,
+            ),
+            **kwargs,
+        )
+
+    monkeypatch.setattr(
+        defunctionalize,
+        "_emit_repeat_until_from_emitter_input",
+        emit_with_diagnostic,
+    )
+    return _compile(path, tmp_path=tmp_path, validate_shared=validate_shared)
 
 
 def test_typecheck_loop_recur_requires_reachable_done(tmp_path: Path) -> None:
@@ -457,6 +501,411 @@ def test_pre_218_scalar_loop_authored_mapping_remains_byte_identical(
     assert hashlib.sha256(canonical_bytes).hexdigest() == (
         "57905acdc66527abdd6e021ebc97c27cfac20675bd335ae6de4ce1d16b75c479"
     )
+
+
+def test_ordinary_repeat_core_executable_and_runtime_plan_bytes_remain_frozen(
+    tmp_path: Path,
+) -> None:
+    result = _compile(
+        Path(
+            "tests/fixtures/workflow_lisp/valid/loop_recur_minimal.orc"
+        ),
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+    bundle = result.validated_bundles["loop-recur-minimal"]
+    payloads = {
+        "core": workflow_core_ast_to_json(bundle.core_workflow_ast),
+        "executable": workflow_executable_ir_to_json(bundle.ir),
+        "runtime_plan": build_artifacts._public_runtime_plan_payload(
+            bundle.runtime_plan
+        ),
+    }
+    expected = {
+        "core": (
+            47271,
+            "9f16ae97966378522dd64dc0c334bf294c271e806008e43e0615d8fa80c649f3",
+        ),
+        "executable": (
+            65326,
+            "f244c285363bf59cce8da285276a33e3791fe7c0e1d95a224ceaef71842ad580",
+        ),
+        "runtime_plan": (
+            50784,
+            "f5e9bbb6042fb78af825f7595b08eb775d24a8dd586eed1e54bae964ceac2379",
+        ),
+    }
+
+    for artifact_name, payload in payloads.items():
+        canonical_bytes = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        assert b"exhaustion_diagnostic_code" not in canonical_bytes
+        assert (len(canonical_bytes), hashlib.sha256(canonical_bytes).hexdigest()) == (
+            expected[artifact_name]
+        )
+
+
+def test_internal_repeat_emitter_carries_exhaustion_diagnostic_code_through_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    diagnostic_code = "bounded_traversal_cap_exceeded"
+    result = _compile_with_internal_exhaustion_code(
+        VALID_MINIMAL_FIXTURE,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        diagnostic_code=diagnostic_code,
+        validate_shared=True,
+    )
+    lowered = result.lowered_workflows[0]
+    repeat_mapping = next(
+        step["repeat_until"]
+        for step in lowered.authored_mapping["steps"]
+        if "repeat_until" in step
+    )
+    bundle = result.validated_bundles["loop-recur-minimal"]
+    surface_repeat = next(
+        step.repeat_until
+        for step in bundle.surface.steps
+        if step.repeat_until is not None
+    )
+    core_repeat = next(
+        statement
+        for statement in bundle.core_workflow_ast.body
+        if isinstance(statement, CoreRepeatUntil)
+    )
+    executable_repeat = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if isinstance(node, RepeatUntilFrameNode)
+    )
+    runtime_repeat = RuntimeStep(
+        executable_repeat,
+        executable_repeat.presentation_name,
+        executable_repeat.step_id,
+    )
+    runtime_plan_repeat = bundle.runtime_plan.nodes[executable_repeat.node_id]
+
+    assert repeat_mapping["exhaustion_diagnostic_code"] == diagnostic_code
+    assert surface_repeat.exhaustion_diagnostic_code == diagnostic_code
+    assert core_repeat.exhaustion_diagnostic_code == diagnostic_code
+    assert executable_repeat.execution_config.exhaustion_diagnostic_code == diagnostic_code
+    assert executable_repeat.exhaustion_diagnostic_code == diagnostic_code
+    assert runtime_repeat["repeat_until"]["exhaustion_diagnostic_code"] == diagnostic_code
+    assert runtime_plan_repeat.exhaustion_diagnostic_code == diagnostic_code
+
+    executable_payload = workflow_executable_ir_to_json(bundle.ir)
+    runtime_plan_payload = build_artifacts._public_runtime_plan_payload(
+        bundle.runtime_plan
+    )
+    core_payload = workflow_core_ast_to_json(bundle.core_workflow_ast)
+    assert diagnostic_code in json.dumps(core_payload, sort_keys=True)
+    assert diagnostic_code in json.dumps(executable_payload, sort_keys=True)
+    assert diagnostic_code in json.dumps(runtime_plan_payload, sort_keys=True)
+
+    coded_executable_bytes = json.dumps(
+        executable_payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    coded_runtime_plan_bytes = json.dumps(
+        runtime_plan_payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    monkeypatch.undo()
+    ordinary_result = _compile(
+        VALID_MINIMAL_FIXTURE,
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+    ordinary_bundle = ordinary_result.validated_bundles["loop-recur-minimal"]
+    ordinary_executable_bytes = json.dumps(
+        workflow_executable_ir_to_json(ordinary_bundle.ir),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    ordinary_runtime_plan_bytes = json.dumps(
+        build_artifacts._public_runtime_plan_payload(
+            ordinary_bundle.runtime_plan
+        ),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+    assert hashlib.sha256(coded_executable_bytes).digest() != hashlib.sha256(
+        ordinary_executable_bytes
+    ).digest()
+    assert hashlib.sha256(coded_runtime_plan_bytes).digest() != hashlib.sha256(
+        ordinary_runtime_plan_bytes
+    ).digest()
+
+
+def test_shared_validation_rejects_undeclared_or_invalid_repeat_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _compile_with_internal_exhaustion_code(
+        VALID_MINIMAL_FIXTURE,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    lowered = result.lowered_workflows[0]
+    undeclared = replace(
+        lowered,
+        compiler_owned_repeat_until_metadata={},
+    )
+
+    with pytest.raises(LispFrontendCompileError) as undeclared_exc:
+        lowering_core._validate_one_lowered_workflow(
+            undeclared,
+            workspace_root=tmp_path,
+            imported_bundles={},
+            workflow_is_imported=False,
+            boundary_validation_policy=(
+                WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
+            ),
+        )
+
+    assert "undeclared" in undeclared_exc.value.diagnostics[0].message
+
+    invalid_mapping = json.loads(json.dumps(lowered.authored_mapping))
+    invalid_repeat = next(
+        step["repeat_until"]
+        for step in invalid_mapping["steps"]
+        if "repeat_until" in step
+    )
+    invalid_repeat["exhaustion_diagnostic_code"] = "Not A Diagnostic Code"
+    invalid = replace(
+        lowered,
+        authored_mapping=invalid_mapping,
+        compiler_owned_repeat_until_metadata=(
+            lowering_core._capture_compiler_owned_repeat_until_metadata(
+                invalid_mapping
+            )
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as invalid_exc:
+        lowering_core._validate_one_lowered_workflow(
+            invalid,
+            workspace_root=tmp_path,
+            imported_bundles={},
+            workflow_is_imported=False,
+            boundary_validation_policy=(
+                WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
+            ),
+        )
+
+    assert "lowercase ASCII diagnostic identifier" in (
+        invalid_exc.value.diagnostics[0].message
+    )
+
+
+def test_compiler_owned_repeat_metadata_declaration_walks_nested_structured_steps() -> None:
+    assert lowering_core._capture_compiler_owned_repeat_until_metadata(
+        {
+            "steps": [
+                {
+                    "name": "Branch",
+                    "id": "branch",
+                    "if": {"compare": {}},
+                    "then": {
+                        "steps": [
+                            {
+                                "name": "NestedLoop",
+                                "id": "nested_loop",
+                                "repeat_until": {
+                                    "exhaustion_diagnostic_code": (
+                                        "bounded_traversal_cap_exceeded"
+                                    )
+                                },
+                            }
+                        ]
+                    },
+                }
+            ]
+        }
+    ) == {
+        "nested_loop": {
+            "exhaustion_diagnostic_code": "bounded_traversal_cap_exceeded"
+        }
+    }
+
+
+def test_shared_validator_matches_nested_repeat_metadata_to_exact_declaration(
+    tmp_path: Path,
+) -> None:
+    metadata = {
+        "exhaustion_diagnostic_code": "bounded_traversal_cap_exceeded"
+    }
+    mapping = {
+        "version": "2.18",
+        "name": "nested-metadata-probe",
+        "steps": [
+            {
+                "name": "Branch",
+                "id": "branch",
+                "if": {"compare": {}},
+                "then": {
+                    "steps": [
+                        {
+                            "name": "NestedLoop",
+                            "id": "nested_loop",
+                            "repeat_until": dict(metadata),
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+    request = WorkflowMappingBuildRequest(
+        authored_mapping=mapping,
+        workflow_path=tmp_path / "nested-metadata-probe.orc",
+        frontend_kind="workflow_lisp",
+        compiler_owned_repeat_until_metadata={"nested_loop": metadata},
+    )
+    validator = _WorkflowMappingValidator(
+        request,
+        WorkflowMappingValidationOptions(
+            workspace_root=tmp_path,
+            boundary_validation_policy=(
+                WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
+            ),
+        ),
+    )
+
+    validator._validate_compiler_owned_repeat_until_metadata(mapping)
+
+    assert validator.errors == []
+
+
+def test_repeat_exhaustion_code_is_emitted_only_on_failed_exhaustion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def compile_scalar_loop(
+        workflow_name: str,
+        *,
+        max_iterations: int,
+        continue_below: int,
+    ):
+        workflow_path = _write_module(
+            tmp_path / f"{workflow_name}.orc",
+            "\n".join(
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.18")',
+                    f"  (defworkflow {workflow_name} () -> Int",
+                    (
+                        "    (loop/recur "
+                        f":max {max_iterations} :state 0"
+                    ),
+                    "      (fn (state)",
+                    f"        (if (< state {continue_below})",
+                    "          (continue (+ state 1))",
+                    "          (done state))))))",
+                ]
+            )
+            + "\n",
+        )
+        return _compile_with_internal_exhaustion_code(
+            workflow_path,
+            tmp_path=tmp_path,
+            monkeypatch=monkeypatch,
+            validate_shared=True,
+        )
+
+    failed_result = compile_scalar_loop(
+        "diagnostic-loop-failed",
+        max_iterations=1,
+        continue_below=2,
+    )
+    failed_bundle = failed_result.validated_bundles["diagnostic-loop-failed"]
+    failed_state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="diagnostic-loop-failed",
+    )
+    failed_state_manager.initialize(
+        (tmp_path / "diagnostic-loop-failed.orc").as_posix()
+    )
+
+    failed_state = WorkflowExecutor(
+        failed_bundle,
+        tmp_path,
+        failed_state_manager,
+        retry_delay_ms=0,
+    ).execute(on_error="stop")
+
+    failed_loop = failed_state["steps"]["diagnostic-loop-failed__loop"]
+    assert failed_loop["error"]["type"] == "repeat_until_iterations_exhausted"
+    assert failed_loop["error"]["code"] == "bounded_traversal_cap_exceeded"
+
+    completed_result = compile_scalar_loop(
+        "diagnostic-loop-completed",
+        max_iterations=2,
+        continue_below=1,
+    )
+    completed_bundle = completed_result.validated_bundles[
+        "diagnostic-loop-completed"
+    ]
+    completed_state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="diagnostic-loop-completed",
+    )
+    completed_state_manager.initialize(
+        (tmp_path / "diagnostic-loop-completed.orc").as_posix()
+    )
+
+    completed_state = WorkflowExecutor(
+        completed_bundle,
+        tmp_path,
+        completed_state_manager,
+        retry_delay_ms=0,
+    ).execute(on_error="stop")
+
+    completed_loop = completed_state["steps"]["diagnostic-loop-completed__loop"]
+    assert completed_loop["status"] == "completed"
+    assert "error" not in completed_loop
+
+    on_exhausted_result = _compile_with_internal_exhaustion_code(
+        VALID_ON_EXHAUSTED_SCALAR_FRAME_CARRIAGE_FIXTURE,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        validate_shared=True,
+    )
+    on_exhausted_bundle = on_exhausted_result.validated_bundles[
+        "loop-recur-on-exhausted-scalar-frame-carriage"
+    ]
+    on_exhausted_state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="diagnostic-loop-on-exhausted",
+    )
+    on_exhausted_state_manager.initialize(
+        VALID_ON_EXHAUSTED_SCALAR_FRAME_CARRIAGE_FIXTURE.as_posix()
+    )
+
+    on_exhausted_state = WorkflowExecutor(
+        on_exhausted_bundle,
+        tmp_path,
+        on_exhausted_state_manager,
+        retry_delay_ms=0,
+    ).execute(on_error="stop")
+
+    on_exhausted_loop = on_exhausted_state["steps"][
+        "loop-recur-on-exhausted-scalar-frame-carriage__loop"
+    ]
+    assert on_exhausted_loop["status"] == "completed"
+    assert "error" not in on_exhausted_loop
 
 
 def test_lowering_loop_recur_uses_pure_projection_for_list_constructor_seed(

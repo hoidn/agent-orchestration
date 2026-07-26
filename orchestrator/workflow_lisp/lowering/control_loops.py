@@ -299,6 +299,10 @@ def _emit_repeat_until_from_emitter_input(
             },
         },
     }
+    if emitter_input.exhaustion_diagnostic_code is not None:
+        repeat_step["repeat_until"]["exhaustion_diagnostic_code"] = (
+            emitter_input.exhaustion_diagnostic_code
+        )
     if expr.on_exhausted_result_expr is not None:
         exhaustion_local_values = dict(local_values)
         exhaustion_local_values[expr.binding_name] = _loop_projection_local_value(

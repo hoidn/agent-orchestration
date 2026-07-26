@@ -689,6 +689,11 @@ def _elaborate_repeat_until(
         condition=parse_typed_predicate(block.get("condition", {}), body_catalog),
         max_iterations=block.get("max_iterations") if isinstance(block.get("max_iterations"), int) else None,
         on_exhausted_outputs=freeze_value(on_exhausted_outputs),
+        exhaustion_diagnostic_code=(
+            block.get("exhaustion_diagnostic_code")
+            if isinstance(block.get("exhaustion_diagnostic_code"), str)
+            else None
+        ),
     )
 
 

@@ -603,6 +603,9 @@ class _IRBuilder:
                 owner_label_prefix=f"{step.name}.repeat_until.outputs",
             ),
             on_exhausted_outputs=step.repeat_until.on_exhausted_outputs,
+            exhaustion_diagnostic_code=(
+                step.repeat_until.exhaustion_diagnostic_code
+            ),
         )
 
     def _build_for_each_node(
@@ -1165,6 +1168,9 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
                 else 0
             ),
             on_exhausted_outputs=step.repeat_until.on_exhausted_outputs,
+            exhaustion_diagnostic_code=(
+                step.repeat_until.exhaustion_diagnostic_code
+            ),
         )
     return None
 

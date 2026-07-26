@@ -16,6 +16,7 @@ from .resume_projection_integrity import (
     classify_terminal_result,
 )
 from .state_projection import IterationStepKeyProjection
+from .statements import is_valid_exhaustion_diagnostic_code
 from . import step_results
 
 logger = logging.getLogger(__name__)
@@ -1438,6 +1439,24 @@ class LoopExecutor:
                     )
                     return state
 
+                exhaustion_error = {
+                    "type": "repeat_until_iterations_exhausted",
+                    "message": "repeat_until exhausted max_iterations before condition became true",
+                    "context": {
+                        "max_iterations": max_iterations,
+                        "last_iteration": current_iteration,
+                    },
+                }
+                diagnostic_code = block.get("exhaustion_diagnostic_code")
+                if diagnostic_code is not None:
+                    if not is_valid_exhaustion_diagnostic_code(
+                        diagnostic_code
+                    ):
+                        raise LoopStateIntegrityError(
+                            "repeat_until exhaustion diagnostic metadata is invalid"
+                        )
+                    exhaustion_error["code"] = diagnostic_code
+
                 exhausted = self.executor._attach_outcome(
                     step,
                     self.build_repeat_until_frame_result(
@@ -1446,14 +1465,7 @@ class LoopExecutor:
                         exit_code=3,
                         artifacts=exhaustion_frame_artifacts,
                         progress=progress,
-                        error={
-                            "type": "repeat_until_iterations_exhausted",
-                            "message": "repeat_until exhausted max_iterations before condition became true",
-                            "context": {
-                                "max_iterations": max_iterations,
-                                "last_iteration": current_iteration,
-                            },
-                        },
+                        error=exhaustion_error,
                     ),
                     phase_hint="post_execution",
                     class_hint="assert_failed",
