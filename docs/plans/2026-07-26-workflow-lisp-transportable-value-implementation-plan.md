@@ -877,6 +877,36 @@ evidence without an empty commit.
 
 ### Task 6: Execute provider-to-procedure-to-workflow Value and resume E2E
 
+**Status:** complete at evidence commit `08a3b83e`.
+
+**Preliminary reviews:** `VALUE_Q0_TASK6_SPEC_APPROVED`, then
+`VALUE_Q0_TASK6_QUALITY_APPROVED`.
+
+**Final exact-byte reviews:** `VALUE_Q0_TASK6_SPEC_REAFFIRMED`, then
+`VALUE_Q0_TASK6_QUALITY_REAFFIRMED`.
+
+**Changed paths:**
+
+- `tests/fixtures/workflow_lisp/valid/transportable_value_provider_resume.orc`
+- `tests/test_workflow_lisp_transportable_value_e2e.py`
+
+**TDD evidence:**
+
+- the deterministic target-2.19 fixture and clean-run harness exposed no
+  production RED after harness corrections: the existing generic runtime
+  carried two different direct-root JSON shapes through both classic and WCC
+  under identical compiled contract identities;
+- the first interruption probe characterized the designed route distinction:
+  classic has no lexical checkpoint points, while the production
+  checkpoint-bearing WCC path recorded the committed provider boundary;
+- the WCC interruption/resume run stopped before its downstream command,
+  restored from `validated_prior_boundary`, kept the provider invocation
+  count at one, and preserved the exact mixed `Value` through checkpoint
+  bindings, persisted state, returned execution data, and the public
+  state-only JSON report;
+- final adjacent evidence: 25 transportable-Value E2E, native-return E2E, and
+  pure-projection runtime tests passed.
+
 **Files:**
 
 - Create:
@@ -887,7 +917,7 @@ evidence without an empty commit.
 - Test: `tests/test_workflow_lisp_native_returns_e2e.py`
 - Test: `tests/test_workflow_lisp_pure_projection_runtime.py`
 
-- [ ] **Step 1: Add the deterministic end-to-end fixture**
+- [x] **Step 1: Add the deterministic end-to-end fixture**
 
 Author target-2.19 source in which a deterministic provider returns a mixed
 object as `Value`, a procedure accepts and returns that exact `Value`, and the
@@ -907,7 +937,7 @@ The test harness must:
 - prove a clean second run may return a different JSON shape without changing
   the declared contract identity.
 
-- [ ] **Step 2: Run RED and collect the new module**
+- [x] **Step 2: Run RED and collect the new module**
 
 ```bash
 pytest --collect-only -q tests/test_workflow_lisp_transportable_value_e2e.py
@@ -917,13 +947,13 @@ pytest -q tests/test_workflow_lisp_transportable_value_e2e.py
 Expected: collection succeeds; the first run fails at the remaining
 integration seam, not because the fixture uses an implicit conversion.
 
-- [ ] **Step 3: Implement the minimal integration fix**
+- [x] **Step 3: Implement the minimal integration fix**
 
 Patch only an existing generic seam named by the RED trace. Preserve
 validation-before-exposure, direct-root carriage, provider-boundary commit
 semantics, and the existing default-resume selection/validation guards.
 
-- [ ] **Step 4: Run E2E and native-return regressions**
+- [x] **Step 4: Run E2E and native-return regressions**
 
 ```bash
 pytest -q tests/test_workflow_lisp_transportable_value_e2e.py \
@@ -933,7 +963,7 @@ pytest -q tests/test_workflow_lisp_transportable_value_e2e.py \
 
 Expected: PASS.
 
-- [ ] **Step 5: Complete ordered reviews and commit**
+- [x] **Step 5: Complete ordered reviews and commit — `08a3b83e`**
 
 Expected implementation commit subject:
 
