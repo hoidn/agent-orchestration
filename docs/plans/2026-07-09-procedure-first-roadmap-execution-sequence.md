@@ -101,6 +101,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-23-provider-live-binding-implementation-plan.md` | Completed Stage-7 v1 selector. Provider-supervision v1 implementation landed through `4d4f05c7` and completed Tasks 1-15 and Gate S7-v1: provider observation, structural turn-boundary resume, the `provider_supervision.v1` coordinator/runtime, target-2.16 frontend/IR, deterministic and real-provider integration, normative docs, 6,978-passed/17-skipped broad comparison with the four exact retained failures and zero new failures, and ordered `TASK15_SPEC_APPROVED` / `TASK15_QUALITY_APPROVED` reviews. The separately reviewed v1.1 selector in the next row subsequently closed Stage 7 before Stage 8. |
 | `2026-07-24-provider-peer-messaging-v1.1-implementation-plan.md` | Completed Stage-7 v1.1 selector. It binds accepted design commit `8001c016` / digest `4f21cec1...`; received ordered `PLAN_SPEC_APPROVED` / `PLAN_QUALITY_APPROVED`; and landed Tasks 1-11 through `b08c04a6`: the structural capability, interactive adapter, receiving-attempt ledger and peer protocol, single-writer `provider_peer_group.v1` runtime, target-2.17 frontend/projections, deterministic integration, and real two-/three-member gates. Task 12 completed normative/routing updates and final focused/broad/compatibility/real verification, then received ordered `TASK12_FINAL_SPEC_APPROVED` / `TASK12_FINAL_QUALITY_APPROVED`. Gate S7-v1.1 and Stage 7 are closed; the selected list-traversal interstage is now active. |
 | `2026-07-25-workflow-lisp-pure-list-traversal-implementation-plan.md` | Active reviewed post-Stage-7 interstage selector. It binds the accepted target-2.18 design at `80df0616` / digest `e161d45e...` and received ordered `LIST_PLAN_SPEC_APPROVED` / `LIST_PLAN_QUALITY_APPROVED` plus final exact-byte reaffirmations. Execute its seven TDD tasks before proceeding to the already eligible Stage 8; it neither renumbers nor expands Stage 8. |
+| `2026-07-25-workflow-lisp-language-server-implementation-plan.md` | Queued reviewed Stage-8 selector. It binds the accepted design at `cfcac27f` and orders nine independently reviewed TDD tasks: exact-byte read tracing; read-only build-core extraction; single-root state/driver; the F1-F3 request-parity gate; pure diagnostic contributions; stdio/watcher transport; exact authored-callee provenance; closed navigation; and packaging/E2E/routing closure. Begin only after the active list-traversal interstage closes. |
 | `2026-07-23-refusal-diagnosability-fixes-plan.md` | Queued small fix; not a competing selector. Applies design principle 28 (refusals name their rule) to the entry-bootstrap name-allowlist gate: denial diagnostic, declared-property rule replacing the name key, and promoted-route identity non-drift verification. Execute after the current YAML-retirement task or opportunistically between capture windows. |
 | `2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md` | Parked by owner decision 2026-07-24 per the architectural critique; not a selector. Boundary invariants extracted to `docs/design/workflow_lisp_program_search_boundaries.md`; the slimmed E0 probe and E4P prompt-identity diagnostics are the only salvaged items (see Post-Stage-8 Salvaged Items). Revival requires an explicit owner decision and fresh proportionality review. |
 
@@ -262,7 +263,8 @@ completed its normative/routing and closing verification and received ordered
 S7-v1.1 and Stage 7. The amended list-traversal design passed ordered review
 and was accepted at `80df0616`; its independently reviewed seven-task
 implementation plan is now the active interstage selector. Stage 8 is the
-next numbered stage and is eligible.
+next numbered stage; its design is accepted at `cfcac27f` and its reviewed
+nine-task implementation plan is queued immediately after the interstage.
 
 The completed Phase 1 execution order was:
 
@@ -448,7 +450,8 @@ owner-amended v1.1 component plan completed Tasks 1-11 through `b08c04a6` and
 Task 12 through both ordered reviews, closing Gate S7-v1.1. The accepted
 list-traversal design at `80df0616` and its reviewed implementation plan are
 the active interstage selector before Stage 8; Stage 8 is the next numbered
-stage and is eligible.
+stage, with accepted design `cfcac27f` and a reviewed nine-task implementation
+plan queued after the interstage.
 
 Execute only accepted plans, in this order:
 
@@ -760,7 +763,9 @@ This is the one small implementation plan required by the interstage gate.
 
 This selected interstage work occurs before or alongside Stage 8 planning and
 has no Stage 8 dependency. Stage 8 remains the next numbered roadmap stage
-and is eligible; the interstage work neither renumbers nor expands it.
+and is eligible; its reviewed implementation plan is already queued, but no
+Stage-8 implementation task may begin until this interstage closes. The
+interstage work neither renumbers nor expands Stage 8.
 
 ### Stage 8: Deliver The `.orc` Language Server
 
@@ -782,18 +787,33 @@ Entry conditions:
 1. The language-server design has passed independent design review, with any
    direction changes folded into the design doc before planning.
 2. A component execution plan exists under `docs/plans/` following the
-   design's three-phase implementation handoff.
+   design's dependency order.
+3. The selected list-traversal interstage is complete.
 
-Execution follows the design's phases:
+Conditions 1 and 2 are satisfied by accepted design commit `cfcac27f` and
+`docs/plans/2026-07-25-workflow-lisp-language-server-implementation-plan.md`;
+condition 3 is the remaining execution boundary.
 
-1. Diagnostics core — translation layer, serialized compile driver, stdio
-   server, CLI diagnostic-parity test. The design's feasibility items F1-F3
-   are verified and recorded here; adverse F2/F3 outcomes route to the
-   design's stop/revise criteria rather than ad-hoc workarounds.
-2. Navigation — compile-snapshot retention, span interval index,
-   go-to-definition, document symbols, completion.
-3. Packaging and docs — `lsp` optional-dependency extra, editor-setup
-   documentation, capability matrix row, routing updates.
+Execution follows the reviewed plan's nine tasks:
+
+1. Trace the exact bytes parsed by every Stage-3 read while preserving legacy
+   parser judgments.
+2. Extract the shared read-only in-memory build core; keep `_emit` as the sole
+   persistent writer.
+3. Implement one-root immutable state, exact source/configuration freshness,
+   reverse invalidation, and the serialized compile driver.
+4. Capture the production-normalized request at its shared build seam and
+   prove F1-F3 before diagnostics transport or navigation exists.
+5. Implement pure coordinate translation and deterministic
+   current-generation diagnostic contribution ownership.
+6. Expose only those reviewed transitions through a frame-clean stdio and
+   watcher transport with optional dependencies.
+7. Preserve exact direct-authored callee spans without changing compiler
+   judgments or indexing generated/ambiguous calls.
+8. Add the closed current-snapshot definition/symbol/completion surface under
+   Principle 29, without server parsing or nominal filtering.
+9. Run real stdio/repository E2E and broad non-security evidence, package the
+   optional server, update authoritative docs, and close Gate S8.
 
 Gate S8 (the design's success criteria):
 
