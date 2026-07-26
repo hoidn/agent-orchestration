@@ -749,26 +749,49 @@ generated, WCC, expanded, or ambiguous call remains unindexed with `None`.
 
 **RED:**
 
-- [ ] Prove current call nodes expose only whole-form spans.
-- [ ] Cover exact list-head procedure datum and explicit `(call ...)` callee
+- [x] Prove current call nodes expose only whole-form spans.
+- [x] Cover exact list-head procedure datum and explicit `(call ...)` callee
       datum spans.
-- [ ] Cover specialization, traversal, cloning, and replace preservation.
-- [ ] Cover `None` through WCC reconstruction and every
+- [x] Cover specialization, traversal, cloning, and replace preservation.
+- [x] Cover `None` through WCC reconstruction and every
       generated/expanded/ambiguous construction.
-- [ ] Prove no whole-form or same-spelled argument fallback is accepted.
+- [x] Prove no whole-form or same-spelled argument fallback is accepted.
 
 **GREEN:**
 
-- [ ] Add optional `authored_callee_span` metadata to `CallExpr` and
+- [x] Add optional `authored_callee_span` metadata to `CallExpr` and
       `ProcedureCallExpr`.
-- [ ] Populate it only from an unambiguous direct-authored syntax datum.
-- [ ] Preserve the value byte-for-byte through every ordinary copy path.
-- [ ] Set/retain `None` on WCC, generated, expanded, and ambiguous paths.
-- [ ] Make no type, effect, lowering, runtime, or identity judgment change.
-- [ ] Rerun expression, macro, specialization, WCC, source-map, build, and
+- [x] Populate it only from an unambiguous direct-authored syntax datum.
+- [x] Preserve the value byte-for-byte through every ordinary copy path.
+- [x] Set/retain `None` on WCC, generated, expanded, and ambiguous paths.
+- [x] Make no type, effect, lowering, runtime, or identity judgment change.
+- [x] Rerun expression, macro, specialization, WCC, source-map, build, and
       procedure/workflow call regressions.
-- [ ] Obtain `STAGE8_TASK7_SPEC_APPROVED`, then
+- [x] Obtain `STAGE8_TASK7_SPEC_APPROVED`, then
       `STAGE8_TASK7_QUALITY_APPROVED`, and commit.
+
+**Implementation record:** commit `87c115e0`.
+
+- RED proved both call-node variants retained only their whole-form span;
+  five direct/provenance cases failed while the three generated/WCC absence
+  controls already held.
+- GREEN adds optional, equality-neutral metadata
+  (`field(default=None, compare=False)`) so provenance cannot alter call
+  identity, hashing, type, effect, lowering, or runtime judgments.
+- The two direct elaborators capture only the exact procedure list-head or
+  explicit workflow-call callee datum. Any expansion stack on the call or
+  callee, or any compiler-introduced callee identity, produces `None`; no
+  token/name search or whole-form fallback exists.
+- Ordinary dataclass replacement, caller-syntax cloning, expression traversal,
+  shallow/deep copy, and parametric specialization preserve the exact value.
+  Both WCC reconstruction sites explicitly write `None`, while all other
+  generated construction inherits the fail-closed default.
+- Focused collection found 8 cases and all 8 passed. The combined
+  expression/macro/procedure/source-map/build/workflow/WCC gate passed 802
+  tests under xdist; `py_compile` and scoped whitespace checks were clean.
+- Ordered independent review returned `STAGE8_TASK7_SPEC_APPROVED`, followed
+  by `STAGE8_TASK7_QUALITY_APPROVED`. This is opt-in compiler provenance under
+  principle 29, not a nominal authoring requirement.
 
 ## Task 8: Add The Closed Current-Snapshot Navigation Surface
 
