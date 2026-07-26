@@ -535,6 +535,33 @@ Lower Value through direct-root contracts
 
 ### Task 3: Validate strict recursive JSON values
 
+**Status:** complete at implementation commit `e122c753`.
+
+**Preliminary reviews:** `VALUE_Q0_TASK3_SPEC_APPROVED`, then
+`VALUE_Q0_TASK3_QUALITY_APPROVED`.
+
+**Final exact-byte reviews:** `VALUE_Q0_TASK3_SPEC_REAFFIRMED`, then
+`VALUE_Q0_TASK3_QUALITY_REAFFIRMED`.
+
+**Changed paths:**
+
+- `orchestrator/contracts/output_contract.py`
+- `tests/test_output_contract_value.py`
+
+**TDD evidence:**
+
+- first RED slice: 8 failed, covering the direct JSON root families and the
+  coded invalid-Value diagnostic;
+- expanded RED: 22 failed and 4 existing characterizations passed, covering
+  nested list/map descriptors, strict non-standard constants, missing and
+  malformed bundles, and escaped first-invalid paths;
+- quality-finding RED: 3 failed and 3 passed, exposing the nested
+  `Optional[Value]` string interception and cyclic-container recursion while
+  confirming retained collection-string decoding and acyclic shared values;
+- GREEN: 41 passed in the focused runtime module and 136 passed from an
+  extracted copy of the exact staged index across the Value compiler and
+  output-contract modules.
+
 **Files:**
 
 - Modify: `orchestrator/contracts/output_contract.py`
@@ -542,7 +569,7 @@ Lower Value through direct-root contracts
 - Test: `tests/test_output_contract.py`
 - Test: `tests/test_output_contract_collections.py`
 
-- [ ] **Step 1: Write failing file-backed and in-memory validation tests**
+- [x] **Step 1: Write failing file-backed and in-memory validation tests**
 
 Parameterize direct-root success over `null`, booleans, integers, finite
 floats, strings, lists, objects, and a nested mixed object. Assert exact Python
@@ -565,7 +592,7 @@ Add failures for:
 For recursive failures assert `invalid_transportable_value` and the first
 invalid JSON-style path, such as `/items/2/value`.
 
-- [ ] **Step 2: Run RED and collect the new module**
+- [x] **Step 2: Run RED and collect the new module**
 
 ```bash
 pytest --collect-only -q tests/test_output_contract_value.py
@@ -575,7 +602,7 @@ pytest -q tests/test_output_contract_value.py
 Expected: collection succeeds; tests fail with unsupported `value` and
 non-standard constants currently being accepted by `json.loads`.
 
-- [ ] **Step 3: Implement strict parsing and one recursive validator**
+- [x] **Step 3: Implement strict parsing and one recursive validator**
 
 Add a recursive descriptor scan that detects whether an ordinary or variant
 output contract contains `type: value`, including underneath optional/list/map
@@ -599,7 +626,7 @@ coercing them, and carry an RFC-6901-escaped first-invalid path in the
 violation context. Route both `validate_output_bundle` and
 `validate_contract_value` through that helper for `type: value`.
 
-- [ ] **Step 4: Run runtime-contract regressions**
+- [x] **Step 4: Run runtime-contract regressions**
 
 ```bash
 pytest -q tests/test_output_contract_value.py \
@@ -610,7 +637,7 @@ pytest -q tests/test_output_contract_value.py \
 Expected: PASS; existing narrower coercion and validation behavior is
 unchanged.
 
-- [ ] **Step 5: Complete ordered reviews and commit — reviews pending**
+- [x] **Step 5: Complete ordered reviews and commit — `e122c753`**
 
 Expected implementation commit subject:
 
