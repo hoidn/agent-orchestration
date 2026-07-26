@@ -81,7 +81,7 @@
       "side": "old",
       "role": "typed_frontend_ast",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/typed_frontend_ast.json",
-      "sha256": "sha256:735f97e4f69549d335f5eab20f1277218aee284d7fdf2e1ca8a5f122b5ede7af"
+      "sha256": "sha256:017131efafc0a79dbff66271908c6927508985f940b33413e1488c19b52d0b2a"
     },
     {
       "side": "old",
@@ -117,7 +117,7 @@
       "side": "old",
       "role": "build_manifest",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/build_manifest.json",
-      "sha256": "sha256:160800ba7b307ec21e6fca89876bb768f688a83d3a55b3bc0534112d024f833a"
+      "sha256": "sha256:efd1bc1776dfc09191a0df2ef04ee52d3720a7d8b83d0ed17718ed2a5058087c"
     },
     {
       "side": "new",
@@ -129,7 +129,7 @@
       "side": "new",
       "role": "typed_frontend_ast",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/typed_frontend_ast.json",
-      "sha256": "sha256:c042a782e471c361dff44531e8299582df58a8c780db726ad642474c3eb7cec3"
+      "sha256": "sha256:5b6f919348d153ba28a5a31968e5ee18b8321ac166b4d2823f7e6759609067fe"
     },
     {
       "side": "new",
@@ -165,7 +165,7 @@
       "side": "new",
       "role": "build_manifest",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/build_manifest.json",
-      "sha256": "sha256:db9fd3725e098710eb433e41078dbfc88e2920eae874d22b97ef6ae705d86e5b"
+      "sha256": "sha256:09e218b6b61b47283a2bd8e6e283f1bc51f7bd94057f5be7c76bf04db12f56e5"
     }
   ],
   "identity_delta": [

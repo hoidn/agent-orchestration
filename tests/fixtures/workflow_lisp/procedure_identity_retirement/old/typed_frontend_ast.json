@@ -1159,6 +1159,20 @@
                   }
                 ]
               ],
+              "authored_callee_span": {
+                "end": {
+                  "column": 25,
+                  "line": 24,
+                  "offset": 626,
+                  "path": "<FIXTURE_ROOT>/old/source.orc"
+                },
+                "start": {
+                  "column": 11,
+                  "line": 24,
+                  "offset": 612,
+                  "path": "<FIXTURE_ROOT>/old/source.orc"
+                }
+              },
               "callee_name": "source::internal-phase",
               "expansion_stack": [],
               "form_path": [

@@ -26,6 +26,7 @@ include = ["orchestrator*"]
 
 [tool.setuptools.package-data]
 "orchestrator.providers.schemas" = ["*.json"]
+"orchestrator.workflow_lisp" = ["stdlib_modules/**/*.orc"]
 
 [tool.pytest.ini_options]
 markers = [

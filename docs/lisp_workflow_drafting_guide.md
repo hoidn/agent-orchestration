@@ -30,6 +30,8 @@ Design references:
 - [Workflow Lisp Native Transportable Returns And Typed Result Guidance](design/workflow_lisp_native_transportable_returns.md)
 - [Workflow Lisp Provider Live Binding](design/workflow_lisp_provider_live_binding.md)
 - [Workflow Lisp Provider Peer Messaging](design/workflow_lisp_provider_peer_messaging.md)
+- [Workflow Lisp Language Server](design/workflow_lisp_language_server.md)
+- [Workflow Lisp Language Server Setup](workflow_lisp_language_server_setup.md)
 - [Workflow Language Design Principles](design/workflow_language_design_principles.md)
 - [Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md)
 - [Workflow Lisp Generic Core, Expression Surface, And Adapter Retirement](design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md)
@@ -63,6 +65,24 @@ gap so the missing surface can be designed and implemented deliberately.
 For historical migration review, preserve the captured YAML baseline and its
 computed parity evidence. Do not attempt to rerun the retired source or infer
 parity merely because an `.orc` version compiles.
+
+## Editor Diagnostics And Navigation
+
+The optional Workflow Lisp language server v1 is implemented for practical
+`.orc` authoring feedback. Install the `[lsp]` extra, launch
+`python -m orchestrator.lsp`, and configure exactly one canonical workspace
+root as described in the
+[setup guide](workflow_lisp_language_server_setup.md).
+
+V1 compiles only clean disk-equal opens and saves through the production
+full-Stage-3 path. It provides compiler diagnostics, exact direct procedure/
+workflow call definition, module/procedure/workflow symbols, and visible
+callable/form-head completion. Save the buffer before expecting refreshed
+results. Dirty, pending, failed, invalidated, or configuration-stale documents
+have no navigation answer, and configuration or root drift requires a server
+restart. The server writes no workspace files. Unsaved-buffer analysis,
+multi-diagnostic recovery, hover, caching, richer completion, and the other
+P1–P5 prerequisites remain deferred rather than approximated.
 
 Before copying a checked-in `.orc` example or fixture, check
 `docs/workflow_lisp_route_readiness_registry.json`. Registry labels provide

@@ -1,6 +1,6 @@
 # Procedure-First Roadmap Execution Sequence
 
-Status: active work instructions
+Status: complete historical work instructions
 Created: 2026-07-09
 
 ## Objective
@@ -101,7 +101,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-23-provider-live-binding-implementation-plan.md` | Completed Stage-7 v1 selector. Provider-supervision v1 implementation landed through `4d4f05c7` and completed Tasks 1-15 and Gate S7-v1: provider observation, structural turn-boundary resume, the `provider_supervision.v1` coordinator/runtime, target-2.16 frontend/IR, deterministic and real-provider integration, normative docs, 6,978-passed/17-skipped broad comparison with the four exact retained failures and zero new failures, and ordered `TASK15_SPEC_APPROVED` / `TASK15_QUALITY_APPROVED` reviews. The separately reviewed v1.1 selector in the next row subsequently closed Stage 7 before Stage 8. |
 | `2026-07-24-provider-peer-messaging-v1.1-implementation-plan.md` | Completed Stage-7 v1.1 selector. It binds accepted design commit `8001c016` / digest `4f21cec1...`; received ordered `PLAN_SPEC_APPROVED` / `PLAN_QUALITY_APPROVED`; and landed Tasks 1-11 through `b08c04a6`: the structural capability, interactive adapter, receiving-attempt ledger and peer protocol, single-writer `provider_peer_group.v1` runtime, target-2.17 frontend/projections, deterministic integration, and real two-/three-member gates. Task 12 completed normative/routing updates and final focused/broad/compatibility/real verification, then received ordered `TASK12_FINAL_SPEC_APPROVED` / `TASK12_FINAL_QUALITY_APPROVED`. Gate S7-v1.1 and Stage 7 are closed; the selected list-traversal interstage subsequently completed. |
 | `2026-07-25-workflow-lisp-pure-list-traversal-implementation-plan.md` | Completed reviewed post-Stage-7 interstage selector. It binds the accepted target-2.18 design at `80df0616` / digest `e161d45e...` and received ordered `LIST_PLAN_SPEC_APPROVED` / `LIST_PLAN_QUALITY_APPROVED` plus final exact-byte reaffirmations. Its seven TDD tasks are complete; it neither renumbers nor expands Stage 8. Consult the component plan for exact completion evidence. |
-| `2026-07-25-workflow-lisp-language-server-implementation-plan.md` | Active reviewed Stage-8 selector. It binds the accepted design at `cfcac27f` and orders nine independently reviewed TDD tasks: exact-byte read tracing; read-only build-core extraction; single-root state/driver; the F1-F3 request-parity gate; pure diagnostic contributions; stdio/watcher transport; exact authored-callee provenance; closed navigation; and packaging/E2E/routing closure. All entry conditions are satisfied; begin Task 1. |
+| `2026-07-25-workflow-lisp-language-server-implementation-plan.md` | Completed Stage-8 selector. It binds the accepted design at `cfcac27f` and completed nine independently reviewed TDD tasks: exact-byte read tracing; read-only build-core extraction; single-root state/driver; the F1-F3 request-parity gate; pure diagnostic contributions; stdio/watcher transport; exact authored-callee provenance; closed navigation; and packaging/E2E/routing closure. Gate S8 is complete; consult the component plan for exact implementation and verification records. |
 | `2026-07-23-refusal-diagnosability-fixes-plan.md` | Queued small fix; not a competing selector. Applies design principle 28 (refusals name their rule) to the entry-bootstrap name-allowlist gate: denial diagnostic, declared-property rule replacing the name key, and promoted-route identity non-drift verification. Execute after the current YAML-retirement task or opportunistically between capture windows. |
 | `2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md` | Parked by owner decision 2026-07-24 per the architectural critique; not a selector. Boundary invariants extracted to `docs/design/workflow_lisp_program_search_boundaries.md`; the slimmed E0 probe and E4P prompt-identity diagnostics are the only salvaged items (see Post-Stage-8 Salvaged Items). Revival requires an explicit owner decision and fresh proportionality review. |
 
@@ -763,8 +763,7 @@ This is the one small implementation plan required by the interstage gate;
 the component plan owns its exact completion evidence.
 
 This selected interstage work had no Stage 8 dependency. The interstage is
-complete; it neither renumbers nor expands Stage 8. Stage 8 is active under
-its reviewed implementation plan.
+complete; it neither renumbers nor expands Stage 8. Stage 8 is complete.
 
 ### Stage 8: Deliver The `.orc` Language Server
 
@@ -775,7 +774,7 @@ pure consumer of the existing compile entry points per frontend specification
 §76.1, delivering save-driven diagnostics, go-to-definition, document symbols,
 and completion for `.orc` authoring.
 
-**Current status:** Stage 8 is active under the reviewed nine-task
+**Current status:** Complete. Gate S8 is complete under the reviewed nine-task
 implementation plan.
 
 It runs last deliberately: the server's navigation and completion surfaces
@@ -795,9 +794,9 @@ Entry conditions:
 Conditions 1 and 2 are satisfied by accepted design commit `cfcac27f` and
 `docs/plans/2026-07-25-workflow-lisp-language-server-implementation-plan.md`.
 Condition 3 is satisfied by the completed list-traversal interstage. All
-Stage-8 entry conditions are met; Task 1 is active.
+Stage-8 entry conditions were met before implementation began.
 
-Execution follows the reviewed plan's nine tasks:
+Execution followed the reviewed plan's nine tasks:
 
 1. Trace the exact bytes parsed by every Stage-3 read while preserving legacy
    parser judgments.
@@ -818,7 +817,7 @@ Execution follows the reviewed plan's nine tasks:
 9. Run real stdio/repository E2E and broad non-security evidence, package the
    optional server, update authoritative docs, and close Gate S8.
 
-Gate S8 (the design's success criteria):
+Gate S8 is complete. Its design success criteria were:
 
 - all of the design's verification-strategy checks pass with fresh output,
   including the stdio integration tests, the CLI diagnostic-parity test, and
@@ -837,14 +836,13 @@ them.
 ### Post-Stage-8 Successor Handoff (input list; closed at Stage 8)
 
 This section is the input manifest for a successor roadmap, not additional
-stages of this one. This roadmap's charter completes at Stage 8; at that
-closure, a deliberately small successor roadmap ("language quality and
-domain semantics") is authored from the items below as the next selector,
-and this document goes historical. Items accrete here only until Stage 8
-closes; none is selected by listing, each enters the successor through its
-own design review under principles 28 and 29 and the standing
-proportionality rule (named consumer, smallest truthful scope,
-revert-able).
+stages of this one. This roadmap's charter is complete at Stage 8, and this
+document is historical. A deliberately small successor roadmap ("language
+quality and domain semantics") may be authored from the items below only
+through a separate selection act; this handoff is not a selector. None is
+selected by listing, and each may enter a future successor only through its own
+design review under principles 28 and 29 and the standing proportionality rule
+(named consumer, smallest truthful scope, revert-able).
 
 Provenance: items 1 and 4 are the two salvaged survivors of the parked
 2026-07-22 evolution follow-on roadmap (owner decision 2026-07-24, per the

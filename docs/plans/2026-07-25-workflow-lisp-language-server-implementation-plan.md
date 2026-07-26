@@ -27,13 +27,16 @@ pytest/pytest-xdist.
 `cfcac27f`, with ordered `STAGE8_DESIGN_SPEC_APPROVED` then
 `STAGE8_DESIGN_QUALITY_APPROVED`, followed by exact-diff reaffirmations.
 
-**Status:** Active Stage-8 execution selector. Preliminary review returned
+**Status:** Closing verification. Tasks 1–8 are committed; Task 9's
+integration, packaging, documentation, focused, and broad evidence is
+assembled. Preliminary closing review returned
+`STAGE8_FINAL_SPEC_APPROVED`, then `STAGE8_FINAL_QUALITY_APPROVED`; exact-diff
+reaffirmations and the Task 9 commit remain pending, so Gate S8 is not yet
+finally closed. Preliminary plan review returned
 `STAGE8_PLAN_SPEC_APPROVED` then `STAGE8_PLAN_QUALITY_APPROVED`; the final
 exact plan/routing diff received ordered reaffirmation from the same reviewers
-as `STAGE8_PLAN_SPEC_REAFFIRMED` then `STAGE8_PLAN_QUALITY_REAFFIRMED`, and the
-accepted plan/routing gate committed at `e565fc84`. The selected list-traversal
-interstage is complete, so all roadmap entry conditions are satisfied and
-Task 1 may begin.
+as `STAGE8_PLAN_SPEC_REAFFIRMED` then `STAGE8_PLAN_QUALITY_REAFFIRMED`, and
+the accepted plan/routing gate committed at `e565fc84`.
 
 ---
 
@@ -889,35 +892,95 @@ successors.
 - Modify: `tests/test_workflow_lisp_lsp_cli_parity.py`
 - Create: `tests/test_workflow_lisp_lsp_integration.py`
 - Create: `tests/test_workflow_lisp_lsp_e2e.py`
+- Modify: `tests/test_workflow_lisp_drain_roadmap_routing.py`
+- Modify: `tests/test_workflow_lisp_procedure_first_migrations.py`
+- Modify:
+  `tests/fixtures/workflow_lisp/procedure_identity_retirement/old/typed_frontend_ast.json`
+- Modify:
+  `tests/fixtures/workflow_lisp/procedure_identity_retirement/new/typed_frontend_ast.json`
+- Modify:
+  `tests/fixtures/workflow_lisp/procedure_identity_retirement/old/build_manifest.json`
+- Modify:
+  `tests/fixtures/workflow_lisp/procedure_identity_retirement/new/build_manifest.json`
+- Modify:
+  `tests/fixtures/workflow_lisp/procedure_identity_retirement/valid_internal_retirement.json`
 
 **Verification:**
 
-- [ ] Run `pytest --collect-only -q tests/test_workflow_lisp_lsp_*.py`.
-- [ ] Rerun the already-gated Task-4 F1/F2/F3 selectors unchanged as part of
+- [x] Run `pytest --collect-only -q tests/test_workflow_lisp_lsp_*.py`.
+- [x] Rerun the already-gated Task-4 F1/F2/F3 selectors unchanged as part of
       the closing evidence; navigation must never precede their first passing
       gate.
-- [ ] Run a real stdio client against a fixture workspace with real stdlib and
+- [x] Run a real stdio client against a fixture workspace with real stdlib and
       recursive imported-bundle paths, diagnostics, navigation, save/
       invalidation, close cleanup, concurrency, and zero workspace writes.
-- [ ] Run the real server as an editor would against a real repository
+- [x] Run the real server as an editor would against a real repository
       Workflow Lisp entry and record the required frontend-adjacent E2E check.
-- [ ] Prove default dependencies are unchanged and the `lsp` extra installs
+- [x] Prove default dependencies are unchanged and the `lsp` extra installs
       and launches cleanly.
-- [ ] Run documentation routing/link/status tests, including
+- [x] Run documentation routing/link/status tests, including
       `tests/test_workflow_lisp_drain_roadmap_routing.py`.
-- [ ] Launch the exact broad non-security suite from the Execution Contract in
+- [x] Launch the exact broad non-security suite from the Execution Contract in
       tmux and wait for completion.
-- [ ] Record fresh counts and distinguish any established external failures
+- [x] Record fresh counts and distinguish any established external failures
       without weakening selectors or repairing out-of-scope code.
-- [ ] Update docs from observed behavior only: accepted design implemented,
+- [x] Update docs from observed behavior only: accepted design implemented,
       setup limitations exact, Stage 8 complete, P1-P5 and all unrelated
       successor proposals still deferred/parked unless separately activated.
-- [ ] Verify the drafting guide is coherent and current for the implemented
+- [x] Verify the drafting guide is coherent and current for the implemented
       tooling; make only routing/usage corrections supported by observed v1.
-- [ ] Obtain `STAGE8_FINAL_SPEC_APPROVED`, then
+- [x] Obtain `STAGE8_FINAL_SPEC_APPROVED`, then
       `STAGE8_FINAL_QUALITY_APPROVED`.
 - [ ] Patch-stage only exact Task-9-owned hunks, verify every protected
       concurrent hunk is absent, and commit the reviewed closing tree.
+
+**Closing verification record (reviews pending):**
+
+- Fresh LSP collection found 307 cases. The unchanged Task-4 F1/F2/F3
+  selectors passed 36 cases, and the CLI-parity plus new real stdio/repository
+  integration set separately passed 36 cases.
+- The real fixture covers recursive imported-bundle compilation through
+  builtin `std/context`, local/imported procedure and workflow navigation,
+  diagnostics, dirty/save/close transitions, dependency break/repair, rapid
+  latest-save serialization, direct builtin-stdlib navigation, and an exact
+  before/after workspace tree with no `.orchestrate` creation.
+- The repository E2E launches `python -m orchestrator.lsp` against
+  `workflows/examples/cycle_guard_demo.orc`, proves clean symbols/completion,
+  unsupported/null definition and dirty/null navigation, and preserves source,
+  command-manifest, and build-tree digests.
+- Wheel RED proved the compiler-owned `.orc` stdlib was absent from the
+  distribution. The package-data fix ships exactly `context.orc`, `drain.orc`,
+  `phase.orc`, and `resource.orc`; a clean temporary wheel install resolved
+  the `[lsp]` metadata, imported from site-packages, found that installed
+  stdlib, and launched frame-clean outside the source checkout. Default
+  dependencies remain unchanged.
+- The setup guide, frontend/drafting contracts, capability/design routers,
+  completed roadmap status, and non-selected successor handoff are updated
+  from observed v1 behavior. Local link audit is clean, and the complete
+  roadmap-routing module passes all 52 cases.
+- The first broad comparison exposed three new Stage-8-owned stale-oracle
+  failures in addition to two retained external failures. Task 1's accepted
+  exact-byte reader makes the same-path compiler evidence byte-only, so its
+  existing migration oracle now requires positive `read_bytes` and exactly
+  zero `read_text`/`open` calls. Task 7's accepted authored-callee provenance
+  added one exact `authored_callee_span` to each retirement typed-AST fixture;
+  the two fixtures, their build manifests, and the valid retirement record's
+  content-addressed bindings are refreshed without excluding that semantic
+  field. The repaired retirement/migration/source-read adjacency passes 506
+  cases with 5 skips.
+- A second broad attempt began between the fixture-byte refresh and its
+  content-addressed binding refresh, so its retirement-validation cascade is
+  discarded as a non-comparable in-flight snapshot. The final stable exact
+  broad command completed with 8,214 passed, 21 skipped, and only the two exact
+  retained external failures:
+  `test_provider_valid_output_bundle_overrides_raw_nonzero_exit` and
+  `test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys`.
+  Both are present in the frozen pre-Stage-8 baseline; Stage 8 introduces zero
+  remaining failure identities.
+- Ordered preliminary closing reviews found no issues and returned
+  `STAGE8_FINAL_SPEC_APPROVED`, followed by
+  `STAGE8_FINAL_QUALITY_APPROVED`. The exact-diff reaffirmations and commit
+  remain pending at this checkpoint.
 
 ## Stage 8 Completion Gate
 

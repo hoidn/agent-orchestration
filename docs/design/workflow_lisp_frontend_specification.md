@@ -4044,19 +4044,37 @@ Compiler outputs should support:
   effects, report parsing, pointer-as-authority, manual state paths, unproved
   variant references, and command adapters without typed contracts.
 
-Deferred tooling may include:
+The implemented Workflow Lisp language-server v1 consumes those shared
+surfaces for:
+
+- compiler diagnostics on clean disk-equal open/save through one serialized
+  full Stage-3 compile;
+- go-to-definition for exact compiler-provenanced direct procedure/workflow
+  call heads;
+- document symbols for authored modules, procedures, and workflows; and
+- completion from compiler-visible callable names and the form registry.
+
+It owns exactly one canonical workspace root, treats the compiler-owned builtin
+stdlib root as its sole additional source allowance, binds results to exact
+source/configuration content, requires restart after configuration or root
+drift, returns null navigation for dirty/pending/failed/invalidated/stale
+documents, and writes no workspace files. It uses the fixed production compile
+policy and does not infer a nominal type taxonomy. See
+`docs/workflow_lisp_language_server_setup.md`.
+
+Still-deferred tooling may include:
 
 - `orchestrate lint workflow.orc`;
-- diagnostics-on-save through LSP;
 - hover information for types, contracts, effects, and proof contexts;
-- go-to-definition for local definitions and module exports;
-- completion for local names, variants, fields, and standard-library forms;
-- document symbols;
+- richer completion for variants, fields, and type-directed contexts;
 - formatting and simple code actions.
 
 These tools must consume the same compiler diagnostics, source maps, catalogs,
 and validation results used by normal compilation. They must not implement a
 parallel parser, type checker, linter, or workflow validator.
+The language-server implementation does not authorize the separately deferred
+P1–P5 frontend prerequisites: diagnostic accumulation, reader recovery,
+hover-type sidecars, unsaved source overlays, or compile caching.
 
 ## Part XIII. CLI
 

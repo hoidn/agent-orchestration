@@ -3811,7 +3811,8 @@ def test_design_delta_finalizer_hypothetical_removes_four_public_wrapper_checkpo
         assert reads["selected_sha256"] == expected_sha256
         assert set(reads["counts"]) == {"read_bytes", "read_text", "open"}
         assert reads["counts"]["read_bytes"] > 0
-        assert reads["counts"]["read_text"] > 0
+        assert reads["counts"]["read_text"] == 0
+        assert reads["counts"]["open"] == 0
         assert reads["total"] == sum(reads["counts"].values())
         assert set(reads["served_sha256"]) == {expected_sha256}
         assert reads["disk_before_sha256"] == retained_source_sha256

@@ -1,13 +1,13 @@
 # Workflow Lisp Language Server
 
-- **Status:** accepted for Stage 8 implementation planning
+- **Status:** implemented
 - **Kind:** feature / developer tooling architecture decision
 - **Owner:** Workflow Lisp frontend (tooling consumer)
 - **Reviewers:** independent specification rereview
   `STAGE8_DESIGN_SPEC_APPROVED`, then independent quality rereview
   `STAGE8_DESIGN_QUALITY_APPROVED` (2026-07-25)
 - **Created:** 2026-07-13
-- **Last material update:** 2026-07-25
+- **Last material update:** 2026-07-26
 - **Review history:** earlier design and quality changes-required rounds,
   including the F2 source-root, payload-based read-only build, and optional
   authored-call-provenance corrections, are incorporated. The latest quality
@@ -24,7 +24,7 @@
   - `docs/design/workflow_lisp_frontend_specification.md` §76.1 "Editor And
     Lint Tooling Compatibility" (parent authority for this design)
   - `docs/design/workflow_lisp_frontend_mvp_specification.md` §9.1 "Linter And
-    LSP Compatibility" (records LSP capabilities as deferred, not rejected)
+    LSP Compatibility" (historical prerequisite; current v1 status lives here)
   - `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/lisp-frontend-cli-diagnostics-surface/`
     (predecessor: built the machine-readable diagnostics surface "suitable for
     future lint/LSP tooling" while explicitly excluding "editor/LSP
@@ -33,21 +33,16 @@
   - `docs/design/workflow_language_design_principles.md`
   - `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
     (governing roadmap; see Dependencies And Sequencing)
-- **Implementation target:** scheduled as Stage 8 (final stage) of
-  `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md` by
-  its 2026-07-13 amendments (initially Stage 7; renumbered when provider
-  live binding was inserted as Stage 7); implementation start remains gated
-  on independent quality rereview acceptance and on the sequence reaching
-  Stage 8
+- **Implementation record:** Stage 8 (the final stage) is complete under
+  `docs/plans/2026-07-25-workflow-lisp-language-server-implementation-plan.md`.
+  The 2026-07-13 roadmap amendments initially named it Stage 7 and renumbered
+  it when provider live binding was inserted ahead of it. Generic client setup
+  lives in `docs/workflow_lisp_language_server_setup.md`.
 
 ## Summary
 
-`.orc` authors get compiler feedback today only by running
-`python -m orchestrator run <file> --dry-run` or `compile` in a terminal, one
-blocking diagnostic at a time, with no editor navigation across the growing
-stdlib/import surface.
-
-This design adds an **LSP (Language Server Protocol) server for `.orc`**: a
+`.orc` authors can now use an **LSP (Language Server Protocol) server for
+`.orc`**: a
 stdio server in a new `orchestrator/lsp/` package that is a **pure consumer**
 of the existing compile entry points, exactly as the frontend specification's
 §76.1 mandates ("must not implement a parallel parser, type checker, linter,
@@ -93,9 +88,9 @@ refreshed 2026-07-25):
   (`TypedExpr`, `typecheck_context.py:30`) records its span. Positions are
   1-based lines/columns; LSP requires 0-based UTF-16 positions, so the server
   owns a coordinate translation layer.
-- **Direct call heads need one metadata refinement.** `CallExpr` and
-  `ProcedureCallExpr` currently retain a whole-form `span`, but not the exact
-  authored callee syntax-datum span. V1 authorizes metadata-only
+- **Direct call heads carry one metadata refinement.** `CallExpr` and
+  `ProcedureCallExpr` retain both their whole-form `span` and the optional
+  exact authored callee syntax-datum span. V1 uses the metadata-only
   `authored_callee_span: SourceSpan | None` on those nodes. The direct authored
   expression constructors set it only when the exact callee datum has
   unambiguous authored provenance; specialization/traversal/copy preserve that
@@ -117,17 +112,14 @@ refreshed 2026-07-25):
   configuration and bundle inputs and executes nothing. The CLI run path
   reaches that same Stage-3 pipeline. Stage 1 has materially different
   validation scope and therefore is not a parity-preserving editor fallback.
-- **The production build pipeline already owns imported-bundle semantics.**
-  `build_frontend_bundle` loads provider/prompt/command/imported manifests,
-  recursively compiles `.orc` imported bundles, selects the exported workflow,
-  reattaches provenance/semantic IR, computes fingerprints, and then persists
-  `.orchestrate/build`. Its current `_select_and_reattach` still creates the
-  prospective build directory and writes `source_map.json`, and Core AST /
-  semantic-IR helpers can recover metadata by reading the provenance path.
-  V1 moves those effects into `_emit` and threads the serialized source-map
-  payload through the existing construction/reattachment seams. This yields
-  one genuinely read-only production prefix rather than recreating loader
-  semantics in the LSP.
+- **The production build pipeline owns imported-bundle semantics.**
+  `build_frontend_bundle_in_memory` loads provider/prompt/command/imported
+  manifests, recursively compiles `.orc` imported bundles, selects the
+  exported workflow, reattaches provenance/semantic IR, and computes
+  fingerprints without persistence. The persistent wrapper alone calls
+  `_emit` to write `.orchestrate/build`; the LSP consumes the same read-only
+  prefix and threaded source-map payload rather than recreating loader
+  semantics.
 - **Callable registries record definition locations.** `ProcedureCatalog` /
   `WorkflowCatalog` map names to definition nodes whose spans include the
   defining path, and import scopes are built per module
@@ -150,13 +142,13 @@ refreshed 2026-07-25):
   dispatch; there is no span→type table to power hover.
 - **A source-map subsystem exists** (`source_map.py`, schema
   `workflow_lisp_source_map.v1`) mapping generated IR back to authored spans —
-  v1 must preserve that payload's existing build/IR provenance semantics
+  v1 preserves that payload's existing build/IR provenance semantics
   in memory, although surfacing runtime diagnostics through LSP remains
   future work.
-- **No editor tooling exists today**: no grammar, no extension, no server.
-  Whole-program compilation has no caching or incrementality; every compile
-  resolves the entry file's full import closure plus the injected stdlib
-  source root (`compiler.py`, `_effective_source_roots`).
+- **The v1 language server exists; no grammar or editor extension is
+  bundled.** Whole-program compilation has no caching or incrementality;
+  every compile resolves the entry file's full import closure plus the
+  injected stdlib source root (`compiler.py`, `_effective_source_roots`).
 - **Full-compile latency is known.** The Stage-8 feasibility probe measured
   one representative clean, full Stage-3 compile at **1.87 seconds**. That
   save-driven latency is accepted for v1. It does not justify a Stage-1 fast
@@ -165,11 +157,10 @@ refreshed 2026-07-25):
   exact raw file bytes, with explicit distinct missing/unreadable sentinels.
   File-watch notifications can reduce detection latency but cannot prove
   snapshot currentness.
-- **The compiler does not yet expose the bytes it parsed.** `read_sexpr_file`
-  currently calls `Path.read_text`, while module resolution and several
-  Stage-3 helpers may read a source more than once. Pre-compile hashing cannot
-  prove which bytes produced a result. V1 therefore authorizes explicit
-  metadata-only `SourceReadTrace` plumbing from
+- **The compiler exposes the bytes it parsed as content-addressed trace
+  metadata.** `read_sexpr_file` performs one raw-byte read while module
+  resolution and Stage-3 helpers may visit a source more than once. V1's
+  explicit metadata-only `SourceReadTrace` plumbing runs from
   `compile_stage3_entrypoint` through module loading to `read_sexpr_file`, with
   three views derived from the same single raw-byte read: unchanged
   `raw_bytes` for hashing, its strict UTF-8 `raw_decoded_text` for exact
@@ -178,23 +169,21 @@ refreshed 2026-07-25):
   implicit `newline=None` translation. No second file read is permitted.
 
 Ambiguities resolved by this design are both sequencing and authority. Editor
-tooling ships first as a save-driven consumer of the fail-fast Stage-3
+tooling shipped first as a save-driven consumer of the fail-fast Stage-3
 pipeline, and parity is established on the complete normalized compile
 request before entry selection and input binding rather than inferred from
 similar output. Stage 1 and all P1-P5 frontend work remain outside v1.
 
-## Problem
+## Problem Addressed
 
-- Authoring feedback is terminal-only and manual. An author editing a
-  workflow that imports stdlib modules must leave the editor, run a CLI
-  compile, read one diagnostic, fix, and repeat — per error.
-- There is no navigation. The procedure-first migration is deliberately
-  growing the cross-module reuse surface (procedures and stdlib modules
-  consumed via imports), which multiplies "where is this defined?" lookups
-  that currently require grep.
+- Before v1, authoring feedback was terminal-only and manual. An author
+  editing a workflow that imported stdlib modules had to leave the editor, run
+  a CLI compile, read one diagnostic, fix, and repeat.
+- Before v1, there was no navigation across the growing cross-module
+  procedure and stdlib import surface.
 - The compiler already produces everything an editor needs — structured
   diagnostics with spans and stable codes, definition locations, expansion
-  provenance — but no surface delivers it to an editor.
+  provenance — and v1 now delivers the closed supported subset to an editor.
 - Doing this wrong is cheap and tempting: a regex/tree-sitter side-analyzer
   would ship fast and then drift from the real language forever. §76.1
   prohibits exactly that, which makes the architecture a design-level
@@ -260,7 +249,7 @@ Non-Goals (intentionally excluded from v1):
 
 ## Decision
 
-Build a stdio LSP server as a new `orchestrator/lsp/` package that drives the
+The implemented stdio LSP server in `orchestrator/lsp/` drives the
 existing compile entry points and translates their structured results into
 LSP messages.
 
@@ -316,8 +305,8 @@ LSP messages.
   and every compile acceptance/navigation request rechecks relevant raw
   source/config bytes; and the accepted save-driven compile latency is 1.87
   seconds.
-- **Left open:** only editor client packaging remains an implementation-time
-  choice. Compile configuration (including fixed lint/lowering defaults),
+- **Left open:** only editor client packaging remains a future choice.
+  Compile configuration (including fixed lint/lowering defaults),
   single-root scope, compiler-read trace authority, compile tiering,
   diagnostic parity, dependency invalidation, navigation scope, and P1-P5
   ownership are closed by this amendment.
@@ -920,19 +909,17 @@ exact-byte source/config trace metadata does not authorize any P1-P5 behavior.
   Stage-3 compile measured **1.87 seconds**. V1 accepts that save-driven cost
   and does not introduce Stage 1, two-phase publishing, P5 caching, or a
   provisional fast path.
-- **Roadmap sequencing:** scheduled as Stage 8, the final stage of the
+- **Roadmap sequencing:** completed as Stage 8, the final stage of the
   procedure-first roadmap execution sequence (2026-07-13 amendments;
   renumbered from Stage 7 when provider live binding was inserted ahead of
-  it), entered after Stage 7 with independent quality rereview acceptance as
-  an entry condition. V1 touches the production build boundary and expression
+  it). V1 touches the production build boundary and expression
   metadata narrowly; it does not change executor, typecheck, effect, lowering,
   or runtime behavior. The prerequisites P1–P5 are explicitly outside
   Stage 8's scope: they touch reader/typecheck/module-resolution surfaces,
   and each requires its own design treatment and a further roadmap
   amendment.
-- Work that can proceed independently: independent quality rereview of this
-  document; a syntax-highlighting grammar; editor client packaging
-  decisions.
+- Future syntax-highlighting grammar and editor client packaging decisions
+  remain independent of the implemented server.
 
 ## Invariants And Failure Modes
 
@@ -1398,8 +1385,10 @@ production compiler.
   restart-required stale state and blocks compile/navigation.
 - Stdout contains protocol frames only.
 - Default-install dependency set unchanged; `lsp` extra installs cleanly.
-- Capability matrix row and doc-index routing added at implementation time.
-- Independent design and quality review signoff before implementation starts.
+- Capability matrix row and doc-index routing are present.
+- Independent design and quality review approved the design before
+  implementation; the completed implementation plan owns the ordered task and
+  final implementation reviews.
 
 ## Stop / Revise Criteria
 
@@ -1453,19 +1442,17 @@ production compiler.
 
 ## Documentation Impact
 
-At implementation time: capability matrix row; `docs/index.md` and
-`docs/design/README.md` routing updates to the implemented status; an
-editor-setup how-to (client configuration, extras install, exact
-single-root initialization, clean-open/save, fixed compile-policy defaults,
-compiler-read raw-byte dependency invalidation, restart-required
-configuration/root drift, imported-bundle support, and null-navigation
-behavior); frontend specification §76.1 implementation note; a Workflow Lisp
-drafting guide pointer once the tooling is usable. None are edited by this
-proposal beyond the routing entries that announce it.
+Implementation supplies the capability-matrix and routing updates, frontend
+specification §76.1 implementation note, Workflow Lisp drafting-guide pointer,
+and `docs/workflow_lisp_language_server_setup.md`. The setup guide owns client
+configuration, optional installation, exact single-root initialization,
+clean-open/save behavior, fixed compile-policy defaults, compiler-read
+raw-byte invalidation, restart-required configuration/root drift,
+imported-bundle support, zero writes, and null-navigation behavior.
 
-## Implementation Handoff
+## Implementation Record And Handoff
 
-Suggested phases (each independently testable):
+The implementation completed the following independently tested phases:
 
 1. **Diagnostics core** — translation layer (pure, unit-tested), compile
    shared read-only build-core extraction, exact-byte `SourceReadTrace`
@@ -1524,14 +1511,12 @@ forms; conservative invalidation when closure ownership is unknown; raw-span
 handling when paths are synthetic or unreadable; keeping stdout frame-only;
 and keeping compile-worker serialization airtight under request storms.
 
-Safe first step: TDD the shared in-memory build extraction and exact
-bundle/selection/semantic/Core-AST/executable/fingerprint/prospective-path plus
-zero-write parity, then TDD one-read hash/parse identity, the two `A -> B -> A`
-controls, and single-root initialization before optional
-`authored_callee_span` construction/preservation/absence and the server
-process.
+The implementation followed that dependency order: shared in-memory build
+extraction and exact value/zero-write parity; one-read hash/parse identity and
+both `A -> B -> A` controls; single-root state; optional
+`authored_callee_span`; then transport, navigation, packaging, and docs.
 
-Out of scope for the implementation: all of P1–P5, grammar/extension
+Still out of scope after implementation: all of P1–P5, grammar/extension
 packaging, `didChange` compilation, hover, rename, formatting, semantic
 tokens, Stage-1 fallback, two-phase publishing, and nominal completion
 filtering. Non-default lint/lowering editor configuration, more than one

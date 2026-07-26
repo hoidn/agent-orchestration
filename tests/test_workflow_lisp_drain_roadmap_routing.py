@@ -697,6 +697,7 @@ def _assert_stage_7_v1_landed_and_v1_1_routed(
         or "remains next" in normalized
         or "stage 8 is the next numbered stage" in normalized
         or re.search(r"\bstage 8\b.{0,40}\bactive\b", normalized)
+        or re.search(r"\bstage 8\b.{0,80}\bcomplete\w*\b", normalized)
         or "next stage selection remain owned by the execution sequence roadmap"
         in normalized
     ), label
@@ -877,7 +878,7 @@ def test_procedure_first_status_surfaces_close_stage_6_and_route_stage_7_v1_1() 
     assert "pass" in stage_6 and "approved" in stage_6
 
 
-def test_list_traversal_interstage_closeout_activates_stage_8() -> None:
+def test_list_traversal_interstage_and_stage_8_closeout_routing() -> None:
     sequence = (
         REPO_ROOT
         / "docs"
@@ -908,11 +909,13 @@ def test_list_traversal_interstage_closeout_activates_stage_8() -> None:
     assert "principle 29" in normalized_interstage
     assert "current status: complete" in normalized_interstage
     assert "interstage is complete" in normalized_interstage
-    assert "stage 8 is active" in normalized_interstage
+    assert "stage 8 is complete" in normalized_interstage
     assert PURE_LIST_TRAVERSAL_PLAN_PATH in interstage
     assert after_stage_7.startswith("\n\nStage 8 is the final stage")
     normalized_stage_8 = _normalized_routing_text(after_stage_7)
-    assert "stage 8 is active" in normalized_stage_8
+    assert "current status: complete" in normalized_stage_8
+    assert "gate s8" in normalized_stage_8
+    assert "complete" in normalized_stage_8
     assert "condition 3 is satisfied" in normalized_stage_8
     assert "condition 3 is the remaining execution boundary" not in (
         normalized_stage_8
@@ -988,10 +991,72 @@ def test_list_traversal_closeout_status_is_consistent_across_doc_routes() -> Non
     normalized_language_server_plan = _normalized_routing_text(
         "\n".join(language_server_plan.splitlines()[:45])
     )
-    assert "status: active" in normalized_language_server_plan
+    assert (
+        "status: closing verification" in normalized_language_server_plan
+        or "status: complete" in normalized_language_server_plan
+    )
     assert "after the selected list traversal interstage closes" not in (
         normalized_language_server_plan
     )
+
+
+def test_stage_8_language_server_closeout_status_is_consistent() -> None:
+    design = (
+        REPO_ROOT / "docs/design/workflow_lisp_language_server.md"
+    ).read_text(encoding="utf-8")
+    plan = (REPO_ROOT / LANGUAGE_SERVER_PLAN_PATH).read_text(encoding="utf-8")
+    sequence = (
+        REPO_ROOT
+        / "docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md"
+    ).read_text(encoding="utf-8")
+    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
+    setup = (
+        REPO_ROOT / "docs/workflow_lisp_language_server_setup.md"
+    ).read_text(encoding="utf-8")
+
+    assert "status: implemented" in _normalized_routing_text(
+        "\n".join(design.splitlines()[:30])
+    )
+    normalized_plan_status = _normalized_routing_text(
+        "\n".join(plan.splitlines()[:45])
+    )
+    assert (
+        "status: closing verification" in normalized_plan_status
+        or "status: complete" in normalized_plan_status
+    )
+    assert "| Implemented |" in _markdown_table_row(
+        REPO_ROOT / "docs/design/README.md",
+        "workflow_lisp_language_server.md",
+    )
+    assert "| Implemented |" in _markdown_table_row(
+        REPO_ROOT / "docs/capability_status_matrix.md",
+        "Workflow Lisp language server v1",
+    )
+
+    language_server_index = index.split(
+        "### [Workflow Lisp Language Server]", 1
+    )[1].split("### [Workflow Lisp Language Server Implementation Plan]", 1)[0]
+    normalized_index = _normalized_routing_text(language_server_index)
+    assert "implemented" in normalized_index
+    assert "workflow_lisp_language_server_setup.md" in language_server_index
+    assert "python -m orchestrator.lsp" in setup
+
+    stage_8 = sequence.split(
+        "### Stage 8: Deliver The `.orc` Language Server", 1
+    )[1].split("### Post-Stage-8 Successor Handoff", 1)[0]
+    normalized_stage_8 = _normalized_routing_text(stage_8)
+    assert "current status: complete" in normalized_stage_8
+    assert "gate s8" in normalized_stage_8
+    assert "complete" in normalized_stage_8
+
+    successor = sequence.split(
+        "### Post-Stage-8 Successor Handoff", 1
+    )[1].split("## Concurrency Rules", 1)[0]
+    normalized_successor = _normalized_routing_text(successor)
+    assert "not additional stages" in normalized_successor
+    assert "none is selected by listing" in normalized_successor
+    assert "parked" in normalized_successor
+    assert "not a selector" in normalized_successor
 
 
 def test_stage_6_numbered_sequence_closes_task_7_after_completed_queues() -> None:
