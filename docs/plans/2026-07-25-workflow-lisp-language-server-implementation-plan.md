@@ -621,9 +621,9 @@ stdio, watcher, or navigation behavior.
       Task-4 parity regressions.
 - [x] Obtain `STAGE8_TASK5_SPEC_APPROVED`, then
       `STAGE8_TASK5_QUALITY_APPROVED`.
-- [ ] Commit Task 5.
+- [x] Commit Task 5.
 
-**Implementation record:** pending implementation commit.
+**Implementation record:** commit `d50ac678`.
 
 - RED established missing coordinate/diagnostic translators and the missing
   single contribution-ownership contract in state/driver. A real production
