@@ -673,34 +673,65 @@ contributions, and keeps stdout frame-clean.
 
 **RED:**
 
-- [ ] Drive real framed initialize/open/change/save/close traffic and prove
+- [x] Drive real framed initialize/open/change/save/close traffic and prove
       stdout contains only valid protocol frames.
-- [ ] Drive client-supported watched-file registration plus framed
+- [x] Drive client-supported watched-file registration plus framed
       create/change/delete notifications and prove they trigger the same eager
       revision/invalidation transitions defined by Task 3.
-- [ ] Cover open/save compilation, dirty change invalidation, close cleanup,
+- [x] Cover open/save compilation, dirty change invalidation, close cleanup,
       current contribution publication/clearing, and the one latched stale
       notice.
-- [ ] Cover internal error logging through stderr or `window/logMessage`, not
+- [x] Cover internal error logging through stderr or `window/logMessage`, not
       a synthetic language diagnostic; previously published contributions
       remain byte-for-byte owned while navigation is invalidated.
-- [ ] Prove unsupported initialization options and root shapes fail before
+- [x] Prove unsupported initialization options and root shapes fail before
       state creation or compile.
 
 **GREEN:**
 
-- [ ] Wire protocol events only to the reviewed Task-3 through Task-5
+- [x] Wire protocol events only to the reviewed Task-3 through Task-5
       transitions; do not duplicate compile, freshness, request, coordinate,
       diagnostic, or contribution logic in the server.
-- [ ] Register watched-file capability only when supported and treat delivered
+- [x] Register watched-file capability only when supported and treat delivered
       events as an eager optimization, never currentness authority.
-- [ ] Keep all server and compiler logging off stdout.
-- [ ] Keep pygls isolated under the `lsp` extra; default dependencies remain
+- [x] Keep all server and compiler logging off stdout.
+- [x] Keep pygls isolated under the `lsp` extra; default dependencies remain
       unchanged.
-- [ ] Rerun stdio, state/driver, diagnostics, request-parity, and packaging
+- [x] Rerun stdio, state/driver, diagnostics, request-parity, and packaging
       regressions.
-- [ ] Obtain `STAGE8_TASK6_SPEC_APPROVED`, then
+- [x] Obtain `STAGE8_TASK6_SPEC_APPROVED`, then
       `STAGE8_TASK6_QUALITY_APPROVED`, and commit.
+
+**Implementation record:** commit `1825a13e`.
+
+- RED first established the absent optional transport dependency and stdio
+  entrypoint, then the missing framed lifecycle, dynamic watcher,
+  publication, root/configuration-staleness, and internal-error behavior.
+- GREEN adds one synchronous pygls 2.x controller that consumes only the
+  reviewed immutable state, compile-driver, and diagnostic-contribution
+  transitions. Full-sync `didChange` remains invalidation-only; `didSave`
+  ignores notification text and reprobes disk authority.
+- Dynamic registration is conditional on client support and deterministically
+  covers workspace `.orc` files plus the exact frozen non-source
+  configuration paths. Delivered watcher kinds never become authority: every
+  admitted event routes through the same raw-byte disk probe, while unrelated
+  paths are ignored.
+- Workspace-root or frozen-configuration drift latches through the existing
+  state transition, clears owned publications, and emits exactly one paired
+  `window/showMessage` / `window/logMessage` restart notice. Internal compiler
+  exceptions log without synthesizing language diagnostics and preserve the
+  prior contribution tuple.
+- `sys.stdout` is redirected away from ordinary writes after the binary
+  transport stream is captured, leaving stdout exclusively for framed LSP
+  traffic. pygls remains confined to `project.optional-dependencies.lsp`;
+  default imports load neither pygls nor lsprotocol.
+- Fresh stdio collection found 14 cases and all 14 passed. The combined
+  state/driver/coordinates/diagnostics/CLI-parity/stdio gate passed 263 tests
+  under xdist. `py_compile` and scoped whitespace checks were clean.
+- Ordered independent review returned `STAGE8_TASK6_SPEC_APPROVED`, followed
+  by `STAGE8_TASK6_QUALITY_APPROVED`. The adapter adds no language taxonomy or
+  nominal authoring obligation under principle 29, and Task-8 navigation
+  remains absent.
 
 ## Task 7: Preserve Exact Direct-Authored Callee Provenance
 
