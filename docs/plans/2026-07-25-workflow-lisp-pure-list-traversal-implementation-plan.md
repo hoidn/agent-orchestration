@@ -602,25 +602,56 @@ byte-for-byte and behaviorally unchanged.
 
 **RED:**
 
-- [ ] Freeze an ordinary repeat-loop Core/Executable/runtime-plan digest and
+- [x] Freeze an ordinary repeat-loop Core/Executable/runtime-plan digest and
       generic `repeat_until_iterations_exhausted` failure.
-- [ ] Add an internal emitter test requiring a supplied diagnostic code to
+- [x] Add an internal emitter test requiring a supplied diagnostic code to
       survive each projection, participate in executable identity, and appear
       only as `error.code` on exhaustion.
-- [ ] Add invalid/undeclared metadata tests that fail closed.
+- [x] Add invalid/undeclared metadata tests that fail closed.
 
 **GREEN:**
 
-- [ ] Add optional `exhaustion_diagnostic_code` through existing repeat-loop
+- [x] Add optional `exhaustion_diagnostic_code` through existing repeat-loop
       dataclasses/configuration and canonical serialization.
-- [ ] Validate it as inert compiler-owned metadata.
-- [ ] Preserve `error.type = repeat_until_iterations_exhausted` and existing
+- [x] Validate it as inert compiler-owned metadata.
+- [x] Preserve `error.type = repeat_until_iterations_exhausted` and existing
       state projection recognition; populate `error.code` only when supplied.
-- [ ] Prove `on_exhausted`, scheduling, settlement, and ordinary authored
+- [x] Prove `on_exhausted`, scheduling, settlement, and ordinary authored
       `loop/recur` output/digests are unchanged.
-- [ ] Rerun executable IR, runtime plan, loop executor, state projection,
+- [x] Rerun executable IR, runtime plan, loop executor, state projection,
       build artifact, and loop/recur selectors.
-- [ ] Obtain `TASK5_SPEC_APPROVED`, then `TASK5_QUALITY_APPROVED`, and commit.
+- [x] Obtain `TASK5_SPEC_APPROVED`, then `TASK5_QUALITY_APPROVED`, and commit.
+
+**Implementation record — complete (2026-07-25):**
+
+- Optional compiler-owned `exhaustion_diagnostic_code` now crosses authored
+  mapping, Surface, Core, Executable configuration/frame identity,
+  `RuntimeStep`, and runtime-plan projections. Omission is preserved at every
+  serializer, so ordinary repeat loops retain their exact bytes.
+- Shared validation accepts the metadata only from an exact Workflow Lisp
+  compiler declaration, recursively associates nested generated loops by
+  explicit step id, and rejects missing, extra, mismatched, invalid, or
+  non-Workflow-Lisp declarations. The mechanism and schema contain no
+  consumer or workflow-family names.
+- Failed exhaustion retains
+  `error.type = repeat_until_iterations_exhausted` and adds the optional code
+  only at `error.code`. Successful settlement and `on_exhausted` settlement
+  retain no error, and state projection continues to recognize the generic
+  type rather than the optional code.
+- The ordinary target-2.18 loop oracle is frozen at Core
+  `47,271 / sha256:9f16ae97966378522dd64dc0c334bf294c271e806008e43e0615d8fa80c649f3`,
+  Executable
+  `65,326 / sha256:f244c285363bf59cce8da285276a33e3791fe7c0e1d95a224ceaef71842ad580`,
+  and runtime plan
+  `50,784 / sha256:f5e9bbb6042fb78af825f7595b08eb775d24a8dd586eed1e54bae964ceac2379`;
+  all three omit the new key when no code is supplied.
+- Fresh focused verification produced 46 loop/exhaustion passes and 326
+  executable/runtime-plan/build/shared-validation/state-projection passes.
+  Bytecode compilation and scoped diff checking were clean.
+- Ordered independent verdicts were `TASK5_SPEC_APPROVED`, then
+  `TASK5_QUALITY_APPROVED`.
+- Implementation commit:
+  `d7ccf046`.
 
 ## Task 6: Erase `list/map-effect` Into Existing Loop Semantics
 
