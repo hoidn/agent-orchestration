@@ -403,6 +403,40 @@ Add target-gated Workflow Lisp Value type
 
 ### Task 2: Derive and load `type: value` / `kind: value` contracts
 
+**Status:** implementation and unfiltered adjacent verification complete;
+preliminary ordered reviews approved; final exact-byte reaffirmations pending;
+implementation commit pending.
+
+**Preliminary reviews:** `VALUE_Q0_TASK2_SPEC_APPROVED`, then
+`VALUE_Q0_TASK2_QUALITY_APPROVED`.
+
+**Changed paths:**
+
+- `orchestrator/workflow_lisp/contracts.py`
+- `orchestrator/workflow/validation.py`
+- `tests/test_workflow_lisp_transportable_value.py`
+
+**TDD evidence:**
+
+- first RED slice: 3 failed, covering direct-root `type: value`, public
+  `kind: value`, and the coded target-2.19 loader gate;
+- second RED slice: 3 failed and 1 characterization passed, covering nested
+  descriptors, all loader surfaces, literal fingerprint identity, and retained
+  nontransportability for `Json`, capabilities, and refs;
+- closure RED: `kind: value` initially admitted enum-only `allowed`, and the
+  first classic-route pass-through probe exposed the existing Stage-3
+  pure-name export limitation; the bounded source-level proof therefore uses
+  the WCC route, while direct provider-result and command-result return
+  typechecking covers both effect forms; a final two-case loader RED proved
+  direct and nested Value guidance examples lacked the required early coded
+  refusal before schema/runtime validation;
+- specification-finding RED: the seven-row narrower-schema-key matrix produced
+  6 failures and 1 existing pass, proving exact `type: value` still admitted
+  `under`, `must_exist_target`, `item`, `items`, `keys`, and `values`; the
+  shared schema validator now rejects all seven narrower-family keys;
+- GREEN: 51 passed in the full Value module; 461 passed across the unfiltered
+  Value, structured-result, workflow, and loader modules.
+
 **Files:**
 
 - Modify: `orchestrator/workflow_lisp/contracts.py`
@@ -412,7 +446,7 @@ Add target-gated Workflow Lisp Value type
 - Test: `tests/test_workflow_lisp_workflows.py`
 - Test: `tests/test_loader_validation.py`
 
-- [ ] **Step 1: Write failing transportability and contract-shape tests**
+- [x] **Step 1: Write failing transportability and contract-shape tests**
 
 Assert an exact root contract:
 
@@ -451,7 +485,7 @@ Add both-direction loader cases:
 - the `value` descriptor participates literally in canonical contract
   fingerprints and checkpoint identity.
 
-- [ ] **Step 2: Run RED selectors**
+- [x] **Step 2: Run RED selectors**
 
 ```bash
 pytest -q tests/test_workflow_lisp_transportable_value.py \
@@ -461,7 +495,7 @@ pytest -q tests/test_workflow_lisp_transportable_value.py \
 
 Expected: FAIL because `value` is not a supported descriptor or contract kind.
 
-- [ ] **Step 3: Implement one shared descriptor derivation**
+- [x] **Step 3: Implement one shared descriptor derivation**
 
 Teach `_field_contract_definition`,
 `_structured_result_field_definition`,
@@ -478,7 +512,7 @@ Audit the imported-guidance validation path so an imported Value example
 receives the same `value_guidance_example_unsupported` refusal rather than
 being accepted as an arbitrary JSON example.
 
-- [ ] **Step 4: Run contract and loader regressions**
+- [x] **Step 4: Run contract and loader regressions**
 
 ```bash
 pytest -q tests/test_workflow_lisp_transportable_value.py \
@@ -490,7 +524,7 @@ pytest -q tests/test_workflow_lisp_transportable_value.py \
 
 Expected: PASS, including unchanged narrower descriptor behavior.
 
-- [ ] **Step 5: Complete ordered reviews and commit**
+- [ ] **Step 5: Complete ordered reviews and commit — reviews pending**
 
 Expected implementation commit subject:
 
@@ -575,7 +609,8 @@ pytest -q tests/test_output_contract_value.py \
 Expected: PASS; existing narrower coercion and validation behavior is
 unchanged.
 
-- [ ] **Step 5: Complete ordered reviews and commit**
+- [ ] **Step 5: Complete ordered reviews and commit — final reaffirmations
+      pending; commit pending**
 
 Expected implementation commit subject:
 
@@ -843,14 +878,17 @@ Execute and resume transportable Value results
 
 Update the routing test to require:
 
-- Q0 status is complete and Q1 is the next active design-correction stage;
+- Q0 status is complete and Q1 is the next active Q-series design-correction
+  stage;
+- L0 remains the ready L-series item, L1–L4 retain their existing blockers,
+  and no L-series behavior is relabeled implemented by Q0 closure;
 - capability and design routers say `Value` is implemented at target 2.19;
 - the drafting guide distinguishes `Value` from `Json` and from concrete
   record/union contracts;
 - direct-root/no-envelope, exact typing, opacity, strict JSON, guidance, and
   version rules appear in the normative owners; and
-- the parked evolution roadmap, unselected E0, and Q3-only E4P ownership are
-  unchanged.
+- the parked evolution roadmap, unselected E0, Q3-only E4P ownership, and
+  deferred P1–P5/runtime-debugging boundary are unchanged.
 
 Assert semantic relationships and coded behavior, not literal prompt text.
 
@@ -868,12 +906,14 @@ do not yet describe implemented target 2.19.
 
 Document only implemented behavior. Mark the accepted target design and Q0
 plan complete, promote the capability matrix row to Implemented, and route
-the successor to Q1 design correction/review. Add no prompt-calculus
-implementation claim.
+the Q-series successor to Q1 design correction/review. Preserve L0 as ready,
+L1–L4 as blocked in their selected order, and every shipped-v1 versus planned
+L-series distinction. Add no prompt-calculus or language-server implementation
+claim.
 
 For `docs/index.md`, stage a generated or interactive exact hunk that updates
-only Q0/Value/successor lines. Verify the owner-authored Evolution hunk remains
-unstaged.
+only Q0/Value/Q-series-successor lines. Verify the owner-authored Evolution and
+L-series routing hunks remain unstaged.
 
 - [ ] **Step 4: Run focused, adjacency, and routing verification**
 

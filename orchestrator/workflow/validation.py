@@ -83,14 +83,14 @@ DEFAULT_SUPPORTED_VERSIONS = frozenset(
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
         "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8",
         "2.9", "2.10", "2.11", "2.12", "2.13", "2.14", "2.15", "2.16", "2.17",
-        "2.18",
+        "2.18", "2.19",
     }
 )
 DEFAULT_VERSION_ORDER = (
     "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
     "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8",
     "2.9", "2.10", "2.11", "2.12", "2.13", "2.14", "2.15", "2.16", "2.17",
-    "2.18",
+    "2.18", "2.19",
 )
 DEFAULT_SUPPORTED_OUTPUT_TYPES = frozenset(
     {"enum", "integer", "float", "bool", "relpath", "string"}
@@ -921,18 +921,30 @@ class _WorkflowMappingValidator:
                 self._add_error(f"{context}: unknown field '{field_name}'", subject_refs=subject_refs)
 
         kind = spec.get('kind', 'relpath')
+        output_type = spec.get('type')
+        value_contract_before_target = (
+            (kind == 'value' or output_type == 'value')
+            and not self._version_at_least(version, '2.19')
+        )
+        if value_contract_before_target:
+            self._add_error(
+                f"{context}: value_contract_requires_dsl_2_19",
+                subject_refs=subject_refs,
+            )
         if not isinstance(kind, str):
             self._add_error(f"{context}.kind must be a string", subject_refs=subject_refs)
             kind = 'relpath'
-        elif kind not in {'relpath', 'scalar', 'collection'}:
+        elif kind not in {'relpath', 'scalar', 'collection', 'value'}:
             self._add_error(f"{context}.kind invalid kind '{kind}'", subject_refs=subject_refs)
 
-        output_type = spec.get('type')
         if output_type is None:
             self._add_error(f"{context} missing required 'type'", subject_refs=subject_refs)
         elif not isinstance(output_type, str):
             self._add_error(f"{context}.type must be a string", subject_refs=subject_refs)
-        elif output_type not in self._supported_output_types(version):
+        elif (
+            output_type not in self._supported_output_types(version)
+            and not (value_contract_before_target and output_type == 'value')
+        ):
             self._add_error(f"{context}.type invalid type '{output_type}'", subject_refs=subject_refs)
 
         if 'description' in spec and not isinstance(spec['description'], str):
@@ -941,6 +953,8 @@ class _WorkflowMappingValidator:
         if not allow_from and 'required' in spec and not isinstance(spec['required'], bool):
             self._add_error(f"{context}.required must be a boolean", subject_refs=subject_refs)
 
+        if value_contract_before_target:
+            return
         if kind == 'relpath':
             if output_type is not None and output_type != 'relpath':
                 self._add_error(
@@ -1008,6 +1022,25 @@ class _WorkflowMappingValidator:
                 kind_label="workflow boundary",
                 allow_guidance_keys=True,
             )
+        elif kind == 'value':
+            if output_type != 'value':
+                self._add_error(
+                    f"{context}: kind 'value' requires type 'value'",
+                    subject_refs=subject_refs,
+                )
+            if 'under' in spec:
+                self._add_error(f"{context}: kind 'value' forbids 'under'", subject_refs=subject_refs)
+            if 'must_exist_target' in spec:
+                self._add_error(
+                    f"{context}: kind 'value' forbids 'must_exist_target'",
+                    subject_refs=subject_refs,
+                )
+            for field_name in ('allowed', 'item', 'items', 'keys', 'values'):
+                if field_name in spec:
+                    self._add_error(
+                        f"{context}: kind 'value' forbids '{field_name}'",
+                        subject_refs=subject_refs,
+                    )
 
         if output_type == 'enum' and 'allowed' not in spec:
             self._add_error(f"{context} enum type requires 'allowed'", subject_refs=subject_refs)
@@ -3505,6 +3538,14 @@ class _WorkflowMappingValidator:
                 self._add_error(f"{context} missing required 'type'", subject_refs=subject_refs)
             elif not isinstance(spec['type'], str):
                 self._add_error(f"{context} 'type' must be a string", subject_refs=subject_refs)
+            elif (
+                spec['type'] == 'value'
+                and not self._version_at_least(version, '2.19')
+            ):
+                self._add_error(
+                    f"{context}: value_contract_requires_dsl_2_19",
+                    subject_refs=subject_refs,
+                )
             elif spec['type'] not in self._supported_expected_output_types(version):
                 self._add_error(f"{context} invalid expected_outputs type '{spec['type']}'", subject_refs=subject_refs)
 
@@ -4085,6 +4126,12 @@ class _WorkflowMappingValidator:
         context: str,
         subject_refs: tuple[ValidationSubjectRef, ...] = (),
     ) -> None:
+        if self._descriptor_contains_value(field_spec):
+            self._add_error(
+                f"{context}: value_guidance_example_unsupported",
+                subject_refs=subject_refs,
+            )
+            return
         schema = self._guidance_example_schema(field_spec)
         if not self._guidance_example_has_json_type(example, schema):
             self._add_error(f"{context} is invalid for the field schema", subject_refs=subject_refs)
@@ -4096,6 +4143,16 @@ class _WorkflowMappingValidator:
                 f"{context} is invalid for the field schema: {exc}",
                 subject_refs=subject_refs,
             )
+
+    @classmethod
+    def _descriptor_contains_value(cls, spec: Mapping[str, Any]) -> bool:
+        if spec.get('type') == 'value':
+            return True
+        return any(
+            isinstance(spec.get(key), Mapping)
+            and cls._descriptor_contains_value(spec[key])
+            for key in ('item', 'items', 'keys', 'values')
+        )
 
     @classmethod
     def _guidance_example_schema(cls, spec: Mapping[str, Any]) -> Dict[str, Any]:
@@ -4164,12 +4221,36 @@ class _WorkflowMappingValidator:
         if not isinstance(output_type, str):
             self._add_error(f"{field_context} 'type' must be a string", subject_refs=subject_refs)
             return
+        if (
+            output_type == 'value'
+            and not self._version_at_least(version, '2.19')
+        ):
+            self._add_error(
+                f"{field_context}: value_contract_requires_dsl_2_19",
+                subject_refs=subject_refs,
+            )
+            return
         if output_type not in self._supported_output_types(version):
             self._add_error(
                 f"{field_context} invalid {kind_label} field type '{output_type}'",
                 subject_refs=subject_refs,
             )
             return
+        if output_type == 'value':
+            for forbidden_key in (
+                'allowed',
+                'under',
+                'must_exist_target',
+                'item',
+                'items',
+                'keys',
+                'values',
+            ):
+                if forbidden_key in spec:
+                    self._add_error(
+                        f"{field_context}: type 'value' forbids '{forbidden_key}'",
+                        subject_refs=subject_refs,
+                    )
 
         if 'under' in spec:
             if not isinstance(spec['under'], str):
@@ -5717,6 +5798,8 @@ class _WorkflowMappingValidator:
             supported_types.update(self.PRIVATE_COLLECTION_OUTPUT_TYPES)
         if self._version_at_least(version, "2.15"):
             supported_types.update(self.PRIVATE_COLLECTION_OUTPUT_TYPES)
+        if self._version_at_least(version, "2.19"):
+            supported_types.add("value")
         return supported_types
 
     def _supported_scalar_types(self, version: str) -> Set[str]:
@@ -5728,7 +5811,11 @@ class _WorkflowMappingValidator:
 
     def _supported_expected_output_types(self, version: str) -> Set[str]:
         """Return types supported by the legacy file-backed result channel."""
-        return self._supported_output_types(version) - self.PRIVATE_COLLECTION_OUTPUT_TYPES
+        return (
+            self._supported_output_types(version)
+            - self.PRIVATE_COLLECTION_OUTPUT_TYPES
+            - {"value"}
+        )
 
     def _scalar_type_list(self, version: str) -> str:
         """Render a deterministic scalar-type list for validation errors."""
@@ -6059,20 +6146,33 @@ class _WorkflowMappingValidator:
                 continue
 
             kind = spec.get('kind', 'relpath')
+            output_type = spec.get('type')
+            value_contract_before_target = (
+                (kind == 'value' or output_type == 'value')
+                and not self._version_at_least(version, '2.19')
+            )
+            if value_contract_before_target:
+                self._add_error(
+                    f"{context}: value_contract_requires_dsl_2_19"
+                )
             if not isinstance(kind, str):
                 self._add_error(f"{context} 'kind' must be a string")
                 kind = 'relpath'
-            elif kind not in {'relpath', 'scalar', 'collection'}:
+            elif kind not in {'relpath', 'scalar', 'collection', 'value'}:
                 self._add_error(f"{context} invalid kind '{kind}'")
 
-            output_type = spec.get('type')
             if output_type is None:
                 self._add_error(f"{context} missing required 'type'")
             elif not isinstance(output_type, str):
                 self._add_error(f"{context} 'type' must be a string")
-            elif output_type not in self._supported_output_types(version):
+            elif (
+                output_type not in self._supported_output_types(version)
+                and not (value_contract_before_target and output_type == 'value')
+            ):
                 self._add_error(f"{context} invalid type '{output_type}'")
 
+            if value_contract_before_target:
+                continue
             if kind == 'relpath':
                 pointer = spec.get('pointer')
                 if pointer is None:
@@ -6132,6 +6232,24 @@ class _WorkflowMappingValidator:
                     kind_label="artifact",
                     allow_guidance_keys=True,
                 )
+            elif kind == 'value':
+                if output_type != 'value':
+                    self._add_error(
+                        f"{context}: kind 'value' requires type 'value'"
+                    )
+                if 'pointer' in spec:
+                    self._add_error(f"{context}: kind 'value' forbids 'pointer'")
+                if 'under' in spec:
+                    self._add_error(f"{context}: kind 'value' forbids 'under'")
+                if 'must_exist_target' in spec:
+                    self._add_error(
+                        f"{context}: kind 'value' forbids 'must_exist_target'"
+                    )
+                for field_name in ('allowed', 'item', 'items', 'keys', 'values'):
+                    if field_name in spec:
+                        self._add_error(
+                            f"{context}: kind 'value' forbids '{field_name}'"
+                        )
 
             if output_type == 'enum' and 'allowed' not in spec:
                 self._add_error(f"{context} enum type requires 'allowed'")

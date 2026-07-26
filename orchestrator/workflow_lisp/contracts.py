@@ -1071,6 +1071,11 @@ def _workflow_boundary_contract_definition(
             "kind": "collection",
             **definition,
         }
+    if definition["type"] == "value":
+        return {
+            "kind": "value",
+            **definition,
+        }
     return {
         "kind": "scalar",
         **definition,
@@ -1111,6 +1116,8 @@ def _workflow_boundary_contract_from_structured_field(field_definition: Mapping[
         definition["kind"] = "relpath"
     elif definition.get("type") in {"optional", "list", "map"}:
         definition["kind"] = "collection"
+    elif definition.get("type") == "value":
+        definition["kind"] = "value"
     else:
         definition["kind"] = "scalar"
     return definition
@@ -1158,6 +1165,8 @@ def _field_contract_definition(
             return {"type": "float"}
         if type_ref.name == "Bool":
             return {"type": "bool"}
+        if type_ref.name == "Value":
+            return {"type": "value"}
         if type_ref.name == "Json":
             _raise_contract_error(
                 code="json_surface_unsupported",

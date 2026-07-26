@@ -3,10 +3,17 @@ from pathlib import Path
 import pytest
 
 import orchestrator.workflow_lisp.syntax as syntax
+from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     compile_stage1_module,
     compile_stage3_module,
+)
+from orchestrator.workflow_lisp.contracts import (
+    derive_structured_result_contract,
+    derive_workflow_signature_contracts,
+    is_transportable_result_type,
+    structured_contract_semantic_digest,
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
@@ -24,11 +31,23 @@ from orchestrator.workflow_lisp.syntax import (
 )
 from orchestrator.workflow_lisp.type_env import (
     FrontendTypeEnvironment,
+    ListTypeRef,
+    MapTypeRef,
+    OptionalTypeRef,
     PrimitiveTypeRef,
+    ProcRefTypeRef,
+    WorkflowRefTypeRef,
     prelude_type_names_for_target,
     type_refs_compatible,
 )
 from orchestrator.workflow_lisp.typecheck import typecheck_expression
+from orchestrator.workflow_lisp.workflows import (
+    ExternEnvironment,
+    PromptExtern,
+    ProviderExtern,
+    WorkflowSignature,
+)
+from tests.workflow_fixture_loader import WorkflowLoader
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
@@ -321,3 +340,509 @@ def test_value_guidance_allows_text_but_rejects_example_before_evaluation() -> N
         )
 
     assert _diagnostic_code(excinfo) == "value_guidance_example_unsupported"
+
+
+def test_value_contract_derives_one_direct_root_output_bundle_field() -> None:
+    contract = derive_structured_result_contract(
+        VALUE_TYPE,
+        workflow_name="value-provider",
+        step_id="value_provider__result",
+    )
+
+    assert contract.contract_kind == "output_bundle"
+    assert len(contract.payload["fields"]) == 1
+    field = contract.payload["fields"][0]
+    assert {
+        "name": field["name"],
+        "json_pointer": field["json_pointer"],
+        "type": field["type"],
+    } == {
+        "name": "__result__",
+        "json_pointer": "",
+        "type": "value",
+    }
+    assert field["source_map_subject"]["subject_kind"] == "output_bundle_field"
+    assert field["source_map_subject"]["subject_name"].endswith(
+        "::root-result::__result__"
+    )
+
+
+def test_value_contract_derives_value_kind_at_workflow_boundary() -> None:
+    probe = _expression("true")
+    signature = WorkflowSignature(
+        name="value-boundary",
+        params=(("payload", VALUE_TYPE),),
+        return_type_ref=VALUE_TYPE,
+        span=probe.span,
+        form_path=("workflow-lisp", "defworkflow", "value-boundary"),
+    )
+
+    inputs, outputs, projection = derive_workflow_signature_contracts(signature)
+
+    assert inputs["payload"].definition == {
+        "kind": "value",
+        "type": "value",
+    }
+    assert outputs["__result__"].definition == {
+        "kind": "value",
+        "type": "value",
+    }
+    assert projection.return_kind == "root"
+
+
+def test_value_contract_loader_requires_219_then_accepts_direct_root(
+    tmp_path: Path,
+) -> None:
+    def workflow(version: str) -> dict:
+        return {
+            "version": version,
+            "name": "value-contract-loader",
+            "steps": [
+                {
+                    "name": "Produce",
+                    "command": ["echo", "ok"],
+                    "output_bundle": {
+                        "path": "state/value.json",
+                        "fields": [
+                            {
+                                "name": "__result__",
+                                "json_pointer": "",
+                                "type": "value",
+                            }
+                        ],
+                    },
+                }
+            ],
+        }
+
+    loader = WorkflowLoader(tmp_path)
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        loader.load_mapping(workflow("2.18"))
+    assert any(
+        "value_contract_requires_dsl_2_19" in error.message
+        for error in excinfo.value.errors
+    )
+
+    loaded = loader.load_mapping(workflow("2.19"))
+    assert loaded.surface.steps[0].common.output_bundle is not None
+
+
+def test_value_contract_nested_descriptors_cover_collections_record_and_union() -> None:
+    string_type = PrimitiveTypeRef(name="String")
+    cases = (
+        (VALUE_TYPE, {"type": "value"}),
+        (
+            OptionalTypeRef(name="Optional[Value]", item_type_ref=VALUE_TYPE),
+            {"type": "optional", "item": {"type": "value"}},
+        ),
+        (
+            ListTypeRef(name="List[Value]", item_type_ref=VALUE_TYPE),
+            {"type": "list", "items": {"type": "value"}},
+        ),
+        (
+            MapTypeRef(
+                name="Map[String, Value]",
+                key_type_ref=string_type,
+                value_type_ref=VALUE_TYPE,
+            ),
+            {
+                "type": "map",
+                "keys": {"type": "string"},
+                "values": {"type": "value"},
+            },
+        ),
+    )
+    for index, (type_ref, expected_descriptor) in enumerate(cases):
+        contract = derive_structured_result_contract(
+            type_ref,
+            workflow_name="nested-value-contracts",
+            step_id=f"nested_value__{index}",
+        )
+        field = contract.payload["fields"][0]
+        assert {
+            key: value
+            for key, value in field.items()
+            if key not in {"name", "json_pointer", "source_map_subject"}
+        } == expected_descriptor
+
+    syntax_module = build_syntax_module(
+        read_sexpr_text(
+            _module_source(
+                "2.19",
+                "(defrecord ValueBox (payload Value))",
+                "(defunion ValueChoice (KEEP (payload Value)) (DROP))",
+            ),
+            source_path="nested_value_contracts.orc",
+        )
+    )
+    type_env = FrontendTypeEnvironment.from_module(
+        elaborate_definition_module(
+            _definition_only_syntax_module(syntax_module)
+        )
+    )
+    probe = _expression("true")
+    record_contract = derive_structured_result_contract(
+        type_env.resolve_type(
+            "ValueBox",
+            span=probe.span,
+            form_path=probe.form_path,
+        ),
+        workflow_name="nested-value-contracts",
+        step_id="record_value",
+    )
+    union_contract = derive_structured_result_contract(
+        type_env.resolve_type(
+            "ValueChoice",
+            span=probe.span,
+            form_path=probe.form_path,
+        ),
+        workflow_name="nested-value-contracts",
+        step_id="union_value",
+    )
+
+    assert record_contract.payload["fields"][0]["type"] == "value"
+    assert (
+        union_contract.payload["variants"]["KEEP"]["fields"][0]["type"]
+        == "value"
+    )
+
+
+def test_value_contract_transportability_keeps_nontransportable_types_and_refs_false() -> None:
+    type_env = _type_environment()
+    probe = _expression("true")
+    checks_result = type_env.resolve_type(
+        "ChecksResult",
+        span=probe.span,
+        form_path=probe.form_path,
+    )
+    nontransportable = (
+        PrimitiveTypeRef(name="Json"),
+        PrimitiveTypeRef(name="Provider"),
+        PrimitiveTypeRef(name="Prompt"),
+        ProcRefTypeRef(
+            name="ProcRef[Value -> Value]",
+            param_type_refs=(VALUE_TYPE,),
+            return_type_ref=VALUE_TYPE,
+        ),
+        WorkflowRefTypeRef(
+            name="WorkflowRef[Value -> ChecksResult]",
+            param_type_refs=(VALUE_TYPE,),
+            return_type_ref=checks_result,
+        ),
+    )
+
+    assert all(
+        is_transportable_result_type(type_ref) is False
+        for type_ref in nontransportable
+    )
+
+
+def test_value_contract_loader_covers_all_surfaces_and_rejects_invalid_pairs(
+    tmp_path: Path,
+) -> None:
+    def workflow(version: str) -> dict:
+        return {
+            "version": version,
+            "name": "value-contract-surfaces",
+            "inputs": {
+                "payload": {"kind": "value", "type": "value"},
+            },
+            "outputs": {
+                "result": {
+                    "kind": "value",
+                    "type": "value",
+                    "from": {
+                        "ref": "root.steps.Produce.artifacts.result",
+                    },
+                },
+            },
+            "artifacts": {
+                "stored": {"kind": "value", "type": "value"},
+            },
+            "steps": [
+                {
+                    "name": "Produce",
+                    "command": ["echo", "ok"],
+                    "output_bundle": {
+                        "path": "state/value.json",
+                        "fields": [
+                            {
+                                "name": "result",
+                                "json_pointer": "",
+                                "type": "value",
+                            }
+                        ],
+                    },
+                },
+            ],
+        }
+
+    loader = WorkflowLoader(tmp_path)
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        loader.load_mapping(workflow("2.18"))
+    assert any(
+        "value_contract_requires_dsl_2_19" in error.message
+        for error in excinfo.value.errors
+    )
+
+    loaded = loader.load_mapping(workflow("2.19"))
+    assert loaded.surface.inputs["payload"].kind == "value"
+    assert loaded.surface.outputs["result"].kind == "value"
+    assert loaded.surface.artifacts["stored"].kind == "value"
+    assert loaded.surface.steps[0].common.output_bundle is not None
+
+    legacy = workflow("2.19")
+    legacy["steps"][0].pop("output_bundle")
+    legacy["steps"][0]["expected_outputs"] = [
+        {
+            "name": "result",
+            "path": "state/value.json",
+            "type": "value",
+        }
+    ]
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        loader.load_mapping(legacy)
+    assert any(
+        "invalid expected_outputs type 'value'" in error.message
+        for error in excinfo.value.errors
+    )
+
+    for kind, value_type, expected_fragments in (
+        ("scalar", "value", ("kind 'scalar'",)),
+        ("value", "string", ("kind 'value'", "type 'value'")),
+    ):
+        invalid = workflow("2.19")
+        invalid["inputs"]["payload"] = {
+            "kind": kind,
+            "type": value_type,
+        }
+        with pytest.raises(WorkflowValidationError) as excinfo:
+            loader.load_mapping(invalid)
+        messages = tuple(error.message for error in excinfo.value.errors)
+        assert any(
+            all(fragment in message for fragment in expected_fragments)
+            for message in messages
+        ), messages
+
+    invalid_allowed = workflow("2.19")
+    invalid_allowed["inputs"]["payload"]["allowed"] = ["only"]
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        loader.load_mapping(invalid_allowed)
+    assert any(
+        "kind 'value' forbids 'allowed'" in error.message
+        for error in excinfo.value.errors
+    )
+
+
+def test_value_contract_fingerprint_preserves_literal_value_descriptor() -> None:
+    value_contract = derive_structured_result_contract(
+        VALUE_TYPE,
+        workflow_name="value-fingerprint",
+        step_id="fingerprint_result",
+    )
+    string_contract = derive_structured_result_contract(
+        PrimitiveTypeRef(name="String"),
+        workflow_name="value-fingerprint",
+        step_id="fingerprint_result",
+    )
+    value_payload = {"fields": value_contract.payload["fields"]}
+    string_payload = {"fields": string_contract.payload["fields"]}
+
+    assert value_contract.payload["fields"][0]["type"] == "value"
+    assert string_contract.payload["fields"][0]["type"] == "string"
+    assert (
+        structured_contract_semantic_digest(value_payload)
+        != structured_contract_semantic_digest(string_payload)
+    )
+
+
+def test_value_contract_typechecks_provider_and_command_result_returns() -> None:
+    syntax_module = build_syntax_module(
+        read_sexpr_text(
+            _module_source("2.19"),
+            source_path="value_effect_return_typecheck.orc",
+        )
+    )
+    type_env = FrontendTypeEnvironment.from_module(
+        elaborate_definition_module(
+            _definition_only_syntax_module(syntax_module)
+        )
+    )
+    extern_environment = ExternEnvironment(
+        bindings_by_name={
+            "providers.execute": ProviderExtern(
+                name="providers.execute",
+                provider_id="test-provider",
+            ),
+            "prompts.execute": PromptExtern(
+                name="prompts.execute",
+                asset_file="prompts/execute.md",
+            ),
+        }
+    )
+    cases = (
+        (
+            "(provider-result providers.execute "
+            ":prompt prompts.execute :inputs (message) :returns Value)",
+            frozenset({"providers.execute", "prompts.execute", "message"}),
+        ),
+        (
+            '(command-result produce_value :argv ("echo" "ok") '
+            ":returns Value)",
+            frozenset(),
+        ),
+    )
+
+    for source, bound_names in cases:
+        expression = elaborate_expression(
+            _expression(source),
+            bound_names=bound_names,
+            target_dsl_version="2.19",
+        )
+        typed = typecheck_expression(
+            expression,
+            type_env=type_env,
+            value_env={
+                "message": PrimitiveTypeRef(name="String"),
+            },
+            extern_environment=extern_environment,
+        )
+        assert typed.type_ref == VALUE_TYPE
+
+
+def test_value_contract_compiles_inline_procedure_workflow_call_and_public_pass_through(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "value_pass_through.orc",
+        "2.19",
+        "(defmodule value-pass-through)",
+        "(export entry)",
+        (
+            "(defproc pass-value ((payload Value)) -> Value "
+            ":effects () :lowering inline payload)"
+        ),
+        "(defworkflow child ((payload Value)) -> Value (pass-value payload))",
+        (
+            "(defworkflow entry ((payload Value)) -> Value "
+            "(call child :payload payload))"
+        ),
+    )
+
+    result = compile_stage3_module(
+        path,
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+    entry = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "entry"
+    )
+
+    assert entry.authored_mapping["inputs"]["payload"]["kind"] == "value"
+    assert entry.authored_mapping["inputs"]["payload"]["type"] == "value"
+    assert entry.authored_mapping["outputs"]["__result__"]["kind"] == "value"
+    assert entry.authored_mapping["outputs"]["__result__"]["type"] == "value"
+    assert "entry" in result.validated_bundles
+
+
+@pytest.mark.parametrize(
+    ("descriptor", "example"),
+    (
+        ({"type": "value"}, {"answer": True}),
+        (
+            {"type": "optional", "item": {"type": "value"}},
+            {"answer": True},
+        ),
+    ),
+    ids=("direct", "nested-optional"),
+)
+def test_value_contract_loader_rejects_field_guidance_examples_before_schema_validation(
+    tmp_path: Path,
+    descriptor: dict,
+    example: object,
+) -> None:
+    workflow = {
+        "version": "2.19",
+        "name": "value-guidance-example-loader",
+        "steps": [
+            {
+                "name": "Produce",
+                "command": ["echo", "ok"],
+                "output_bundle": {
+                    "path": "state/value.json",
+                    "fields": [
+                        {
+                            "name": "__result__",
+                            "json_pointer": "",
+                            **descriptor,
+                            "example": example,
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        WorkflowLoader(tmp_path).load_mapping(workflow)
+
+    messages = tuple(error.message for error in excinfo.value.errors)
+    assert any(
+        "value_guidance_example_unsupported" in message
+        for message in messages
+    )
+    assert not any(
+        "is invalid for the field schema" in message
+        for message in messages
+    )
+
+
+@pytest.mark.parametrize(
+    ("forbidden_key", "forbidden_value"),
+    (
+        ("allowed", ["only"]),
+        ("under", "state"),
+        ("must_exist_target", True),
+        ("item", {"type": "string"}),
+        ("items", {"type": "string"}),
+        ("keys", {"type": "string"}),
+        ("values", {"type": "string"}),
+    ),
+)
+def test_value_contract_loader_rejects_every_narrower_schema_key(
+    tmp_path: Path,
+    forbidden_key: str,
+    forbidden_value: object,
+) -> None:
+    workflow = {
+        "version": "2.19",
+        "name": "value-forbidden-schema-key",
+        "steps": [
+            {
+                "name": "Produce",
+                "command": ["echo", "ok"],
+                "output_bundle": {
+                    "path": "state/value.json",
+                    "fields": [
+                        {
+                            "name": "__result__",
+                            "json_pointer": "",
+                            "type": "value",
+                            forbidden_key: forbidden_value,
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        WorkflowLoader(tmp_path).load_mapping(workflow)
+
+    assert any(
+        f"type 'value' forbids '{forbidden_key}'" in error.message
+        for error in excinfo.value.errors
+    )
