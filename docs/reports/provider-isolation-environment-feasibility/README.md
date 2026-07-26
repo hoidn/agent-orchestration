@@ -27,9 +27,10 @@ fresh sealed identity because the packaged shim changes, and pass without a
 privileged launcher. Nothing in that follow-on reclassifies, mutates, or
 deletes the v4 evidence recorded below.
 
-The follow-on evidence owner is
-`docs/reports/provider-isolation-rootless-launch-feasibility/README.md`; it is
-created only after a fresh `I0G` attempt exists.
+The
+[follow-on report](../provider-isolation-rootless-launch-feasibility/README.md)
+records `I0G_PASSED` for its fresh exact identity. It does not alter this
+historical v4 `I0E` decision or establish `I0` or `G0`.
 
 ## Accepted identity
 

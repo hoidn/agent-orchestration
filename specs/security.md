@@ -64,6 +64,14 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
     malformed proc value, or enabled group mutation fails closed.
     `sudo`, `pkexec`, privileged `setpriv`, set-id group clearing, and
     capability-bearing launch brokers are not valid v1 launch mechanisms.
+  - A Bubblewrap child-PID/status record is not a final-boundary readiness
+    proof. The inner shim must signal readiness exactly once on a setup-only
+    descriptor after its validation and before credential fd 3 is read. The
+    controller must withhold every credential byte until that signal and a
+    pidfd/start-identity-bound host observation both pass, then recheck child
+    identity immediately before release. Missing, early, duplicate, malformed,
+    stale, or changed evidence fails closed, and the readiness descriptor must
+    not survive credential ingestion or provider exec.
   - Direct credentials are names, not values, in policy. Effective values are
     the intersection of the policy allowlist and each provider step's declared
     `secrets`; unrelated ambient environment and reserved runtime, loader,

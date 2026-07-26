@@ -613,21 +613,21 @@ descriptors 0/1/2 and sends the declared credential map on fixed descriptor 3
 using the closed `provider_launch_credentials.v1` binary frame: magic/version,
 at most 32 unique predeclared UTF-8 names of at most 128 bytes, values of at
 most 65,536 bytes each, and at most 262,144 total frame bytes. This frame is
-never persisted or hashed. The trusted shim joins a fresh empty session
-keyring, validates the rootless namespace/group boundary described in Section
-5, reads and validates the frame, sets the final environment, zeroes its input
-buffer, closes fd 3, loads the reviewed seccomp denial for `keyctl`, `add_key`,
-and `request_key`, and execs the provider. On entry, before reading
-credentials, the shim closes every
-descriptor numbered 4 or above with a verified `close_range`/fdwalk
-implementation. It must do this itself: v1's `/proc/self/fd/<N>` Bubblewrap
-bind sources can remain inherited through Bubblewrap 0.9.0, so neither
-Bubblewrap nor `CLOEXEC` is the closure authority. After reading and zeroing
-the frame, the shim closes fd 3, completes environment/seccomp/bootstrap setup,
-then performs a second verified `close_range(3, UINT_MAX)`/fdwalk immediately
-before `execve`. That second sweep removes descriptors opened during parsing,
-imports, or seccomp setup. The final provider therefore has exactly 0/1/2; no
-bootstrap or setup descriptor survives exec.
+never persisted or hashed. On entry, the trusted shim closes every descriptor
+numbered 4 or above except the one fixed boundary-readiness descriptor, using
+a verified `close_range`/fdwalk implementation. It must do this itself: v1's
+`/proc/self/fd/<N>` Bubblewrap bind sources can remain inherited through
+Bubblewrap 0.9.0, so neither Bubblewrap nor `CLOEXEC` is the closure authority.
+The shim then joins a fresh empty session keyring, validates the rootless
+namespace/group boundary described in Section 5, writes and closes the one
+readiness byte, and performs a verified closure sweep for every descriptor
+numbered 4 or above before reading credentials. It reads and validates fd 3,
+sets the final environment, zeroes its input buffer, closes fd 3, and loads the
+reviewed seccomp denial for `keyctl`, `add_key`, and `request_key`. Immediately
+before `execve`, it performs a second verified
+`close_range(3, UINT_MAX)`/fdwalk. That second sweep removes descriptors opened
+during parsing, imports, or seccomp setup. The final provider therefore has
+exactly 0/1/2; no bootstrap, readiness, or setup descriptor survives exec.
 
 Environment admission discovers script interpreters and ELF loaders/libraries
 only by non-executing file-format parsing. ELF resolution parses
@@ -1265,6 +1265,23 @@ clones. The overflow GID is read rather than hard-coded. A kernel without the
 `/proc/<pid>/setgroups` control, or a host policy that forbids unprivileged
 user namespaces, makes `bubblewrap.v1` unavailable.
 
+The release protocol closes the setup-arrival race explicitly. Bubblewrap's
+host-visible child-PID/status record identifies the child but is not proof that
+the final shim has reached its namespace boundary. The shim therefore receives
+one fixed setup-only readiness descriptor. After its inner validation succeeds
+and before it reads credential fd 3, it writes exactly one fixed readiness byte
+and closes that descriptor. The controller withholds every credential byte
+until it has both that readiness byte and Bubblewrap's child PID, has opened a
+pidfd plus a no-follow proc directory for the child, and has completed the
+host-relative map, `setgroups`, status-group, and process-start-identity checks.
+It rereads process start identity and pidfd liveness immediately before
+releasing fd 3. Missing, duplicate, malformed, early-EOF, stale-PID, or changed
+identity evidence fails closed and releases no credentials. The readiness
+descriptor is closed before credential ingestion and is absent from the final
+provider descriptor set. Bubblewrap `--info-fd`, `--json-status-fd`,
+`--block-fd`, and outer-exec handshakes cannot substitute for the shim
+readiness byte because none alone proves this final boundary.
+
 Before `launch_intent`, the backend creates and pins the selected
 crash-durable containment slot and proves it empty. The trusted shim/setup
 process enters that slot behind the closed bootstrap release gate. After
@@ -1282,8 +1299,10 @@ trusted setup/shim chain. Every such descriptor is setup-only, `CLOEXEC` at the
 appropriate boundary, and closed before the provider executable starts.
 Because passing a descriptor through `subprocess` and referencing
 `/proc/self/fd/<N>` can clear or outlive `CLOEXEC`, the controller does not
-credit that flag or Bubblewrap with final closure: the packaged shim performs
-the explicit close-all-above-3 step, then closes credential fd 3. Final
+credit that flag or Bubblewrap with final closure: the packaged shim preserves
+only its fixed readiness descriptor during the initial close-all-above-3 step,
+signals and closes it after inner validation, verifies every remaining fd
+above 3 closed before credential ingestion, then closes credential fd 3. Final
 prompt input is argv or fd 0 and output is fd 1/2; the provider descriptor
 allowlist is exactly `{0,1,2}`. V1 does not grant a mount-source,
 backend executable, result-directory, credential-bootstrap, seccomp, or other

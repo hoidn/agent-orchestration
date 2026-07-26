@@ -20,6 +20,10 @@ MAX_CREDENTIAL_NAMES = 32
 MAX_CREDENTIAL_NAME_BYTES = 128
 MAX_CREDENTIAL_VALUE_BYTES = 65_536
 MAX_CREDENTIAL_FRAME_BYTES = 262_144
+MAX_SUPPLEMENTARY_GROUPS = 65_536
+MAX_GROUP_BOUNDARY_OBSERVATION_BYTES = 65_536
+BOUNDARY_READY_FD = 7
+BOUNDARY_READY_BYTE = b"R"
 
 _FRAME_HEADER = struct.Struct(">8sHHI")
 _ROW_HEADER = struct.Struct(">HI")
@@ -61,7 +65,10 @@ _RESERVED_PREFIXES = (
 
 _SYS_CLOSE_RANGE = 436
 _SYS_KEYCTL = 250
+_SYS_PIDFD_OPEN = 434
+_SYS_UNSHARE = 272
 _KEYCTL_JOIN_SESSION_KEYRING = 1
+_CLONE_NEWUSER = 0x10000000
 _UINT_MAX = (1 << 32) - 1
 
 _PR_SET_NO_NEW_PRIVS = 38
@@ -269,14 +276,14 @@ def _zero(value: bytearray) -> None:
     value[:] = b"\x00" * len(value)
 
 
-def _close_fds_from(start: int) -> None:
-    """Close every descriptor from ``start`` without relying on CLOEXEC/bwrap."""
-
+def _close_fd_range(start: int, end: int) -> None:
+    if start > end:
+        return
     libc = ctypes.CDLL(None, use_errno=True)
     result = libc.syscall(
         ctypes.c_long(_SYS_CLOSE_RANGE),
         ctypes.c_uint(start),
-        ctypes.c_uint(_UINT_MAX),
+        ctypes.c_uint(end),
         ctypes.c_uint(0),
     )
     if result == 0:
@@ -299,7 +306,7 @@ def _close_fds_from(start: int) -> None:
             fd = int(name)
         except ValueError:
             continue
-        if fd < start:
+        if fd < start or fd > end:
             continue
         observed.add(fd)
     for fd in sorted(observed):
@@ -321,7 +328,7 @@ def _close_fds_from(start: int) -> None:
             fd = int(name)
         except ValueError:
             continue
-        if fd < start:
+        if fd < start or fd > end:
             continue
         try:
             os.fstat(fd)
@@ -330,6 +337,396 @@ def _close_fds_from(start: int) -> None:
                 continue
             raise
         raise OSError(errno.EBUSY, "fd closure verification found an open descriptor")
+
+
+def _close_fds_from(start: int) -> None:
+    """Close every descriptor from ``start`` without relying on CLOEXEC/bwrap."""
+
+    _close_fd_range(start, _UINT_MAX)
+
+
+def _close_fds_from_except(start: int, keep_fd: int) -> None:
+    if keep_fd < start or keep_fd > _UINT_MAX:
+        raise OSError(errno.EINVAL, "preserved descriptor is outside closure range")
+    _close_fd_range(start, keep_fd - 1)
+    _close_fd_range(keep_fd + 1, _UINT_MAX)
+    os.fstat(keep_fd)
+
+
+def _signal_boundary_ready(fd: int) -> None:
+    if fd != BOUNDARY_READY_FD:
+        raise OSError(errno.EINVAL, "boundary readiness descriptor is invalid")
+    try:
+        written = os.write(fd, BOUNDARY_READY_BYTE)
+        if written != len(BOUNDARY_READY_BYTE):
+            raise OSError(errno.EIO, "boundary readiness signal was truncated")
+    finally:
+        os.close(fd)
+    try:
+        os.fstat(fd)
+    except OSError as exc:
+        if exc.errno == errno.EBADF:
+            return
+        raise
+    raise OSError(errno.EBUSY, "boundary readiness descriptor remained open")
+
+
+def _wait_for_boundary_ready(
+    fd: int,
+    *,
+    selector_factory,
+    monotonic,
+    timeout_seconds: float = 10.0,
+) -> None:
+    if (
+        isinstance(timeout_seconds, bool)
+        or not isinstance(timeout_seconds, (int, float))
+        or not 0 <= timeout_seconds <= 60
+    ):
+        raise OSError(errno.EINVAL, "provider boundary timeout is invalid")
+    deadline = monotonic() + timeout_seconds
+    selector = selector_factory()
+    try:
+        selector.register(fd, 1)
+
+        remaining = deadline - monotonic()
+        if remaining < 0 or not selector.select(remaining):
+            raise OSError(
+                errno.ETIMEDOUT,
+                "provider boundary readiness timed out",
+            )
+        if os.read(fd, len(BOUNDARY_READY_BYTE) + 1) != BOUNDARY_READY_BYTE:
+            raise OSError(
+                errno.EPROTO,
+                "provider boundary readiness signal is invalid",
+            )
+        remaining = deadline - monotonic()
+        if remaining < 0 or not selector.select(remaining):
+            raise OSError(
+                errno.ETIMEDOUT,
+                "provider boundary readiness descriptor remained open",
+            )
+        if os.read(fd, 1) != b"":
+            raise OSError(
+                errno.EPROTO,
+                "provider boundary readiness signal is duplicated",
+            )
+    finally:
+        selector.close()
+
+
+def _wait_for_bwrap_child_pid(
+    fd: int,
+    *,
+    selector_factory,
+    json_loads,
+    monotonic,
+    timeout_seconds: float = 10.0,
+) -> int:
+    if (
+        isinstance(timeout_seconds, bool)
+        or not isinstance(timeout_seconds, (int, float))
+        or not 0 <= timeout_seconds <= 60
+    ):
+        raise OSError(errno.EINVAL, "Bubblewrap child status timeout is invalid")
+    deadline = monotonic() + timeout_seconds
+    object_marker = object()
+    buffered = bytearray()
+    observed_bytes = 0
+    selector = selector_factory()
+    try:
+        selector.register(fd, 1)
+        while True:
+            while b"\n" in buffered:
+                raw_line, separator, remainder = buffered.partition(b"\n")
+                assert separator
+                buffered[:] = remainder
+                if not raw_line.strip():
+                    continue
+                try:
+                    parsed = json_loads(
+                        raw_line,
+                        object_pairs_hook=lambda pairs: (object_marker, pairs),
+                    )
+                except (TypeError, UnicodeDecodeError, ValueError) as exc:
+                    raise OSError(
+                        errno.EPROTO,
+                        "Bubblewrap child status is malformed",
+                    ) from exc
+                if (
+                    not isinstance(parsed, tuple)
+                    or len(parsed) != 2
+                    or parsed[0] is not object_marker
+                ):
+                    raise OSError(
+                        errno.EPROTO,
+                        "Bubblewrap child status is not an object",
+                    )
+                child_pids = [
+                    value
+                    for name, value in parsed[1]
+                    if name == "child-pid"
+                ]
+                if not child_pids:
+                    continue
+                if len(child_pids) != 1:
+                    raise OSError(
+                        errno.EPROTO,
+                        "Bubblewrap child status PID is duplicated",
+                    )
+                child_pid = child_pids[0]
+                if (
+                    isinstance(child_pid, bool)
+                    or not isinstance(child_pid, int)
+                    or child_pid <= 0
+                    or child_pid > _UINT_MAX
+                ):
+                    raise OSError(
+                        errno.EPROTO,
+                        "Bubblewrap child status PID is invalid",
+                    )
+                return child_pid
+
+            remaining = deadline - monotonic()
+            if remaining < 0 or not selector.select(remaining):
+                raise OSError(
+                    errno.ETIMEDOUT,
+                    "Bubblewrap child status timed out",
+                )
+            chunk = os.read(fd, 4096)
+            if not chunk:
+                raise OSError(
+                    errno.EPROTO,
+                    "Bubblewrap child status omitted the PID",
+                )
+            observed_bytes += len(chunk)
+            if observed_bytes > 65_536:
+                raise OSError(
+                    errno.EOVERFLOW,
+                    "Bubblewrap child status is oversized",
+                )
+            buffered.extend(chunk)
+    finally:
+        _zero(buffered)
+        selector.close()
+
+
+def _read_pinned_child_ascii(
+    proc_dir_fd: int,
+    name: str,
+    max_bytes: int,
+) -> str:
+    if name not in {"stat", "uid_map", "gid_map", "setgroups", "status"}:
+        raise RuntimeError("pinned child observation name is not fixed")
+    if (
+        isinstance(max_bytes, bool)
+        or not isinstance(max_bytes, int)
+        or max_bytes <= 0
+        or max_bytes > MAX_GROUP_BOUNDARY_OBSERVATION_BYTES
+    ):
+        raise RuntimeError("pinned child observation bound is invalid")
+    fd = os.open(
+        name,
+        os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0),
+        dir_fd=proc_dir_fd,
+    )
+    try:
+        value = bytearray()
+        while len(value) <= max_bytes:
+            block = os.read(fd, min(4096, max_bytes + 1 - len(value)))
+            if not block:
+                break
+            value.extend(block)
+        if len(value) > max_bytes:
+            raise RuntimeError("pinned child observation is oversized")
+        try:
+            return bytes(value).decode("ascii", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise RuntimeError(
+                "pinned child observation is not strict ASCII"
+            ) from exc
+    finally:
+        _zero(value)
+        os.close(fd)
+
+
+def _parse_proc_starttime(value: str, *, expected_pid: int) -> int:
+    lines = value.splitlines()
+    if len(lines) != 1:
+        raise RuntimeError("pinned child stat record is malformed")
+    line = lines[0]
+    pid_text, separator, remainder = line.partition(" ")
+    closing = remainder.rfind(")")
+    if (
+        not separator
+        or not pid_text.isascii()
+        or not pid_text.isdecimal()
+        or int(pid_text, 10) != expected_pid
+        or not remainder.startswith("(")
+        or closing <= 0
+        or closing + 1 >= len(remainder)
+        or remainder[closing + 1] != " "
+    ):
+        raise RuntimeError("pinned child stat identity is malformed")
+    fields = remainder[closing + 2 :].split()
+    if (
+        len(fields) < 20
+        or len(fields[0]) != 1
+        or not fields[19].isascii()
+        or not fields[19].isdecimal()
+    ):
+        raise RuntimeError("pinned child stat start identity is malformed")
+    return int(fields[19], 10)
+
+
+def _assert_pidfd_live(pidfd: int, *, selector_factory) -> None:
+    selector = selector_factory()
+    try:
+        selector.register(pidfd, 1)
+        if selector.select(0):
+            raise RuntimeError("pinned child is no longer live")
+    finally:
+        selector.close()
+
+
+def _open_pidfd(pid: int) -> int:
+    pidfd_open = getattr(os, "pidfd_open", None)
+    if pidfd_open is not None:
+        return pidfd_open(pid, 0)
+    if os.uname().machine != "x86_64":
+        raise OSError(errno.ENOTSUP, "pidfd_open is unavailable")
+    libc = ctypes.CDLL(None, use_errno=True)
+    result = libc.syscall(
+        ctypes.c_long(_SYS_PIDFD_OPEN),
+        ctypes.c_int(pid),
+        ctypes.c_uint(0),
+    )
+    if result < 0:
+        error = ctypes.get_errno()
+        raise OSError(error, "pidfd_open failed")
+    return int(result)
+
+
+def _pin_rootless_child(
+    child_pid: int,
+    *,
+    selector_factory,
+) -> tuple[int, int, int]:
+    if (
+        isinstance(child_pid, bool)
+        or not isinstance(child_pid, int)
+        or child_pid <= 0
+        or child_pid > _UINT_MAX
+    ):
+        raise RuntimeError("pinned child PID is invalid")
+    pidfd = -1
+    proc_root_fd = -1
+    proc_dir_fd = -1
+    try:
+        pidfd = _open_pidfd(child_pid)
+        proc_root_fd = os.open(
+            "/proc",
+            os.O_RDONLY
+            | os.O_DIRECTORY
+            | os.O_CLOEXEC
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        proc_dir_fd = os.open(
+            str(child_pid),
+            os.O_RDONLY
+            | os.O_DIRECTORY
+            | os.O_CLOEXEC
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=proc_root_fd,
+        )
+        starttime = _parse_proc_starttime(
+            _read_pinned_child_ascii(proc_dir_fd, "stat", 4096),
+            expected_pid=child_pid,
+        )
+        _assert_pidfd_live(pidfd, selector_factory=selector_factory)
+        return pidfd, proc_dir_fd, starttime
+    except BaseException:
+        for fd in (proc_dir_fd, pidfd):
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+        raise
+    finally:
+        if proc_root_fd >= 0:
+            os.close(proc_root_fd)
+
+
+def _validate_pinned_rootless_child_boundary(
+    *,
+    child_pid: int,
+    pidfd: int,
+    proc_dir_fd: int,
+    starttime: int,
+    controller_euid: int,
+    controller_egid: int,
+    controller_groups: tuple[int, ...],
+    expected_primary_count: int,
+    expected_overflow_count: int,
+    selector_factory,
+) -> dict[str, object]:
+    if (
+        expected_primary_count
+        != controller_groups.count(controller_egid)
+        or expected_overflow_count
+        != len(controller_groups) - expected_primary_count
+    ):
+        raise RuntimeError("pinned child group-count binding is inconsistent")
+
+    _assert_pidfd_live(pidfd, selector_factory=selector_factory)
+    observed_starttime = _parse_proc_starttime(
+        _read_pinned_child_ascii(proc_dir_fd, "stat", 4096),
+        expected_pid=child_pid,
+    )
+    if observed_starttime != starttime:
+        raise RuntimeError("pinned child start identity changed")
+
+    uid_map = _parse_single_id_map(
+        _read_pinned_child_ascii(proc_dir_fd, "uid_map", 4096)
+    )
+    gid_map = _parse_single_id_map(
+        _read_pinned_child_ascii(proc_dir_fd, "gid_map", 4096)
+    )
+    if uid_map != (0, controller_euid, 1):
+        raise RuntimeError("pinned child UID map does not match the controller")
+    if gid_map != (0, controller_egid, 1):
+        raise RuntimeError("pinned child GID map does not match the controller")
+    if _read_pinned_child_ascii(proc_dir_fd, "setgroups", 32) != "deny\n":
+        raise RuntimeError("pinned child setgroups state is not denied")
+
+    uid_row, gid_row, status_groups = _parse_status_rows(
+        _read_pinned_child_ascii(proc_dir_fd, "status", 65_536)
+    )
+    if uid_row != (controller_euid,) * 4:
+        raise RuntimeError("pinned child UID status does not match the controller")
+    if gid_row != (controller_egid,) * 4:
+        raise RuntimeError("pinned child GID status does not match the controller")
+    if tuple(sorted(status_groups)) != tuple(sorted(controller_groups)):
+        raise RuntimeError("pinned child supplementary groups changed")
+
+    final_starttime = _parse_proc_starttime(
+        _read_pinned_child_ascii(proc_dir_fd, "stat", 4096),
+        expected_pid=child_pid,
+    )
+    if final_starttime != starttime:
+        raise RuntimeError("pinned child start identity changed")
+    _assert_pidfd_live(pidfd, selector_factory=selector_factory)
+    return {
+        "child_pid": child_pid,
+        "starttime": starttime,
+        "uid_map": uid_map,
+        "gid_map": gid_map,
+        "setgroups": "deny",
+        "controller_group_count": len(controller_groups),
+        "expected_primary_count": expected_primary_count,
+        "expected_overflow_count": expected_overflow_count,
+    }
 
 
 def _join_fresh_session_keyring() -> None:
@@ -344,14 +741,173 @@ def _join_fresh_session_keyring() -> None:
         raise OSError(error, "fresh session keyring unavailable")
 
 
-def _drop_supplementary_groups() -> None:
+def _validate_nested_userns_disabled() -> None:
+    if os.uname().machine != "x86_64":
+        raise OSError(
+            errno.ENOTSUP,
+            "nested user-namespace validation is x86_64-only",
+        )
+    libc = ctypes.CDLL(None, use_errno=True)
+    result = libc.syscall(
+        ctypes.c_long(_SYS_UNSHARE),
+        ctypes.c_ulong(_CLONE_NEWUSER),
+    )
+    error = ctypes.get_errno()
+    if result == -1 and error in {errno.EPERM, errno.ENOSPC}:
+        return
+    if result == 0:
+        raise OSError(
+            errno.EBUSY,
+            "nested user namespaces remain enabled",
+        )
+    raise OSError(
+        error or errno.EIO,
+        "nested user-namespace denial is unavailable",
+    )
+
+
+def _read_fixed_ascii(path: str, max_bytes: int) -> str:
+    if path not in {
+        "/proc/self/uid_map",
+        "/proc/self/gid_map",
+        "/proc/self/setgroups",
+        "/proc/self/status",
+        "/proc/sys/kernel/overflowgid",
+    }:
+        raise RuntimeError("group-boundary observation path is not fixed")
+    if (
+        isinstance(max_bytes, bool)
+        or not isinstance(max_bytes, int)
+        or max_bytes <= 0
+        or max_bytes > MAX_GROUP_BOUNDARY_OBSERVATION_BYTES
+    ):
+        raise RuntimeError("group-boundary observation bound is invalid")
+    fd = os.open(
+        path,
+        os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0),
+    )
     try:
-        os.setgroups([])
-    except PermissionError:
-        if os.getgroups():
-            raise
-    if os.getgroups():
-        raise RuntimeError("supplementary groups remain after drop")
+        value = bytearray()
+        while len(value) <= max_bytes:
+            block = os.read(fd, min(4096, max_bytes + 1 - len(value)))
+            if not block:
+                break
+            value.extend(block)
+        if len(value) > max_bytes:
+            raise RuntimeError("group-boundary observation is oversized")
+        try:
+            return bytes(value).decode("ascii", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise RuntimeError(
+                "group-boundary observation is not strict ASCII"
+            ) from exc
+    finally:
+        _zero(value)
+        os.close(fd)
+
+
+def _parse_single_id_map(value: str) -> tuple[int, int, int]:
+    if (
+        not value.endswith("\n")
+        or value.count("\n") != 1
+        or "\r" in value
+        or "\v" in value
+        or "\f" in value
+    ):
+        raise RuntimeError("group-boundary ID map must contain one row")
+    fields = value[:-1].split()
+    if len(fields) != 3 or any(not field.isdecimal() for field in fields):
+        raise RuntimeError("group-boundary ID map row is malformed")
+    row = tuple(int(field, 10) for field in fields)
+    if row[0] != 0 or row[2] != 1 or any(
+        field < 0 or field > _UINT_MAX for field in row
+    ):
+        raise RuntimeError("group-boundary ID map row is not normalized")
+    return row
+
+
+def _parse_status_rows(
+    value: str,
+) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
+    if "\r" in value or "\v" in value or "\f" in value:
+        raise RuntimeError("group-boundary status contains invalid whitespace")
+    rows: dict[str, tuple[int, ...]] = {}
+    for line in value.splitlines():
+        name, separator, payload = line.partition(":")
+        if not separator or name not in {"Uid", "Gid", "Groups"}:
+            continue
+        if name in rows:
+            raise RuntimeError("group-boundary status row is duplicated")
+        fields = payload.split()
+        if any(not field.isdecimal() for field in fields):
+            raise RuntimeError("group-boundary status row is malformed")
+        rows[name] = tuple(int(field, 10) for field in fields)
+    if set(rows) != {"Uid", "Gid", "Groups"}:
+        raise RuntimeError("group-boundary status row is missing")
+    if len(rows["Uid"]) != 4 or len(rows["Gid"]) != 4:
+        raise RuntimeError("group-boundary identity row is malformed")
+    return rows["Uid"], rows["Gid"], rows["Groups"]
+
+
+def _validate_rootless_group_boundary(
+    *,
+    expected_primary_count: int,
+    expected_overflow_count: int,
+) -> None:
+    for count in (expected_primary_count, expected_overflow_count):
+        if (
+            isinstance(count, bool)
+            or not isinstance(count, int)
+            or count < 0
+            or count > MAX_SUPPLEMENTARY_GROUPS
+        ):
+            raise RuntimeError("group-boundary expected count is invalid")
+    if expected_primary_count + expected_overflow_count > MAX_SUPPLEMENTARY_GROUPS:
+        raise RuntimeError("group-boundary expected count is invalid")
+
+    if (
+        os.getuid(),
+        os.geteuid(),
+        os.getgid(),
+        os.getegid(),
+    ) != (0, 0, 0, 0):
+        raise RuntimeError("group-boundary process identity is not normalized")
+
+    _parse_single_id_map(_read_fixed_ascii("/proc/self/uid_map", 4096))
+    _parse_single_id_map(_read_fixed_ascii("/proc/self/gid_map", 4096))
+    if _read_fixed_ascii("/proc/self/setgroups", 32) != "deny\n":
+        raise RuntimeError("group-boundary setgroups state is not denied")
+
+    overflow_text = _read_fixed_ascii(
+        "/proc/sys/kernel/overflowgid",
+        32,
+    )
+    if (
+        not overflow_text.endswith("\n")
+        or overflow_text.count("\n") != 1
+        or not overflow_text[:-1].isascii()
+        or not overflow_text[:-1].isdecimal()
+    ):
+        raise RuntimeError("group-boundary overflow GID is malformed")
+    overflow_gid = int(overflow_text[:-1], 10)
+    if overflow_gid <= 0 or overflow_gid > _UINT_MAX:
+        raise RuntimeError("group-boundary overflow GID is ambiguous")
+
+    uid_row, gid_row, status_groups = _parse_status_rows(
+        _read_fixed_ascii("/proc/self/status", 65_536)
+    )
+    if uid_row != (0, 0, 0, 0) or gid_row != (0, 0, 0, 0):
+        raise RuntimeError("group-boundary status identity is not normalized")
+    observed_groups = tuple(os.getgroups())
+    if status_groups != observed_groups:
+        raise RuntimeError("group-boundary group observations disagree")
+    if any(group not in (0, overflow_gid) for group in observed_groups):
+        raise RuntimeError("group-boundary group is not primary or overflow")
+    if (
+        observed_groups.count(0) != expected_primary_count
+        or observed_groups.count(overflow_gid) != expected_overflow_count
+    ):
+        raise RuntimeError("group-boundary expected counts do not match")
 
 
 def _install_key_syscall_filter() -> None:
@@ -430,9 +986,24 @@ def _fixed_environment(
     return environment
 
 
-def _parse_shim_argv(argv: list[str]) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+def _parse_count_argument(value: str) -> int:
+    if not value or not value.isascii() or not value.isdecimal():
+        raise CredentialFrameError("provider launch shim arguments are invalid")
+    count = int(value, 10)
+    if count > MAX_SUPPLEMENTARY_GROUPS:
+        raise CredentialFrameError("provider launch shim arguments are invalid")
+    return count
+
+
+def _parse_shim_argv(
+    argv: list[str],
+) -> tuple[str, tuple[str, ...], int, int, int, tuple[str, ...]]:
     provider_prefix = ""
     declared: list[str] = []
+    primary_count: int | None = None
+    overflow_count: int | None = None
+    boundary_ready_fd: int | None = None
+    provider_prefix_seen = False
     index = 0
     while index < len(argv):
         argument = argv[index]
@@ -440,11 +1011,45 @@ def _parse_shim_argv(argv: list[str]) -> tuple[str, tuple[str, ...], tuple[str, 
             target = tuple(argv[index + 1 :])
             break
         if argument == "--provider-prefix" and index + 1 < len(argv):
+            if provider_prefix_seen:
+                raise CredentialFrameError(
+                    "provider launch shim arguments are invalid"
+                )
+            provider_prefix_seen = True
             provider_prefix = argv[index + 1]
             index += 2
             continue
         if argument == "--credential-name" and index + 1 < len(argv):
             declared.append(argv[index + 1])
+            index += 2
+            continue
+        if (
+            argument == "--expected-primary-group-count"
+            and index + 1 < len(argv)
+            and primary_count is None
+        ):
+            primary_count = _parse_count_argument(argv[index + 1])
+            index += 2
+            continue
+        if (
+            argument == "--expected-overflow-group-count"
+            and index + 1 < len(argv)
+            and overflow_count is None
+        ):
+            overflow_count = _parse_count_argument(argv[index + 1])
+            index += 2
+            continue
+        if (
+            argument == "--boundary-ready-fd"
+            and index + 1 < len(argv)
+            and boundary_ready_fd is None
+        ):
+            value = argv[index + 1]
+            if not value.isdecimal() or int(value, 10) != BOUNDARY_READY_FD:
+                raise CredentialFrameError(
+                    "provider launch shim arguments are invalid"
+                )
+            boundary_ready_fd = BOUNDARY_READY_FD
             index += 2
             continue
         raise CredentialFrameError("provider launch shim arguments are invalid")
@@ -455,21 +1060,43 @@ def _parse_shim_argv(argv: list[str]) -> tuple[str, tuple[str, ...], tuple[str, 
         or provider_prefix == "/"
         or not target
         or not target[0].startswith("/")
+        or primary_count is None
+        or overflow_count is None
+        or primary_count + overflow_count > MAX_SUPPLEMENTARY_GROUPS
+        or boundary_ready_fd != BOUNDARY_READY_FD
     ):
         raise CredentialFrameError("provider launch shim arguments are invalid")
-    return provider_prefix, _validate_declared_names(tuple(declared)), target
+    return (
+        provider_prefix,
+        _validate_declared_names(tuple(declared)),
+        primary_count,
+        overflow_count,
+        boundary_ready_fd,
+        target,
+    )
 
 
 def shim_main(argv: list[str] | None = None) -> int:
     """Run the fixed-fd bootstrap and replace the process with the provider."""
 
     try:
-        provider_prefix, declared_names, target = _parse_shim_argv(
-            list(sys.argv[1:] if argv is None else argv)
-        )
-        _close_fds_from(4)
+        _close_fds_from_except(4, BOUNDARY_READY_FD)
+        (
+            provider_prefix,
+            declared_names,
+            expected_primary_count,
+            expected_overflow_count,
+            boundary_ready_fd,
+            target,
+        ) = _parse_shim_argv(list(sys.argv[1:] if argv is None else argv))
         _join_fresh_session_keyring()
-        _drop_supplementary_groups()
+        _validate_rootless_group_boundary(
+            expected_primary_count=expected_primary_count,
+            expected_overflow_count=expected_overflow_count,
+        )
+        _validate_nested_userns_disabled()
+        _signal_boundary_ready(boundary_ready_fd)
+        _close_fds_from(4)
         credentials = read_credentials_from_fd(3, declared_names=declared_names)
         environment = _fixed_environment(
             credentials,
@@ -499,16 +1126,41 @@ def launch_provider_via_shim(
     bootstrap_environment: dict[str, str] | None = None,
     extra_setup_fds: int = 0,
     artifact_paths: tuple[object, ...] = (),
+    _test_only_broad_host_root: bool = False,
+    _host_boundary_observer=None,
 ):
-    """Controller-side test/raw-probe helper using only the fd-3 secret pipe."""
+    """Test-only rootless wrapper; not an accepted isolation mount plan."""
 
+    import json
+    import selectors
     import subprocess
+    import time
 
+    if _test_only_broad_host_root is not True:
+        raise CredentialFrameError(
+            "broad host-root projection is test-only"
+        )
     if bootstrap_environment is not None and bootstrap_environment != {}:
         raise CredentialFrameError(
             "provider bootstrap environment must be empty"
         )
-    command = [
+    controller_groups = tuple(os.getgroups())
+    controller_euid = os.geteuid()
+    controller_primary_gid = os.getegid()
+    if controller_euid == 0:
+        raise CredentialFrameError(
+            "rootless provider launch requires an unprivileged controller"
+        )
+    if len(controller_groups) > MAX_SUPPLEMENTARY_GROUPS:
+        raise CredentialFrameError(
+            "provider launch has too many supplementary groups"
+        )
+    primary_count = sum(
+        group == controller_primary_gid for group in controller_groups
+    )
+    overflow_count = len(controller_groups) - primary_count
+
+    shim_command = [
         os.fspath(python_executable),
         "-I",
         "-S",
@@ -517,9 +1169,42 @@ def launch_provider_via_shim(
         provider_prefix,
     ]
     for name in declared_names:
-        command.extend(["--credential-name", name])
-    command.append("--")
-    command.extend(target_argv)
+        shim_command.extend(["--credential-name", name])
+    shim_command.extend(
+        [
+            "--expected-primary-group-count",
+            str(primary_count),
+            "--expected-overflow-group-count",
+            str(overflow_count),
+            "--boundary-ready-fd",
+            str(BOUNDARY_READY_FD),
+            "--",
+        ]
+    )
+    shim_command.extend(target_argv)
+    command = [
+        "/usr/bin/bwrap",
+        "--unshare-user",
+        "--uid",
+        "0",
+        "--gid",
+        "0",
+        "--disable-userns",
+        "--assert-userns-disabled",
+        "--die-with-parent",
+        "--ro-bind",
+        "/",
+        "/",
+        "--proc",
+        "/proc",
+        "--dev",
+        "/dev",
+        "--clearenv",
+        "--json-status-fd",
+        "8",
+        "--",
+        *shim_command,
+    ]
 
     frame = bytearray(
         encode_credential_frame(
@@ -529,6 +1214,10 @@ def launch_provider_via_shim(
     )
     credential_read = -1
     credential_write = -1
+    readiness_read = -1
+    readiness_write = -1
+    status_read = -1
+    status_write = -1
     stdout_read = -1
     stdout_write = -1
     stderr_read = -1
@@ -536,13 +1225,15 @@ def launch_provider_via_shim(
     devnull = -1
     extras: list[int] = []
     extra_writes: list[int] = []
-    stdio_reservations: list[int] = []
+    fixed_fd_reservations: list[int] = []
     pid: int | None = None
+    pinned_pidfd = -1
+    pinned_proc_dir_fd = -1
     waited = False
     try:
-        for standard_fd in (0, 1, 2):
+        for fixed_fd in range(9):
             try:
-                os.fstat(standard_fd)
+                os.fstat(fixed_fd)
             except OSError as exc:
                 if exc.errno != errno.EBADF:
                     raise
@@ -550,15 +1241,17 @@ def launch_provider_via_shim(
                     os.devnull,
                     os.O_RDWR | os.O_CLOEXEC,
                 )
-                if reservation != standard_fd:
+                if reservation != fixed_fd:
                     os.close(reservation)
                     raise OSError(
                         errno.EBUSY,
-                        "standard descriptor reservation raced",
+                        "fixed descriptor reservation raced",
                     )
-                stdio_reservations.append(reservation)
+                fixed_fd_reservations.append(reservation)
 
         credential_read, credential_write = os.pipe()
+        readiness_read, readiness_write = os.pipe()
+        status_read, status_write = os.pipe()
         stdout_read, stdout_write = os.pipe()
         stderr_read, stderr_write = os.pipe()
         devnull = os.open(os.devnull, os.O_RDONLY | os.O_CLOEXEC)
@@ -574,12 +1267,16 @@ def launch_provider_via_shim(
             (os.POSIX_SPAWN_DUP2, stdout_write, 1),
             (os.POSIX_SPAWN_DUP2, stderr_write, 2),
             (os.POSIX_SPAWN_DUP2, credential_read, 3),
+            (os.POSIX_SPAWN_DUP2, readiness_write, BOUNDARY_READY_FD),
+            (os.POSIX_SPAWN_DUP2, status_write, 8),
         ]
         for fd, target_fd in (
             (devnull, 0),
             (stdout_write, 1),
             (stderr_write, 2),
             (credential_read, 3),
+            (readiness_write, BOUNDARY_READY_FD),
+            (status_write, 8),
         ):
             if fd != target_fd:
                 file_actions.append((os.POSIX_SPAWN_CLOSE, fd))
@@ -592,21 +1289,68 @@ def launch_provider_via_shim(
 
         os.close(credential_read)
         credential_read = -1
+        os.close(readiness_write)
+        readiness_write = -1
+        os.close(status_write)
+        status_write = -1
         os.close(stdout_write)
         stdout_write = -1
         os.close(stderr_write)
         stderr_write = -1
         os.close(devnull)
         devnull = -1
-        for index, fd in enumerate(stdio_reservations):
+        for index, fd in enumerate(fixed_fd_reservations):
             os.close(fd)
-            stdio_reservations[index] = -1
+            fixed_fd_reservations[index] = -1
         for index, fd in enumerate(extras):
             os.close(fd)
             extras[index] = -1
         for index, fd in enumerate(extra_writes):
             os.close(fd)
             extra_writes[index] = -1
+
+        child_pid = _wait_for_bwrap_child_pid(
+            status_read,
+            selector_factory=selectors.DefaultSelector,
+            json_loads=json.loads,
+            monotonic=time.monotonic,
+        )
+        (
+            pinned_pidfd,
+            pinned_proc_dir_fd,
+            pinned_starttime,
+        ) = _pin_rootless_child(
+            child_pid,
+            selector_factory=selectors.DefaultSelector,
+        )
+        _wait_for_boundary_ready(
+            readiness_read,
+            selector_factory=selectors.DefaultSelector,
+            monotonic=time.monotonic,
+        )
+        os.close(readiness_read)
+        readiness_read = -1
+        if _host_boundary_observer is not None:
+            _host_boundary_observer(
+                child_pid=child_pid,
+                controller_euid=controller_euid,
+                controller_egid=controller_primary_gid,
+                controller_groups=controller_groups,
+                expected_primary_count=primary_count,
+                expected_overflow_count=overflow_count,
+            )
+        _validate_pinned_rootless_child_boundary(
+            child_pid=child_pid,
+            pidfd=pinned_pidfd,
+            proc_dir_fd=pinned_proc_dir_fd,
+            starttime=pinned_starttime,
+            controller_euid=controller_euid,
+            controller_egid=controller_primary_gid,
+            controller_groups=controller_groups,
+            expected_primary_count=primary_count,
+            expected_overflow_count=overflow_count,
+            selector_factory=selectors.DefaultSelector,
+        )
 
         view = memoryview(frame)
         try:
@@ -619,8 +1363,6 @@ def launch_provider_via_shim(
             view.release()
             os.close(credential_write)
             credential_write = -1
-
-        import selectors
 
         selector = selectors.DefaultSelector()
         output = {"stdout": bytearray(), "stderr": bytearray()}
@@ -655,14 +1397,20 @@ def launch_provider_via_shim(
         for fd in [
             credential_read,
             credential_write,
+            readiness_read,
+            readiness_write,
+            status_read,
+            status_write,
             stdout_read,
             stdout_write,
             stderr_read,
             stderr_write,
             devnull,
-            *stdio_reservations,
+            *fixed_fd_reservations,
             *extras,
             *extra_writes,
+            pinned_pidfd,
+            pinned_proc_dir_fd,
         ]:
             if fd < 0:
                 continue

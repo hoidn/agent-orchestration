@@ -87,9 +87,12 @@ surface. Use the
 [governing design](../superpowers/specs/2026-07-23-provider-phase-information-isolation-design.md)
 and
 [active implementation plan](../superpowers/plans/2026-07-23-provider-phase-information-isolation.md);
-the sealed environment exists, but rootless launch, production backend,
-run/resume, attestation, and public G0 gates remain. Separate clones are
-experiment hygiene, not a substitute for the OS boundary.
+the sealed environment and exact reviewed rootless
+[`I0G` evidence](../reports/provider-isolation-rootless-launch-feasibility/README.md)
+exist, but the production backend, broker, run/resume, attestation, public
+`G0` rerun, and live smoke remain. `I0G` is evidence-only, not an available
+launcher. Separate clones are experiment hygiene, not a substitute for the OS
+boundary.
 
 The [resume projection-integrity hardening design-and-planning plan](../plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md)
 has completed its characterization, accepted-design, normative-contract, and

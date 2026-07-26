@@ -44,6 +44,43 @@ def _environment_api():
     return importlib.import_module("orchestrator.providers.isolation_environment")
 
 
+def _require_rootless_bwrap() -> None:
+    command = [
+        "/usr/bin/bwrap",
+        "--unshare-user",
+        "--uid",
+        "0",
+        "--gid",
+        "0",
+        "--disable-userns",
+        "--assert-userns-disabled",
+        "--ro-bind",
+        "/",
+        "/",
+        "--proc",
+        "/proc",
+        "--dev",
+        "/dev",
+        "--",
+        "/bin/true",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        pytest.skip(f"reviewed rootless Bubblewrap is unavailable: {exc}")
+    if result.returncode:
+        pytest.skip(
+            "reviewed rootless Bubblewrap is unavailable: "
+            f"{result.stderr.strip()}"
+        )
+
+
 def test_credential_frame_round_trip_is_closed_and_binary() -> None:
     api = _api()
     frame = api.encode_credential_frame(
@@ -424,7 +461,9 @@ def test_join_fresh_session_keyring_requests_anonymous_replacement(
     class _RecordingLibc:
         @staticmethod
         def syscall(*args) -> int:
-            calls.append(tuple(getattr(argument, "value", argument) for argument in args))
+            calls.append(
+                tuple(getattr(argument, "value", argument) for argument in args)
+            )
             return 77
 
     monkeypatch.setattr(
@@ -438,19 +477,1095 @@ def test_join_fresh_session_keyring_requests_anonymous_replacement(
     assert calls == [(250, 1, None)]
 
 
-def test_drop_supplementary_groups_fails_closed_when_groups_remain(
+@pytest.mark.parametrize("denial_errno", [errno.EPERM, errno.ENOSPC])
+def test_validate_nested_userns_disabled_requires_kernel_denial(
+    monkeypatch: pytest.MonkeyPatch,
+    denial_errno: int,
+) -> None:
+    api = _api()
+    calls: list[tuple[int | None, ...]] = []
+
+    class _DeniedLibc:
+        @staticmethod
+        def syscall(*args) -> int:
+            calls.append(
+                tuple(getattr(argument, "value", argument) for argument in args)
+            )
+            ctypes.set_errno(denial_errno)
+            return -1
+
+    monkeypatch.setattr(
+        api.ctypes,
+        "CDLL",
+        lambda *_args, **_kwargs: _DeniedLibc(),
+    )
+
+    api._validate_nested_userns_disabled()
+
+    assert calls == [(272, 0x10000000)]
+
+
+@pytest.mark.parametrize(
+    ("result", "error"),
+    [
+        (0, 0),
+        (-1, errno.EINVAL),
+        (-1, errno.ENOSYS),
+    ],
+)
+def test_validate_nested_userns_disabled_rejects_non_denial(
+    monkeypatch: pytest.MonkeyPatch,
+    result: int,
+    error: int,
+) -> None:
+    api = _api()
+
+    class _UnexpectedLibc:
+        @staticmethod
+        def syscall(*_args) -> int:
+            ctypes.set_errno(error)
+            return result
+
+    monkeypatch.setattr(
+        api.ctypes,
+        "CDLL",
+        lambda *_args, **_kwargs: _UnexpectedLibc(),
+    )
+
+    with pytest.raises(OSError):
+        api._validate_nested_userns_disabled()
+
+
+def _install_group_boundary_observations(
+    api,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    overrides: dict[str, str] | None = None,
+    groups: tuple[int, ...] = (0, 65534, 65534),
+) -> None:
+    observations = {
+        "/proc/self/uid_map": "0 1000 1\n",
+        "/proc/self/gid_map": "0 1000 1\n",
+        "/proc/self/setgroups": "deny\n",
+        "/proc/self/status": (
+            "Name:\tprovider\n"
+            "Uid:\t0\t0\t0\t0\n"
+            "Gid:\t0\t0\t0\t0\n"
+            f"Groups:\t{' '.join(str(group) for group in groups)}\n"
+        ),
+        "/proc/sys/kernel/overflowgid": "65534\n",
+    }
+    observations.update(overrides or {})
+
+    def read_fixed_ascii(path, _max_bytes: int) -> str:
+        return observations[os.fspath(path)]
+
+    monkeypatch.setattr(api, "_read_fixed_ascii", read_fixed_ascii)
+    monkeypatch.setattr(api.os, "getuid", lambda: 0)
+    monkeypatch.setattr(api.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(api.os, "getgid", lambda: 0)
+    monkeypatch.setattr(api.os, "getegid", lambda: 0)
+    monkeypatch.setattr(api.os, "getgroups", lambda: list(groups))
+
+
+def test_validate_rootless_group_boundary_accepts_normalized_observations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     api = _api()
+    _install_group_boundary_observations(api, monkeypatch)
+
+    api._validate_rootless_group_boundary(
+        expected_primary_count=1,
+        expected_overflow_count=2,
+    )
+
+
+@pytest.mark.parametrize(
+    ("row_name", "column"),
+    [("Uid", index) for index in range(4)]
+    + [("Gid", index) for index in range(4)],
+)
+def test_validate_rootless_group_boundary_rejects_each_nonzero_status_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    row_name: str,
+    column: int,
+) -> None:
+    api = _api()
+    values = ["0", "0", "0", "0"]
+    values[column] = "1"
+    status = (
+        "Uid:\t0\t0\t0\t0\n"
+        "Gid:\t0\t0\t0\t0\n"
+        "Groups:\t0 65534 65534\n"
+    ).replace(f"{row_name}:\t0\t0\t0\t0", f"{row_name}:\t" + "\t".join(values))
+    _install_group_boundary_observations(
+        api,
+        monkeypatch,
+        overrides={"/proc/self/status": status},
+    )
+
+    with pytest.raises(RuntimeError):
+        api._validate_rootless_group_boundary(
+            expected_primary_count=1,
+            expected_overflow_count=2,
+        )
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        ("/proc/self/uid_map", ""),
+        ("/proc/self/uid_map", "0 1000 1\n1 1001 1\n"),
+        ("/proc/self/gid_map", "0 1000 2\n"),
+        ("/proc/self/gid_map", "not a map\n"),
+        ("/proc/self/setgroups", ""),
+        ("/proc/self/setgroups", "allow\n"),
+        ("/proc/self/setgroups", "deny\r\n"),
+        ("/proc/self/setgroups", "deny\v"),
+        ("/proc/sys/kernel/overflowgid", "0\n"),
+        ("/proc/sys/kernel/overflowgid", f"{1 << 32}\n"),
+        ("/proc/sys/kernel/overflowgid", "not-a-gid\n"),
+        (
+            "/proc/self/status",
+            "Uid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n",
+        ),
+        (
+            "/proc/self/status",
+            "Uid:\t0\t0\t0\t0\n"
+            "Gid:\t0\t0\t0\t0\n"
+            "Groups:\t0 65534\n"
+            "Groups:\t0 65534\n",
+        ),
+    ],
+)
+def test_validate_rootless_group_boundary_rejects_malformed_observation(
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+    value: str,
+) -> None:
+    api = _api()
+    _install_group_boundary_observations(
+        api,
+        monkeypatch,
+        overrides={path: value},
+    )
+
+    with pytest.raises((RuntimeError, ValueError)):
+        api._validate_rootless_group_boundary(
+            expected_primary_count=1,
+            expected_overflow_count=2,
+        )
+
+
+@pytest.mark.parametrize(
+    ("groups", "primary_count", "overflow_count"),
+    [
+        ((0, 27, 65534), 1, 1),
+        ((0, 65534), 1, 2),
+        ((0, 65534, 65534), 0, 3),
+    ],
+)
+def test_validate_rootless_group_boundary_rejects_group_or_count_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    groups: tuple[int, ...],
+    primary_count: int,
+    overflow_count: int,
+) -> None:
+    api = _api()
+    _install_group_boundary_observations(api, monkeypatch, groups=groups)
+
+    with pytest.raises(RuntimeError):
+        api._validate_rootless_group_boundary(
+            expected_primary_count=primary_count,
+            expected_overflow_count=overflow_count,
+        )
+
+
+def test_validate_rootless_group_boundary_rejects_disagreeing_group_views(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    _install_group_boundary_observations(api, monkeypatch)
+    monkeypatch.setattr(api.os, "getgroups", lambda: [0, 65534])
+
+    with pytest.raises(RuntimeError):
+        api._validate_rootless_group_boundary(
+            expected_primary_count=1,
+            expected_overflow_count=2,
+        )
+
+
+@pytest.mark.parametrize(
+    "getter_name",
+    ["getuid", "geteuid", "getgid", "getegid"],
+)
+def test_validate_rootless_group_boundary_rejects_nonzero_process_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    getter_name: str,
+) -> None:
+    api = _api()
+    _install_group_boundary_observations(api, monkeypatch)
+    monkeypatch.setattr(api.os, getter_name, lambda: 1)
+
+    with pytest.raises(RuntimeError, match="identity"):
+        api._validate_rootless_group_boundary(
+            expected_primary_count=1,
+            expected_overflow_count=2,
+        )
+
+
+@pytest.mark.parametrize(
+    ("primary_count", "overflow_count"),
+    [
+        (-1, 0),
+        (True, 0),
+        (0, 65_537),
+        (65_536, 1),
+    ],
+)
+def test_validate_rootless_group_boundary_rejects_invalid_expected_counts(
+    monkeypatch: pytest.MonkeyPatch,
+    primary_count,
+    overflow_count,
+) -> None:
+    api = _api()
+    _install_group_boundary_observations(api, monkeypatch)
+
+    with pytest.raises(RuntimeError):
+        api._validate_rootless_group_boundary(
+            expected_primary_count=primary_count,
+            expected_overflow_count=overflow_count,
+        )
+
+
+def test_validate_rootless_group_boundary_rejects_unreadable_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    _install_group_boundary_observations(api, monkeypatch)
+    read_observation = api._read_fixed_ascii
+
+    def unreadable(path: str, _max_bytes: int) -> str:
+        if path == "/proc/self/gid_map":
+            raise OSError(errno.EACCES, "injected unreadable observation")
+        return read_observation(path, _max_bytes)
+
+    monkeypatch.setattr(api, "_read_fixed_ascii", unreadable)
+
+    with pytest.raises(OSError, match="unreadable observation"):
+        api._validate_rootless_group_boundary(
+            expected_primary_count=1,
+            expected_overflow_count=2,
+        )
+
+
+def test_fixed_group_boundary_reader_accepts_strict_ascii_and_closes_fd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"deny\n")
+    os.close(write_fd)
+    monkeypatch.setattr(api.os, "open", lambda *_args, **_kwargs: read_fd)
+
+    assert api._read_fixed_ascii("/proc/self/setgroups", 32) == "deny\n"
+    with pytest.raises(OSError) as exc_info:
+        os.fstat(read_fd)
+    assert exc_info.value.errno == errno.EBADF
+
+
+@pytest.mark.parametrize(
+    ("payload", "bound", "match"),
+    [
+        (b"\xff", 32, "strict ASCII"),
+        (b"x" * 33, 32, "oversized"),
+    ],
+)
+def test_fixed_group_boundary_reader_rejects_invalid_content_and_closes_fd(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: bytes,
+    bound: int,
+    match: str,
+) -> None:
+    api = _api()
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, payload)
+    os.close(write_fd)
+    monkeypatch.setattr(api.os, "open", lambda *_args, **_kwargs: read_fd)
+
+    with pytest.raises(RuntimeError, match=match):
+        api._read_fixed_ascii("/proc/self/status", bound)
+    with pytest.raises(OSError) as exc_info:
+        os.fstat(read_fd)
+    assert exc_info.value.errno == errno.EBADF
+
+
+@pytest.mark.parametrize("bound", [0, -1, True, 65_537])
+def test_fixed_group_boundary_reader_rejects_invalid_bound_before_open(
+    monkeypatch: pytest.MonkeyPatch,
+    bound,
+) -> None:
+    api = _api()
+    opened = False
+
+    def observe_open(*_args, **_kwargs):
+        nonlocal opened
+        opened = True
+        raise AssertionError("invalid bound must reject before open")
+
+    monkeypatch.setattr(api.os, "open", observe_open)
+
+    with pytest.raises(RuntimeError, match="bound"):
+        api._read_fixed_ascii("/proc/self/status", bound)
+    assert not opened
+
+
+def test_fixed_group_boundary_reader_rejects_caller_supplied_path() -> None:
+    with pytest.raises(RuntimeError, match="not fixed"):
+        _api()._read_fixed_ascii("/tmp/caller-supplied", 32)
+
+
+def test_boundary_readiness_signal_is_exact_and_closes_descriptor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    events: list[object] = []
+
     monkeypatch.setattr(
         api.os,
-        "setgroups",
-        lambda _groups: (_ for _ in ()).throw(PermissionError(errno.EPERM, "denied")),
+        "write",
+        lambda fd, payload: events.append(("write", fd, payload)) or len(payload),
     )
-    monkeypatch.setattr(api.os, "getgroups", lambda: [27])
+    monkeypatch.setattr(api.os, "close", lambda fd: events.append(("close", fd)))
 
-    with pytest.raises(PermissionError):
-        api._drop_supplementary_groups()
+    def closed_fstat(fd: int):
+        events.append(("fstat", fd))
+        raise OSError(errno.EBADF, "closed")
+
+    monkeypatch.setattr(api.os, "fstat", closed_fstat)
+
+    api._signal_boundary_ready(api.BOUNDARY_READY_FD)
+
+    assert events == [
+        ("write", api.BOUNDARY_READY_FD, api.BOUNDARY_READY_BYTE),
+        ("close", api.BOUNDARY_READY_FD),
+        ("fstat", api.BOUNDARY_READY_FD),
+    ]
+
+
+def test_close_fds_except_sweeps_before_rejecting_missing_preserved_fd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    closed_ranges: list[tuple[int, int]] = []
+
+    monkeypatch.setattr(
+        api,
+        "_close_fd_range",
+        lambda start, end: closed_ranges.append((start, end)),
+    )
+    monkeypatch.setattr(
+        api.os,
+        "fstat",
+        lambda _fd: (_ for _ in ()).throw(OSError(errno.EBADF, "missing")),
+    )
+
+    with pytest.raises(OSError) as exc_info:
+        api._close_fds_from_except(4, api.BOUNDARY_READY_FD)
+
+    assert exc_info.value.errno == errno.EBADF
+    assert closed_ranges == [(4, 6), (8, (1 << 32) - 1)]
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_errno"),
+    [
+        (b"", errno.EPROTO),
+        (b"RR", errno.EPROTO),
+        (b"X", errno.EPROTO),
+    ],
+)
+def test_wait_for_boundary_ready_rejects_missing_duplicate_or_malformed_signal(
+    payload: bytes,
+    expected_errno: int,
+) -> None:
+    api = _api()
+    read_fd, write_fd = os.pipe()
+    try:
+        if payload:
+            os.write(write_fd, payload)
+        os.close(write_fd)
+        write_fd = -1
+
+        with pytest.raises(OSError) as exc_info:
+            api._wait_for_boundary_ready(
+                read_fd,
+                selector_factory=selectors.DefaultSelector,
+                monotonic=lambda: 0.0,
+                timeout_seconds=0,
+            )
+
+        assert exc_info.value.errno == expected_errno
+    finally:
+        os.close(read_fd)
+        if write_fd >= 0:
+            os.close(write_fd)
+
+
+def test_wait_for_boundary_ready_rejects_surviving_write_descriptor() -> None:
+    api = _api()
+    read_fd, write_fd = os.pipe()
+    try:
+        os.write(write_fd, api.BOUNDARY_READY_BYTE)
+
+        with pytest.raises(OSError) as exc_info:
+            api._wait_for_boundary_ready(
+                read_fd,
+                selector_factory=selectors.DefaultSelector,
+                monotonic=lambda: 0.0,
+                timeout_seconds=0,
+            )
+
+        assert exc_info.value.errno == errno.ETIMEDOUT
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
+
+
+def test_wait_for_bwrap_child_pid_ignores_unknown_status_then_accepts_pid() -> None:
+    api = _api()
+    read_fd, write_fd = os.pipe()
+    try:
+        os.write(
+            write_fd,
+            b'{"future-status": true}\n'
+            b'{"child-pid": 1234, "future-member": "ignored"}\n',
+        )
+
+        assert (
+            api._wait_for_bwrap_child_pid(
+                read_fd,
+                selector_factory=selectors.DefaultSelector,
+                json_loads=json.loads,
+                monotonic=lambda: 0.0,
+                timeout_seconds=0,
+            )
+            == 1234
+        )
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        b"",
+        b"not-json\n",
+        b"[]\n",
+        b'{"child-pid": true}\n',
+        b'{"child-pid": 0}\n',
+        b'{"child-pid": "1234"}\n',
+        b'{"child-pid": 1, "child-pid": 2}\n',
+    ],
+)
+def test_wait_for_bwrap_child_pid_rejects_invalid_or_missing_status(
+    status: bytes,
+) -> None:
+    api = _api()
+    read_fd, write_fd = os.pipe()
+    try:
+        if status:
+            os.write(write_fd, status)
+        os.close(write_fd)
+        write_fd = -1
+
+        with pytest.raises(OSError) as exc_info:
+            api._wait_for_bwrap_child_pid(
+                read_fd,
+                selector_factory=selectors.DefaultSelector,
+                json_loads=json.loads,
+                monotonic=lambda: 0.0,
+                timeout_seconds=0,
+            )
+
+        assert exc_info.value.errno == errno.EPROTO
+    finally:
+        os.close(read_fd)
+        if write_fd >= 0:
+            os.close(write_fd)
+
+
+def test_wait_for_bwrap_child_pid_enforces_cumulative_byte_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    chunk = b'{"future-status":"' + (b"x" * 3975) + b'"}\n'
+    chunks = [chunk] * 17
+
+    class _AlwaysReadySelector:
+        def register(self, _fd, _events) -> None:
+            return None
+
+        def select(self, _timeout=None):
+            return [(object(), 1)]
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(api.os, "read", lambda _fd, _bound: chunks.pop(0))
+
+    with pytest.raises(OSError) as exc_info:
+        api._wait_for_bwrap_child_pid(
+            123,
+            selector_factory=_AlwaysReadySelector,
+            json_loads=json.loads,
+            monotonic=lambda: 0.0,
+            timeout_seconds=1,
+        )
+
+    assert exc_info.value.errno == errno.EOVERFLOW
+
+
+def test_wait_for_bwrap_child_pid_uses_one_absolute_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    clock_values = iter((0.0, 0.5, 1.1))
+
+    class _AlwaysReadySelector:
+        def register(self, _fd, _events) -> None:
+            return None
+
+        def select(self, _timeout=None):
+            return [(object(), 1)]
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(api.os, "read", lambda _fd, _bound: b'{"future":true}\n')
+
+    with pytest.raises(OSError) as exc_info:
+        api._wait_for_bwrap_child_pid(
+            123,
+            selector_factory=_AlwaysReadySelector,
+            json_loads=json.loads,
+            monotonic=lambda: next(clock_values),
+            timeout_seconds=1,
+        )
+
+    assert exc_info.value.errno == errno.ETIMEDOUT
+
+
+def test_parse_shim_argv_requires_closed_group_and_readiness_binding() -> None:
+    api = _api()
+
+    assert api._parse_shim_argv(
+        [
+            "--provider-prefix",
+            PROVIDER_PREFIX,
+            "--credential-name",
+            "TOKEN",
+            "--expected-primary-group-count",
+            "1",
+            "--expected-overflow-group-count",
+            "2",
+            "--boundary-ready-fd",
+            "7",
+            "--",
+            f"{PROVIDER_PREFIX}/bin/probe",
+        ]
+    ) == (
+        PROVIDER_PREFIX,
+        ("TOKEN",),
+        1,
+        2,
+        7,
+        (f"{PROVIDER_PREFIX}/bin/probe",),
+    )
+
+
+@pytest.mark.parametrize(
+    ("argument_name", "replacement"),
+    [
+        ("--expected-primary-group-count", None),
+        ("--expected-overflow-group-count", None),
+        ("--boundary-ready-fd", None),
+        ("--expected-primary-group-count", "-1"),
+        ("--expected-primary-group-count", "١"),
+        ("--expected-primary-group-count", "65537"),
+        ("--expected-overflow-group-count", "not-a-count"),
+        ("--boundary-ready-fd", "6"),
+    ],
+)
+def test_parse_shim_argv_rejects_missing_or_invalid_boundary_binding(
+    argument_name: str,
+    replacement: str | None,
+) -> None:
+    api = _api()
+    arguments = [
+        "--provider-prefix",
+        PROVIDER_PREFIX,
+        "--expected-primary-group-count",
+        "1",
+        "--expected-overflow-group-count",
+        "2",
+        "--boundary-ready-fd",
+        "7",
+    ]
+    index = arguments.index(argument_name)
+    if replacement is None:
+        del arguments[index : index + 2]
+    else:
+        arguments[index + 1] = replacement
+    arguments.extend(["--", f"{PROVIDER_PREFIX}/bin/probe"])
+
+    with pytest.raises(api.CredentialFrameError):
+        api._parse_shim_argv(arguments)
+
+
+@pytest.mark.parametrize(
+    "extra_binding",
+    [
+        ("--expected-primary-group-count", "1"),
+        ("--expected-overflow-group-count", "2"),
+        ("--boundary-ready-fd", "7"),
+    ],
+)
+def test_parse_shim_argv_rejects_duplicate_boundary_binding(
+    extra_binding: tuple[str, str],
+) -> None:
+    api = _api()
+    arguments = [
+        "--provider-prefix",
+        PROVIDER_PREFIX,
+        "--expected-primary-group-count",
+        "1",
+        "--expected-overflow-group-count",
+        "2",
+        "--boundary-ready-fd",
+        "7",
+        *extra_binding,
+        "--",
+        f"{PROVIDER_PREFIX}/bin/probe",
+    ]
+
+    with pytest.raises(api.CredentialFrameError):
+        api._parse_shim_argv(arguments)
+
+
+def test_parse_shim_argv_rejects_inconsistent_group_count_sum() -> None:
+    api = _api()
+
+    with pytest.raises(api.CredentialFrameError):
+        api._parse_shim_argv(
+            [
+                "--provider-prefix",
+                PROVIDER_PREFIX,
+                "--expected-primary-group-count",
+                "65536",
+                "--expected-overflow-group-count",
+                "1",
+                "--boundary-ready-fd",
+                "7",
+                "--",
+                f"{PROVIDER_PREFIX}/bin/probe",
+            ]
+        )
+
+
+def test_raw_probe_launcher_uses_rootless_bwrap_and_bound_group_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    observed: dict[str, object] = {}
+
+    monkeypatch.setattr(api.os, "getegid", lambda: 1000)
+    monkeypatch.setattr(api.os, "getgroups", lambda: [1000, 4, 27])
+
+    def inspect_spawn(
+        path: str,
+        argv: list[str],
+        environment: dict[str, str],
+        *,
+        file_actions: list[tuple[int, ...]],
+    ) -> int:
+        observed.update(
+            path=path,
+            argv=argv,
+            environment=environment,
+            file_actions=file_actions,
+        )
+        raise OSError(errno.EIO, "stop after launch-plan inspection")
+
+    monkeypatch.setattr(api.os, "posix_spawn", inspect_spawn)
+
+    with pytest.raises(OSError, match="launch-plan inspection"):
+        api.launch_provider_via_shim(
+            python_executable=sys.executable,
+            shim_path=Path(api.__file__),
+            target_argv=("/definitely/missing",),
+            declared_names=(),
+            credentials={},
+            _test_only_broad_host_root=True,
+        )
+
+    argv = observed["argv"]
+    assert isinstance(argv, list)
+    assert observed["path"] == "/usr/bin/bwrap"
+    assert argv[:13] == [
+        "/usr/bin/bwrap",
+        "--unshare-user",
+        "--uid",
+        "0",
+        "--gid",
+        "0",
+        "--disable-userns",
+        "--assert-userns-disabled",
+        "--die-with-parent",
+        "--ro-bind",
+        "/",
+        "/",
+        "--proc",
+    ]
+    assert "--expected-primary-group-count" in argv
+    assert argv[argv.index("--expected-primary-group-count") + 1] == "1"
+    assert "--expected-overflow-group-count" in argv
+    assert argv[argv.index("--expected-overflow-group-count") + 1] == "2"
+    assert argv[argv.index("--boundary-ready-fd") + 1] == "7"
+    assert argv[argv.index("--json-status-fd") + 1] == "8"
+    actions = observed["file_actions"]
+    assert isinstance(actions, list)
+    mappings = [
+        (action[1], action[2])
+        for action in actions
+        if action[0] == os.POSIX_SPAWN_DUP2
+    ]
+    assert {target for _source, target in mappings} == {0, 1, 2, 3, 7, 8}
+    assert all(source > 8 for source, _target in mappings)
+
+
+def test_raw_probe_launcher_rejects_broad_host_root_without_test_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    spawned = False
+
+    def observe_spawn(*_args, **_kwargs):
+        nonlocal spawned
+        spawned = True
+        raise AssertionError("test-only marker rejection must precede spawn")
+
+    monkeypatch.setattr(api.os, "posix_spawn", observe_spawn)
+
+    with pytest.raises(api.CredentialFrameError, match="test-only"):
+        api.launch_provider_via_shim(
+            python_executable=sys.executable,
+            shim_path=Path(api.__file__),
+            target_argv=("/definitely/missing",),
+            declared_names=(),
+            credentials={},
+        )
+
+    assert not spawned
+
+
+def test_raw_probe_launcher_rejects_privileged_controller(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    spawned = False
+    monkeypatch.setattr(api.os, "geteuid", lambda: 0)
+
+    def observe_spawn(*_args, **_kwargs):
+        nonlocal spawned
+        spawned = True
+        raise AssertionError("privileged-controller rejection must precede spawn")
+
+    monkeypatch.setattr(api.os, "posix_spawn", observe_spawn)
+
+    with pytest.raises(api.CredentialFrameError, match="unprivileged"):
+        api.launch_provider_via_shim(
+            python_executable=sys.executable,
+            shim_path=Path(api.__file__),
+            target_argv=("/definitely/missing",),
+            declared_names=(),
+            credentials={},
+            _test_only_broad_host_root=True,
+        )
+
+    assert not spawned
+
+
+def test_raw_probe_launcher_withholds_credentials_until_exact_readiness(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _require_rootless_bwrap()
+    api = _api()
+    fake_shim = tmp_path / "readiness-probe.py"
+    fake_shim.write_text(
+        """
+import fcntl
+import os
+
+flags = fcntl.fcntl(3, fcntl.F_GETFL)
+fcntl.fcntl(3, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+try:
+    os.read(3, 1)
+except BlockingIOError:
+    pass
+else:
+    raise SystemExit(91)
+os.write(7, b"R")
+os.close(7)
+fcntl.fcntl(3, fcntl.F_SETFL, flags)
+if not os.read(3, 1):
+    raise SystemExit(92)
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    observations: list[dict[str, object]] = []
+    events: list[str] = []
+    validate_boundary = api._validate_pinned_rootless_child_boundary
+
+    def observe_boundary(**values) -> None:
+        events.append("observer")
+        observations.append(values)
+
+    def validate_after_observer(**values):
+        events.append("validate")
+        return validate_boundary(**values)
+
+    monkeypatch.setattr(
+        api,
+        "_validate_pinned_rootless_child_boundary",
+        validate_after_observer,
+    )
+
+    result = api.launch_provider_via_shim(
+        python_executable=sys.executable,
+        shim_path=fake_shim,
+        target_argv=("/unused",),
+        declared_names=(),
+        credentials={},
+        _test_only_broad_host_root=True,
+        _host_boundary_observer=observe_boundary,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert events == ["observer", "validate"]
+    assert len(observations) == 1
+    assert isinstance(observations[0]["child_pid"], int)
+    assert observations[0]["controller_euid"] == os.geteuid()
+    assert observations[0]["controller_egid"] == os.getegid()
+    assert observations[0]["controller_groups"] == tuple(os.getgroups())
+
+
+def test_raw_probe_host_boundary_failure_releases_no_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _require_rootless_bwrap()
+    api = _api()
+    fake_shim = tmp_path / "boundary-failure-probe.py"
+    fake_shim.write_text(
+        """
+import os
+
+os.write(7, b"R")
+os.close(7)
+os.read(3, 1)
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    credential_writes: list[bytes] = []
+    real_write = api.os.write
+
+    def observe_write(fd: int, payload) -> int:
+        value = bytes(payload)
+        if api.CREDENTIAL_FRAME_MAGIC in value:
+            credential_writes.append(value)
+        return real_write(fd, payload)
+
+    def reject_boundary(**_values) -> None:
+        raise RuntimeError("injected host-boundary mismatch")
+
+    monkeypatch.setattr(api.os, "write", observe_write)
+    monkeypatch.setattr(
+        api,
+        "_validate_pinned_rootless_child_boundary",
+        reject_boundary,
+        raising=False,
+    )
+
+    with pytest.raises(RuntimeError, match="host-boundary mismatch"):
+        api.launch_provider_via_shim(
+            python_executable=sys.executable,
+            shim_path=fake_shim,
+            target_argv=("/unused",),
+            declared_names=(),
+            credentials={},
+            _test_only_broad_host_root=True,
+        )
+
+    assert credential_writes == []
+
+
+def test_parse_proc_starttime_handles_spaces_and_closing_parenthesis() -> None:
+    api = _api()
+    tail = ["S", *(str(index) for index in range(1, 30))]
+    value = f"123 (worker ) name) {' '.join(tail)}\n"
+
+    assert api._parse_proc_starttime(value, expected_pid=123) == 19
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "124 (worker) S 1 2 3\n",
+        "123 worker S 1 2 3\n",
+        "123 (worker) S 1 2 3\n",
+        "123 (worker) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 nope\n",
+    ],
+)
+def test_parse_proc_starttime_rejects_malformed_or_mismatched_stat(
+    value: str,
+) -> None:
+    with pytest.raises(RuntimeError):
+        _api()._parse_proc_starttime(value, expected_pid=123)
+
+
+def _host_boundary_observations(
+    *,
+    overrides: dict[str, str] | None = None,
+) -> dict[str, str]:
+    tail = ["S", *(str(index) for index in range(1, 30))]
+    observations = {
+        "stat": f"123 (provider shim) {' '.join(tail)}\n",
+        "uid_map": "0 1000 1\n",
+        "gid_map": "0 1000 1\n",
+        "setgroups": "deny\n",
+        "status": (
+            "Uid:\t1000\t1000\t1000\t1000\n"
+            "Gid:\t1000\t1000\t1000\t1000\n"
+            "Groups:\t4 27 1000\n"
+        ),
+    }
+    observations.update(overrides or {})
+    return observations
+
+
+def test_validate_pinned_rootless_child_boundary_accepts_exact_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    observations = _host_boundary_observations()
+    monkeypatch.setattr(api, "_assert_pidfd_live", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        api,
+        "_read_pinned_child_ascii",
+        lambda _fd, name, _bound: observations[name],
+    )
+
+    result = api._validate_pinned_rootless_child_boundary(
+        child_pid=123,
+        pidfd=10,
+        proc_dir_fd=11,
+        starttime=19,
+        controller_euid=1000,
+        controller_egid=1000,
+        controller_groups=(4, 27, 1000),
+        expected_primary_count=1,
+        expected_overflow_count=2,
+        selector_factory=selectors.DefaultSelector,
+    )
+
+    assert result["uid_map"] == (0, 1000, 1)
+    assert result["gid_map"] == (0, 1000, 1)
+    assert result["controller_group_count"] == 3
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("uid_map", "0 1001 1\n"),
+        ("gid_map", "0 1000 1\n1 1001 1\n"),
+        ("setgroups", "allow\n"),
+        (
+            "status",
+            "Uid:\t1000\t1000\t1000\t1000\n"
+            "Gid:\t1000\t1000\t1000\t1000\n"
+            "Groups:\t4 1000\n",
+        ),
+    ],
+)
+def test_validate_pinned_rootless_child_boundary_rejects_tamper(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    value: str,
+) -> None:
+    api = _api()
+    observations = _host_boundary_observations(overrides={name: value})
+    monkeypatch.setattr(api, "_assert_pidfd_live", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        api,
+        "_read_pinned_child_ascii",
+        lambda _fd, observed_name, _bound: observations[observed_name],
+    )
+
+    with pytest.raises(RuntimeError):
+        api._validate_pinned_rootless_child_boundary(
+            child_pid=123,
+            pidfd=10,
+            proc_dir_fd=11,
+            starttime=19,
+            controller_euid=1000,
+            controller_egid=1000,
+            controller_groups=(4, 27, 1000),
+            expected_primary_count=1,
+            expected_overflow_count=2,
+            selector_factory=selectors.DefaultSelector,
+        )
+
+
+def test_validate_pinned_rootless_child_boundary_rejects_starttime_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    observations = _host_boundary_observations()
+    stat_reads = 0
+
+    def read_observation(_fd: int, name: str, _bound: int) -> str:
+        nonlocal stat_reads
+        if name != "stat":
+            return observations[name]
+        stat_reads += 1
+        if stat_reads == 1:
+            return observations[name]
+        tail = ["S", *(str(index) for index in range(1, 30))]
+        tail[19] = "20"
+        return f"123 (provider shim) {' '.join(tail)}\n"
+
+    monkeypatch.setattr(api, "_assert_pidfd_live", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(api, "_read_pinned_child_ascii", read_observation)
+
+    with pytest.raises(RuntimeError, match="start identity changed"):
+        api._validate_pinned_rootless_child_boundary(
+            child_pid=123,
+            pidfd=10,
+            proc_dir_fd=11,
+            starttime=19,
+            controller_euid=1000,
+            controller_egid=1000,
+            controller_groups=(4, 27, 1000),
+            expected_primary_count=1,
+            expected_overflow_count=2,
+            selector_factory=selectors.DefaultSelector,
+        )
 
 
 def test_shim_bootstrap_orders_both_sweeps_before_exact_exec_boundary(
@@ -459,6 +1574,11 @@ def test_shim_bootstrap_orders_both_sweeps_before_exact_exec_boundary(
     api = _api()
     events: list[object] = []
 
+    monkeypatch.setattr(
+        api,
+        "_close_fds_from_except",
+        lambda start, keep_fd: events.append(("close-except", start, keep_fd)),
+    )
     monkeypatch.setattr(
         api,
         "_close_fds_from",
@@ -471,8 +1591,18 @@ def test_shim_bootstrap_orders_both_sweeps_before_exact_exec_boundary(
     )
     monkeypatch.setattr(
         api,
-        "_drop_supplementary_groups",
-        lambda: events.append("empty-groups"),
+        "_validate_rootless_group_boundary",
+        lambda **counts: events.append(("group-boundary", counts)),
+    )
+    monkeypatch.setattr(
+        api,
+        "_validate_nested_userns_disabled",
+        lambda: events.append("nested-userns-disabled"),
+    )
+    monkeypatch.setattr(
+        api,
+        "_signal_boundary_ready",
+        lambda fd: events.append(("ready", fd)),
     )
 
     def read_credentials(fd: int, *, declared_names: tuple[str, ...]):
@@ -499,6 +1629,12 @@ def test_shim_bootstrap_orders_both_sweeps_before_exact_exec_boundary(
             PROVIDER_PREFIX,
             "--credential-name",
             "TOKEN",
+            "--expected-primary-group-count",
+            "1",
+            "--expected-overflow-group-count",
+            "2",
+            "--boundary-ready-fd",
+            "7",
             "--",
             f"{PROVIDER_PREFIX}/bin/probe",
             "--version",
@@ -507,9 +1643,18 @@ def test_shim_bootstrap_orders_both_sweeps_before_exact_exec_boundary(
 
     assert result == 125
     assert events == [
-        ("close", 4),
+        ("close-except", 4, 7),
         "fresh-keyring",
-        "empty-groups",
+        (
+            "group-boundary",
+            {
+                "expected_primary_count": 1,
+                "expected_overflow_count": 2,
+            },
+        ),
+        "nested-userns-disabled",
+        ("ready", 7),
+        ("close", 4),
         ("credentials", 3, ("TOKEN",)),
         "seccomp",
         ("close", 3),
@@ -529,14 +1674,37 @@ def test_shim_bootstrap_orders_both_sweeps_before_exact_exec_boundary(
     ]
 
 
+def test_shim_sweeps_high_fds_before_rejecting_malformed_argv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    events: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        api,
+        "_close_fds_from_except",
+        lambda start, keep: events.append((start, keep)),
+    )
+    monkeypatch.setattr(api.os, "write", lambda _fd, payload: len(payload))
+
+    assert api.shim_main(["--invalid"]) == 125
+    assert events == [(4, api.BOUNDARY_READY_FD)]
+
+
 def test_failure_after_secret_read_has_redacted_stderr(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     api = _api()
     observed_stderr: list[bytes] = []
+    monkeypatch.setattr(api, "_close_fds_from_except", lambda _start, _keep: None)
     monkeypatch.setattr(api, "_close_fds_from", lambda _start: None)
     monkeypatch.setattr(api, "_join_fresh_session_keyring", lambda: None)
-    monkeypatch.setattr(api, "_drop_supplementary_groups", lambda: None)
+    monkeypatch.setattr(
+        api,
+        "_validate_rootless_group_boundary",
+        lambda **_counts: None,
+    )
+    monkeypatch.setattr(api, "_validate_nested_userns_disabled", lambda: None)
+    monkeypatch.setattr(api, "_signal_boundary_ready", lambda _fd: None)
     monkeypatch.setattr(
         api,
         "read_credentials_from_fd",
@@ -559,6 +1727,12 @@ def test_failure_after_secret_read_has_redacted_stderr(
             PROVIDER_PREFIX,
             "--credential-name",
             "TOKEN",
+            "--expected-primary-group-count",
+            "1",
+            "--expected-overflow-group-count",
+            "2",
+            "--boundary-ready-fd",
+            "7",
             "--",
             f"{PROVIDER_PREFIX}/bin/probe",
         ]
@@ -569,6 +1743,7 @@ def test_failure_after_secret_read_has_redacted_stderr(
 
 
 def test_shim_closes_every_fd_at_or_above_four_itself(tmp_path: Path) -> None:
+    _require_rootless_bwrap()
     api = _api()
     probe = tmp_path / "close-probe.py"
     probe.write_text(
@@ -594,6 +1769,7 @@ print(json.dumps(fds))
         declared_names=(),
         credentials={},
         extra_setup_fds=3,
+        _test_only_broad_host_root=True,
     )
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == []
@@ -602,6 +1778,7 @@ print(json.dumps(fds))
 def test_shim_builds_only_fixed_environment_and_declared_credentials(
     tmp_path: Path,
 ) -> None:
+    _require_rootless_bwrap()
     api = _api()
     probe = tmp_path / "env-probe.py"
     probe.write_text(
@@ -616,6 +1793,7 @@ def test_shim_builds_only_fixed_environment_and_declared_credentials(
         declared_names=("TOKEN",),
         credentials={"TOKEN": b"secret-value"},
         provider_prefix=PROVIDER_PREFIX,
+        _test_only_broad_host_root=True,
     )
     assert result.returncode == 0, result.stderr
     observed = json.loads(result.stdout)
@@ -650,6 +1828,7 @@ def test_launcher_rejects_nonempty_bootstrap_environment_before_spawn(
             declared_names=(),
             credentials={},
             bootstrap_environment={"PYTHONPATH": "/candidate"},
+            _test_only_broad_host_root=True,
         )
 
     assert not spawned
@@ -689,6 +1868,7 @@ def test_launcher_setup_failure_closes_allocated_fds_and_zeroes_frame(
                 target_argv=("/definitely/missing",),
                 declared_names=("TOKEN",),
                 credentials={"TOKEN": b"setup-secret"},
+                _test_only_broad_host_root=True,
             )
         assert exc_info.value.errno == errno.EMFILE
         assert zeroed
@@ -705,7 +1885,7 @@ def test_launcher_setup_failure_closes_allocated_fds_and_zeroes_frame(
                 pass
 
 
-def test_launcher_spawn_sources_do_not_collide_when_standard_fds_start_closed() -> None:
+def test_launcher_spawn_sources_do_not_collide_when_fixed_fds_start_closed() -> None:
     api = _api()
     read_fd, write_fd = os.pipe()
     pid = os.fork()
@@ -713,7 +1893,7 @@ def test_launcher_spawn_sources_do_not_collide_when_standard_fds_start_closed() 
         os.close(read_fd)
         report_fd = fcntl.fcntl(write_fd, fcntl.F_DUPFD, 200)
         os.close(write_fd)
-        for fd in (0, 1, 2):
+        for fd in range(9):
             try:
                 os.close(fd)
             except OSError:
@@ -726,8 +1906,8 @@ def test_launcher_spawn_sources_do_not_collide_when_standard_fds_start_closed() 
             *,
             file_actions: list[tuple[int, ...]],
         ) -> int:
-            sources = [
-                action[1]
+            mappings = [
+                (action[1], action[2])
                 for action in file_actions
                 if action[0] == os.POSIX_SPAWN_DUP2
             ]
@@ -735,9 +1915,13 @@ def test_launcher_spawn_sources_do_not_collide_when_standard_fds_start_closed() 
                 report_fd,
                 json.dumps(
                     {
-                        "sources": sources,
-                        "collision_free": bool(sources)
-                        and min(sources) >= 3,
+                        "mappings": mappings,
+                        "collision_free": bool(mappings)
+                        and all(source > 8 for source, _target in mappings)
+                        and {
+                            target for _source, target in mappings
+                        }
+                        == {0, 1, 2, 3, 7, 8},
                     }
                 ).encode("utf-8"),
             )
@@ -751,6 +1935,7 @@ def test_launcher_spawn_sources_do_not_collide_when_standard_fds_start_closed() 
                 target_argv=("/definitely/missing",),
                 declared_names=(),
                 credentials={},
+                _test_only_broad_host_root=True,
             )
         except OSError:
             os._exit(0)
@@ -769,6 +1954,7 @@ def test_launcher_spawn_sources_do_not_collide_when_standard_fds_start_closed() 
 def test_launcher_closes_selector_when_registration_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _require_rootless_bwrap()
     api = _api()
     selector_fds: list[int] = []
     created: list[selectors.BaseSelector] = []
@@ -809,6 +1995,7 @@ def test_launcher_closes_selector_when_registration_fails(
                 target_argv=("/definitely/missing",),
                 declared_names=(),
                 credentials={},
+                _test_only_broad_host_root=True,
             )
         assert exc_info.value.errno == errno.EIO
         assert selector_fds
@@ -824,6 +2011,7 @@ def test_launcher_closes_selector_when_registration_fails(
 def test_launcher_uses_spawn_fd_actions_without_subprocess_preexec(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _require_rootless_bwrap()
     api = _api()
 
     def reject_popen(*_args, **_kwargs):
@@ -837,16 +2025,25 @@ def test_launcher_uses_spawn_fd_actions_without_subprocess_preexec(
         target_argv=("/definitely/missing",),
         declared_names=(),
         credentials={},
+        _test_only_broad_host_root=True,
     )
 
     assert result.returncode == 125
     assert result.stderr == "provider_launch_shim_failed\n"
 
 
-def test_shim_reports_empty_groups_key_denial_and_no_bootstrap_fd(
+def test_shim_reports_normalized_groups_key_denial_and_no_bootstrap_fd(
     tmp_path: Path,
 ) -> None:
+    _require_rootless_bwrap()
     api = _api()
+    controller_groups = tuple(os.getgroups())
+    controller_primary_gid = os.getegid()
+    expected_primary_count = controller_groups.count(controller_primary_gid)
+    expected_overflow_count = len(controller_groups) - expected_primary_count
+    overflow_gid = int(
+        Path("/proc/sys/kernel/overflowgid").read_text(encoding="ascii").strip()
+    )
     probe = tmp_path / "security-probe.py"
     probe.write_text(
         """
@@ -882,16 +2079,20 @@ print(json.dumps({
         target_argv=(sys.executable, "-I", "-S", str(probe)),
         declared_names=(),
         credentials={},
+        _test_only_broad_host_root=True,
     )
     assert result.returncode == 0, result.stderr
     observed = json.loads(result.stdout)
-    assert observed["groups"] == []
+    assert set(observed["groups"]) <= {0, overflow_gid}
+    assert observed["groups"].count(0) == expected_primary_count
+    assert observed["groups"].count(overflow_gid) == expected_overflow_count
     assert observed["fds"] == []
     assert observed["keyctl_result"] == -1
     assert observed["keyctl_errno"] == observed["expected_errno"]
 
 
 def test_secret_is_absent_from_argv_stderr_and_artifacts(tmp_path: Path) -> None:
+    _require_rootless_bwrap()
     api = _api()
     secret = b"task1a-super-secret"
     artifact = tmp_path / "artifact"
@@ -908,6 +2109,7 @@ def test_secret_is_absent_from_argv_stderr_and_artifacts(tmp_path: Path) -> None
         declared_names=("TOKEN",),
         credentials={"TOKEN": secret},
         artifact_paths=(artifact,),
+        _test_only_broad_host_root=True,
     )
     assert result.returncode == 0
     observed = json.loads(result.stdout)
@@ -1223,8 +2425,10 @@ def test_fixed_bootstrap_closure_is_canonical_and_manifest_backed(
         "module:import:os",
         "module:import:struct",
         "module:import:sys",
-        "function:launch_provider_via_shim:import:subprocess",
+        "function:launch_provider_via_shim:import:json",
         "function:launch_provider_via_shim:import:selectors",
+        "function:launch_provider_via_shim:import:subprocess",
+        "function:launch_provider_via_shim:import:time",
     )
     assert closure.canonical_json == api.canonical_isolation_json_bytes(
         closure.to_dict()
@@ -1541,9 +2745,9 @@ def test_fixed_bootstrap_closure_rejects_extra_misplaced_or_dynamic_shim_import(
 
 @pytest.mark.parametrize(
     "import_name",
-    ["subprocess", "selectors"],
+    ["json", "selectors", "subprocess", "time"],
 )
-def test_fixed_bootstrap_closure_requires_both_reviewed_local_shim_imports(
+def test_fixed_bootstrap_closure_requires_all_reviewed_local_shim_imports(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     import_name: str,

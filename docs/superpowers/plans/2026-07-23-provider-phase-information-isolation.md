@@ -687,6 +687,12 @@ proxy used by the historical Task 1A proof with the composite rootless
 contract in the governing design. It does not implement the production
 Bubblewrap backend, result broker, runtime integration, or attestation schema.
 
+Task 1B passed `I0G` for the exact v6 identity recorded in the
+[rootless-launch feasibility report](../../reports/provider-isolation-rootless-launch-feasibility/README.md).
+Both ordered final reviews approved the bound implementation and evidence.
+This opens Task 2 (`I0`) only; the production backend and every later
+integration, attestation, public `G0`, and live-provider gate remain open.
+
 **Files:**
 
 - Modify: `orchestrator/providers/provider_launch_shim.py`
@@ -706,7 +712,7 @@ Bubblewrap backend, result broker, runtime integration, or attestation schema.
 - Modify: `specs/providers.md`
 - Modify: `specs/security.md`
 
-- [ ] **Step 1: RED-test the inner namespace validator**
+- [x] **Step 1: RED-test the inner namespace validator**
 
 Add table-driven tests for a pure fail-closed validator in the packaged shim.
 The positive fixture has all four all-zero
@@ -723,7 +729,9 @@ Negative fixtures cover:
 - an inner supplementary value other than primary or overflow;
 - primary/overflow count mismatch; and
 - a launch argument with a negative, unbounded, duplicate, or inconsistent
-  expected count.
+  expected count; and
+- missing, duplicate, malformed, early-EOF, or surviving readiness-descriptor
+  behavior.
 
 The validator must run before credential fd 3 is read. Tests assert ordering
 and the stable redacted shim failure only; they do not assert prose.
@@ -739,15 +747,18 @@ pytest -q \
 Expected: the new cases fail because the old shim attempts
 `os.setgroups([])` and has no normalized boundary validator.
 
-- [ ] **Step 2: GREEN-implement the minimal inner validator**
+- [x] **Step 2: GREEN-implement the minimal inner validator**
 
 Replace `_drop_supplementary_groups()` with a bounded validator that reads
 `/proc/self/{uid_map,gid_map,setgroups,status}` and
 `/proc/sys/kernel/overflowgid` without following a caller-supplied path.
 Extend the closed shim argv with controller-supplied expected primary and
-overflow counts. Do not hard-code `65534`, infer host group IDs from
-provider-visible overflow values, add a privileged clearing path, or weaken
-failure handling when proc data is unavailable.
+overflow counts plus one fixed setup-only boundary-readiness descriptor. After
+validation and before credential ingestion, write exactly one fixed byte,
+close that descriptor, verify it closed, and only then read fd 3. Do not
+hard-code `65534`, infer host group IDs from provider-visible overflow values,
+add a privileged clearing path, or weaken failure handling when proc data is
+unavailable.
 
 Run:
 
@@ -759,7 +770,7 @@ pytest -q \
 
 Expected: pass.
 
-- [ ] **Step 3: Exercise the shim through ordinary-user Bubblewrap**
+- [x] **Step 3: Exercise the shim through ordinary-user Bubblewrap**
 
 Update the controller-side raw-probe helper so its process-level tests execute
 the shim inside an explicitly labeled, test-only rootless Bubblewrap wrapper.
@@ -778,12 +789,15 @@ pytest -q tests/test_provider_launch_shim.py
 Expected: all module tests pass from the normal owner session with no
 supplementary-group deselections and no privilege prompt.
 
-- [ ] **Step 4: Add the host-relative half to the raw `I0G` proof**
+- [x] **Step 4: Add the host-relative half to the raw `I0G` proof**
 
 Using a fresh one-use evidence authority, launch the real sealed provider/shim
 chain directly as the owner. Keep the credential pipe unreleased while the
-controller binds the final child by PID plus process-start identity and reads
-its maps, `setgroups`, and underlying group vector from the host namespace.
+controller waits for both Bubblewrap's JSON child PID and the shim's one-byte
+boundary-ready signal, binds the final child with a pidfd plus no-follow proc
+directory and process-start identity, and reads its maps, `setgroups`, and
+underlying group vector from the host namespace. Bubblewrap's child-PID event,
+`--info-fd`, `--block-fd`, or the outer exec handshake alone is not readiness.
 Require:
 
 - exact rows `0 <controller-euid> 1` and
@@ -791,6 +805,9 @@ Require:
 - `setgroups: deny`;
 - exact multiset equality with the controller's captured prelaunch groups;
 - matching inner primary/overflow counts;
+- unchanged process-start identity and a live pidfd before and immediately
+  before the first credential byte;
+- no credential write before both inner readiness and host validation;
 - no setup descriptor at final exec; and
 - the existing capability, keyring, network, PID/session, nested-userns,
   cgroup-quiescence, nonce, version, and help checks.
@@ -801,7 +818,7 @@ deterministic admission/mount-plan negative fixture that rejects before
 opening the sentinel; do not read an unrelated host secret as positive
 evidence. A broad `--ro-bind / /` is forbidden in the accepted proof.
 
-- [ ] **Step 5: Publish and verify a fresh sealed identity**
+- [x] **Step 5: Publish and verify a fresh sealed identity**
 
 The shim source is part of the reviewed bootstrap identity. Update its
 independently pinned source digest, rebuild the prospective manifest from the
@@ -818,7 +835,7 @@ new
 The old Task 1A report remains immutable historical evidence except for its
 single routing pointer to this follow-on report.
 
-- [ ] **Step 6: Add normative and evidence status updates**
+- [x] **Step 6: Add normative and evidence status updates**
 
 Update `specs/providers.md` and `specs/security.md` with the composite
 contract: retained groups can carry host DAC authority, one-row maps are only
@@ -830,7 +847,7 @@ silently privileged.
 Promote the design amendment and `I0G` report only after both independent
 reviews approve the exact implementation/evidence identity.
 
-- [ ] **Step 7: Run focused, aggregate, and broad verification**
+- [x] **Step 7: Run focused, aggregate, and broad verification**
 
 Run narrow selectors first:
 
@@ -862,7 +879,7 @@ Run `pytest -q -n 16 --dist=worksteal` in tmux and compare any failures with
 the current reviewed broad baseline. Do not erase an unrelated failure or
 call it passing.
 
-- [ ] **Step 8: Obtain both reviews and commit**
+- [x] **Step 8: Obtain both reviews and commit**
 
 First request an independent specification review against the governing
 design, including the host-DAC nuance and both-direction controls. After it
@@ -941,9 +958,11 @@ The final provider enumerates every descriptor, permits exactly normalized
 stdin/stdout/stderr fds 0/1/2, and attempts `openat("..")` against every
 observed directory descriptor in negative probes. Candidate, rootfs, scratch,
 and pinned backend-executable descriptors may reach Bubblewrap setup, but the
-shim itself must close every fd `>= 4` before reading credential fd 3 and close
-fd 3 after reading, then repeat a close-all-fds-`>=3` sweep immediately before
-final exec. Run Bubblewrap with the sanitized non-secret
+shim itself must preserve only the fixed readiness fd during its initial
+fd-`>=4` sweep, signal and close it after validation, verify every fd `>=4`
+closed before reading credential fd 3, close fd 3 after reading, then repeat a
+close-all-fds-`>=3` sweep immediately before final exec. Run Bubblewrap with
+the sanitized non-secret
 environment, `--clearenv`, and the real credential-bootstrap shim; values must
 be absent from Bubblewrap argv/environment. Do not rely on `CLOEXEC` or
 Bubblewrap to close `/proc/self/fd/<N>` bind-source descriptors. The probe also
@@ -1196,9 +1215,11 @@ descriptors plus normalized fds 0/1/2 and credential fd 3.
 Use Bubblewrap's descriptor-bound bind operations for the role-labeled
 candidate/rootfs/scratch mount sources. Those and the pinned Bubblewrap
 executable descriptor are setup-only: pass them only to Bubblewrap, then have
-the packaged shim explicitly close every fd `>= 4` before reading credentials.
-After bootstrap it closes fd 3 and repeats `close_range(3, UINT_MAX)`/fdwalk;
-none may remain in the provider FD allowlist. The final provider receives
+the packaged shim preserve only the readiness fd during its initial fd-`>=4`
+closure, signal/close it after validation, and verify all fds `>=4` closed
+before reading credentials. After bootstrap it closes fd 3 and repeats
+`close_range(3, UINT_MAX)`/fdwalk; none may remain in the provider FD allowlist.
+The final provider receives
 exactly fds 0/1/2. The capability fixture must enumerate that
 complete final set and attempt `openat("..")` on every directory descriptor
 that appears during a negative/tamper probe.

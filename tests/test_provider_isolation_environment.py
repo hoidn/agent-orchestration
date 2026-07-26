@@ -34,6 +34,15 @@ _FS_IOC_GETFLAGS = 0x80086601
 _FS_IOC_SETFLAGS = 0x40086602
 _FS_NODUMP_FL = 0x00000040
 _FS_NOATIME_FL = 0x00000080
+_STRUCTURAL_MOUNTPOINTS = (
+    "candidate",
+    "dev",
+    "home",
+    "proc",
+    "run",
+    "tmp",
+    "workspace",
+)
 
 
 def _api():
@@ -972,6 +981,139 @@ def test_basic_snapshots_are_identical_across_source_path_write_bits_and_times(
     finally:
         left.close()
         right.close()
+
+
+def test_prospective_manifest_and_snapshot_supply_structural_mountpoints(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    source = _make_source(tmp_path)
+    source_tmp = source / "tmp"
+    source_tmp.mkdir(mode=0o755)
+    source_payload = source_tmp / "source-payload"
+    source_payload.write_bytes(b"admitted source directory")
+    source_payload.chmod(0o644)
+    run_root = tmp_path / "run-root"
+    run_root.mkdir(mode=0o700)
+
+    manifest = api.build_provider_environment_manifest(source, PROVIDER_PREFIX)
+    entries = {entry.path: entry for entry in manifest.entries}
+    expected_directory = {
+        "kind": "directory",
+        "mode": 0o555,
+        "uid": 0,
+        "gid": 0,
+        "atime_ns": 0,
+        "mtime_ns": 0,
+    }
+
+    assert set(_STRUCTURAL_MOUNTPOINTS) <= entries.keys()
+    for relpath in _STRUCTURAL_MOUNTPOINTS:
+        entry = entries[relpath]
+        assert {
+            "kind": entry.kind,
+            "mode": entry.mode,
+            "uid": entry.uid,
+            "gid": entry.gid,
+            "atime_ns": entry.atime_ns,
+            "mtime_ns": entry.mtime_ns,
+        } == expected_directory
+    assert entries["tmp/source-payload"].kind == "regular_file"
+
+    snapshot = api.assemble_provider_environment_snapshot(
+        source,
+        PROVIDER_PREFIX,
+        run_root,
+        expected_digest=manifest.digest,
+    )
+    try:
+        for relpath in _STRUCTURAL_MOUNTPOINTS:
+            path = snapshot.rootfs_path / relpath
+            observed = os.stat(path, follow_symlinks=False)
+            assert stat.S_ISDIR(observed.st_mode)
+            assert stat.S_IMODE(observed.st_mode) == 0o555
+            assert observed.st_atime_ns == observed.st_mtime_ns == 0
+        assert (
+            snapshot.rootfs_path / "tmp" / "source-payload"
+        ).read_bytes() == b"admitted source directory"
+        verified = api.verify_provider_environment_snapshot(
+            snapshot.rootfs_path,
+            expected_digest=manifest.digest,
+        )
+        assert verified.canonical_json == manifest.canonical_json
+    finally:
+        snapshot.close()
+
+
+@pytest.mark.parametrize("reserved_path", _STRUCTURAL_MOUNTPOINTS)
+@pytest.mark.parametrize("collision_kind", ["regular_file", "symlink"])
+def test_prospective_manifest_rejects_non_directory_structural_mountpoint_collision(
+    tmp_path: Path,
+    reserved_path: str,
+    collision_kind: str,
+) -> None:
+    api = _api()
+    source = _make_source(tmp_path)
+    collision = source / reserved_path
+    if collision_kind == "regular_file":
+        collision.write_bytes(b"collision")
+        collision.chmod(0o644)
+    else:
+        collision.symlink_to("share", target_is_directory=True)
+
+    _assert_environment_error(
+        lambda: api.build_provider_environment_manifest(source, PROVIDER_PREFIX),
+        path=f"$.entries[{reserved_path}].kind",
+    )
+
+
+@pytest.mark.parametrize("reserved_path", _STRUCTURAL_MOUNTPOINTS)
+def test_virtual_structural_mountpoint_cannot_satisfy_provider_prefix(
+    tmp_path: Path,
+    reserved_path: str,
+) -> None:
+    api = _api()
+    source = _make_source(tmp_path)
+
+    _assert_environment_error(
+        lambda: api.build_provider_environment_manifest(
+            source,
+            f"/{reserved_path}",
+        ),
+        path="$.provider_prefix",
+    )
+
+
+def test_snapshot_verification_rejects_removed_structural_mountpoint(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    source = _make_source(tmp_path)
+    run_root = tmp_path / "run-root"
+    run_root.mkdir(mode=0o700)
+    manifest = api.build_provider_environment_manifest(source, PROVIDER_PREFIX)
+    snapshot = api.assemble_provider_environment_snapshot(
+        source,
+        PROVIDER_PREFIX,
+        run_root,
+        expected_digest=manifest.digest,
+    )
+    snapshot.close()
+
+    structural_run = snapshot.rootfs_path / "run"
+    assert structural_run.is_dir()
+    snapshot.rootfs_path.chmod(0o755)
+    structural_run.rmdir()
+    snapshot.rootfs_path.chmod(_entry(manifest, ".").mode)
+    os.utime(snapshot.rootfs_path, ns=(0, 0), follow_symlinks=False)
+
+    _assert_environment_error(
+        lambda: api.verify_provider_environment_snapshot(
+            snapshot.rootfs_path,
+            expected_digest=manifest.digest,
+        ),
+        path="$.snapshot",
+    )
 
 
 def test_basic_snapshot_physically_injects_manifest_bound_launch_shim(

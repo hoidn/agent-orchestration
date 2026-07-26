@@ -176,6 +176,14 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     of writable host-backed projections, and final `{0,1,2}` descriptor set
     are the actual no-additional-object-authority proof. Any mismatch or
     unsupported proc/user-namespace behavior fails closed.
+  - Bubblewrap's reported child PID is identity input, not proof that the shim
+    reached its final boundary. The shim emits one fixed readiness byte on a
+    setup-only descriptor after inner validation and before reading credential
+    fd 3. The controller releases no credential byte until it has both that
+    signal and a pidfd/proc-start-bound host observation that passes the exact
+    map, `setgroups`, and group-multiset checks. The readiness descriptor is
+    then closed and cannot survive provider exec; any race, mismatch, malformed
+    signal, or changed child identity fails closed.
   - The snapshot assembler reserves
     `<provider_prefix>/libexec/provider-launch-shim-v1.py` for the
     runtime-packaged shim. Its source bytes must match an independently pinned

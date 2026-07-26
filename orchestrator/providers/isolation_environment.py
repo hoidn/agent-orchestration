@@ -119,6 +119,15 @@ _WRITABLE_RUNTIME_OVERLAY_ROOTS = (
     "/dev",
     "/sys",
 )
+_STRUCTURAL_MOUNTPOINT_RELPATHS = (
+    "candidate",
+    "dev",
+    "home",
+    "proc",
+    "run",
+    "tmp",
+    "workspace",
+)
 BOOTSTRAP_CLOSURE_SCHEMA_VERSION = "provider_bootstrap_closure.v1"
 BOOTSTRAP_PROFILE = "cpython312_isolated_no_site.v1"
 _BOOTSTRAP_PYTHON_FLAGS = ("-I", "-S")
@@ -141,14 +150,18 @@ _BOOTSTRAP_MODULE_IMPORTS = (
     "module:import:struct",
     "module:import:sys",
 )
-_BOOTSTRAP_ALLOWED_LOCAL_IMPORTS = frozenset({"subprocess", "selectors"})
+_BOOTSTRAP_ALLOWED_LOCAL_IMPORTS = frozenset(
+    {"json", "selectors", "subprocess", "time"}
+)
 _BOOTSTRAP_LOCAL_IMPORTS = (
-    "function:launch_provider_via_shim:import:subprocess",
+    "function:launch_provider_via_shim:import:json",
     "function:launch_provider_via_shim:import:selectors",
+    "function:launch_provider_via_shim:import:subprocess",
+    "function:launch_provider_via_shim:import:time",
 )
 _REVIEWED_BOOTSTRAP_SHIM_DIGEST = (
-    "sha256:c99355dc578e53f7a97cc26dd01077a1"
-    "8e248ee32deb517ba4c0af8650ebe1e7"
+    "sha256:94b6d92bd566a45767544e06cb2daa7f"
+    "778246fa6240024ac73aaba3d7ab14c1"
 )
 
 
@@ -3419,6 +3432,7 @@ def _build_provider_environment_manifest_from_fd(
     _require_safe_symlink_graph(scanned)
     if inject_launch_shim:
         _inject_launch_shim(scanned, provider_prefix)
+        _inject_structural_mountpoints(scanned)
 
     document = {
         "schema_version": ENVIRONMENT_SCHEMA_VERSION,
@@ -4241,12 +4255,6 @@ def _verify_pinned_snapshot(
         inject_launch_shim=False,
         finalized_snapshot=True,
     )
-    _restore_verified_symlink_timestamps(
-        pinned.root_fd,
-        manifest,
-    )
-    if verification_hook is not None:
-        verification_hook("after_tree_scan", pinned)
     if rebuilt.canonical_json != manifest.canonical_json:
         raise ProviderIsolationEnvironmentError(
             (
@@ -4256,6 +4264,12 @@ def _verify_pinned_snapshot(
                 ),
             )
         )
+    _restore_verified_symlink_timestamps(
+        pinned.root_fd,
+        manifest,
+    )
+    if verification_hook is not None:
+        verification_hook("after_tree_scan", pinned)
     if verification_hook is not None:
         verification_hook("before_edge_revalidation", pinned)
     pinned.revalidate_edges()
@@ -4454,7 +4468,10 @@ def _copy_manifest_tree_to_staging(
                 continue
 
             if source_stat is None:
-                if entry.path == libexec_relpath and entry.kind == "directory":
+                if entry.kind == "directory" and (
+                    entry.path == libexec_relpath
+                    or entry.path in _STRUCTURAL_MOUNTPOINT_RELPATHS
+                ):
                     os.mkdir(name, 0o700, dir_fd=destination_parent_fd)
                     destination_dirs[entry.path] = _open_directory_at(
                         destination_parent_fd,
@@ -5497,6 +5514,38 @@ def _packaged_launch_shim_bytes() -> bytes:
         .joinpath("provider_launch_shim.py")
         .read_bytes()
     )
+
+
+def _inject_structural_mountpoints(
+    scanned: dict[str, _ScannedEntry],
+) -> None:
+    root = scanned["."]
+    for relpath in _STRUCTURAL_MOUNTPOINT_RELPATHS:
+        existing = scanned.get(relpath)
+        if existing is not None:
+            if existing.entry.kind != "directory":
+                raise ProviderIsolationEnvironmentError(
+                    (
+                        _issue(
+                            f"$.entries[{relpath}].kind",
+                            "reserved structural mountpoint must be a directory",
+                        ),
+                    )
+                )
+            continue
+        scanned[relpath] = _ScannedEntry(
+            ProviderEnvironmentManifestEntry(
+                path=relpath,
+                kind="directory",
+                mode=0o555,
+                uid=0,
+                gid=0,
+                atime_ns=0,
+                mtime_ns=0,
+            ),
+            root.source_stat,
+            root.mount_id,
+        )
 
 
 def _inject_launch_shim(
