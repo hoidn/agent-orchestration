@@ -5,9 +5,10 @@
 - **Status:** accepted for implementation
 - **Kind:** architecture decision
 - **Owner:** Orchestrator maintainers
-- **Reviewers:** independent specification and quality re-reviews approved 2026-07-23
+- **Reviewers:** independent specification and quality re-reviews approved the
+  base design 2026-07-23 and the rootless-launch amendment 2026-07-25
 - **Created:** 2026-07-23
-- **Last material update:** 2026-07-23
+- **Last material update:** 2026-07-25
 - **Related docs / issues / plans:**
   - [`.orc` Versus One-Shot Experiment Program Design](2026-07-23-orc-vs-one-shot-experiment-design.md)
   - [`.orc` Versus One-Shot Experiment Program Implementation Plan](../plans/2026-07-23-orc-vs-one-shot-experiment.md)
@@ -55,6 +56,16 @@ This architecture adds host- and environment-packaging constraints. It makes
 portable provider launch, shared provider sessions, and ad hoc access to host
 toolchains harder; those costs are accepted because a permissive fallback
 would invalidate the information-isolation claim.
+
+The Linux backend is rootless at invocation time. It must not call `sudo`,
+`pkexec`, `setpriv` through a privileged parent, a set-id group-clearing
+helper, or a capability-bearing broker. An ordinary unprivileged Bubblewrap
+user namespace can retain the controller's supplementary group credentials;
+unmapped groups being rendered as the overflow GID is not evidence that their
+host-kernel DAC authority disappeared. V1 therefore proves a closed object
+projection and descriptor set, in addition to validating the namespace's
+one-row UID/GID maps and permanently denied `setgroups` state. A host that
+cannot construct that boundary without privilege fails closed.
 
 ## Context And Authority
 
@@ -602,11 +613,12 @@ descriptors 0/1/2 and sends the declared credential map on fixed descriptor 3
 using the closed `provider_launch_credentials.v1` binary frame: magic/version,
 at most 32 unique predeclared UTF-8 names of at most 128 bytes, values of at
 most 65,536 bytes each, and at most 262,144 total frame bytes. This frame is
-never persisted or hashed. The trusted shim joins a fresh empty session keyring,
-verifies/drops supplementary groups, reads and validates the frame, sets the
-final environment, zeroes its input buffer, closes fd 3, loads the reviewed
-seccomp denial for `keyctl`, `add_key`, and `request_key`, and execs the
-provider. On entry, before reading credentials, the shim closes every
+never persisted or hashed. The trusted shim joins a fresh empty session
+keyring, validates the rootless namespace/group boundary described in Section
+5, reads and validates the frame, sets the final environment, zeroes its input
+buffer, closes fd 3, loads the reviewed seccomp denial for `keyctl`, `add_key`,
+and `request_key`, and execs the provider. On entry, before reading
+credentials, the shim closes every
 descriptor numbered 4 or above with a verified `close_range`/fdwalk
 implementation. It must do this itself: v1's `/proc/self/fd/<N>` Bubblewrap
 bind sources can remain inherited through Bubblewrap 0.9.0, so neither
@@ -1175,15 +1187,83 @@ the namespace and absent from its `/proc`. It also uses a new terminal session
 group, `--die-with-parent`,
 no-new-privileges behavior, and zero effective, permitted, and inheritable
 capabilities before the provider executable starts. The executable probe must
-also observe empty supplementary groups, `NoNewPrivs: 1`, and zero `CapAmb`
-and `CapBnd` in `/proc/self/status`; the effective, permitted, and inheritable
-sets are `CapEff`, `CapPrm`, and `CapInh`, and all five fields must be zero.
+also observe the exact rootless group-boundary proof below, `NoNewPrivs: 1`,
+and zero `CapAmb` and `CapBnd` in `/proc/self/status`; the effective,
+permitted, and inheritable sets are `CapEff`, `CapPrm`, and `CapInh`, and all
+five fields must be zero.
 Session detachment is
 required to prevent controlling-terminal `TIOCSTI` escape. Completion is not
 reported until the provider process tree is quiescent. Timeout and cancellation
 use a kernel-enforced SIGKILL/namespace-destruction path rather than relying on
 PID 1's ordinary signal handling, and result brokerage begins only after every
 descendant is gone.
+
+#### Rootless supplementary-group and object-authority boundary
+
+V1 does not require or claim an empty supplementary-group vector. On an
+ordinary unprivileged Bubblewrap launch, the process can retain the
+controller's supplementary kernel group credentials even though
+`getgroups(2)` and `/proc/self/status` render each group that lacks a child
+mapping as `/proc/sys/kernel/overflowgid`. Those retained kernel credentials
+can still satisfy DAC checks on a host object that is actually projected.
+Consequently, a one-row `gid_map` is necessary but is not, by itself, the
+isolation boundary.
+
+The provider launch is accepted only when all of the following hold:
+
+- Bubblewrap was invoked directly by the unprivileged controller; the launch
+  path contains no `sudo`, `pkexec`, privileged `setpriv`, set-id
+  group-clearing helper, capability-bearing broker, or equivalent privilege
+  transition.
+- Before releasing the credential/bootstrap gate, the trusted controller
+  reads the pinned final child from the host namespace and requires exactly
+  one UID-map row `0 <controller-euid> 1`, exactly one GID-map row
+  `0 <controller-egid> 1`, and `setgroups: deny`. The child's underlying
+  supplementary-group multiset must exactly equal the controller-bound
+  prelaunch multiset. PID reuse, a changed process start identity,
+  vector drift, or a read that cannot be tied to the pinned child fails
+  closed.
+- Inside the namespace, before credentials are read, the shim requires
+  all four `/proc/self/status` real/effective/saved/filesystem UID and GID
+  columns zero, `setgroups: deny`, one-row maps with no additional child
+  identity, nested user namespaces disabled, and every rendered supplementary
+  GID either `0` or the exact readable kernel overflow GID. The live overflow
+  GID must be nonzero and therefore distinct from the provider primary GID;
+  otherwise the backend is unavailable because the two authority classes
+  cannot be observed unambiguously. Because map output is relative to the
+  reader's user namespace, the shim compares normalized row/count expectations
+  supplied by the trusted launch plan rather than pretending that its
+  second-column values are host IDs.
+  Its normalized primary/overflow counts must match the controller-bound
+  counts. Any extra row, mapped supplementary identity, malformed/unreadable
+  proc/sysctl input, or enabled group mutation fails before credentials are
+  read.
+- The positive mount plan contains only the sealed rootfs, the admitted
+  candidate, invocation-private result/home/temp surfaces, fresh kernel
+  pseudo-filesystems, and minimal devices. No other host object is reachable
+  by path. The sealed rootfs is entirely intentional read authority and is
+  mounted read-only. Every host-backed writable projection is
+  controller-owned, non-group/world-writable at admission, and either the
+  intentionally writable candidate or an invocation-private runtime
+  authority.
+- The final descriptor allowlist is exactly `{0,1,2}`. No host directory,
+  file, socket, device, IPC endpoint, process, cgroup, or mount-source
+  descriptor survives. PID, IPC, network, UTS, and keyring boundaries remain
+  as specified elsewhere in this design.
+
+The latter two bullets are the reason retained groups add no effective
+authority: there is no unapproved object on which their host DAC membership can
+act. The namespace-map observation only proves that the provider cannot name
+or manufacture additional group identities. Tests must include both
+directions: a normal rootless launch with inherited groups passes the complete
+closed-projection proof, while an extra projected group-readable sentinel,
+extra map row, `setgroups: allow`, non-overflow supplementary rendering, or
+surviving descriptor fails closed. A clone at another path, alternate `HOME`,
+or separate run root can supplement experiment hygiene but never substitutes
+for this OS boundary because the same host user can otherwise open both
+clones. The overflow GID is read rather than hard-coded. A kernel without the
+`/proc/<pid>/setgroups` control, or a host policy that forbids unprivileged
+user namespaces, makes `bubblewrap.v1` unavailable.
 
 Before `launch_intent`, the backend creates and pins the selected
 crash-durable containment slot and proves it empty. The trusted shim/setup
@@ -1241,8 +1321,9 @@ environment. Authored provider `env` is rejected in v1 rather than silently
 dropped. `PYTHONPATH`, host `HOME`/`PATH`, virtual/conda environment variables,
 dynamic-loader and interpreter bootstrap variables, Git/SSH agent variables,
 editor/session variables, host cache roots, and unrelated secrets are absent.
-Supplementary groups are empty, the provider has no access to an inherited
-process/session keyring, and the three key-management syscalls remain denied.
+Supplementary groups satisfy the rootless closed-object contract above, the
+provider has no access to an inherited process/session keyring, and the three
+key-management syscalls remain denied.
 Attestation records granted credential names and presence booleans only, never
 values or value hashes. The executable and every interpreter/loader path
 resolved for launch must remain inside the frozen snapshot.
@@ -1360,6 +1441,10 @@ Every isolated attempt emits a controller-owned
   dispositions, with inapplicable fields forbidden by the tagged variants;
 - declared final provider descriptor roles and the backend capability probe's
   final-descriptor inventory and setup-descriptor closure result;
+- the rootless group-boundary observation: exact UID/GID map rows,
+  `setgroups` state, kernel overflow GID, normalized provider-visible
+  supplementary-group vector/count, controller group-vector digest/count, and
+  closed-object-projection verdict; host group names are not recorded;
 - effective capability classifications;
 - process-tree termination outcome; and
 - stable failure code when launch does not occur.
@@ -1671,16 +1756,20 @@ failure. They include safe context and never expose credential values.
    schema, and canonical identity owner.
 2. Build the frozen-environment snapshot/identity and pass `I0E` with the real
    intended provider/shim closure before projection work.
-3. Pass standalone Bubblewrap `I0` with the exact sealed rootfs, host startup
+3. Pass rootless launch gate `I0G` without `sudo` or another privileged
+   launcher. Joint host/inner observations must prove the supplementary-group
+   binding and a closed object/descriptor projection; rebuild the sealed
+   environment because the reviewed shim identity changes.
+4. Pass standalone Bubblewrap `I0` with the exact sealed rootfs, host startup
    closure, candidate admission, process boundary, and deterministic probes
    before changing runtime launch behavior.
-4. Implement the phase-private result broker and typed-input consumer carriage.
-5. Integrate the launcher into ordinary provider execution, retry, timeout,
+5. Implement the phase-private result broker and typed-input consumer carriage.
+6. Integrate the launcher into ordinary provider execution, retry, timeout,
    state, and resume paths.
-6. Rerun the original public-CLI G0 fixture through the real integrated path.
-7. Run a controlled live-provider smoke using the exact packaged environment
+7. Rerun the original public-CLI G0 fixture through the real integrated path.
+8. Run a controlled live-provider smoke using the exact packaged environment
    intended for trials.
-8. Only after both reviews and fresh evidence may the `.orc` versus one-shot
+9. Only after both reviews and fresh evidence may the `.orc` versus one-shot
    plan resume at Task 2.
 
 The legacy command-result adapter's typed pass/fail proof can proceed
@@ -1946,10 +2035,14 @@ digests, and product manifests. The historical feasibility report remains
 - The probe enumerates every final provider descriptor, rejects anything beyond
   the declared transport set, and attempts `openat("..")` on every observed
   directory descriptor; attestation proves all setup descriptors closed.
-- `/proc/self/status` proves provider-visible uid/gid `0:0`, empty
-  supplementary groups, `NoNewPrivs: 1`, and zero effective, permitted,
-  inheritable, ambient, and bounding capabilities; nested user-namespace
-  creation fails, and hostname is the fixed isolated value.
+- Host-relative and inner-namespace observations jointly prove the exact
+  rootless supplementary-group/object-authority contract: bound inherited
+  multiset, one-row maps, `setgroups: deny`, primary/overflow-only inner
+  rendering, normalized count agreement, and a closed mount/descriptor
+  projection. The same probe proves provider-visible uid/gid `0:0`,
+  `NoNewPrivs: 1`, and zero effective, permitted, inheritable, ambient, and
+  bounding capabilities; nested user-namespace creation fails, and hostname
+  is the fixed isolated value.
 - A loopback service exposing a unique denied sentinel is detected by preflight
   and prevents provider launch, including accept-and-close without a response;
   passing-host evidence records the reviewed inventory and no reachable

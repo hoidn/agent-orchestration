@@ -45,6 +45,25 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
     Workflow source, prompt assets, controller/control state, evaluators, peer
     arms, parent checkouts, prior raw result bundles, and their ancestor
     authorities must not be granted by mount or inherited descriptor.
+  - The Linux launch is rootless at invocation time. An unprivileged user
+    namespace can retain the controller's supplementary kernel groups even
+    when inner APIs render them as the overflow GID, so an empty or
+    overflow-only displayed vector is not a standalone authority proof.
+    Before bootstrap release, a host-relative observer must bind the pinned
+    child's one-row UID/GID maps, `setgroups: deny`, process identity, and
+    underlying group multiset to the controller's prelaunch values. Before
+    credential ingestion, the inner shim must independently validate
+    all four real/effective/saved/filesystem UID/GID columns as zero, one-row
+    normalized maps, `setgroups: deny`, a live nonzero kernel overflow GID
+    distinct from provider primary GID `0`, and the expected primary/overflow
+    counts. An ambiguous zero overflow GID makes the backend unavailable.
+    Isolation derives from the complete positive
+    mount allowlist, controller ownership of persistent writable projections,
+    fresh kernel/runtime objects, and final descriptor allowlist `{0,1,2}`.
+    Any foreign host object, extra mount/map/descriptor, observation drift,
+    malformed proc value, or enabled group mutation fails closed.
+    `sudo`, `pkexec`, privileged `setpriv`, set-id group clearing, and
+    capability-bearing launch brokers are not valid v1 launch mechanisms.
   - Direct credentials are names, not values, in policy. Effective values are
     the intersection of the policy allowlist and each provider step's declared
     `secrets`; unrelated ambient environment and reserved runtime, loader,

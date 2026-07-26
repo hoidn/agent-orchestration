@@ -161,6 +161,21 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     Source mutation after publication cannot change the snapshot identity;
     mutation, metadata drift, an existing digest authority, or inability to
     preserve the fixed timestamp contract fails closed.
+  - `bubblewrap.v1` launches directly as the unprivileged controller user; it
+    must not depend on per-run `sudo`, `pkexec`, privileged `setpriv`, a
+    set-id group-clearing helper, or a capability-bearing broker. Retained
+    supplementary groups are not assumed harmless merely because the child
+    renders them as the overflow GID: host-relative observation must bind the
+    final child's underlying group multiset to the controller's prelaunch
+    multiset, while the inner shim validates one-row maps,
+    `setgroups: deny`, all-zero real/effective/saved/filesystem UID/GID
+    columns, and primary/overflow-only normalized counts before reading
+    credentials. The live overflow GID must be nonzero and distinct from
+    provider primary GID `0`; otherwise the backend is unavailable. The
+    positive mount allowlist, controller ownership
+    of writable host-backed projections, and final `{0,1,2}` descriptor set
+    are the actual no-additional-object-authority proof. Any mismatch or
+    unsupported proc/user-namespace behavior fails closed.
   - The snapshot assembler reserves
     `<provider_prefix>/libexec/provider-launch-shim-v1.py` for the
     runtime-packaged shim. Its source bytes must match an independently pinned

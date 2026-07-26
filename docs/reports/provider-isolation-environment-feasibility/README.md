@@ -16,6 +16,21 @@ required strict reload and quiescence check. Both final independent evidence
 reviews approved promotion. `I0E` therefore passes and authorizes progression
 to the next roadmap gate.
 
+### 2026-07-25 rootless-launch amendment
+
+This report remains the immutable historical proof for the v4 sealed
+environment. Its owner-authorized `sudo setpriv --clear-groups` execution is
+not evidence for the revised rootless launch contract and no longer directly
+unblocks `I0`. The new `I0G` gate must validate retained host supplementary
+group authority against a closed object/descriptor projection, publish a
+fresh sealed identity because the packaged shim changes, and pass without a
+privileged launcher. Nothing in that follow-on reclassifies, mutates, or
+deletes the v4 evidence recorded below.
+
+The follow-on evidence owner is
+`docs/reports/provider-isolation-rootless-launch-feasibility/README.md`; it is
+created only after a fresh `I0G` attempt exists.
+
 ## Accepted identity
 
 - Mutable packaging source:

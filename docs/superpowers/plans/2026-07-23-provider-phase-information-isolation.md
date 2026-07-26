@@ -31,10 +31,12 @@ process groups, JSON/JSON Schema, SHA-256 canonical identities, Workflow Lisp
 
 The durable governing design reference is
 [Provider-Phase Information Isolation Design](../specs/2026-07-23-provider-phase-information-isolation-design.md).
-Its status is `accepted for implementation` following independent
-specification and quality re-reviews on 2026-07-23; this implementation plan
-did not confer that acceptance. Read it before implementation. If this plan
-and that design disagree, correct the plan before continuing.
+The 2026-07-23 base is accepted for implementation following independent
+specification and quality re-reviews; the 2026-07-25 rootless-launch amendment
+received fresh independent specification and quality approval and is also
+accepted for implementation. Those approvals do not promote implementation
+evidence. Read the design before implementation. If this plan and that design
+disagree, correct the plan before continuing.
 After substantive specification and quality approvals for this design/plan
 round, the controller—not an implementation task—performs the metadata-only
 transition from proposed/pending to accepted/completed and confirms the exact
@@ -87,6 +89,11 @@ Execution rules:
   proof, but configures no resource quota and does not expand this claim.
 - Do not mount `/`, the host home, the parent checkout, or the control root into
   an isolated provider namespace for convenience.
+- Launch `bubblewrap.v1` directly as the controller user. Per-run `sudo`,
+  `pkexec`, a privileged `setpriv`, set-id group-clearing helper,
+  capability-bearing broker, or an empty-group precondition is forbidden.
+  Retained supplementary groups are safe only when joint host/inner namespace
+  observations and the complete closed mount/descriptor projection pass.
 - `mode: required` must fail before provider launch when enforcement is
   unavailable. There is no warning-only path.
 - Keep history-retrieval classification separate from the core local
@@ -116,7 +123,7 @@ orchestrator/providers/
   isolation_network_preflight.py  # denied endpoints + listener inventory
   isolation_backend.py            # backend protocol, registry, capability probe
   isolation_bubblewrap.py         # Linux projection and process lifecycle
-  provider_launch_shim.py          # bounded fd-3 credential bootstrap
+  provider_launch_shim.py          # bounded fd-3 bootstrap + inner group proof
   isolation_bundle_broker.py      # phase-private active-result transfer
   isolation_attestation.py        # closed attempt evidence and state references
   schemas/
@@ -206,6 +213,7 @@ contracts, stop and correct the plan rather than adding a parallel owner.
 | Gate | Required evidence | Failure action |
 | --- | --- | --- |
 | `I0E` environment feasibility | closed manifest, safe snapshot, in-prefix executable/interpreter resolution, and tamper tests pass | Stop; revise packaging before Bubblewrap |
+| `I0G` rootless launch authority | ordinary-user launch with exact host/inner group binding, closed object/descriptor projection, and no privileged launcher passes both-direction tests | Stop; do not begin the production backend or reuse the sudo-backed proof |
 | `I0` backend feasibility | Bubblewrap probe allows candidate/product/result behavior and denies every known external path/descriptor/terminal escape without a broad host mount | Stop; revise the design/backend before runtime integration |
 | `I1` policy, admission, and broker | strict policy identity, candidate admission, fixed bundle retention, and valid/missing/invalid/symlink/oversize/retry behavior | Stop; do not integrate `ProviderExecutor` |
 | `I1C` typed consumer carriage | every declared scalar/relpath is rendered and evidenced at the provider prompt seam | Stop; G0 cannot close and executor integration must not claim readiness |
@@ -390,6 +398,13 @@ owner-run cleared-supplementary-group diagnostic, `codex --version`, and
 three post-probe strict reloads and zero cgroup residue. Both final independent
 evidence reviews approved promotion.
 
+That result remains truthful sealed-environment evidence, but its
+sudo-assisted empty-group launch is not the continuing launch prerequisite.
+Task 1B supersedes only that proxy with the rootless `I0G` contract. Because
+the packaged shim changes, Task 1B must publish a fresh immutable snapshot
+identity; it must not mutate, relabel, or delete the accepted v4 snapshot or
+proof.
+
 **Files:**
 
 - Create:
@@ -484,7 +499,8 @@ root, and one ordered row per sealed-rootfs descendant. Test:
   output authority must be disjoint in both containment directions from
   `--root`, and its basename must not already be a scanned source entry.
 
-The reviewed `provider-launch-shim.v1` tests require a bounded binary
+The completed v4 `provider-launch-shim.v1` tests historically required a
+bounded binary
 credential-pipe contract on fixed fd 3: magic/version, at most 32 unique
 predeclared UTF-8 names of at most 128 bytes, values of at most 65,536 bytes,
 and at most 262,144 total bytes, with no persistence. The environment assembler
@@ -494,18 +510,19 @@ manifest-backed `<provider_prefix>/bin/python -I -S`, suppress every `PYTHON*`
 variable/site customization, and include the runtime-known shim,
 interpreter/ELF-loader/library/Python-import/startup-configuration closure
 identities in the final manifest/backend probe. Execute a nonce challenge
-through that exact chain. The shim must join a fresh empty session keyring,
-drop supplementary groups, close every fd `>= 4` itself with verified
-`close_range`/fdwalk behavior before reading credentials, validate only
-predeclared names, set the final env without putting values in argv, zero its
-input buffer, close fd 3, install seccomp denials for
-`keyctl`/`add_key`/`request_key`, perform a second verified
+through that exact chain. That v4 shim joined a fresh empty session keyring,
+dropped supplementary groups, closed every fd `>= 4` itself with verified
+`close_range`/fdwalk behavior before reading credentials, validated only
+predeclared names, set the final env without putting values in argv, zeroed its
+input buffer, closed fd 3, installed seccomp denials for
+`keyctl`/`add_key`/`request_key`, performed a second verified
 `close_range(3, UINT_MAX)`/fdwalk after all bootstrap/import/seccomp work, and
-exec the target with exactly fds 0/1/2.
+execed the target with exactly fds 0/1/2.
 Do not credit Bubblewrap or `CLOEXEC` with closure: test extra role-labeled
 descriptors through a Bubblewrap-0.9.0-shaped exec boundary. Reject
 `/etc/ld.so.preload`, candidate-resolving RPATH/RUNPATH, writable startup
-configuration, and candidate/current-directory Python imports. Test
+configuration, and candidate/current-directory Python imports. Historical v4
+coverage tested
 truncated/oversized/duplicate/undeclared frames, source collision, interpreter
 swap, child-observed env, empty groups, denied key syscalls, setup-FD closure,
 and secret absence from argv/stderr/artifacts.
@@ -591,8 +608,8 @@ chain needed by the provider. Test:
 - actual provider `--version`/`--help` and DNS/NSS/config probes run only inside
   a temporary sealed-rootfs Bubblewrap namespace, using a standalone raw-bwrap
   harness until the production backend exists; and
-- that harness invokes the real launch shim, passes credentials only through
-  its bounded pipe, and proves the final child has empty supplementary groups,
+- that v4 harness invoked the real launch shim, passed credentials only through
+  its bounded pipe, and proved the final child had empty supplementary groups,
   denied key syscalls, and no bootstrap FD.
 
 Run the actual experiment provider executable chain from the sealed rootfs in
@@ -663,16 +680,224 @@ git add \
 git commit -m "feat(providers): seal provider rootfs identity"
 ```
 
+## Task 1B: Prove Rootless Group And Object Authority
+
+This task is the `I0G` stop/go gate. It replaces the empty-supplementary-group
+proxy used by the historical Task 1A proof with the composite rootless
+contract in the governing design. It does not implement the production
+Bubblewrap backend, result broker, runtime integration, or attestation schema.
+
+**Files:**
+
+- Modify: `orchestrator/providers/provider_launch_shim.py`
+- Modify: `orchestrator/providers/isolation_environment.py`
+- Modify: `tests/test_provider_launch_shim.py`
+- Modify: `tests/test_provider_isolation_environment.py`
+- Modify:
+  `docs/superpowers/specs/2026-07-23-provider-phase-information-isolation-design.md`
+- Modify:
+  `docs/reports/provider-isolation-environment-feasibility/README.md`
+- Create:
+  `docs/reports/provider-isolation-rootless-launch-feasibility/README.md`
+- Modify: `docs/capability_status_matrix.md`
+- Modify: `docs/design/README.md`
+- Modify:
+  `docs/superpowers/plans/2026-07-23-orc-vs-one-shot-experiment.md`
+- Modify: `specs/providers.md`
+- Modify: `specs/security.md`
+
+- [ ] **Step 1: RED-test the inner namespace validator**
+
+Add table-driven tests for a pure fail-closed validator in the packaged shim.
+The positive fixture has all four all-zero
+real/effective/saved/filesystem UID/GID status columns,
+`setgroups: deny`, exactly one normalized UID-map row, exactly one normalized
+GID-map row, a live nonzero kernel overflow GID, and only primary/overflow
+supplementary values with counts equal to the trusted launch expectations.
+Negative fixtures cover:
+
+- missing, unreadable, malformed, empty, or multi-row maps;
+- each nonzero inner real, effective, saved, or filesystem UID/GID column;
+- `setgroups` missing or not exactly `deny`;
+- missing, malformed, zero, or out-of-range `overflowgid`;
+- an inner supplementary value other than primary or overflow;
+- primary/overflow count mismatch; and
+- a launch argument with a negative, unbounded, duplicate, or inconsistent
+  expected count.
+
+The validator must run before credential fd 3 is read. Tests assert ordering
+and the stable redacted shim failure only; they do not assert prose.
+
+Run:
+
+```bash
+pytest -q \
+  tests/test_provider_launch_shim.py \
+  -k 'group or shim_bootstrap_orders'
+```
+
+Expected: the new cases fail because the old shim attempts
+`os.setgroups([])` and has no normalized boundary validator.
+
+- [ ] **Step 2: GREEN-implement the minimal inner validator**
+
+Replace `_drop_supplementary_groups()` with a bounded validator that reads
+`/proc/self/{uid_map,gid_map,setgroups,status}` and
+`/proc/sys/kernel/overflowgid` without following a caller-supplied path.
+Extend the closed shim argv with controller-supplied expected primary and
+overflow counts. Do not hard-code `65534`, infer host group IDs from
+provider-visible overflow values, add a privileged clearing path, or weaken
+failure handling when proc data is unavailable.
+
+Run:
+
+```bash
+pytest -q \
+  tests/test_provider_launch_shim.py \
+  -k 'group or shim_bootstrap_orders'
+```
+
+Expected: pass.
+
+- [ ] **Step 3: Exercise the shim through ordinary-user Bubblewrap**
+
+Update the controller-side raw-probe helper so its process-level tests execute
+the shim inside an explicitly labeled, test-only rootless Bubblewrap wrapper.
+The wrapper may project host `/` read-only only for shim-mechanics tests; it is
+not production isolation evidence and must never be used by `I0`, G0, or the
+public runtime. Add an availability probe/skip for hosts where the reviewed
+rootless user-namespace backend cannot start. Preserve direct unit tests for
+frame parsing, fd actions, redaction, and cleanup.
+
+Run:
+
+```bash
+pytest -q tests/test_provider_launch_shim.py
+```
+
+Expected: all module tests pass from the normal owner session with no
+supplementary-group deselections and no privilege prompt.
+
+- [ ] **Step 4: Add the host-relative half to the raw `I0G` proof**
+
+Using a fresh one-use evidence authority, launch the real sealed provider/shim
+chain directly as the owner. Keep the credential pipe unreleased while the
+controller binds the final child by PID plus process-start identity and reads
+its maps, `setgroups`, and underlying group vector from the host namespace.
+Require:
+
+- exact rows `0 <controller-euid> 1` and
+  `0 <controller-egid> 1`;
+- `setgroups: deny`;
+- exact multiset equality with the controller's captured prelaunch groups;
+- matching inner primary/overflow counts;
+- no setup descriptor at final exec; and
+- the existing capability, keyring, network, PID/session, nested-userns,
+  cgroup-quiescence, nonce, version, and help checks.
+
+The proof must use a minimal sealed-rootfs/candidate/scratch projection.
+Exercise the foreign-owned, supplementary-group-readable case as a
+deterministic admission/mount-plan negative fixture that rejects before
+opening the sentinel; do not read an unrelated host secret as positive
+evidence. A broad `--ro-bind / /` is forbidden in the accepted proof.
+
+- [ ] **Step 5: Publish and verify a fresh sealed identity**
+
+The shim source is part of the reviewed bootstrap identity. Update its
+independently pinned source digest, rebuild the prospective manifest from the
+same admitted source into fresh v5-or-later names, assemble a fresh run-owned
+snapshot, and strictly reload it twice before execution. Never mutate,
+overwrite, repair, or delete v4. Run the diagnostic, real provider
+`--version`, and real provider `--help` through the rootless proof, then
+strictly reload again after each probe.
+
+Record immutable paths, canonical environment/bootstrap digests, commands,
+group observations, cgroup cleanup, log digest, and rejected attempts in the
+new
+`docs/reports/provider-isolation-rootless-launch-feasibility/README.md`.
+The old Task 1A report remains immutable historical evidence except for its
+single routing pointer to this follow-on report.
+
+- [ ] **Step 6: Add normative and evidence status updates**
+
+Update `specs/providers.md` and `specs/security.md` with the composite
+contract: retained groups can carry host DAC authority, one-row maps are only
+one necessary check, and the closed object/descriptor projection is the
+actual denial boundary. Record that invocation is rootless and that a host
+which disables unprivileged user namespaces is unavailable rather than
+silently privileged.
+
+Promote the design amendment and `I0G` report only after both independent
+reviews approve the exact implementation/evidence identity.
+
+- [ ] **Step 7: Run focused, aggregate, and broad verification**
+
+Run narrow selectors first:
+
+```bash
+pytest --collect-only -q tests/test_provider_launch_shim.py
+pytest -q \
+  tests/test_provider_launch_shim.py \
+  tests/test_provider_isolation_environment.py \
+  tests/test_provider_isolation_environment_cli.py \
+  tests/test_provider_isolation_policy.py \
+  tests/test_provider_isolation_schema_resources.py
+git diff --check -- \
+  orchestrator/providers/provider_launch_shim.py \
+  orchestrator/providers/isolation_environment.py \
+  tests/test_provider_launch_shim.py \
+  tests/test_provider_isolation_environment.py \
+  docs/superpowers/specs/2026-07-23-provider-phase-information-isolation-design.md \
+  docs/superpowers/plans/2026-07-23-provider-phase-information-isolation.md \
+  docs/superpowers/plans/2026-07-23-orc-vs-one-shot-experiment.md \
+  docs/reports/provider-isolation-environment-feasibility/README.md \
+  docs/reports/provider-isolation-rootless-launch-feasibility/README.md \
+  docs/capability_status_matrix.md \
+  docs/design/README.md \
+  specs/providers.md \
+  specs/security.md
+```
+
+Run `pytest -q -n 16 --dist=worksteal` in tmux and compare any failures with
+the current reviewed broad baseline. Do not erase an unrelated failure or
+call it passing.
+
+- [ ] **Step 8: Obtain both reviews and commit**
+
+First request an independent specification review against the governing
+design, including the host-DAC nuance and both-direction controls. After it
+approves, request an independent quality/evidence review. Correct and rerun
+the complete affected gate after either review finds an issue.
+
+Stage only Task 1B paths and commit:
+
+```bash
+git add \
+  orchestrator/providers/provider_launch_shim.py \
+  orchestrator/providers/isolation_environment.py \
+  tests/test_provider_launch_shim.py \
+  tests/test_provider_isolation_environment.py \
+  docs/superpowers/specs/2026-07-23-provider-phase-information-isolation-design.md \
+  docs/superpowers/plans/2026-07-23-provider-phase-information-isolation.md \
+  docs/superpowers/plans/2026-07-23-orc-vs-one-shot-experiment.md \
+  docs/reports/provider-isolation-environment-feasibility/README.md \
+  docs/reports/provider-isolation-rootless-launch-feasibility/README.md \
+  docs/capability_status_matrix.md \
+  docs/design/README.md \
+  specs/providers.md \
+  specs/security.md
+git commit -m "feat(providers): prove rootless launch authority"
+```
+
 ## Task 2: Prove The Bubblewrap Backend Before Runtime Integration
 
 This task is the `I0` stop/go spike. Do not touch `ProviderExecutor` until it
-passes.
+passes. Task 1B `I0G` is a hard prerequisite.
 
-Current-host status is explicitly not a pass: `/usr/bin/bwrap` 0.9.0 exposes
-the required CLI surface, but the exact user-namespace probe recorded in Task
-1A fails while `kernel.apparmor_restrict_unprivileged_userns=1`. If Task 1A is
-unblocked without also fixing Bubblewrap, expect `I0_BLOCKED` here. Option
-presence and help/version output are not feasibility evidence.
+Current-host status is not yet an `I0` pass. The reviewed AppArmor profile now
+allows rootless Bubblewrap user namespaces, but option presence, help/version
+output, Task 1A's sudo-assisted proof, and Task 1B's narrower `I0G` proof are
+not production-backend feasibility evidence.
 
 **Files:**
 
@@ -985,8 +1210,9 @@ provider-visible uid/gid `0:0`; disable nested user namespaces; set a fixed
 non-host hostname; start a new process group and terminal session
 (`bwrap --new-session` or an equivalent `setsid` contract); and require
 `--as-pid-1`, `--die-with-parent`, no-new-privileges behavior, zero effective/
-permitted/inheritable/ambient/bounding capabilities at provider exec, empty
-supplementary groups, fresh empty session keyring plus key-syscall denial,
+permitted/inheritable/ambient/bounding capabilities at provider exec, the
+Task 1B rootless group/object-authority proof, fresh empty session keyring plus
+key-syscall denial,
 isolated tmpfs `/tmp`, invocation-private tmpfs `/run` with synthetic `HOME`
 below it, a new `/proc`, and minimal `/dev`. Mount the verified run-owned
 sealed rootfs read-only at `/`; never mount the host root.
@@ -1031,10 +1257,12 @@ Expected:
   `/proc/1/mem`, cwd/root, environ, and cmdline probes reveal no setup FD,
   unrelated ambient value, or host control path;
 - terminal injection cannot reach the controller session; and
-- `/proc/self/status` reports mapped uid/gid, empty groups, `NoNewPrivs: 1`,
-  and zero `CapEff`, `CapPrm`, `CapInh`, `CapAmb`, and `CapBnd`; key syscalls and
-  nested user-namespace creation fail, and hostname is the fixed isolated
-  value; and
+- joint host-relative and inner observations report the exact bound
+  supplementary-group multiset, one-row maps, `setgroups: deny`,
+  primary/overflow-only normalized counts, mapped uid/gid `0:0`,
+  `NoNewPrivs: 1`, and zero `CapEff`, `CapPrm`, `CapInh`, `CapAmb`, and
+  `CapBnd`; key syscalls and nested user-namespace creation fail, and hostname
+  is the fixed isolated value; and
 - mount-plan audit finds no broad host grant and only the verified sealed
   rootfs as the `/` source.
 
@@ -2438,9 +2666,10 @@ git commit -m "test(providers): prove phase information isolation end to end"
 
 - [ ] **Step 1: Revalidate the accepted sealed provider rootfs**
 
-Reuse the exact sealed rootfs identity that passed `I0E`; do not rebuild an
-untracked variant for the live smoke. Revalidate it from its explicit lock
-outside the candidate and control roots. Record:
+Reuse the exact sealed rootfs identity that passed both `I0E` and the
+rootless `I0G` rebind; do not rebuild an untracked variant for the live smoke.
+Revalidate it from its explicit lock outside the candidate and control roots.
+Record:
 
 - source lock digest;
 - normalized environment manifest and digest;
@@ -2457,8 +2686,9 @@ outside the candidate and control roots. Record:
   assumption.
 
 Do not commit credentials, mutable caches, the environment itself, or raw
-provider conversations. If packaging must change, return to Task 1A, create a
-new digest, rerun `I0E` and `I0`, and review that identity before continuing.
+provider conversations. If packaging must change, return to Task 1A/1B,
+create a new digest, rerun `I0E`, `I0G`, and `I0`, and review that identity
+before continuing.
 
 - [ ] **Step 2: Run the live smoke in tmux**
 
@@ -2688,7 +2918,8 @@ git commit -m "docs(providers): close phase isolation prerequisite"
 
 The prerequisite is complete only when:
 
-- `I0E`, `I0`, `I1`, `I1C`, and `I2` through `I5` pass with fresh evidence;
+- `I0E`, `I0G`, `I0`, `I1`, `I1C`, and `I2` through `I5` pass with fresh
+  evidence;
 - the required profile fails closed on backend/environment/policy mismatch;
 - the original two-phase G0 public-CLI scenario passes without weakening any
   denial;

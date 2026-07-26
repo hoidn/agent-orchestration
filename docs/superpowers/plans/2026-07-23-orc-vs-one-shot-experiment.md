@@ -209,7 +209,13 @@ time indicates the built-in unrestricted provider profiles and
 workspace-relative result bundles are likely to fail the strict per-phase
 visibility proof. Task 1 must measure that fact. A `G0_BLOCKED` outcome is a
 correct execution of this plan and prevents apparatus or scored-trial work
-until the separate prerequisite design lands.
+until the separate provider-phase isolation design is fully implemented,
+passes its rootless `I0G` and subsequent gates, and the original public G0
+scenario is rerun successfully. The prerequisite's 2026-07-23 base has landed
+and is accepted; the material 2026-07-25 rootless amendment is independently
+reviewed and accepted for implementation but is not yet implemented. Its
+gates and the G0 rerun, not a replacement base design, are the current
+blockers.
 
 `G0` governs core control-plane/per-phase filesystem, typed-bundle, and command
 isolation. The separate historical source-retrieval probe classifies `R1`/`R2`

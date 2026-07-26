@@ -82,6 +82,15 @@ page, not a replacement for the linked docs.
 
 ## Runtime And Observability Direction
 
+Provider-phase information isolation is a partial, pre-integration runtime
+surface. Use the
+[governing design](../superpowers/specs/2026-07-23-provider-phase-information-isolation-design.md)
+and
+[active implementation plan](../superpowers/plans/2026-07-23-provider-phase-information-isolation.md);
+the sealed environment exists, but rootless launch, production backend,
+run/resume, attestation, and public G0 gates remain. Separate clones are
+experiment hygiene, not a substitute for the OS boundary.
+
 The [resume projection-integrity hardening design-and-planning plan](../plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md)
 has completed its characterization, accepted-design, normative-contract, and
 reviewed-plan artifacts, holistic routing reviews, and fresh routing
