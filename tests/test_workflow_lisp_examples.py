@@ -135,11 +135,10 @@ def test_with_phase_composed_binding_orc_compiles_to_typed_phase_stack(tmp_path:
         == "with_phase_composed_binding::run-with-phase-composed-binding"
     )
     assert [step["name"] for step in lowered["steps"]] == [
-        "MaterializeImplementationAttemptPromptInputs",
         "with_phase_composed_binding::run-with-phase-composed-binding__result",
         "with_phase_composed_binding::run-with-phase-composed-binding__match_phase-result",
     ]
-    assert lowered["steps"][1]["provider"] == "test-provider"
+    assert lowered["steps"][0]["provider"] == "test-provider"
 
 
 def test_effectful_match_arm_normalization_orc_compiles_with_shared_validation(tmp_path: Path) -> None:

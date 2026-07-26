@@ -523,12 +523,12 @@ def test_ordinary_repeat_core_executable_and_runtime_plan_bytes_remain_frozen(
     }
     expected = {
         "core": (
-            47271,
-            "9f16ae97966378522dd64dc0c334bf294c271e806008e43e0615d8fa80c649f3",
+            48044,
+            "3850f236d54e352adc154930f57d23e62784d6875ce0c1842af632a0b9226a60",
         ),
         "executable": (
-            65326,
-            "f244c285363bf59cce8da285276a33e3791fe7c0e1d95a224ceaef71842ad580",
+            66099,
+            "9ca9c4cc3bfc2360e9bbace8597684273d6a22be20f8d81af88863c3e70f4325",
         ),
         "runtime_plan": (
             50784,
@@ -1317,6 +1317,88 @@ def test_lowering_loop_recur_with_composed_with_phase_binding_exports_step_backe
         for name in nested_names
     )
     assert "loop-recur-phase-binding__body" in nested_names
+    nested_provider = next(
+        step
+        for step in repeat_step["repeat_until"]["steps"]
+        if step.get("provider") == "test-provider"
+    )
+    typed_by_name = {
+        row["binding_name"]: row
+        for row in nested_provider["typed_prompt_inputs"]
+    }
+    assert typed_by_name["execution_report_target"]["value_source"] == {
+        "kind": "typed_binding_ref",
+        "binding": {"ref": "inputs.phase-ctx__execution_report_target"},
+    }
+    assert typed_by_name["progress_report_target"]["value_source"] == {
+        "kind": "typed_binding_ref",
+        "binding": {"ref": "inputs.phase-ctx__progress_report_target"},
+    }
+
+
+def test_wcc_lifted_phase_provider_rejects_partial_implicit_input_carriage(
+    tmp_path: Path,
+) -> None:
+    source = """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.18")
+  (defmodule wcc_phase_mixed)
+  (import std/phase :only (with-phase))
+  (defpath WorkTarget
+    :kind relpath
+    :under "artifacts/work"
+    :must-exist false)
+  (defrecord RunCtx
+    (run-id RunId)
+    (state-root Path.state-root)
+    (artifact-root Path.artifact-root))
+  (defrecord PhaseCtx
+    (run RunCtx)
+    (phase-name Symbol)
+    (state-root Path.state-root)
+    (artifact-root Path.artifact-root)
+    (execution_report_target WorkTarget)
+    (progress_report_target WorkTarget))
+  (defworkflow run
+    ((phase-ctx PhaseCtx)
+     (count Int)
+     (items List[Int]))
+    -> Bool
+    (loop/recur :max 1 :state false
+      (fn (state)
+        (let* ((result
+                 (with-phase phase-ctx implementation
+                   (provider-result providers.execute
+                     :prompt prompts.execute
+                     :inputs (count items
+                              (phase-target execution-report)
+                              (phase-target progress-report))
+                     :returns Bool))))
+          (done result))))))
+""".lstrip()
+    workflow_path = _write_module(
+        tmp_path / "wcc_phase_mixed.orc",
+        source,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            workflow_path,
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.execute": "prompt.md"},
+            validate_shared=False,
+            workspace_root=tmp_path,
+            lowering_route="wcc_m4",
+        )
+
+    assert [
+        diagnostic.code for diagnostic in excinfo.value.diagnostics
+    ] == ["typed_prompt_input_renderer_default_missing"]
+    items_line = source.splitlines().index(
+        "                     :inputs (count items"
+    ) + 1
+    assert excinfo.value.diagnostics[0].span.start.line == items_line
 
 
 def test_loop_recur_review_phase_binding_exports_step_backed_outputs(tmp_path: Path) -> None:

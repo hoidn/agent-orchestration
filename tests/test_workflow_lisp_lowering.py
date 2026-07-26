@@ -1700,7 +1700,7 @@ def test_prompt_extern_lowers_input_file(tmp_path: Path) -> None:
     )
 
     lowered = result.lowered_workflows[0].authored_mapping
-    provider_step = lowered["steps"][1]
+    provider_step = lowered["steps"][0]
 
     assert provider_step["input_file"] == "prompts/workspace/implementation/execute.md"
     assert "asset_file" not in provider_step
@@ -2793,7 +2793,364 @@ def test_typed_prompt_input_fixture_lowers_provider_step_with_private_typed_prom
     )
 
 
-def test_phase_stdlib_fixture_retains_legacy_prompt_input_prelude_for_non_c1_rows(
+def test_provider_result_typed_prompt_inputs_lower_with_implicit_renderers_without_profile_rows(
+    tmp_path: Path,
+) -> None:
+    module_path = tmp_path / "typed_carriage.orc"
+    module_path.write_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.15")
+  (defmodule typed_carriage)
+  (export PhaseOneResult TrialResult run)
+  (defpath TaskFile
+    :kind relpath
+    :under "task"
+    :must-exist true)
+  (defrecord PhaseOneResult
+    (allowed_value String)
+    (allowed_path TaskFile))
+  (defrecord TrialResult
+    (status String)
+    (marker String))
+  (defworkflow run
+    ((task TaskFile))
+    -> TrialResult
+    (let* ((prior
+             (provider-result providers.phase-one
+               :prompt prompts.phase-one
+               :inputs (task)
+               :returns PhaseOneResult))
+           (final
+             (provider-result providers.phase-two
+               :prompt prompts.phase-two
+               :inputs (prior.allowed_value prior.allowed_path)
+               :returns TrialResult)))
+      final)))
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        entry_workflow="run",
+        provider_externs={
+            "providers.phase-one": "phase-one-provider",
+            "providers.phase-two": "phase-two-provider",
+        },
+        prompt_externs={
+            "prompts.phase-one": "phase-one.md",
+            "prompts.phase-two": "phase-two.md",
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    bundle = next(
+        bundle
+        for name, bundle in result.validated_bundles_by_name.items()
+        if name == "run" or name.endswith("::run")
+    )
+    provider_steps = [
+        step for step in bundle.surface.steps if step.kind.name == "PROVIDER"
+    ]
+    phase_two = next(
+        step for step in provider_steps if step.provider == "phase-two-provider"
+    )
+    typed_inputs = [dict(entry) for entry in phase_two.typed_prompt_inputs]
+
+    assert [entry["binding_name"] for entry in typed_inputs] == [
+        "allowed_value",
+        "allowed_path",
+    ]
+    assert [entry["value_type_name"] for entry in typed_inputs] == [
+        "String",
+        "TaskFile",
+    ]
+    assert [entry["renderer"]["renderer_id"] for entry in typed_inputs] == [
+        "canonical-json",
+        "posix-path-line",
+    ]
+    assert all(entry["source_map_origin_key"] == "typed_carriage::run" for entry in typed_inputs)
+    assert all("u0_row_id" not in entry and "c0_row_id" not in entry for entry in typed_inputs)
+    assert not any(
+        step.kind.name == "MATERIALIZE_ARTIFACTS"
+        and "prompt_inputs" in step.step_id
+        for step in bundle.surface.steps
+    )
+
+
+def test_provider_result_record_typed_prompt_input_uses_canonical_default_without_profile(
+    tmp_path: Path,
+) -> None:
+    module_path = tmp_path / "typed_record_carriage.orc"
+    module_path.write_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.15")
+  (defmodule typed_record_carriage)
+  (export PromptRequest TrialResult run)
+  (defrecord PromptRequest
+    (focus String)
+    (approved Bool))
+  (defrecord TrialResult
+    (status String))
+  (defworkflow run
+    ((request PromptRequest))
+    -> TrialResult
+    (provider-result providers.execute
+      :prompt prompts.execute
+      :inputs (request)
+      :returns TrialResult)))
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        entry_workflow="run",
+        provider_externs={"providers.execute": "record-provider"},
+        prompt_externs={"prompts.execute": "prompt.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    bundle = next(
+        bundle
+        for name, bundle in result.validated_bundles_by_name.items()
+        if name == "run" or name.endswith("::run")
+    )
+    provider_step = next(
+        step for step in bundle.surface.steps if step.kind.name == "PROVIDER"
+    )
+    typed_inputs = [dict(entry) for entry in provider_step.typed_prompt_inputs]
+
+    assert [entry["binding_name"] for entry in typed_inputs] == ["request"]
+    assert typed_inputs[0]["value_type_name"] == "PromptRequest"
+    assert typed_inputs[0]["renderer"] == {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value",
+    }
+    assert "u0_row_id" not in typed_inputs[0]
+    assert "c0_row_id" not in typed_inputs[0]
+
+
+def test_provider_result_mixed_unsupported_shape_carries_supported_bindings_without_profile(
+    tmp_path: Path,
+) -> None:
+    module_path = tmp_path / "mixed_typed_carriage.orc"
+    module_path.write_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.18")
+  (defmodule mixed_typed_carriage)
+  (export TrialResult run)
+  (defrecord TrialResult
+    (status String))
+  (defworkflow run
+    ((count Int)
+     (items List[Int]))
+    -> TrialResult
+    (provider-result providers.execute
+      :prompt prompts.execute
+      :inputs (count items)
+      :returns TrialResult)))
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        entry_workflow="run",
+        provider_externs={"providers.execute": "mixed-provider"},
+        prompt_externs={"prompts.execute": "prompt.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    bundle = next(
+        bundle
+        for name, bundle in result.validated_bundles_by_name.items()
+        if name == "run" or name.endswith("::run")
+    )
+    provider_step = next(
+        step for step in bundle.surface.steps if step.kind.name == "PROVIDER"
+    )
+
+    assert [
+        (
+            entry["binding_name"],
+            entry["value_type_name"],
+            entry["renderer"]["renderer_id"],
+            entry["injection_order"],
+        )
+        for entry in provider_step.typed_prompt_inputs
+    ] == [("count", "Int", "canonical-json", 0)]
+
+
+def test_provider_result_literal_inputs_get_structural_types_and_unique_positions(
+    tmp_path: Path,
+) -> None:
+    module_path = tmp_path / "literal_typed_carriage.orc"
+    module_path.write_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.15")
+  (defmodule literal_typed_carriage)
+  (export TrialResult run)
+  (defrecord TrialResult
+    (status String))
+  (defworkflow run
+    ()
+    -> TrialResult
+    (provider-result providers.execute
+      :prompt prompts.execute
+      :inputs (true 42 "focus")
+      :returns TrialResult)))
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        entry_workflow="run",
+        provider_externs={"providers.execute": "literal-provider"},
+        prompt_externs={"prompts.execute": "prompt.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    bundle = next(
+        bundle
+        for name, bundle in result.validated_bundles_by_name.items()
+        if name == "run" or name.endswith("::run")
+    )
+    provider_step = next(
+        step for step in bundle.surface.steps if step.kind.name == "PROVIDER"
+    )
+
+    assert [
+        (
+            entry["binding_name"],
+            entry["value_type_name"],
+            entry["value_source"]["binding"],
+            entry["injection_order"],
+        )
+        for entry in provider_step.typed_prompt_inputs
+    ] == [
+        ("inputs__0", "Bool", True, 0),
+        ("inputs__1", "Int", 42, 1),
+        ("inputs__2", "String", "focus", 2),
+    ]
+
+
+def test_provider_result_profile_route_retains_list_typed_input(
+    tmp_path: Path,
+) -> None:
+    module_path = tmp_path / "profile_list_carriage.orc"
+    module_path.write_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.18")
+  (defmodule profile_list_carriage)
+  (export TrialResult run)
+  (defrecord TrialResult
+    (status String))
+  (defworkflow run
+    ((items List[Int]))
+    -> TrialResult
+    (provider-result providers.execute
+      :prompt prompts.execute
+      :inputs (items)
+      :returns TrialResult)))
+""".lstrip(),
+        encoding="utf-8",
+    )
+    profile_payload = json.loads(
+        GENERIC_FAMILY_PROFILE_FIXTURE.read_text(encoding="utf-8")
+    )
+    profile_payload["family_id"] = "profile_list_carriage_fixture"
+    profile_payload["target_workflows"] = ["profile_list_carriage::run"]
+    profile_payload["checked_public_inputs"] = {}
+    profile_payload["entry_phase_identities"] = {}
+    profile_payload["hidden_context_rules"] = []
+    profile_payload["typed_prompt_input_rows"] = [
+        {
+            "workflow_name": "profile_list_carriage::run",
+            "provider_binding": "providers.execute",
+            "binding_name": "items",
+            "renderer": {
+                "renderer_id": "canonical-json",
+                "renderer_version": 1,
+                "accepted_shape": "any_pure_value",
+            },
+            "value_source": {
+                "kind": "typed_binding_ref",
+                "ref": "inputs.items",
+            },
+            "value_type_name": "List[Int]",
+            "source_map_origin_key": "profile_list_carriage::run",
+            "u0_row_id": "u0.fixture.items",
+            "c0_row_id": "c0.fixture.items",
+            "injection_order": 0,
+        }
+    ]
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(
+        json.dumps(profile_payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        entry_workflow="run",
+        provider_externs={"providers.execute": "list-provider"},
+        prompt_externs={"prompts.execute": "prompt.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        family_profile_catalog=load_workflow_family_profile_catalog(
+            (profile_path,)
+        ),
+    )
+    bundle = next(
+        bundle
+        for name, bundle in result.validated_bundles_by_name.items()
+        if name == "run" or name.endswith("::run")
+    )
+    provider_step = next(
+        step for step in bundle.surface.steps if step.kind.name == "PROVIDER"
+    )
+
+    assert [dict(entry) for entry in provider_step.typed_prompt_inputs] == [
+        {
+            "schema_version": "workflow_lisp_typed_prompt_input.v1",
+            "binding_name": "items",
+            "renderer": {
+                "renderer_id": "canonical-json",
+                "renderer_version": 1,
+                "accepted_shape": "any_pure_value",
+            },
+            "value_source": {
+                "kind": "typed_binding_ref",
+                "binding": {"ref": "inputs.items"},
+            },
+            "value_type_name": "List[Int]",
+            "source_map_origin_key": "profile_list_carriage::run",
+            "u0_row_id": "u0.fixture.items",
+            "c0_row_id": "c0.fixture.items",
+            "injection_order": 0,
+        }
+    ]
+
+
+def test_phase_stdlib_fixture_uses_generic_typed_prompt_inputs_without_profile_rows(
     tmp_path: Path,
 ) -> None:
     result = compile_stage3_module(
@@ -2833,11 +3190,11 @@ def test_phase_stdlib_fixture_retains_legacy_prompt_input_prelude_for_non_c1_row
     bundle = _validated_bundle_by_local_name(result, "run-provider-phase-demo")
     provider_step = next(step for step in bundle.surface.steps if step.kind.name == "PROVIDER")
 
-    assert any(
+    assert not any(
         step.kind.name == "MATERIALIZE_ARTIFACTS" and "prompt_inputs" in step.step_id
         for step in bundle.surface.steps
     )
-    assert not getattr(provider_step, "typed_prompt_inputs", ())
+    assert getattr(provider_step, "typed_prompt_inputs", ())
 
 
 def test_local_request_record_fixture_preserves_one_typed_request_binding(
@@ -4368,8 +4725,26 @@ def test_compile_stage3_module_lowers_effectful_match_arm_provider_branches(tmp_
         "provider_attempt__attempt",
         "provider_attempt__match_attempt",
     ]
-    assert match_step["match"]["cases"]["COMPLETED"]["steps"][0]["provider"] == "test-provider"
-    assert match_step["match"]["cases"]["BLOCKED"]["steps"][0]["provider"] == "test-provider"
+    completed_provider = match_step["match"]["cases"]["COMPLETED"]["steps"][0]
+    blocked_provider = match_step["match"]["cases"]["BLOCKED"]["steps"][0]
+    assert completed_provider["provider"] == "test-provider"
+    assert blocked_provider["provider"] == "test-provider"
+    assert [
+        (
+            row["binding_name"],
+            row["value_type_name"],
+            row["renderer"]["renderer_id"],
+        )
+        for row in completed_provider["typed_prompt_inputs"]
+    ] == [("execution_report", "WorkReport", "posix-path-line")]
+    assert [
+        (
+            row["binding_name"],
+            row["value_type_name"],
+            row["renderer"]["renderer_id"],
+        )
+        for row in blocked_provider["typed_prompt_inputs"]
+    ] == [("progress_report", "WorkReport", "posix-path-line")]
     assert match_step["match"]["cases"]["COMPLETED"]["outputs"]["return__report"]["from"]["ref"].endswith(
         ".artifacts.report"
     )
@@ -6788,127 +7163,29 @@ def test_compile_stage3_module_lowers_phase_translation_fixture_with_phase_scope
         "return__implementation_state",
         "return__implementation_state_bundle_path",
     )
-    assert tuple(lowered["artifacts"]) == (
-        "design",
-        "plan",
-        "execution_report_target",
-        "progress_report_target",
-    )
+    assert "artifacts" not in lowered
     assert "providers" not in lowered
     assert "__write_root__run_implementation_attempt__attempt__result_bundle" not in lowered["inputs"]
 
-    prelude_step = lowered["steps"][0]
-    materialized_root = (
-        ".orchestrate/workflow_lisp/neurips_implementation_attempt::"
-        "run-implementation-attempt/materialized"
-    )
-    assert prelude_step["name"] == "MaterializeImplementationAttemptPromptInputs"
-    assert prelude_step["materialize_artifacts"] == {
-        "values": [
-            {
-                "name": "design",
-                "source": {"input": "inputs__design"},
-                "contract": {"inherit": "source"},
-                "pointer": {
-                    "path": f"{materialized_root}/design.txt",
-                },
-            },
-            {
-                "name": "plan",
-                "source": {"input": "inputs__plan"},
-                "contract": {"inherit": "source"},
-                "pointer": {
-                    "path": f"{materialized_root}/plan.txt",
-                },
-            },
-            {
-                "name": "execution_report_target",
-                "source": {"ref": "inputs.phase-ctx__execution_report_target"},
-                "contract": lowered["inputs"]["phase-ctx__execution_report_target"],
-                "pointer": {
-                    "path": f"{materialized_root}/execution_report_target.txt",
-                },
-            },
-            {
-                "name": "progress_report_target",
-                "source": {"ref": "inputs.phase-ctx__progress_report_target"},
-                "contract": lowered["inputs"]["phase-ctx__progress_report_target"],
-                "pointer": {
-                    "path": f"{materialized_root}/progress_report_target.txt",
-                },
-            },
-        ]
-    }
-    assert prelude_step["publishes"] == [
-        {"artifact": "design", "from": "design"},
-        {"artifact": "plan", "from": "plan"},
-        {"artifact": "execution_report_target", "from": "execution_report_target"},
-        {"artifact": "progress_report_target", "from": "progress_report_target"},
-    ]
-    assert lowered["artifacts"]["design"] == {
-        "kind": "relpath",
-        "type": "relpath",
-        "under": "docs/design",
-        "must_exist_target": True,
-        "pointer": f"{materialized_root}/design.txt",
-    }
-    assert lowered["artifacts"]["plan"] == {
-        "kind": "relpath",
-        "type": "relpath",
-        "under": "docs/plans",
-        "must_exist_target": True,
-        "pointer": f"{materialized_root}/plan.txt",
-    }
-    assert lowered["artifacts"]["execution_report_target"] == {
-        "kind": "relpath",
-        "type": "relpath",
-        "under": "artifacts/work",
-        "must_exist_target": False,
-        "pointer": f"{materialized_root}/execution_report_target.txt",
-    }
-    assert lowered["artifacts"]["progress_report_target"] == {
-        "kind": "relpath",
-        "type": "relpath",
-        "under": "artifacts/work",
-        "must_exist_target": False,
-        "pointer": f"{materialized_root}/progress_report_target.txt",
-    }
-
-    provider_step = lowered["steps"][1]
+    provider_step = lowered["steps"][0]
     assert provider_step["provider"] == "fake"
     assert provider_step["asset_file"] == "prompts/implementation/execute.md"
-    assert provider_step["consumes"] == [
-        {
-            "artifact": "design",
-            "policy": "latest_successful",
-            "freshness": "any",
-        },
-        {
-            "artifact": "plan",
-            "policy": "latest_successful",
-            "freshness": "any",
-        },
-        {
-            "artifact": "execution_report_target",
-            "policy": "latest_successful",
-            "freshness": "any",
-        },
-        {
-            "artifact": "progress_report_target",
-            "policy": "latest_successful",
-            "freshness": "any",
-        },
-    ]
-    assert provider_step["prompt_consumes"] == [
+    assert [row["binding_name"] for row in provider_step["typed_prompt_inputs"]] == [
         "design",
         "plan",
         "execution_report_target",
         "progress_report_target",
     ]
+    assert {
+        row["renderer"]["renderer_id"]
+        for row in provider_step["typed_prompt_inputs"]
+    } == {"posix-path-line"}
+    assert "consumes" not in provider_step
+    assert "prompt_consumes" not in provider_step
     assert "variant_output" in provider_step
     assert provider_step["variant_output"]["path"] == "${inputs.phase-ctx__implementation_state_bundle_path}"
 
-    match_step = lowered["steps"][2]
+    match_step = lowered["steps"][1]
     assert (
         match_step["match"]["ref"]
         == "root.steps.neurips_implementation_attempt::run-implementation-attempt__attempt.artifacts.variant"
@@ -7031,13 +7308,12 @@ def test_compile_stage3_module_lowers_with_phase_let_binding_to_step_backed_outp
     step_names = [step["name"] for step in lowered["steps"]]
 
     assert step_names == [
-        "MaterializeImplementationAttemptPromptInputs",
         "with_phase_let_binding::entry__phase-result",
         "with_phase_let_binding::entry__match_phase-result",
     ]
-    assert lowered["steps"][1]["provider"] == "fake"
+    assert lowered["steps"][0]["provider"] == "fake"
     assert (
-        lowered["steps"][2]["match"]["ref"]
+        lowered["steps"][1]["match"]["ref"]
         == "root.steps.with_phase_let_binding::entry__phase-result.artifacts.variant"
     )
     assert lowered["outputs"]["return__implementation_state"]["from"]["ref"].endswith(
@@ -7242,14 +7518,18 @@ def test_compile_stage3_module_maps_phase_targets_by_name_not_position(tmp_path:
         workspace_root=tmp_path,
     )
 
-    prelude_values = result.lowered_workflows[0].authored_mapping["steps"][0]["materialize_artifacts"]["values"]
-    prelude_by_name = {value["name"]: value for value in prelude_values}
+    typed_inputs = result.lowered_workflows[0].authored_mapping["steps"][0][
+        "typed_prompt_inputs"
+    ]
+    typed_by_name = {value["binding_name"]: value for value in typed_inputs}
 
-    assert prelude_by_name["execution_report_target"]["source"] == {
-        "ref": "inputs.phase-ctx__execution_report_target"
+    assert typed_by_name["execution_report_target"]["value_source"] == {
+        "kind": "typed_binding_ref",
+        "binding": {"ref": "inputs.phase-ctx__execution_report_target"},
     }
-    assert prelude_by_name["progress_report_target"]["source"] == {
-        "ref": "inputs.phase-ctx__progress_report_target"
+    assert typed_by_name["progress_report_target"]["value_source"] == {
+        "kind": "typed_binding_ref",
+        "binding": {"ref": "inputs.phase-ctx__progress_report_target"},
     }
 
 

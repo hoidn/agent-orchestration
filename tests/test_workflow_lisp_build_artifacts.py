@@ -4479,7 +4479,9 @@ def test_boundary_projection_serializes_root_return_kind_for_native_transportabl
     ]
 
 
-def test_source_map_serializes_generated_semantic_effects_for_frontend_build(tmp_path: Path) -> None:
+def test_source_map_omits_retired_prompt_pointer_effects_for_frontend_build(
+    tmp_path: Path,
+) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
 
@@ -4489,7 +4491,7 @@ def test_source_map_serializes_generated_semantic_effects_for_frontend_build(tmp
     workflow = source_map["workflows"][workflow_name]
 
     assert "generated_semantic_effects" in workflow
-    assert any(
+    assert not any(
         effect["effect_kind"] == "pointer_materialization"
         for effect in workflow["generated_semantic_effects"]
     )
@@ -4758,7 +4760,9 @@ def test_stdlib_contract_inventory_is_compile_time_only_and_not_serialized_into_
         assert marker not in combined
 
 
-def test_semantic_ir_artifact_serializes_promoted_effects_for_frontend_build(tmp_path: Path) -> None:
+def test_semantic_ir_artifact_omits_retired_prompt_pointer_effects(
+    tmp_path: Path,
+) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
 
@@ -4770,7 +4774,10 @@ def test_semantic_ir_artifact_serializes_promoted_effects_for_frontend_build(tmp
         if effect["effect_kind"] in {"pointer_materialization", "snapshot_capture", "resource_transition", "ledger_update"}
     ]
 
-    assert any(effect["effect_kind"] == "pointer_materialization" for effect in effects)
+    assert not any(
+        effect["effect_kind"] == "pointer_materialization"
+        for effect in effects
+    )
 
 
 @pytest.mark.parametrize(

@@ -121,6 +121,58 @@ def test_normalize_typed_prompt_input_entry_canonicalizes_metadata() -> None:
     assert normalized["source_map_origin_key"].startswith("typed_prompt_input_phase::")
 
 
+def test_normalize_typed_prompt_input_entry_allows_generic_source_map_without_profile_rows() -> None:
+    module = _typed_prompt_inputs_module()
+
+    normalized = module.normalize_typed_prompt_input_entry(
+        {
+            "schema_version": "workflow_lisp_typed_prompt_input.v1",
+            "binding_name": "allowed_value",
+            "renderer": {
+                "renderer_id": "canonical-json",
+                "renderer_version": 1,
+                "accepted_shape": "any_pure_value",
+            },
+            "value_source": {
+                "kind": "typed_binding_ref",
+                "ref": "root.steps.phase-one.artifacts.allowed_value",
+            },
+            "value_type_name": "String",
+            "source_map_origin_key": "typed_carriage::run",
+            "injection_order": 0,
+        }
+    )
+
+    assert normalized["binding_name"] == "allowed_value"
+    assert "u0_row_id" not in normalized
+    assert "c0_row_id" not in normalized
+
+
+def test_normalize_typed_prompt_input_entry_rejects_partial_profile_lineage() -> None:
+    module = _typed_prompt_inputs_module()
+
+    with pytest.raises(ValueError, match="u0_row_id.*c0_row_id|c0_row_id.*u0_row_id"):
+        module.normalize_typed_prompt_input_entry(
+            {
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "binding_name": "allowed_value",
+                "renderer": {
+                    "renderer_id": "canonical-json",
+                    "renderer_version": 1,
+                    "accepted_shape": "any_pure_value",
+                },
+                "value_source": {
+                    "kind": "typed_binding_ref",
+                    "ref": "root.steps.phase-one.artifacts.allowed_value",
+                },
+                "value_type_name": "String",
+                "source_map_origin_key": "typed_carriage::run",
+                "u0_row_id": "u0.partial",
+                "injection_order": 0,
+            }
+        )
+
+
 def test_normalize_typed_prompt_input_entry_preserves_request_field_authority() -> None:
     module = _typed_prompt_inputs_module()
     normalized = module.normalize_typed_prompt_input_entry(
@@ -206,6 +258,115 @@ def test_render_typed_prompt_inputs_serializes_runtime_evidence() -> None:
     assert evidence
     assert evidence[0]["schema_version"] == "workflow_lisp_typed_prompt_input_evidence.v1"
     assert evidence[0]["binding_name"] == "prompt_context"
+
+
+def test_render_typed_prompt_inputs_requires_exact_binding_and_evidence_sets() -> None:
+    module = _typed_prompt_inputs_module()
+    entries = [
+        {
+            "schema_version": "workflow_lisp_typed_prompt_input.v1",
+            "binding_name": "allowed_value",
+            "renderer": {
+                "renderer_id": "canonical-json",
+                "renderer_version": 1,
+                "accepted_shape": "any_pure_value",
+            },
+            "value_source": {
+                "kind": "typed_binding_ref",
+                "ref": "root.steps.phase-one.artifacts.allowed_value",
+            },
+            "value_type_name": "String",
+            "source_map_origin_key": "typed_carriage::run",
+            "injection_order": 0,
+        }
+    ]
+
+    with pytest.raises(ValueError, match="typed_prompt_input_binding_set_mismatch"):
+        module.render_typed_prompt_inputs(
+            entries,
+            resolved_typed_values={
+                "allowed_value": "typed-prior-value",
+                "unexpected": "must-not-be-silently-ignored",
+            },
+            workflow_name="typed_carriage::run",
+            step_id="root.phase-two",
+        )
+
+    _block, evidence = module.render_typed_prompt_inputs(
+        entries,
+        resolved_typed_values={"allowed_value": "typed-prior-value"},
+        workflow_name="typed_carriage::run",
+        step_id="root.phase-two",
+    )
+    with pytest.raises(ValueError, match="typed_prompt_input_evidence_set_mismatch"):
+        module.validate_typed_prompt_input_composition(
+            entries,
+            resolved_typed_values={"allowed_value": "typed-prior-value"},
+            evidence=[],
+            workflow_name="typed_carriage::run",
+            step_id="root.phase-two",
+        )
+    assert module.validate_typed_prompt_input_composition(
+        entries,
+        resolved_typed_values={"allowed_value": "typed-prior-value"},
+        evidence=evidence,
+        workflow_name="typed_carriage::run",
+        step_id="root.phase-two",
+    ) == evidence
+    evidence_with_extra_field = [dict(evidence[0], raw_value="must-not-cross")]
+    with pytest.raises(ValueError, match="typed_prompt_input_evidence_set_mismatch"):
+        module.validate_typed_prompt_input_composition(
+            entries,
+            resolved_typed_values={"allowed_value": "typed-prior-value"},
+            evidence=evidence_with_extra_field,
+            workflow_name="typed_carriage::run",
+            step_id="root.phase-two",
+        )
+
+
+def test_render_typed_prompt_inputs_rejects_duplicate_binding_or_injection_order() -> None:
+    module = _typed_prompt_inputs_module()
+    entry = {
+        "schema_version": "workflow_lisp_typed_prompt_input.v1",
+        "binding_name": "allowed_value",
+        "renderer": {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1,
+            "accepted_shape": "any_pure_value",
+        },
+        "value_source": {
+            "kind": "typed_binding_ref",
+            "ref": "root.steps.phase-one.artifacts.allowed_value",
+        },
+        "value_type_name": "String",
+        "source_map_origin_key": "typed_carriage::run",
+        "injection_order": 0,
+    }
+
+    with pytest.raises(ValueError, match="typed_prompt_input_binding_set_mismatch"):
+        module.render_typed_prompt_inputs(
+            [entry, dict(entry)],
+            resolved_typed_values={"allowed_value": "typed-prior-value"},
+            workflow_name="typed_carriage::run",
+            step_id="root.phase-two",
+        )
+
+    second = dict(entry)
+    second["binding_name"] = "allowed_path"
+    second["value_source"] = {
+        "kind": "typed_binding_ref",
+        "ref": "root.steps.phase-one.artifacts.allowed_path",
+    }
+    with pytest.raises(ValueError, match="typed_prompt_input_injection_order_invalid"):
+        module.render_typed_prompt_inputs(
+            [entry, second],
+            resolved_typed_values={
+                "allowed_value": "typed-prior-value",
+                "allowed_path": "task/task.md",
+            },
+            workflow_name="typed_carriage::run",
+            step_id="root.phase-two",
+        )
 
 
 def test_render_typed_prompt_inputs_records_hidden_bridge_leaf_evidence() -> None:
@@ -972,6 +1133,136 @@ def test_runtime_smoke_renders_typed_prompt_inputs_without_prompt_materializatio
     assert "prefer typed values over producer-owned prompt files" in str(captured["prompt"])
 
 
+def test_runtime_rejects_missing_composer_evidence_before_provider_preparation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _initialize_typed_prompt_input_workspace(tmp_path)
+    bundle = _compile_typed_prompt_input_bundle(tmp_path)
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="typed-prompt-input-missing-composer-evidence",
+    )
+    state_manager.initialize(
+        TYPED_PROMPT_INPUT_FIXTURE.as_posix(),
+        bound_inputs=_typed_prompt_input_bound_inputs(bundle),
+    )
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0)
+    calls = {"preparations": 0, "executions": 0}
+
+    monkeypatch.setattr(
+        executor.prompt_composer,
+        "apply_typed_prompt_input_injection",
+        lambda *_args, **_kwargs: ("composed prompt", []),
+    )
+
+    def _prepare(*_args, **_kwargs):
+        calls["preparations"] += 1
+        return pytest.fail("provider preparation must not be reached")
+
+    def _execute(*_args, **_kwargs):
+        calls["executions"] += 1
+        return pytest.fail("provider execution must not be reached")
+
+    monkeypatch.setattr(executor.provider_executor, "prepare_invocation", _prepare)
+    monkeypatch.setattr(executor.provider_executor, "execute", _execute)
+
+    state = executor.execute(on_error="stop")
+
+    provider_step = _provider_step(bundle)
+    assert state["steps"][provider_step.name]["status"] == "failed"
+    assert state["steps"][provider_step.name]["error"]["context"]["reason"] == (
+        "typed_prompt_input_composition_invalid"
+    )
+    assert calls == {"preparations": 0, "executions": 0}
+
+
+def test_runtime_rejects_missing_typed_state_before_provider_preparation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _initialize_typed_prompt_input_workspace(tmp_path)
+    bundle = _compile_typed_prompt_input_bundle(tmp_path)
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="typed-prompt-input-missing-state",
+    )
+    state_manager.initialize(
+        TYPED_PROMPT_INPUT_FIXTURE.as_posix(),
+        bound_inputs=_typed_prompt_input_bound_inputs(bundle),
+    )
+    with state_manager.state_transaction():
+        del state_manager.state.bound_inputs["inputs__prompt_context__focus"]
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0)
+    monkeypatch.setattr(
+        executor.provider_executor,
+        "prepare_invocation",
+        lambda *_args, **_kwargs: pytest.fail(
+            "provider preparation must not be reached"
+        ),
+    )
+
+    state = executor.execute(on_error="stop")
+
+    provider_step = _provider_step(bundle)
+    assert state["steps"][provider_step.name]["status"] == "failed"
+    assert state["steps"][provider_step.name]["error"]["context"]["reason"] == (
+        "typed_prompt_input_value_unavailable"
+    )
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "typed_prompt_input_renderer_unknown",
+        "typed_prompt_input_renderer_shape_mismatch",
+    ],
+)
+def test_runtime_typed_renderer_failures_are_controlled_before_provider_preparation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    workspace = tmp_path / failure
+    workspace.mkdir()
+    _initialize_typed_prompt_input_workspace(workspace)
+    bundle = _compile_typed_prompt_input_bundle(workspace)
+    state_manager = StateManager(
+        workspace=workspace,
+        run_id=failure,
+    )
+    state_manager.initialize(
+        TYPED_PROMPT_INPUT_FIXTURE.as_posix(),
+        bound_inputs=_typed_prompt_input_bound_inputs(bundle),
+    )
+    executor = WorkflowExecutor(
+        bundle,
+        workspace,
+        state_manager,
+        retry_delay_ms=0,
+    )
+    monkeypatch.setattr(
+        executor.prompt_composer,
+        "apply_typed_prompt_input_injection",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError(failure)),
+    )
+    monkeypatch.setattr(
+        executor.provider_executor,
+        "prepare_invocation",
+        lambda *_args, **_kwargs: pytest.fail(
+            "provider preparation must not be reached"
+        ),
+    )
+
+    state = executor.execute(on_error="stop")
+
+    provider_step = _provider_step(bundle)
+    assert state["steps"][provider_step.name]["status"] == "failed"
+    error_context = state["steps"][provider_step.name]["error"]["context"]
+    assert error_context["reason"] == "typed_prompt_input_composition_invalid"
+    assert failure in error_context["error"]
+
+
 def test_typed_prompt_input_evidence_long_step_ids_are_bounded_and_collision_safe(
     tmp_path: Path,
 ) -> None:
@@ -979,6 +1270,10 @@ def test_typed_prompt_input_evidence_long_step_ids_are_bounded_and_collision_saf
     state_manager = StateManager(
         workspace=tmp_path,
         run_id="typed-prompt-input-long-identities",
+    )
+    state_manager.initialize(
+        TYPED_PROMPT_INPUT_FIXTURE.as_posix(),
+        bound_inputs=_typed_prompt_input_bound_inputs(bundle),
     )
     executor = WorkflowExecutor(
         bundle,

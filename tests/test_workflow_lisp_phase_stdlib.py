@@ -969,7 +969,9 @@ def test_lowering_run_provider_phase_derives_phase_bundle_path(tmp_path: Path) -
     assert provider_step["variant_output"]["path"].startswith("${inputs.phase-ctx__state-root}")
 
 
-def test_lowering_run_provider_phase_materializes_and_consumes_authored_inputs(tmp_path: Path) -> None:
+def test_lowering_run_provider_phase_uses_typed_prompt_inputs_without_materialization(
+    tmp_path: Path,
+) -> None:
     result = _compile(VALID_RUN_PROVIDER_FIXTURE, tmp_path=tmp_path)
 
     authored = next(
@@ -977,24 +979,88 @@ def test_lowering_run_provider_phase_materializes_and_consumes_authored_inputs(t
         for workflow in result.lowered_workflows
         if _local_workflow_name_matches(workflow.typed_workflow.definition.name, "run-provider-phase-demo")
     )
-    materialize_step = next(step for step in authored["steps"] if "materialize_artifacts" in step)
     provider_step = next(step for step in authored["steps"] if step.get("provider") == "fake-execute")
 
-    assert [value["name"] for value in materialize_step["materialize_artifacts"]["values"]] == [
-        "design",
-        "plan",
+    assert not any("materialize_artifacts" in step for step in authored["steps"])
+    assert [value["binding_name"] for value in provider_step["typed_prompt_inputs"]] == [
+        "inputs",
         "execution_report_target",
         "progress_report_target",
     ]
-    assert [consume["artifact"] for consume in provider_step["consumes"]] == [
-        "design",
-        "plan",
+    assert "consumes" not in provider_step
+    assert "prompt_consumes" not in provider_step
+
+
+def test_run_provider_phase_mixed_implicit_shapes_keep_whole_input_materialization_fallback(
+    tmp_path: Path,
+) -> None:
+    source = VALID_RUN_PROVIDER_FIXTURE.read_text(encoding="utf-8")
+    mixed_workflow = """
+  (defworkflow run-provider-phase-mixed-inputs
+    ((phase-ctx PhaseCtx)
+     (items List[Int]))
+    -> ImplementationSummary
+    (with-phase phase-ctx implementation
+      (let* ((attempt
+               (run-provider-phase implementation
+                 :ctx phase-ctx
+                 :inputs items
+                 :provider providers.execute
+                 :prompt prompts.implementation.execute
+                 :returns ImplementationAttempt)))
+        (match attempt
+          ((COMPLETED completed)
+           (record ImplementationSummary
+             :implementation_state completed.implementation_state
+             :report_path completed.execution_report_path))
+          ((BLOCKED blocked)
+           (record ImplementationSummary
+             :implementation_state blocked.implementation_state
+             :report_path blocked.progress_report_path))))))
+"""
+    module_path = tmp_path / "phase_stdlib_run_provider_phase.orc"
+    module_path.write_text(
+        source.rsplit(")", 1)[0] + mixed_workflow + ")\n",
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(
+        module_path,
+        provider_externs={"providers.execute": "fake-execute"},
+        prompt_externs={
+            "prompts.implementation.execute": (
+                "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    authored = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if _local_workflow_name_matches(
+            workflow.typed_workflow.definition.name,
+            "run-provider-phase-mixed-inputs",
+        )
+    )
+    materialize_step = next(
+        step for step in authored["steps"] if "materialize_artifacts" in step
+    )
+    provider_step = next(
+        step for step in authored["steps"] if step.get("provider") == "fake-execute"
+    )
+
+    assert [
+        value["name"]
+        for value in materialize_step["materialize_artifacts"]["values"]
+    ] == [
+        "inputs",
         "execution_report_target",
         "progress_report_target",
     ]
+    assert "typed_prompt_inputs" not in provider_step
     assert provider_step["prompt_consumes"] == [
-        "design",
-        "plan",
+        "inputs",
         "execution_report_target",
         "progress_report_target",
     ]
@@ -1023,19 +1089,25 @@ def test_lowering_phase_snapshot_effects_fixture_keeps_orchestrate_pre_snapshot(
     assert any("pre_snapshot" in step for step in authored["steps"])
 
 
-def test_lowering_pointer_materialization_effects_fixture_keeps_orchestrate_pointer_paths(tmp_path: Path) -> None:
+def test_lowering_prior_pointer_materialization_fixture_uses_ephemeral_typed_carriage(
+    tmp_path: Path,
+) -> None:
     result = _compile(VALID_POINTER_MATERIALIZATION_EFFECTS_FIXTURE, tmp_path=tmp_path)
     authored = next(
         workflow.authored_mapping
         for workflow in result.lowered_workflows
         if _local_workflow_name_matches(workflow.typed_workflow.definition.name, "orchestrate")
     )
-    materialize_step = next(step for step in authored["steps"] if "materialize_artifacts" in step)
-
-    assert all(
-        "pointer" in value and "path" in value["pointer"]
-        for value in materialize_step["materialize_artifacts"]["values"]
+    provider_step = next(
+        step for step in authored["steps"] if step.get("provider") == "fake-execute"
     )
+
+    assert not any("materialize_artifacts" in step for step in authored["steps"])
+    assert [row["binding_name"] for row in provider_step["typed_prompt_inputs"]] == [
+        "inputs",
+        "execution_report_target",
+        "progress_report_target",
+    ]
 
 
 def test_lowering_produce_one_of_materializes_and_consumes_authored_inputs(tmp_path: Path) -> None:
@@ -1637,6 +1709,61 @@ def test_typecheck_accepts_generic_phase_scoped_provider_result_record(tmp_path:
     result = _compile(path, tmp_path=tmp_path)
 
     assert any(workflow.definition.name.endswith("run-review") for workflow in result.typed_workflows)
+
+
+def test_phase_scoped_provider_result_mixed_shapes_keep_whole_input_fallback(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "generic_phase_provider_result_mixed.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.18")',
+                "  (defmodule generic_phase_provider_result_mixed)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord ReviewSurfaceResult",
+                "    (report_path WorkReport))",
+                "  (defworkflow run-review",
+                "    ((phase-ctx PhaseCtx)",
+                "     (count Int)",
+                "     (items List[Int]))",
+                "    -> ReviewSurfaceResult",
+                "    (with-phase phase-ctx implementation-review",
+                "      (provider-result providers.execute",
+                "        :prompt prompts.implementation.execute",
+                "        :inputs (count items)",
+                "        :returns ReviewSurfaceResult))))",
+            ]
+        ),
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+    authored = result.lowered_workflows[0].authored_mapping
+    materialize_step, provider_step = authored["steps"]
+
+    assert [
+        value["name"]
+        for value in materialize_step["materialize_artifacts"]["values"]
+    ] == ["count", "items"]
+    assert [
+        consume["artifact"] for consume in provider_step["consumes"]
+    ] == ["count", "items"]
+    assert provider_step["prompt_consumes"] == ["count", "items"]
+    assert "typed_prompt_inputs" not in provider_step
 
 
 def test_stdlib_form_phase_scope_fixture_compiles_through_builtin_stdlib_import(tmp_path: Path) -> None:
@@ -2806,10 +2933,7 @@ def test_phase_stdlib_contract_inventory_matches_lowering_families(tmp_path: Pat
     run_provider_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["run-provider-phase"]
     assert run_provider_contract.family == "structured_result_producer"
     assert run_provider_contract.backend_kinds == ("provider",)
-    assert run_provider_contract.required_statement_families == (
-        "materialize_artifacts",
-        "provider_step",
-    )
+    assert run_provider_contract.required_statement_families == ("provider_step",)
     assert run_provider_contract.alternative_statement_family_sets == (("output_bundle", "variant_output"),)
     assert run_provider_contract.delegated_statement_family_policy == "none"
     assert run_provider_contract.state_root_policies == ("active_phase_bundle",)

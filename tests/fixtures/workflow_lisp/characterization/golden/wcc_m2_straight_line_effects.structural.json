@@ -192,7 +192,50 @@
               ],
               "path": "${inputs.__write_root__provider_attempt__result__result_bundle}"
             },
-            "provider": "fake"
+            "provider": "fake",
+            "typed_prompt_inputs": [
+              {
+                "binding_name": "input",
+                "injection_order": 0,
+                "renderer": {
+                  "accepted_shape": "any_pure_value",
+                  "renderer_id": "canonical-json",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "provider-attempt",
+                "value_source": {
+                  "binding": {
+                    "report": {
+                      "ref": "inputs.input__report"
+                    },
+                    "status": {
+                      "ref": "inputs.input__status"
+                    }
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "ChecksResult"
+              },
+              {
+                "binding_name": "report_path",
+                "injection_order": 1,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "provider-attempt",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.report_path"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              }
+            ]
           }
         ],
         "version": "2.14"

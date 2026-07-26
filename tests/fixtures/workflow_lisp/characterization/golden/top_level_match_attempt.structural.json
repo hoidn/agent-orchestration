@@ -8,36 +8,6 @@
   "lowered_workflows": [
     {
       "authored_mapping": {
-        "artifacts": {
-          "design": {
-            "kind": "relpath",
-            "must_exist_target": true,
-            "pointer": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/design.txt",
-            "type": "relpath",
-            "under": "docs/design"
-          },
-          "execution_report_target": {
-            "kind": "relpath",
-            "must_exist_target": false,
-            "pointer": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/execution_report_target.txt",
-            "type": "relpath",
-            "under": "artifacts/work"
-          },
-          "plan": {
-            "kind": "relpath",
-            "must_exist_target": true,
-            "pointer": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/plan.txt",
-            "type": "relpath",
-            "under": "docs/plans"
-          },
-          "progress_report_target": {
-            "kind": "relpath",
-            "must_exist_target": false,
-            "pointer": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/progress_report_target.txt",
-            "type": "relpath",
-            "under": "artifacts/work"
-          }
-        },
         "inputs": {
           "inputs__design": {
             "kind": "relpath",
@@ -95,119 +65,85 @@
         },
         "steps": [
           {
-            "id": "MaterializeImplementationAttemptPromptInputs",
-            "materialize_artifacts": {
-              "values": [
-                {
-                  "contract": {
-                    "inherit": "source"
-                  },
-                  "name": "design",
-                  "pointer": {
-                    "path": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/design.txt"
-                  },
-                  "source": {
-                    "input": "inputs__design"
-                  }
-                },
-                {
-                  "contract": {
-                    "inherit": "source"
-                  },
-                  "name": "plan",
-                  "pointer": {
-                    "path": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/plan.txt"
-                  },
-                  "source": {
-                    "input": "inputs__plan"
-                  }
-                },
-                {
-                  "contract": {
-                    "kind": "relpath",
-                    "must_exist_target": false,
-                    "type": "relpath",
-                    "under": "artifacts/work"
-                  },
-                  "name": "execution_report_target",
-                  "pointer": {
-                    "path": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/execution_report_target.txt"
-                  },
-                  "source": {
-                    "ref": "inputs.phase-ctx__execution_report_target"
-                  }
-                },
-                {
-                  "contract": {
-                    "kind": "relpath",
-                    "must_exist_target": false,
-                    "type": "relpath",
-                    "under": "artifacts/work"
-                  },
-                  "name": "progress_report_target",
-                  "pointer": {
-                    "path": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/progress_report_target.txt"
-                  },
-                  "source": {
-                    "ref": "inputs.phase-ctx__progress_report_target"
-                  }
-                }
-              ]
-            },
-            "name": "MaterializeImplementationAttemptPromptInputs",
-            "publishes": [
-              {
-                "artifact": "design",
-                "from": "design"
-              },
-              {
-                "artifact": "plan",
-                "from": "plan"
-              },
-              {
-                "artifact": "execution_report_target",
-                "from": "execution_report_target"
-              },
-              {
-                "artifact": "progress_report_target",
-                "from": "progress_report_target"
-              }
-            ]
-          },
-          {
             "asset_file": "prompts/implementation/execute.md",
-            "consumes": [
-              {
-                "artifact": "design",
-                "freshness": "any",
-                "policy": "latest_successful"
-              },
-              {
-                "artifact": "plan",
-                "freshness": "any",
-                "policy": "latest_successful"
-              },
-              {
-                "artifact": "execution_report_target",
-                "freshness": "any",
-                "policy": "latest_successful"
-              },
-              {
-                "artifact": "progress_report_target",
-                "freshness": "any",
-                "policy": "latest_successful"
-              }
-            ],
             "id": "neurips_implementation_attempt_run_implementation_attempt__attempt",
             "inject_output_contract": true,
             "name": "neurips_implementation_attempt::run-implementation-attempt__attempt",
-            "prompt_consumes": [
-              "design",
-              "plan",
-              "execution_report_target",
-              "progress_report_target"
-            ],
             "provider": "fake",
+            "typed_prompt_inputs": [
+              {
+                "binding_name": "design",
+                "injection_order": 0,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "neurips_implementation_attempt::run-implementation-attempt",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.inputs__design"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "DesignDocPath"
+              },
+              {
+                "binding_name": "plan",
+                "injection_order": 1,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "neurips_implementation_attempt::run-implementation-attempt",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.inputs__plan"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "PlanDocPath"
+              },
+              {
+                "binding_name": "execution_report_target",
+                "injection_order": 2,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "neurips_implementation_attempt::run-implementation-attempt",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.phase-ctx__execution_report_target"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReportTarget"
+              },
+              {
+                "binding_name": "progress_report_target",
+                "injection_order": 3,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "neurips_implementation_attempt::run-implementation-attempt",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.phase-ctx__progress_report_target"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReportTarget"
+              }
+            ],
             "variant_output": {
               "discriminant": {
                 "allowed": [
@@ -394,7 +330,6 @@
       },
       "generated_input_names": [],
       "step_labels": [
-        "MaterializeImplementationAttemptPromptInputs",
         "neurips_implementation_attempt::run-implementation-attempt__attempt",
         "neurips_implementation_attempt::run-implementation-attempt__match_attempt",
         "neurips_implementation_attempt::run-implementation-attempt__match_attempt__blocked__projection_anchor",
@@ -408,12 +343,7 @@
   "source_digest": "4b4c6db3f698048294d72db5e662dc9845455466c57b64294ec8d49772ea3614",
   "validated_bundles": [
     {
-      "artifact_keys": [
-        "design",
-        "execution_report_target",
-        "plan",
-        "progress_report_target"
-      ],
+      "artifact_keys": [],
       "generated_input_names": [],
       "generated_paths": [
         {
@@ -425,46 +355,6 @@
           "resume_scope": "step_visit",
           "semantic_role": "provider_result_bundle",
           "stable_identity": "neurips_implementation_attempt::run-implementation-attempt/neurips_implementation_attempt::run-implementation-attempt__attempt/result_bundle"
-        },
-        {
-          "allocation_id": "alloc:neurips_implementation_attempt_run-implementation-attempt:materialized_value_view:cfb6c7e5e79a295c",
-          "concrete_path_template": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/design.txt",
-          "generated_input_name": null,
-          "path_safety_policy": "workspace_relative",
-          "privacy": "compatibility_view",
-          "resume_scope": "none",
-          "semantic_role": "materialized_value_view",
-          "stable_identity": "neurips_implementation_attempt::run-implementation-attempt/prompt_inputs/design"
-        },
-        {
-          "allocation_id": "alloc:neurips_implementation_attempt_run-implementation-attempt:materialized_value_view:4bc09ff8ecf56e5b",
-          "concrete_path_template": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/plan.txt",
-          "generated_input_name": null,
-          "path_safety_policy": "workspace_relative",
-          "privacy": "compatibility_view",
-          "resume_scope": "none",
-          "semantic_role": "materialized_value_view",
-          "stable_identity": "neurips_implementation_attempt::run-implementation-attempt/prompt_inputs/plan"
-        },
-        {
-          "allocation_id": "alloc:neurips_implementation_attempt_run-implementation-attempt:materialized_value_view:04c619237b5f12c8",
-          "concrete_path_template": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/execution_report_target.txt",
-          "generated_input_name": null,
-          "path_safety_policy": "workspace_relative",
-          "privacy": "compatibility_view",
-          "resume_scope": "none",
-          "semantic_role": "materialized_value_view",
-          "stable_identity": "neurips_implementation_attempt::run-implementation-attempt/prompt_inputs/execution_report_target"
-        },
-        {
-          "allocation_id": "alloc:neurips_implementation_attempt_run-implementation-attempt:materialized_value_view:e7c59e1a58942ce0",
-          "concrete_path_template": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/progress_report_target.txt",
-          "generated_input_name": null,
-          "path_safety_policy": "workspace_relative",
-          "privacy": "compatibility_view",
-          "resume_scope": "none",
-          "semantic_role": "materialized_value_view",
-          "stable_identity": "neurips_implementation_attempt::run-implementation-attempt/prompt_inputs/progress_report_target"
         }
       ],
       "input_keys": [
@@ -504,42 +394,6 @@
             "command": null,
             "compatibility_index": 0,
             "consumes": [],
-            "display_name": "MaterializeImplementationAttemptPromptInputs",
-            "expected_outputs": [],
-            "finalization_index": null,
-            "max_visits": null,
-            "node_id": "root.MaterializeImplementationAttemptPromptInputs",
-            "presentation_key": "MaterializeImplementationAttemptPromptInputs",
-            "provider": null,
-            "region": "body",
-            "report_kind": "materialize_artifacts",
-            "step_id": "root.MaterializeImplementationAttemptPromptInputs"
-          },
-          {
-            "command": null,
-            "compatibility_index": 1,
-            "consumes": [
-              {
-                "artifact": "design",
-                "freshness": "any",
-                "policy": "latest_successful"
-              },
-              {
-                "artifact": "plan",
-                "freshness": "any",
-                "policy": "latest_successful"
-              },
-              {
-                "artifact": "execution_report_target",
-                "freshness": "any",
-                "policy": "latest_successful"
-              },
-              {
-                "artifact": "progress_report_target",
-                "freshness": "any",
-                "policy": "latest_successful"
-              }
-            ],
             "display_name": "neurips_implementation_attempt::run-implementation-attempt__attempt",
             "expected_outputs": [],
             "finalization_index": null,
@@ -553,7 +407,7 @@
           },
           {
             "command": null,
-            "compatibility_index": 2,
+            "compatibility_index": 1,
             "consumes": [],
             "display_name": "neurips_implementation_attempt::run-implementation-attempt__match_attempt.COMPLETED",
             "expected_outputs": [],
@@ -568,7 +422,7 @@
           },
           {
             "command": null,
-            "compatibility_index": 3,
+            "compatibility_index": 2,
             "consumes": [],
             "display_name": "neurips_implementation_attempt::run-implementation-attempt__match_attempt.COMPLETED.neurips_implementation_attempt::run-implementation-attempt__match_attempt__completed__projection_anchor",
             "expected_outputs": [],
@@ -583,7 +437,7 @@
           },
           {
             "command": null,
-            "compatibility_index": 4,
+            "compatibility_index": 3,
             "consumes": [],
             "display_name": "neurips_implementation_attempt::run-implementation-attempt__match_attempt.BLOCKED",
             "expected_outputs": [],
@@ -598,7 +452,7 @@
           },
           {
             "command": null,
-            "compatibility_index": 5,
+            "compatibility_index": 4,
             "consumes": [],
             "display_name": "neurips_implementation_attempt::run-implementation-attempt__match_attempt.BLOCKED.neurips_implementation_attempt::run-implementation-attempt__match_attempt__blocked__projection_anchor",
             "expected_outputs": [],
@@ -613,7 +467,7 @@
           },
           {
             "command": null,
-            "compatibility_index": 6,
+            "compatibility_index": 5,
             "consumes": [],
             "display_name": "neurips_implementation_attempt::run-implementation-attempt__match_attempt",
             "expected_outputs": [],
@@ -628,7 +482,6 @@
           }
         ],
         "ordered_node_ids": [
-          "root.MaterializeImplementationAttemptPromptInputs",
           "root.neurips_implementation_attempt_run_implementation_attempt__attempt",
           "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt.neurips_implementation_attempt_run_implementation_attempt__match_attempt__completed",
           "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt.neurips_implementation_attempt_run_implementation_attempt__match_attempt__completed.neurips_implementation_attempt_run_implementation_attempt__match_attempt__completed__projection_anchor",

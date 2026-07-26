@@ -297,6 +297,34 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     - These annotations and rendered concrete paths are prompt guidance only. Prompt text does not replace the runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding or change runtime contract validation semantics.
   - Do not modify files on disk; only the composed prompt is delivered to the provider.
 
+- Workflow Lisp typed provider inputs
+  - Every supported scalar, record, or relpath binding declared in
+    `provider-result :inputs` lowers to one typed prompt-input row, including
+    calls with no census, family-profile, or route metadata.
+  - Static structural type/kind selects exactly one registered default
+    renderer: canonical JSON for supported scalars and records, and POSIX
+    path-line rendering for relpaths. Missing, unknown, shape-incompatible, or
+    ambiguous selection fails before provider launch.
+  - Ordinary calls lower each binding with a registered implicit default.
+    Unsupported bindings do not acquire a renderer or prompt visibility merely
+    because a supported binding is adjacent; they require a separately
+    implemented checked route.
+  - A phase lowering that owns a whole-input materialization fallback selects
+    that fallback atomically when any binding lacks an implicit default. It
+    never lets a supported typed subset suppress materialization of the
+    unsupported remainder. A phase-derived lowering that has lost that fallback
+    fails before provider launch instead of emitting a partial set.
+  - Runtime resolves each lowered binding once and requires a one-to-one
+    correspondence among lowered rows, resolved values, rendered blocks, and
+    structured evidence. Missing values or evidence mismatches fail before
+    invocation preparation.
+  - Rendering is ephemeral and allocates no bridge or view file. Typed state
+    remains semantic authority; rendered bytes and evidence never become
+    provider-result, routing, checkpoint, or resume authority.
+  - Root and nested provider calls use the same prompt-composition owner.
+    `:prompt-dependencies` remains the separate mechanism for injecting a
+    relpath target's contents.
+
 - Workflow Lisp provider prompt dependencies
   - `provider-result :prompt-dependencies (:required ... :optional ...)` contributes typed required and optional exact workspace `relpath` operands to the ordinary workspace-dependency composition stage. Position defaults to `prepend`; `append` is the only alternative; an optional instruction is literal text and never provider-parameter substitution.
   - The composition pipeline first builds the base prompt plus source-relative `asset_depends_on`, applies the per-attempt dependency block at its declared position, then applies typed prompt inputs, consumed-artifact injection under its own position policy, and the output-contract suffix. Pipeline order does not override a stage's explicit prepend/append policy.

@@ -43,6 +43,26 @@
             "inject_output_contract": true,
             "name": "summarize__attempt",
             "provider": "fake-execute",
+            "typed_prompt_inputs": [
+              {
+                "binding_name": "report",
+                "injection_order": 0,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "summarize",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.report"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              }
+            ],
             "variant_output": {
               "discriminant": {
                 "allowed": [
@@ -97,6 +117,26 @@
             "inject_output_contract": true,
             "name": "summarize__review",
             "provider": "fake-execute",
+            "typed_prompt_inputs": [
+              {
+                "binding_name": "report",
+                "injection_order": 0,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "summarize",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.report"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              }
+            ],
             "variant_output": {
               "discriminant": {
                 "allowed": [

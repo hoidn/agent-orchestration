@@ -404,9 +404,10 @@ deterministic-provider end-to-end tests, in
    validated prior boundary, matches the clean outputs and provider event
    identities, and neither replays nor duplicates that review.
 
-This proof does not promote automatic typed-value rendering for unselected
-`provider-result :inputs`; that broader prompt-transport surface remains
-outside this tranche.
+This proof does not promote automatic `List[T]` rendering for unselected
+`provider-result :inputs`; that list prompt-transport surface remains outside
+this tranche. Generic scalar, record, and relpath carriage is governed
+separately by the private-runtime-state and consumer-value-flow design.
 
 The focused selector for these three tests passes in the implementation
 checkout. Broad-suite counts and ordered final implementation-review verdicts

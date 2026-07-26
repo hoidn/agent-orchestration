@@ -891,12 +891,24 @@ def test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence(
     workflow = bundle.semantic_ir.workflows[bundle.surface.name]
     prompt_surface = bundle.semantic_ir.prompt_surfaces[workflow.prompt_surface_ids[0]]
 
-    assert getattr(prompt_surface, "typed_prompt_inputs")
-    typed_prompt_input = prompt_surface.typed_prompt_inputs[0]
-    assert typed_prompt_input["renderer"]["renderer_id"] == "canonical-json"
-    assert typed_prompt_input["value_type_name"]
-    assert typed_prompt_input["c0_row_id"]
-    assert "rendered_bytes" not in str(typed_prompt_input)
+    typed_prompt_inputs = tuple(prompt_surface.typed_prompt_inputs)
+    assert [row["binding_name"] for row in typed_prompt_inputs] == [
+        "inputs",
+        "execution_report_target",
+        "progress_report_target",
+    ]
+    assert [row["renderer"]["renderer_id"] for row in typed_prompt_inputs] == [
+        "canonical-json",
+        "posix-path-line",
+        "posix-path-line",
+    ]
+    assert all(row["value_type_name"] for row in typed_prompt_inputs)
+    assert all(row["source_map_origin_key"] for row in typed_prompt_inputs)
+    assert all(
+        "u0_row_id" not in row and "c0_row_id" not in row
+        for row in typed_prompt_inputs
+    )
+    assert "rendered_bytes" not in str(typed_prompt_inputs)
 
     pointer_result = _build_frontend_bundle_from_fixture(
         tmp_path,
@@ -908,7 +920,7 @@ def test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence(
     pointer_source_map = json.loads(pointer_result.artifact_paths["source_map"].read_text(encoding="utf-8"))
     pointer_workflow_name = next(iter(pointer_source_map["workflows"]))
 
-    assert any(
+    assert not any(
         effect.effect_kind == "pointer_materialization"
         for effect in pointer_bundle.semantic_ir.effects.values()
     )
@@ -916,7 +928,7 @@ def test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence(
         proof.proof_kind == "variant_surface"
         for proof in pointer_bundle.semantic_ir.proofs.values()
     )
-    assert any(
+    assert not any(
         effect["effect_kind"] == "pointer_materialization"
         for effect in pointer_source_map["workflows"][pointer_workflow_name]["generated_semantic_effects"]
     )
@@ -1874,8 +1886,8 @@ def test_derive_semantic_ir_rejects_invalid_promoted_frontend_lineage(tmp_path: 
     semantic_ir_module = importlib.import_module("orchestrator.workflow.semantic_ir")
     result = _build_frontend_bundle_from_fixture(
         tmp_path,
-        fixture_path=Path("tests/fixtures/workflow_lisp/valid/pointer_materialization_effects.orc"),
-        module_name="pointer_effects",
+        fixture_path=Path("tests/fixtures/workflow_lisp/valid/phase_snapshot_effects.orc"),
+        module_name="snapshot_effects",
         entry_workflow="orchestrate",
     )
     bundle = result.validated_bundle

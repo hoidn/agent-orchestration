@@ -1714,6 +1714,26 @@
             "inject_output_contract": true,
             "name": "procedure_lowering_identity_modes::orchestrate__plan__procedure_lowering_identity_modes::inline-plan_1__attempt",
             "provider": "test-provider",
+            "typed_prompt_inputs": [
+              {
+                "binding_name": "report_path",
+                "injection_order": 0,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "procedure_lowering_identity_modes::orchestrate",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.report_path"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              }
+            ],
             "variant_output": {
               "discriminant": {
                 "allowed": [

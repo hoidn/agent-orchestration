@@ -957,8 +957,20 @@ def test_typed_prompt_completion_failures_are_not_dependency_failures(
                 executor,
                 (
                     {
+                        "schema_version": "workflow_lisp_typed_prompt_input.v1",
                         "binding_name": "context",
-                        "value_source": {"ref": "inputs.context"},
+                        "renderer": {
+                            "renderer_id": "canonical-json",
+                            "renderer_version": 1,
+                            "accepted_shape": "any_pure_value",
+                        },
+                        "value_source": {
+                            "kind": "typed_binding_ref",
+                            "binding": {"ref": "inputs.context"},
+                        },
+                        "value_type_name": "Context",
+                        "source_map_origin_key": "typed-dependency-runtime",
+                        "injection_order": 0,
                     },
                 ),
             )
@@ -967,15 +979,6 @@ def test_typed_prompt_completion_failures_are_not_dependency_failures(
                 "_resolve_typed_prompt_input_value",
                 lambda *_args, **_kwargs: ({"focus": "contracts"}, None),
             )
-            monkeypatch.setattr(
-                executor.prompt_composer,
-                "apply_typed_prompt_input_injection",
-                lambda *_args, **_kwargs: (
-                    "COMPLETED_PROMPT",
-                    [{"binding_name": "context"}],
-                ),
-            )
-
             def _reject_typed_evidence(**_kwargs):
                 raise OSError(sentinel)
 

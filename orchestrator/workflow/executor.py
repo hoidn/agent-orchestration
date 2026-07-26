@@ -5997,7 +5997,13 @@ class WorkflowExecutor:
                     scope=runtime_context.scope(),
                 )
                 if resolve_error is not None:
-                    return resolve_error
+                    return self._contract_violation_result(
+                        "Provider prompt composition failed",
+                        {
+                            "reason": "typed_prompt_input_value_unavailable",
+                            "binding_name": typed_prompt_input.get("binding_name"),
+                        },
+                    )
                 binding_name = typed_prompt_input.get("binding_name")
                 if not isinstance(binding_name, str) or not binding_name:
                     return self._contract_violation_result(
@@ -6016,6 +6022,19 @@ class WorkflowExecutor:
                         candidate_prompt,
                         typed_prompt_inputs=typed_prompt_inputs,
                         resolved_typed_values=resolved_typed_values,
+                        workflow_name=self.workflow_name or "",
+                        step_id=runtime_step_id or self._step_id(step),
+                    )
+                )
+                from ..workflow_lisp.typed_prompt_inputs import (
+                    validate_typed_prompt_input_composition,
+                )
+
+                typed_prompt_input_evidence = (
+                    validate_typed_prompt_input_composition(
+                        typed_prompt_inputs,
+                        resolved_typed_values=resolved_typed_values,
+                        evidence=typed_prompt_input_evidence,
                         workflow_name=self.workflow_name or "",
                         step_id=runtime_step_id or self._step_id(step),
                     )
@@ -6040,7 +6059,16 @@ class WorkflowExecutor:
             )
 
         if content_dependencies is None:
-            prompt = finish_prompt_composition(prompt)
+            try:
+                prompt = finish_prompt_composition(prompt)
+            except (TypeError, ValueError, OSError) as exc:
+                return self._contract_violation_result(
+                    "Provider prompt composition failed",
+                    {
+                        "reason": "typed_prompt_input_composition_invalid",
+                        "error": str(exc),
+                    },
+                )
 
         session_request, session_error = self._build_provider_session_request(
             step,
@@ -8695,6 +8723,42 @@ class WorkflowExecutor:
     ) -> tuple[Any, Optional[Dict[str, Any]]]:
         if isinstance(value, dict) and set(value) == {"ref"} and isinstance(value.get("ref"), str):
             return self._resolve_ref_value(value["ref"], state, scope=scope)
+        if isinstance(value, dict):
+            resolved: dict[str, Any] = {}
+            for key, item in value.items():
+                resolved_item, error = self._resolve_typed_prompt_input_value(
+                    item,
+                    state,
+                    scope=scope,
+                )
+                if error is not None:
+                    return None, error
+                resolved[str(key)] = resolved_item
+            return resolved, None
+        if isinstance(value, list):
+            resolved_list: list[Any] = []
+            for item in value:
+                resolved_item, error = self._resolve_typed_prompt_input_value(
+                    item,
+                    state,
+                    scope=scope,
+                )
+                if error is not None:
+                    return None, error
+                resolved_list.append(resolved_item)
+            return resolved_list, None
+        if isinstance(value, tuple):
+            resolved_list: list[Any] = []
+            for item in value:
+                resolved_item, error = self._resolve_typed_prompt_input_value(
+                    item,
+                    state,
+                    scope=scope,
+                )
+                if error is not None:
+                    return None, error
+                resolved_list.append(resolved_item)
+            return resolved_list, None
         return self._resolve_materialize_view_value(value, state, scope=scope)
 
     def _write_typed_prompt_input_evidence(
@@ -8709,7 +8773,8 @@ class WorkflowExecutor:
         if len(safe_step_id) > 180:
             identity_digest = sha256(step_id.encode("utf-8")).hexdigest()[:24]
             safe_step_id = f"{safe_step_id[:154]}--{identity_digest}"
-        evidence_root = self.state_manager.run_root / "workflow_lisp" / "typed_prompt_inputs"
+        owner = resolve_aggregate_run_owner(self.state_manager)
+        evidence_root = owner.aggregate_root / "workflow_lisp" / "typed_prompt_inputs"
         evidence_root.mkdir(parents=True, exist_ok=True)
         (evidence_root / f"{safe_step_id}.json").write_text(
             json.dumps(evidence, indent=2, sort_keys=True) + "\n",

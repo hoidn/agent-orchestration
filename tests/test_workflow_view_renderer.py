@@ -5,7 +5,9 @@ import importlib
 import json
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
@@ -147,3 +149,58 @@ def test_render_view_rejects_unknown_renderer_id_or_version() -> None:
         renderer.render_view("canonical-json", 999, {"status": "DONE"})
 
     assert excinfo.value.code == "view_renderer_unknown"
+
+
+@pytest.mark.parametrize(
+    ("accepted_shape", "renderer_id"),
+    [
+        ("any_pure_value", "canonical-json"),
+        ("path_value", "posix-path-line"),
+    ],
+)
+def test_implicit_default_renderer_is_selected_uniquely_by_static_shape(
+    accepted_shape: str,
+    renderer_id: str,
+) -> None:
+    renderer = _module()
+
+    descriptor = renderer.resolve_default_view_renderer(accepted_shape)
+
+    assert descriptor.renderer_id == renderer_id
+    assert descriptor.accepted_shape == accepted_shape
+
+
+def test_implicit_default_renderer_fails_closed_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    renderer = _module()
+    registry = {
+        key: replace(descriptor, implicit_default=False)
+        for key, descriptor in renderer._RENDERER_REGISTRY.items()
+    }
+    monkeypatch.setattr(renderer, "_RENDERER_REGISTRY", MappingProxyType(registry))
+
+    with pytest.raises(renderer.ViewRendererError) as excinfo:
+        renderer.resolve_default_view_renderer("any_pure_value")
+
+    assert excinfo.value.code == "view_renderer_default_missing"
+
+
+def test_implicit_default_renderer_fails_closed_when_ambiguous(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    renderer = _module()
+    canonical = renderer.resolve_view_renderer("canonical-json", 1)
+    ambiguous = replace(
+        canonical,
+        renderer_id="canonical-json-alternate",
+        renderer_version=2,
+    )
+    registry = dict(renderer._RENDERER_REGISTRY)
+    registry[(ambiguous.renderer_id, ambiguous.renderer_version)] = ambiguous
+    monkeypatch.setattr(renderer, "_RENDERER_REGISTRY", MappingProxyType(registry))
+
+    with pytest.raises(renderer.ViewRendererError) as excinfo:
+        renderer.resolve_default_view_renderer("any_pure_value")
+
+    assert excinfo.value.code == "view_renderer_default_ambiguous"

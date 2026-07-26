@@ -39,10 +39,24 @@ def normalize_typed_prompt_input_entry(entry: Mapping[str, Any]) -> dict[str, An
         "binding_name",
         "value_type_name",
         "source_map_origin_key",
-        "u0_row_id",
-        "c0_row_id",
     ):
         _require_non_empty_string(normalized.get(field_name), field_name)
+    has_u0_row = "u0_row_id" in normalized
+    has_c0_row = "c0_row_id" in normalized
+    if has_u0_row != has_c0_row:
+        raise ValueError(
+            "typed_prompt_input_schema_invalid: "
+            "u0_row_id and c0_row_id must be supplied together"
+        )
+    if has_u0_row:
+        normalized["u0_row_id"] = _require_non_empty_string(
+            normalized.get("u0_row_id"),
+            "u0_row_id",
+        )
+        normalized["c0_row_id"] = _require_non_empty_string(
+            normalized.get("c0_row_id"),
+            "c0_row_id",
+        )
     if not isinstance(normalized.get("value_source"), Mapping):
         raise ValueError("typed_prompt_input_schema_invalid: value_source is required")
     renderer = normalized.get("renderer")
@@ -80,8 +94,6 @@ def normalize_typed_prompt_input_entry(entry: Mapping[str, Any]) -> dict[str, An
     normalized["binding_name"] = str(normalized["binding_name"])
     normalized["value_type_name"] = str(normalized["value_type_name"])
     normalized["source_map_origin_key"] = str(normalized["source_map_origin_key"])
-    normalized["u0_row_id"] = str(normalized["u0_row_id"])
-    normalized["c0_row_id"] = str(normalized["c0_row_id"])
     normalized["injection_order"] = injection_order
     normalized["value_source"] = binding_source
     return normalized
@@ -111,9 +123,9 @@ def render_typed_prompt_inputs(
 ) -> tuple[str, list[dict[str, Any]]]:
     """Render typed prompt-input blocks and structured runtime evidence."""
 
-    normalized_entries = sorted(
-        (normalize_typed_prompt_input_entry(entry) for entry in entries),
-        key=lambda item: (item["injection_order"], item["binding_name"]),
+    normalized_entries = _validated_composition_entries(
+        entries,
+        resolved_typed_values=resolved_typed_values,
     )
     rendered_blocks: list[str] = []
     evidence_payloads: list[dict[str, Any]] = []
@@ -148,33 +160,169 @@ def render_typed_prompt_inputs(
                 )
             )
         )
-        evidence_payloads.append(
-            {
-                "schema_version": TYPED_PROMPT_INPUT_EVIDENCE_SCHEMA_VERSION,
-                "workflow_name": workflow_name,
-                "step_id": step_id,
-                "binding_name": binding_name,
-                "renderer": dict(renderer),
-                "value_type_name": entry["value_type_name"],
-                "value_digest": value_digest,
-                "rendered_bytes_digest": view_bytes_digest(rendered_bytes),
-                "evidence_key": view_evidence_key(
-                    str(renderer["renderer_id"]),
-                    int(renderer["renderer_version"]),
-                    VIEW_RENDERER_SCHEMA_VERSION,
-                    value_digest,
-                ),
-                "source_map_origin_key": entry["source_map_origin_key"],
-                "u0_row_id": entry["u0_row_id"],
-                "c0_row_id": entry["c0_row_id"],
-                "injection_order": entry["injection_order"],
-                "request_field_evidence": _request_field_evidence_rows(
-                    entry=entry,
-                    resolved_value=resolved_value,
-                ),
-            }
+        evidence_payload = {
+            "schema_version": TYPED_PROMPT_INPUT_EVIDENCE_SCHEMA_VERSION,
+            "workflow_name": workflow_name,
+            "step_id": step_id,
+            "binding_name": binding_name,
+            "renderer": dict(renderer),
+            "value_type_name": entry["value_type_name"],
+            "value_digest": value_digest,
+            "rendered_bytes_digest": view_bytes_digest(rendered_bytes),
+            "evidence_key": view_evidence_key(
+                str(renderer["renderer_id"]),
+                int(renderer["renderer_version"]),
+                VIEW_RENDERER_SCHEMA_VERSION,
+                value_digest,
+            ),
+            "source_map_origin_key": entry["source_map_origin_key"],
+            "injection_order": entry["injection_order"],
+            "request_field_evidence": _request_field_evidence_rows(
+                entry=entry,
+                resolved_value=resolved_value,
+            ),
+        }
+        for row_field in ("u0_row_id", "c0_row_id"):
+            if row_field in entry:
+                evidence_payload[row_field] = entry[row_field]
+        evidence_payloads.append(evidence_payload)
+    validated_evidence = validate_typed_prompt_input_composition(
+        normalized_entries,
+        resolved_typed_values=resolved_typed_values,
+        evidence=evidence_payloads,
+        workflow_name=workflow_name,
+        step_id=step_id,
+    )
+    return "\n\n".join(rendered_blocks), validated_evidence
+
+
+def validate_typed_prompt_input_composition(
+    entries: Sequence[Mapping[str, Any]],
+    *,
+    resolved_typed_values: Mapping[str, Any],
+    evidence: Sequence[Mapping[str, Any]],
+    workflow_name: str,
+    step_id: str,
+) -> list[dict[str, Any]]:
+    """Validate the closed lowered/value/rendered-evidence correspondence."""
+
+    normalized_entries = _validated_composition_entries(
+        entries,
+        resolved_typed_values=resolved_typed_values,
+    )
+    if len(evidence) != len(normalized_entries):
+        raise ValueError(
+            "typed_prompt_input_evidence_set_mismatch: "
+            "evidence cardinality does not match lowered bindings"
         )
-    return "\n\n".join(rendered_blocks), evidence_payloads
+
+    validated: list[dict[str, Any]] = []
+    for entry, raw_row in zip(normalized_entries, evidence, strict=True):
+        if not isinstance(raw_row, Mapping):
+            raise ValueError(
+                "typed_prompt_input_evidence_set_mismatch: evidence rows must be mappings"
+            )
+        row = dict(raw_row)
+        binding_name = entry["binding_name"]
+        if row.get("binding_name") != binding_name:
+            raise ValueError(
+                "typed_prompt_input_evidence_set_mismatch: "
+                "evidence order or binding identity does not match lowering"
+            )
+        resolved_value = resolved_typed_values[binding_name]
+        renderer = entry["renderer"]
+        try:
+            rendered_bytes = render_view(
+                str(renderer["renderer_id"]),
+                int(renderer["renderer_version"]),
+                resolved_value,
+            )
+        except ViewRendererError as exc:
+            code = (
+                "typed_prompt_input_renderer_shape_mismatch"
+                if exc.code == "view_value_shape_invalid"
+                else "typed_prompt_input_renderer_unknown"
+            )
+            raise ValueError(f"{code}: {exc}") from exc
+        value_digest = typed_prompt_input_value_digest(resolved_value)
+        expected = {
+            "schema_version": TYPED_PROMPT_INPUT_EVIDENCE_SCHEMA_VERSION,
+            "workflow_name": workflow_name,
+            "step_id": step_id,
+            "binding_name": binding_name,
+            "renderer": dict(renderer),
+            "value_type_name": entry["value_type_name"],
+            "value_digest": value_digest,
+            "rendered_bytes_digest": view_bytes_digest(rendered_bytes),
+            "evidence_key": view_evidence_key(
+                str(renderer["renderer_id"]),
+                int(renderer["renderer_version"]),
+                VIEW_RENDERER_SCHEMA_VERSION,
+                value_digest,
+            ),
+            "source_map_origin_key": entry["source_map_origin_key"],
+            "injection_order": entry["injection_order"],
+            "request_field_evidence": _request_field_evidence_rows(
+                entry=entry,
+                resolved_value=resolved_value,
+            ),
+        }
+        for row_field in ("u0_row_id", "c0_row_id"):
+            if row_field in entry:
+                expected[row_field] = entry[row_field]
+            elif row_field in row:
+                raise ValueError(
+                    "typed_prompt_input_evidence_set_mismatch: "
+                    f"unexpected profile lineage field `{row_field}`"
+                )
+        if set(row) != set(expected):
+            raise ValueError(
+                "typed_prompt_input_evidence_set_mismatch: "
+                "evidence row fields do not match the closed evidence contract"
+            )
+        mismatches = [
+            field_name
+            for field_name, expected_value in expected.items()
+            if row.get(field_name) != expected_value
+        ]
+        if mismatches:
+            raise ValueError(
+                "typed_prompt_input_evidence_set_mismatch: "
+                "evidence row does not match rendered binding "
+                f"`{binding_name}` ({', '.join(sorted(mismatches))})"
+            )
+        validated.append(row)
+    return validated
+
+
+def _validated_composition_entries(
+    entries: Sequence[Mapping[str, Any]],
+    *,
+    resolved_typed_values: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    normalized_entries = sorted(
+        (normalize_typed_prompt_input_entry(entry) for entry in entries),
+        key=lambda item: (item["injection_order"], item["binding_name"]),
+    )
+    binding_names = [entry["binding_name"] for entry in normalized_entries]
+    if (
+        len(binding_names) != len(set(binding_names))
+        or set(binding_names) != set(resolved_typed_values)
+    ):
+        raise ValueError(
+            "typed_prompt_input_binding_set_mismatch: "
+            "lowered bindings and resolved typed values must match exactly"
+        )
+    injection_orders = [entry["injection_order"] for entry in normalized_entries]
+    if (
+        len(injection_orders) != len(set(injection_orders))
+        or injection_orders != list(range(len(injection_orders)))
+    ):
+        raise ValueError(
+            "typed_prompt_input_injection_order_invalid: "
+            "injection orders must be unique and contiguous"
+        )
+    return normalized_entries
 
 
 def build_typed_prompt_input_report(
@@ -256,8 +404,8 @@ def build_typed_prompt_input_report(
             row_entries = [
                 entry
                 for entry in normalized_entries
-                if entry["c0_row_id"] == row.get("row_id")
-                and entry["u0_row_id"] == row.get("u0_row_id")
+                if entry.get("c0_row_id") == row.get("row_id")
+                and entry.get("u0_row_id") == row.get("u0_row_id")
             ]
             if row_entries:
                 provider_step_id = getattr(step, "step_id", None)

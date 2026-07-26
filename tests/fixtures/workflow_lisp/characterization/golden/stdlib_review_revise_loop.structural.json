@@ -72,7 +72,81 @@
               ],
               "path": "${inputs.__write_root__phase_stdlib_review_loop_phase_stdlib_review_loop_apply_fix_v1__result__result_bundle}"
             },
-            "provider": "fake-fix"
+            "provider": "fake-fix",
+            "typed_prompt_inputs": [
+              {
+                "binding_name": "execution_report_path",
+                "injection_order": 0,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "%phase_stdlib_review_loop.phase_stdlib_review_loop::apply-fix.v1",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.completed__execution_report_path"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              },
+              {
+                "binding_name": "design_review_prompt",
+                "injection_order": 1,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "%phase_stdlib_review_loop.phase_stdlib_review_loop::apply-fix.v1",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.inputs__design_review_prompt"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              },
+              {
+                "binding_name": "fix_plan_prompt",
+                "injection_order": 2,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "%phase_stdlib_review_loop.phase_stdlib_review_loop::apply-fix.v1",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.inputs__fix_plan_prompt"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              },
+              {
+                "binding_name": "items_path",
+                "injection_order": 3,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "%phase_stdlib_review_loop.phase_stdlib_review_loop::apply-fix.v1",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.findings__items_path"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "ReviewFindingsJsonPath"
+              }
+            ]
           }
         ],
         "version": "2.14"
@@ -231,6 +305,62 @@
             "inject_output_contract": true,
             "name": "%phase_stdlib_review_loop.phase_stdlib_review_loop::run-review.v1__result",
             "provider": "fake-review",
+            "typed_prompt_inputs": [
+              {
+                "binding_name": "execution_report_path",
+                "injection_order": 0,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "%phase_stdlib_review_loop.phase_stdlib_review_loop::run-review.v1",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.completed__execution_report_path"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              },
+              {
+                "binding_name": "design_review_prompt",
+                "injection_order": 1,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "%phase_stdlib_review_loop.phase_stdlib_review_loop::run-review.v1",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.inputs__design_review_prompt"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              },
+              {
+                "binding_name": "fix_plan_prompt",
+                "injection_order": 2,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "%phase_stdlib_review_loop.phase_stdlib_review_loop::run-review.v1",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.inputs__fix_plan_prompt"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              }
+            ],
             "variant_output": {
               "discriminant": {
                 "allowed": [

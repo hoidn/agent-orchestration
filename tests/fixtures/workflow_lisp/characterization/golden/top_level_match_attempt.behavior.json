@@ -33,16 +33,6 @@
   "snapshot_candidate_keys": [],
   "status": "completed",
   "steps": {
-    "MaterializeImplementationAttemptPromptInputs": {
-      "artifacts": {
-        "design": "docs/design/workflow_lisp_frontend_specification.md",
-        "execution_report_target": "artifacts/work/execution_report.md",
-        "plan": "docs/plans/implementation_plan.md",
-        "progress_report_target": "artifacts/work/progress_report.md"
-      },
-      "error": null,
-      "status": "completed"
-    },
     "neurips_implementation_attempt::run-implementation-attempt__attempt": {
       "artifacts": {
         "execution_report_path": "artifacts/work/execution_report.md",

@@ -818,7 +818,8 @@ pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py
   value; synthesis consumes the injected ordered list to write its report
   bytes before returning its declared rooted path. Those values use the
   existing family-profile-selected typed-prompt-input lane; the proof does not
-  claim uniform prompt rendering for unselected `:inputs`. Direct native path
+  claim automatic `List[T]` rendering for unselected `:inputs`. Generic scalar,
+  record, and relpath carriage is tracked separately. Direct native path
   results use scalar JSON roots, not an envelope.
 - Clean `[3, 1, 2]` execution produces exactly three ordered review attempts
   plus one synthesis attempt. Interruption after the first committed review

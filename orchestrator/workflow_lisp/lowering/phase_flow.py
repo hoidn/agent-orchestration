@@ -306,6 +306,7 @@ def _phase_stdlib_lower_run_provider_phase_impl(
         local_values=local_values,
         source_expr=expr,
         provider_call_locator=provider_call_locator,
+        fallback_on_unsupported=True,
     )
     step = {
         "name": step_name,

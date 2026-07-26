@@ -184,6 +184,21 @@
   resume never read it. A later authoritative state change makes an older
   index stale rather than changing runtime behavior.
 
+## Workflow Lisp Typed Prompt-Input Evidence
+
+- Each provider invocation's prompt composition returns one closed, validated
+  evidence row for every lowered typed prompt input. Rows bind the input name,
+  structural type/kind, renderer id/version, source-map origin, value digest,
+  and rendered-byte digest.
+- Evidence contains no raw typed value, prompt text, producer bundle, or bundle
+  path authority. It is an audit view; authoritative typed values remain in
+  ordinary step state and results.
+- Evidence cardinality must exactly match the lowered binding set. Missing,
+  duplicate, extra, reordered, or mismatched rows fail before provider launch.
+- Root and nested calls write through the aggregate run-local diagnostic owner.
+  Persistence is additive under state schema `2.1`; it adds no state field,
+  attempt ledger, routing input, checkpoint input, or resume authority.
+
 ## Provider-Isolation Bundle-Transfer Journal
 
 - Every published isolated workflow-provider bundle has one controller-owned,

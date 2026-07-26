@@ -35,16 +35,6 @@
       "error": null,
       "status": "completed"
     },
-    "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__prompt_inputs": {
-      "artifacts": {
-        "design": "docs/design/workflow_lisp_frontend_specification.md",
-        "execution_report_target": "artifacts/work/execution_report.md",
-        "plan": "docs/plans/implementation_plan.md",
-        "progress_report_target": "artifacts/work/progress_report.md"
-      },
-      "error": null,
-      "status": "completed"
-    },
     "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt": {
       "artifacts": {
         "return__implementation_state": "COMPLETED",

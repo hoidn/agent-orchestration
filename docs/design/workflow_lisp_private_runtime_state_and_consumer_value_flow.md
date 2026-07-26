@@ -1,7 +1,9 @@
 # Workflow Lisp Private Runtime State And Consumer Value Flow
 
-Status: draft target design (future target; describes intended behavior, not
-the current checkout)
+Status: partial implementation target. Track R default resume and the narrow
+Track C1 scalar/record/relpath provider-input carriage plus the required C6
+implicit-default slice are implemented. Remaining Track R cleanup, C2-C5, and
+the rest of C6 remain future.
 Kind: architecture / runtime plumbing and value-flow simplification target
 Created: 2026-06-13
 Scope: private lexical execution checkpoints; effect-boundary resume policy;
@@ -11,9 +13,9 @@ only purpose is runtime resume or consumer formatting.
 
 Authority:
 
-- Normative runtime and DSL behavior remains in `specs/`. This document is a
-  future target; nothing here changes current behavior until its tranches land
-  with evidence and any required spec deltas are accepted.
+- Normative runtime and DSL behavior remains in `specs/`. Implemented claims in
+  this umbrella apply only to tranches that landed with tests and corresponding
+  spec deltas; all other sections remain target design.
 - `docs/design/workflow_lisp_frontend_specification.md` is the parent Workflow
   Lisp language contract. It owns WCC lowering as the default route for the
   migrated subset, `RunCtx`, `Resource[TState]`,
@@ -507,13 +509,30 @@ Acceptance:
 Allow prompt inputs to bind typed values directly. Prompt composition renders
 them through registered renderers at the injection seam.
 
-Acceptance:
+Historical G0 evidence remains `G0_BLOCKED`: its source and phase-one state
+carried both `prior.allowed_value` and `prior.allowed_path`, while the
+then-lowered phase-two step and provider record demonstrated only the relpath.
+The implemented slice closes that independent carriage defect. It does not
+rewrite the historical report, prove provider isolation, or pass public G0.
 
-- provider prompt receives the rendered content without a producer-authored
-  file;
-- composed-prompt logs identify renderer id, renderer version, typed input
-  identity, and source value;
-- provider output authority is unchanged.
+Implemented contract:
+
+- supported scalar, record, and relpath bindings in `provider-result :inputs`
+  lower to prompt-carriage metadata without census, family-profile, or route
+  rows;
+- ordinary no-profile calls carry their supported bindings independently;
+  unsupported neighbors remain unavailable without a checked route;
+- phase lowerings select their whole-input materialization fallback atomically
+  when any binding lacks an implicit renderer, and phase-derived lowerings with
+  no such fallback fail before provider launch rather than emit a partial set;
+- prompt composition renders each binding through the existing registry
+  without a producer-authored bridge or producer raw-bundle read;
+- evidence identifies binding, structural type/kind, renderer id/version,
+  source-map origin, value digest, and rendered-byte digest; raw values and
+  bundle authority are not evidence;
+- lowered bindings, resolved values, rendered blocks, and evidence rows match
+  one-to-one before provider preparation; and
+- typed state and the provider output contract remain semantic authority.
 
 ### C2: Observability-derived human summaries
 
@@ -584,6 +603,12 @@ should pass typed values to provider inputs, entrypoint publication policy, or
 bridge metadata; they should not write render/materialize plumbing unless they
 are overriding a renderer, declaring a timed publication, or maintaining an
 accepted compatibility escape.
+
+Implemented slice: supported C1 shapes select deterministic implicit defaults
+from the existing renderer registry by structural type/kind. Missing or
+ambiguous selection fails before provider launch. Explicit author overrides,
+entry-publication inference, bridge inference, body-render linting, and other
+C6 ergonomics remain future.
 
 Acceptance:
 

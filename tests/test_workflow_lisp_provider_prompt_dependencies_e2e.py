@@ -27,6 +27,9 @@ from orchestrator.workflow.prompt_dependency_evidence import (
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow.provider_attempts import ProviderAttemptScope
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+from orchestrator.workflow_lisp.typed_prompt_inputs import (
+    typed_prompt_input_value_digest,
+)
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict
 
@@ -272,6 +275,140 @@ def _compile_call_frame_e2e(workspace: Path):
         candidate
         for name, candidate in result.validated_bundles_by_name.items()
         if name == "dependency-call-root" or name.endswith("::dependency-call-root")
+    )
+    return module_path, bundle
+
+
+def _compile_typed_carriage_e2e(workspace: Path):
+    module_path = workspace / "typed_carriage" / "run.orc"
+    module_path.parent.mkdir(parents=True)
+    module_path.write_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.15")
+  (defmodule typed_carriage/run)
+  (export PhaseOneResult TrialResult run)
+  (defpath TaskFile
+    :kind relpath
+    :under "task"
+    :must-exist true)
+  (defrecord PhaseOneResult
+    (allowed_value String)
+    (allowed_path TaskFile))
+  (defrecord TrialResult
+    (status String)
+    (marker String))
+  (defworkflow run
+    ((task TaskFile))
+    -> TrialResult
+    (let* ((prior
+             (provider-result providers.phase-one
+               :prompt prompts.phase-one
+               :inputs (task)
+               :returns PhaseOneResult))
+           (final
+             (provider-result providers.phase-two
+               :prompt prompts.phase-two
+               :inputs (prior.allowed_value prior.allowed_path)
+               :prompt-dependencies
+                 (:required (prior.allowed_path)
+                  :position append
+                  :instruction "Use the supplied task.")
+               :returns TrialResult)))
+      final)))
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (module_path.parent / "phase-one.md").write_text(
+        "PHASE_ONE_BASE\n",
+        encoding="utf-8",
+    )
+    (module_path.parent / "phase-two.md").write_text(
+        "PHASE_TWO_BASE\n",
+        encoding="utf-8",
+    )
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(workspace,),
+        entry_workflow="run",
+        provider_externs={
+            "providers.phase-one": "phase-one-provider",
+            "providers.phase-two": "phase-two-provider",
+        },
+        prompt_externs={
+            "prompts.phase-one": "phase-one.md",
+            "prompts.phase-two": "phase-two.md",
+        },
+        validate_shared=True,
+        workspace_root=workspace,
+    )
+    bundle = next(
+        candidate
+        for name, candidate in result.validated_bundles_by_name.items()
+        if name == "run" or name.endswith("::run")
+    )
+    return module_path, bundle
+
+
+def _compile_nested_typed_carriage_e2e(workspace: Path):
+    module_path = workspace / "nested_typed_carriage" / "run.orc"
+    module_path.parent.mkdir(parents=True)
+    module_path.write_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.15")
+  (defmodule nested_typed_carriage/run)
+  (export TaskFile Inputs TrialResult leaf middle run)
+  (defpath TaskFile
+    :kind relpath
+    :under "task"
+    :must-exist true)
+  (defrecord Inputs
+    (allowed_value String)
+    (allowed_path TaskFile))
+  (defrecord TrialResult
+    (status String)
+    (marker String))
+  (defworkflow leaf
+    ((inputs Inputs))
+    -> TrialResult
+    (provider-result providers.execute
+      :prompt prompts.execute
+      :inputs (inputs.allowed_value inputs.allowed_path)
+      :returns TrialResult))
+  (defworkflow middle
+    ((inputs Inputs))
+    -> TrialResult
+    (call leaf
+      :inputs inputs))
+  (defworkflow run
+    ((inputs Inputs))
+    -> TrialResult
+    (call middle
+      :inputs inputs)))
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (module_path.parent / "prompt.md").write_text(
+        "NESTED_BASE\n",
+        encoding="utf-8",
+    )
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(workspace,),
+        entry_workflow="run",
+        provider_externs={"providers.execute": "nested-provider"},
+        prompt_externs={"prompts.execute": "prompt.md"},
+        validate_shared=True,
+        workspace_root=workspace,
+        lowering_route="wcc_m4",
+    )
+    bundle = next(
+        candidate
+        for name, candidate in result.validated_bundles_by_name.items()
+        if name == "run" or name.endswith("::run")
     )
     return module_path, bundle
 
@@ -540,6 +677,232 @@ def test_real_orc_mixed_dependencies_execute_and_validate_terminal_evidence(
     assert validate_index(json.loads(terminal.payload)) == terminal.index
     assert len(terminal.index["publications"]) == 1
     assert terminal.index["allocation_only_gaps"] == []
+
+
+def test_two_phase_typed_carriage_delivers_scalar_and_relpath_with_closed_evidence(
+    tmp_path: Path,
+) -> None:
+    module_path, bundle = _compile_typed_carriage_e2e(tmp_path)
+    task_path = tmp_path / "task" / "task.md"
+    task_path.parent.mkdir(parents=True)
+    task_path.write_text("TASK_BODY_SENTINEL\n", encoding="utf-8")
+    contracts = {
+        name: contract
+        for name, contract in workflow_runtime_input_contracts(bundle).items()
+        if not name.startswith("__write_root__")
+    }
+    bound_inputs = bind_workflow_inputs(
+        contracts,
+        {"task": "task/task.md"},
+        tmp_path,
+    )
+    manager = StateManager(tmp_path, run_id="typed-carriage-e2e")
+    manager.initialize(
+        module_path.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs=bound_inputs,
+    )
+    captured_prompts: dict[str, str] = {}
+
+    def _prepare(_self, *_args, **kwargs):
+        provider_name = str(kwargs["provider_name"])
+        prompt = str(kwargs.get("prompt_content", ""))
+        captured_prompts[provider_name] = prompt
+        return SimpleNamespace(
+            provider_name=provider_name,
+            input_mode="stdin",
+            prompt=prompt,
+            env=kwargs.get("env") or {},
+        ), None
+
+    def _execute(_self, invocation, **_kwargs):
+        output = tmp_path / invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        output.parent.mkdir(parents=True, exist_ok=True)
+        if invocation.provider_name == "phase-one-provider":
+            payload = {
+                "allowed_value": "typed-prior-value",
+                "allowed_path": "task/task.md",
+            }
+        else:
+            payload = {"status": "DONE", "marker": "TYPED_CARRIAGE_COMPLETE"}
+        output.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+            raw_stdout=None,
+            normalized_stdout=None,
+            provider_session=None,
+        )
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = WorkflowExecutor(bundle, tmp_path, manager, retry_delay_ms=0).execute(
+            on_error="stop"
+        )
+
+    assert state["status"] == "completed"
+    phase_two_prompt = captured_prompts["phase-two-provider"]
+    assert phase_two_prompt.count("typed-prior-value") == 1
+    assert phase_two_prompt.count("task/task.md") >= 1
+    assert phase_two_prompt.count("TASK_BODY_SENTINEL") == 1
+
+    evidence_paths = sorted(
+        (
+            manager.run_root
+            / "workflow_lisp"
+            / "typed_prompt_inputs"
+        ).glob("*.json")
+    )
+    evidence_documents = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in evidence_paths
+    ]
+    phase_two_evidence = next(
+        document
+        for document in evidence_documents
+        if {row["binding_name"] for row in document}
+        == {"allowed_value", "allowed_path"}
+    )
+    assert [row["binding_name"] for row in phase_two_evidence] == [
+        "allowed_value",
+        "allowed_path",
+    ]
+    assert [row["renderer"]["renderer_id"] for row in phase_two_evidence] == [
+        "canonical-json",
+        "posix-path-line",
+    ]
+    assert [row["value_digest"] for row in phase_two_evidence] == [
+        typed_prompt_input_value_digest("typed-prior-value"),
+        typed_prompt_input_value_digest("task/task.md"),
+    ]
+    assert [row["rendered_bytes_digest"] for row in phase_two_evidence] == [
+        "sha256:" + hashlib.sha256(b'"typed-prior-value"\n').hexdigest(),
+        "sha256:" + hashlib.sha256(b"task/task.md\n").hexdigest(),
+    ]
+    serialized_evidence = json.dumps(phase_two_evidence, sort_keys=True)
+    assert "ORCHESTRATOR_OUTPUT_BUNDLE_PATH" not in serialized_evidence
+    assert "provider_result_bundle" not in serialized_evidence
+
+    root_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+    assert root_state["schema_version"] == "2.1"
+    allocation = next(iter(root_state["provider_attempt_allocations"].values()))
+    assert [event["event"] for event in allocation["events"]] == [
+        "allocated",
+        "evidence_published",
+    ]
+
+
+def test_nested_typed_carriage_uses_the_aggregate_prompt_evidence_owner(
+    tmp_path: Path,
+) -> None:
+    module_path, bundle = _compile_nested_typed_carriage_e2e(tmp_path)
+    task_path = tmp_path / "task" / "task.md"
+    task_path.parent.mkdir(parents=True)
+    task_path.write_text("nested task\n", encoding="utf-8")
+    contracts = {
+        name: contract
+        for name, contract in workflow_runtime_input_contracts(bundle).items()
+        if not name.startswith("__write_root__")
+    }
+    bound_inputs = bind_workflow_inputs(
+        contracts,
+        {
+            "inputs__allowed_value": "nested-typed-value",
+            "inputs__allowed_path": "task/task.md",
+        },
+        tmp_path,
+    )
+    manager = StateManager(tmp_path, run_id="nested-typed-carriage-e2e")
+    manager.initialize(
+        module_path.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs=bound_inputs,
+    )
+    captured = {"prompt": ""}
+
+    def _prepare(_self, *_args, **kwargs):
+        captured["prompt"] = str(kwargs.get("prompt_content", ""))
+        return SimpleNamespace(
+            input_mode="stdin",
+            prompt=captured["prompt"],
+            env=kwargs.get("env") or {},
+        ), None
+
+    def _execute(_self, invocation, **_kwargs):
+        output = tmp_path / invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            json.dumps({"status": "DONE", "marker": "NESTED_COMPLETE"}) + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+            raw_stdout=None,
+            normalized_stdout=None,
+            provider_session=None,
+        )
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = WorkflowExecutor(bundle, tmp_path, manager, retry_delay_ms=0).execute(
+            on_error="stop"
+        )
+
+    assert state["status"] == "completed"
+    assert "nested-typed-value" in captured["prompt"]
+    aggregate_evidence = sorted(
+        (
+            manager.run_root
+            / "workflow_lisp"
+            / "typed_prompt_inputs"
+        ).glob("*.json")
+    )
+    assert len(aggregate_evidence) == 1
+    evidence = json.loads(aggregate_evidence[0].read_text(encoding="utf-8"))
+    assert [row["binding_name"] for row in evidence] == [
+        "allowed_value",
+        "allowed_path",
+    ]
+
+    outer_call = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if node.kind == ExecutableNodeKind.CALL_BOUNDARY
+    )
+    middle = bundle.imports[outer_call.call_alias]
+    inner_call = next(
+        node
+        for node in middle.ir.nodes.values()
+        if node.kind == ExecutableNodeKind.CALL_BOUNDARY
+    )
+    root_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+    first_frame = f"{outer_call.step_id}::visit::1"
+    second_frame = f"{first_frame}.{inner_call.step_id}::visit::1"
+    middle_state = root_state["call_frames"][first_frame]["state"]
+    leaf_state = middle_state["call_frames"][second_frame]["state"]
+    assert not (
+        Path(middle_state["run_root"])
+        / "workflow_lisp"
+        / "typed_prompt_inputs"
+    ).exists()
+    assert not (
+        Path(leaf_state["run_root"])
+        / "workflow_lisp"
+        / "typed_prompt_inputs"
+    ).exists()
 
 
 @pytest.mark.parametrize("evidence_disposition", ["deleted", "corrupt"])

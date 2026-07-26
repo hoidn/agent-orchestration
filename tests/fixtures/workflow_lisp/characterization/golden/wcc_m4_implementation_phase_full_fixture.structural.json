@@ -94,7 +94,99 @@
               ],
               "path": "${inputs.__write_root__wcc_m4_implementation_phase_full_fixture_wcc_m4_implementation_phase_full_fixture_apply_fix_v1__result__result_bundle}"
             },
-            "provider": "fake-fix"
+            "provider": "fake-fix",
+            "typed_prompt_inputs": [
+              {
+                "binding_name": "execution_report_path",
+                "injection_order": 0,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::apply-fix.v1",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.completed__execution_report_path"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              },
+              {
+                "binding_name": "checks_report_path",
+                "injection_order": 1,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::apply-fix.v1",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.completed__checks_report_path"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              },
+              {
+                "binding_name": "design_review_prompt",
+                "injection_order": 2,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::apply-fix.v1",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.inputs__design_review_prompt"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              },
+              {
+                "binding_name": "fix_plan_prompt",
+                "injection_order": 3,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::apply-fix.v1",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.inputs__fix_plan_prompt"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              },
+              {
+                "binding_name": "items_path",
+                "injection_order": 4,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::apply-fix.v1",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.findings__items_path"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "ReviewFindingsJsonPath"
+              }
+            ]
           }
         ],
         "version": "2.14"
@@ -259,6 +351,80 @@
             "inject_output_contract": true,
             "name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1__result",
             "provider": "fake-review",
+            "typed_prompt_inputs": [
+              {
+                "binding_name": "execution_report_path",
+                "injection_order": 0,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.completed__execution_report_path"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              },
+              {
+                "binding_name": "checks_report_path",
+                "injection_order": 1,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.completed__checks_report_path"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              },
+              {
+                "binding_name": "design_review_prompt",
+                "injection_order": 2,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.inputs__design_review_prompt"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              },
+              {
+                "binding_name": "fix_plan_prompt",
+                "injection_order": 3,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.inputs__fix_plan_prompt"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              }
+            ],
             "variant_output": {
               "discriminant": {
                 "allowed": [
@@ -633,6 +799,26 @@
             "inject_output_contract": true,
             "name": "wcc_m4_implementation_phase_full_fixture::run__attempt",
             "provider": "fake-execute",
+            "typed_prompt_inputs": [
+              {
+                "binding_name": "plan_path",
+                "injection_order": 0,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "wcc_m4_implementation_phase_full_fixture::run",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.plan_path"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReport"
+              }
+            ],
             "variant_output": {
               "discriminant": {
                 "allowed": [

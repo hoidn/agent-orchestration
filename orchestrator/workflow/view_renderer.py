@@ -23,6 +23,7 @@ class ViewRendererDescriptor:
     accepted_shape: str
     media_kind: str
     file_extension: str
+    implicit_default: bool = False
 
 
 class ViewRendererError(ValueError):
@@ -48,6 +49,7 @@ _RENDERER_REGISTRY = MappingProxyType(
             accepted_shape="any_pure_value",
             media_kind="json",
             file_extension=".json",
+            implicit_default=True,
         ),
         ("posix-path-line", 1): ViewRendererDescriptor(
             renderer_id="posix-path-line",
@@ -55,6 +57,7 @@ _RENDERER_REGISTRY = MappingProxyType(
             accepted_shape="path_value",
             media_kind="text",
             file_extension=".txt",
+            implicit_default=True,
         ),
     }
 )
@@ -71,6 +74,39 @@ def resolve_view_renderer(renderer_id: str, renderer_version: int) -> ViewRender
             metadata={"renderer_id": renderer_id, "renderer_version": renderer_version},
         )
     return descriptor
+
+
+def resolve_default_view_renderer(accepted_shape: str) -> ViewRendererDescriptor:
+    """Resolve the unique implicit renderer for one static structural shape."""
+
+    candidates = tuple(
+        descriptor
+        for descriptor in _RENDERER_REGISTRY.values()
+        if descriptor.accepted_shape == accepted_shape
+        and descriptor.implicit_default
+    )
+    if not candidates:
+        raise ViewRendererError(
+            "view_renderer_default_missing",
+            "no implicit view renderer is registered for the accepted shape",
+            metadata={"accepted_shape": accepted_shape},
+        )
+    if len(candidates) != 1:
+        raise ViewRendererError(
+            "view_renderer_default_ambiguous",
+            "more than one implicit view renderer is registered for the accepted shape",
+            metadata={
+                "accepted_shape": accepted_shape,
+                "candidates": [
+                    {
+                        "renderer_id": descriptor.renderer_id,
+                        "renderer_version": descriptor.renderer_version,
+                    }
+                    for descriptor in candidates
+                ],
+            },
+        )
+    return candidates[0]
 
 
 def render_view(renderer_id: str, renderer_version: int, value_document: Any) -> bytes:

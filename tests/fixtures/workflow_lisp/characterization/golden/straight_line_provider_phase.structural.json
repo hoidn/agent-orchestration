@@ -802,119 +802,72 @@
         },
         "steps": [
           {
-            "id": "phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt__prompt_inputs",
-            "materialize_artifacts": {
-              "values": [
-                {
-                  "contract": {
-                    "inherit": "source"
-                  },
-                  "name": "design",
-                  "pointer": {
-                    "path": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::run-provider-phase-demo/materialized/design.txt"
-                  },
-                  "source": {
-                    "input": "inputs__design"
-                  }
-                },
-                {
-                  "contract": {
-                    "inherit": "source"
-                  },
-                  "name": "plan",
-                  "pointer": {
-                    "path": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::run-provider-phase-demo/materialized/plan.txt"
-                  },
-                  "source": {
-                    "input": "inputs__plan"
-                  }
-                },
-                {
-                  "contract": {
-                    "kind": "relpath",
-                    "must_exist_target": false,
-                    "type": "relpath",
-                    "under": "artifacts/work"
-                  },
-                  "name": "execution_report_target",
-                  "pointer": {
-                    "path": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::run-provider-phase-demo/materialized/execution_report_target.txt"
-                  },
-                  "source": {
-                    "input": "__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__execution_report_target"
-                  }
-                },
-                {
-                  "contract": {
-                    "kind": "relpath",
-                    "must_exist_target": false,
-                    "type": "relpath",
-                    "under": "artifacts/work"
-                  },
-                  "name": "progress_report_target",
-                  "pointer": {
-                    "path": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::run-provider-phase-demo/materialized/progress_report_target.txt"
-                  },
-                  "source": {
-                    "input": "__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__progress_report_target"
-                  }
-                }
-              ]
-            },
-            "name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__prompt_inputs",
-            "publishes": [
-              {
-                "artifact": "design",
-                "from": "design"
-              },
-              {
-                "artifact": "plan",
-                "from": "plan"
-              },
-              {
-                "artifact": "execution_report_target",
-                "from": "execution_report_target"
-              },
-              {
-                "artifact": "progress_report_target",
-                "from": "progress_report_target"
-              }
-            ]
-          },
-          {
             "asset_file": "prompts/implementation/execute.md",
-            "consumes": [
-              {
-                "artifact": "design",
-                "freshness": "any",
-                "policy": "latest_successful"
-              },
-              {
-                "artifact": "plan",
-                "freshness": "any",
-                "policy": "latest_successful"
-              },
-              {
-                "artifact": "execution_report_target",
-                "freshness": "any",
-                "policy": "latest_successful"
-              },
-              {
-                "artifact": "progress_report_target",
-                "freshness": "any",
-                "policy": "latest_successful"
-              }
-            ],
             "id": "phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt",
             "inject_output_contract": true,
             "name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt",
-            "prompt_consumes": [
-              "design",
-              "plan",
-              "execution_report_target",
-              "progress_report_target"
-            ],
             "provider": "fake",
+            "typed_prompt_inputs": [
+              {
+                "binding_name": "inputs",
+                "injection_order": 0,
+                "renderer": {
+                  "accepted_shape": "any_pure_value",
+                  "renderer_id": "canonical-json",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "phase_stdlib_run_provider_phase::run-provider-phase-demo",
+                "value_source": {
+                  "binding": {
+                    "design": {
+                      "ref": "inputs.inputs__design"
+                    },
+                    "plan": {
+                      "ref": "inputs.inputs__plan"
+                    }
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "ImplementationInputs"
+              },
+              {
+                "binding_name": "execution_report_target",
+                "injection_order": 1,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "phase_stdlib_run_provider_phase::run-provider-phase-demo",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__execution_report_target"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReportTarget"
+              },
+              {
+                "binding_name": "progress_report_target",
+                "injection_order": 2,
+                "renderer": {
+                  "accepted_shape": "path_value",
+                  "renderer_id": "posix-path-line",
+                  "renderer_version": 1
+                },
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "source_map_origin_key": "phase_stdlib_run_provider_phase::run-provider-phase-demo",
+                "value_source": {
+                  "binding": {
+                    "ref": "inputs.__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__progress_report_target"
+                  },
+                  "kind": "typed_binding_ref"
+                },
+                "value_type_name": "WorkReportTarget"
+              }
+            ],
             "variant_output": {
               "discriminant": {
                 "allowed": [
@@ -1104,7 +1057,6 @@
         "__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__progress_report_target"
       ],
       "step_labels": [
-        "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__prompt_inputs",
         "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt",
         "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt",
         "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__blocked__projection_anchor",
@@ -1609,42 +1561,6 @@
             "command": null,
             "compatibility_index": 0,
             "consumes": [],
-            "display_name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__prompt_inputs",
-            "expected_outputs": [],
-            "finalization_index": null,
-            "max_visits": null,
-            "node_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt__prompt_inputs",
-            "presentation_key": "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__prompt_inputs",
-            "provider": null,
-            "region": "body",
-            "report_kind": "materialize_artifacts",
-            "step_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt__prompt_inputs"
-          },
-          {
-            "command": null,
-            "compatibility_index": 1,
-            "consumes": [
-              {
-                "artifact": "design",
-                "freshness": "any",
-                "policy": "latest_successful"
-              },
-              {
-                "artifact": "plan",
-                "freshness": "any",
-                "policy": "latest_successful"
-              },
-              {
-                "artifact": "execution_report_target",
-                "freshness": "any",
-                "policy": "latest_successful"
-              },
-              {
-                "artifact": "progress_report_target",
-                "freshness": "any",
-                "policy": "latest_successful"
-              }
-            ],
             "display_name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt",
             "expected_outputs": [],
             "finalization_index": null,
@@ -1658,7 +1574,7 @@
           },
           {
             "command": null,
-            "compatibility_index": 2,
+            "compatibility_index": 1,
             "consumes": [],
             "display_name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.COMPLETED",
             "expected_outputs": [],
@@ -1673,7 +1589,7 @@
           },
           {
             "command": null,
-            "compatibility_index": 3,
+            "compatibility_index": 2,
             "consumes": [],
             "display_name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.COMPLETED.phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__completed__projection_anchor",
             "expected_outputs": [],
@@ -1688,7 +1604,7 @@
           },
           {
             "command": null,
-            "compatibility_index": 4,
+            "compatibility_index": 3,
             "consumes": [],
             "display_name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.BLOCKED",
             "expected_outputs": [],
@@ -1703,7 +1619,7 @@
           },
           {
             "command": null,
-            "compatibility_index": 5,
+            "compatibility_index": 4,
             "consumes": [],
             "display_name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.BLOCKED.phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__blocked__projection_anchor",
             "expected_outputs": [],
@@ -1718,7 +1634,7 @@
           },
           {
             "command": null,
-            "compatibility_index": 6,
+            "compatibility_index": 5,
             "consumes": [],
             "display_name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt",
             "expected_outputs": [],
@@ -1733,7 +1649,6 @@
           }
         ],
         "ordered_node_ids": [
-          "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt__prompt_inputs",
           "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt",
           "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__completed",
           "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__completed.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__completed__projection_anchor",

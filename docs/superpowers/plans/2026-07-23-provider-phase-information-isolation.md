@@ -1623,13 +1623,23 @@ remaining C6 authoring ergonomics, or make rendered bytes semantic authority.
 **Files:**
 
 - Modify: `orchestrator/workflow_lisp/lowering/effects.py`
+- Modify: `orchestrator/workflow_lisp/lowering/phase_flow.py`
 - Modify: `orchestrator/workflow_lisp/lowering/phase_scope.py`
+- Modify: `orchestrator/workflow_lisp/stdlib_contracts.py`
 - Modify: `orchestrator/workflow_lisp/typed_prompt_inputs.py`
-- Modify: `orchestrator/workflow/prompting.py`
 - Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/workflow/view_renderer.py`
+- Modify: `tests/test_prompt_contract_injection.py`
+- Modify: `tests/test_workflow_lisp_build_artifacts.py`
+- Modify: `tests/test_workflow_lisp_examples.py`
+- Modify: `tests/test_workflow_lisp_loop_recur.py`
 - Modify: `tests/test_workflow_lisp_lowering.py`
+- Modify: `tests/test_workflow_lisp_phase_stdlib.py`
 - Modify: `tests/test_workflow_lisp_typed_prompt_inputs.py`
 - Modify: `tests/test_workflow_lisp_provider_prompt_dependencies_e2e.py`
+- Modify: `tests/test_workflow_semantic_ir.py`
+- Modify: `tests/test_workflow_view_renderer.py`
+- Modify: affected characterization goldens and procedure identity baselines
 - Modify:
   `docs/design/workflow_lisp_private_runtime_state_and_consumer_value_flow.md`
 - Modify: `docs/design/README.md`
@@ -1638,7 +1648,7 @@ remaining C6 authoring ergonomics, or make rendered bytes semantic authority.
 - Modify: `specs/providers.md`
 - Modify: `specs/state.md`
 
-- [ ] **Step 1: Characterize the documented/runtime mismatch**
+- [x] **Step 1: Characterize the documented/runtime mismatch**
 
 Before changing code, recover the minimal two-phase source from the
 content-addressed G0 evidence and reduce it to one prior record containing a
@@ -1647,7 +1657,7 @@ consumer-seam rendering while the lowered phase-two step and provider record
 drop the scalar. Confirm the existing renderer kernel and evidence owner; do
 not create a second rendering registry.
 
-- [ ] **Step 2: Add and collect RED carriage tests**
+- [x] **Step 2: Add and collect RED carriage tests**
 
 Require policy-independent consumer composition plus unrestricted execution:
 
@@ -1686,7 +1696,7 @@ pytest -q \
 Expected: collection passes and the reduced prior-scalar case fails for the
 same reason recorded by G0.
 
-- [ ] **Step 3: Implement the minimum accepted C1 delta**
+- [x] **Step 3: Implement the minimum accepted C1 delta**
 
 Use the existing canonical typed-prompt renderer and prompt composer. Correct
 the current owner in `lowering/phase_scope.py` so absence of optional
@@ -1696,11 +1706,18 @@ match between lowered bindings, resolved typed values, rendered blocks, and
 evidence rows before invocation preparation. Keep typed state as authority;
 rendered bytes are an ephemeral provider input.
 
+Partition no-profile inputs before resolving their runtime sources. Ordinary
+calls carry supported bindings with contiguous order while unsupported
+bindings remain unavailable without a checked route. Both active-phase owners
+atomically retain their whole-input materialization fallback when any binding
+is unsupported. If WCC lifting leaves a phase-derived call without that
+fallback, reject an incomplete renderer set before provider launch.
+
 Do not add a durable attempt ledger or change the schema-`2.1` publication
 grammar in this task. Task 4 owns per-attempt schema-`2.2` combined
 composed-prompt publication for isolated runs.
 
-- [ ] **Step 4: Correct status and authoring guidance**
+- [x] **Step 4: Correct status and authoring guidance**
 
 First describe the pre-fix guide/runtime mismatch. Only after the focused and
 end-to-end evidence passes:
@@ -1715,7 +1732,7 @@ end-to-end evidence passes:
 - keep the predecessor consumer-rendering document routed as detailed history,
   not current authority.
 
-- [ ] **GREEN: Verify Track C1 and commit**
+- [x] **GREEN: Verify Track C1 and commit**
 
 ```bash
 pytest -q tests/test_workflow_lisp_lowering.py -k typed_prompt_input
@@ -1724,13 +1741,22 @@ pytest -q \
   tests/test_workflow_lisp_provider_prompt_dependencies_e2e.py
 git diff --check -- \
   orchestrator/workflow_lisp/lowering/effects.py \
+  orchestrator/workflow_lisp/lowering/phase_flow.py \
   orchestrator/workflow_lisp/lowering/phase_scope.py \
+  orchestrator/workflow_lisp/stdlib_contracts.py \
   orchestrator/workflow_lisp/typed_prompt_inputs.py \
-  orchestrator/workflow/prompting.py \
   orchestrator/workflow/executor.py \
+  orchestrator/workflow/view_renderer.py \
+  tests/test_prompt_contract_injection.py \
+  tests/test_workflow_lisp_build_artifacts.py \
+  tests/test_workflow_lisp_examples.py \
+  tests/test_workflow_lisp_loop_recur.py \
   tests/test_workflow_lisp_lowering.py \
+  tests/test_workflow_lisp_phase_stdlib.py \
   tests/test_workflow_lisp_typed_prompt_inputs.py \
   tests/test_workflow_lisp_provider_prompt_dependencies_e2e.py \
+  tests/test_workflow_semantic_ir.py \
+  tests/test_workflow_view_renderer.py \
   docs/design/workflow_lisp_private_runtime_state_and_consumer_value_flow.md \
   docs/design/README.md \
   docs/lisp_workflow_drafting_guide.md \
@@ -1746,13 +1772,22 @@ scalar regression.
 ```bash
 git add \
   orchestrator/workflow_lisp/lowering/effects.py \
+  orchestrator/workflow_lisp/lowering/phase_flow.py \
   orchestrator/workflow_lisp/lowering/phase_scope.py \
+  orchestrator/workflow_lisp/stdlib_contracts.py \
   orchestrator/workflow_lisp/typed_prompt_inputs.py \
-  orchestrator/workflow/prompting.py \
   orchestrator/workflow/executor.py \
+  orchestrator/workflow/view_renderer.py \
+  tests/test_prompt_contract_injection.py \
+  tests/test_workflow_lisp_build_artifacts.py \
+  tests/test_workflow_lisp_examples.py \
+  tests/test_workflow_lisp_loop_recur.py \
   tests/test_workflow_lisp_lowering.py \
+  tests/test_workflow_lisp_phase_stdlib.py \
   tests/test_workflow_lisp_typed_prompt_inputs.py \
   tests/test_workflow_lisp_provider_prompt_dependencies_e2e.py \
+  tests/test_workflow_semantic_ir.py \
+  tests/test_workflow_view_renderer.py \
   docs/design/workflow_lisp_private_runtime_state_and_consumer_value_flow.md \
   docs/design/README.md \
   docs/lisp_workflow_drafting_guide.md \

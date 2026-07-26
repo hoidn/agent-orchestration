@@ -11,6 +11,10 @@ from typing import Any
 
 from orchestrator.workflow.references import StructuredStepReference
 from orchestrator.workflow.surface_ast import SurfaceStep
+from orchestrator.workflow.view_renderer import (
+    ViewRendererError,
+    resolve_default_view_renderer,
+)
 from orchestrator.workflow_lisp.typed_prompt_inputs import normalize_typed_prompt_input_entry
 
 from ..contracts import derive_reusable_state_contract_metadata, derive_structured_result_contract, derive_workflow_boundary_fields
@@ -45,11 +49,24 @@ from ..expressions import (
     WorkflowRefLiteralExpr,
     WithPhaseExpr,
 )
-from ..phase import IMPLEMENTATION_ATTEMPT_PHASE_NAME, PHASE_TARGET_SPECS, PhaseScope
+from ..phase import (
+    IMPLEMENTATION_ATTEMPT_PHASE_NAME,
+    IMPLEMENTATION_ATTEMPT_TARGET_FIELDS,
+    PHASE_TARGET_SPECS,
+    PhaseScope,
+)
 from ..procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
 from ..procedures import ProcedureCatalog
 from ..spans import SourcePosition, SourceSpan
-from ..type_env import PathTypeRef, PrimitiveTypeRef, ProcRefTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
+from ..type_env import (
+    PathTypeRef,
+    PrimitiveTypeRef,
+    ProcRefTypeRef,
+    RecordTypeRef,
+    TypeRef,
+    UnionTypeRef,
+    VariantCaseTypeRef,
+)
 from ..typecheck import TypedExpr
 from ..workflow_refs import ResolvedWorkflowRef, resolve_workflow_ref_literal, resolve_workflow_ref_name, workflow_ref_target_name
 from ..workflows import CertifiedAdapterBinding, PromptExtern, ProviderExtern, analyze_workflow_boundary_type
@@ -968,25 +985,157 @@ def _typed_prompt_input_row_metadata(
     )
 
 
+def _typed_prompt_input_renderer(
+    expr: Any,
+    *,
+    context: _LoweringContext,
+    row_metadata: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    if row_metadata is not None and isinstance(row_metadata.get("renderer"), Mapping):
+        return dict(row_metadata["renderer"])
+
+    accepted_shape = _implicit_typed_prompt_input_shape(
+        expr,
+        context=context,
+    )
+    if accepted_shape is None:
+        raise _compile_error(
+            code="typed_prompt_input_renderer_default_missing",
+            message="typed prompt input has no registered implicit structural shape",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    try:
+        descriptor = resolve_default_view_renderer(accepted_shape)
+    except ViewRendererError as exc:
+        error_code = {
+            "view_renderer_default_missing": "typed_prompt_input_renderer_default_missing",
+            "view_renderer_default_ambiguous": "typed_prompt_input_renderer_default_ambiguous",
+        }.get(exc.code, "typed_prompt_input_renderer_unknown")
+        raise _compile_error(
+            code=error_code,
+            message=str(exc),
+            span=expr.span,
+            form_path=expr.form_path,
+        ) from exc
+    return {
+        "renderer_id": descriptor.renderer_id,
+        "renderer_version": descriptor.renderer_version,
+        "accepted_shape": descriptor.accepted_shape,
+    }
+
+
+def _typed_prompt_input_lineage(
+    row_metadata: Mapping[str, Any] | None,
+) -> dict[str, str]:
+    if row_metadata is None:
+        return {}
+    return {
+        "u0_row_id": str(row_metadata["u0_row_id"]),
+        "c0_row_id": str(row_metadata["c0_row_id"]),
+    }
+
+
+def _supports_implicit_typed_prompt_input(
+    expr: Any,
+    *,
+    context: _LoweringContext,
+) -> bool:
+    return _implicit_typed_prompt_input_shape(expr, context=context) is not None
+
+
+def _implicit_typed_prompt_input_shape(
+    expr: Any,
+    *,
+    context: _LoweringContext,
+) -> str | None:
+    if isinstance(expr, PhaseTargetExpr):
+        return "path_value"
+    if isinstance(expr, LiteralExpr):
+        return "any_pure_value"
+    type_ref = _type_ref_for_prompt_input(expr, context=context)
+    if isinstance(type_ref, PathTypeRef):
+        return "path_value"
+    if isinstance(type_ref, (PrimitiveTypeRef, RecordTypeRef)):
+        return "any_pure_value"
+
+    contract = _typed_prompt_input_contract(expr, context=context)
+    if contract is None:
+        return None
+    contract_kind = contract.get("kind")
+    contract_type = contract.get("type")
+    if contract_kind == "relpath" or contract_type == "relpath":
+        return "path_value"
+    if contract_kind in {"scalar", "record"} or contract_type in {
+        "bool",
+        "int",
+        "float",
+        "string",
+    }:
+        return "any_pure_value"
+    return None
+
+
+def _typed_prompt_input_contract(
+    expr: Any,
+    *,
+    context: _LoweringContext,
+) -> Mapping[str, Any] | None:
+    ref: str | None = None
+    if isinstance(expr, str):
+        ref = expr
+    elif isinstance(expr, Mapping) and isinstance(expr.get("ref"), str):
+        ref = str(expr["ref"])
+    if ref is None or not ref.startswith("inputs."):
+        return None
+    input_name = ref.removeprefix("inputs.")
+    contract = context.authored_input_contracts.get(input_name)
+    return contract if isinstance(contract, Mapping) else None
+
+
 def _value_type_name_for_prompt_input(expr: Any, *, context: _LoweringContext) -> str:
     type_ref = _type_ref_for_prompt_input(expr, context=context)
     if type_ref is not None:
         return _type_ref_display_name(type_ref)
+    if isinstance(expr, LiteralExpr):
+        return {
+            "bool": "Bool",
+            "int": "Int",
+            "float": "Float",
+            "string": "String",
+        }.get(expr.literal_kind, expr.__class__.__name__)
+    if isinstance(expr, PhaseTargetExpr):
+        target_spec = PHASE_TARGET_SPECS.get(expr.target_name)
+        if target_spec is not None:
+            return target_spec[0]
+    contract = _typed_prompt_input_contract(expr, context=context)
+    if contract is not None:
+        for field_name in ("type", "value_type", "kind"):
+            value = contract.get(field_name)
+            if isinstance(value, str) and value:
+                return value
     return expr.__class__.__name__
 
 
 def _type_ref_for_prompt_input(expr: Any, *, context: _LoweringContext) -> TypeRef | None:
     if isinstance(expr, NameExpr):
         return context.local_type_bindings.get(expr.name)
+    if isinstance(expr, PhaseTargetExpr) and context.phase_scope is not None:
+        return context.phase_scope.scope.target_types.get(expr.target_name)
     if isinstance(expr, FieldAccessExpr):
         type_ref = context.local_type_bindings.get(expr.base.name)
         current = type_ref
         for field_name in expr.fields:
-            if isinstance(current, RecordTypeRef):
-                current = current.field_types.get(field_name)
-            else:
+            if not isinstance(current, (RecordTypeRef, VariantCaseTypeRef)):
                 current = None
                 break
+            current = context.type_env.record_field(
+                current,
+                field_name,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
         return current
     return None
 
@@ -1361,18 +1510,20 @@ def _build_typed_prompt_inputs_for_prompt_specs(
     local_values: Mapping[str, Any],
     source_expr: Any,
     provider_call_locator: str | None = None,
+    fallback_on_unsupported: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, LoweringOrigin]]:
     row_metadata = _typed_prompt_input_row_metadata(
         context.workflow_name,
         provider_call_locator,
         context=context,
     )
-    if row_metadata is None:
-        return [], {}
 
     typed_prompt_inputs: list[dict[str, Any]] = []
     hidden_inputs: dict[str, LoweringOrigin] = {}
-    preserve_request_record = bool(row_metadata.get("preserve_request_record"))
+    preserve_request_record = bool(
+        row_metadata is not None
+        and row_metadata.get("preserve_request_record")
+    )
     if preserve_request_record:
         base_name, input_expr = prompt_input_specs[0]
         if isinstance(input_expr, tuple) and len(input_expr) == 1:
@@ -1394,23 +1545,22 @@ def _build_typed_prompt_inputs_for_prompt_specs(
                 {
                     "schema_version": "workflow_lisp_typed_prompt_input.v1",
                     "binding_name": binding_name,
-                    "renderer": {
-                        "renderer_id": "canonical-json"
-                        if not isinstance(value_source, str)
-                        else "posix-path-line",
-                        "renderer_version": 1,
-                        "accepted_shape": "any_pure_value"
-                        if not isinstance(value_source, str)
-                        else "path_value",
-                    },
+                    "renderer": _typed_prompt_input_renderer(
+                        input_expr,
+                        context=context,
+                        row_metadata=row_metadata,
+                    ),
                     "value_source": {"kind": "typed_binding_ref", "binding": value_source},
                     "value_type_name": _value_type_name_for_prompt_input(
                         input_expr,
                         context=context,
                     ),
-                    "source_map_origin_key": context.workflow_name,
-                    "u0_row_id": row_metadata["u0_row_id"],
-                    "c0_row_id": row_metadata["c0_row_id"],
+                    "source_map_origin_key": str(
+                        row_metadata.get(
+                            "source_map_origin_key",
+                            context.workflow_name,
+                        )
+                    ),
                     "injection_order": 0,
                     "request_fields": _request_field_metadata_for_prompt_input(
                         input_expr,
@@ -1418,6 +1568,7 @@ def _build_typed_prompt_inputs_for_prompt_specs(
                         local_values=local_values,
                         preserved_value_source=value_source,
                     ),
+                    **_typed_prompt_input_lineage(row_metadata),
                 }
             )
         )
@@ -1430,55 +1581,110 @@ def _build_typed_prompt_inputs_for_prompt_specs(
                 prompt_input,
                 base_name=base_name,
                 local_values=local_values,
+                context=context,
+                preserve_typed_records=True,
             )
         )
+    if row_metadata is None:
+        supported_inputs = [
+            (binding_name, input_expr)
+            for binding_name, input_expr in flattened_inputs
+            if _supports_implicit_typed_prompt_input(
+                input_expr,
+                context=context,
+            )
+        ]
+        unsupported_inputs = [
+            (binding_name, input_expr)
+            for binding_name, input_expr in flattened_inputs
+            if not _supports_implicit_typed_prompt_input(
+                input_expr,
+                context=context,
+            )
+        ]
+        if unsupported_inputs and fallback_on_unsupported:
+            return [], {}
+        if unsupported_inputs and any(
+            isinstance(input_expr, PhaseTargetExpr)
+            for _, input_expr in flattened_inputs
+        ):
+            unsupported_input = unsupported_inputs[0][1]
+            raise _compile_error(
+                code="typed_prompt_input_renderer_default_missing",
+                message=(
+                    "phase-derived prompt inputs have no complete implicit renderer "
+                    "set and no whole-input fallback"
+                ),
+                span=getattr(unsupported_input, "span", source_expr.span),
+                form_path=getattr(
+                    unsupported_input,
+                    "form_path",
+                    source_expr.form_path,
+                ),
+            )
+        flattened_inputs = supported_inputs
 
     for injection_order, (binding_name, input_expr) in enumerate(flattened_inputs):
-        raw_source_node, extra_hidden_inputs = _resolve_phase_prompt_input_source(
-            input_expr,
-            artifact_name=binding_name,
-            context=context,
-            local_values=local_values,
-        )
+        if isinstance(
+            _type_ref_for_prompt_input(input_expr, context=context),
+            RecordTypeRef,
+        ):
+            value_source, extra_hidden_inputs = (
+                _resolve_preserved_typed_prompt_input_binding(
+                    input_expr,
+                    binding_name=binding_name,
+                    context=context,
+                    local_values=local_values,
+                )
+            )
+        else:
+            raw_source_node, extra_hidden_inputs = _resolve_phase_prompt_input_source(
+                input_expr,
+                artifact_name=binding_name,
+                context=context,
+                local_values=local_values,
+            )
+            if isinstance(raw_source_node.get("input"), str):
+                value_source = {"ref": f"inputs.{raw_source_node['input']}"}
+            elif isinstance(raw_source_node.get("ref"), str):
+                value_source = {"ref": str(raw_source_node["ref"])}
+            elif "literal" in raw_source_node:
+                value_source = raw_source_node["literal"]
+            else:
+                inline_value = _resolve_inline_expr_value(input_expr, local_values=local_values)
+                value_source = _typed_prompt_input_source_from_inline_value(
+                    inline_value,
+                    span=input_expr.span,
+                    form_path=input_expr.form_path,
+                )
         hidden_inputs.update(extra_hidden_inputs)
         for hidden_input_name in extra_hidden_inputs:
             context.internal_generated_input_reasons.setdefault(hidden_input_name, "phase_prompt_transport")
-        if isinstance(raw_source_node.get("input"), str):
-            value_source = {"ref": f"inputs.{raw_source_node['input']}"}
-        elif isinstance(raw_source_node.get("ref"), str):
-            value_source = {"ref": str(raw_source_node["ref"])}
-        elif "literal" in raw_source_node:
-            value_source = raw_source_node["literal"]
-        else:
-            inline_value = _resolve_inline_expr_value(input_expr, local_values=local_values)
-            value_source = _typed_prompt_input_source_from_inline_value(
-                inline_value,
-                span=input_expr.span,
-                form_path=input_expr.form_path,
-            )
         typed_prompt_inputs.append(
             normalize_typed_prompt_input_entry(
                 {
                     "schema_version": "workflow_lisp_typed_prompt_input.v1",
                     "binding_name": binding_name,
-                    "renderer": {
-                        "renderer_id": "canonical-json"
-                        if not isinstance(value_source, str)
-                        else "posix-path-line",
-                        "renderer_version": 1,
-                        "accepted_shape": "any_pure_value"
-                        if not isinstance(value_source, str)
-                        else "path_value",
-                    },
+                    "renderer": _typed_prompt_input_renderer(
+                        input_expr,
+                        context=context,
+                        row_metadata=row_metadata,
+                    ),
                     "value_source": {"kind": "typed_binding_ref", "binding": value_source},
                     "value_type_name": _value_type_name_for_prompt_input(
                         input_expr,
                         context=context,
                     ),
-                    "source_map_origin_key": context.workflow_name,
-                    "u0_row_id": row_metadata["u0_row_id"],
-                    "c0_row_id": row_metadata["c0_row_id"],
+                    "source_map_origin_key": str(
+                        (
+                            row_metadata.get("source_map_origin_key")
+                            if row_metadata is not None
+                            else None
+                        )
+                        or context.workflow_name
+                    ),
                     "injection_order": injection_order,
+                    **_typed_prompt_input_lineage(row_metadata),
                 }
             )
         )
@@ -1653,25 +1859,54 @@ def _flatten_phase_stdlib_prompt_inputs(
     *,
     base_name: str,
     local_values: Mapping[str, Any],
+    context: _LoweringContext | None = None,
+    preserve_typed_records: bool = False,
 ) -> list[tuple[str, Any]]:
     """Flatten record/tuple prompt inputs into materializable artifact inputs."""
 
+    if (
+        preserve_typed_records
+        and context is not None
+        and isinstance(
+            _type_ref_for_prompt_input(expr, context=context),
+            RecordTypeRef,
+        )
+    ):
+        return [(base_name, expr)]
+
     if isinstance(expr, tuple):
         flattened: list[tuple[str, Any]] = []
-        for item in expr:
+        for index, item in enumerate(expr):
             item_value = _resolve_inline_expr_value(item, local_values=local_values)
             child_name = base_name
             if isinstance(item, FieldAccessExpr) and item.fields:
                 child_name = item.fields[-1]
             elif isinstance(item, NameExpr):
-                child_name = item.name
+                bound_item = local_values.get(item.name)
+                if isinstance(bound_item, PhaseTargetExpr):
+                    item = bound_item
+                    child_name = IMPLEMENTATION_ATTEMPT_TARGET_FIELDS.get(
+                        item.target_name,
+                        item.target_name.replace("-", "_"),
+                    )
+                else:
+                    child_name = item.name
+            elif isinstance(item, PhaseTargetExpr):
+                child_name = IMPLEMENTATION_ATTEMPT_TARGET_FIELDS.get(
+                    item.target_name,
+                    item.target_name.replace("-", "_"),
+                )
             elif isinstance(item_value, str) and item_value.startswith("inputs."):
                 child_name = item_value.removeprefix("inputs.").split("__")[-1]
+            else:
+                child_name = f"{base_name}__{index}"
             flattened.extend(
                 _flatten_phase_stdlib_prompt_inputs(
                     item,
                     base_name=child_name,
                     local_values=local_values,
+                    context=context,
+                    preserve_typed_records=preserve_typed_records,
                 )
             )
         return flattened
@@ -1686,6 +1921,8 @@ def _flatten_phase_stdlib_prompt_inputs(
                     field_value,
                     base_name=child_name,
                     local_values=local_values,
+                    context=context,
+                    preserve_typed_records=preserve_typed_records,
                 )
             )
         return flattened
@@ -1698,6 +1935,8 @@ def _flatten_phase_stdlib_prompt_inputs(
                     field_expr,
                     base_name=child_name,
                     local_values=local_values,
+                    context=context,
+                    preserve_typed_records=preserve_typed_records,
                 )
             )
         return flattened
@@ -1723,13 +1962,19 @@ def _resolve_phase_prompt_input_source(
     if isinstance(expr, PhaseTargetExpr):
         phase_scope = context.phase_scope
         if phase_scope is None:
-            raise _compile_error(
-                code="phase_translation_body_invalid",
-                message="phase-target lowering requires an active phase scope",
-                span=expr.span,
-                form_path=expr.form_path,
+            target_ref = _phase_target_ref_from_workflow_boundary(
+                expr,
+                context=context,
             )
-        target_ref = phase_scope.target_refs.get(expr.target_name)
+            if target_ref is None:
+                raise _compile_error(
+                    code="phase_translation_body_invalid",
+                    message="phase-target lowering requires an unambiguous phase context",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                )
+        else:
+            target_ref = phase_scope.target_refs.get(expr.target_name)
         if target_ref is None:
             raise _compile_error(
                 code="phase_target_unknown",
@@ -1753,12 +1998,38 @@ def _resolve_phase_prompt_input_source(
     value = _resolve_inline_expr_value(expr, local_values=local_values)
     if isinstance(value, str):
         return _materialize_source_from_ref(value), {}
+    if isinstance(value, LiteralExpr):
+        return {"literal": value.value}, {}
     raise _compile_error(
         code="phase_translation_body_invalid",
         message="phase-scoped provider-result inputs must lower from workflow inputs or approved phase targets",
         span=expr.span,
         form_path=expr.form_path,
     )
+
+
+def _phase_target_ref_from_workflow_boundary(
+    expr: PhaseTargetExpr,
+    *,
+    context: _LoweringContext,
+) -> str | None:
+    """Recover one WCC-lifted phase target from its typed workflow boundary."""
+
+    target_field = IMPLEMENTATION_ATTEMPT_TARGET_FIELDS.get(expr.target_name)
+    if target_field is None:
+        return None
+    candidates: list[str] = []
+    for parameter_name, parameter_type in context.signature.params:
+        if not isinstance(parameter_type, RecordTypeRef):
+            continue
+        if not isinstance(parameter_type.field_types.get(target_field), PathTypeRef):
+            continue
+        flattened_name = f"{parameter_name}__{target_field}"
+        if flattened_name in context.authored_input_contracts:
+            candidates.append(f"inputs.{flattened_name}")
+    if len(candidates) != 1:
+        return None
+    return candidates[0]
 
 
 def _materialize_source_from_ref(ref: str) -> dict[str, str]:

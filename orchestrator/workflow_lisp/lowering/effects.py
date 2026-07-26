@@ -432,7 +432,18 @@ def _lower_provider_result_operation(
             )
             authored_contract["path"] = allocation.concrete_path_template
             hidden_inputs[allocation.generated_input_name] = _origin_from_context_source(context, provider_result)
-        if _uses_legacy_phase_prompt_input_prelude(
+        typed_prompt_inputs, typed_hidden_inputs = _build_typed_prompt_inputs_for_prompt_specs(
+            (("inputs", provider_result.inputs),),
+            context=context,
+            local_values=local_values,
+            source_expr=provider_result,
+            provider_call_locator=provider_result.provider_name,
+            fallback_on_unsupported=True,
+        )
+        if typed_prompt_inputs:
+            hidden_inputs.update(typed_hidden_inputs)
+            provider_step["typed_prompt_inputs"] = typed_prompt_inputs
+        elif _uses_legacy_phase_prompt_input_prelude(
             provider_result,
             local_values=local_values,
         ):
@@ -470,27 +481,6 @@ def _lower_provider_result_operation(
                 provider_step["consumes"] = consumes
             if prompt_consumes:
                 provider_step["prompt_consumes"] = prompt_consumes
-        typed_prompt_inputs, typed_hidden_inputs = _build_typed_prompt_inputs_for_prompt_specs(
-            (("inputs", provider_result.inputs),),
-            context=context,
-            local_values=local_values,
-            source_expr=provider_result,
-            provider_call_locator=provider_result.provider_name,
-        )
-        if typed_prompt_inputs:
-            hidden_inputs.update(typed_hidden_inputs)
-            provider_step.pop("consumes", None)
-            provider_step.pop("prompt_consumes", None)
-            generated_steps = [
-                step
-                for step in generated_steps
-                if not (
-                    isinstance(step, dict)
-                    and "materialize_artifacts" in step
-                    and "prompt_inputs" in str(step.get("id", ""))
-                )
-            ]
-            provider_step["typed_prompt_inputs"] = typed_prompt_inputs
     else:
         allocation = allocate_generated_result_bundle(
             context=context,
@@ -500,7 +490,7 @@ def _lower_provider_result_operation(
             semantic_role=GeneratedPathSemanticRole.PROVIDER_RESULT_BUNDLE,
         )
         authored_contract["path"] = allocation.concrete_path_template
-        typed_prompt_inputs, _typed_hidden_inputs = _build_typed_prompt_inputs_for_prompt_specs(
+        typed_prompt_inputs, typed_hidden_inputs = _build_typed_prompt_inputs_for_prompt_specs(
             (("inputs", provider_result.inputs),),
             context=context,
             local_values=local_values,
@@ -508,6 +498,7 @@ def _lower_provider_result_operation(
             provider_call_locator=provider_result.provider_name,
         )
         if typed_prompt_inputs:
+            hidden_inputs.update(typed_hidden_inputs)
             provider_step["typed_prompt_inputs"] = typed_prompt_inputs
         hidden_inputs[allocation.generated_input_name] = _origin_from_context_source(context, provider_result)
     _record_step_origin(
