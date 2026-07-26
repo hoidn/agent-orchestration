@@ -5,10 +5,11 @@ Status: parked (2026-07-24 owner decision, per the architectural critique at
 work instructions and not a selector. The durable boundary invariants were
 extracted to
 `docs/design/workflow_lisp_program_search_boundaries.md`; a slimmed E0 probe
-and the E4P prompt-identity discipline are scheduled independently by the
-procedure-first execution sequence. This document remains the detailed
-reference for those items and for any future revival, which would require an
-explicit owner decision and a fresh proportionality review.
+remains unselected, while the E4P prompt-identity discipline is owned only by
+Stage Q3 of the active language-quality successor roadmap. This document
+remains the detailed historical reference for those items and for any future
+revival, which would require an explicit owner decision and a fresh
+proportionality review.
 
 Created: 2026-07-22
 
@@ -53,11 +54,11 @@ The following authority order applies:
 4. A future tranche design and implementation plan may narrow its tranche, but
    may not weaken the umbrella design or silently activate a later tranche.
 
-Today, the active selector remains Stage 6 Task 6 in
-[`2026-07-09-procedure-first-roadmap-execution-sequence.md`](2026-07-09-procedure-first-roadmap-execution-sequence.md).
-Stages 7 and 8 remain provider live binding and the `.orc` language server.
-This document does not amend that order, change an active workflow, create a
-machine-readable tranche manifest, or make E0 selectable.
+The procedure-first sequence, including Stages 6-8, is complete. The active
+selector is
+[`2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`](2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md).
+This parked document does not amend that order, change an active workflow,
+create a machine-readable tranche manifest, or make E0 selectable.
 
 Readers looking for current authoring behavior must continue to use ordinary
 static `.orc`, compile-time `ProcRef`, external source generation, and new

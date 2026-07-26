@@ -40,6 +40,15 @@ PURE_LIST_TRAVERSAL_PLAN_PATH = (
 LANGUAGE_SERVER_PLAN_PATH = (
     "docs/plans/2026-07-25-workflow-lisp-language-server-implementation-plan.md"
 )
+LANGUAGE_QUALITY_ROADMAP_PATH = (
+    "docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md"
+)
+TRANSPORTABLE_VALUE_DESIGN_PATH = (
+    "docs/design/workflow_lisp_transportable_value_type.md"
+)
+EVOLUTION_FOLLOW_ON_ROADMAP_PATH = (
+    "docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md"
+)
 TRACKED_DESIGN_RETIREMENT_PLAN_PATH = (
     "docs/plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md"
 )
@@ -610,6 +619,11 @@ def _normalized_routing_text(text: str) -> str:
     )
 
 
+def _markdown_heading_section(document: str, heading: str) -> str:
+    section = document.split(heading, 1)[1]
+    return section.split("\n### ", 1)[0]
+
+
 def _canonical_routing_paths(surface: str) -> str:
     canonical = surface.replace("../plans/", "docs/plans/")
     canonical = canonical.replace("(plans/", "(docs/plans/").replace(
@@ -1057,6 +1071,119 @@ def test_stage_8_language_server_closeout_status_is_consistent() -> None:
     assert "none is selected by listing" in normalized_successor
     assert "parked" in normalized_successor
     assert "not a selector" in normalized_successor
+
+
+def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
+    sequence_path = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
+    )
+    sequence = sequence_path.read_text(encoding="utf-8")
+    successor = (REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH).read_text(
+        encoding="utf-8"
+    )
+    value_design = (REPO_ROOT / TRANSPORTABLE_VALUE_DESIGN_PATH).read_text(
+        encoding="utf-8"
+    )
+    evolution = (REPO_ROOT / EVOLUTION_FOLLOW_ON_ROADMAP_PATH).read_text(
+        encoding="utf-8"
+    )
+    design_router_path = REPO_ROOT / "docs" / "design" / "README.md"
+    capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
+    index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+
+    normalized_successor = _normalized_routing_text(successor)
+    assert "status: active" in normalized_successor
+    assert "q0" in normalized_successor and "value" in normalized_successor
+    assert "design accepted; implementation plan pending" in normalized_successor
+    assert "design review pending" not in normalized_successor
+    assert "q1" in normalized_successor and "prompt core" in normalized_successor
+    assert "e0" in normalized_successor and "unselected" in normalized_successor
+    assert "evolution follow on roadmap remains parked" in normalized_successor
+
+    normalized_evolution_status = _normalized_routing_text(
+        evolution.split("## Purpose", 1)[0]
+    )
+    assert "status: parked" in normalized_evolution_status
+    assert "not a selector" in normalized_evolution_status
+    assert "e0 probe remains unselected" in normalized_evolution_status
+    assert (
+        "e4p prompt identity discipline is owned only by stage q3"
+        in normalized_evolution_status
+    )
+    assert "no tranche in this document is selected" in normalized_evolution_status
+
+    normalized_value = _normalized_routing_text(
+        "\n".join(value_design.splitlines()[:35])
+    )
+    assert "status: accepted" in normalized_value
+    assert "target: dsl 2.19" in normalized_value
+    assert "selected consumer" in normalized_value
+
+    normalized_sequence = _normalized_routing_text(sequence)
+    assert "stage 8 is the active numbered stage" not in normalized_sequence
+    assert "stage 8 is now active" not in normalized_sequence
+    assert LANGUAGE_QUALITY_ROADMAP_PATH in sequence
+    evolution_row = _markdown_table_row(
+        sequence_path,
+        "2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md",
+    )
+    normalized_evolution_row = _normalized_routing_text(evolution_row)
+    assert "e0 probe remains unselected" in normalized_evolution_row
+    assert "exclusively absorbed by successor stage q3" in normalized_evolution_row
+    handoff = sequence.split(
+        "### Post-Stage-8 Successor Handoff", 1
+    )[1].split("## Concurrency Rules", 1)[0]
+    normalized_handoff = _normalized_routing_text(handoff)
+    assert "selection act completed" in normalized_handoff
+    assert "q3" in normalized_handoff
+    assert "must not be selected again" in normalized_handoff
+
+    value_design_row = _markdown_table_row(
+        design_router_path,
+        "workflow_lisp_transportable_value_type.md",
+    )
+    assert "| Designed |" in value_design_row
+    capability_row = _markdown_table_row(
+        capability_matrix_path,
+        "Workflow Lisp transportable `Value`",
+    )
+    assert "| Designed |" in capability_row
+    assert "not yet" in _normalized_routing_text(capability_row)
+
+    assert "### [Workflow Lisp Transportable `Value` Type]" in index
+    assert (
+        "### [Workflow Lisp Language Quality And Domain Semantics Roadmap]"
+        in index
+    )
+    normalized_successor_index = _normalized_routing_text(
+        _markdown_heading_section(
+            index,
+            "### [Workflow Lisp Language Quality And Domain Semantics Roadmap]",
+        )
+    )
+    assert "active post stage 8 successor" in normalized_successor_index
+    assert "start with q0" in normalized_successor_index
+    assert "do not select e0" in normalized_successor_index
+
+    normalized_evolution_index = _normalized_routing_text(
+        _markdown_heading_section(
+            index,
+            "### [Workflow Lisp Evolution Follow-On Roadmap]",
+        )
+    )
+    assert "non selectable" in normalized_evolution_index
+
+    normalized_value_index = _normalized_routing_text(
+        _markdown_heading_section(
+            index,
+            "### [Workflow Lisp Transportable `Value` Type]",
+        )
+    )
+    assert "accepted target 2.19 design" in normalized_value_index
+    assert "designed but not yet available for authoring" in normalized_value_index
 
 
 def test_stage_6_numbered_sequence_closes_task_7_after_completed_queues() -> None:

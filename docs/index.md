@@ -152,14 +152,19 @@ document owns the answer.
 **Use this when:** Deciding whether content belongs in specs/design docs, body-of-work instructions, work items, workflow source, or run artifacts.
 
 ### [Procedure-First Roadmap Execution Sequence](plans/2026-07-09-procedure-first-roadmap-execution-sequence.md)
-**Description:** Completed governing cross-plan work order for the refactor, migration, YAML-retirement, provider-live-binding, list-traversal, and final `.orc` language-server stages; its post-Stage-8 handoff is an input list, not a selector.
+**Description:** Completed governing cross-plan work order for the refactor, migration, YAML-retirement, provider-live-binding, list-traversal, and final `.orc` language-server stages. Its post-Stage-8 handoff remains historical; the separate 2026-07-26 selection act routes current work to the language-quality successor roadmap.
 **Keywords:** workflow-lisp, roadmap, sequencing, parametric-types, procedure-first, refactoring, yaml-retirement
-**Use this when:** Auditing the completed numbered stages or the unselected post-Stage-8 handoff. Do not use the historical roadmap or parked evolution proposal to select successor work.
+**Use this when:** Auditing the completed numbered stages or the provenance of the post-Stage-8 handoff. Do not use this historical roadmap or the parked evolution proposal to select current work.
+
+### [Workflow Lisp Language Quality And Domain Semantics Roadmap](plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md)
+**Description:** Active post-Stage-8 successor selected by the owner direction: Q0 implements the target-2.19 transportable `Value` prerequisite, followed by prompt core, output-position slots, role-separated prompt identity/diagnostics, and judgment views. E0 remains unselected and the evolution roadmap remains parked.
+**Keywords:** workflow-lisp, active-roadmap, value, prompt-calculus, prompt-identity, judgments, principle-29
+**Use this when:** Selecting or sequencing current post-Stage-8 language-quality work. Start with Q0 and do not select E0, parked evolution, or shelved parsimony candidates from this route.
 
 ### [Workflow Lisp Evolution Follow-On Roadmap](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md)
-**Description:** Proposed, non-active E0-E5 follow-on program that starts with an external pure-expression proving experiment, separates neutral variant/trial substrate from code and prompt evolution, and leaves effectful mutation deferred behind a real sandbox and capability model.
+**Description:** Parked, non-active E0-E5 historical proposal whose durable program-search boundaries were extracted; none of its tranches is selectable.
 **Keywords:** workflow-lisp, evolution, variants, trials, genetic-search, prompt-evolution, roadmap
-**Use this when:** Reviewing the conditional E-series direction, including E0's non-blocking probe and the post-S8 substrate gates. Do not use it to select work; Stage 6 is complete, Stage 7 awaits an owner-scheduled design review, and no E-series manifest exists.
+**Use this when:** Tracing the parked proposal only. Select current work from the [Workflow Lisp Language Quality And Domain Semantics Roadmap](plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md): E0 remains unselected and E4P is exclusively absorbed by successor Stage Q3.
 
 ### [Procedure-First Reuse Contract](design/workflow_lisp_procedure_first_reuse_contract.md)
 **Description:** Accepted boundary and migration contract: workflows own durable public run/resume/invocation/publication identity, while typed procedures are the normal internal reuse unit with explicit lowering and caller-visible effects.
@@ -411,6 +416,16 @@ document owns the answer.
 **Description:** Completed seven-task TDD record for target-2.18 dual-schema pure evaluation, list/path frontend forms, list-valued loop carriage, generic exhaustion diagnostics, effectful-map erasure, deterministic clean/resume evidence, and interstage closure.
 **Keywords:** lisp-frontend, list-traversal, implementation-plan, target-2.18, pure-expr-schema-2, loop-resume
 **Use this when:** Auditing the completed post-Stage-7 interstage and its reviewed implementation history.
+
+### [Workflow Lisp Transportable `Value` Type](design/workflow_lisp_transportable_value_type.md)
+**Description:** Accepted target-2.19 design for an opt-in, exact, opaque transport-contract top over strict JSON, with public `type: value` / `kind: value`, existing direct-root `__result__` carriage, no envelope, and no implicit conversion to or from narrower source types.
+**Keywords:** lisp-frontend, value, json, transport, direct-root, principle-29, target-2.19
+**Use this when:** Implementing or reviewing active successor Stage Q0. It is designed but not yet available for authoring; `Json` remains a distinct non-transportable type.
+
+### [Workflow Lisp Prompt Calculus](design/workflow_lisp_prompt_calculus.md)
+**Description:** Owner-selected typed compositional prompt direction covering `defprompt`, kind-based slots, prompt-carried results, output positions, prompt identity, and judgment views. The design still requires Q1 correction/review and is blocked on the target-2.19 `Value` prerequisite.
+**Keywords:** lisp-frontend, prompts, defprompt, slots, prompt-identity, judgments, principle-29
+**Use this when:** Reviewing the proposed prompt domain surface or preparing successor Stage Q1 after Q0 completes. Do not implement its stale partial-application or procedure-substitution claims before the required design correction.
 
 ### [Workflow Lisp Language Server](design/workflow_lisp_language_server.md)
 **Description:** Implemented `.orc` LSP v1: a read-only stdio consumer of the production Stage-3 compiler, delivering clean-open/save diagnostics, exact direct-call go-to-definition, document symbols, and visibility/registry completion under one canonical workspace root.

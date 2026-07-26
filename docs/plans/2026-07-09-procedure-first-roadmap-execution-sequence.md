@@ -103,7 +103,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-25-workflow-lisp-pure-list-traversal-implementation-plan.md` | Completed reviewed post-Stage-7 interstage selector. It binds the accepted target-2.18 design at `80df0616` / digest `e161d45e...` and received ordered `LIST_PLAN_SPEC_APPROVED` / `LIST_PLAN_QUALITY_APPROVED` plus final exact-byte reaffirmations. Its seven TDD tasks are complete; it neither renumbers nor expands Stage 8. Consult the component plan for exact completion evidence. |
 | `2026-07-25-workflow-lisp-language-server-implementation-plan.md` | Completed Stage-8 selector. It binds the accepted design at `cfcac27f` and completed nine independently reviewed TDD tasks: exact-byte read tracing; read-only build-core extraction; single-root state/driver; the F1-F3 request-parity gate; pure diagnostic contributions; stdio/watcher transport; exact authored-callee provenance; closed navigation; and packaging/E2E/routing closure. Gate S8 is complete; consult the component plan for exact implementation and verification records. |
 | `2026-07-23-refusal-diagnosability-fixes-plan.md` | Queued small fix; not a competing selector. Applies design principle 28 (refusals name their rule) to the entry-bootstrap name-allowlist gate: denial diagnostic, declared-property rule replacing the name key, and promoted-route identity non-drift verification. Execute after the current YAML-retirement task or opportunistically between capture windows. |
-| `2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md` | Parked by owner decision 2026-07-24 per the architectural critique; not a selector. Boundary invariants extracted to `docs/design/workflow_lisp_program_search_boundaries.md`; the slimmed E0 probe and E4P prompt-identity diagnostics are the only salvaged items (see Post-Stage-8 Salvaged Items). Revival requires an explicit owner decision and fresh proportionality review. |
+| `2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md` | Parked by owner decision 2026-07-24 per the architectural critique; not a selector. Boundary invariants extracted to `docs/design/workflow_lisp_program_search_boundaries.md`; of its two salvaged items, the slimmed E0 probe remains unselected and E4P prompt-identity diagnostics are exclusively absorbed by successor Stage Q3 (see Post-Stage-8 Salvaged Items). Revival requires an explicit owner decision and fresh proportionality review. |
 
 ## Concrete Execution Sequence
 
@@ -263,8 +263,9 @@ completed its normative/routing and closing verification and received ordered
 S7-v1.1 and Stage 7. The amended list-traversal design passed ordered review
 and was accepted at `80df0616`; its independently reviewed seven-task
 implementation plan subsequently completed the selected interstage. Stage 8
-is the active numbered stage; its design is accepted at `cfcac27f` and its
-reviewed nine-task implementation plan is the current selector.
+subsequently completed through its reviewed language-server plan and
+post-completion controller correction. The numbered roadmap is complete; the
+separate language-quality successor roadmap is now the current selector.
 
 The completed Phase 1 execution order was:
 
@@ -449,9 +450,9 @@ Provider-supervision v1 closed Gate S7-v1 through `4d4f05c7`; the
 owner-amended v1.1 component plan completed Tasks 1-11 through `b08c04a6` and
 Task 12 through both ordered reviews, closing Gate S7-v1.1. The accepted
 list-traversal design at `80df0616` and its reviewed implementation plan have
-completed the selected interstage. Stage 8 is now active, with accepted design
-`cfcac27f` and a reviewed nine-task implementation plan as the current
-selector.
+completed the selected interstage. Stage 8 subsequently completed, including
+its reviewed controller correction. The current selector is the separate
+language-quality successor roadmap.
 
 Execute only accepted plans, in this order:
 
@@ -647,7 +648,7 @@ three-member gates. Task 12's normative/routing updates and final
 focused/broad/compatibility/real verification completed and received ordered
 `TASK12_FINAL_SPEC_APPROVED` / `TASK12_FINAL_QUALITY_APPROVED`, closing Gate
 S7-v1.1. The selected list-traversal interstage subsequently completed, so
-Stage 8 is now active.
+Stage 8 became eligible and subsequently completed.
 
 It precedes the language server deliberately: it changes the authoring
 language and provider execution/observation contracts, and Stage 8's
@@ -844,6 +845,13 @@ selected by listing, and each may enter a future successor only through its own
 design review under principles 28 and 29 and the standing proportionality rule
 (named consumer, smallest truthful scope, revert-able).
 
+**Selection act completed 2026-07-26:** the active successor is
+`docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`.
+It selects the prompt-calculus direction and its target-2.19 `Value`
+prerequisite as stages Q0-Q4. The slimmed E0 probe remains unselected, the
+parsimony candidates remain shelved, and the parked evolution roadmap remains
+non-selectable.
+
 Provenance: items 1 and 4 are the two salvaged survivors of the parked
 2026-07-22 evolution follow-on roadmap (owner decision 2026-07-24, per the
 architectural critique at
@@ -859,8 +867,8 @@ are the 2026-07-25 owner-directed language directions:
    intent but without its gate lattice or decision-record machinery. Requires
    its own small plan; a null result parks the search program permanently
    without further process.
-2. **Prompt calculus direction (owner-directed 2026-07-25) — head of this
-   queue.** `docs/design/workflow_lisp_prompt_calculus.md`: a typed
+2. **Prompt calculus direction (owner-directed 2026-07-25) — selected by the
+   successor roadmap.** `docs/design/workflow_lisp_prompt_calculus.md`: a typed
    compositional prompt layer (defprompt fragments with typed slots,
    prompt-carried signatures, partial application, completeness
    checking, E4P-based prompt identity, judgment views). Subsumes the
@@ -890,11 +898,11 @@ are the 2026-07-25 owner-directed language directions:
    against post-calculus idioms. The existing structural-constraint
    machinery (`is-record`, `has-field`, `has-union-variant`) remains the
    checker substrate for any that return.
-4. **Prompt-identity diagnostics (E4P discipline).** Independent of any
-   search program and schedulable any time as a small item: apply the
-   role-separated prompt-identity split (boundary invariant 8) to the
-   existing system's diagnostics for provider hangs, context drift, and
-   prompt provenance. Requires its own small plan.
+4. **Prompt-identity diagnostics (E4P discipline) — absorbed by successor
+   Stage Q3.** Apply the role-separated prompt-identity split (boundary
+   invariant 8) to the existing system's diagnostics for provider hangs,
+   context drift, and prompt provenance. Q3 is the sole roadmap owner of this
+   delta; this handoff item must not be selected again.
 
 ## Concurrency Rules
 
