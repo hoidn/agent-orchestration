@@ -473,6 +473,35 @@ def test_environment_digest_cannot_be_substituted_as_whole_policy_identity() -> 
     ]
 
 
+def test_task_1_policy_digest_cannot_be_substituted_as_environment_identity() -> None:
+    environment_api = importlib.import_module(
+        "orchestrator.providers.isolation_environment"
+    )
+    manifest = {
+        "schema_version": "provider_environment_manifest.v1",
+        "provider_prefix": "/opt/orchestrator-provider",
+        "entries": [
+            {
+                "path": ".",
+                "kind": "directory",
+                "mode": 0o555,
+                "uid": 0,
+                "gid": 0,
+                "atime_ns": 0,
+                "mtime_ns": 0,
+            }
+        ],
+    }
+
+    with pytest.raises(environment_api.ProviderIsolationEnvironmentError) as exc_info:
+        environment_api.load_provider_environment_manifest(
+            manifest,
+            expected_digest=WHOLE_POLICY_DIGEST,
+        )
+
+    assert exc_info.value.code == "provider_isolation_environment_mismatch"
+
+
 def test_canonical_json_bytes_have_one_shared_ascii_and_unicode_contract() -> None:
     canonical = _api().canonical_isolation_json_bytes
 

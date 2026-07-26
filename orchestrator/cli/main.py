@@ -547,6 +547,26 @@ def create_parser() -> argparse.ArgumentParser:
         help='Request cooperative natural close for this member',
     )
 
+    provider_manifest_parser = subparsers.add_parser(
+        'provider-isolation-environment-manifest',
+        help='Publish a prospective provider-isolation environment manifest',
+    )
+    provider_manifest_parser.add_argument(
+        '--root',
+        required=True,
+        help='Absolute provider environment source root',
+    )
+    provider_manifest_parser.add_argument(
+        '--provider-prefix',
+        required=True,
+        help='Absolute provider-visible environment prefix',
+    )
+    provider_manifest_parser.add_argument(
+        '--output',
+        required=True,
+        help='Absolute path for the new canonical manifest',
+    )
+
     return parser
 
 
@@ -618,6 +638,11 @@ def main(args: Optional[list] = None) -> int:
     elif parsed_args.command == 'peer-finish':
         from orchestrator.cli.commands import peer_finish_workflow
         return peer_finish_workflow()
+    elif parsed_args.command == 'provider-isolation-environment-manifest':
+        from orchestrator.cli.commands import (
+            provider_isolation_environment_manifest_workflow,
+        )
+        return provider_isolation_environment_manifest_workflow(parsed_args)
     else:
         parser.print_help()
         return 1

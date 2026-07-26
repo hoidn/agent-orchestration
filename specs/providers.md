@@ -146,6 +146,30 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     environment is a sealed, digest-verified rootfs snapshot with a distinct
     absolute provider-visible build prefix; ambient host roots and mutable
     controller toolchains are not substitutes.
+  - `provider_environment_manifest.v1` is the closed identity of that rootfs.
+    It records the provider prefix, the root row, and every descendant in
+    canonical UTF-8 path order. Rows bind kind, normalized read-only mode,
+    provider-visible `uid: 0`/`gid: 0`, fixed zero timestamps, and either file
+    size/content digest or original safe symlink text. Its canonical SHA-256 is
+    the `provider_environment.digest`; it is distinct from the whole isolation
+    policy digest.
+  - Runtime snapshots are fresh, run-owned publications at exactly
+    `provider_environment_snapshots/<provider_environment.digest>/rootfs`.
+    Assembly copies from a descriptor-pinned admitted source into private
+    staging, normalizes and durably verifies every inode, publishes
+    atomically, and launches only from the pinned published root descriptor.
+    Source mutation after publication cannot change the snapshot identity;
+    mutation, metadata drift, an existing digest authority, or inability to
+    preserve the fixed timestamp contract fails closed.
+  - The snapshot assembler reserves
+    `<provider_prefix>/libexec/provider-launch-shim-v1.py` for the
+    runtime-packaged shim. Its source bytes must match an independently pinned
+    reviewed digest. Strict launch admission additionally requires the reviewed
+    fixed `<provider_prefix>/bin/python -I -S` bootstrap and its manifest-backed
+    interpreter, ELF loader/library, Python import, and startup configuration
+    closure. Provider entrypoints receive the same non-executing shebang/ELF
+    closure validation before launch; discovery never runs `ldd` or executes
+    the target in the controller namespace.
   - Omitting the policy preserves the current unrestricted provider launcher,
     environment inheritance, and security claim. Once public run/resume
     integration is present, a required policy must fail before provider launch

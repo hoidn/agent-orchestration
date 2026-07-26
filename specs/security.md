@@ -27,6 +27,19 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
     libraries, and non-secret configuration must resolve from that snapshot.
     The host `/`, host home, mutable environment source, or controller checkout
     must not be mounted for convenience.
+  - Rootfs identity is a closed canonical manifest of the root and every
+    descendant. Snapshot assembly is descriptor-relative, rejects unaccounted
+    hardlinks, xattrs, special files, mount crossings, unsafe symlinks, and
+    mutable source metadata, and publishes through a fresh digest authority.
+    Every regular file and directory must enforce the fixed-zero-atime contract
+    at the inode level; an unsupported flag, a no-op flag write, a cleared
+    published flag, or timestamp drift makes the backend unavailable or the
+    environment invalid rather than triggering repair.
+  - Launch uses the verified snapshot directory descriptor as the root bind
+    authority. Reopening its recorded pathname is not equivalent. Strict
+    launch admission is symlink-free and validates the fixed packaged Python
+    shim bootstrap plus the selected provider's complete non-executingly
+    discovered runtime closure before Bubblewrap can start.
   - The positive filesystem grant is the writable candidate product plus
     invocation-private runtime surfaces. Candidate `.orchestrate` is masked.
     Workflow source, prompt assets, controller/control state, evaluators, peer

@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-orchestration.local/schemas/provider-environment-manifest-v1.schema.json",
+  "title": "Provider environment manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "provider_prefix",
+    "entries"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "provider_environment_manifest.v1"
+    },
+    "provider_prefix": {
+      "type": "string",
+      "minLength": 1
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/directory"
+          },
+          {
+            "$ref": "#/$defs/regular_file"
+          },
+          {
+            "$ref": "#/$defs/symlink"
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "common": {
+      "type": "object",
+      "required": [
+        "path",
+        "kind",
+        "mode",
+        "uid",
+        "gid",
+        "atime_ns",
+        "mtime_ns"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "directory",
+            "regular_file",
+            "symlink"
+          ]
+        },
+        "mode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 511
+        },
+        "uid": {
+          "const": 0
+        },
+        "gid": {
+          "const": 0
+        },
+        "atime_ns": {
+          "const": 0
+        },
+        "mtime_ns": {
+          "const": 0
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "link_text": {
+          "type": "string"
+        }
+      }
+    },
+    "directory": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "kind",
+            "mode",
+            "uid",
+            "gid",
+            "atime_ns",
+            "mtime_ns"
+          ],
+          "properties": {
+            "path": true,
+            "kind": {
+              "const": "directory"
+            },
+            "mode": true,
+            "uid": true,
+            "gid": true,
+            "atime_ns": true,
+            "mtime_ns": true
+          }
+        }
+      ]
+    },
+    "regular_file": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "kind",
+            "mode",
+            "uid",
+            "gid",
+            "atime_ns",
+            "mtime_ns",
+            "size",
+            "digest"
+          ],
+          "properties": {
+            "path": true,
+            "kind": {
+              "const": "regular_file"
+            },
+            "mode": true,
+            "uid": true,
+            "gid": true,
+            "atime_ns": true,
+            "mtime_ns": true,
+            "size": true,
+            "digest": true
+          }
+        }
+      ]
+    },
+    "symlink": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "kind",
+            "mode",
+            "uid",
+            "gid",
+            "atime_ns",
+            "mtime_ns",
+            "link_text"
+          ],
+          "properties": {
+            "path": true,
+            "kind": {
+              "const": "symlink"
+            },
+            "mode": true,
+            "uid": true,
+            "gid": true,
+            "atime_ns": true,
+            "mtime_ns": true,
+            "link_text": true
+          }
+        }
+      ]
+    }
+  }
+}

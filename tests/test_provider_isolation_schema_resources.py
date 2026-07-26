@@ -10,6 +10,7 @@ import sys
 
 
 POLICY_SCHEMA = "provider-phase-isolation-v1.schema.json"
+ENVIRONMENT_SCHEMA = "provider-environment-manifest-v1.schema.json"
 
 
 def test_policy_schema_loads_as_a_packaged_resource_outside_checkout_cwd(
@@ -125,3 +126,4 @@ print(json.dumps(names))
     assert imported.returncode == 0, imported.stdout
     resource_names = json.loads(imported.stdout.strip().splitlines()[-1])
     assert POLICY_SCHEMA in resource_names
+    assert ENVIRONMENT_SCHEMA in resource_names

@@ -87,7 +87,7 @@ _RESERVED_CREDENTIAL_PREFIXES = (
 
 @dataclass(frozen=True, order=True, slots=True)
 class ProviderIsolationIssue:
-    """One deterministic provider-isolation policy validation issue."""
+    """One deterministic provider-isolation validation issue."""
 
     code: str
     path: str
@@ -364,6 +364,8 @@ def _canonical_json_value(value: Any, path: str) -> Any:
 
 def _schema_validation_issues(
     errors: Iterable[ValidationError],
+    *,
+    error_code: str = POLICY_ERROR_CODE,
 ) -> list[ProviderIsolationIssue]:
     issues: list[ProviderIsolationIssue] = []
     ordered_errors = sorted(
@@ -385,6 +387,7 @@ def _schema_validation_issues(
                         _issue(
                             _append_json_path(parent_path, str(name)),
                             "unknown field is not allowed",
+                            code=error_code,
                         )
                     )
                 continue
@@ -398,6 +401,7 @@ def _schema_validation_issues(
                             _issue(
                                 _append_json_path(parent_path, str(name)),
                                 "required field is missing",
+                                code=error_code,
                             )
                         )
                 continue
@@ -405,6 +409,7 @@ def _schema_validation_issues(
             _issue(
                 parent_path,
                 _stable_schema_message(error),
+                code=error_code,
             )
         )
     return issues
@@ -593,12 +598,27 @@ def _sha256_identity(value: bytes) -> str:
     return f"sha256:{sha256(value).hexdigest()}"
 
 
-def _issue(path: str, message: str) -> ProviderIsolationIssue:
+def _issue(
+    path: str,
+    message: str,
+    *,
+    code: str = POLICY_ERROR_CODE,
+) -> ProviderIsolationIssue:
     return ProviderIsolationIssue(
-        code=POLICY_ERROR_CODE,
+        code=code,
         path=path,
         message=message,
     )
+
+
+def isolation_schema_validation_issues(
+    errors: Iterable[ValidationError],
+    *,
+    error_code: str,
+) -> tuple[ProviderIsolationIssue, ...]:
+    """Normalize JSON Schema errors into stable isolation diagnostics."""
+
+    return tuple(_schema_validation_issues(errors, error_code=error_code))
 
 
 def _json_path(parts: tuple[object, ...]) -> str:
@@ -628,6 +648,7 @@ __all__ = [
     "ProviderIsolationPolicyError",
     "ProviderPhaseIsolationPolicy",
     "canonical_isolation_json_bytes",
+    "isolation_schema_validation_issues",
     "load_provider_isolation_schema",
     "load_provider_phase_isolation_policy",
     "validate_provider_phase_isolation_policy",

@@ -378,12 +378,17 @@ chain—and the deterministic fixture interpreter when it is a separate
 chain—must launch from the sealed rootfs offline before Bubblewrap projection
 work continues; a fixture-only or toy executable is insufficient.
 
-Current-host status is `I0E_BLOCKED`: at `2026-07-23T21:32:15Z`,
-`/usr/bin/bwrap --unshare-user --uid 0 --gid 0 -- /bin/true` exited 1 with
-`setting up uid map: Permission denied`, and no separately reviewed privileged
-chroot/rootfs mechanism is established. Stop here until a reviewed AppArmor or
-system change, privileged proof path, or alternate backend permits the real
-sealed-rootfs execution.
+Current-host status is `I0E_PASSED`. The owner installed the
+reviewed AppArmor user-namespace profile, and the exact Bubblewrap UID/GID-map
+gate now exits zero. The manifest-inode no-atime correction passed TDD and
+independent quality re-review. The fresh v4 sealed snapshot at environment
+digest
+`sha256:f739b415b2dd73a656657d87f603acf67462ce8f1d19a086048f8897248e9c6c`
+then passed two strict descriptor reloads and fixed-bootstrap validation. The
+owner-run cleared-supplementary-group diagnostic, `codex --version`, and
+`codex --help` proof passed from a delegated transient user scope, including
+three post-probe strict reloads and zero cgroup residue. Both final independent
+evidence reviews approved promotion.
 
 **Files:**
 
@@ -398,6 +403,7 @@ sealed-rootfs execution.
 - Create: `tests/test_provider_launch_shim.py`
 - Create: `docs/reports/provider-isolation-environment-feasibility/README.md`
 - Modify: `orchestrator/providers/isolation.py`
+- Modify: `orchestrator/cli/commands/__init__.py`
 - Modify: `orchestrator/cli/main.py`
 - Modify: `tests/test_provider_isolation_policy.py`
 - Modify: `tests/test_provider_isolation_schema_resources.py`
@@ -405,7 +411,7 @@ sealed-rootfs execution.
 - Modify: `specs/security.md`
 - Modify: `specs/cli.md`
 
-- [ ] **Step 1: Add and collect closed-manifest tests**
+- [x] **Step 1: Add and collect closed-manifest tests**
 
 The canonical `provider_environment_manifest.v1` contains the declared
 provider-visible absolute build prefix, a mandatory `.` row for the mounted
@@ -521,7 +527,7 @@ pytest -q \
 Expected: collection passes, then RED because the manifest/snapshot owner and
 installed-wheel environment schema resource do not exist.
 
-- [ ] **Step 2: Implement manifesting and a run-owned snapshot**
+- [x] **Step 2: Implement manifesting and a run-owned snapshot**
 
 Walk with descriptor-relative `lstat`/no-follow operations and record the root
 and entry mount IDs. Reject every mount-ID crossing, including same-device bind
@@ -558,7 +564,7 @@ identity. Inject crashes during nested-directory population, root/descendant
 normalization, final chmod, manifest verification, and rename; no partial
 staging tree may be resumed, mounted, or observed by a provider.
 
-- [ ] **Step 3: Prove Linux runtime closure inside the sealed rootfs**
+- [x] **Step 3: Prove Linux runtime closure inside the sealed rootfs**
 
 The sealed tree mirrors provider-visible absolute paths below `/`; it includes
 the declared build prefix and any manifest-backed `/lib*`, `/usr`, `/etc`
@@ -600,7 +606,7 @@ identities, rootfs manifest digest, loader closure, and limitations in the
 feasibility report. Use tmux if packaging or checks are long-running. A skip,
 fixture-only, or toy-only pass is `I0E_BLOCKED`.
 
-- [ ] **GREEN: Verify identity, mutation, and packaged executable**
+- [x] **GREEN: Verify identity, mutation, and packaged executable**
 
 ```bash
 pytest -q \
@@ -613,6 +619,7 @@ git diff --check -- \
   orchestrator/providers/isolation.py \
   orchestrator/providers/isolation_environment.py \
   orchestrator/providers/provider_launch_shim.py \
+  orchestrator/cli/commands/__init__.py \
   orchestrator/cli/main.py \
   orchestrator/cli/commands/provider_isolation_environment_manifest.py \
   orchestrator/providers/schemas/provider-environment-manifest-v1.schema.json \
@@ -629,7 +636,7 @@ git diff --check -- \
 
 Expected: PASS, including one real intended-provider offline execution.
 
-- [ ] **Step 4: Independent reviews and commit**
+- [x] **Step 4: Independent reviews and commit**
 
 Specification review checks rootfs/prefix/identity fidelity. Quality/security
 review checks descriptor operations, xattrs, hardlinks, mutation windows,
@@ -640,6 +647,7 @@ git add \
   orchestrator/providers/isolation.py \
   orchestrator/providers/isolation_environment.py \
   orchestrator/providers/provider_launch_shim.py \
+  orchestrator/cli/commands/__init__.py \
   orchestrator/cli/main.py \
   orchestrator/cli/commands/provider_isolation_environment_manifest.py \
   orchestrator/providers/schemas/provider-environment-manifest-v1.schema.json \

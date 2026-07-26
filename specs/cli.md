@@ -9,6 +9,20 @@
     - Report output may include advisory lint warnings (`lint.warnings[]` in JSON or an appendix in Markdown); warnings remain informational only.
     - Report output may include active runtime fields derived from executor sessions, including `run.active_runtime_ms`, `run.active_runtime`, `run.executor_session_count`, and `run.excluded_suspended_ms`. These fields exclude suspended gaps between executor processes and are informational only.
     - v2.10 report output may surface provider-session metadata paths and quarantine context from the persisted run-level error.
+  - `orchestrate provider-isolation-environment-manifest --root <absolute-source> --provider-prefix <absolute-prefix> --output <absolute-manifest>`
+    - Prospectively validates and canonicalizes one provider rootfs, including
+      the runtime-reserved launch shim row, without mutating the source or
+      creating a runtime snapshot.
+    - Prints the canonical `sha256:<hex>` environment digest and atomically
+      publishes the canonical manifest as a new single-link `0600` file.
+    - The output parent must already be a real controller-owned, xattr-free
+      `0700` directory reached through a trusted ancestor chain. The output
+      must not exist, alias the source, overlap the source authority in either
+      containment direction, or reuse the basename of any scanned source
+      entry.
+    - This controller-only authoring command proves the fixed packaged
+      shim/interpreter bootstrap closure. It does not launch a provider and
+      does not by itself make provider-phase isolation available.
   - `orchestrate dashboard --workspace <root> [--workspace <root> ...] [--host 127.0.0.1] [--port <port>]`
     - Serves a local, read-only dashboard for explicit workspace roots.
     - The dashboard scans `<workspace>/.orchestrate/runs/*/state.json` at request time and keys runs by `(resolved workspace root, run directory name)`.
