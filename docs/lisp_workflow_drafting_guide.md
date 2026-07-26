@@ -206,7 +206,10 @@ lowering/runtime own execution mechanics.
 
 Preferred authoring shape:
 
-- provider calls receive typed prompt-input records or small typed values;
+- on checked family-profile-selected typed-prompt-input routes, provider calls
+  receive typed prompt-input records or small typed values; elsewhere,
+  `:inputs` remains typed dataflow and prompt visibility requires an
+  implemented prompt dependency or consumer route;
 - private runtime context, generated paths, checkpoint identity, and write roots
   are hidden from public entrypoints and ordinary user-facing calls;
 - deterministic local reshaping uses pure typed projection instead of Python;
@@ -345,6 +348,9 @@ The currently implemented authoring surface includes:
   lowering through compiler-generated `pure_projection` steps; see Section 9A
 - `match`
 - `loop/recur`
+- target-2.18 list construction and total list operators, pure `list/map`,
+  bounded `list/map-effect`, eligible `List[T]` loop state, and
+  containment-safe `path/join-under`
 - `call`
 - `WorkflowRef[...]` and `(workflow-ref ...)`
 - native returns for every currently transportable type across workflows,
@@ -1079,9 +1085,8 @@ bound-input, checkpoint, and completed-boundary guards. Runtime plans, reports,
 dashboard/debug projections, `expanded.debug.yaml`, and source maps are
 inspection views, not call-policy or resume authority.
 
-When provider prompt semantics require workspace file contents rather than only
-typed values or path text, declare exact typed prompt dependencies on the
-provider result:
+When provider prompt semantics require workspace file contents, declare exact
+typed prompt dependencies on the provider result:
 
 ```lisp
 (provider-result providers.execute
@@ -1679,7 +1684,7 @@ Before adding a path field, decide who semantically owns that path:
 | Provider/command result bundle | structured `provider-result` or `command-result` bundle | Let the runtime bind the output target and validate the declared bundle. |
 | Generated internal path | write root, checkpoint path, temp path, result-bundle sidecar | Allocate through `StateLayout`; never expose as ordinary public input. |
 | Public report or summary | drain summary, review report, operator-facing artifact | Prefer boundary publication policy or observability rendering over body plumbing. |
-| Prompt rendering | provider prompt input text | Pass a typed value/request record; prompt composition renders it. |
+| Prompt rendering | provider prompt input text | On a checked family-profile-selected typed-prompt-input route, pass a typed value/request in `:inputs`; otherwise use an implemented prompt-dependency or consumer route. |
 | Compatibility file | YAML-era pointer, selection bundle, legacy ledger view | Declare a labeled bridge with owner, source value, renderer/schema, and retirement condition. |
 | Durable workflow state | backlog item state, drain state, recovery state | Use `Resource<TState>` and `Transition<TRequest, TResult>`, not arbitrary file writes. |
 
@@ -1947,9 +1952,9 @@ overall callable guidance: it becomes top-level `result_guidance`, survives
 shared IR, and is deliberately not injected into a provider prompt. Neither
 form changes runtime validation, artifacts, routing, checkpoints, or resume.
 
-For nontrivial provider calls, build a typed prompt-input record and pass that
-record to `:inputs`. This keeps provider inputs named, typed, and separate from
-runtime bookkeeping:
+On a checked typed-prompt-input route selected by a workflow family profile,
+build a typed prompt-input record and pass that record to `:inputs`. This keeps
+provider inputs named, typed, and separate from runtime bookkeeping:
 
 ```lisp
 (defrecord ImplementationRequest
@@ -1965,10 +1970,18 @@ runtime bookkeeping:
   :returns ImplementationAttempt)
 ```
 
-The runtime renders `request` at the provider prompt seam. The provider output
-still comes from the declared structured result contract.
+On that selected route, the runtime renders `request` at the provider prompt
+seam. The provider output still comes from the declared structured result
+contract.
 
-Flat input lists are fine for small calls:
+Outside the selected typed-prompt-input lane, `:inputs` remains a typed
+dataflow declaration but does not by itself promise automatic prompt
+rendering. Use an implemented prompt dependency or consumer route when the
+provider must see the value, or treat general typed-value prompt transport as
+future work. Do not infer prompt visibility merely because an input
+typechecks.
+
+Flat input lists are fine for small calls on the same selected lane:
 
 ```lisp
 (provider-result providers.execute
@@ -2128,6 +2141,24 @@ does not deserve a top-level reusable `defrecord`.
   including `ProcRef[...]`, `WorkflowRef[...]`, provider refs, prompt refs, and
   `Json`.
 
+### 17.2 Bounded list traversal
+
+Target 2.18 adds `(list ...)`, the total list operators `list/empty?`,
+`list/head`, `list/rest`, `list/append`, and `list/length`, pure `list/map`,
+and bounded `list/map-effect`. It also permits eligible `List[T]` loop state
+and adds `path/join-under` for pure containment-preserving construction below a
+declared root. The accepted element boundary is structural: use ordinary
+transportable scalar, enum, path, or nested-list values, and introduce a
+narrower named path family only when its rooted contract is load-bearing.
+
+`list/map-effect` has an explicit `:max` and erases to the existing
+loop/call/checkpoint machinery; it is not a higher-order runtime function.
+Record/union elements, indexing, filtering, folding, `ProcRef` mapping,
+nested effect bodies, and unbounded traversal remain outside this surface. If
+the body invokes a provider, remember that typed `:inputs` reaches its prompt
+automatically only on the checked family-profile-selected typed-prompt-input
+lane described in Section 14.
+
 ## 18. Effects
 
 Procedural abstraction must not hide effects.
@@ -2179,7 +2210,7 @@ Rendering is also an effect boundary. Prefer the consumer-owned lane:
 | Consumer | Preferred authoring surface |
 | --- | --- |
 | typed workflow step | pass the typed value; no rendering |
-| provider prompt | typed value or request record in `provider-result :inputs` |
+| provider prompt | checked typed-prompt-input lane with a typed value/request in `:inputs`; otherwise an implemented prompt-dependency/consumer route |
 | public workflow output | entry publication policy / boundary view |
 | observability | typed terminal result rendered by report/dashboard surfaces |
 | legacy reader | labeled compatibility bridge |

@@ -992,7 +992,17 @@ def _type_ref_for_prompt_input(expr: Any, *, context: _LoweringContext) -> TypeR
 
 
 def _type_ref_display_name(type_ref: TypeRef) -> str:
-    return getattr(type_ref.definition, "name", type_ref.__class__.__name__)
+    definition_name = getattr(
+        getattr(type_ref, "definition", None),
+        "name",
+        None,
+    )
+    if isinstance(definition_name, str) and definition_name:
+        return definition_name
+    type_name = getattr(type_ref, "name", None)
+    if isinstance(type_name, str) and type_name:
+        return type_name
+    return type_ref.__class__.__name__
 
 
 def _request_field_metadata_for_prompt_input(

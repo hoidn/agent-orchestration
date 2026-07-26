@@ -33,9 +33,9 @@ That commit records ordered `LIST_DESIGN_SPEC_APPROVED` then
 `LIST_DESIGN_QUALITY_APPROVED`. Implementation may begin only after this
 plan receives ordered plan reviews and is committed.
 
-**Status:** Accepted for execution. Ordered plan review:
-`LIST_PLAN_SPEC_APPROVED` then `LIST_PLAN_QUALITY_APPROVED` (2026-07-25).
-No implementation code began before this gate.
+**Status:** Complete; implementation commit pending. Ordered plan
+review was `LIST_PLAN_SPEC_APPROVED` then `LIST_PLAN_QUALITY_APPROVED`
+(2026-07-25). No implementation code began before that gate.
 
 ---
 
@@ -155,10 +155,15 @@ security/isolation modules and use:
 pytest -q -n 16 --dist=worksteal \
   --ignore=tests/test_at61_at62_wait_for_path_safety.py \
   --ignore=tests/test_cli_safety.py \
+  --ignore=tests/test_execution_safety.py \
   --ignore=tests/test_provider_isolation_policy.py \
   --ignore=tests/test_provider_isolation_schema_resources.py \
   --ignore=tests/test_provider_isolation_environment.py \
   --ignore=tests/test_provider_isolation_environment_cli.py \
+  --ignore=tests/test_provider_isolation_backend.py \
+  --ignore=tests/test_provider_isolation_candidate.py \
+  --ignore=tests/test_provider_isolation_network_preflight.py \
+  --ignore=tests/test_provider_isolation_runtime_authority.py \
   --ignore=tests/test_provider_launch_shim.py \
   --ignore=tests/test_secrets.py \
   -k 'not security and not secret and not isolation'
@@ -749,38 +754,52 @@ implemented.
 - Create: one focused target-2.18 `.orc` fixture under
   `tests/fixtures/workflow_lisp/valid/`
 - Modify: `tests/test_workflow_lisp_list_traversal.py`
+- Modify: `tests/test_workflow_lisp_typed_prompt_inputs.py`
+- Modify: `tests/test_workflow_lisp_lowering.py`
+- Modify: `orchestrator/workflow/runtime_plan.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/workflow_lisp/lowering/phase_scope.py`
+- Modify: `orchestrator/workflow_lisp/wcc/defunctionalize.py`
+- Modify: `orchestrator/workflow_lisp/lowering/core.py`
+- Modify: `orchestrator/workflow_lisp/lowering/control_loops.py`
+- Modify: `orchestrator/workflow_lisp/typecheck_dispatch.py`
+- Create: `orchestrator/workflow_lisp/typecheck_structural_values.py`
+- Modify: `tests/test_workflow_lisp_expressions.py`
+- Modify: `docs/lisp_workflow_drafting_guide.md`
 - Modify: `docs/design/workflow_lisp_frontend_specification.md`
 - Modify: `docs/design/workflow_lisp_pure_list_traversal.md`
 - Modify: `docs/design/README.md`
 - Modify: `docs/capability_status_matrix.md`
 - Modify: `docs/index.md` only at exact list/Stage-8 routing hunks
 - Modify: `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
+- Modify: `docs/plans/2026-07-25-workflow-lisp-language-server-implementation-plan.md`
+- Modify: `tests/test_workflow_lisp_drain_roadmap_routing.py`
 - Modify: this plan
 - Modify: relevant non-security normative specs if and only if the owning
   doc router requires them
 
 **Verification:**
 
-- [ ] Run `pytest --collect-only -q` on every new/renamed module.
-- [ ] Run the focused pure/list/loop/WCC/build/resume selectors.
-- [ ] Run a clean deterministic-provider end-to-end execution.
-- [ ] Interrupt after a committed per-element effect and resume the same run;
+- [x] Run `pytest --collect-only -q` on every new/renamed module.
+- [x] Run the focused pure/list/loop/WCC/build/resume selectors.
+- [x] Run a clean deterministic-provider end-to-end execution.
+- [x] Interrupt after a committed per-element effect and resume the same run;
       compare ordered outputs, attempt identities, and call counts to clean.
-- [ ] Run target-2.17 compatibility and schema-1 frozen-artifact checks.
-- [ ] Run documentation routing/link/status tests, including:
+- [x] Run target-2.17 compatibility and schema-1 frozen-artifact checks.
+- [x] Run documentation routing/link/status tests, including:
 
 ```bash
 pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py
 ```
 
-- [ ] Launch the closing broad non-security suite in tmux with the exact
+- [x] Launch the closing broad non-security suite in tmux with the exact
       command in the Execution Contract and wait for completion.
-- [ ] Record fresh counts and distinguish any established external failures
+- [x] Record fresh counts and distinguish any established external failures
       without weakening selectors or repairing out-of-scope code.
-- [ ] Update docs from observed behavior only. Mark the accepted design
+- [x] Update docs from observed behavior only. Mark the accepted design
       implemented and the selected interstage complete; leave Stage 8 as the
       next numbered stage.
-- [ ] Obtain `TASK7_FINAL_SPEC_APPROVED`, then
+- [x] Obtain `TASK7_FINAL_SPEC_APPROVED`, then
       `TASK7_FINAL_QUALITY_APPROVED`.
 - [ ] Stage only exact task-owned hunks. For every dirty protected file with
       an explicit overlap exception above (currently only `docs/index.md`),
@@ -788,6 +807,60 @@ pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py
       protected pre-existing hunk is absent even though the file name may
       appear. Verify every protected path without an explicit exception is
       absent from the staged name list, then commit.
+
+**Implementation record — final reviews approved; implementation commit
+pending (2026-07-25):**
+
+- The maintained target-2.18 fixture accepts a runtime `List[Int]`, invokes
+  one deterministic review provider per item in source order, returns rooted
+  review paths, and passes that ordered `List[ReviewReport]` to one synthesis
+  provider. Each review derives its returned path from the injected binder
+  value; synthesis consumes the injected ordered list to write its report
+  bytes before returning its declared rooted path. Those values use the
+  existing family-profile-selected typed-prompt-input lane; the proof does not
+  claim uniform prompt rendering for unselected `:inputs`. Direct native path
+  results use scalar JSON roots, not an envelope.
+- Clean `[3, 1, 2]` execution produces exactly three ordered review attempts
+  plus one synthesis attempt. Interruption after the first committed review
+  resumes the same run from `validated_prior_boundary`; outputs, qualified
+  provider identities, and call counts match clean, and the first review
+  identity appears exactly once.
+- The E2E exposed a generic authority gap: iteration-qualified resume
+  checkpoints were derived for nested call boundaries but not direct nested
+  lexical effect boundaries. Runtime-plan derivation now adds one qualified
+  checkpoint using the existing `call_boundary` kind only when a lexical
+  effect has one exact enclosing repeat owner. Missing and duplicate
+  authorities fail closed before restore selection; existing nested calls
+  retain exactly one `call_boundary` checkpoint.
+- Typed prompt resolution now uses the active nested runtime scope, and
+  evidence filenames for long qualified identities use a bounded readable
+  prefix plus a digest of the full identity. A two-name collision regression
+  proves distinct bounded filenames and preserved full payload identities.
+- The pre-2.18 local workflow-call policy identity remains frozen, while
+  imported callees on every supported target still bind their declared
+  identity and checksum. The target-2.17/2.18 boundary, imported-callee drift,
+  and both checked retirement-artifact rebuilds pass.
+- Fresh collection found 235 tests in the list-traversal module; all 235 pass.
+  The principal focused list/typed-prompt/resume/WCC/loop/build/lowering/
+  executor/checkpoint/identity gate passed 1,174 tests. Post-correction
+  checkpoint/identity gates passed 369 and 373 tests. The
+  target-2.17/schema-1 frozen checks are part of those green selectors.
+- The final broad non-security tmux run collected 7,811 outcomes:
+  7,785 passed, 21 skipped, and 5 failed in 164.68 seconds. Four failures are
+  the exact checked subset of the owner-adopted external baseline in
+  `docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-baseline/known-failure-baseline.json`:
+  `test_provider_valid_output_bundle_overrides_raw_nonzero_exit` plus the
+  three named `test_workflow_semantic_ir.py` failures. The fifth is the
+  deliberate routing assertion that required this plan's final reviewed
+  `Status: Complete`; the exact post-status routing selector subsequently
+  passed all 51 tests.
+- Documentation and routing mark only the exact bounded target-2.18 surface
+  implemented, keep Principle 29's opt-in structural boundary, close the
+  selected interstage, and activate Stage 8. Ordered preliminary review
+  returned `TASK7_FINAL_SPEC_APPROVED` followed by
+  `TASK7_FINAL_QUALITY_APPROVED`; after the final status/checklist update, the
+  same reviewers returned `TASK7_FINAL_SPEC_REAFFIRMED` followed by
+  `TASK7_FINAL_QUALITY_REAFFIRMED`.
 
 ## Interstage Completion Gate
 

@@ -918,6 +918,18 @@ def test_lowering_family_owner_modules_exist_across_full_target_map() -> None:
         "phase_stdlib",
     ):
         assert _lowering_owner_source_path(name).is_file()
+    core_source = _lowering_source_path().read_text(encoding="utf-8")
+    control_loops_source = _lowering_owner_source_path(
+        "control_loops"
+    ).read_text(encoding="utf-8")
+    for helper_name in (
+        "_capture_generated_repeat_until_on_exhausted_refs",
+        "_iter_authored_step_mappings",
+        "_capture_compiler_owned_repeat_until_metadata",
+        "_capture_compiler_owned_nested_if_step_ids",
+    ):
+        assert f"def {helper_name}(" not in core_source
+        assert f"def {helper_name}(" in control_loops_source
     assert _physical_line_count(_lowering_source_path()) < 2600
 
 

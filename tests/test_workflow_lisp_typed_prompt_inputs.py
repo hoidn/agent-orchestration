@@ -972,6 +972,47 @@ def test_runtime_smoke_renders_typed_prompt_inputs_without_prompt_materializatio
     assert "prefer typed values over producer-owned prompt files" in str(captured["prompt"])
 
 
+def test_typed_prompt_input_evidence_long_step_ids_are_bounded_and_collision_safe(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_typed_prompt_input_bundle(tmp_path)
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="typed-prompt-input-long-identities",
+    )
+    executor = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        state_manager,
+        retry_delay_ms=0,
+    )
+    shared_prefix = "qualified." + ("same-segment." * 20)
+    step_ids = (
+        f"{shared_prefix}first-tail",
+        f"{shared_prefix}second-tail",
+    )
+
+    for step_id in step_ids:
+        executor._write_typed_prompt_input_evidence(
+            step_id=step_id,
+            evidence=[{"runtime_step_id": step_id}],
+        )
+
+    evidence_root = (
+        state_manager.run_root
+        / "workflow_lisp"
+        / "typed_prompt_inputs"
+    )
+    evidence_paths = sorted(evidence_root.glob("*.json"))
+    assert len(evidence_paths) == 2
+    assert all(len(path.name) <= 185 for path in evidence_paths)
+    assert len({path.name for path in evidence_paths}) == 2
+    assert {
+        json.loads(path.read_text(encoding="utf-8"))[0]["runtime_step_id"]
+        for path in evidence_paths
+    } == set(step_ids)
+
+
 def test_typed_prompt_input_evidence_does_not_replace_provider_output_authority(
     tmp_path: Path,
 ) -> None:

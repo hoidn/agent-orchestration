@@ -23,6 +23,9 @@ from orchestrator.workflow_lisp.expressions import (
     LetProcExpr,
     LetProcBinding,
     LetStarExpr,
+    ListExpr,
+    ListMapEffectExpr,
+    ListMapExpr,
     LiteralExpr,
     LoopRecurExpr,
     LoopStateSeedExpr,
@@ -46,11 +49,13 @@ from orchestrator.workflow_lisp.expressions import (
     WorkflowRefLiteralExpr,
     ProcRefLiteralExpr,
     PhaseTargetExpr,
+    PathJoinUnderExpr,
     ProviderBundlePathExpr,
     PureOpExpr,
     RecordUpdateExpr,
     GeneratedRelpathSeedExpr,
     CallExpr,
+    CompilerListNonemptyHeadExpr,
     elaborate_expression,
 )
 from orchestrator.workflow_lisp.phase_stdlib import (
@@ -245,7 +250,11 @@ def test_typecheck_facade_reexports_public_entrypoints_after_owner_split() -> No
     package_dir = _workflow_lisp_package_dir()
     context_path = package_dir / "typecheck_context.py"
     dispatch_path = package_dir / "typecheck_dispatch.py"
+    structural_values_path = package_dir / "typecheck_structural_values.py"
     dispatch_source = dispatch_path.read_text(encoding="utf-8")
+    structural_values_source = structural_values_path.read_text(
+        encoding="utf-8"
+    )
     loop_state_source = (package_dir / "loop_state.py").read_text(encoding="utf-8")
     procedure_typecheck_source = (package_dir / "procedure_typecheck.py").read_text(
         encoding="utf-8"
@@ -254,6 +263,7 @@ def test_typecheck_facade_reexports_public_entrypoints_after_owner_split() -> No
     assert typecheck_module.typecheck_expression is typecheck_expression
     assert context_path.is_file()
     assert dispatch_path.is_file()
+    assert structural_values_path.is_file()
     assert inspect.getsourcefile(typecheck_module.TypedExpr) == str(context_path)
     from orchestrator.workflow_lisp import typecheck_context as _ctx
     assert inspect.getsourcefile(_ctx._type_label) == str(context_path)
@@ -265,6 +275,15 @@ def test_typecheck_facade_reexports_public_entrypoints_after_owner_split() -> No
     assert "_ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY" not in dispatch_source
     assert "snapshot_session_state" in dispatch_source
     assert "restore_session_state" in dispatch_source
+    assert (
+        "from .typecheck_structural_values import "
+        "typecheck_structural_value_expr"
+    ) in dispatch_source
+    assert "if isinstance(expr, ListExpr):" not in dispatch_source
+    assert "if isinstance(expr, PathJoinUnderExpr):" not in dispatch_source
+    assert "def typecheck_structural_value_expr(" in structural_values_source
+    assert "if isinstance(expr, ListExpr):" in structural_values_source
+    assert "if isinstance(expr, PathJoinUnderExpr):" in structural_values_source
     assert (package_dir / "typecheck_resume.py").is_file()
     assert "if isinstance(expr, ResumeOrStartExpr):" in dispatch_source
     assert "typecheck_resume_or_start_expr(" in dispatch_source
@@ -831,6 +850,11 @@ def test_expression_traversal_direct_child_classification_matches_exprnode_union
         CallExpr,
         FunctionCallExpr,
         PureOpExpr,
+        ListExpr,
+        ListMapExpr,
+        ListMapEffectExpr,
+        CompilerListNonemptyHeadExpr,
+        PathJoinUnderExpr,
         RecordUpdateExpr,
         ProcedureCallExpr,
         WithLiveProviderPeersExpr,

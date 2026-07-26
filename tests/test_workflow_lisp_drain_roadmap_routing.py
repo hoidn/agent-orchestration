@@ -34,6 +34,12 @@ PROVIDER_PEER_MESSAGING_PLAN_PATH = (
 PURE_LIST_TRAVERSAL_DESIGN_PATH = (
     "docs/design/workflow_lisp_pure_list_traversal.md"
 )
+PURE_LIST_TRAVERSAL_PLAN_PATH = (
+    "docs/plans/2026-07-25-workflow-lisp-pure-list-traversal-implementation-plan.md"
+)
+LANGUAGE_SERVER_PLAN_PATH = (
+    "docs/plans/2026-07-25-workflow-lisp-language-server-implementation-plan.md"
+)
 TRACKED_DESIGN_RETIREMENT_PLAN_PATH = (
     "docs/plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md"
 )
@@ -690,6 +696,7 @@ def _assert_stage_7_v1_landed_and_v1_1_routed(
         or "before or alongside stage 8 planning" in normalized
         or "remains next" in normalized
         or "stage 8 is the next numbered stage" in normalized
+        or re.search(r"\bstage 8\b.{0,40}\bactive\b", normalized)
         or "next stage selection remain owned by the execution sequence roadmap"
         in normalized
     ), label
@@ -870,7 +877,7 @@ def test_procedure_first_status_surfaces_close_stage_6_and_route_stage_7_v1_1() 
     assert "pass" in stage_6 and "approved" in stage_6
 
 
-def test_stage_7_task_11_handoff_routes_list_traversal_before_stage_8_planning() -> None:
+def test_list_traversal_interstage_closeout_activates_stage_8() -> None:
     sequence = (
         REPO_ROOT
         / "docs"
@@ -899,9 +906,18 @@ def test_stage_7_task_11_handoff_routes_list_traversal_before_stage_8_planning()
     assert "independent design review" in normalized_interstage
     assert "one small implementation plan" in normalized_interstage
     assert "principle 29" in normalized_interstage
-    assert "before or alongside stage 8 planning" in normalized_interstage
-    assert "stage 8 remains the next numbered roadmap stage" in normalized_interstage
+    assert "current status: complete" in normalized_interstage
+    assert "interstage is complete" in normalized_interstage
+    assert "stage 8 is active" in normalized_interstage
+    assert PURE_LIST_TRAVERSAL_PLAN_PATH in interstage
     assert after_stage_7.startswith("\n\nStage 8 is the final stage")
+    normalized_stage_8 = _normalized_routing_text(after_stage_7)
+    assert "stage 8 is active" in normalized_stage_8
+    assert "condition 3 is satisfied" in normalized_stage_8
+    assert "condition 3 is the remaining execution boundary" not in (
+        normalized_stage_8
+    )
+    assert LANGUAGE_SERVER_PLAN_PATH in after_stage_7
 
     normalized_live_plan = _normalized_routing_text(live_binding_plan)
     assert "v1 handoff is complete" in normalized_live_plan
@@ -932,6 +948,50 @@ def test_stage_7_task_11_handoff_routes_list_traversal_before_stage_8_planning()
     assert "- [x] **Step 8:" in task_12
     assert "**Status:** Complete." in peer_plan
     assert "**Gate status:** complete." in stage_7
+
+
+def test_list_traversal_closeout_status_is_consistent_across_doc_routes() -> None:
+    design = (REPO_ROOT / PURE_LIST_TRAVERSAL_DESIGN_PATH).read_text(
+        encoding="utf-8"
+    )
+    plan = (REPO_ROOT / PURE_LIST_TRAVERSAL_PLAN_PATH).read_text(
+        encoding="utf-8"
+    )
+    language_server_plan = (REPO_ROOT / LANGUAGE_SERVER_PLAN_PATH).read_text(
+        encoding="utf-8"
+    )
+    design_router_path = REPO_ROOT / "docs/design/README.md"
+    capability_matrix_path = REPO_ROOT / "docs/capability_status_matrix.md"
+    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
+
+    assert "status: implemented" in _normalized_routing_text(
+        "\n".join(design.splitlines()[:30])
+    )
+    assert "status: complete" in _normalized_routing_text(
+        "\n".join(plan.splitlines()[:45])
+    )
+    design_row = _markdown_table_row(
+        design_router_path,
+        "workflow_lisp_pure_list_traversal.md",
+    )
+    assert "| Implemented |" in design_row
+    capability_row = _markdown_table_row(
+        capability_matrix_path,
+        "Workflow Lisp target-2.18 bounded list traversal",
+    )
+    assert "| Implemented |" in capability_row
+    list_index = index.split(
+        "### [Workflow Lisp Pure List Traversal]", 1
+    )[1].split("### [Workflow Lisp Language Server]", 1)[0]
+    assert "implemented target 2.18" in _normalized_routing_text(list_index)
+    assert "completed seven task" in _normalized_routing_text(list_index)
+    normalized_language_server_plan = _normalized_routing_text(
+        "\n".join(language_server_plan.splitlines()[:45])
+    )
+    assert "status: active" in normalized_language_server_plan
+    assert "after the selected list traversal interstage closes" not in (
+        normalized_language_server_plan
+    )
 
 
 def test_stage_6_numbered_sequence_closes_task_7_after_completed_queues() -> None:

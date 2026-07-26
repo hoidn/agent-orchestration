@@ -52,6 +52,7 @@ from ..phase_family_boundary import (
     record_direct_entry_phase_context_binding,
 )
 from ..procedures import ProcedureCatalog, ProcedureLoweringMode, TypedProcedureDef
+from ..syntax import target_dsl_supports_list_traversal
 from ..typecheck_context import TypedExpr
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef, WorkflowRefTypeRef
 from ..workflows import CommandBoundaryEnvironment, ExternEnvironment, TypedWorkflowDef, WorkflowCatalog, WorkflowDef, WorkflowSignature
@@ -1636,6 +1637,12 @@ def _build_effect_resume_policy_payload(
         elif (
             isinstance(value, WccPerform)
             and value.perform_kind == "workflow_call"
+            and (
+                target_dsl_supports_list_traversal(
+                    context.type_env.target_dsl_version or ""
+                )
+                or value.target_name in context.imported_workflow_bundles
+            )
         ):
             callee_workflow = value.target_name
         target_dsl_version, callee_checksum = _workflow_call_policy_metadata(

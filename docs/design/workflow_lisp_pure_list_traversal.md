@@ -1,7 +1,9 @@
 # Workflow Lisp Pure List Traversal
 
-- **Status:** accepted; ordered `LIST_DESIGN_SPEC_APPROVED` then
-  `LIST_DESIGN_QUALITY_APPROVED` (2026-07-25)
+- **Status:** implemented at target 2.18; source interstage complete
+  (2026-07-25)
+- **Design review:** ordered `LIST_DESIGN_SPEC_APPROVED` then
+  `LIST_DESIGN_QUALITY_APPROVED`
 - **Kind:** closed pure-expression surface extension plus one bounded
   effectful binder
 - **Owner:** Workflow Lisp frontend + pure evaluator
@@ -9,12 +11,13 @@
 - **Motivating consumer:** runtime-cardinality fan-out — for example, a
   review panel whose ordered lens names are workflow input data, whose
   provider calls each return a review-report path, and whose synthesis call
-  consumes the ordered list of paths. Today `List[T]` can cross selected
-  contracts but cannot be constructed or traversed in-language, so authors
-  must duplicate static call sites whenever cardinality is data.
+  consumes the ordered list of paths. Before target 2.18, `List[T]` could
+  cross selected contracts but could not be constructed or traversed
+  in-language, so authors had to duplicate static call sites whenever
+  cardinality was data.
 - **Related docs:**
   - `docs/design/workflow_lisp_frontend_specification.md` (§10.2 closed
-    pure-expression surface)
+    pure-expression surface and §10.3 bounded list traversal)
   - `docs/design/workflow_language_design_principles.md` (principles 17,
     27, 28, and 29)
   - `docs/design/workflow_lisp_state_layout.md` (loop state)
@@ -381,6 +384,35 @@ New or renamed test modules run `pytest --collect-only` before execution.
 Focused frontend/evaluator/loop/build/resume selectors precede the existing
 broad suite. No test asserts literal prompt wording.
 
+### Maintained runtime-cardinality proof
+
+The maintained target-2.18 consumer is
+`tests/fixtures/workflow_lisp/valid/list_map_effect_runtime_cardinality_provider.orc`.
+Its focused proof consists of exactly three tests, including two
+deterministic-provider end-to-end tests, in
+`tests/test_workflow_lisp_list_traversal.py`:
+
+1. runtime `List[Int]` input binding compiles to qualified per-iteration
+   provider checkpoint authority;
+2. a clean deterministic run emits ordered rooted review-report paths and
+   passes that ordered list to one synthesis provider; each review derives its
+   returned path from the injected binder value, while synthesis consumes the
+   injected ordered list to write its report bytes before returning its
+   declared rooted path; the values use the existing family-profile-selected
+   typed-prompt-input lane; and
+3. an interruption after the first review provider commits resumes from the
+   validated prior boundary, matches the clean outputs and provider event
+   identities, and neither replays nor duplicates that review.
+
+This proof does not promote automatic typed-value rendering for unselected
+`provider-result :inputs`; that broader prompt-transport surface remains
+outside this tranche.
+
+The focused selector for these three tests passes in the implementation
+checkout. Broad-suite counts and ordered final implementation-review verdicts
+are plan-level execution evidence and are intentionally not restated in this
+durable design.
+
 ## Non-goals
 
 - no function values, lambda literals, runtime callables, capture objects,
@@ -396,9 +428,10 @@ broad suite. No test asserts literal prompt wording.
 - no mandatory type taxonomy: generic list and prelude path contracts remain
   valid author choices, while narrower contracts are opt-in.
 
-## Implementation handoff
+## Implementation closure
 
-One implementation plan owns this delta in ordered RED/GREEN slices:
+The target-2.18 source interstage is complete. Its implementation plan owned
+the delta in these ordered RED/GREEN slices:
 
 1. target/schema contracts and diagnostic RED tests;
 2. schema-2 pure kernel, catalog, evaluator, folding, and golden vectors;
@@ -409,6 +442,7 @@ One implementation plan owns this delta in ordered RED/GREEN slices:
 7. deterministic-provider clean/resume integration, docs, and broad
    verification.
 
-The plan may split these into reviewable commits but must not expand the
-surface. It remains an independent post-Stage-7 delta with no Stage-8
-dependency.
+The implementation did not expand the accepted surface. The interstage remains
+independent of Stage 8; final suite totals and ordered implementation-review
+artifacts remain in the implementation plan rather than becoming semantic
+authority here.

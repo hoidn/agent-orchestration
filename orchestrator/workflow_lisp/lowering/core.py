@@ -52,9 +52,6 @@ from orchestrator.workflow.state_layout import (
     GeneratedPathAllocation,
     derive_entrypoint_managed_write_root_allocations,
 )
-from orchestrator.workflow.statements import (
-    COMPILER_OWNED_REPEAT_UNTIL_METADATA_FIELDS,
-)
 from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind
 
 from ..conditionals import classify_condition_expr, render_condition_predicate
@@ -224,6 +221,12 @@ from .control import (
     _lower_match_expr,
     _match_arm_local_values,
 )
+from .control_loops import (
+    _capture_compiler_owned_nested_if_step_ids,
+    _capture_compiler_owned_repeat_until_metadata,
+    _capture_generated_repeat_until_on_exhausted_refs,
+    _iter_authored_step_mappings,
+)
 from .values import (
     _assign_nested_local_value,
     _build_output_step_local_value,
@@ -361,182 +364,6 @@ class LoweredWorkflow:
         str, Mapping[str, Any]
     ] = field(default_factory=dict)
     compiler_owned_nested_if_step_ids: tuple[str, ...] = ()
-
-
-def _capture_generated_repeat_until_on_exhausted_refs(
-    authored_mapping: Mapping[str, object],
-) -> Mapping[str, Mapping[str, str]]:
-    steps = authored_mapping.get("steps")
-    if not isinstance(steps, Sequence):
-        return MappingProxyType({})
-
-    captured: dict[str, Mapping[str, str]] = {}
-    for step in steps:
-        if not isinstance(step, Mapping):
-            continue
-        step_name = step.get("name")
-        repeat_until = step.get("repeat_until")
-        if not isinstance(step_name, str) or not isinstance(repeat_until, Mapping):
-            continue
-        on_exhausted = repeat_until.get("on_exhausted")
-        if not isinstance(on_exhausted, Mapping):
-            continue
-        outputs = on_exhausted.get("outputs")
-        if not isinstance(outputs, Mapping):
-            continue
-
-        refs: dict[str, str] = {}
-        for output_name, value in outputs.items():
-            if not isinstance(output_name, str) or not isinstance(value, Mapping):
-                continue
-            ref = value.get("ref")
-            if set(value) != {"ref"} or not isinstance(ref, str):
-                continue
-            ref = ref.strip()
-            if not ref:
-                continue
-            refs[output_name] = ref
-        if refs:
-            captured[step_name] = MappingProxyType(refs)
-
-    return MappingProxyType(captured)
-
-
-def _iter_authored_step_mappings(
-    steps: object,
-):
-    """Yield generated step mappings through every structured child block."""
-
-    if not isinstance(steps, Sequence) or isinstance(steps, (str, bytes)):
-        return
-    for step in steps:
-        if not isinstance(step, Mapping):
-            continue
-        yield step
-        for branch_name in ("then", "else"):
-            branch = step.get(branch_name)
-            branch_steps = (
-                branch.get("steps")
-                if isinstance(branch, Mapping)
-                else branch
-            )
-            yield from _iter_authored_step_mappings(branch_steps)
-        match_node = step.get("match")
-        cases = match_node.get("cases") if isinstance(match_node, Mapping) else None
-        if isinstance(cases, Mapping):
-            for case in cases.values():
-                case_steps = (
-                    case.get("steps")
-                    if isinstance(case, Mapping)
-                    else case
-                )
-                yield from _iter_authored_step_mappings(case_steps)
-        for container_name in ("repeat_until", "for_each"):
-            container = step.get(container_name)
-            nested_steps = (
-                container.get("steps")
-                if isinstance(container, Mapping)
-                else None
-            )
-            yield from _iter_authored_step_mappings(nested_steps)
-
-
-def _capture_compiler_owned_repeat_until_metadata(
-    authored_mapping: Mapping[str, object],
-) -> Mapping[str, Mapping[str, Any]]:
-    """Capture the closed inert metadata emitted on generated repeat loops."""
-
-    captured: dict[str, Mapping[str, Any]] = {}
-    for step in _iter_authored_step_mappings(authored_mapping.get("steps")):
-        step_id = step.get("id")
-        repeat_until = step.get("repeat_until")
-        if not isinstance(step_id, str) or not isinstance(repeat_until, Mapping):
-            continue
-        metadata = {
-            field_name: repeat_until[field_name]
-            for field_name in COMPILER_OWNED_REPEAT_UNTIL_METADATA_FIELDS
-            if field_name in repeat_until
-        }
-        if not metadata:
-            continue
-        if step_id in captured:
-            raise ValueError(
-                f"duplicate compiler-owned repeat_until metadata step id `{step_id}`"
-            )
-        captured[step_id] = MappingProxyType(metadata)
-    return MappingProxyType(captured)
-
-
-def _capture_compiler_owned_nested_if_step_ids(
-    authored_mapping: Mapping[str, object],
-) -> tuple[str, ...]:
-    """Bind nested if descendants of compiler-coded repeat loops by step id."""
-
-    captured: set[str] = set()
-
-    def visit(steps: object, *, inside_compiler_owned_repeat: bool) -> None:
-        if not isinstance(steps, Sequence) or isinstance(steps, (str, bytes)):
-            return
-        for step in steps:
-            if not isinstance(step, Mapping):
-                continue
-            is_nested_if = "if" in step
-            step_id = step.get("id")
-            if (
-                inside_compiler_owned_repeat
-                and is_nested_if
-                and isinstance(step_id, str)
-                and step_id
-            ):
-                captured.add(step_id)
-
-            for branch_name in ("then", "else"):
-                branch = step.get(branch_name)
-                branch_steps = (
-                    branch.get("steps")
-                    if isinstance(branch, Mapping)
-                    else branch
-                )
-                visit(
-                    branch_steps,
-                    inside_compiler_owned_repeat=inside_compiler_owned_repeat,
-                )
-
-            match_node = step.get("match")
-            cases = (
-                match_node.get("cases")
-                if isinstance(match_node, Mapping)
-                else None
-            )
-            if isinstance(cases, Mapping):
-                for case in cases.values():
-                    case_steps = (
-                        case.get("steps")
-                        if isinstance(case, Mapping)
-                        else case
-                    )
-                    visit(
-                        case_steps,
-                        inside_compiler_owned_repeat=(
-                            inside_compiler_owned_repeat
-                        ),
-                    )
-
-            repeat = step.get("repeat_until")
-            if isinstance(repeat, Mapping):
-                visit(
-                    repeat.get("steps"),
-                    inside_compiler_owned_repeat=(
-                        inside_compiler_owned_repeat
-                        or "exhaustion_diagnostic_code" in repeat
-                    ),
-                )
-
-    visit(
-        authored_mapping.get("steps"),
-        inside_compiler_owned_repeat=False,
-    )
-    return tuple(sorted(captured))
 
 
 def _all_step_names_from_steps(steps: Sequence[object]) -> set[str]:

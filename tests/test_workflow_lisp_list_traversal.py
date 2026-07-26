@@ -5,11 +5,19 @@ import importlib
 import json
 from pathlib import Path
 import re
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
+from orchestrator.providers.executor import (
+    ProviderExecutionResult,
+    ProviderExecutor,
+)
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
+from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow.validation import (
     _WorkflowMappingValidator,
     WorkflowBoundaryValidationPolicy,
@@ -18,7 +26,10 @@ from orchestrator.workflow.validation import (
     validate_workflow_mapping,
 )
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.compiler import (
+    compile_stage3_entrypoint,
+    compile_stage3_module,
+)
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
 from orchestrator.workflow_lisp.expressions import (
     DoneExpr,
@@ -26,6 +37,9 @@ from orchestrator.workflow_lisp.expressions import (
     LiteralExpr,
     ProcedureCallExpr,
     elaborate_expression,
+)
+from orchestrator.workflow_lisp.family_profiles import (
+    load_workflow_family_profile_catalog,
 )
 from orchestrator.workflow_lisp.loops import ensure_loop_projectable_type
 from orchestrator.workflow_lisp.lowering import core as lowering_core
@@ -48,6 +62,7 @@ from orchestrator.workflow_lisp.wcc.model import (
     WccLoopDone,
 )
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 _LIST_TRAVERSAL_AUTHORED_HEADS = (
@@ -60,6 +75,16 @@ _LIST_TRAVERSAL_AUTHORED_HEADS = (
     "list/rest",
     "list/append",
     "list/length",
+)
+_RUNTIME_CARDINALITY_PROVIDER_FIXTURE = (
+    Path(__file__).parent
+    / "fixtures"
+    / "workflow_lisp"
+    / "valid"
+    / "list_map_effect_runtime_cardinality_provider.orc"
+)
+_RUNTIME_CARDINALITY_WORKFLOW = (
+    "list_map_effect_runtime_cardinality_provider::orchestrate"
 )
 
 
@@ -134,6 +159,559 @@ def _projection_payload(result) -> dict[str, object]:
     ]
     assert len(projection_steps) == 1
     return projection_steps[0].pure_projection
+
+
+def _compile_runtime_cardinality_provider_fixture(workspace: Path):
+    module_path = workspace / _RUNTIME_CARDINALITY_PROVIDER_FIXTURE.name
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_bytes(
+        _RUNTIME_CARDINALITY_PROVIDER_FIXTURE.read_bytes()
+    )
+    (workspace / "provider.md").write_text(
+        "Return the declared typed result.\n",
+        encoding="utf-8",
+    )
+    profile_path = workspace / "runtime-cardinality-family-profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_family_profile.v1",
+                "family_id": "runtime_cardinality_fixture",
+                "workflow_name_prefixes": [],
+                "target_workflows": [_RUNTIME_CARDINALITY_WORKFLOW],
+                "boundary_authority_registry": None,
+                "checked_public_inputs": {},
+                "entry_phase_identities": {},
+                "hidden_context_rules": [],
+                "typed_prompt_input_rows": [
+                    {
+                        "workflow_name": _RUNTIME_CARDINALITY_WORKFLOW,
+                        "provider_binding": provider_binding,
+                        "binding_name": binding_name,
+                        "renderer": {
+                            "renderer_id": "canonical-json",
+                            "renderer_version": 1,
+                            "accepted_shape": "any_pure_value",
+                        },
+                        "value_source": {
+                            "kind": "typed_binding_ref",
+                            "ref": f"locals.{binding_name}",
+                        },
+                        "value_type_name": value_type_name,
+                        "source_map_origin_key": _RUNTIME_CARDINALITY_WORKFLOW,
+                        "u0_row_id": f"u0.fixture.{binding_name}",
+                        "c0_row_id": f"c0.fixture.{binding_name}",
+                        "injection_order": 0,
+                    }
+                    for provider_binding, binding_name, value_type_name in (
+                        ("providers.review", "lens_id", "Int"),
+                        (
+                            "providers.synthesize",
+                            "reports",
+                            "List[ReviewReport]",
+                        ),
+                    )
+                ],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(workspace,),
+        entry_workflow="orchestrate",
+        provider_externs={
+            "providers.review": "deterministic-review",
+            "providers.synthesize": "deterministic-synthesis",
+        },
+        prompt_externs={
+            "prompts.review": "provider.md",
+            "prompts.synthesize": "provider.md",
+        },
+        validate_shared=True,
+        workspace_root=workspace,
+        lowering_route="wcc_m4",
+        family_profile_catalog=load_workflow_family_profile_catalog(
+            (profile_path,)
+        ),
+    )
+    bundle = result.validated_bundles_by_name[
+        _RUNTIME_CARDINALITY_WORKFLOW
+    ]
+    return module_path, bundle
+
+
+def test_runtime_cardinality_provider_fixture_binds_a_runtime_list(
+    tmp_path: Path,
+) -> None:
+    module_path, bundle = _compile_runtime_cardinality_provider_fixture(
+        tmp_path
+    )
+
+    public_contracts = {
+        name: contract
+        for name, contract in workflow_runtime_input_contracts(bundle).items()
+        if not name.startswith("__write_root__")
+    }
+    bound = bind_workflow_inputs(
+        public_contracts,
+        {"lens_ids": [3, 1, 2]},
+        tmp_path,
+    )
+
+    assert module_path.read_bytes() == (
+        _RUNTIME_CARDINALITY_PROVIDER_FIXTURE.read_bytes()
+    )
+    assert bound == {"lens_ids": [3, 1, 2]}
+    nested_provider = next(
+        point
+        for point in bundle.runtime_plan.lexical_checkpoint_points
+        if point.point_kind == "effect_boundary"
+        and point.node_id not in bundle.runtime_plan.ordered_node_ids
+    )
+    qualified = [
+        checkpoint
+        for checkpoint in bundle.runtime_plan.resume_checkpoints
+        if checkpoint.node_id == nested_provider.node_id
+        and checkpoint.runtime_step_id_mode == "qualified_iteration"
+    ]
+    assert len(qualified) == 1
+    assert qualified[0].checkpoint_kind == "call_boundary"
+    assert qualified[0].iteration_owner_node_id is not None
+    assert qualified[0].iteration_step_id_suffix
+
+
+def _runtime_cardinality_inputs(
+    bundle,
+    workspace: Path,
+    lens_ids: list[int],
+) -> dict[str, object]:
+    public_contracts = {
+        name: contract
+        for name, contract in workflow_runtime_input_contracts(bundle).items()
+        if not name.startswith("__write_root__")
+    }
+    return bind_workflow_inputs(
+        public_contracts,
+        {"lens_ids": lens_ids},
+        workspace,
+    )
+
+
+def _typed_prompt_input_value(prompt: str, binding_name: str) -> object:
+    marker = f"## Typed Prompt Input: {binding_name}\n"
+    assert prompt.count(marker) == 1
+    rendered = prompt.split(marker, 1)[1].splitlines()[0]
+    return json.loads(rendered)
+
+
+def _deterministic_runtime_cardinality_provider_hooks(
+    workspace: Path,
+    *,
+    events: list[dict[str, object]],
+):
+    control: dict[str, object] = {"runtime_step_id": None}
+    original_provider = WorkflowExecutor._execute_provider_with_context
+
+    def prepare_provider(
+        _self,
+        provider_name=None,
+        prompt_content=None,
+        env=None,
+        **_kwargs,
+    ):
+        return (
+            SimpleNamespace(
+                provider_name=provider_name,
+                prompt=prompt_content or "",
+                env=env or {},
+            ),
+            None,
+        )
+
+    def execute_provider(_self, invocation, **_kwargs):
+        provider_name = invocation.provider_name
+        review_count = sum(
+            event["provider"] == "deterministic-review"
+            for event in events
+        )
+        if provider_name == "deterministic-review":
+            lens_id = _typed_prompt_input_value(
+                invocation.prompt,
+                "lens_id",
+            )
+            assert isinstance(lens_id, int) and not isinstance(lens_id, bool)
+            input_value: object = lens_id
+            result_path = f"artifacts/reviews/lens-{lens_id}.md"
+            report = workspace / result_path
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(
+                f"deterministic review for lens {lens_id}\n",
+                encoding="utf-8",
+            )
+        else:
+            assert provider_name == "deterministic-synthesis"
+            reports = _typed_prompt_input_value(
+                invocation.prompt,
+                "reports",
+            )
+            assert isinstance(reports, list)
+            assert all(isinstance(path, str) for path in reports)
+            assert review_count == len(reports)
+            assert all((workspace / path).is_file() for path in reports)
+            input_value = reports
+            result_path = "artifacts/synthesis/panel.md"
+            synthesis = workspace / result_path
+            synthesis.parent.mkdir(parents=True, exist_ok=True)
+            synthesis.write_text(
+                "\n".join(reports) + "\n",
+                encoding="utf-8",
+            )
+        output_path = workspace / invocation.env[
+            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"
+        ]
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            json.dumps(result_path) + "\n",
+            encoding="utf-8",
+        )
+        events.append(
+            {
+                "provider": provider_name,
+                "runtime_step_id": control["runtime_step_id"],
+                "result_path": result_path,
+                "input_value": input_value,
+            }
+        )
+        return ProviderExecutionResult(0, b"", b"", 1)
+
+    def record_provider_identity(
+        current_executor,
+        step,
+        context,
+        state,
+        runtime_step_id=None,
+        **kwargs,
+    ):
+        assert control["runtime_step_id"] is None
+        control["runtime_step_id"] = (
+            runtime_step_id or current_executor._step_id(step)
+        )
+        try:
+            return original_provider(
+                current_executor,
+                step,
+                context,
+                state,
+                runtime_step_id=runtime_step_id,
+                **kwargs,
+            )
+        finally:
+            control["runtime_step_id"] = None
+
+    return prepare_provider, execute_provider, record_provider_identity
+
+
+def _run_clean_runtime_cardinality_provider(
+    workspace: Path,
+    *,
+    run_id: str,
+    lens_ids: list[int],
+):
+    module_path, bundle = _compile_runtime_cardinality_provider_fixture(
+        workspace
+    )
+    state_manager = StateManager(workspace=workspace, run_id=run_id)
+    state_manager.initialize(
+        str(module_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs=_runtime_cardinality_inputs(
+            bundle,
+            workspace,
+            lens_ids,
+        ),
+    )
+    events: list[dict[str, object]] = []
+    prepare_provider, execute_provider, record_provider = (
+        _deterministic_runtime_cardinality_provider_hooks(
+            workspace,
+            events=events,
+        )
+    )
+    with (
+        patch.object(
+            ProviderExecutor,
+            "prepare_invocation",
+            prepare_provider,
+        ),
+        patch.object(ProviderExecutor, "execute", execute_provider),
+        patch.object(
+            WorkflowExecutor,
+            "_execute_provider_with_context",
+            record_provider,
+        ),
+    ):
+        state = WorkflowExecutor(
+            bundle,
+            workspace,
+            state_manager,
+            max_retries=0,
+            retry_delay_ms=0,
+        ).execute(on_error="stop")
+    return module_path, bundle, state_manager, state, events
+
+
+def test_runtime_cardinality_provider_executes_ordered_reviews_then_synthesis(
+    tmp_path: Path,
+) -> None:
+    lens_ids = [3, 1, 2]
+    _, _, _, state, events = _run_clean_runtime_cardinality_provider(
+        tmp_path,
+        run_id="runtime-cardinality-clean",
+        lens_ids=lens_ids,
+    )
+    expected_reports = [
+        f"artifacts/reviews/lens-{lens_id}.md"
+        for lens_id in lens_ids
+    ]
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {
+        "return__reports": expected_reports,
+        "return__synthesis": "artifacts/synthesis/panel.md",
+    }
+    assert [event["provider"] for event in events] == [
+        "deterministic-review",
+        "deterministic-review",
+        "deterministic-review",
+        "deterministic-synthesis",
+    ]
+    assert [event["result_path"] for event in events] == [
+        *expected_reports,
+        "artifacts/synthesis/panel.md",
+    ]
+    assert [event["input_value"] for event in events] == [
+        *lens_ids,
+        expected_reports,
+    ]
+    assert (tmp_path / "artifacts/synthesis/panel.md").read_text(
+        encoding="utf-8"
+    ) == "\n".join(expected_reports) + "\n"
+
+
+def test_runtime_cardinality_provider_resume_reuses_committed_review_without_replay(
+    tmp_path: Path,
+) -> None:
+    lens_ids = [3, 1, 2]
+    clean_workspace = tmp_path / "clean"
+    interrupted_workspace = tmp_path / "interrupted"
+    _, _, _, clean_state, clean_events = (
+        _run_clean_runtime_cardinality_provider(
+            clean_workspace,
+            run_id="runtime-cardinality-clean",
+            lens_ids=lens_ids,
+        )
+    )
+    module_path, bundle = _compile_runtime_cardinality_provider_fixture(
+        interrupted_workspace
+    )
+    run_id = "runtime-cardinality-interrupted"
+    state_manager = StateManager(
+        workspace=interrupted_workspace,
+        run_id=run_id,
+    )
+    state_manager.initialize(
+        str(module_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs=_runtime_cardinality_inputs(
+            bundle,
+            interrupted_workspace,
+            lens_ids,
+        ),
+    )
+    events: list[dict[str, object]] = []
+    prepare_provider, execute_provider, record_provider = (
+        _deterministic_runtime_cardinality_provider_hooks(
+            interrupted_workspace,
+            events=events,
+        )
+    )
+    original_nested = WorkflowExecutor._execute_nested_loop_step
+    interrupted = {"done": False}
+
+    class _InjectedPostProviderInterruption(BaseException):
+        pass
+
+    def interrupt_after_committed_review(
+        current_executor,
+        step,
+        context,
+        state,
+        iteration_state,
+        parent_scope_steps,
+        **kwargs,
+    ):
+        result = original_nested(
+            current_executor,
+            step,
+            context,
+            state,
+            iteration_state,
+            parent_scope_steps,
+            **kwargs,
+        )
+        if (
+            not interrupted["done"]
+            and isinstance(step.get("provider"), str)
+            and result.get("status") == "completed"
+            and kwargs.get("iteration_index") == 0
+        ):
+            interrupted["done"] = True
+            raise _InjectedPostProviderInterruption
+        return result
+
+    with (
+        patch.object(
+            ProviderExecutor,
+            "prepare_invocation",
+            prepare_provider,
+        ),
+        patch.object(ProviderExecutor, "execute", execute_provider),
+        patch.object(
+            WorkflowExecutor,
+            "_execute_provider_with_context",
+            record_provider,
+        ),
+        patch.object(
+            WorkflowExecutor,
+            "_execute_nested_loop_step",
+            interrupt_after_committed_review,
+        ),
+    ):
+        with pytest.raises(_InjectedPostProviderInterruption):
+            WorkflowExecutor(
+                bundle,
+                interrupted_workspace,
+                state_manager,
+                max_retries=0,
+                retry_delay_ms=0,
+            ).execute(on_error="stop")
+
+    assert state_manager.load().status == "running"
+    assert len(events) == 1
+    first_committed_identity = events[0]["runtime_step_id"]
+    provider_point = next(
+        point
+        for point in bundle.runtime_plan.lexical_checkpoint_points
+        if point.point_kind == "effect_boundary"
+        and point.node_id not in bundle.runtime_plan.ordered_node_ids
+    )
+    qualified_checkpoint = next(
+        checkpoint
+        for checkpoint in bundle.runtime_plan.resume_checkpoints
+        if checkpoint.node_id == provider_point.node_id
+        and checkpoint.runtime_step_id_mode == "qualified_iteration"
+    )
+    from orchestrator.workflow_lisp.lexical_checkpoint_default_resume import (
+        determine_runtime_default_resume_decision,
+    )
+
+    missing_authority_plan = replace(
+        bundle.runtime_plan,
+        resume_checkpoints=tuple(
+            checkpoint
+            for checkpoint in bundle.runtime_plan.resume_checkpoints
+            if checkpoint is not qualified_checkpoint
+        ),
+    )
+
+    def reject_unexpected_restore_selection(**_kwargs):
+        raise AssertionError("invalid checkpoint authority reached selector")
+
+    missing_authority = determine_runtime_default_resume_decision(
+        state=state_manager.load().to_dict(),
+        runtime_plan=missing_authority_plan,
+        restart_node_id=qualified_checkpoint.iteration_owner_node_id,
+        state_manager=state_manager,
+        loaded_workflow=bundle,
+        executable_workflow=bundle.ir,
+        is_workflow_lisp=True,
+        restore_selector=reject_unexpected_restore_selection,
+    )
+    assert missing_authority["mode"] == "FAIL_CLOSED"
+    assert missing_authority["diagnostics"] == [
+        "lexical_default_resume_prior_boundary_unordered"
+    ]
+    ambiguous_authority = determine_runtime_default_resume_decision(
+        state=state_manager.load().to_dict(),
+        runtime_plan=replace(
+            bundle.runtime_plan,
+            resume_checkpoints=(
+                *bundle.runtime_plan.resume_checkpoints,
+                qualified_checkpoint,
+            ),
+        ),
+        restart_node_id=qualified_checkpoint.iteration_owner_node_id,
+        state_manager=state_manager,
+        loaded_workflow=bundle,
+        executable_workflow=bundle.ir,
+        is_workflow_lisp=True,
+        restore_selector=reject_unexpected_restore_selection,
+    )
+    assert ambiguous_authority["mode"] == "FAIL_CLOSED"
+    assert ambiguous_authority["diagnostics"] == [
+        "lexical_default_resume_prior_boundary_ambiguous"
+    ]
+
+    resume_manager = StateManager(
+        workspace=interrupted_workspace,
+        run_id=run_id,
+    )
+    resume_manager.load()
+    with (
+        patch.object(
+            ProviderExecutor,
+            "prepare_invocation",
+            prepare_provider,
+        ),
+        patch.object(ProviderExecutor, "execute", execute_provider),
+        patch.object(
+            WorkflowExecutor,
+            "_execute_provider_with_context",
+            record_provider,
+        ),
+    ):
+        resumed = WorkflowExecutor(
+            bundle,
+            interrupted_workspace,
+            resume_manager,
+            max_retries=0,
+            retry_delay_ms=0,
+        ).execute(resume=True, on_error="stop")
+
+    assert resumed["status"] == "completed", resumed
+    assert resumed["workflow_outputs"] == clean_state["workflow_outputs"]
+    assert events == clean_events
+    assert (
+        sum(
+            event["runtime_step_id"] == first_committed_identity
+            for event in events
+        )
+        == 1
+    )
+    assert (
+        interrupted_workspace / "artifacts/synthesis/panel.md"
+    ).read_bytes() == (
+        clean_workspace / "artifacts/synthesis/panel.md"
+    ).read_bytes()
+    default_resume = json.loads(
+        resume_manager.workflow_lisp_checkpoint_default_resume_report_path().read_text(
+            encoding="utf-8"
+        )
+    )
+    assert default_resume["selection_reason"] == "validated_prior_boundary"
 
 
 def _build_source(
@@ -2002,6 +2580,19 @@ def test_frontend_effect_map_accepts_computed_pure_call_argument(
 
     assert state["status"] == "completed"
     assert state["workflow_outputs"] == {"__result__": [11, 12]}
+    effect_point = next(
+        point
+        for point in result.validated_bundle.runtime_plan.lexical_checkpoint_points
+        if point.point_kind == "effect_boundary"
+    )
+    qualified = [
+        checkpoint
+        for checkpoint in result.validated_bundle.runtime_plan.resume_checkpoints
+        if checkpoint.node_id == effect_point.node_id
+        and checkpoint.runtime_step_id_mode == "qualified_iteration"
+    ]
+    assert len(qualified) == 1
+    assert qualified[0].checkpoint_kind == "call_boundary"
 
 
 @pytest.mark.parametrize(
@@ -2077,6 +2668,20 @@ def test_frontend_effect_map_accepts_existing_provider_and_command_boundaries(
         effect_points[0]["effect_boundary"]["effect_kind"]
         == expected_effect_kind
     )
+    bundle = next(iter(result.validated_bundles.values()))
+    runtime_effect_point = next(
+        point
+        for point in bundle.runtime_plan.lexical_checkpoint_points
+        if point.point_kind == "effect_boundary"
+    )
+    qualified = [
+        checkpoint
+        for checkpoint in bundle.runtime_plan.resume_checkpoints
+        if checkpoint.node_id == runtime_effect_point.node_id
+        and checkpoint.runtime_step_id_mode == "qualified_iteration"
+    ]
+    assert len(qualified) == 1
+    assert qualified[0].checkpoint_kind == "call_boundary"
     assert any(
         "repeat_until" in step
         for step in lowered.authored_mapping["steps"]
@@ -3138,6 +3743,50 @@ def test_every_new_list_surface_is_rejected_below_target_218(
         )
         == "list_traversal_target_dsl_unsupported"
     )
+
+
+@pytest.mark.parametrize(
+    ("target_dsl", "uses_declared_callee"),
+    (("2.17", False), ("2.18", True)),
+)
+def test_workflow_call_resume_policy_preserves_pre_218_identity_boundary(
+    tmp_path: Path,
+    target_dsl: str,
+    uses_declared_callee: bool,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        f"""
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "{target_dsl}")
+          (defmodule call_policy_target_boundary)
+          (export orchestrate)
+          (defworkflow internal-phase ((value Int)) -> Int value)
+          (defworkflow orchestrate ((value Int)) -> Int
+            (call internal-phase :value value)))
+        """,
+        lowering_route="wcc_m4",
+    )
+    points = json.loads(
+        result.artifact_paths["lexical_checkpoint_points"].read_text(
+            encoding="utf-8"
+        )
+    )["points"]
+    policy = next(
+        point["effect_boundary"]["policy"]
+        for point in points
+        if point["effect_boundary"]["effect_kind"] == "call"
+    )
+    call_evidence = policy["evidence_requirements"]["workflow_call"]
+
+    assert call_evidence["target_dsl_version"] == target_dsl
+    assert call_evidence["callee_checksum"].startswith("sha256:")
+    if uses_declared_callee:
+        assert call_evidence["callee_workflow"].endswith("internal-phase")
+        assert call_evidence["callee_workflow"] != policy["step_id"]
+    else:
+        assert call_evidence["callee_workflow"] == policy["step_id"]
 
 
 def test_schema2_list_frontend_stays_inside_existing_ir_node_families(

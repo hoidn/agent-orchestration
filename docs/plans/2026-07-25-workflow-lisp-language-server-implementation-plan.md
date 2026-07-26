@@ -27,13 +27,13 @@ pytest/pytest-xdist.
 `cfcac27f`, with ordered `STAGE8_DESIGN_SPEC_APPROVED` then
 `STAGE8_DESIGN_QUALITY_APPROVED`, followed by exact-diff reaffirmations.
 
-**Status:** Accepted for execution after the selected list-traversal
-interstage closes. Preliminary review returned `STAGE8_PLAN_SPEC_APPROVED`
-then `STAGE8_PLAN_QUALITY_APPROVED`; the final exact plan/routing diff is the
-commit candidate for ordered reaffirmation. The same reviewers returned
-`STAGE8_PLAN_SPEC_REAFFIRMED` then `STAGE8_PLAN_QUALITY_REAFFIRMED`, and the
-accepted plan/routing gate committed at `e565fc84`. Stage 8 implementation
-may begin only after the selected interstage closes.
+**Status:** Active Stage-8 execution selector. Preliminary review returned
+`STAGE8_PLAN_SPEC_APPROVED` then `STAGE8_PLAN_QUALITY_APPROVED`; the final
+exact plan/routing diff received ordered reaffirmation from the same reviewers
+as `STAGE8_PLAN_SPEC_REAFFIRMED` then `STAGE8_PLAN_QUALITY_REAFFIRMED`, and the
+accepted plan/routing gate committed at `e565fc84`. The selected list-traversal
+interstage is complete, so all roadmap entry conditions are satisfied and
+Task 1 may begin.
 
 ---
 

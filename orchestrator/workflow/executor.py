@@ -5994,6 +5994,7 @@ class WorkflowExecutor:
                 resolved_value, resolve_error = self._resolve_typed_prompt_input_value(
                     binding_value,
                     state,
+                    scope=runtime_context.scope(),
                 )
                 if resolve_error is not None:
                     return resolve_error
@@ -8705,6 +8706,9 @@ class WorkflowExecutor:
         if not evidence:
             return
         safe_step_id = re.sub(r"[^A-Za-z0-9._-]+", "_", step_id).strip("._-") or "typed_prompt_input"
+        if len(safe_step_id) > 180:
+            identity_digest = sha256(step_id.encode("utf-8")).hexdigest()[:24]
+            safe_step_id = f"{safe_step_id[:154]}--{identity_digest}"
         evidence_root = self.state_manager.run_root / "workflow_lisp" / "typed_prompt_inputs"
         evidence_root.mkdir(parents=True, exist_ok=True)
         (evidence_root / f"{safe_step_id}.json").write_text(

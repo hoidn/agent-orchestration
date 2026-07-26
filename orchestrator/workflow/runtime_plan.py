@@ -195,6 +195,10 @@ def derive_workflow_runtime_plan(
         )
         for node_id in ir.nodes
     }
+    lexical_checkpoint_points = _derive_lexical_checkpoint_points(
+        ir,
+        provenance=provenance,
+    )
     plan = WorkflowRuntimePlan(
         schema_version=WORKFLOW_RUNTIME_PLAN_SCHEMA_VERSION,
         workflow_name=ir.name or "",
@@ -202,13 +206,18 @@ def derive_workflow_runtime_plan(
         nodes=MappingProxyType(nodes),
         artifacts=_derive_artifact_plans(ir),
         snapshots=_derive_snapshot_plans(ir),
-        resume_checkpoints=_derive_resume_checkpoints(ir, projection, ordered_node_ids),
+        resume_checkpoints=_derive_resume_checkpoints(
+            ir,
+            projection,
+            ordered_node_ids,
+            lexical_checkpoint_points=lexical_checkpoint_points,
+        ),
         observability=_derive_observability_plan(
             workflow_name=ir.name or "",
             ordered_node_ids=ordered_node_ids,
             nodes=nodes,
         ),
-        lexical_checkpoint_points=_derive_lexical_checkpoint_points(ir, provenance=provenance),
+        lexical_checkpoint_points=lexical_checkpoint_points,
     )
     validate_workflow_runtime_plan(plan, ir, projection)
     return plan
@@ -656,6 +665,8 @@ def _derive_resume_checkpoints(
     ir: ExecutableWorkflow,
     projection: WorkflowStateProjection,
     ordered_node_ids: tuple[str, ...],
+    *,
+    lexical_checkpoint_points: tuple[RuntimeLexicalCheckpointPoint, ...],
 ) -> tuple[RuntimeResumeCheckpoint, ...]:
     checkpoints: list[RuntimeResumeCheckpoint] = []
     for node_id in ordered_node_ids:
@@ -693,6 +704,42 @@ def _derive_resume_checkpoints(
                 ),
                 iteration_owner_node_id=call_boundary.iteration_owner_node_id,
                 iteration_step_id_suffix=call_boundary.iteration_step_id_suffix,
+            )
+        )
+    qualified_node_ids = {
+        checkpoint.node_id
+        for checkpoint in checkpoints
+        if checkpoint.runtime_step_id_mode == "qualified_iteration"
+    }
+    for point in lexical_checkpoint_points:
+        if (
+            point.point_kind != "effect_boundary"
+            or point.node_id in qualified_node_ids
+        ):
+            continue
+        owners = tuple(
+            (loop_node_id, loop_projection)
+            for loop_node_id, loop_projection in (
+                projection.repeat_until_nodes.items()
+            )
+            if point.node_id in loop_projection.nested_presentation_keys
+        )
+        if len(owners) != 1:
+            continue
+        owner_node_id, owner_projection = owners[0]
+        entry = projection.entries_by_node_id.get(point.node_id)
+        suffix = owner_projection.nested_step_id_suffixes.get(point.node_id)
+        if entry is None or not isinstance(suffix, str) or not suffix:
+            continue
+        checkpoints.append(
+            RuntimeResumeCheckpoint(
+                checkpoint_kind="call_boundary",
+                node_id=point.node_id,
+                step_id=entry.step_id,
+                presentation_key=entry.presentation_key,
+                runtime_step_id_mode="qualified_iteration",
+                iteration_owner_node_id=owner_node_id,
+                iteration_step_id_suffix=suffix,
             )
         )
     return tuple(checkpoints)

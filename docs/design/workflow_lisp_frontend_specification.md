@@ -17,6 +17,8 @@ middle-end, runtime migration, and composition/stdlib behavior:
 and
 [Workflow Lisp Native Transportable Returns And Typed Result Guidance](workflow_lisp_native_transportable_returns.md),
 and
+[Workflow Lisp Pure List Traversal](workflow_lisp_pure_list_traversal.md),
+and
 [Workflow Lisp Provider Live Binding](workflow_lisp_provider_live_binding.md),
 and
 [Workflow Lisp Provider Peer Messaging](workflow_lisp_provider_peer_messaging.md).
@@ -1375,14 +1377,44 @@ Supported operators are exact and closed:
 | String | `string/concat`, `string/empty?`, `symbol/name` | `String`/`Symbol` | Path values are not strings for concatenation. |
 | Option | `some?`, `or-else` | `Optional[T]` with typed fallback | Optional access still requires proof or an explicit option operator. |
 | Record | `record-update` | base record plus typed field overrides | Unknown fields remain `record_field_unknown`. |
+| List (target 2.18) | `list/empty?`, `list/head`, `list/rest`, `list/append`, `list/length` | eligible `List[T]`; `list/head` returns `Optional[T]` | All five operators are total; eligibility uses the shared whole-list transportability predicate. |
 
 Deliberate exclusions stay enforced by typed diagnostics:
 
 - no division or modulo;
 - no path string concatenation;
-- no collection operators;
+- no collection operators beyond the exact target-2.18 list surface;
 - no regex, time, IO, randomness, workflow calls, provider calls, or command execution;
 - no proof creation from computed equality/comparison alone.
+
+### 10.3 Target-2.18 Bounded List Traversal
+
+Target 2.18 implements one deliberately bounded, constraint-first collection
+surface:
+
+- `(list ...)` constructs an ordered eligible `List[T]`;
+- `list/map` binds one element at a time in a pure body;
+- `path/join-under` constructs a value of an explicitly selected rooted path
+  family after pure lexical containment validation;
+- eligible whole-list values may cross pure projections, callable contracts,
+  and `loop/recur` state; and
+- `list/map-effect` erases to the existing bounded loop and ordinary
+  effect-call/checkpoint machinery, with exactly one supported effectful call
+  expression per element after specialization.
+
+The type boundary is structural and opt-in. The shared whole-list
+transportability predicate decides list eligibility; target 2.18 does not add
+a nominal list taxonomy. A named path family is required only because its
+rooted containment and deferred existence policy are load-bearing. Record and
+union list elements, higher-order or `ProcRef` mapping, general effectful map
+bodies, indexing, and unbounded traversal remain outside this tranche.
+
+Pure payload schema 2 carries the new list/map/path expression kinds while
+pre-2.18 payloads remain schema 1. The effectful binder introduces no new Core,
+Semantic IR, Executable IR, runtime-plan, scheduling, or checkpoint node kind.
+The exact typing, erasure, diagnostic, resume, and compatibility contracts live
+in
+[Workflow Lisp Pure List Traversal](workflow_lisp_pure_list_traversal.md).
 
 ## 11. Pattern Matching
 
@@ -1514,6 +1546,13 @@ The compiler must preserve:
 - no hidden variant proof across iterations unless explicitly supported
 
 General cross-iteration proof is not assumed.
+
+At target 2.18, a `List[T]` accepted by the shared whole-list transportability
+predicate may be carried as one canonical collection-contract loop-state field
+and restored with the same descriptor. This does not admit arbitrary
+collection-valued loop state: top-level `Optional[T]` and `Map[K,V]` remain
+outside the target-2.18 loop-state tranche, and unsupported list element shapes
+fail before lowering.
 
 `loop/recur` may declare authored loop state and an explicit exhaustion
 projection. The first-tranche exhaustion surface lowers scalar loop-frame
@@ -2113,6 +2152,13 @@ at most once. Model and effort accept exact `String` values from the effect-free
 inline-lowerable scalar and template subset; procedure edges alone do not count
 as runtime effects. Timeout accepts only a positive exact-`Int` literal.
 Diagnostics for type errors precede the inline-subset diagnostic.
+
+`:inputs` participates in typed dataflow on every supported route. Automatic
+typed-value rendering into the provider prompt is narrower: it is implemented
+only for checked rows selected by the workflow family-profile typed-prompt-input
+lane. An unselected `:inputs` expression therefore must not be treated as proof
+that the provider sees that value. This limitation does not affect file-backed
+prompt dependencies or the structured provider-output contract.
 
 Example:
 
