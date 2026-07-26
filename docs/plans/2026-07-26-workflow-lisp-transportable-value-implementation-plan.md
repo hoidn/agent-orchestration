@@ -30,10 +30,14 @@ commit `c35ccf1b2f73c56d0bc8ee9f5d7fc94759ce7b5f`, tree
 That commit records ordered `VALUE_DESIGN_SPEC_APPROVED` /
 `VALUE_DESIGN_QUALITY_APPROVED` and the selected successor roadmap.
 
-**Status:** Accepted implementation plan; implementation pending. Ordered plan
-review completed with `VALUE_Q0_PLAN_SPEC_APPROVED` then
-`VALUE_Q0_PLAN_QUALITY_APPROVED`. No Q0 implementation code began before this
-gate.
+**Status:** Closing. Ordered plan review completed with
+`VALUE_Q0_PLAN_SPEC_APPROVED` then `VALUE_Q0_PLAN_QUALITY_APPROVED`; Tasks 1–6
+record their exact implementation/evidence commits and ordered reviews below,
+and Task 7 has finished its normative, routing, focused, and broad
+non-security execution. Failure classification is complete; only the ordered
+preliminary Task 7 reviews are approved, while exact-byte reaffirmation and
+the implementation/evidence commit remain before Q0 is complete. No Q0
+implementation code began before the plan-review gate.
 
 ---
 
@@ -973,6 +977,42 @@ Execute and resume transportable Value results
 
 ### Task 7: Close Q0 normative, routing, and broad verification
 
+**Status:** closing; normative and routing owners are updated, the focused
+gate and closing broad non-security comparison are classified, and the
+preliminary ordered reviews are approved. Exact-byte reaffirmation and the
+implementation/evidence commit remain.
+
+**Preliminary reviews:** `VALUE_Q0_TASK7_SPEC_APPROVED`, then
+`VALUE_Q0_TASK7_QUALITY_APPROVED`.
+
+**Implementation/evidence commit:** pending.
+
+**TDD evidence:**
+
+- RED collected 54 routing tests and produced the two intended failures:
+  Q0 still routed as pending and the normative owners did not yet state the
+  implemented target-2.19 contract;
+- the focused successor/normative selector passes 2 tests with 52 deselected;
+- the complete focused Q0/adjacency/routing gate passes 587 tests; and
+- the exact closing broad command selected 8,365 tests: 8,340 passed, 21
+  skipped, 4 failed, and 0 pytest error outcomes;
+- a fresh archive control at pre-Q0 commit `3a63659a` ran those four exact
+  node IDs and produced 2 failures plus 2 passes. The two matching retained
+  failures are
+  `test_provider_valid_output_bundle_overrides_raw_nonzero_exit` and
+  `test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys`;
+  they are also the exact frozen pre-Stage-8 baseline identities;
+- the two working-tree-only failures are
+  `test_workflow_executor_dispatches_provider_supervision_to_general_run` and
+  `test_provider_supervision_call_frame_fails_before_runtime_activity`.
+  Both fail at an unstaged protected provider-isolation addition to
+  `orchestrator/workflow/executor.py`; Q0 changed neither that production path
+  nor either test. The pre-Q0 archive control passes both. They are disclosed
+  concurrent external failures, not waived, repaired, staged, or claimed as
+  Q0 behavior; and
+- preliminary ordered reviews approved the corrected diff; exact-byte
+  reaffirmation remains before the closure commit.
+
 **Files:**
 
 - Modify: `docs/design/workflow_lisp_frontend_specification.md`
@@ -992,7 +1032,7 @@ Execute and resume transportable Value results
 - Modify: `tests/test_workflow_lisp_drain_roadmap_routing.py`
 - Test: all Q0 focused modules
 
-- [ ] **Step 1: Write the failing routing/capability assertions**
+- [x] **Step 1: Write the failing routing/capability assertions**
 
 Update the routing test to require:
 
@@ -1010,7 +1050,7 @@ Update the routing test to require:
 
 Assert semantic relationships and coded behavior, not literal prompt text.
 
-- [ ] **Step 2: Run the RED routing selector**
+- [x] **Step 2: Run the RED routing selector**
 
 ```bash
 pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py \
@@ -1020,7 +1060,7 @@ pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py \
 Expected: FAIL because Q0 still says designed/active and the normative owners
 do not yet describe implemented target 2.19.
 
-- [ ] **Step 3: Update normative and routing owners**
+- [x] **Step 3: Update normative and routing owners**
 
 Document only implemented behavior. Mark the accepted target design and Q0
 plan complete, promote the capability matrix row to Implemented, and route
@@ -1033,7 +1073,7 @@ For `docs/index.md`, stage a generated or interactive exact hunk that updates
 only Q0/Value/Q-series-successor lines. Verify the owner-authored Evolution and
 L-series routing hunks remain unstaged.
 
-- [ ] **Step 4: Run focused, adjacency, and routing verification**
+- [x] **Step 4: Run focused, adjacency, and routing verification**
 
 ```bash
 pytest -q \
@@ -1050,7 +1090,7 @@ pytest -q \
 
 Expected: PASS.
 
-- [ ] **Step 5: Run the closing non-security broad suite in tmux**
+- [x] **Step 5: Run the closing non-security broad suite in tmux**
 
 Use the exact broad command in the Execution Contract. Record collected,
 passed, skipped, failed, and error totals. Compare any failure against fresh

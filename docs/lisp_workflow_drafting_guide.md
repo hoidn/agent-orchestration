@@ -801,6 +801,37 @@ Use `defschema` when several records share a field group.
 
 A schema is not a workflow. It is reusable contract structure.
 
+### 5.6 Loose Transport With `Value`
+
+At target DSL 2.19, use compiler-owned `Value` only when the useful contract is
+"one transportable JSON value" and consumers do not yet need named fields,
+variants, path constraints, or element guarantees:
+
+```lisp
+(defproc pass-through ((payload Value)) -> Value
+  :effects ()
+  :lowering inline
+  payload)
+```
+
+`Value` accepts `null`, booleans, integers, finite floats, strings, lists, and
+string-keyed objects recursively. It is not `Json`: `Json` remains an internal,
+non-transportable type. It is also not shorthand for a record or union.
+Compatibility is exact, so neither a concrete value nor `Value` implicitly
+converts to the other. Narrow the authored contract later when consumers need
+more guarantees; do not expect an unchecked cast in the same program.
+
+Exact `Value` is available in the usual transportable parameter, return,
+provider/command result, workflow-call, and record/union payload positions.
+`Optional[Value]`, `List[Value]`, and `Map[String, Value]` are supported where
+their surrounding collection position is supported. `Value` does not make a
+Bool condition, `match` subject, path operand, or otherwise ineligible form
+valid.
+
+Classic and WCC lowering emit the same `Value` contracts. State, reports,
+checkpoint identity, and resume retain the declared opaque type and validated
+payload; they never infer a narrower type from a previous run's JSON shape.
+
 ## 6. Workflows, Procedures, Pure Helpers, And Macros
 
 ### 6.1 `defworkflow`
@@ -1055,11 +1086,13 @@ Rules:
 Use `provider-result` when a provider produces structured state.
 
 `:returns` may name a record, a union, or (with `(:target-dsl "2.15")`) any
-other currently transportable type directly — `Bool`, `Int`, `Float`,
+other currently transportable narrower type directly — `Bool`, `Int`, `Float`,
 `String`, an enum, a declared path, `Optional[T]`, `List[T]`, or
-`Map[String, T]`. A direct return lowers to one generated `output_bundle`
-field named `__result__` with `json_pointer: ""`; the provider writes the
-plain JSON value, and authored code never names `__result__`.
+`Map[String, T]`. Target 2.19 additionally permits exact opaque `Value`. A
+direct return lowers to one generated `output_bundle` field named `__result__`
+with `json_pointer: ""`; the provider writes the plain JSON value, and
+authored code never names `__result__`. A `Value` object, boolean, list, or
+`null` is likewise written directly, never inside `{"value": ...}`.
 
 ```lisp
 (let* ((attempt
@@ -1976,6 +2009,12 @@ typed pure constant; for path types it is checked for path safety but the
 target need not exist during compilation. Schema inclusion, imports, and
 generic specialization preserve field guidance without changing type identity.
 
+Exact `Value` is the target-2.19 exception: it accepts `:description` and
+`:format-hint`, but rejects `:example` because ordinary narrower literals are
+not implicitly `Value`. The provider contract describes one JSON document
+root; the text guidance never adds fields, an envelope, or narrower runtime
+validation.
+
 Provider/command occurrence guidance reaches the generated effect contract and
 provider prompt. A `defworkflow` or effectful `defproc` return annotation is
 overall callable guidance: it becomes top-level `result_guidance`, survives
@@ -2671,7 +2710,7 @@ Before running a new `.orc` workflow, confirm:
 | Area | Check |
 | --- | --- |
 | Frontend choice | This belongs in `.orc`; there is no alternate fresh authored frontend. |
-| Types | All boundary values are typed. In public DSL v2.15, every currently transportable type is valid in function, procedure, provider-result, command-result, workflow-call, and public-workflow return positions; direct roots use compiler-owned `__result__` carriage and no authored wrapper. Optional `(result T ...)` and payload-field guidance is typed, prompt-only metadata and never changes runtime validity. |
+| Types | All boundary values are typed. Public DSL v2.15 supports the existing concrete transportable types across function, procedure, provider-result, command-result, workflow-call, and public-workflow returns. Target 2.19 adds exact opaque `Value`, distinct from `Json` and concrete record/union contracts, including supported `Optional`/`List`/`Map` nesting. Direct roots use compiler-owned `__result__` carriage and no authored wrapper. Optional `(result T ...)` and payload-field guidance is typed metadata and never changes runtime validity; `Value` allows description/format hint but not example. |
 | Paths | Path contracts are reusable `defpath` definitions. |
 | Authority | Structured bundles/artifacts are authority; reports are views. |
 | Providers | Provider decisions return structured state through `provider-result`. Target-2.16 live supervision uses exactly one eligible worker, one supervisor returning `ProviderSteeringDirective`, one observation edge, and a pure settlement body. Target-2.17 peer groups use 2..8 eligible provider members, an explicitly declared queued-interactive capability, recorded turn-boundary messages, and pure settlement. Panes and ledgers are never result transport. |

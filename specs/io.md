@@ -24,6 +24,15 @@
       exclusive. Field examples must satisfy the field schema. Relpath
       examples are path-safety checked but `must_exist_target` is not enforced
       for an example. These containers are rejected before v2.15.
+    - v2.19 `type: value` is an opaque strict-JSON contract. Bundle parsing
+      rejects `NaN`, positive or negative infinity, and malformed JSON as
+      `invalid_json_document`. Recursive validation independently rejects
+      non-finite in-memory floats, non-string object keys, cycles, and other
+      non-JSON leaves with `invalid_transportable_value` and the first invalid
+      RFC 6901 value path. A present JSON `null` succeeds; it is distinct from
+      a missing file or pointer. `description` and `format_hint` guidance are
+      allowed, but `example` is rejected with
+      `value_guidance_example_unsupported`.
   - Command structured-bundle environment:
     - For command steps with `output_bundle.path` or `variant_output.path`, the
       runtime resolves the workspace-relative bundle path before launch and sets
@@ -57,6 +66,10 @@
       overall return and is carried only in workflow IR/artifact metadata.
     - If the provider exits `0` but writes the bundle to any other path, the
       step fails as an output-contract failure.
+    - A compiled direct `Value` result uses one compiler-owned field named
+      `__result__`, with `json_pointer: ""` and `type: value`. The bundle bytes
+      are the JSON encoding of the value itself; neither the runtime nor the
+      provider contract adds a `{"value": ...}` envelope.
   - Provider-supervision IO (v2.16):
     - Provider stdin/stdout/stderr, the selected metadata codec, and validated
       output bundles remain the execution and result transports. Observation
@@ -228,6 +241,10 @@
     of field shape.
   - Runtime parsing, routing, artifact projection, exit behavior, checkpoint
     identity, and resume ignore all v2.15 guidance keys.
+  - At v2.19, `kind: value` artifacts and public outputs retain the recursively
+    validated payload in the existing artifact, workflow-output, report, and
+    dashboard projections. Checkpoint/resume compatibility compares the
+    declared `value` contract, not a prior payload's incidental shape.
 
 ## Recommended Strictness Split
 

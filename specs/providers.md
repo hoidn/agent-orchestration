@@ -55,6 +55,10 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     discriminant-ordered `guidance_by_variant` as data in the output-contract
     suffix. It does not render top-level workflow `result_guidance`, and no
     guidance container changes the value schema or bundle authority.
+  - For a target-2.19 `Value` result, the generated contract describes one
+    opaque JSON document at the direct root. It may include authored
+    description and format hint, but never a `Value` example, invented fields,
+    the compiler-owned `__result__` name, or a `{"value": ...}` envelope.
   - `provider_session` command selection changes only the provider command template. It preserves any preexisting runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding on the prepared invocation.
   - v2.13 provider steps may declare `managed_jobs` as a step modifier. The provider template remains ordinary; after existing provider and provider-session command selection, the runtime wraps the selected invocation with the managed-job guard and owns audit/recovery state.
   - `managed_jobs` wrapping preserves any preexisting runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding while adding `MANAGED_JOB_*` transport metadata. Guard state, audit files, and provider-session spools are not alternate structured-output authorities.
@@ -292,19 +296,26 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
       never claims a JSON object for a scalar/enum/relpath/optional/list/map
       root result, and never names or requests the compiler-owned `__result__`
       field key.
+    - At v2.19, the same direct-root rendering applies to `type: value`
+      regardless of whether the attempt returns `null`, a scalar, a list, or
+      an object. The renderer does not infer or advertise a narrower schema
+      from an example payload.
     - `expected_outputs.path`, `output_bundle.path`, and `variant_output.path` entries in this suffix are rendered after applying the same runtime variable substitution used for output-contract validation, so provider prompts show workspace-relative concrete paths rather than unresolved `${...}` templates.
     - Optional `expected_outputs` guidance annotations (`description`, `format_hint`, `example`) are included in this suffix when present.
     - These annotations and rendered concrete paths are prompt guidance only. Prompt text does not replace the runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding or change runtime contract validation semantics.
   - Do not modify files on disk; only the composed prompt is delivered to the provider.
 
 - Workflow Lisp typed provider inputs
-  - Every supported scalar, record, or relpath binding declared in
+  - Every supported scalar, record, relpath, or target-2.19 exact `Value`
+    binding declared in
     `provider-result :inputs` lowers to one typed prompt-input row, including
     calls with no census, family-profile, or route metadata.
   - Static structural type/kind selects exactly one registered default
-    renderer: canonical JSON for supported scalars and records, and POSIX
-    path-line rendering for relpaths. Missing, unknown, shape-incompatible, or
-    ambiguous selection fails before provider launch.
+    renderer: canonical JSON for supported scalars, records, and opaque
+    `Value`, and POSIX path-line rendering for relpaths. Rendering a `Value`
+    preserves its JSON shape without granting field or collection semantics.
+    Missing, unknown, shape-incompatible, or ambiguous selection fails before
+    provider launch.
   - Ordinary calls lower each binding with a registered implicit default.
     Unsupported bindings do not acquire a renderer or prompt visibility merely
     because a supported binding is adjacent; they require a separately

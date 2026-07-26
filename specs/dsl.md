@@ -22,7 +22,7 @@ snippets are structural notation for that mapping, not accepted fresh workflow
 source.
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", "2.13", "2.14", or "2.15"). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (supported revisions extend through `"2.19"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -40,6 +40,10 @@ source.
       - `description: string` (optional)
     - Preferred authoring style for relpath boundaries: use `type: relpath` alone; explicit `kind: relpath` remains valid for backward compatibility.
     - Successful binding is exposed inside the workflow through `${inputs.<name>}` and typed `ref: inputs.<name>`.
+    - v2.19 additionally accepts the exact opaque pair `kind: value`,
+      `type: value`. It forbids `allowed`, `under`, `must_exist_target`,
+      `item`, `items`, `keys`, and `values`; it is never inferred from payload
+      shape.
   - `outputs`: workflow-boundary output contracts (v2.1+).
     - Keys are output names; values reuse the same typed contract fields as `inputs` plus required `from`.
     - Preferred authoring style for relpath boundaries: use `type: relpath` alone; explicit `kind: relpath` remains valid for backward compatibility.
@@ -51,6 +55,9 @@ source.
       workflow may directly export a collection value produced by a
       Workflow-Lisp-compiled root return. Lower-level Core mappings on other DSL
       versions do not gain this widening.
+    - v2.19 additionally accepts `kind: value`, `type: value` for a public
+      opaque strict-JSON value. Its `from` ref and exposure semantics are
+      unchanged.
   - `result_guidance` (v2.15+, optional): closed, non-empty metadata describing
     the workflow's overall declared return. It accepts only `description:
     string`, `format_hint: string`, and JSON-compatible `example`; requires at
@@ -82,6 +89,9 @@ source.
       - forbids `pointer`, `under`, and `must_exist_target`
     - `allowed: string[]` required for enum artifacts
     - Lowered Workflow Lisp bundles may additionally carry compiler-classified executable-private artifacts that are not part of the public Core contract. A private executable artifact does not widen the authored `.orc` surface and does not reuse the public runtime ledgers as authority.
+    - v2.19 accepts `kind: value`, `type: value` without a pointer or narrower
+      schema keys. It uses the ordinary artifact value/lineage store; it does
+      not introduce a second payload store.
   - `steps`: ordered list of step objects.
   - `max_transitions: integer` (v1.8+; optional; must be `> 0`)
     - Counts routed transfers between settled top-level steps.
@@ -242,7 +252,7 @@ source.
       - `OutputBundleField`:
         - `name: string` (required artifact key; unique within `fields`)
         - `json_pointer: string` (required RFC 6901 pointer; `""` allowed for root)
-        - `type: enum|integer|float|bool|string|relpath|optional|list|map`
+        - `type: enum|integer|float|bool|string|relpath|optional|list|map|value`
           (required; collection types require v2.15 for ordinary authored DSL)
         - `allowed: string[]` (required when `type: enum`)
         - `under: string` (optional root for `relpath` target validation)
@@ -262,6 +272,20 @@ source.
         JSON document as that field's value (a "direct root" contract): the
         producer writes the plain scalar/enum/relpath JSON value, not an
         object envelope.
+      - A Workflow-Lisp-compiled direct `Value` result is exactly one such
+        field, named `__result__`, with `json_pointer: ""` and `type: value`.
+        The producer writes the root JSON value itself; `{"value": ...}` is
+        not a wire envelope. Authored Workflow Lisp cannot name or project
+        `__result__`.
+      - `type: value` requires v2.19. It recursively accepts only strict JSON
+        (`null`, boolean, integer, finite float, string, list, or string-keyed
+        object), and forbids `allowed`, `under`, `must_exist_target`, `item`,
+        `items`, `keys`, and `values`. It may appear beneath v2.15
+        `optional`, `list`, and `map` descriptors. `expected_outputs` remains
+        a file-per-value narrower channel and does not accept `value`.
+        `description` and `format_hint` guidance are allowed on a
+        `Value`-bearing field, while `example` fails with
+        `value_guidance_example_unsupported`.
       - `kind: scalar|collection` (optional; default `scalar`; `collection`
         requires v2.15 for ordinary authored DSL; compiler-private v2.14
         contracts may use the separately validated lowered lane).
@@ -439,6 +463,8 @@ source.
     - `adjudicated_provider` requires `version: "2.11"` or higher.
     - `managed_jobs` requires `version: "2.13"` or higher.
     - `materialize_artifacts`, `pre_snapshot`, `variant_output`, `select_variant_output`, and `requires_variant` require `version: "2.14"` or higher.
+    - `type: value` and `kind: value` require `version: "2.19"` or higher and
+      fail earlier loads with `value_contract_requires_dsl_2_19`.
   - authored step `id` plus scoped `self`/`parent` refs require `version: "2.0"` or higher.
   - top-level `inputs`, `outputs`, and `inputs.*` typed refs require `version: "2.1"` or higher.
   - structured `if` / `then` / `else` require `version: "2.2"` or higher.

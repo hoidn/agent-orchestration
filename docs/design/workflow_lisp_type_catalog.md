@@ -1,6 +1,7 @@
 # Workflow Lisp Type Catalog
 
-Status: draft internal design  
+Status: draft internal design; target-2.19 `Value` mapping implemented
+
 Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md`
 
 ## Purpose
@@ -14,6 +15,7 @@ Required families:
 
 - scalar primitives: `String`, `Int`, `Float`, `Bool`, `Json`, `TimestampNs`,
   `RunId`, `Symbol`
+- exact opaque transport top: target-2.19 `Value`
 - enums
 - path refinements
 - records
@@ -34,7 +36,15 @@ Path.execution-report -> relpath contract with under/must-exist rules
 Record -> product schema or structured bundle schema
 Union -> tagged variant contract
 WorkflowRef[A -> B] -> compile-time callable signature
+Value -> opaque strict-JSON transport contract
 ```
+
+`Value` is compiler-owned and exact: it is neither the non-transportable
+internal `Json` carrier nor a record/union wildcard. No narrower type converts
+implicitly to `Value`, and `Value` does not convert implicitly to a narrower
+type. It may appear in the shared transportable positions, including nested
+`Optional[Value]`, `List[Value]`, and `Map[String, Value]`, but it grants none
+of the operations or guarantees of those narrower families.
 
 ## Root/Direct Return Contract
 
@@ -49,6 +59,7 @@ String, enum, path -> root output_bundle field, JSON string
 Optional[T] -> root optional schema, null or the JSON form of T
 List[T] -> root list schema, JSON array
 Map[String, T] -> root map schema, JSON object
+Value -> root value schema, any recursively valid strict JSON document
 Record, Union -> unchanged: flattened output_bundle / variant_output
 ```
 
@@ -57,6 +68,12 @@ structural, type-driven classification behind this split; it never branches
 on workflow, provider, procedure, module, or domain names. See
 [Workflow Lisp Native Transportable Returns And Typed Result Guidance](workflow_lisp_native_transportable_returns.md)
 for the full contract and public DSL v2.15 wire schema.
+
+At target 2.19, a direct root `Value` uses the same sole compiler-owned field:
+`name: __result__`, `json_pointer: ""`, and `type: value`. The producer writes
+the value itself, never `{"value": ...}`. Public workflow contracts instead
+classify the same opaque value as `kind: value`, `type: value`; payload shape
+does not reclassify it as scalar or collection.
 
 ## Result Guidance
 
@@ -77,6 +94,11 @@ specialization, record flattening, and union sharing preserve it, while type
 identity and runtime validity ignore it. Public DSL v2.15 carries occurrence
 guidance in effect contracts and overall-return guidance in top-level
 `result_guidance`.
+
+For exact `Value`, `description` and `format_hint` are supported, while
+`example` is rejected with `value_guidance_example_unsupported`. A narrower
+literal is not implicitly a `Value`, and guidance never creates a conversion
+or narrows runtime validation.
 
 ## Path Types
 
@@ -112,6 +134,10 @@ Type validation checks:
 - pure helpers return declared types
 - output bundle fields match their declared schemas
 - variant output fields match selected variant schemas
+- `Value` descriptors occur only at target 2.19+, and public
+  `kind: value` is paired with `type: value`
+- recursive `Value` validation accepts only strict JSON, rejects non-finite
+  numbers and non-JSON leaves, and reports the first invalid RFC 6901 path
 
 ## Required Invariants
 
@@ -119,6 +145,8 @@ Type validation checks:
   on field availability.
 - Type erasure may occur only after Semantic IR has recorded enough contract and
   source-map information for diagnostics.
+- Classic and WCC lowering, state/checkpoint identity, and resume preserve the
+  literal `Value` contract; they never infer a narrower type from payload shape.
 
 ## Open Questions
 

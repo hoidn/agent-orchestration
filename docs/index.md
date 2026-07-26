@@ -157,9 +157,9 @@ document owns the answer.
 **Use this when:** Auditing the completed numbered stages or the provenance of the post-Stage-8 handoff. Do not use this historical roadmap or the parked evolution proposal to select current work.
 
 ### [Workflow Lisp Language Quality And Domain Semantics Roadmap](plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md)
-**Description:** Active post-Stage-8 successor selected by the owner direction: Q0 implements the target-2.19 transportable `Value` prerequisite, followed by prompt core, output-position slots, role-separated prompt identity/diagnostics, and judgment views. E0 remains unselected and the evolution roadmap remains parked.
+**Description:** Active post-Stage-8 selector: Q0 has completed the target-2.19 transportable `Value` prerequisite; Q1 design correction/review is next before any prompt-core implementation. E0 remains unselected and the evolution roadmap remains parked.
 **Keywords:** workflow-lisp, active-roadmap, value, prompt-calculus, prompt-identity, judgments, principle-29
-**Use this when:** Selecting or sequencing current post-Stage-8 language-quality work. Start with Q0 and do not select E0, parked evolution, or shelved parsimony candidates from this route.
+**Use this when:** Selecting or sequencing current post-Stage-8 language-quality work. Start the next Q-series work with Q1's required design correction/review; do not select E0, parked evolution, or shelved parsimony candidates from this route.
 
 ### [Workflow Lisp Evolution Follow-On Roadmap](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md)
 **Description:** Parked, non-active E0-E5 historical proposal whose durable program-search boundaries were extracted; none of its tranches is selectable.
@@ -418,12 +418,12 @@ document owns the answer.
 **Use this when:** Auditing the completed post-Stage-7 interstage and its reviewed implementation history.
 
 ### [Workflow Lisp Transportable `Value` Type](design/workflow_lisp_transportable_value_type.md)
-**Description:** Accepted target-2.19 design for an opt-in, exact, opaque transport-contract top over strict JSON, with public `type: value` / `kind: value`, existing direct-root `__result__` carriage, no envelope, and no implicit conversion to or from narrower source types.
+**Description:** Implemented target-2.19 opt-in, exact, opaque transport-contract top over strict JSON, with public `type: value` / `kind: value`, existing direct-root `__result__` carriage, no envelope, and no implicit conversion to or from narrower source types.
 **Keywords:** lisp-frontend, value, json, transport, direct-root, principle-29, target-2.19
-**Use this when:** Implementing or reviewing active successor Stage Q0. It is designed but not yet available for authoring; `Json` remains a distinct non-transportable type.
+**Use this when:** Authoring or reviewing target-2.19+ opaque transport results; `Value` is available for authoring there. Q0 is complete, `Json` remains a distinct non-transportable type, and Q1 prompt-core implementation has not begun.
 
 ### [Workflow Lisp Prompt Calculus](design/workflow_lisp_prompt_calculus.md)
-**Description:** Owner-selected typed compositional prompt direction covering `defprompt`, kind-based slots, prompt-carried results, output positions, prompt identity, and judgment views. The design still requires Q1 correction/review and is blocked on the target-2.19 `Value` prerequisite.
+**Description:** Owner-selected typed compositional prompt direction covering `defprompt`, kind-based slots, prompt-carried results, output positions, prompt identity, and judgment views. The target-2.19 `Value` prerequisite is implemented; Q1 design correction and ordered review are selected next.
 **Keywords:** lisp-frontend, prompts, defprompt, slots, prompt-identity, judgments, principle-29
 **Use this when:** Reviewing the proposed prompt domain surface or preparing successor Stage Q1 after Q0 completes. Do not implement its stale partial-application or procedure-substitution claims before the required design correction.
 

@@ -1102,11 +1102,29 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
 
     normalized_successor = _normalized_routing_text(successor)
     assert "status: active" in normalized_successor
-    assert "q0" in normalized_successor and "value" in normalized_successor
-    assert (
-        "design and implementation plan accepted; implementation pending"
-        in normalized_successor
+    q0_row = _markdown_table_row(
+        REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
+        "| Q0 |",
     )
+    q0_status = _normalized_routing_text(q0_row.rsplit("|", 2)[-2])
+    q0_is_closing = q0_status.startswith("closing ")
+    q0_is_complete = q0_status.startswith("complete ")
+    assert q0_is_closing != q0_is_complete
+    assert "active" not in q0_status
+    if q0_is_closing:
+        assert "pending" in q0_status
+    else:
+        assert "pending" not in q0_status
+    q1_row = _markdown_table_row(
+        REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
+        "| Q1 |",
+    )
+    q1_status = _normalized_routing_text(q1_row.rsplit("|", 2)[-2])
+    assert "next" in q1_status
+    assert "design correction" in q1_status
+    assert "implementation" in q1_status
+    assert "implemented" not in q1_status
+    assert "blocked by q0" not in q1_status
     assert "design review pending" not in normalized_successor
     assert "implementation plan pending" not in normalized_successor
     assert "q1" in normalized_successor and "prompt core" in normalized_successor
@@ -1157,7 +1175,14 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     normalized_plan = _normalized_routing_text(
         "\n".join(value_plan.splitlines()[:45])
     )
-    assert "status: accepted implementation plan" in normalized_plan
+    if q0_is_closing:
+        assert "status: closing" in normalized_plan
+        assert "preliminary task 7 reviews are approved" in normalized_plan
+        assert "exact byte reaffirmation" in normalized_plan
+        assert "implementation/evidence commit remain" in normalized_plan
+    else:
+        assert "status: complete" in normalized_plan
+    assert "implementation pending" not in normalized_plan
     assert "value_q0_plan_spec_approved" in normalized_plan
     assert "value_q0_plan_quality_approved" in normalized_plan
     assert TRANSPORTABLE_VALUE_PLAN_PATH in successor
@@ -1185,40 +1210,31 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         design_router_path,
         "workflow_lisp_transportable_value_type.md",
     )
-    assert "| Designed |" in value_design_row
+    assert "| Implemented |" in value_design_row
+    assert "target 2.19" in _normalized_routing_text(value_design_row)
     capability_row = _markdown_table_row(
         capability_matrix_path,
         "Workflow Lisp transportable `Value`",
     )
-    assert "| Designed |" in capability_row
-    assert "not yet" in _normalized_routing_text(capability_row)
-    language_server_design_row = _markdown_table_row(
-        design_router_path,
-        "workflow_lisp_language_server.md",
-    )
-    normalized_language_server_design = _normalized_routing_text(
-        language_server_design_row
-    )
-    assert "| Implemented |" in language_server_design_row
-    assert "readies l0" in normalized_language_server_design
-    assert "planned increments are not current behavior" in (
-        normalized_language_server_design
-    )
-    language_server_capability_row = _markdown_table_row(
+    assert "| Implemented |" in capability_row
+    normalized_capability_row = _normalized_routing_text(capability_row)
+    assert "target 2.19" in normalized_capability_row
+    assert "not yet" not in normalized_capability_row
+    assert "pending" not in normalized_capability_row
+    provider_input_row = _markdown_table_row(
         capability_matrix_path,
-        "Workflow Lisp language server v1",
+        "Workflow Lisp typed provider-input carriage",
     )
-    normalized_language_server_capability = _normalized_routing_text(
-        language_server_capability_row
+    normalized_provider_input_row = _normalized_routing_text(provider_input_row)
+    assert "target 2.19" in normalized_provider_input_row
+    assert "exact value" in normalized_provider_input_row
+    provider_result_row = _markdown_table_row(
+        capability_matrix_path,
+        "| `provider-result` | Implemented |",
     )
-    assert "| Implemented |" in language_server_capability_row
-    assert "planned increments are not current capability" in (
-        normalized_language_server_capability
-    )
-    assert "p1 p5 and runtime debugging remain deferred" in (
-        normalized_language_server_capability
-    )
-
+    normalized_provider_result_row = _normalized_routing_text(provider_result_row)
+    assert "target 2.19" in normalized_provider_result_row
+    assert "exact opaque value" in normalized_provider_result_row
     assert "### [Workflow Lisp Transportable `Value` Type]" in index
     assert (
         "### [Workflow Lisp Language Quality And Domain Semantics Roadmap]"
@@ -1231,17 +1247,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         )
     )
     assert "active post stage 8 selector" in normalized_successor_index
-    assert "q series work with q0" in normalized_successor_index
-    assert "lsp utility work with l0" in normalized_successor_index
+    assert "q series work with q1" in normalized_successor_index
     assert "do not select e0" in normalized_successor_index
-
-    normalized_evolution_index = _normalized_routing_text(
-        _markdown_heading_section(
-            index,
-            "### [Workflow Lisp Evolution Follow-On Roadmap]",
-        )
-    )
-    assert "non selectable" in normalized_evolution_index
 
     normalized_value_index = _normalized_routing_text(
         _markdown_heading_section(
@@ -1249,8 +1256,87 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
             "### [Workflow Lisp Transportable `Value` Type]",
         )
     )
-    assert "accepted target 2.19 design" in normalized_value_index
-    assert "designed but not yet available for authoring" in normalized_value_index
+    assert "implemented target 2.19" in normalized_value_index
+    assert "available for authoring" in normalized_value_index
+    assert "not yet available" not in normalized_value_index
+
+
+def test_transportable_value_normative_owners_close_the_public_contract() -> None:
+    frontend = (
+        REPO_ROOT / "docs/design/workflow_lisp_frontend_specification.md"
+    ).read_text(encoding="utf-8")
+    type_catalog = (
+        REPO_ROOT / "docs/design/workflow_lisp_type_catalog.md"
+    ).read_text(encoding="utf-8")
+    drafting_guide = (
+        REPO_ROOT / "docs/lisp_workflow_drafting_guide.md"
+    ).read_text(encoding="utf-8")
+    dsl = (REPO_ROOT / "specs/dsl.md").read_text(encoding="utf-8")
+    io = (REPO_ROOT / "specs/io.md").read_text(encoding="utf-8")
+    providers = (REPO_ROOT / "specs/providers.md").read_text(encoding="utf-8")
+    versioning = (REPO_ROOT / "specs/versioning.md").read_text(encoding="utf-8")
+
+    normalized_frontend = _normalized_routing_text(frontend)
+    assert "`Value`" in frontend
+    assert "target 2.19" in normalized_frontend
+    assert "exact" in normalized_frontend
+    assert "opaque" in normalized_frontend
+    assert "Value -> Value" in frontend
+    assert "T -> Value" in frontend
+    assert "Value -> T" in frontend
+
+    normalized_catalog = _normalized_routing_text(type_catalog)
+    assert "`Value`" in type_catalog
+    assert "direct root" in normalized_catalog
+    assert "__result__" in type_catalog
+    assert "type: value" in normalized_catalog
+    assert "record" in normalized_catalog
+    assert "union" in normalized_catalog
+
+    normalized_guide = _normalized_routing_text(drafting_guide)
+    assert "`Value`" in drafting_guide
+    assert "`Json`" in drafting_guide
+    assert "distinct" in normalized_guide
+    assert "non transportable" in normalized_guide
+    assert "record" in normalized_guide
+    assert "union" in normalized_guide
+    assert "opaque" in normalized_guide
+
+    normalized_dsl = _normalized_routing_text(dsl)
+    assert "type: value" in normalized_dsl
+    assert "kind: value" in normalized_dsl
+    assert "direct root" in normalized_dsl
+    assert "__result__" in dsl
+    assert "envelope" in normalized_dsl
+    assert "value_guidance_example_unsupported" in dsl
+
+    normalized_io = _normalized_routing_text(io)
+    assert "`Value`" in io
+    assert "strict json" in normalized_io
+    assert "non finite" in normalized_io
+    assert "nan" in normalized_io
+    assert "infinity" in normalized_io
+    assert "invalid_transportable_value" in io
+
+    normalized_providers = _normalized_routing_text(providers)
+    assert "`Value`" in providers
+    assert "direct root" in normalized_providers
+    assert "envelope" in normalized_providers
+    assert "description" in normalized_providers
+    assert "format hint" in normalized_providers
+    assert "guidance" in normalized_providers
+
+    version_rows = [
+        line
+        for line in versioning.splitlines()
+        if line.startswith("| 2.19 |")
+    ]
+    assert len(version_rows) == 1
+    normalized_version_row = _normalized_routing_text(version_rows[0])
+    assert "value" in normalized_version_row
+    assert "type: value" in normalized_version_row
+    assert "kind: value" in normalized_version_row
+    assert "strict json" in normalized_version_row
 
 
 def test_stage_6_numbered_sequence_closes_task_7_after_completed_queues() -> None:

@@ -778,6 +778,65 @@ RunId
 Symbol
 ```
 
+### 7.1.1 Transportable `Value` (Target 2.19)
+
+`Value` is the compiler-owned exact opaque transport contract over strict JSON:
+`null`, booleans, integers, finite floats, strings, recursively valid lists,
+and recursively valid string-keyed objects. It is distinct from the
+non-transportable internal `Json` type and from concrete records and unions,
+whose declared fields and variants remain part of their contracts. `Value` is
+reserved against local or imported shadowing, but authored occurrences require
+target DSL 2.19 or later.
+
+Source compatibility is exact. `Value` flows only to `Value`; no narrower
+scalar, enum, path, record, union, optional, list, or map value is implicitly
+widened to `Value`, and `Value` is never implicitly narrowed to one of those
+types. It grants no field, variant, numeric, path, collection, or control-flow
+operations. Authors may use exact `Value` in function, procedure, workflow,
+provider-result, command-result, and workflow-call parameters or returns; in
+record/union payload fields; and under `Optional[Value]`, `List[Value]`, or
+`Map[String, Value]` where the surrounding transportable position is supported.
+
+```text
+Value -> Value  accepted
+T -> Value      rejected for every narrower T
+Value -> T      rejected for every narrower T
+```
+
+A direct `Value` result lowers to a sole compiler-owned `output_bundle` field:
+
+```text
+name: __result__
+json_pointer: ""
+type: value
+```
+
+The producer writes the JSON value at the document root. There is no authored
+or hidden `{"value": ...}` envelope. A public workflow boundary uses
+`kind: value` with `type: value`; the classification remains opaque and never
+changes with an observed payload shape.
+
+The shared validator preserves the recursively validated value. File-backed
+malformed JSON and non-standard non-finite constants fail with the existing
+`invalid_json_document` contract; in-memory non-finite numbers, non-string
+object keys, cycles, or other non-JSON leaves fail as
+`invalid_transportable_value`, reporting the first invalid RFC 6901 value
+path. JSON `null` is a present valid value, not a missing bundle or pointer.
+
+Classic and WCC lowering preserve the literal `Value` identity and emit
+equivalent direct-root and public-boundary contracts. Typed/Core/Semantic/
+Executable/build surfaces, state and report projections, checkpoint identity,
+and resume reconstruction retain `Value` without specializing it from runtime
+shape. Resume validates the same declared contract as the original boundary;
+it neither reparses the payload into a narrower type nor re-executes an already
+committed compatible provider boundary.
+
+`(result Value ...)` may carry `:description` and `:format-hint` for provider
+contract guidance. `:example` is rejected with
+`value_guidance_example_unsupported` because target 2.19 has no checked source
+constructor that erases a narrower literal to exact `Value`. Guidance does not
+narrow validation or change state, checkpoint, or resume behavior.
+
 ### 7.2 Enum Types
 
 ```lisp
@@ -4835,6 +4894,17 @@ to top-level `result_guidance` and survives Surface, Core, Semantic, and
 Executable IR. It is not injected into provider prompts and does not change
 outputs, runtime plans, value validation, fingerprints, checkpoints, or
 resume.
+
+Target 2.19 additionally implements exact opaque `Value` on the same shared
+transport path. It does not widen or alias `Json`, records, unions, or any
+other concrete type. Direct results retain the sole `__result__` / empty
+JSON-pointer carriage with `type: value`; public boundaries use
+`kind: value`. Classic and WCC lowering, state/report projection, checkpoint
+identity, and resume preserve the declared type and recursively validated
+strict-JSON payload. `Value` guidance permits description and format hint but
+not an example. DSL 2.18 and earlier reject the source type and `value`
+contract descriptor, while all v2.15 narrower-return and guidance behavior is
+unchanged.
 
 ## 105.4 Procedure-First Reuse And Migration
 

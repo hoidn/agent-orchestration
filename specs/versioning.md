@@ -241,6 +241,31 @@
     reject the unknown peer-group node kind; interrupted visits use the
     additive peer-group quarantine contract rather than a schema migration.
 
+- v2.19 additions (Workflow Lisp transportable `Value`)
+  - Target `2.19` reserves compiler-owned `Value` as an exact opaque transport
+    contract over recursively valid strict JSON. It is distinct from
+    non-transportable `Json` and from every concrete record, union, scalar,
+    path, optional, list, and map contract; source compatibility is exact in
+    both directions.
+  - Direct results use the existing sole compiler-owned `__result__` field
+    with `json_pointer: ""` and `type: value`, so the wire document is the
+    value itself rather than a `{"value": ...}` envelope. Public workflow and
+    artifact contracts use `kind: value`, `type: value`.
+  - `Value` is valid in the shared transportable function, procedure,
+    provider-result, command-result, workflow-call, public-workflow,
+    record/union payload, and supported `Optional`/`List`/`Map` positions.
+    There is no implicit narrower-to-`Value` or `Value`-to-narrower conversion.
+  - Strict file-backed parsing rejects malformed JSON and non-standard
+    non-finite constants. In-memory validation rejects non-finite floats,
+    non-string object keys, cycles, and other non-JSON leaves with the first
+    invalid path. `description` and `format_hint` guidance are accepted;
+    `example` is rejected.
+  - Classic and WCC preserve the same literal descriptor through compiled
+    contracts, state, checkpoint identity, and resume. State schema remains
+    `2.1`; payload shape does not specialize the contract. Targets below
+    `2.19` reject the source type or descriptor, and v2.15 narrower returns
+    and result guidance remain unchanged.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -265,6 +290,7 @@
   - `v2.16`: bounded Workflow Lisp provider supervision
   - `v2.17`: static Workflow Lisp provider peer groups and recorded
     turn-boundary messaging
+  - `v2.19`: exact opaque transportable `Value`
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -399,5 +425,6 @@ Planned acceptance:
 | 2.15 | Direct JSON root results (`output_bundle` fields with `json_pointer: ""`), public `optional\|list\|map` output and structured-result schemas, strict effect-boundary `guidance` / `guidance_context` / `guidance_by_variant`, and top-level workflow `result_guidance` | Promoted after the combined native-transportable-return and typed-result-guidance gate. Ordinary loader entrypoints, Workflow Lisp shared validation, CLI run/resume/report, dashboard projection, and imported-bundle loading accept the same version. v2.14 rejects the new guidance containers and retains its existing record/union contracts. Guidance is non-runtime metadata and does not change artifact names, value validity, source identities, checkpoint identities, or resume behavior. |
 | 2.16 | `.orc` `with-live-providers`, reserved `ProviderSteeringDirective`, structural `session_support.turn_boundary_resume`, default provider observation, and `provider_supervision.v1` | Adds exactly-two-member bounded provider overlap inside one atomic workflow node, one validated observation edge, pure settlement, at most one exact-session resume, and interrupted-visit quarantine. General authored concurrency and parallel blocks remain unsupported. State schema remains `2.1`. |
 | 2.17 | `.orc` `with-live-provider-peers`, structural `interactive_session_support`, exact-attempt peer ingress, and `provider_peer_group.v1` | Adds static two-through-eight-member bounded provider overlap with durable record-before-offer receiver ledgers, cooperative acknowledgement/finish, typed direct-root member bundles, pure atomic settlement, natural-shutdown proof, failed cleanup, and interrupted-visit quarantine. It adds no forcing edge and leaves target-2.16 supervision artifacts unchanged. State schema remains `2.1`. |
+| 2.19 | Compiler-owned exact `Value`, `type: value`, and public `kind: value` | Adds an opaque strict-JSON transport contract with exact source compatibility, sole direct-root `__result__` carriage and no envelope, recursive failure paths, description/format-hint guidance without examples, and unchanged state schema `2.1`. Classic/WCC, state, checkpoint, and resume preserve the declared type rather than payload shape; targets below 2.19 reject it. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |
