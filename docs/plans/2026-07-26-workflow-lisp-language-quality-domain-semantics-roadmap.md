@@ -52,6 +52,14 @@ Stages execute in table order. A later stage may be narrowed by its accepted
 design, but may not absorb a deferred language mechanism merely because it is
 adjacent.
 
+A parallel substrate track
+(`docs/plans/2026-07-26-substrate-maintenance-track.md`) runs beside this
+roadmap: its M0/M1 hygiene-and-deletion phases touch disjoint surfaces and
+may interleave with Q0–Q2, and its M2 persistence-parsimony design consumes
+Q3's identity definition as a second consumer (memo keys). Q3 remains
+authored and gated here; the substrate track must not mint a second
+identity definition, and this roadmap absorbs no substrate work.
+
 ## Stage Q0: Transportable `Value`
 
 Authority target:
