@@ -19,6 +19,7 @@ from ..expressions import (
     LetStarExpr,
     LoopRecurExpr,
     MatchExpr,
+    NameExpr,
     ProcRefLiteralExpr,
     ProcedureCallExpr,
     ProviderResultExpr,
@@ -554,6 +555,7 @@ def _lower_procedure_call(
     from .origins import _record_step_origin
     from .core import (
         _compile_error,
+        _inline_output_refs_for_expr,
         _inline_procedure_step_prefix,
         _lower_expression,
         _normalize_generated_step_id,
@@ -925,7 +927,36 @@ def _lower_procedure_call(
         normalize_generated_step_id=context.normalize_generated_step_id,
         source_read_trace=context.source_read_trace,
     )
-    steps, terminal = _lower_expression(procedure.typed_body, context=child_context, local_values=child_locals)
+    output_refs = (
+        _inline_output_refs_for_expr(
+            procedure.typed_body.expr,
+            type_ref=procedure.typed_body.type_ref,
+            local_values=child_locals,
+            context=child_context,
+        )
+        if isinstance(procedure.typed_body.expr, NameExpr)
+        and not isinstance(
+            procedure.typed_body.type_ref,
+            (RecordTypeRef, UnionTypeRef),
+        )
+        else None
+    )
+    if output_refs is not None:
+        steps, terminal = [], _TerminalResult(
+            step_name=child_context.step_name_prefix,
+            step_id=child_context.normalize_generated_step_id(
+                child_context.step_name_prefix
+            ),
+            output_refs=output_refs,
+            output_kind="projection",
+            hidden_inputs={},
+        )
+    else:
+        steps, terminal = _lower_expression(
+            procedure.typed_body,
+            context=child_context,
+            local_values=child_locals,
+        )
     _rewrite_nested_sibling_step_refs(steps)
     return _runtime_erasure_checked(steps, terminal, plan=plan)
 
