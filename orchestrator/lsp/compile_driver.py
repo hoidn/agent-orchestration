@@ -62,6 +62,27 @@ class _SourceCurrentnessProbe:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedCompile:
+    """One opaque, controller-prepared invocation of the blocking compiler."""
+
+    ticket: int
+    path: Path
+    generation: int
+    request: FrontendBuildRequest
+    source_read_trace: SourceReadTrace
+    _build_in_memory: BuildInMemory = field(repr=False, compare=False)
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedCompileCompletion:
+    """The state-free outcome of executing one prepared compiler invocation."""
+
+    prepared: PreparedCompile
+    result: object | None
+    error: Exception | None
+
+
 @dataclass(slots=True)
 class LspCompileDriver:
     """Mutable process-local owner around immutable LSP state replacements."""
@@ -74,6 +95,9 @@ class LspCompileDriver:
     _log_server_error: ServerErrorLogger
     _run_lock: LockType = field(default_factory=Lock, repr=False)
     _running: bool = False
+    _next_ticket: int = 1
+    _active_prepared: PreparedCompile | None = field(default=None, repr=False)
+    _invalidated_tickets: set[int] = field(default_factory=set, repr=False)
 
     @property
     def queued_generations(self) -> tuple[tuple[Path, int], ...]:
@@ -92,6 +116,12 @@ class LspCompileDriver:
 
         self.state = transition.state
         canceled = set(transition.effects.canceled_generations)
+        active = self._active_prepared
+        if (
+            active is not None
+            and (active.path, active.generation) in canceled
+        ):
+            self._invalidated_tickets.add(active.ticket)
         if canceled:
             self._queue[:] = [
                 item for item in self._queue if item not in canceled
@@ -106,8 +136,10 @@ class LspCompileDriver:
             self._latest_generation_by_path[path] = generation
             self._queue.append((path, generation))
 
-    def run_next(self) -> LspStateTransition | None:
-        """Run at most one current queued generation in the sole build slot."""
+    def begin_next(
+        self,
+    ) -> PreparedCompile | LspStateTransition | None:
+        """Prepare at most one current generation on the controller thread."""
 
         if not self._run_lock.acquire(blocking=False):
             raise RuntimeError("LSP compile driver is already running")
@@ -115,6 +147,7 @@ class LspCompileDriver:
         try:
             queued = self._pop_current_generation()
             if queued is None:
+                self._release_run_slot()
                 return None
             path, generation = queued
             try:
@@ -127,31 +160,125 @@ class LspCompileDriver:
                     generation=generation,
                 )
                 self.apply_transition(transition)
+                self._release_run_slot()
                 return transition
             self.apply_transition(configuration_preflight)
             if self.state.configuration_stale:
+                self._release_run_slot()
                 return configuration_preflight
             source_read_trace = SourceReadTrace()
             try:
-                try:
-                    result = self._build_in_memory(
-                        self._build_request(path),
-                        source_read_trace=source_read_trace,
+                request = self._build_request(path)
+            except Exception as error:
+                transition = self._accept_server_failure(
+                    path=path,
+                    generation=generation,
+                    error=error,
+                    source_read_trace=source_read_trace,
+                )
+                self._release_run_slot()
+                return transition
+            prepared = PreparedCompile(
+                ticket=self._next_ticket,
+                path=path,
+                generation=generation,
+                request=request,
+                source_read_trace=source_read_trace,
+                _build_in_memory=self._build_in_memory,
+            )
+            self._next_ticket += 1
+            self._active_prepared = prepared
+            return prepared
+        except BaseException:
+            if self._active_prepared is None:
+                self._release_run_slot()
+            raise
+
+    @staticmethod
+    def execute_prepared(
+        prepared: PreparedCompile,
+    ) -> PreparedCompileCompletion:
+        """Run only the blocking compiler call, without consulting driver state."""
+
+        if not isinstance(prepared, PreparedCompile):
+            raise TypeError("prepared compile must be a PreparedCompile value")
+        try:
+            result = prepared._build_in_memory(
+                prepared.request,
+                source_read_trace=prepared.source_read_trace,
+            )
+        except Exception as error:
+            return PreparedCompileCompletion(
+                prepared=prepared,
+                result=None,
+                error=error,
+            )
+        return PreparedCompileCompletion(
+            prepared=prepared,
+            result=result,
+            error=None,
+        )
+
+    def finish_prepared(
+        self,
+        completion: PreparedCompileCompletion,
+    ) -> LspStateTransition:
+        """Adjudicate one exact active ticket on the controller thread."""
+
+        if not isinstance(completion, PreparedCompileCompletion):
+            raise TypeError(
+                "prepared completion must be a PreparedCompileCompletion value"
+            )
+        active = self._active_prepared
+        if active is None:
+            raise RuntimeError("LSP compile driver has no active prepared build")
+        if completion.prepared is not active:
+            raise RuntimeError(
+                "LSP compile completion does not match the active ticket"
+            )
+        if completion.error is not None and not isinstance(
+            completion.error,
+            Exception,
+        ):
+            raise TypeError("prepared compile error must be an Exception")
+
+        path = active.path
+        generation = active.generation
+        source_read_trace = active.source_read_trace
+        invalidated = active.ticket in self._invalidated_tickets
+        try:
+            if invalidated:
+                if (
+                    completion.error is not None
+                    and not isinstance(
+                        completion.error,
+                        LispFrontendCompileError,
                     )
-                except LispFrontendCompileError as error:
+                ):
+                    self._log_server_error(completion.error)
+                return LspStateTransition(
+                    state=self.state,
+                    effects=StateEffects(),
+                )
+            try:
+                if isinstance(
+                    completion.error,
+                    LispFrontendCompileError,
+                ):
                     return self._accept_language_error(
                         path=path,
                         generation=generation,
                         source_read_trace=source_read_trace,
-                        error=error,
+                        error=completion.error,
                     )
-                except Exception as error:
+                if completion.error is not None:
                     return self._accept_server_failure(
                         path=path,
                         generation=generation,
-                        error=error,
+                        error=completion.error,
                         source_read_trace=source_read_trace,
                     )
+                result = completion.result
                 configuration_postflight = self.recheck_configuration()
                 self.apply_transition(configuration_postflight)
                 if self.state.configuration_stale:
@@ -221,8 +348,24 @@ class LspCompileDriver:
                     error=error,
                 )
         finally:
-            self._running = False
-            self._run_lock.release()
+            self._invalidated_tickets.discard(active.ticket)
+            self._active_prepared = None
+            self._release_run_slot()
+
+    def run_next(self) -> LspStateTransition | None:
+        """Run at most one current queued generation in the sole build slot."""
+
+        prepared = self.begin_next()
+        if not isinstance(prepared, PreparedCompile):
+            return prepared
+        try:
+            completion = self.execute_prepared(prepared)
+        except BaseException:
+            self._invalidated_tickets.discard(prepared.ticket)
+            self._active_prepared = None
+            self._release_run_slot()
+            raise
+        return self.finish_prepared(completion)
 
     def drain(self) -> tuple[LspStateTransition, ...]:
         """Run queued generations serially until no current item remains."""
@@ -233,6 +376,10 @@ class LspCompileDriver:
             if transition is None:
                 return tuple(transitions)
             transitions.append(transition)
+
+    def _release_run_slot(self) -> None:
+        self._running = False
+        self._run_lock.release()
 
     def snapshot_if_current(
         self,

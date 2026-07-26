@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
 
 from tests.test_workflow_lisp_lsp_stdio import (
@@ -22,6 +24,12 @@ CALLABLE_ROOT = FIXTURES / "modules" / "valid" / "callables"
 IMPORTED_SELECTOR_SOURCE = FIXTURES / "cli" / "imported_selector.orc"
 STDLIB_CALLER_SOURCE = (
     FIXTURES / "valid" / "minimal_caller_finalize_selected_item.orc"
+)
+CONTROLLED_SERVER = (
+    FIXTURES / "lsp_transport" / "controlled_compile_server.py"
+)
+STARTUP_STDOUT_PROBE_ROOT = (
+    FIXTURES / "lsp_transport" / "startup_stdout_probe"
 )
 
 
@@ -41,9 +49,10 @@ def _tree_snapshot(root: Path) -> tuple[tuple[str, str, bytes | str], ...]:
 def _request(
     process: _LspProcess,
     *,
-    request_id: int,
+    request_id: int | str,
     method: str,
     params: dict[str, object],
+    timeout: float = 15.0,
 ) -> tuple[dict[str, object], tuple[dict[str, object], ...]]:
     process.send(
         {
@@ -53,7 +62,49 @@ def _request(
             "params": params,
         }
     )
-    return process.read_until(lambda item: item.get("id") == request_id)
+    return process.read_until(
+        lambda item: item.get("id") == request_id,
+        timeout=timeout,
+    )
+
+
+def _request_until(
+    process: _LspProcess,
+    *,
+    request_id: int | str,
+    method: str,
+    params: dict[str, object],
+    result_predicate: Callable[[object], bool],
+    timeout: float = 15.0,
+) -> tuple[dict[str, object], tuple[dict[str, object], ...]]:
+    """Retry completed requests until one fresh result satisfies the caller."""
+
+    deadline = time.monotonic() + timeout
+    observed: list[dict[str, object]] = []
+    attempt = 0
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AssertionError(
+                f"timed out waiting for `{method}` result; observed={observed!r}"
+            )
+        attempt += 1
+        response, attempt_observed = _request(
+            process,
+            request_id=f"{request_id}-attempt-{attempt}",
+            method=method,
+            params=params,
+            timeout=remaining,
+        )
+        observed.extend(attempt_observed)
+        if result_predicate(response.get("result")):
+            return response, tuple(observed)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AssertionError(
+                f"timed out waiting for `{method}` result; observed={observed!r}"
+            )
+        time.sleep(min(0.01, remaining))
 
 
 def _initialize(
@@ -230,6 +281,208 @@ def _fixture_workspace(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
     )
 
 
+def _library_source(symbol_name: str) -> str:
+    return (
+        "(workflow-lisp\n"
+        '  (:language "0.1")\n'
+        '  (:target-dsl "2.14")\n'
+        "  (defmodule entry)\n"
+        f"  (defproc {symbol_name}\n"
+        "    ((value Bool))\n"
+        "    -> Bool\n"
+        "    :effects ()\n"
+        "    :lowering inline\n"
+        "    value))\n"
+    )
+
+
+def _wait_for_path(path: Path, *, timeout: float = 3.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            return True
+        time.sleep(0.01)
+    return path.exists()
+
+
+def _controlled_process(
+    workspace: Path,
+    *,
+    control_root: Path,
+) -> _LspProcess:
+    return _LspProcess(
+        workspace,
+        server_command=(sys.executable, str(CONTROLLED_SERVER)),
+        extra_environment={"WORKFLOW_LSP_TEST_CONTROL_ROOT": str(control_root)},
+    )
+
+
+def test_real_stdio_observes_and_coalesces_saves_while_first_compile_is_blocked(
+    tmp_path: Path,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    control_root = (tmp_path / "control").resolve()
+    workspace.mkdir()
+    control_root.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_path.write_text(_library_source("initial"), encoding="utf-8")
+    process = _controlled_process(workspace, control_root=control_root)
+    observed_before_release = False
+    try:
+        _initialize(
+            process,
+            workspace=workspace,
+            initialization_options={"source_roots": [str(workspace)]},
+        )
+        _open(
+            process,
+            source_path=entry_path,
+            text=entry_path.read_text(encoding="utf-8"),
+        )
+        assert _wait_for_path(control_root / "build-1-started")
+
+        for version, module_name in enumerate(
+            ("superseded-one", "superseded-two", "latest"),
+            start=2,
+        ):
+            text = _library_source(module_name)
+            entry_path.write_text(text, encoding="utf-8")
+            _change(
+                process,
+                source_path=entry_path,
+                text=text,
+                version=version,
+            )
+            process.send(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "textDocument/didSave",
+                    "params": {
+                        "textDocument": {"uri": entry_path.as_uri()},
+                    },
+                }
+            )
+
+        observed_before_release = _wait_for_path(
+            control_root / "save-3-observed"
+        )
+        (control_root / "release-first-build").touch()
+        if observed_before_release:
+            assert _wait_for_path(
+                control_root / "build-2-finished",
+                timeout=30.0,
+            )
+            symbols, _observed = _request_until(
+                process,
+                request_id=2,
+                method="textDocument/documentSymbol",
+                params={"textDocument": {"uri": entry_path.as_uri()}},
+                result_predicate=lambda result: (
+                    isinstance(result, list)
+                    and [item.get("name") for item in result]
+                    == ["entry", "latest"]
+                ),
+            )
+            assert [item["name"] for item in symbols["result"]] == [
+                "entry",
+                "latest",
+            ]
+        process.shutdown()
+    finally:
+        (control_root / "release-first-build").touch(exist_ok=True)
+        process.close()
+
+    assert observed_before_release, (
+        "the transport did not observe superseding saves while the first "
+        "compile was blocked"
+    )
+    assert len(tuple(control_root.glob("build-*-started"))) == 2
+    assert len(tuple(control_root.glob("build-*-finished"))) == 2
+
+
+def test_real_stdio_close_discards_result_while_first_compile_is_blocked(
+    tmp_path: Path,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    control_root = (tmp_path / "control").resolve()
+    workspace.mkdir()
+    control_root.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_path.write_text(_library_source("closing"), encoding="utf-8")
+    process = _controlled_process(workspace, control_root=control_root)
+    observed_before_release = False
+    try:
+        _initialize(
+            process,
+            workspace=workspace,
+            initialization_options={"source_roots": [str(workspace)]},
+        )
+        _open(
+            process,
+            source_path=entry_path,
+            text=entry_path.read_text(encoding="utf-8"),
+        )
+        assert _wait_for_path(control_root / "build-1-started")
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "method": "textDocument/didClose",
+                "params": {
+                    "textDocument": {"uri": entry_path.as_uri()},
+                },
+            }
+        )
+
+        observed_before_release = _wait_for_path(control_root / "close-observed")
+        (control_root / "release-first-build").touch()
+        if observed_before_release:
+            assert _wait_for_path(
+                control_root / "build-1-finished",
+                timeout=30.0,
+            )
+            symbols, _observed = _request(
+                process,
+                request_id=2,
+                method="textDocument/documentSymbol",
+                params={"textDocument": {"uri": entry_path.as_uri()}},
+            )
+            assert symbols["result"] is None
+        process.shutdown()
+    finally:
+        (control_root / "release-first-build").touch(exist_ok=True)
+        process.close()
+
+    assert observed_before_release, (
+        "the transport did not observe close while the first compile was "
+        "blocked"
+    )
+    assert len(tuple(control_root.glob("build-*-started"))) == 1
+    assert len(tuple(control_root.glob("build-*-finished"))) == 1
+
+
+def test_import_time_ordinary_stdout_cannot_precede_protocol_frames(
+    tmp_path: Path,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir()
+    pythonpath = os.pathsep.join(
+        (str(STARTUP_STDOUT_PROBE_ROOT), str(REPO_ROOT))
+    )
+    process = _LspProcess(
+        workspace,
+        extra_environment={"PYTHONPATH": pythonpath},
+    )
+    try:
+        _initialize(
+            process,
+            workspace=workspace,
+            initialization_options={},
+        )
+        process.shutdown()
+    finally:
+        process.close()
+
+
 def test_real_stdio_fixture_diagnostics_navigation_and_cleanup_write_nothing(
     tmp_path: Path,
 ) -> None:
@@ -249,7 +502,7 @@ def test_real_stdio_fixture_diagnostics_navigation_and_cleanup_write_nothing(
             text=original_text,
         )
 
-        procedure_definition, _ = _request(
+        procedure_definition, _ = _request_until(
             process,
             request_id=2,
             method="textDocument/definition",
@@ -257,6 +510,7 @@ def test_real_stdio_fixture_diagnostics_navigation_and_cleanup_write_nothing(
                 "textDocument": {"uri": entry_path.as_uri()},
                 "position": {"line": 12, "character": 14},
             },
+            result_predicate=lambda result: result is not None,
         )
         assert procedure_definition["result"]["uri"] == (
             workspace / "neurips" / "procedures.orc"
@@ -390,7 +644,7 @@ def test_real_stdio_dependency_invalidation_and_rapid_saves_keep_latest_state(
             initialization_options=options,
         )
         _open(process, source_path=entry_path, text=entry_text)
-        initial_definition, _ = _request(
+        initial_definition, _ = _request_until(
             process,
             request_id=2,
             method="textDocument/definition",
@@ -398,6 +652,7 @@ def test_real_stdio_dependency_invalidation_and_rapid_saves_keep_latest_state(
                 "textDocument": {"uri": entry_path.as_uri()},
                 "position": {"line": 13, "character": 12},
             },
+            result_predicate=lambda result: result is not None,
         )
         assert initial_definition["result"]["uri"] == helper_path.as_uri()
 
@@ -466,7 +721,7 @@ def test_real_stdio_dependency_invalidation_and_rapid_saves_keep_latest_state(
                 }
             )
 
-        current_definition, observed = _request(
+        current_definition, observed = _request_until(
             process,
             request_id=3,
             method="textDocument/definition",
@@ -474,6 +729,7 @@ def test_real_stdio_dependency_invalidation_and_rapid_saves_keep_latest_state(
                 "textDocument": {"uri": entry_path.as_uri()},
                 "position": {"line": 13, "character": 12},
             },
+            result_predicate=lambda result: result is not None,
         )
         assert current_definition["result"]["uri"] == helper_path.as_uri()
         assert not any(
@@ -506,7 +762,7 @@ def test_real_stdio_definition_reaches_compiler_owned_builtin_stdlib(
             initialization_options={"source_roots": [str(workspace)]},
         )
         _open(process, source_path=source_path, text=source_text)
-        definition, _ = _request(
+        definition, _ = _request_until(
             process,
             request_id=2,
             method="textDocument/definition",
@@ -514,6 +770,7 @@ def test_real_stdio_definition_reaches_compiler_owned_builtin_stdlib(
                 "textDocument": {"uri": source_path.as_uri()},
                 "position": {"line": 41, "character": 7},
             },
+            result_predicate=lambda result: result is not None,
         )
 
         assert definition["result"]["uri"] == (

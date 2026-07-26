@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from pygls.lsp.server import LanguageServer
 from .compile_driver import (
     BuildInMemory,
     LspCompileDriver,
+    PreparedCompile,
     initialize_compile_driver,
     probe_disk_source,
 )
@@ -48,6 +50,7 @@ class WorkflowLispLanguageServer(LanguageServer):
         self,
         *,
         build_in_memory: BuildInMemory | None = None,
+        _defer_compiles: bool = False,
     ) -> None:
         super().__init__(
             "workflow-lisp",
@@ -56,6 +59,8 @@ class WorkflowLispLanguageServer(LanguageServer):
         )
         self.driver: LspCompileDriver | None = None
         self._build_in_memory = build_in_memory
+        self._defer_compiles = _defer_compiles
+        self._compile_task: asyncio.Task[None] | None = None
         self.watcher_registration_supported = False
         self._watcher_registration_sent = False
 
@@ -228,6 +233,10 @@ class WorkflowLispLanguageServer(LanguageServer):
             ):
                 continue
             transitions.append(driver.observe_disk_path(path))
+        if self._defer_compiles:
+            self._emit_transition_effects(transitions)
+            self._schedule_compile_pump()
+            return
         transitions.extend(driver.drain())
         self._emit_transition_effects(transitions)
 
@@ -381,6 +390,41 @@ class WorkflowLispLanguageServer(LanguageServer):
             raise RuntimeError("language server is not initialized")
         return driver
 
+    def _schedule_compile_pump(self) -> None:
+        """Ensure the real transport has one event-loop-owned compile pump."""
+
+        if not self._defer_compiles:
+            return
+        task = self._compile_task
+        if task is not None and not task.done():
+            return
+        self._compile_task = asyncio.create_task(self._run_compile_pump())
+
+    async def _run_compile_pump(self) -> None:
+        """Run blocking compiles off-loop while retaining state ownership."""
+
+        driver = self._require_driver()
+        try:
+            while True:
+                prepared = driver.begin_next()
+                if prepared is None:
+                    return
+                if not isinstance(prepared, PreparedCompile):
+                    self._emit_transition_effects((prepared,))
+                    continue
+                completion = await asyncio.to_thread(
+                    driver.execute_prepared,
+                    prepared,
+                )
+                transition = driver.finish_prepared(completion)
+                self._emit_transition_effects((transition,))
+        except Exception as error:
+            self.log_internal_error(error)
+        finally:
+            self._compile_task = None
+            if driver.queued_generations:
+                self._schedule_compile_pump()
+
     def _current_navigation(
         self,
         document_uri: str,
@@ -395,7 +439,10 @@ class WorkflowLispLanguageServer(LanguageServer):
         )
         self._emit_transition_effects(transitions)
         if snapshot is None:
-            self._emit_transition_effects(driver.drain())
+            if self._defer_compiles:
+                self._schedule_compile_pump()
+            else:
+                self._emit_transition_effects(driver.drain())
             return None
         compile_result = getattr(snapshot.build_value, "compile_result", None)
         try:
@@ -410,6 +457,10 @@ class WorkflowLispLanguageServer(LanguageServer):
         initial_transition: LspStateTransition,
     ) -> None:
         driver = self._require_driver()
+        if self._defer_compiles:
+            self._emit_transition_effects((initial_transition,))
+            self._schedule_compile_pump()
+            return
         self._emit_transition_effects(
             (initial_transition, *driver.drain())
         )
@@ -475,7 +526,10 @@ def create_server(
 ) -> WorkflowLispLanguageServer:
     """Create one server and bind its initialization contract."""
 
-    server = WorkflowLispLanguageServer(build_in_memory=build_in_memory)
+    server = WorkflowLispLanguageServer(
+        build_in_memory=build_in_memory,
+        _defer_compiles=True,
+    )
 
     @server.feature(types.INITIALIZE)
     def initialize(params: types.InitializeParams) -> None:

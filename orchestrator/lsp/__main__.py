@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import sys
 
-from .server import create_server
-
 
 def main() -> None:
     """Reserve the original binary stdout exclusively for protocol frames."""
@@ -15,6 +13,8 @@ def main() -> None:
     ordinary_stdout = sys.stdout
     try:
         sys.stdout = sys.stderr
+        from .server import create_server
+
         create_server().start_io(
             stdin=transport_stdin,
             stdout=transport_stdout,

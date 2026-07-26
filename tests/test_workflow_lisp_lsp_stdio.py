@@ -17,7 +17,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class _LspProcess:
-    def __init__(self, workspace: Path) -> None:
+    def __init__(
+        self,
+        workspace: Path,
+        *,
+        server_command: tuple[str, ...] | None = None,
+        extra_environment: dict[str, str] | None = None,
+    ) -> None:
         env = dict(os.environ)
         prior_pythonpath = env.get("PYTHONPATH")
         env["PYTHONPATH"] = (
@@ -25,8 +31,14 @@ class _LspProcess:
             if not prior_pythonpath
             else os.pathsep.join((str(REPO_ROOT), prior_pythonpath))
         )
+        if extra_environment is not None:
+            env.update(extra_environment)
         self.process = subprocess.Popen(
-            [sys.executable, "-m", "orchestrator.lsp"],
+            (
+                server_command
+                if server_command is not None
+                else (sys.executable, "-m", "orchestrator.lsp")
+            ),
             cwd=workspace,
             env=env,
             stdin=subprocess.PIPE,

@@ -576,6 +576,149 @@ def test_driver_coalesces_latest_generation_and_accepts_one_injected_success(
     assert entry.diagnostic_contributions == ()
 
 
+def _opened_split_phase_driver(
+    tmp_path: Path,
+) -> tuple[compile_driver.LspCompileDriver, Path, str]:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    entry_path.write_text(entry_text, encoding="utf-8")
+
+    def successful_build(
+        request: build.FrontendBuildRequest,
+        *,
+        source_read_trace: SourceReadTrace,
+    ) -> object:
+        source_read_trace._record(
+            canonical_path=request.source_path,
+            revision=compile_driver.probe_disk_source(
+                request.source_path
+            ).revision,
+        )
+        return _injected_success()
+
+    driver = compile_driver.initialize_compile_driver(
+        lsp_state.initialize_lsp_state(root_uri=workspace.as_uri()),
+        build_in_memory=successful_build,
+    )
+    driver.apply_transition(
+        lsp_state.open_entry(
+            driver.state,
+            document_uri=entry_path.as_uri(),
+            editor_text=entry_text,
+            disk_snapshot=compile_driver.probe_disk_source(entry_path),
+        )
+    )
+    return driver, entry_path.resolve(), entry_text
+
+
+def test_split_phase_close_reopen_invalidates_aliasing_old_completion(
+    tmp_path: Path,
+) -> None:
+    driver, entry_path, entry_text = _opened_split_phase_driver(tmp_path)
+    prepared = driver.begin_next()
+    assert prepared is not None
+    assert prepared.generation == 1
+    outcome = driver.execute_prepared(prepared)
+
+    driver.apply_transition(
+        lsp_state.close_entry(
+            driver.state,
+            document_uri=entry_path.as_uri(),
+        )
+    )
+    driver.apply_transition(
+        lsp_state.open_entry(
+            driver.state,
+            document_uri=entry_path.as_uri(),
+            editor_text=entry_text,
+            disk_snapshot=compile_driver.probe_disk_source(entry_path),
+        )
+    )
+
+    reopened = driver.state.entries[0]
+    assert reopened.generation == prepared.generation == 1
+    assert driver.queued_generations == ((entry_path, 1),)
+
+    driver.finish_prepared(outcome)
+
+    reopened = driver.state.entries[0]
+    assert reopened.compile_status == "pending"
+    assert reopened.pending_generation == 1
+    assert reopened.accepted_snapshot is None
+    assert driver.queued_generations == ((entry_path, 1),)
+    assert driver.running is False
+
+
+def test_split_phase_wrong_completion_ticket_preserves_active_job(
+    tmp_path: Path,
+) -> None:
+    driver, _entry_path, _entry_text = _opened_split_phase_driver(tmp_path)
+    prepared = driver.begin_next()
+    assert prepared is not None
+    outcome = driver.execute_prepared(prepared)
+    wrong_outcome = replace(
+        outcome,
+        prepared=replace(outcome.prepared, ticket=object()),
+    )
+
+    with pytest.raises(RuntimeError):
+        driver.finish_prepared(wrong_outcome)
+
+    assert driver.running is True
+    driver.finish_prepared(outcome)
+    assert driver.running is False
+    assert driver.state.entries[0].compile_status == "success"
+
+
+def test_split_phase_duplicate_completion_fails_closed(
+    tmp_path: Path,
+) -> None:
+    driver, _entry_path, _entry_text = _opened_split_phase_driver(tmp_path)
+    prepared = driver.begin_next()
+    assert prepared is not None
+    outcome = driver.execute_prepared(prepared)
+
+    driver.finish_prepared(outcome)
+    completed_state = driver.state
+
+    with pytest.raises(RuntimeError):
+        driver.finish_prepared(outcome)
+
+    assert driver.state is completed_state
+    assert driver.running is False
+
+
+def test_split_phase_stale_completion_leaves_newer_generation_queued(
+    tmp_path: Path,
+) -> None:
+    driver, entry_path, _entry_text = _opened_split_phase_driver(tmp_path)
+    prepared = driver.begin_next()
+    assert prepared is not None
+    assert prepared.generation == 1
+    outcome = driver.execute_prepared(prepared)
+
+    driver.apply_transition(
+        lsp_state.save_entry(
+            driver.state,
+            document_uri=entry_path.as_uri(),
+            disk_snapshot=compile_driver.probe_disk_source(entry_path),
+        )
+    )
+    assert driver.queued_generations == ((entry_path, 2),)
+
+    driver.finish_prepared(outcome)
+
+    entry = driver.state.entries[0]
+    assert entry.generation == 2
+    assert entry.pending_generation == 2
+    assert entry.compile_status == "pending"
+    assert entry.accepted_snapshot is None
+    assert driver.queued_generations == ((entry_path, 2),)
+    assert driver.running is False
+
+
 def test_driver_rechecks_configuration_before_calling_builder_without_notification(
     tmp_path: Path,
 ) -> None:

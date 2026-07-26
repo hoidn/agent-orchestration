@@ -11,6 +11,7 @@ from tests.test_workflow_lisp_lsp_integration import (
     _initialize,
     _open,
     _request,
+    _request_until,
 )
 
 
@@ -66,13 +67,14 @@ def test_real_repository_cycle_guard_editor_session_is_read_only() -> None:
         )
         _open(process, source_path=CYCLE_GUARD_ENTRY, text=source_text)
 
-        symbols, observed = _request(
+        symbols, observed = _request_until(
             process,
             request_id=2,
             method="textDocument/documentSymbol",
             params={
                 "textDocument": {"uri": CYCLE_GUARD_ENTRY.as_uri()},
             },
+            result_predicate=lambda result: isinstance(result, list),
         )
         assert [item["name"] for item in symbols["result"]] == [
             "cycle_guard_demo",

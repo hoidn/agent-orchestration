@@ -27,7 +27,9 @@ pytest/pytest-xdist.
 `cfcac27f`, with ordered `STAGE8_DESIGN_SPEC_APPROVED` then
 `STAGE8_DESIGN_QUALITY_APPROVED`, followed by exact-diff reaffirmations.
 
-**Status:** Complete. Tasks 1–9 are committed and Gate S8 is closed.
+**Status:** Closing verification for one post-completion correctness
+correction. Tasks 1–9 remain committed, but Gate S8 is not reclosed until the
+correction below has passed final exact-diff review and committed.
 Preliminary closing review returned `STAGE8_FINAL_SPEC_APPROVED`, then
 `STAGE8_FINAL_QUALITY_APPROVED`; the same reviewers reaffirmed the exact
 closing diff as `STAGE8_FINAL_SPEC_REAFFIRMED`, then
@@ -986,6 +988,61 @@ successors.
   Evolution-roadmap hunk, which remained unstaged.
 
 **Task 9 implementation record:** commit `c69c33a1`.
+
+### Post-completion LSP controller correction
+
+A delayed independent quality review found that the real pygls handlers called
+the synchronous compile drain inline. A blocked production Stage-3 build
+therefore blocked the event-loop thread, so later save/change/close
+notifications could not reach the accepted coalescing and stale-result
+machinery. The same review found that `orchestrator.lsp.server` was imported
+before the stdio entry point redirected ordinary stdout, leaving import-time
+output able to contaminate the protocol stream. Stage 8 reopened fail-closed
+for these two correctness defects.
+
+The correction uses a controller/worker split without changing compiler or
+navigation semantics:
+
+- the controller thread prepares an opaque-ticketed compile and later
+  adjudicates its completion;
+- the worker executes only the prepared blocking build;
+- the real server owns one event-loop compile pump and delegates that blocking
+  execution through `asyncio.to_thread`;
+- canceled or superseded tickets are discarded, wrong or duplicate
+  completions fail closed, and the pump's final queue recheck closes the
+  schedule/exit lost-wakeup window; and
+- the stdio entry point imports the server only after redirecting ordinary
+  stdout to stderr.
+
+TDD established all three missing behaviors first: a save storm and a close
+were not observed while a controlled build was blocked, and import-time
+stdout preceded the first protocol frame. The corrected transport observes
+save/close before releasing that build, coalesces the save storm to one latest
+follow-up compile, discards the closed generation, and remains frame-clean.
+Split-phase unit controls additionally cover close/reopen generation aliasing,
+wrong and duplicate tickets, and a stale completion with newer queued work.
+The first final quality pass then found that the fixture's worker-finished
+marker could precede controller adjudication by one event-loop turn; the
+affected navigation assertion now polls for the authoritative snapshot while
+retaining single-shot null assertions for genuinely pending and closed state.
+Its exact selector and the complete LSP selector pass after that test-only
+correction.
+
+Fresh correction verification:
+
+- the focused driver/stdio/navigation/integration set passed 163 cases;
+- the complete LSP selector passed 314 cases;
+- the unchanged F1/F2/F3 selectors passed 36 cases;
+- roadmap routing passed 52 cases;
+- retirement/migration/source-read adjacency passed 506 cases with 5 skips;
+- `py_compile` and the scoped diff check are clean; and
+- the exact closing non-security broad command passed 8,225 cases with 21
+  skips and only the two retained external failures already named above.
+
+Ordered preliminary correction reviews returned
+`STAGE8_CORRECTION_SPEC_APPROVED`, then
+`STAGE8_CORRECTION_QUALITY_APPROVED`. Final exact-diff reaffirmations are
+pending. The correction implementation commit is pending.
 
 ## Stage 8 Completion Gate
 
