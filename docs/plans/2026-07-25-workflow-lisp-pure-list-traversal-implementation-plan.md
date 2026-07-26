@@ -33,7 +33,7 @@ That commit records ordered `LIST_DESIGN_SPEC_APPROVED` then
 `LIST_DESIGN_QUALITY_APPROVED`. Implementation may begin only after this
 plan receives ordered plan reviews and is committed.
 
-**Status:** Complete; implementation commit pending. Ordered plan
+**Status:** Complete at implementation commit `ecc6ba9e`. Ordered plan
 review was `LIST_PLAN_SPEC_APPROVED` then `LIST_PLAN_QUALITY_APPROVED`
 (2026-07-25). No implementation code began before that gate.
 
@@ -801,7 +801,7 @@ pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py
       next numbered stage.
 - [x] Obtain `TASK7_FINAL_SPEC_APPROVED`, then
       `TASK7_FINAL_QUALITY_APPROVED`.
-- [ ] Stage only exact task-owned hunks. For every dirty protected file with
+- [x] Stage only exact task-owned hunks. For every dirty protected file with
       an explicit overlap exception above (currently only `docs/index.md`),
       use patch-based staging and inspect the staged patch to verify every
       protected pre-existing hunk is absent even though the file name may
@@ -809,7 +809,7 @@ pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py
       absent from the staged name list, then commit.
 
 **Implementation record — final reviews approved; implementation commit
-pending (2026-07-25):**
+`ecc6ba9e` (2026-07-25):**
 
 - The maintained target-2.18 fixture accepts a runtime `List[Int]`, invokes
   one deterministic review provider per item in source order, returns rooted
