@@ -445,9 +445,9 @@ function values.
 - [x] Route the new pure forms through WCC as values, not effects or nodes.
 - [x] Rerun focused frontend, build-artifact, WCC M1/M2/M4, and pure
       expression selectors.
-- [ ] Obtain `TASK3_SPEC_APPROVED`, then `TASK3_QUALITY_APPROVED`, and commit.
+- [x] Obtain `TASK3_SPEC_APPROVED`, then `TASK3_QUALITY_APPROVED`, and commit.
 
-**Implementation record (2026-07-25; implementation commit pending):**
+**Implementation record (2026-07-25; complete):**
 
 - The initial frontend RED collected 111 tests and failed only at the intended
   missing seams (`36 failed, 75 passed`). The first complete GREEN boundary
@@ -475,8 +475,10 @@ function values.
   macro-hygiene contexts; no general inference or new Core/Executable node
   was added.
 - Ordered preliminary verdicts are `TASK3_SPEC_APPROVED` then
-  `TASK3_QUALITY_APPROVED`. The implementation commit is pending final
-  exact-diff reaffirmation.
+  `TASK3_QUALITY_APPROVED`; final exact-diff verdicts are
+  `TASK3_SPEC_REAFFIRMED` then `TASK3_QUALITY_REAFFIRMED`.
+- Implementation commit:
+  `dde5dd2cf72f2d0d937a0d397ff72f674f28285a`.
 
 ## Task 4: Carry Collection-Contract Lists Through Loops And Resume
 
