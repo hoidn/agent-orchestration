@@ -1,12 +1,26 @@
 # Substrate Maintenance And Persistence Parsimony Track
 
-- **Status:** proposed track; shape owner-approved 2026-07-26. No phase is
-  selected by listing: M0, M1, and M4 each require their own component plan,
-  and M2 requires an accepted design, before execution.
+- **Status:** proposed track; shape owner-approved 2026-07-26. Amendment
+  phases ML, MC, MR and the M1 inventory extension were adopted into this
+  shape 2026-07-26 by owner direction (provider-repeat cost model and
+  incorporation request). No phase is selected by listing: M0, M1, ML, MC,
+  MR, and M4 each require their own component plan, M2 requires an
+  accepted design, and ML additionally requires its ML-0 reviewed spec
+  amendment, before execution.
 - **Relation:** parallel substrate track beside the active
   `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`
-  (Q-track). One junction: M2 consumes Q3's prompt/effect identity
-  definition.
+  (Q/L tracks). Two junctions: M2 consumes Q3's prompt/effect identity
+  definition, and MR-4 (compiler session state) is coupled to the
+  L-series — later L stages, notably L3's per-source entry selection,
+  raise per-process compile pressure on exactly the reentrancy MR-4
+  fixes, so MR-4 schedules in coordination with both series and should
+  complete before or with L3.
+- **Adopted amendment:**
+  `docs/plans/2026-07-26-provider-at-least-once-loosening-amendment.md`
+  (adopted as shape 2026-07-26; execution gated per phase) records the
+  owner's provider-repeat direction and the 2026-07-26 audit evidence, and
+  owns tranche-level scope and gates for ML, MC, MR, and the M1 inventory
+  extension.
 - **Predecessor context:** the completed Procedure-First Roadmap
   (`docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`)
   and its Stage 6 YAML retirement, whose served-purpose machinery this track
@@ -14,13 +28,19 @@
 - **Owner decisions pending:** (1) adjudication of the four retained
   baseline test failures; (2) rulings on the three recorded typecheck-family
   deferred divergences; (3) M2 depth (pure-replay only, or memo-first
-  resume); (4) M4 go/no-go.
+  resume; (b) presupposes the adopted at-least-once contract); (4) M4
+  go/no-go; (5) ML-3's exception to the provider-isolation freeze, or
+  deferral until the freeze lifts; (6) whether boundary redraw (neutral IR
+  package) joins the M4 go/no-go scope.
 
 ## Objective
 
-Shrink the estate and simplify the persistence model without weakening any
-verification, evidence, or resume guarantee: restore a green baseline,
-delete served-purpose machinery, then loosen persistence from
+Shrink the estate and simplify the persistence model without silently
+weakening any verification, evidence, or resume guarantee: every loosening
+is an owner-adopted contract change with its costs recorded (the adopted
+at-least-once amendment carries one such recorded downgrade — per-attempt
+forensic records become best-effort after crashes). Restore a green
+baseline, delete served-purpose machinery, then loosen persistence from
 "execution-coupled state everywhere" toward "effects are the durable
 interface" — and only then split the oversized runtime modules along the
 seams that loosening defines.
@@ -28,7 +48,8 @@ seams that loosening defines.
 ## Governing Bounds
 
 - **Deletion over refactoring.** Every phase must delete more code than it
-  adds; the sole exception is M3b's identity-key field on attempt records.
+  adds; the recorded exceptions are M3b's identity-key field on attempt
+  records and MR-4's compiler session objects.
 - **No weakened gates.** Fixing the baseline means porting or explicitly
   adjudicating tests, never skipping them to force green. Security-relevant
   coverage (path safety, CLI safety, secrets) must survive any porting.
@@ -37,13 +58,14 @@ seams that loosening defines.
   consumer-triggered re-entry rules are unchanged.
 - **One identity.** M2/M3 must consume the Q3 identity definition, not mint
   a second one. If Q3 is unstarted when M2 is wanted, M2 waits.
-- **Loud re-spend.** Any memo miss that re-pays a provider call must raise a
-  named diagnostic stating which key component changed (principle 28);
-  silent re-payment is a defect.
+- **Loud re-spend.** Any memo miss or interrupted-attempt recovery re-run
+  that re-pays a provider call must raise a named diagnostic stating the
+  cause (principle 28); silent re-payment is a defect.
 - **Module rule applied locally.** The 500-line target applies to modules a
   phase touches; no repo-wide restructuring crusade.
 - **Out of scope:** WCC middle-end modules (stable), provider isolation code
-  (days old; let it stabilize), dashboard, and all security surfaces.
+  (days old; let it stabilize — ML-3 enters only under a recorded owner
+  exception to this freeze), dashboard, and all security surfaces.
 - Each behavior change uses TDD, narrow checks before broad non-security
   checks, and ordered independent specification then quality review.
 
@@ -52,8 +74,11 @@ seams that loosening defines.
 | Phase | Work | Entry condition | Completion gate |
 | --- | --- | --- | --- |
 | M0 | Green baseline | none — may start immediately | bare `pytest` collects without error and passes with no retained-failure set |
-| M1 | Estate shrink | M0 complete | broad non-security suite green after deletions; capability/routing docs flipped to historical |
-| M2 | Persistence-parsimony design | M1 complete; Q3 identity definition accepted; owner depth decision recorded | accepted design with executable feasibility fixtures for both components |
+| M1 | Estate shrink + adopted inventory extension | M0 complete | broad non-security suite green after deletions; capability/routing docs flipped to historical |
+| ML | Provider at-least-once loosening | M1 complete; Q0 implementation gate passed; ML-0 spec amendment reviewed and landed | amendment per-tranche gates; kill-mid-provider crash-resume E2E green; broad non-security suite green |
+| MC | Common-helper consolidation | M0 complete; Q0-listed files deferred until Q0 closes | net LOC strictly negative; no residual private clones; touched-module suites green |
+| MR | Behavior-preserving structural refactors | per-tranche: MR-5a after M0; MR-1 after ML-1; MR-2 after ML; MR-3 with/after ML-2; MR-4 Q-coordinated | golden-parity gates per tranche; MR-1..MR-3 complete before M3 starts |
+| M2 | Persistence-parsimony design | ML complete; Q3 identity definition accepted; owner depth decision recorded | accepted design with executable feasibility fixtures for both components |
 | M3 | Persistence implementation | M2 complete | per-tranche parity gates (below) |
 | M4 | Structural decomposition | M3 complete or owner-recorded M2/M3 no-go; owner M4 go decision | touched modules split along the then-current seams; full suite green; no behavior change |
 
@@ -95,10 +120,39 @@ Scope:
 2. Run-store closeout: archive terminal runs in `.orchestrate/runs`
    (~4,200), explicitly close or annotate the ~90 nonterminal legacy runs,
    then delete the terminal-legacy-read compatibility path.
+3. Adopted amendment inventory extension (amendment §M1 Inventory
+   Extension): fsq queue half plus `specs/queue.md` resolution, the
+   drain-gate CLI cluster, the two gate scripts, `frontend_kind` vestiges,
+   demo packaging, and loader strays.
 
 Gate: broad non-security suite green; `docs/capability_status_matrix.md`,
 `docs/index.md`, and design README rows for retirement surfaces flipped to
 historical; deletion totals recorded.
+
+## Phase ML: Provider At-Least-Once Loosening
+
+Adopted amendment phase; tranche scope and gates live in the amendment
+(§Phase ML): ML-0 normative spec amendment, ML-1 quarantine →
+discard-and-rerun, ML-2 allocator simplification to a plain counter plus
+one run-lifetime lock, ML-3 bundle-transfer journal collapse (enters only
+under a recorded owner exception to the isolation freeze), ML-4
+adjudication-resume re-run. Committed-result reuse is preserved; recovery
+re-runs emit named re-spend diagnostics.
+
+## Phase MC: Common-Helper Consolidation
+
+Adopted amendment phase; scope and gates in the amendment (§Phase MC):
+one `orchestrator/_common/` package (atomic IO, canonical digests, scalar
+validation, status/type predicates) replacing ~60 drifted clone sites; net
+LOC strictly negative.
+
+## Phase MR: Behavior-Preserving Structural Refactors
+
+Adopted amendment phase; tranche scope and gates in the amendment
+(§Phase MR): MR-1 provider-family descriptor parametrization, MR-2 attempt
+pipeline and step-loop extraction (M4 prep), MR-3 call-frame lifecycle
+unification, MR-4 compiler session state (Q-track-coordinated; recorded
+deletion-bound exception), MR-5 scoped error-hygiene rider.
 
 ## Phase M2: Persistence-Parsimony Design
 
@@ -115,7 +169,9 @@ feasibility fixture:
   graph, hit the memo for every matching key, re-pay only misses, each
   miss named. Positional resume remains as fallback during transition.
 
-The design records the owner depth decision: (a) only, or (a)+(b). It must
+The design records the owner depth decision: (a) only, or (a)+(b); (b)
+presupposes the adopted at-least-once contract (amendment §Target
+Contract). It must
 state what (b) supersedes (the positional resume-compatibility machinery's
 runtime role) and what it must not touch (live regions are non-replayable
 and remain region-scoped; evidence records remain append-only; workflow
@@ -152,8 +208,18 @@ abstractions beyond the module boundaries themselves.
   may interleave with Q0–Q2, which touch frontend/prompt surfaces. Commits
   stage explicit paths; the standing benign-delta absorption regime covers
   concurrent doc edits.
-- M2 serializes after Q3 (identity junction). M3 is exclusive with any
-  other work on executor, checkpoint, or resume surfaces.
+- ML, MR-1..MR-3, and MR-5b/c touch executor/resume/state surfaces: they
+  enter only after the active Q0 implementation gate (Q0's plan protects
+  `state.py`, `provider_attempts.py`, `prompt_dependency_evidence.py`,
+  `call_frame_state.py`, and `providers/`), run strictly before M3, and may
+  overlap the design-only M2 window. MC may interleave with M1/ML but
+  defers call-site migration in Q0-listed files until Q0 closes; MR-5a may
+  start after M0.
+- MR-4 runs only in coordination with the Q-track — before or after Q1,
+  never concurrent with Q1 elaboration churn.
+- M2 serializes after Q3 (identity junction) and after ML. M3 is exclusive
+  with any other work on executor, checkpoint, or resume surfaces
+  (MR-1..MR-3 therefore complete before M3 starts).
 - M4 is exclusive with everything touching the modules being split.
 
 ## Verification

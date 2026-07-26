@@ -1112,6 +1112,28 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "q1" in normalized_successor and "prompt core" in normalized_successor
     assert "e0" in normalized_successor and "unselected" in normalized_successor
     assert "evolution follow on roadmap remains parked" in normalized_successor
+    l0_row = _markdown_table_row(
+        REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
+        "Reliability and diagnostic actionability",
+    )
+    normalized_l0_row = _normalized_routing_text(l0_row)
+    assert "| L0 |" in l0_row
+    assert "ready" in normalized_l0_row
+    assert "may execute beside q0" in normalized_l0_row
+    for stage, blocker in (
+        ("L1", "blocked by l0"),
+        ("L2", "blocked by l1"),
+        ("L3", "blocked by l2"),
+        ("L4", "blocked by l3"),
+    ):
+        row = _markdown_table_row(
+            REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
+            f"| {stage} |",
+        )
+        assert blocker in _normalized_routing_text(row)
+    assert "p1 diagnostic accumulation" in normalized_successor
+    assert "p5 compile caching/incrementality" in normalized_successor
+    assert "runtime debugging surface" in normalized_successor
 
     normalized_evolution_status = _normalized_routing_text(
         evolution.split("## Purpose", 1)[0]
@@ -1170,6 +1192,32 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "| Designed |" in capability_row
     assert "not yet" in _normalized_routing_text(capability_row)
+    language_server_design_row = _markdown_table_row(
+        design_router_path,
+        "workflow_lisp_language_server.md",
+    )
+    normalized_language_server_design = _normalized_routing_text(
+        language_server_design_row
+    )
+    assert "| Implemented |" in language_server_design_row
+    assert "readies l0" in normalized_language_server_design
+    assert "planned increments are not current behavior" in (
+        normalized_language_server_design
+    )
+    language_server_capability_row = _markdown_table_row(
+        capability_matrix_path,
+        "Workflow Lisp language server v1",
+    )
+    normalized_language_server_capability = _normalized_routing_text(
+        language_server_capability_row
+    )
+    assert "| Implemented |" in language_server_capability_row
+    assert "planned increments are not current capability" in (
+        normalized_language_server_capability
+    )
+    assert "p1 p5 and runtime debugging remain deferred" in (
+        normalized_language_server_capability
+    )
 
     assert "### [Workflow Lisp Transportable `Value` Type]" in index
     assert (
@@ -1182,8 +1230,9 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
             "### [Workflow Lisp Language Quality And Domain Semantics Roadmap]",
         )
     )
-    assert "active post stage 8 successor" in normalized_successor_index
-    assert "start with q0" in normalized_successor_index
+    assert "active post stage 8 selector" in normalized_successor_index
+    assert "q series work with q0" in normalized_successor_index
+    assert "lsp utility work with l0" in normalized_successor_index
     assert "do not select e0" in normalized_successor_index
 
     normalized_evolution_index = _normalized_routing_text(

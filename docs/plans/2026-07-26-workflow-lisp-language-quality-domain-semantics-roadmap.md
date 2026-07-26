@@ -2,13 +2,18 @@
 
 - **Status:** active
 - **Selected:** 2026-07-26 by the owner's post-Stage-8 prompt-calculus
-  direction, the `Value` prerequisite decision at `deb95c04`, and the standing
-  direction to continue roadmap execution without another confirmation stop
+  direction, the `Value` prerequisite decision at `deb95c04`, the standing
+  direction to continue roadmap execution without another confirmation stop,
+  and the subsequent owner direction to integrate the bounded language-server
+  debugging-utility recommendations without reopening Gate S8
 - **Predecessor:** completed Procedure-First Roadmap Execution Sequence
   (`docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`)
-- **Scope:** the `Value` prerequisite and the prompt-calculus direction only
+- **Scope:** the Q-series `Value`/prompt-calculus direction plus a parallel
+  L-series of bounded `.orc` language-server reliability, diagnostic,
+  navigation, recovery, and lifecycle improvements
 - **Not selected:** the parked evolution roadmap, the slimmed E0 experiment,
-  and the shelved type/union-parsimony candidates
+  the shelved type/union-parsimony candidates, and the deferred LSP frontend
+  prerequisites P1–P5
 
 ## Objective
 
@@ -16,6 +21,12 @@ Make prompts a checked Workflow Lisp domain surface without turning types into
 a mandatory taxonomy. The sequence begins with the one loose transport
 contract the prompt surface needs, then lands prompt fragments in independently
 reviewed tranches whose consumers already exist.
+
+The same active roadmap now carries a bounded language-server quality track.
+That track improves the trustworthiness and actionability of the implemented
+Stage-8 editor surface by consuming existing compiler structure. It does not
+change Workflow Lisp runtime authority, create a second analyzer, or claim that
+planned L-series behavior is already implemented.
 
 This roadmap is the separate selection act required by the predecessor's
 post-Stage-8 handoff. The predecessor remains historical and complete.
@@ -37,8 +48,27 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 - Each behavior change uses TDD, narrow checks before broad non-security
   checks, and ordered independent specification then quality review.
 - Security and provider-isolation work remain outside scope.
+- Gate S8 remains complete. L-series corrections and increments are successors
+  to the implemented v1 surface, not a reopening or relabeling of Stage 8.
+- The language server remains a read-only consumer of production compile entry
+  points. L-series work may present or index compiler-retained structure, but
+  may not parse diagnostic prose, infer types independently, execute workflows,
+  or create runtime/debug authority.
+- Diagnostic identity, CLI/LSP compile-request parity, exact source/config
+  freshness, and fail-closed navigation remain binding unless an accepted
+  stage amendment explicitly changes the relevant presentation or availability
+  policy without weakening compiler authority.
+- P1 diagnostic accumulation, P2 reader recovery, P3 span-to-type metadata, P4
+  source overlays, P5 compile caching/incrementality, and any runtime debug
+  transport remain deferred. Listing their dependent features below does not
+  select those prerequisites.
+- A roadmap status is routing, not capability evidence. Current authoring
+  guidance continues to describe v1 until the owning L stage is implemented,
+  verified, reviewed, and reflected in the capability matrix.
 
 ## Selected Sequence
+
+### Q-Series: Prompt Calculus And Domain Semantics
 
 | Stage | Work | Entry condition | Completion gate | Status |
 | --- | --- | --- | --- | --- |
@@ -48,17 +78,37 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | blocked by Q2 |
 | Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | blocked by Q3 |
 
-Stages execute in table order. A later stage may be narrowed by its accepted
-design, but may not absorb a deferred language mechanism merely because it is
-adjacent.
+### L-Series: Language-Server Debugging Utility
+
+| Stage | Work | Entry condition | Completion gate | Status |
+| --- | --- | --- | --- | --- |
+| L0 | Reliability and diagnostic actionability | Gate S8 complete; current v1 behavior characterized | no-watcher `didSave` reverse invalidation, intentional structured initialization failures, and visible compiler-owned notes/expansion provenance pass focused state/driver/stdio/diagnostic tests plus one real stdio E2E without changing diagnostic identity | ready — first L-series item; may execute beside Q0 under the concurrency rule below |
+| L1 | Authored symbols and callable signatures | L0 complete; closed navigation/completion amendment accepted | authored type/resource/transition symbols and namespace-preserving procedure/workflow signature completion use existing compiler spans/catalogs, exclude generated shapes, and retain fail-closed freshness | blocked by L0 |
+| L2 | Recovery-safe static completion | L1 complete; two-tier completion amendment accepted | dirty/pending/invalidated/failed open entries receive only deterministic compiler-registry form heads as an incomplete list; stale callables remain closed and stale/closed/unassociated entries remain empty | blocked by L1 |
+| L3 | Per-source entry selection | L2 complete; immutable initialization-schema amendment accepted; compile-path reentrancy proven (substrate MR-4 complete, or an equivalent accepted reentrancy fixture) | one canonical workspace process can select an exported workflow for a named application source while compiling library entries with no selection, with exact CLI request parity and restart semantics | blocked by L2 |
+| L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and a diagnostic-currentness policy are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | blocked by L3 |
+
+The Q-series stages execute in Q-table order. Q0 remains the selected prompt
+calculus item. The L-series is an owner-selected priority queue rather than a
+claim that every adjacent stage has a compiler dependency on its predecessor;
+it executes in L-table order unless the owner explicitly reorders it. At most
+one L stage is active at a time.
+
+One Q stage and one L stage may proceed concurrently only after their component
+plans record disjoint behavioral ownership. Shared routing files—including
+this roadmap, `docs/index.md`, `docs/design/README.md`, and
+`docs/capability_status_matrix.md`—must be updated serially at each stage gate.
+A later stage may be narrowed by its accepted design, but may not absorb a
+deferred language mechanism merely because it is adjacent.
 
 A parallel substrate track
 (`docs/plans/2026-07-26-substrate-maintenance-track.md`) runs beside this
-roadmap: its M0/M1 hygiene-and-deletion phases touch disjoint surfaces and
-may interleave with Q0–Q2, and its M2 persistence-parsimony design consumes
-Q3's identity definition as a second consumer (memo keys). Q3 remains
-authored and gated here; the substrate track must not mint a second
-identity definition, and this roadmap absorbs no substrate work.
+roadmap. Its M0/M1 hygiene-and-deletion phases touch disjoint surfaces and may
+interleave with Q0–Q2 and the L-series under the same explicit file-ownership
+rule. Its M2 persistence-parsimony design consumes Q3's identity definition as
+a second consumer (memo keys). Q3 remains authored and gated here; neither the
+substrate track nor the L-series may mint a second prompt/effect identity
+definition, and this roadmap absorbs no substrate work.
 
 ## Stage Q0: Transportable `Value`
 
@@ -162,6 +212,135 @@ inspection values only if their transport and view contract is accepted in
 the Q4 design; it may not add runtime prompt references or higher-order
 mapping.
 
+## Stage L0: Reliability And Diagnostic Actionability
+
+Authority targets:
+`docs/design/workflow_lisp_language_server.md` and
+`docs/design/workflow_lisp_frontend_specification.md` §76.1.
+
+Before implementation, write a bounded component plan that preserves one
+authoritative disk probe per save and accepts the small presentation amendment
+needed to make ordered diagnostic notes visible. Characterization must also
+determine whether the file-content cache at `lowering/pure_projection.py:485`
+is content-addressed or path-keyed: path-keyed caching in a long-lived server
+process can serve stale content to a recompile the freshness layer correctly
+triggered. If path-keyed, a minimal content-keyed correction joins L0's
+reliability scope; the broader session-state refactor remains the substrate
+track's MR-4. L0 otherwise owns exactly three changes:
+
+1. Route a clean `didSave` snapshot through the existing reverse-revision
+   observer so a changed imported source invalidates and schedules every
+   trustworthy importer even when the client sends no watched-file
+   notification. Avoid a second generation for the saved entry: if observation
+   already advances it, do not apply `save_entry` again; an unchanged-content
+   save must still force the existing single local save generation.
+2. Translate existing structured `LispFrontendCompileError` failures from
+   production initialization loading into intentional JSON-RPC invalid-params
+   responses with stable diagnostic code/path evidence and no fake
+   text-document diagnostic. Do not blanket-catch `Exception`, `OSError`,
+   `RuntimeError`, or permission failures as client mistakes.
+3. Preserve macro/helper role, call/definition role, and nullable expansion ID
+   in diagnostic related-information labels, and present the compiler's
+   ordered notes in the normal diagnostic message while retaining the same raw
+   contribution, structured `data`, representative selection, and parity
+   identity. Tests assert structure, order, and sentinel containment rather
+   than freezing complete prose.
+
+The gate includes changed and unchanged saves, dirty/unavailable dependencies,
+unknown closures, diagnostic-target ownership, active-ticket cancellation,
+one-probe evidence, missing/malformed initialization manifests, a
+non-structured-error negative control, diagnostic aggregation, and a no-watcher
+real-stdio importer E2E. Human rendering of every `form_path`, eager
+`didOpen` reverse observation, multi-diagnostic recovery, unsaved-buffer
+analysis, and runtime debugging are not part of L0.
+
+## Stage L1: Authored Symbols And Callable Signatures
+
+Authority target: an accepted closed-matrix amendment to
+`docs/design/workflow_lisp_language_server.md`, reflected in the frontend
+specification before the implementation plan.
+
+L1 may expose only compiler-retained authored structure:
+
+- document symbols for authored enum, path, record, union, schema, resource,
+  and transition definitions, in addition to the implemented module,
+  procedure, and workflow symbols; and
+- separate procedure, workflow, and form completion kinds with callable-root
+  parameter, return, and procedure-effect details from existing signatures and
+  import binding maps.
+
+Generated, expanded, specialized, or span-ambiguous shapes remain excluded. A
+procedure and workflow with the same visible label remain distinct completion
+items. L1 does not add arbitrary-expression hover, type-token definition,
+references, rename, signature inference, or nominal filtering.
+
+The gate uses exact authored spans and source order, proves generated-shape
+exclusion, exercises same-label procedure/workflow namespaces, and derives
+details from compiler catalogs rather than LSP-owned copies.
+
+## Stage L2: Recovery-Safe Static Completion
+
+Authority target: an accepted two-tier completion amendment to the language
+server design, frontend specification §76.1, setup guide, and drafting guide.
+
+For an open associated `.orc` entry under live initialization, deterministic
+compiler-registry form heads may remain available while the entry is dirty,
+pending, dependency-invalidated, superseded, language-failed, or
+server-failed. That response is explicitly incomplete and contains no local or
+imported callable from a prior snapshot. Clean/current/successful entries keep
+the full implemented completion union. Configuration-stale, closed,
+unassociated, and unavailable entries remain empty.
+
+Definition and document-symbol freshness do not change. L2 must not parse the
+buffer, reuse a last-good callable index, schedule an unsaved compile, add
+cursor/type filtering, or select P2/P4/P5.
+
+## Stage L3: Per-Source Entry Selection
+
+Authority target: an accepted immutable-initialization amendment to the
+language server design and setup guide.
+
+Replace the single selection applied indiscriminately to every compile entry
+with a contained source-to-export selection contract, or an equivalently small
+design proven against the production CLI request model. The accepted schema
+must retain exactly one canonical workspace root, immutable configuration for
+the process lifetime, explicit source roots, restart-on-context-drift, and
+exact per-request CLI parity.
+
+The minimum integration fixture opens one multi-export application source and
+one library-only source in the same process. The application request carries
+its selected workflow; the library request carries no selection; both compile
+through the unchanged production Stage-3 entry point. This stage does not add
+multi-root workspace support or infer an entry selection from editor focus.
+
+Entry additionally requires proven compile-path reentrancy: the substrate
+track's MR-4 (compiler session state) complete, or an equivalent accepted
+fixture demonstrating sequential multi-entry compiles in one process with no
+module-global state bleed. L3's minimum fixture is exactly the workload that
+hazard threatens, so the precondition is structural, not scheduling
+preference.
+
+## Stage L4: Diagnostic Lifecycle And Compile Progress
+
+Authority target: an accepted editor-lifecycle amendment to the language
+server design, based on observed client behavior rather than assumed UI
+capabilities.
+
+First decide whether diagnostics owned by a dirty or pending entry should be
+temporarily hidden, or whether the existing anti-flicker retention policy
+remains preferable with a different visible freshness treatment. Any chosen
+policy must preserve internal contribution ownership, multi-entry
+deduplication, exact accepted-generation authority, and atomic replacement by
+a current completion; `DiagnosticTag.Unnecessary` must not be repurposed as a
+staleness marker.
+
+Then add capability-gated LSP work-done progress around the serialized compile
+pump. Emit one balanced lifecycle for coalesced work rather than one noisy
+popup per generation, and terminate it correctly on success, language error,
+server error, close, cancellation, configuration staleness, and supersession.
+L4 adds no telemetry, compile cache, parallel compiler execution, or runtime
+session reporting.
+
 ## Explicitly Unselected Work
 
 - The evolution follow-on roadmap remains parked and non-selectable.
@@ -175,6 +354,16 @@ mapping.
 - Runtime prompt values, fragment-reference collections, type-parameterized
   fragments, semantic prompt checking, same-turn steering, and optimization
   remain outside this roadmap.
+- LSP multi-diagnostic recovery, malformed-buffer partial ASTs, arbitrary
+  expression hover, unsaved-buffer diagnostics/navigation, and incremental
+  compilation remain deferred behind P1–P5 and require separate owner
+  selection.
+- Type-reference definition, complete references, and rename remain
+  unselected until the compiler retains exact authored occurrence spans and a
+  complete namespace-aware reference graph; the LSP must not guess from text.
+- Runtime breakpoints, stepping, provider/state/artifact inspection, and
+  failure streaming require a separately designed runtime/debug transport.
+  They are not extensions of the compile-time LSP track.
 
 ## Verification And Closure
 
@@ -182,10 +371,14 @@ For each stage:
 
 1. run the narrowest owning tests;
 2. collect every new or renamed test module;
-3. run adjacent frontend/lowering/loader/runtime/resume tests;
-4. run at least one end-to-end usage check;
+3. run adjacent tests for the contracts actually touched—Q stages include the
+   relevant frontend/lowering/loader/runtime/resume lanes, while an L-only
+   stage does not inherit runtime/resume selectors unless it changes those
+   shared contracts;
+4. run at least one end-to-end usage check; L stages require a real stdio or
+   repository-real LSP E2E in addition to their unit/integration selectors;
 5. update the owning design/normative specs, capability matrix, design router,
-   docs index, drafting guide, and roadmap status from observed shipped
+   docs index, drafting/setup guidance, and roadmap status from observed shipped
    behavior before final review;
 6. run the exact broad non-security suite below in tmux;
 7. classify any retained external failures against a fresh pre-stage control;
@@ -211,7 +404,8 @@ If a later security/provider-isolation module is added, it is excluded by the
 same `-k` rule; the command itself remains the comparison authority unless the
 owner amends it explicitly.
 
-This roadmap closes when Q0–Q4 are implemented, normative and authoring
-surfaces describe only shipped behavior, all five stage gates have ordered
-approval, and routing names no active successor. Closure does not select E0 or
-revive any parked/shelved item.
+This roadmap closes when Q0–Q4 and L0–L4 satisfy their completion gates,
+normative and authoring surfaces describe only shipped behavior, all ten stage
+gates have ordered approval, and routing names no active successor. Closure
+does not select E0, revive any parked/shelved item, select P1–P5, or create a
+runtime debugging surface.
