@@ -542,9 +542,9 @@ the LSP may consume it but must not define another normalizer.
       metadata, and CLI-parity regressions.
 - [x] Obtain `STAGE8_TASK4_SPEC_APPROVED`, then
       `STAGE8_TASK4_QUALITY_APPROVED`.
-- [ ] Commit Task 4.
+- [x] Commit Task 4.
 
-**Implementation record:** pending implementation commit.
+**Implementation record:** commit `1f24cca8`.
 
 - RED established the missing production-owned 11-field compile-request
   capture and diagnostic-identity owner. The core slice had two intended
@@ -568,6 +568,9 @@ the LSP may consume it but must not define another normalizer.
 - `py_compile` and scoped `git diff --check` are clean.
 - Ordered preliminary reviews returned `STAGE8_TASK4_SPEC_APPROVED`, then
   `STAGE8_TASK4_QUALITY_APPROVED`.
+- Ordered final exact-diff reviews returned
+  `STAGE8_TASK4_SPEC_REAFFIRMED`, then
+  `STAGE8_TASK4_QUALITY_REAFFIRMED`.
 
 ## Task 5: Translate Coordinates And Own Diagnostic Contributions
 
