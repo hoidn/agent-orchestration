@@ -293,10 +293,10 @@ every Stage-3 source read.
       resolution, and every reachable source reread. Use no module global.
 - [x] Rerun reader, parser, module graph, compiler, lowering, and source-map
       regressions.
-- [ ] Obtain `STAGE8_TASK1_SPEC_APPROVED`, then
+- [x] Obtain `STAGE8_TASK1_SPEC_APPROVED`, then
       `STAGE8_TASK1_QUALITY_APPROVED`, and commit.
 
-**Implementation record (commit pending):**
+**Implementation record:** commit `21bcc212`.
 
 - RED established the missing immutable collector/Stage-3 plumbing and the
   nominal result-guidance reread that escaped the first collector pass.
@@ -308,8 +308,9 @@ every Stage-3 source read.
 - `py_compile`, scoped `git diff --check`, and the direct-read seam scan across
   compiler, modules, lowering, and WCC are clean.
 - Ordered preliminary reviews returned `STAGE8_TASK1_SPEC_APPROVED`, then
-  `STAGE8_TASK1_QUALITY_APPROVED`. Exact-diff reaffirmations and the
-  implementation commit remain pending.
+  `STAGE8_TASK1_QUALITY_APPROVED`. Ordered final exact-diff reviews returned
+  `STAGE8_TASK1_SPEC_REAFFIRMED`, then
+  `STAGE8_TASK1_QUALITY_REAFFIRMED`.
 
 ## Task 2: Extract The Shared Read-Only In-Memory Build Core
 
