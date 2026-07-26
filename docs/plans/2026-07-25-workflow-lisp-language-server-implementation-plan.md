@@ -359,10 +359,10 @@ share one compile/select/reattach core; only `_emit` writes.
       read-only consumers and only `_emit` creates `.orchestrate/build`.
 - [x] Rerun build, import, source-map, Core AST, semantic IR, executable, and
       runtime-plan regressions.
-- [ ] Obtain `STAGE8_TASK2_SPEC_APPROVED`, then
+- [x] Obtain `STAGE8_TASK2_SPEC_APPROVED`, then
       `STAGE8_TASK2_QUALITY_APPROVED`, and commit.
 
-**Implementation record (commit pending):**
+**Implementation record:** commit `138aa0df`.
 
 - RED established the absent public core, hidden selection/fingerprint I/O,
   recursive child emission, null-selection rejection, authoritative
@@ -382,8 +382,9 @@ share one compile/select/reattach core; only `_emit` writes.
   owned or changed by Task 2.
 - `py_compile` and scoped `git diff --check` are clean.
 - Ordered preliminary reviews returned `STAGE8_TASK2_SPEC_APPROVED`, then
-  `STAGE8_TASK2_QUALITY_APPROVED`. Exact-diff reaffirmations and the
-  implementation commit remain pending.
+  `STAGE8_TASK2_QUALITY_APPROVED`. Ordered final exact-diff reviews returned
+  `STAGE8_TASK2_SPEC_REAFFIRMED`, then
+  `STAGE8_TASK2_QUALITY_REAFFIRMED`.
 
 ## Task 3: Implement Single-Root State, Immutable Configuration, And The Serialized Driver
 
