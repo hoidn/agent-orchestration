@@ -552,5 +552,358 @@
       }
     },
     "expected_error_code": "pure_expr_overflow"
+  },
+  {
+    "name": "list_empty",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": { "kind": "list", "item": { "kind": "primitive", "name": "String" } },
+      "bindings": {},
+      "expr": {
+        "kind": "list",
+        "element_type": { "kind": "primitive", "name": "String" },
+        "items": []
+      }
+    },
+    "expected_value": []
+  },
+  {
+    "name": "list_single",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": { "kind": "list", "item": { "kind": "primitive", "name": "Int" } },
+      "bindings": {},
+      "expr": {
+        "kind": "list",
+        "element_type": { "kind": "primitive", "name": "Int" },
+        "items": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 7 }
+        ]
+      }
+    },
+    "expected_value": [7]
+  },
+  {
+    "name": "list_multiple_nested",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": {
+        "kind": "list",
+        "item": {
+          "kind": "list",
+          "item": {
+            "kind": "optional",
+            "item": { "kind": "primitive", "name": "Int" }
+          }
+        }
+      },
+      "bindings": {},
+      "expr": {
+        "kind": "list",
+        "element_type": {
+          "kind": "list",
+          "item": {
+            "kind": "optional",
+            "item": { "kind": "primitive", "name": "Int" }
+          }
+        },
+        "items": [
+          {
+            "kind": "literal",
+            "type": {
+              "kind": "list",
+              "item": {
+                "kind": "optional",
+                "item": { "kind": "primitive", "name": "Int" }
+              }
+            },
+            "value": [1, null]
+          },
+          {
+            "kind": "literal",
+            "type": {
+              "kind": "list",
+              "item": {
+                "kind": "optional",
+                "item": { "kind": "primitive", "name": "Int" }
+              }
+            },
+            "value": []
+          }
+        ]
+      }
+    },
+    "expected_value": [[1, null], []]
+  },
+  {
+    "name": "list_empty_operator",
+    "operator": "list/empty?",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "list/empty?",
+        "args": [
+          {
+            "kind": "list",
+            "element_type": { "kind": "primitive", "name": "Int" },
+            "items": []
+          }
+        ]
+      }
+    },
+    "expected_value": true
+  },
+  {
+    "name": "list_head_empty",
+    "operator": "list/head",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": {
+        "kind": "optional",
+        "item": { "kind": "primitive", "name": "Int" }
+      },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "list/head",
+        "args": [
+          {
+            "kind": "list",
+            "element_type": { "kind": "primitive", "name": "Int" },
+            "items": []
+          }
+        ]
+      }
+    },
+    "expected_value": null
+  },
+  {
+    "name": "list_head_present",
+    "operator": "list/head",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": {
+        "kind": "optional",
+        "item": { "kind": "primitive", "name": "Int" }
+      },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "list/head",
+        "args": [
+          {
+            "kind": "list",
+            "element_type": { "kind": "primitive", "name": "Int" },
+            "items": [
+              { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 3 },
+              { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 5 }
+            ]
+          }
+        ]
+      }
+    },
+    "expected_value": 3
+  },
+  {
+    "name": "list_rest_empty",
+    "operator": "list/rest",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": { "kind": "list", "item": { "kind": "primitive", "name": "Int" } },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "list/rest",
+        "args": [
+          {
+            "kind": "list",
+            "element_type": { "kind": "primitive", "name": "Int" },
+            "items": []
+          }
+        ]
+      }
+    },
+    "expected_value": []
+  },
+  {
+    "name": "list_rest_multiple",
+    "operator": "list/rest",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": { "kind": "list", "item": { "kind": "primitive", "name": "Int" } },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "list/rest",
+        "args": [
+          {
+            "kind": "literal",
+            "type": { "kind": "list", "item": { "kind": "primitive", "name": "Int" } },
+            "value": [1, 2, 3]
+          }
+        ]
+      }
+    },
+    "expected_value": [2, 3]
+  },
+  {
+    "name": "list_append",
+    "operator": "list/append",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": { "kind": "list", "item": { "kind": "primitive", "name": "Int" } },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "list/append",
+        "args": [
+          {
+            "kind": "literal",
+            "type": { "kind": "list", "item": { "kind": "primitive", "name": "Int" } },
+            "value": [1, 2]
+          },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 3 }
+        ]
+      }
+    },
+    "expected_value": [1, 2, 3]
+  },
+  {
+    "name": "list_length",
+    "operator": "list/length",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": { "kind": "primitive", "name": "Int" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "list/length",
+        "args": [
+          {
+            "kind": "literal",
+            "type": { "kind": "list", "item": { "kind": "primitive", "name": "String" } },
+            "value": ["first", "second", "third"]
+          }
+        ]
+      }
+    },
+    "expected_value": 3
+  },
+  {
+    "name": "list_map_order_preserving",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": { "kind": "list", "item": { "kind": "primitive", "name": "Int" } },
+      "bindings": {},
+      "expr": {
+        "kind": "list_map",
+        "source": {
+          "kind": "literal",
+          "type": { "kind": "list", "item": { "kind": "primitive", "name": "Int" } },
+          "value": [3, 1, 2]
+        },
+        "binder": {
+          "name": "item",
+          "type": { "kind": "primitive", "name": "Int" }
+        },
+        "body": {
+          "kind": "op",
+          "operator": "+",
+          "args": [
+            { "kind": "binding", "name": "item" },
+            { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 10 }
+          ]
+        },
+        "result_element_type": { "kind": "primitive", "name": "Int" }
+      }
+    },
+    "expected_value": [13, 11, 12]
+  },
+  {
+    "name": "path_join_under_state_root",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": {
+        "kind": "path",
+        "name": "Path.state-root",
+        "under": "state",
+        "must_exist_target": false
+      },
+      "bindings": {},
+      "expr": {
+        "kind": "path_join_under",
+        "path_type": {
+          "kind": "path",
+          "name": "Path.state-root",
+          "under": "state",
+          "must_exist_target": false
+        },
+        "child": {
+          "kind": "literal",
+          "type": { "kind": "primitive", "name": "String" },
+          "value": "runs/run-1.json"
+        }
+      }
+    },
+    "expected_value": "state/runs/run-1.json"
+  },
+  {
+    "name": "path_join_under_artifact_root",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": {
+        "kind": "path",
+        "name": "Path.artifact-root",
+        "under": "artifacts",
+        "must_exist_target": false
+      },
+      "bindings": {},
+      "expr": {
+        "kind": "path_join_under",
+        "path_type": {
+          "kind": "path",
+          "name": "Path.artifact-root",
+          "under": "artifacts",
+          "must_exist_target": false
+        },
+        "child": {
+          "kind": "literal",
+          "type": { "kind": "primitive", "name": "String" },
+          "value": "work/review.md"
+        }
+      }
+    },
+    "expected_value": "artifacts/work/review.md"
+  },
+  {
+    "name": "path_join_under_narrow_family",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": {
+        "kind": "path",
+        "name": "review::ReviewReport",
+        "under": "artifacts/reviews",
+        "must_exist_target": true
+      },
+      "bindings": {},
+      "expr": {
+        "kind": "path_join_under",
+        "path_type": {
+          "kind": "path",
+          "name": "review::ReviewReport",
+          "under": "artifacts/reviews",
+          "must_exist_target": true
+        },
+        "child": {
+          "kind": "literal",
+          "type": { "kind": "primitive", "name": "String" },
+          "value": "panel/clarity.md"
+        }
+      }
+    },
+    "expected_value": "artifacts/reviews/panel/clarity.md"
   }
 ]

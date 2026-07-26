@@ -78,5 +78,25 @@
   {
     "operator": "record-update",
     "fixture_path": "tests/fixtures/workflow_lisp/valid/pure_expr_selector_action_projection.orc"
+  },
+  {
+    "operator": "list/empty?",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "list/head",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "list/rest",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "list/append",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "list/length",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
   }
 ]

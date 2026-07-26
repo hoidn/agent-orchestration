@@ -38,6 +38,11 @@ EXPECTED_OPERATOR_ROWS = {
     "some?",
     "or-else",
     "record-update",
+    "list/empty?",
+    "list/head",
+    "list/rest",
+    "list/append",
+    "list/length",
 }
 
 
@@ -60,20 +65,34 @@ def test_golden_vectors_cover_every_required_operator_group() -> None:
 
 
 @pytest.mark.parametrize(
-    ("row_name", "payload", "resolved_bindings", "expected_value", "expected_error_code"),
+    (
+        "evaluation_lane",
+        "row_name",
+        "payload",
+        "resolved_bindings",
+        "expected_value",
+        "expected_error_code",
+    ),
     [
         (
+            evaluation_lane,
             row["name"],
             row["payload"],
             row.get("resolved_bindings"),
             row.get("expected_value"),
             row.get("expected_error_code"),
         )
+        for evaluation_lane in ("runtime", "compile_time_folding")
         for row in _golden_vectors()
     ],
-    ids=[str(row["name"]) for row in _golden_vectors()],
+    ids=[
+        f"{evaluation_lane}-{row['name']}"
+        for evaluation_lane in ("runtime", "compile_time_folding")
+        for row in _golden_vectors()
+    ],
 )
 def test_evaluate_pure_expr_matches_golden_vectors(
+    evaluation_lane: str,
     row_name: str,
     payload: dict[str, object],
     resolved_bindings: dict[str, object] | None,
@@ -81,17 +100,26 @@ def test_evaluate_pure_expr_matches_golden_vectors(
     expected_error_code: str | None,
 ) -> None:
     pure_expr = _module()
+    if evaluation_lane == "runtime":
+        evaluator = pure_expr.evaluate_pure_expr
+    else:
+        pure_projection = importlib.import_module(
+            "orchestrator.workflow_lisp.lowering.pure_projection"
+        )
+        # The compiler fold entry point imports this exact evaluator seam.
+        assert pure_projection.evaluate_pure_expr is pure_expr.evaluate_pure_expr
+        evaluator = pure_projection.evaluate_pure_expr
 
     if expected_error_code is not None:
         with pytest.raises(pure_expr.PureExprEvaluationError) as excinfo:
-            pure_expr.evaluate_pure_expr(
+            evaluator(
                 payload,
                 resolved_bindings=resolved_bindings,
             )
         assert excinfo.value.code == expected_error_code, row_name
         return
 
-    assert pure_expr.evaluate_pure_expr(
+    assert evaluator(
         payload,
         resolved_bindings=resolved_bindings,
     ) == expected_value

@@ -335,31 +335,55 @@ compiler-owned nonempty extraction from one golden-vector contract.
 
 **RED:**
 
-- [ ] Add shared vectors for empty/single/multiple/nested collection values,
+- [x] Add shared vectors for empty/single/multiple/nested collection values,
       order-preserving map, Optional head, rest-on-empty, append immutability,
       length, both general path families, and one narrower path descriptor.
-- [ ] Add both-direction failures for list element/descriptor mismatch,
+- [x] Add both-direction failures for list element/descriptor mismatch,
       binder scope/collision, malformed selected root, empty/malformed child,
       absolute/escaping child, and compiler marker/nonempty invariant.
-- [ ] Assert schema 1 rejects every schema-2 node/operator and schema 2 counts
+- [x] Assert schema 1 rejects every schema-2 node/operator and schema 2 counts
       all nested item/body nodes against the existing node cap.
-- [ ] Run the focused pure-kernel selector and confirm failures are missing
+- [x] Run the focused pure-kernel selector and confirm failures are missing
       behavior rather than malformed fixtures.
 
 **GREEN:**
 
-- [ ] Version catalog entries so new list operators are schema-2-only.
-- [ ] Add validated `list`, `list_map`, `path_join_under`, and compiler-owned
+- [x] Version catalog entries so new list operators are schema-2-only.
+- [x] Add validated `list`, `list_map`, `path_join_under`, and compiler-owned
       `list_nonempty_head` payload nodes.
-- [ ] Add evaluator-local binder scope; never merge it into top-level resolved
+- [x] Add evaluator-local binder scope; never merge it into top-level resolved
       bindings.
-- [ ] Evaluate list sources once, preserve order, return fresh arrays, and
+- [x] Evaluate list sources once, preserve order, return fresh arrays, and
       propagate existing body diagnostics.
-- [ ] Validate selected roots locally without changing `defpath` elaboration
+- [x] Validate selected roots locally without changing `defpath` elaboration
       globally.
-- [ ] Use the same evaluator for folding; do not duplicate operator semantics.
-- [ ] Rerun golden vectors twice—runtime evaluation and compile-time folding.
+- [x] Use the same evaluator for folding; do not duplicate operator semantics.
+- [x] Rerun golden vectors twice—runtime evaluation and compile-time folding.
 - [ ] Obtain `TASK2_SPEC_APPROVED`, then `TASK2_QUALITY_APPROVED`, and commit.
+
+**Implementation record (2026-07-25; implementation commit pending):**
+
+- Initial RED collected 133 tests and produced only intended missing-behavior
+  failures (`62 failed, 71 passed`). A follow-up unresolved-path diagnostic
+  edge was separately RED (`1 failed, 4 passed`) before its correction.
+- Specification review found that descriptor mismatches were still rejected
+  only at evaluation. The direct validation-boundary RED produced 16 intended
+  failures; a closed static type-derivation pass now rejects those payloads
+  without evaluating values or placeholders.
+- GREEN collection is 158 tests. The loader/pure/build/list selector passes
+  (`510 passed in 13.41s`); the pure-projection/WCC folding regressions pass
+  (`85 passed in 5.56s`); both JSON files parse; and the scoped diff check is
+  clean.
+- Every golden vector runs through both the runtime export and the compiler
+  fold module's exact imported shared-evaluator seam.
+- Descriptor comparison preserves the established path-type alias contract
+  through Optional/List/Map containers while rejecting different path names,
+  roots, or existence policies; record/union descriptors remain exact.
+- The operator-justification registry required five list-operator rows to
+  preserve its exact catalog invariant; no registry assertion was weakened.
+- Ordered preliminary review verdicts are `TASK2_SPEC_APPROVED` then
+  `TASK2_QUALITY_APPROVED`. The implementation commit is pending final
+  exact-diff reaffirmation.
 
 ## Task 3: Add Frontend List, Map, Path, And Expected-Type Forms
 

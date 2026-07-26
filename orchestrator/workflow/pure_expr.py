@@ -11,6 +11,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
 import json
+from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Any
 
@@ -33,10 +34,27 @@ _PURE_EXPR_SCHEMA_1_NODE_KINDS = frozenset(
         "op",
     }
 )
+_PURE_EXPR_SCHEMA_2_NODE_KINDS = _PURE_EXPR_SCHEMA_1_NODE_KINDS | frozenset(
+    {
+        "list",
+        "list_map",
+        "path_join_under",
+        "list_nonempty_head",
+    }
+)
 PURE_EXPR_NODE_KINDS_BY_SCHEMA = MappingProxyType(
     {
         1: _PURE_EXPR_SCHEMA_1_NODE_KINDS,
-        2: _PURE_EXPR_SCHEMA_1_NODE_KINDS,
+        2: _PURE_EXPR_SCHEMA_2_NODE_KINDS,
+    }
+)
+_LIST_OPERATOR_NAMES = frozenset(
+    {
+        "list/empty?",
+        "list/head",
+        "list/rest",
+        "list/append",
+        "list/length",
     }
 )
 
@@ -49,6 +67,7 @@ class PureOperatorSpec:
     group: str
     min_arity: int
     max_arity: int | None = None
+    min_schema_version: int = 1
 
 
 PURE_EXPR_OPERATOR_CATALOG = MappingProxyType(
@@ -73,6 +92,41 @@ PURE_EXPR_OPERATOR_CATALOG = MappingProxyType(
         "some?": PureOperatorSpec(name="some?", group="option", min_arity=1, max_arity=1),
         "or-else": PureOperatorSpec(name="or-else", group="option", min_arity=2, max_arity=2),
         "record-update": PureOperatorSpec(name="record-update", group="record", min_arity=2),
+        "list/empty?": PureOperatorSpec(
+            name="list/empty?",
+            group="list",
+            min_arity=1,
+            max_arity=1,
+            min_schema_version=2,
+        ),
+        "list/head": PureOperatorSpec(
+            name="list/head",
+            group="list",
+            min_arity=1,
+            max_arity=1,
+            min_schema_version=2,
+        ),
+        "list/rest": PureOperatorSpec(
+            name="list/rest",
+            group="list",
+            min_arity=1,
+            max_arity=1,
+            min_schema_version=2,
+        ),
+        "list/append": PureOperatorSpec(
+            name="list/append",
+            group="list",
+            min_arity=2,
+            max_arity=2,
+            min_schema_version=2,
+        ),
+        "list/length": PureOperatorSpec(
+            name="list/length",
+            group="list",
+            min_arity=1,
+            max_arity=1,
+            min_schema_version=2,
+        ),
     }
 )
 
@@ -161,12 +215,27 @@ def validate_pure_expr_payload(
         expr,
         bindings=bindings,
         schema_version=schema_version,
+        local_bindings={},
     )
     if node_count > max_nodes:
         _raise(
             "pure_expr_payload_too_large",
             "pure-expression payload exceeds the maximum node count",
             metadata={"node_count": node_count, "max_nodes": max_nodes},
+        )
+    derived_result_type = _derive_static_expr_type(
+        expr,
+        bindings=bindings,
+        local_bindings={},
+    )
+    if not _descriptors_match(derived_result_type, result_type):
+        _raise(
+            "pure_expr_payload_invalid",
+            "pure-expression result type does not match the declared payload result type",
+            metadata={
+                "observed": derived_result_type,
+                "expected": result_type,
+            },
         )
     return payload
 
@@ -194,9 +263,10 @@ def evaluate_pure_expr(
         payload["expr"],
         bindings=bindings,
         resolved_bindings=resolved,
+        local_bindings={},
     )
     expected_type = payload["result_type"]
-    if _descriptor_key(result_type) != _descriptor_key(expected_type):
+    if not _descriptors_match(result_type, expected_type):
         _raise(
             "pure_expr_payload_invalid",
             "pure-expression result type does not match the declared payload result type",
@@ -230,6 +300,62 @@ def _is_sequence(value: Any) -> bool:
 
 def _descriptor_key(descriptor: Mapping[str, Any]) -> str:
     return canonical_json_for_pure_value(descriptor)
+
+
+def _descriptors_match(
+    observed: Mapping[str, Any],
+    expected: Mapping[str, Any],
+) -> bool:
+    if _descriptor_key(observed) == _descriptor_key(expected):
+        return True
+    observed_kind = observed.get("kind")
+    if observed_kind != expected.get("kind"):
+        return False
+    if observed_kind in {"optional", "list"}:
+        observed_contract = dict(observed)
+        expected_contract = dict(expected)
+        observed_item = observed_contract.pop("item", None)
+        expected_item = expected_contract.pop("item", None)
+        return (
+            _descriptor_key(observed_contract)
+            == _descriptor_key(expected_contract)
+            and isinstance(observed_item, Mapping)
+            and isinstance(expected_item, Mapping)
+            and _descriptors_match(observed_item, expected_item)
+        )
+    if observed_kind == "map":
+        observed_contract = dict(observed)
+        expected_contract = dict(expected)
+        observed_key = observed_contract.pop("key", None)
+        expected_key = expected_contract.pop("key", None)
+        observed_value = observed_contract.pop("value", None)
+        expected_value = expected_contract.pop("value", None)
+        return (
+            _descriptor_key(observed_contract)
+            == _descriptor_key(expected_contract)
+            and isinstance(observed_key, Mapping)
+            and isinstance(expected_key, Mapping)
+            and isinstance(observed_value, Mapping)
+            and isinstance(expected_value, Mapping)
+            and _descriptors_match(observed_key, expected_key)
+            and _descriptors_match(observed_value, expected_value)
+        )
+    if observed_kind != "path":
+        return False
+    observed_name = observed.get("name")
+    expected_name = expected.get("name")
+    if not isinstance(observed_name, str) or not isinstance(expected_name, str):
+        return False
+    if (
+        observed_name.rsplit("::", 1)[-1].rsplit("/", 1)[-1]
+        != expected_name.rsplit("::", 1)[-1].rsplit("/", 1)[-1]
+    ):
+        return False
+    observed_contract = dict(observed)
+    expected_contract = dict(expected)
+    del observed_contract["name"]
+    del expected_contract["name"]
+    return _descriptor_key(observed_contract) == _descriptor_key(expected_contract)
 
 
 def _descriptor_kind(descriptor: Mapping[str, Any]) -> str:
@@ -329,6 +455,7 @@ def _validate_expr_node(
     *,
     bindings: Mapping[str, Any],
     schema_version: int,
+    local_bindings: Mapping[str, Mapping[str, Any]],
 ) -> int:
     if not isinstance(node, Mapping):
         _raise("pure_expr_payload_invalid", "pure-expression nodes must be mappings")
@@ -346,6 +473,19 @@ def _validate_expr_node(
         )
 
     count = 1
+
+    def validate_child(
+        child: Any,
+        *,
+        child_locals: Mapping[str, Mapping[str, Any]] = local_bindings,
+    ) -> int:
+        return _validate_expr_node(
+            child,
+            bindings=bindings,
+            schema_version=schema_version,
+            local_bindings=child_locals,
+        )
+
     if kind == "literal":
         _validate_type_descriptor(node.get("type"), context="expr.type")
         _coerce_value(node.get("value"), node["type"], context="expr.value")
@@ -355,7 +495,7 @@ def _validate_expr_node(
         name = node.get("name")
         if not isinstance(name, str) or not name:
             _raise("pure_expr_payload_invalid", "binding nodes must declare a non-empty `name`")
-        if name not in bindings:
+        if name not in bindings and name not in local_bindings:
             _raise(
                 "pure_expr_payload_invalid",
                 f"binding node references unknown binding `{name}`",
@@ -367,30 +507,14 @@ def _validate_expr_node(
         field = node.get("field")
         if not isinstance(field, str) or not field:
             _raise("pure_expr_payload_invalid", "field_access nodes must declare a non-empty `field`")
-        return count + _validate_expr_node(
-            node.get("base"),
-            bindings=bindings,
-            schema_version=schema_version,
-        )
+        return count + validate_child(node.get("base"))
 
     if kind == "if":
         return (
             count
-            + _validate_expr_node(
-                node.get("condition"),
-                bindings=bindings,
-                schema_version=schema_version,
-            )
-            + _validate_expr_node(
-                node.get("then"),
-                bindings=bindings,
-                schema_version=schema_version,
-            )
-            + _validate_expr_node(
-                node.get("else"),
-                bindings=bindings,
-                schema_version=schema_version,
-            )
+            + validate_child(node.get("condition"))
+            + validate_child(node.get("then"))
+            + validate_child(node.get("else"))
         )
 
     if kind == "record":
@@ -403,11 +527,7 @@ def _validate_expr_node(
         for field in fields:
             if not isinstance(field, Mapping):
                 _raise("pure_expr_payload_invalid", "record node fields must be mappings")
-            count += _validate_expr_node(
-                field.get("value"),
-                bindings=bindings,
-                schema_version=schema_version,
-            )
+            count += validate_child(field.get("value"))
         return count
 
     if kind == "union":
@@ -422,22 +542,14 @@ def _validate_expr_node(
         for field in fields:
             if not isinstance(field, Mapping):
                 _raise("pure_expr_payload_invalid", "union node fields must be mappings")
-            count += _validate_expr_node(
-                field.get("value"),
-                bindings=bindings,
-                schema_version=schema_version,
-            )
+            count += validate_child(field.get("value"))
         return count
 
     if kind == "record_update":
         _validate_type_descriptor(node.get("record_type"), context="expr.record_type")
         if _descriptor_kind(node["record_type"]) != "record":
             _raise("pure_expr_payload_invalid", "record_update nodes require a record_type descriptor")
-        count += _validate_expr_node(
-            node.get("base"),
-            bindings=bindings,
-            schema_version=schema_version,
-        )
+        count += validate_child(node.get("base"))
         fields = node.get("fields")
         if not _is_sequence(fields) or not fields:
             _raise("pure_expr_payload_invalid", "record_update nodes must declare a non-empty `fields` list")
@@ -446,12 +558,82 @@ def _validate_expr_node(
                 _raise("pure_expr_payload_invalid", "record_update fields must be mappings")
             if not isinstance(field.get("name"), str) or not field.get("name"):
                 _raise("pure_expr_payload_invalid", "record_update fields must declare a non-empty `name`")
-            count += _validate_expr_node(
-                field.get("value"),
-                bindings=bindings,
-                schema_version=schema_version,
-            )
+            count += validate_child(field.get("value"))
         return count
+
+    if kind == "list":
+        _validate_type_descriptor(
+            node.get("element_type"),
+            context="expr.element_type",
+        )
+        items = node.get("items")
+        if not _is_sequence(items):
+            _raise(
+                "pure_expr_payload_invalid",
+                "list nodes must declare an `items` list",
+            )
+        for item in items:
+            count += validate_child(item)
+        return count
+
+    if kind == "list_map":
+        binder = node.get("binder")
+        if not isinstance(binder, Mapping) or set(binder) != {"name", "type"}:
+            _raise(
+                "list_map_binder_invalid",
+                "list_map binder must contain exactly `name` and `type`",
+            )
+        binder_name = binder.get("name")
+        if (
+            not isinstance(binder_name, str)
+            or not binder_name
+            or binder_name.startswith("__")
+            or binder_name in bindings
+            or binder_name in local_bindings
+        ):
+            _raise(
+                "list_map_binder_invalid",
+                "list_map binder name is invalid, reserved, or collides with an existing binding",
+                metadata={"binder": binder_name},
+            )
+        _validate_type_descriptor(
+            binder.get("type"),
+            context="expr.binder.type",
+        )
+        _validate_type_descriptor(
+            node.get("result_element_type"),
+            context="expr.result_element_type",
+        )
+        count += validate_child(node.get("source"))
+        body_locals = dict(local_bindings)
+        body_locals[binder_name] = binder["type"]
+        count += validate_child(
+            node.get("body"),
+            child_locals=body_locals,
+        )
+        return count
+
+    if kind == "path_join_under":
+        path_type = node.get("path_type")
+        _validate_path_join_descriptor(path_type)
+        count += validate_child(node.get("child"))
+        return count
+
+    if kind == "list_nonempty_head":
+        if (
+            node.get("compiler_owned") is not True
+            or node.get("invariant_diagnostic")
+            != "list_nonempty_invariant_broken"
+        ):
+            _raise(
+                "pure_expr_payload_invalid",
+                "list_nonempty_head requires the exact compiler-owned invariant contract",
+            )
+        _validate_type_descriptor(
+            node.get("element_type"),
+            context="expr.element_type",
+        )
+        return count + validate_child(node.get("source"))
 
     if kind == "op":
         operator = node.get("operator")
@@ -463,6 +645,16 @@ def _validate_expr_node(
                 "pure_expr_operator_unsupported",
                 f"unsupported pure operator `{operator}`",
                 metadata={"operator": operator},
+            )
+        if schema_version < spec.min_schema_version:
+            _raise(
+                "pure_expr_schema_mismatch",
+                "pure operator is unavailable in the declared schema",
+                metadata={
+                    "operator": operator,
+                    "schema_version": schema_version,
+                    "minimum_schema_version": spec.min_schema_version,
+                },
             )
         args = node.get("args")
         if not _is_sequence(args):
@@ -479,14 +671,550 @@ def _validate_expr_node(
                 },
             )
         for arg in args:
-            count += _validate_expr_node(
-                arg,
-                bindings=bindings,
-                schema_version=schema_version,
-            )
+            count += validate_child(arg)
         return count
 
     _raise("pure_expr_payload_invalid", f"unsupported pure-expression node kind `{kind}`")
+
+
+def _validate_path_join_descriptor(descriptor: Any) -> None:
+    if (
+        not isinstance(descriptor, Mapping)
+        or descriptor.get("kind") != "path"
+        or not isinstance(descriptor.get("name"), str)
+        or not descriptor.get("name")
+    ):
+        _raise(
+            "path_join_under_type_invalid",
+            "path_join_under requires a resolved path descriptor",
+            metadata={"observed_type": descriptor},
+        )
+    _validate_type_descriptor(descriptor, context="expr.path_type")
+    if type(descriptor.get("must_exist_target")) is not bool:
+        _raise(
+            "path_join_under_type_invalid",
+            "path_join_under path descriptor requires a boolean must_exist_target policy",
+            metadata={"path_type": descriptor.get("name")},
+        )
+    _validated_join_root(
+        descriptor.get("under"),
+        path_type_name=str(descriptor.get("name")),
+    )
+
+
+def _validated_join_root(root: Any, *, path_type_name: str) -> PurePosixPath:
+    if not isinstance(root, str) or not root or root == ".":
+        _raise(
+            "path_join_under_root_invalid",
+            "path_join_under selected root must be a non-empty workspace-relative path",
+            metadata={"path_type": path_type_name, "root": root},
+        )
+    path = PurePosixPath(root)
+    if (
+        path.is_absolute()
+        or str(path) != root
+        or any(segment in {"", ".", ".."} for segment in root.split("/"))
+    ):
+        _raise(
+            "path_join_under_root_invalid",
+            "path_join_under selected root is not normalized and workspace-relative",
+            metadata={"path_type": path_type_name, "root": root},
+        )
+    return path
+
+
+def _join_relative_child_under_root(
+    root: PurePosixPath,
+    child: str,
+    *,
+    path_type_name: str,
+) -> str:
+    if not child or child == ".":
+        _raise(
+            "path_join_under_child_invalid",
+            "path_join_under child must be a non-empty relative path",
+            metadata={"path_type": path_type_name, "child": child},
+        )
+    path = PurePosixPath(child)
+    raw_segments = child.split("/")
+    if path.is_absolute() or ".." in raw_segments:
+        _raise(
+            "path_join_under_escape",
+            "path_join_under child must not be absolute or escape its selected root",
+            metadata={"path_type": path_type_name, "child": child},
+        )
+    if (
+        str(path) != child
+        or any(segment in {"", "."} for segment in raw_segments)
+    ):
+        _raise(
+            "path_join_under_child_invalid",
+            "path_join_under child is not a normalized relative path",
+            metadata={"path_type": path_type_name, "child": child},
+        )
+    result = root.joinpath(path)
+    try:
+        result.relative_to(root)
+    except ValueError:
+        _raise(
+            "path_join_under_escape",
+            "path_join_under child escaped its selected root",
+            metadata={"path_type": path_type_name, "child": child},
+        )
+    return str(result)
+
+
+def _derive_static_expr_type(
+    node: Mapping[str, Any],
+    *,
+    bindings: Mapping[str, Any],
+    local_bindings: Mapping[str, Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    """Derive one validated node's exact result descriptor without values."""
+
+    kind = node["kind"]
+
+    def derive_child(
+        child: Mapping[str, Any],
+        *,
+        child_locals: Mapping[str, Mapping[str, Any]] = local_bindings,
+    ) -> Mapping[str, Any]:
+        return _derive_static_expr_type(
+            child,
+            bindings=bindings,
+            local_bindings=child_locals,
+        )
+
+    if kind == "literal":
+        return node["type"]
+
+    if kind == "binding":
+        name = node["name"]
+        if name in local_bindings:
+            return local_bindings[name]
+        return bindings[name]["type"]
+
+    if kind == "field_access":
+        return _field_type(
+            derive_child(node["base"]),
+            node["field"],
+        )
+
+    if kind == "if":
+        condition_type = derive_child(node["condition"])
+        _require_primitive(condition_type, "Bool", operator="if")
+        then_type = derive_child(node["then"])
+        else_type = derive_child(node["else"])
+        _require_matching_descriptor(
+            then_type,
+            else_type,
+            message="`if` branches must return the same type",
+            metadata={
+                "then_type": then_type,
+                "else_type": else_type,
+            },
+        )
+        return then_type
+
+    if kind == "record":
+        descriptor = node["type"]
+        _derive_static_record_fields(
+            descriptor,
+            node["fields"],
+            bindings=bindings,
+            local_bindings=local_bindings,
+        )
+        return descriptor
+
+    if kind == "union":
+        descriptor = node["type"]
+        variant = _variant_descriptor(
+            descriptor,
+            node["variant"],
+        )
+        _derive_static_record_fields(
+            {
+                "kind": "record",
+                "name": f"{node['variant']}Payload",
+                "fields": variant["fields"],
+            },
+            node["fields"],
+            bindings=bindings,
+            local_bindings=local_bindings,
+        )
+        return descriptor
+
+    if kind == "record_update":
+        descriptor = node["record_type"]
+        base_type = derive_child(node["base"])
+        _require_matching_descriptor(
+            base_type,
+            descriptor,
+            message=(
+                "record-update base value type does not match the declared "
+                "record_type"
+            ),
+            metadata={
+                "base_type": base_type,
+                "record_type": descriptor,
+            },
+        )
+        field_lookup = {
+            field["name"]: field["type"]
+            for field in descriptor["fields"]
+        }
+        seen: set[str] = set()
+        for field_update in node["fields"]:
+            field_name = field_update["name"]
+            if field_name in seen:
+                _raise(
+                    "pure_expr_payload_invalid",
+                    f"duplicate record-update field `{field_name}`",
+                    metadata={"field": field_name},
+                )
+            seen.add(field_name)
+            field_type = field_lookup.get(field_name)
+            if field_type is None:
+                _raise(
+                    "record_field_unknown",
+                    f"unknown record-update field `{field_name}`",
+                    metadata={"field": field_name},
+                )
+            update_type = derive_child(field_update["value"])
+            _require_matching_descriptor(
+                update_type,
+                field_type,
+                message=(
+                    f"record-update field `{field_name}` does not match its "
+                    "declared type"
+                ),
+                metadata={
+                    "field": field_name,
+                    "observed_type": update_type,
+                    "expected_type": field_type,
+                },
+            )
+        return descriptor
+
+    if kind == "list":
+        element_type = node["element_type"]
+        for item in node["items"]:
+            item_type = derive_child(item)
+            _require_matching_descriptor(
+                item_type,
+                element_type,
+                message=(
+                    "list item type does not match the declared element "
+                    "descriptor"
+                ),
+                metadata={
+                    "observed_type": item_type,
+                    "element_type": element_type,
+                },
+            )
+        return {"kind": "list", "item": element_type}
+
+    if kind == "list_map":
+        source_type = derive_child(node["source"])
+        if _descriptor_kind(source_type) != "list":
+            _raise(
+                "pure_expr_operand_type_mismatch",
+                "list_map source must evaluate to a list",
+                metadata={"observed_type": source_type},
+            )
+        binder = node["binder"]
+        binder_type = binder["type"]
+        _require_matching_descriptor(
+            source_type["item"],
+            binder_type,
+            message=(
+                "list_map source element descriptor does not match its binder"
+            ),
+            metadata={
+                "source_element_type": source_type["item"],
+                "binder_type": binder_type,
+            },
+        )
+        body_locals = dict(local_bindings)
+        body_locals[binder["name"]] = binder_type
+        body_type = derive_child(
+            node["body"],
+            child_locals=body_locals,
+        )
+        result_element_type = node["result_element_type"]
+        _require_matching_descriptor(
+            body_type,
+            result_element_type,
+            message=(
+                "list_map body type does not match the declared result "
+                "element descriptor"
+            ),
+            metadata={
+                "body_type": body_type,
+                "result_element_type": result_element_type,
+            },
+        )
+        return {"kind": "list", "item": result_element_type}
+
+    if kind == "path_join_under":
+        child_type = derive_child(node["child"])
+        _require_primitive(
+            child_type,
+            "String",
+            operator="path/join-under",
+        )
+        return node["path_type"]
+
+    if kind == "list_nonempty_head":
+        source_type = derive_child(node["source"])
+        element_type = node["element_type"]
+        if _descriptor_kind(source_type) != "list":
+            _raise(
+                "pure_expr_operand_type_mismatch",
+                "list_nonempty_head source must evaluate to a list",
+                metadata={
+                    "source_type": source_type,
+                    "element_type": element_type,
+                },
+            )
+        _require_matching_descriptor(
+            source_type["item"],
+            element_type,
+            message=(
+                "list_nonempty_head source does not match its exact element "
+                "descriptor"
+            ),
+            metadata={
+                "source_type": source_type,
+                "element_type": element_type,
+            },
+        )
+        return element_type
+
+    if kind == "op":
+        return _derive_static_operator_type(
+            node["operator"],
+            [derive_child(arg) for arg in node["args"]],
+        )
+
+    _raise(
+        "pure_expr_payload_invalid",
+        f"unsupported pure-expression node kind `{kind}`",
+    )
+
+
+def _derive_static_record_fields(
+    descriptor: Mapping[str, Any],
+    authored_fields: Sequence[Any],
+    *,
+    bindings: Mapping[str, Any],
+    local_bindings: Mapping[str, Mapping[str, Any]],
+) -> None:
+    authored_lookup: dict[str, Mapping[str, Any]] = {}
+    for field in authored_fields:
+        field_name = field.get("name")
+        if not isinstance(field_name, str) or not field_name:
+            _raise(
+                "pure_expr_payload_invalid",
+                "record-like fields require a non-empty `name`",
+            )
+        if field_name in authored_lookup:
+            _raise(
+                "pure_expr_payload_invalid",
+                f"duplicate record field `{field_name}`",
+            )
+        authored_lookup[field_name] = field
+
+    expected_names: set[str] = set()
+    for field in descriptor["fields"]:
+        field_name = field["name"]
+        expected_names.add(field_name)
+        authored = authored_lookup.get(field_name)
+        if authored is None:
+            _raise(
+                "pure_expr_payload_invalid",
+                f"missing record field `{field_name}`",
+                metadata={"field": field_name},
+            )
+        observed_type = _derive_static_expr_type(
+            authored["value"],
+            bindings=bindings,
+            local_bindings=local_bindings,
+        )
+        expected_type = field["type"]
+        _require_matching_descriptor(
+            observed_type,
+            expected_type,
+            message=(
+                f"record field `{field_name}` does not match its declared type"
+            ),
+            metadata={
+                "field": field_name,
+                "observed_type": observed_type,
+                "expected_type": expected_type,
+            },
+        )
+
+    extra = sorted(set(authored_lookup) - expected_names)
+    if extra:
+        _raise(
+            "pure_expr_payload_invalid",
+            f"unexpected record fields: {', '.join(extra)}",
+            metadata={"fields": extra},
+        )
+
+
+def _derive_static_operator_type(
+    operator: str,
+    arg_types: Sequence[Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    if operator in {"=", "!="}:
+        left_type, right_type = arg_types
+        if _is_float_type(left_type) or _is_float_type(right_type):
+            _raise(
+                "pure_expr_float_equality_forbidden",
+                "float equality is not supported",
+            )
+        if _is_union_like(left_type) or _is_union_like(right_type):
+            _raise(
+                "pure_expr_union_equality_forbidden",
+                "union equality is not supported",
+            )
+        if not _descriptors_match(
+            left_type,
+            right_type,
+        ) or not _type_supports_equality(left_type):
+            _raise(
+                "pure_expr_operand_type_mismatch",
+                f"operator `{operator}` requires equal comparable operand types",
+            )
+        return _bool_type()
+
+    if operator in {"<", "<=", ">", ">="}:
+        left_type, right_type = arg_types
+        if not _descriptors_match(left_type, right_type):
+            _raise(
+                "pure_expr_operand_type_mismatch",
+                f"operator `{operator}` requires matching operand types",
+            )
+        if not (
+            _is_primitive_type(left_type, "Int")
+            or _is_primitive_type(left_type, "Float")
+        ):
+            _raise(
+                "pure_expr_operand_type_mismatch",
+                f"operator `{operator}` requires Int or Float operands",
+            )
+        return _bool_type()
+
+    if operator in {"and", "or"}:
+        for arg_type in arg_types:
+            _require_primitive(arg_type, "Bool", operator=operator)
+        return _bool_type()
+
+    if operator == "not":
+        _require_primitive(arg_types[0], "Bool", operator=operator)
+        return _bool_type()
+
+    if operator in {"+", "-", "*", "min", "max"}:
+        for arg_type in arg_types:
+            _require_primitive(arg_type, "Int", operator=operator)
+        return _int_type()
+
+    if operator == "string/concat":
+        for arg_type in arg_types:
+            if _is_path_type(arg_type):
+                _raise(
+                    "pure_expr_path_string_concat_forbidden",
+                    "path string concatenation is forbidden",
+                )
+            _require_primitive(arg_type, "String", operator=operator)
+        return _string_type()
+
+    if operator == "string/empty?":
+        _require_primitive(arg_types[0], "String", operator=operator)
+        return _bool_type()
+
+    if operator == "symbol/name":
+        _require_primitive(arg_types[0], "Symbol", operator=operator)
+        return _string_type()
+
+    if operator == "some?":
+        if _descriptor_kind(arg_types[0]) != "optional":
+            _raise(
+                "pure_expr_operand_type_mismatch",
+                "`some?` requires an Optional operand",
+            )
+        return _bool_type()
+
+    if operator == "or-else":
+        optional_type, fallback_type = arg_types
+        if _descriptor_kind(optional_type) != "optional":
+            _raise(
+                "pure_expr_operand_type_mismatch",
+                "`or-else` requires an Optional first operand",
+            )
+        item_type = optional_type["item"]
+        _require_matching_descriptor(
+            fallback_type,
+            item_type,
+            message=(
+                "`or-else` fallback type must match the optional item type"
+            ),
+        )
+        return item_type
+
+    if operator in _LIST_OPERATOR_NAMES:
+        list_type = arg_types[0]
+        if _descriptor_kind(list_type) != "list":
+            _raise(
+                "pure_expr_operand_type_mismatch",
+                f"operator `{operator}` requires a List operand",
+                metadata={"observed_type": list_type},
+            )
+        item_type = list_type["item"]
+        if operator == "list/append":
+            _require_matching_descriptor(
+                arg_types[1],
+                item_type,
+                message=(
+                    "operator `list/append` item type must match the list "
+                    "element type"
+                ),
+                metadata={
+                    "item_type": arg_types[1],
+                    "element_type": item_type,
+                },
+            )
+            return list_type
+        if operator == "list/head":
+            return {"kind": "optional", "item": item_type}
+        if operator == "list/rest":
+            return list_type
+        if operator == "list/empty?":
+            return _bool_type()
+        return _int_type()
+
+    _raise(
+        "pure_expr_operator_unsupported",
+        f"unsupported pure operator `{operator}`",
+        metadata={"operator": operator},
+    )
+
+
+def _require_matching_descriptor(
+    observed: Mapping[str, Any],
+    expected: Mapping[str, Any],
+    *,
+    message: str,
+    metadata: Mapping[str, Any] | None = None,
+) -> None:
+    if not _descriptors_match(observed, expected):
+        _raise(
+            "pure_expr_operand_type_mismatch",
+            message,
+            metadata=metadata,
+        )
 
 
 def _evaluate_expr(
@@ -494,14 +1222,41 @@ def _evaluate_expr(
     *,
     bindings: Mapping[str, Any],
     resolved_bindings: Mapping[str, Any],
+    local_bindings: Mapping[
+        str,
+        tuple[Mapping[str, Any], Any],
+    ],
 ) -> tuple[Mapping[str, Any], Any]:
     kind = node["kind"]
+
+    def evaluate_child(
+        child: Mapping[str, Any],
+        *,
+        child_locals: Mapping[
+            str,
+            tuple[Mapping[str, Any], Any],
+        ] = local_bindings,
+    ) -> tuple[Mapping[str, Any], Any]:
+        return _evaluate_expr(
+            child,
+            bindings=bindings,
+            resolved_bindings=resolved_bindings,
+            local_bindings=child_locals,
+        )
+
     if kind == "literal":
         descriptor = node["type"]
         return descriptor, _coerce_value(node.get("value"), descriptor, context="literal")
 
     if kind == "binding":
         name = node["name"]
+        if name in local_bindings:
+            descriptor, raw_value = local_bindings[name]
+            return descriptor, _coerce_value(
+                raw_value,
+                descriptor,
+                context=f"local binding `{name}`",
+            )
         spec = bindings[name]
         if name in resolved_bindings:
             raw_value = resolved_bindings[name]
@@ -517,11 +1272,7 @@ def _evaluate_expr(
         return descriptor, _coerce_value(raw_value, descriptor, context=f"binding `{name}`")
 
     if kind == "field_access":
-        base_type, base_value = _evaluate_expr(
-            node["base"],
-            bindings=bindings,
-            resolved_bindings=resolved_bindings,
-        )
+        base_type, base_value = evaluate_child(node["base"])
         field_name = node["field"]
         field_type = _field_type(base_type, field_name)
         if base_value is None:
@@ -545,24 +1296,14 @@ def _evaluate_expr(
         return field_type, _coerce_value(base_value[field_name], field_type, context=f"field `{field_name}`")
 
     if kind == "if":
-        condition_type, condition_value = _evaluate_expr(
-            node["condition"],
-            bindings=bindings,
-            resolved_bindings=resolved_bindings,
-        )
+        condition_type, condition_value = evaluate_child(node["condition"])
         _require_primitive(condition_type, "Bool", operator="if")
         branch_key = "then" if condition_value else "else"
-        branch_type, branch_value = _evaluate_expr(
-            node[branch_key],
-            bindings=bindings,
-            resolved_bindings=resolved_bindings,
+        branch_type, branch_value = evaluate_child(node[branch_key])
+        other_type, _ = evaluate_child(
+            node["else" if branch_key == "then" else "then"]
         )
-        other_type, _ = _evaluate_expr(
-            node["else" if branch_key == "then" else "then"],
-            bindings=bindings,
-            resolved_bindings=resolved_bindings,
-        )
-        if _descriptor_key(branch_type) != _descriptor_key(other_type):
+        if not _descriptors_match(branch_type, other_type):
             _raise(
                 "pure_expr_operand_type_mismatch",
                 "`if` branches must return the same type",
@@ -577,6 +1318,7 @@ def _evaluate_expr(
             node.get("fields", []),
             bindings=bindings,
             resolved_bindings=resolved_bindings,
+            local_bindings=local_bindings,
         )
         return descriptor, result
 
@@ -593,6 +1335,7 @@ def _evaluate_expr(
             node.get("fields", []),
             bindings=bindings,
             resolved_bindings=resolved_bindings,
+            local_bindings=local_bindings,
         )
         value: dict[str, Any] = {"variant": variant_name}
         value.update(field_values)
@@ -602,12 +1345,8 @@ def _evaluate_expr(
 
     if kind == "record_update":
         descriptor = node["record_type"]
-        base_type, base_value = _evaluate_expr(
-            node["base"],
-            bindings=bindings,
-            resolved_bindings=resolved_bindings,
-        )
-        if _descriptor_key(base_type) != _descriptor_key(descriptor):
+        base_type, base_value = evaluate_child(node["base"])
+        if not _descriptors_match(base_type, descriptor):
             _raise(
                 "pure_expr_operand_type_mismatch",
                 "record-update base value type does not match the declared record_type",
@@ -625,17 +1364,134 @@ def _evaluate_expr(
                     f"unknown record-update field `{field_name}`",
                     metadata={"field": field_name},
                 )
-            _, updated_value = _evaluate_expr(
-                field_update["value"],
-                bindings=bindings,
-                resolved_bindings=resolved_bindings,
-            )
+            _, updated_value = evaluate_child(field_update["value"])
             result[field_name] = _coerce_value(updated_value, field_type, context=f"record_update.{field_name}")
         return descriptor, result
 
+    if kind == "list":
+        element_type = node["element_type"]
+        result: list[Any] = []
+        for item in node["items"]:
+            item_type, item_value = evaluate_child(item)
+            if not _descriptors_match(item_type, element_type):
+                _raise(
+                    "pure_expr_operand_type_mismatch",
+                    "list item type does not match the declared element descriptor",
+                    metadata={
+                        "observed_type": item_type,
+                        "element_type": element_type,
+                    },
+                )
+            result.append(
+                _coerce_value(
+                    item_value,
+                    element_type,
+                    context="list item",
+                )
+            )
+        return {"kind": "list", "item": element_type}, result
+
+    if kind == "list_map":
+        source_type, source_value = evaluate_child(node["source"])
+        if _descriptor_kind(source_type) != "list":
+            _raise(
+                "pure_expr_operand_type_mismatch",
+                "list_map source must evaluate to a list",
+                metadata={"observed_type": source_type},
+            )
+        binder = node["binder"]
+        binder_type = binder["type"]
+        if not _descriptors_match(source_type["item"], binder_type):
+            _raise(
+                "pure_expr_operand_type_mismatch",
+                "list_map source element descriptor does not match its binder",
+                metadata={
+                    "source_element_type": source_type["item"],
+                    "binder_type": binder_type,
+                },
+            )
+        result_element_type = node["result_element_type"]
+        mapped: list[Any] = []
+        for item in source_value:
+            body_locals = dict(local_bindings)
+            body_locals[binder["name"]] = (
+                binder_type,
+                _coerce_value(
+                    item,
+                    binder_type,
+                    context=f"list_map binder `{binder['name']}`",
+                ),
+            )
+            body_type, body_value = evaluate_child(
+                node["body"],
+                child_locals=body_locals,
+            )
+            if not _descriptors_match(body_type, result_element_type):
+                _raise(
+                    "pure_expr_operand_type_mismatch",
+                    "list_map body type does not match the declared result element descriptor",
+                    metadata={
+                        "body_type": body_type,
+                        "result_element_type": result_element_type,
+                    },
+                )
+            mapped.append(
+                _coerce_value(
+                    body_value,
+                    result_element_type,
+                    context="list_map result item",
+                )
+            )
+        return {"kind": "list", "item": result_element_type}, mapped
+
+    if kind == "path_join_under":
+        path_type = node["path_type"]
+        child_type, child_value = evaluate_child(node["child"])
+        _require_primitive(
+            child_type,
+            "String",
+            operator="path/join-under",
+        )
+        root = _validated_join_root(
+            path_type["under"],
+            path_type_name=str(path_type["name"]),
+        )
+        joined = _join_relative_child_under_root(
+            root,
+            child_value,
+            path_type_name=str(path_type["name"]),
+        )
+        return path_type, joined
+
+    if kind == "list_nonempty_head":
+        source_type, source_value = evaluate_child(node["source"])
+        element_type = node["element_type"]
+        if (
+            _descriptor_kind(source_type) != "list"
+            or not _descriptors_match(source_type["item"], element_type)
+        ):
+            _raise(
+                "pure_expr_operand_type_mismatch",
+                "list_nonempty_head source does not match its exact element descriptor",
+                metadata={
+                    "source_type": source_type,
+                    "element_type": element_type,
+                },
+            )
+        if not source_value:
+            _raise(
+                "list_nonempty_invariant_broken",
+                "compiler-owned nonempty list extraction observed an empty list",
+            )
+        return element_type, _coerce_value(
+            source_value[0],
+            element_type,
+            context="list_nonempty_head result",
+        )
+
     if kind == "op":
         evaluated_args = [
-            _evaluate_expr(arg, bindings=bindings, resolved_bindings=resolved_bindings)
+            evaluate_child(arg)
             for arg in node["args"]
         ]
         return _evaluate_operator(node["operator"], evaluated_args)
@@ -649,6 +1505,10 @@ def _evaluate_record_fields(
     *,
     bindings: Mapping[str, Any],
     resolved_bindings: Mapping[str, Any],
+    local_bindings: Mapping[
+        str,
+        tuple[Mapping[str, Any], Any],
+    ],
 ) -> dict[str, Any]:
     if not _is_sequence(authored_fields):
         _raise("pure_expr_payload_invalid", "record-like nodes must declare a field list")
@@ -678,6 +1538,7 @@ def _evaluate_record_fields(
             authored_lookup[field_name]["value"],
             bindings=bindings,
             resolved_bindings=resolved_bindings,
+            local_bindings=local_bindings,
         )
         result[field_name] = _coerce_value(field_value, field["type"], context=f"field `{field_name}`")
 
@@ -705,7 +1566,7 @@ def _evaluate_operator(
             _raise("pure_expr_float_equality_forbidden", "float equality is not supported")
         if _is_union_like(left_type) or _is_union_like(right_type):
             _raise("pure_expr_union_equality_forbidden", "union equality is not supported")
-        if _descriptor_key(left_type) != _descriptor_key(right_type) or not _type_supports_equality(left_type):
+        if not _descriptors_match(left_type, right_type) or not _type_supports_equality(left_type):
             _raise(
                 "pure_expr_operand_type_mismatch",
                 f"operator `{operator}` requires equal comparable operand types",
@@ -715,7 +1576,7 @@ def _evaluate_operator(
     if operator in {"<", "<=", ">", ">="}:
         left_type, right_type = arg_types
         left_value, right_value = arg_values
-        if _descriptor_key(left_type) != _descriptor_key(right_type):
+        if not _descriptors_match(left_type, right_type):
             _raise("pure_expr_operand_type_mismatch", f"operator `{operator}` requires matching operand types")
         if _is_primitive_type(left_type, "Int"):
             pass
@@ -790,9 +1651,71 @@ def _evaluate_operator(
         if _descriptor_kind(optional_type) != "optional":
             _raise("pure_expr_operand_type_mismatch", "`or-else` requires an Optional first operand")
         item_type = optional_type["item"]
-        if _descriptor_key(item_type) != _descriptor_key(fallback_type):
+        if not _descriptors_match(item_type, fallback_type):
             _raise("pure_expr_operand_type_mismatch", "`or-else` fallback type must match the optional item type")
         return item_type, arg_values[0] if arg_values[0] is not None else arg_values[1]
+
+    if operator in _LIST_OPERATOR_NAMES:
+        list_type = arg_types[0]
+        if _descriptor_kind(list_type) != "list":
+            _raise(
+                "pure_expr_operand_type_mismatch",
+                f"operator `{operator}` requires a List operand",
+                metadata={"observed_type": list_type},
+            )
+        item_type = list_type["item"]
+        source = arg_values[0]
+        if operator == "list/empty?":
+            return _bool_type(), not source
+        if operator == "list/head":
+            return (
+                {"kind": "optional", "item": item_type},
+                (
+                    None
+                    if not source
+                    else _coerce_value(
+                        source[0],
+                        item_type,
+                        context="list/head result",
+                    )
+                ),
+            )
+        if operator == "list/rest":
+            return list_type, [
+                _coerce_value(
+                    item,
+                    item_type,
+                    context="list/rest result item",
+                )
+                for item in source[1:]
+            ]
+        if operator == "list/append":
+            appended_type = arg_types[1]
+            if not _descriptors_match(appended_type, item_type):
+                _raise(
+                    "pure_expr_operand_type_mismatch",
+                    "operator `list/append` item type must match the list element type",
+                    metadata={
+                        "item_type": appended_type,
+                        "element_type": item_type,
+                    },
+                )
+            return list_type, [
+                *(
+                    _coerce_value(
+                        item,
+                        item_type,
+                        context="list/append source item",
+                    )
+                    for item in source
+                ),
+                _coerce_value(
+                    arg_values[1],
+                    item_type,
+                    context="list/append item",
+                ),
+            ]
+        return _int_type(), _checked_int(len(source))
 
     _raise(
         "pure_expr_operator_unsupported",
