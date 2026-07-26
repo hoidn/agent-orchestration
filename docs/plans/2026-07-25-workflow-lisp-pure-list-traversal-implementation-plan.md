@@ -520,9 +520,9 @@ resume.
       restore; do not create report/pointer artifacts.
 - [x] Rerun loop, contract, state projection, lexical checkpoint, and resume
       selectors.
-- [ ] Obtain `TASK4_SPEC_APPROVED`, then `TASK4_QUALITY_APPROVED`, and commit.
+- [x] Obtain `TASK4_SPEC_APPROVED`, then `TASK4_QUALITY_APPROVED`, and commit.
 
-**Implementation record — commit pending (2026-07-25):**
+**Implementation record — complete (2026-07-25):**
 
 - Corrected RED was 6 failed / 4 passed at the list loop-carriage boundary.
   The next WCC RED was `typed list expression is missing its element type`;
@@ -571,8 +571,10 @@ resume.
 - `loop_state.py` required no production edit because it already delegates to
   the shared projectability owner. Ordered preliminary full-diff review
   returned `TASK4_SPEC_APPROVED` followed by `TASK4_QUALITY_APPROVED`; the
-  exact final diff is the commit candidate for spec-then-quality
-  reaffirmation.
+  same reviewers returned `TASK4_SPEC_REAFFIRMED` followed by
+  `TASK4_QUALITY_REAFFIRMED` on the final exact diff.
+- Implementation commit:
+  `e2e2d5c275da7600c806a8689795c45372bd40c4`.
 
 ## Task 5: Add Generic Repeat Exhaustion Diagnostic Metadata
 
