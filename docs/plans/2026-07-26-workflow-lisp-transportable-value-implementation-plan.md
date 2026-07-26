@@ -30,14 +30,13 @@ commit `c35ccf1b2f73c56d0bc8ee9f5d7fc94759ce7b5f`, tree
 That commit records ordered `VALUE_DESIGN_SPEC_APPROVED` /
 `VALUE_DESIGN_QUALITY_APPROVED` and the selected successor roadmap.
 
-**Status:** Closing. Ordered plan review completed with
+**Status:** Complete. Ordered plan review completed with
 `VALUE_Q0_PLAN_SPEC_APPROVED` then `VALUE_Q0_PLAN_QUALITY_APPROVED`; Tasks 1–6
 record their exact implementation/evidence commits and ordered reviews below,
 and Task 7 has finished its normative, routing, focused, and broad
-non-security execution. Failure classification is complete; only the ordered
-preliminary Task 7 reviews are approved, while exact-byte reaffirmation and
-the implementation/evidence commit remain before Q0 is complete. No Q0
-implementation code began before the plan-review gate.
+non-security execution, failure classification, exact-byte reaffirmation, and
+implementation/evidence commit. No Q0 implementation code began before the
+plan-review gate.
 
 ---
 
@@ -977,15 +976,16 @@ Execute and resume transportable Value results
 
 ### Task 7: Close Q0 normative, routing, and broad verification
 
-**Status:** closing; normative and routing owners are updated, the focused
-gate and closing broad non-security comparison are classified, and the
-preliminary ordered reviews are approved. Exact-byte reaffirmation and the
-implementation/evidence commit remain.
+**Status:** complete at implementation/evidence commit `020c6138`.
 
 **Preliminary reviews:** `VALUE_Q0_TASK7_SPEC_APPROVED`, then
 `VALUE_Q0_TASK7_QUALITY_APPROVED`.
 
-**Implementation/evidence commit:** pending.
+**Final exact-byte reviews:** `VALUE_Q0_TASK7_SPEC_REAFFIRMED`, then
+`VALUE_Q0_TASK7_QUALITY_REAFFIRMED`, bound to staged tree
+`9b3641aaeedbd4918b462d45ffafe54be6092dcb`.
+
+**Implementation/evidence commit:** `020c6138`.
 
 **TDD evidence:**
 
@@ -1010,8 +1010,9 @@ implementation/evidence commit remain.
   nor either test. The pre-Q0 archive control passes both. They are disclosed
   concurrent external failures, not waived, repaired, staged, or claimed as
   Q0 behavior; and
-- preliminary ordered reviews approved the corrected diff; exact-byte
-  reaffirmation remains before the closure commit.
+- preliminary ordered reviews approved the corrected diff; the exact staged
+  tree then received specification and quality reaffirmation in order before
+  commit `020c6138`.
 
 **Files:**
 
@@ -1096,7 +1097,7 @@ Use the exact broad command in the Execution Contract. Record collected,
 passed, skipped, failed, and error totals. Compare any failure against fresh
 pre-Q0 identities; do not weaken tests or silently absorb a new failure.
 
-- [ ] **Step 6: Complete final ordered reviews and commit**
+- [x] **Step 6: Complete final ordered reviews and commit — `020c6138`**
 
 The final specification reviewer must verify the accepted design, all task
 commits, direct-root wire shape, exact typing, strict JSON failures,

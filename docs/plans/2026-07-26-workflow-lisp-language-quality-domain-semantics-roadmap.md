@@ -72,8 +72,8 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 
 | Stage | Work | Entry condition | Completion gate | Status |
 | --- | --- | --- | --- | --- |
-| Q0 | Transportable `Value` prerequisite | Stage 8 complete; owner prerequisite decision recorded | accepted design; reviewed implementation plan; target-2.19 implementation with direct-root, loader, runtime, resume, classic/WCC, docs, and broad non-security evidence | closing — implementation, verification, and failure classification complete; preliminary Task 7 reviews approved; exact-byte reaffirmation and implementation/evidence commit pending |
-| Q1 | Prompt core | Q0 complete; prompt-calculus design corrected and accepted | target-gated `defprompt`, imports, closed slot kinds, fully applied named fills, exact discharge/placeholder diagnostics, prompt-carried result derivation, deterministic flattening through existing prompt composition, one migrated real consumer | queued next — design correction and ordered review only, with implementation not started |
+| Q0 | Transportable `Value` prerequisite | Stage 8 complete; owner prerequisite decision recorded | accepted design; reviewed implementation plan; target-2.19 implementation with direct-root, loader, runtime, resume, classic/WCC, docs, and broad non-security evidence | complete — reviewed target-2.19 implementation and evidence gate closed at `020c6138` |
+| Q1 | Prompt core | Q0 complete; prompt-calculus design corrected and accepted | target-gated `defprompt`, imports, closed slot kinds, fully applied named fills, exact discharge/placeholder diagnostics, prompt-carried result derivation, deterministic flattening through existing prompt composition, one migrated real consumer | active — next stage; design correction and ordered review only, with implementation not started |
 | Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | blocked by Q1 |
 | Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | blocked by Q2 |
 | Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | blocked by Q3 |
@@ -88,9 +88,9 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | L3 | Per-source entry selection | L2 complete; immutable initialization-schema amendment accepted; compile-path reentrancy proven (substrate MR-4 complete, or an equivalent accepted reentrancy fixture) | one canonical workspace process can select an exported workflow for a named application source while compiling library entries with no selection, with exact CLI request parity and restart semantics | blocked by L2 |
 | L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and a diagnostic-currentness policy are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | blocked by L3 |
 
-The Q-series stages execute in Q-table order. Q0 is closing. Q1 is queued
-next, but only its required design correction and ordered review will become
-active; no Q1 implementation is claimed. The L-series is an owner-selected priority queue rather than a
+The Q-series stages execute in Q-table order. Q0 is complete. Q1 is active
+only for its required design correction and ordered review; no Q1
+implementation is claimed. The L-series is an owner-selected priority queue rather than a
 claim that every adjacent stage has a compiler dependency on its predecessor;
 it executes in L-table order unless the owner explicitly reorders it. At most
 one L stage is active at a time.
@@ -113,12 +113,11 @@ definition, and this roadmap absorbs no substrate work.
 
 ## Stage Q0: Transportable `Value`
 
-**Status:** closing. The implementation and its focused, classic/WCC,
-runtime, resume, normative, routing, broad non-security execution, and failure
-classification are recorded in the implementation selector below. Preliminary
-Task 7 reviews are approved; exact-byte reaffirmation and the
-implementation/evidence commit remain. Q1 is queued next for design correction
-and review, not implementation.
+**Status:** complete. The reviewed implementation and its focused,
+classic/WCC, runtime, resume, normative, routing, broad non-security evidence,
+failure classification, and exact staged-tree reviews are recorded in the
+implementation selector below. Q1 is active next for design correction and
+review, not implementation.
 
 Authority target:
 `docs/design/workflow_lisp_transportable_value_type.md`.
