@@ -403,12 +403,13 @@ Add target-gated Workflow Lisp Value type
 
 ### Task 2: Derive and load `type: value` / `kind: value` contracts
 
-**Status:** implementation and unfiltered adjacent verification complete;
-preliminary ordered reviews approved; final exact-byte reaffirmations pending;
-implementation commit pending.
+**Status:** complete at implementation commit `a67d35ea`.
 
 **Preliminary reviews:** `VALUE_Q0_TASK2_SPEC_APPROVED`, then
 `VALUE_Q0_TASK2_QUALITY_APPROVED`.
+
+**Final exact-byte reviews:** `VALUE_Q0_TASK2_SPEC_REAFFIRMED`, then
+`VALUE_Q0_TASK2_QUALITY_REAFFIRMED`.
 
 **Changed paths:**
 
@@ -609,8 +610,7 @@ pytest -q tests/test_output_contract_value.py \
 Expected: PASS; existing narrower coercion and validation behavior is
 unchanged.
 
-- [ ] **Step 5: Complete ordered reviews and commit — final reaffirmations
-      pending; commit pending**
+- [x] **Step 5: Complete ordered reviews and commit — `a67d35ea`**
 
 Expected implementation commit subject:
 
