@@ -803,40 +803,70 @@ the accepted matrix and only from a current successful compiler snapshot.
 - Create: `orchestrator/lsp/navigation.py`
 - Modify: `orchestrator/lsp/server.py`
 - Modify: `orchestrator/lsp/state.py`
+- Modify: `orchestrator/lsp/compile_driver.py`
+- Modify: `orchestrator/workflow_lisp/form_registry.py`
 - Create: `tests/test_workflow_lisp_lsp_navigation.py`
+- Modify: `tests/test_workflow_lisp_lsp_compile_driver.py`
 
 **RED:**
 
-- [ ] Cover direct local/imported/stdlib procedure and workflow call heads with
+- [x] Cover direct local/imported/stdlib procedure and workflow call heads with
       non-null exact provenance.
-- [ ] Cover cursor outside the exact callee span, `None` provenance,
+- [x] Cover cursor outside the exact callee span, `None` provenance,
       generated/WCC calls, fields, types, prompts, externs, and all other
       unsupported shapes returning null.
-- [ ] Cover symbols containing exactly `defmodule`, `defproc`, and
+- [x] Cover symbols containing exactly `defmodule`, `defproc`, and
       `defworkflow` in authored source order.
-- [ ] Cover deterministic completion of visible local/imported callable names
+- [x] Cover deterministic completion of visible local/imported callable names
       plus compiler-registry form heads.
-- [ ] Add Principle-29 negative controls: no nominal taxonomy requirement,
+- [x] Add Principle-29 negative controls: no nominal taxonomy requirement,
       nominal filter, or server-inferred structural filter.
-- [ ] Cover clean-current success and null/no items for dirty, pending,
+- [x] Cover clean-current success and null/no items for dirty, pending,
       invalidated, configuration-stale, language-failed, server-failed,
       superseded, closed, and unassociated documents.
-- [ ] Cover a notification-free source/configuration change detected by the
+- [x] Cover a notification-free source/configuration change detected by the
       mandatory pre-response recheck.
 
 **GREEN:**
 
-- [ ] Build navigation indices exclusively from compiler call provenance,
+- [x] Build navigation indices exclusively from compiler call provenance,
       definitions, catalogs/import scopes, and form registries.
-- [ ] Index only non-null exact `authored_callee_span`.
-- [ ] Implement the closed result matrix without parsing source in the LSP.
-- [ ] Recheck complete source/config/root currentness before every response;
+- [x] Index only non-null exact `authored_callee_span`.
+- [x] Implement the closed result matrix without parsing source in the LSP.
+- [x] Recheck complete source/config/root currentness before every response;
       atomically invalidate and schedule before returning null on drift.
-- [ ] Apply visibility/registry membership only to completion.
-- [ ] Rerun navigation, state/driver, stdio, provenance, compiler catalog,
+- [x] Apply visibility/registry membership only to completion.
+- [x] Rerun navigation, state/driver, stdio, provenance, compiler catalog,
       import, and registry regressions.
-- [ ] Obtain `STAGE8_TASK8_SPEC_APPROVED`, then
+- [x] Obtain `STAGE8_TASK8_SPEC_APPROVED`, then
       `STAGE8_TASK8_QUALITY_APPROVED`, and commit.
+
+**Implementation record:** commit `5cc389e2`.
+
+- RED first left 13 currentness/transport cases failing after the pure index
+  slice passed, then an independent specification review exposed a legal
+  same-canonical-name collision between the procedure and workflow
+  namespaces. The added two-direction regression reproduced the wrong target
+  before the namespace fix.
+- GREEN freezes the exact successful postflight source text alongside the
+  accepted revision vector, builds pure indices only from Stage-3 artifacts,
+  and keys definition targets by callable kind plus canonical compiler
+  identity. UTF-16 coordinates and target locations use the frozen text; the
+  server never rereads or parses source to answer navigation.
+- Every handler passes through the compile driver's mandatory configuration,
+  builtin-root, and complete source-vector recheck. Drift transitions retain
+  their scheduling/publication effects, the current request returns null, and
+  any queued clean generation runs through the existing serialized driver.
+- Completion is the deterministic union of compiler-visible local/imported
+  procedure/workflow spellings and the complete public form registry. It has
+  no cursor-type input, nominal taxonomy, nominal filter, or inferred
+  structural filter, preserving principle 29.
+- Fresh collection found 39 navigation cases. The final combined
+  navigation/state/driver/stdio/provenance/module/procedure/workflow gate
+  passed 525 tests under xdist; `py_compile` and scoped whitespace checks were
+  clean.
+- Ordered independent review returned `STAGE8_TASK8_SPEC_APPROVED`, followed
+  by `STAGE8_TASK8_QUALITY_APPROVED`.
 
 ## Task 9: Package V1, Run End-To-End Evidence, Update Docs, And Close Stage 8
 
