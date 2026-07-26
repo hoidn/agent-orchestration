@@ -173,6 +173,8 @@ _TYPE_CODES = frozenset(
         "materialize_view_renderer_unknown",
         "materialize_view_value_type_invalid",
         "materialize_view_target_contract_invalid",
+        "value_type_requires_dsl_2_19",
+        "value_guidance_example_unsupported",
     }
 )
 _LOWERING_SURFACE_CODES = frozenset(

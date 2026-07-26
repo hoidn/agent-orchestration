@@ -24,6 +24,7 @@ from .spans import SourcePosition, SourceSpan
 from .syntax import (
     PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
     target_dsl_supports_provider_supervision,
+    target_dsl_supports_value,
 )
 from .type_expressions import (
     ListTypeExpr,
@@ -122,11 +123,14 @@ PRELUDE_TYPE_NAMES = PRELUDE_PRIMITIVE_TYPE_NAMES | frozenset(PRELUDE_PATH_TYPES
 def prelude_type_names_for_target(target_dsl_version: str) -> frozenset[str]:
     """Return compiler-owned prelude names installed for one target."""
 
+    names = PRELUDE_TYPE_NAMES
     if target_dsl_supports_provider_supervision(target_dsl_version):
-        return PRELUDE_TYPE_NAMES | frozenset(
+        names = names | frozenset(
             {PROVIDER_STEERING_DIRECTIVE_TYPE_NAME}
         )
-    return PRELUDE_TYPE_NAMES
+    if target_dsl_supports_value(target_dsl_version):
+        names = names | frozenset({"Value"})
+    return names
 
 
 def _local_type_definition_form_path(
@@ -305,7 +309,7 @@ class FrontendTypeEnvironment:
         reserved_target_prelude_type_names = (
             prelude_type_names_for_target(module.target_dsl_version)
             - PRELUDE_TYPE_NAMES
-        )
+        ) | frozenset({"Value"})
         for definition in (*module.definitions, *module.schemas):
             if definition.name in reserved_target_prelude_type_names:
                 _raise_error(
@@ -330,8 +334,11 @@ class FrontendTypeEnvironment:
                         form_path=("workflow-lisp", "import", imported_name),
                     )
 
+        primitive_type_names = PRELUDE_PRIMITIVE_TYPE_NAMES
+        if target_dsl_supports_value(module.target_dsl_version):
+            primitive_type_names = primitive_type_names | frozenset({"Value"})
         type_refs: dict[str, TypeRef] = {
-            name: PrimitiveTypeRef(name=name) for name in PRELUDE_PRIMITIVE_TYPE_NAMES
+            name: PrimitiveTypeRef(name=name) for name in primitive_type_names
         }
         type_refs.update(
             {
@@ -411,6 +418,7 @@ class FrontendTypeEnvironment:
                                 field.type_name,
                                 type_refs=type_refs,
                                 import_scope=import_scope,
+                                target_dsl_version=module.target_dsl_version,
                                 span=field.span,
                                 form_path=("workflow-lisp", definition.name, field.name),
                             )
@@ -435,6 +443,7 @@ class FrontendTypeEnvironment:
                                     field.type_name,
                                     type_refs=type_refs,
                                     import_scope=import_scope,
+                                    target_dsl_version=module.target_dsl_version,
                                     span=field.span,
                                     form_path=("workflow-lisp", definition.name, variant.name, field.name),
                                 )
@@ -503,6 +512,7 @@ class FrontendTypeEnvironment:
             name,
             type_refs=self._type_refs,
             import_scope=self._import_scope,
+            target_dsl_version=self.target_dsl_version,
             canonical_name_overrides=self._canonical_name_overrides,
             schema_names=self._schema_names,
             span=span,
@@ -669,6 +679,7 @@ class FrontendTypeEnvironment:
         *,
         type_refs: dict[str, TypeRef],
         import_scope: "ModuleImportScope | None",
+        target_dsl_version: str | None = None,
         span: SourceSpan,
         form_path: tuple[str, ...],
         canonical_name_overrides: dict[str, str] | None = None,
@@ -682,6 +693,21 @@ class FrontendTypeEnvironment:
             form_path=form_path,
             expansion_stack=expansion_stack,
         )
+        if (
+            target_dsl_version is not None
+            and not target_dsl_supports_value(target_dsl_version)
+            and _parsed_type_expr_contains_value(parsed)
+        ):
+            _raise_error(
+                (
+                    "`Value` requires target DSL 2.19 or newer; "
+                    f"module targets {target_dsl_version}"
+                ),
+                code="value_type_requires_dsl_2_19",
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
         return _resolve_parsed_type_expr(
             parsed,
             authored_name=name,
@@ -694,6 +720,29 @@ class FrontendTypeEnvironment:
             expansion_stack=expansion_stack,
             local_type_params=local_type_params,
         )
+
+
+def _parsed_type_expr_contains_value(parsed: ParsedTypeExpr) -> bool:
+    """Return whether one parsed authored type contains exact ``Value``."""
+
+    if isinstance(parsed, NamedTypeExpr):
+        return parsed.name == "Value"
+    if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr)):
+        return _parsed_type_expr_contains_value(parsed.item_type)
+    if isinstance(parsed, MapTypeExpr):
+        return (
+            _parsed_type_expr_contains_value(parsed.key_type)
+            or _parsed_type_expr_contains_value(parsed.value_type)
+        )
+    if isinstance(parsed, (WorkflowRefTypeExpr, ProcRefTypeExpr)):
+        return (
+            any(
+                _parsed_type_expr_contains_value(param_type)
+                for param_type in parsed.param_types
+            )
+            or _parsed_type_expr_contains_value(parsed.return_type)
+        )
+    raise TypeError(f"unsupported parsed type expression: {type(parsed)!r}")
 
 
 def _resolve_parsed_type_expr(

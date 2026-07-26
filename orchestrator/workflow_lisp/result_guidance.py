@@ -214,6 +214,17 @@ def validate_result_guidance_example(
     if guidance is None or guidance.example_expr is None:
         return None
     example_node = guidance.example_expr
+    from .type_env import PrimitiveTypeRef
+
+    if expected_type == PrimitiveTypeRef(name="Value"):
+        _raise_example_diagnostic(
+            "value_guidance_example_unsupported",
+            (
+                "result guidance examples are unsupported for `Value` "
+                "without a checked Value constant surface"
+            ),
+            example_node=example_node,
+        )
     try:
         from .expressions import elaborate_expression
 

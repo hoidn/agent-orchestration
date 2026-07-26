@@ -855,8 +855,8 @@ def test_unknown_target_versions_still_fail_closed(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         build_syntax_module(
             read_sexpr_text(
-                _module_source("2.19"),
-                source_path="target_219_list_traversal.orc",
+                _module_source("2.20"),
+                source_path="target_220_list_traversal.orc",
             )
         )
     assert excinfo.value.diagnostics[0].code == "target_dsl_unsupported"
@@ -864,11 +864,11 @@ def test_unknown_target_versions_still_fail_closed(tmp_path: Path) -> None:
     result = validate_workflow_mapping(
         WorkflowMappingBuildRequest(
             authored_mapping={
-                "version": "2.19",
-                "name": "target-219",
+                "version": "2.20",
+                "name": "target-220",
                 "steps": [{"name": "Done", "command": ["echo", "done"]}],
             },
-            workflow_path=tmp_path / "target-219.orc",
+            workflow_path=tmp_path / "target-220.orc",
             frontend_kind="workflow_lisp",
         ),
         options=WorkflowMappingValidationOptions(
@@ -879,7 +879,7 @@ def test_unknown_target_versions_still_fail_closed(tmp_path: Path) -> None:
         ),
     )
     assert result.bundle is None
-    assert any("Unsupported version '2.19'" in error.message for error in result.errors)
+    assert any("Unsupported version '2.20'" in error.message for error in result.errors)
 
 
 def test_pure_runtime_accepts_existing_nodes_in_schema_2() -> None:

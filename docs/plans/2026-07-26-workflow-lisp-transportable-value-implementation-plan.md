@@ -286,7 +286,38 @@ Focused verification:
 - Test: `tests/test_workflow_lisp_structured_results.py`
 - Test: `tests/test_workflow_lisp_result_guidance_e2e.py`
 
-- [ ] **Step 1: Write failing target, shadowing, and exact-typing tests**
+**Task 1 status:** Implementation and focused verification complete;
+preliminary ordered reviews approved; final exact-byte reaffirmations pending;
+implementation commit pending.
+
+**Task 1 preliminary reviews:** `VALUE_Q0_TASK1_SPEC_APPROVED`, then
+`VALUE_Q0_TASK1_QUALITY_APPROVED`.
+
+**Changed paths:**
+
+- `orchestrator/workflow_lisp/syntax.py`
+- `orchestrator/workflow_lisp/type_env.py`
+- `orchestrator/workflow_lisp/diagnostics.py`
+- `orchestrator/workflow_lisp/result_guidance.py`
+- `tests/test_workflow_lisp_transportable_value.py`
+- `tests/test_workflow_lisp_list_traversal.py` — advanced the unknown-future
+  target sentinel from newly supported `2.19` to unsupported `2.20`; no list
+  behavior changed.
+
+**Fresh TDD and verification evidence:**
+
+- collection: `33 tests collected`;
+- intended RED after correcting the list-operator harness target context:
+  `12 failed, 21 passed`; failures were the absent target constant/predicate,
+  target-2.19 rejection, pre-2.19 generic `type_unknown`, missing all-target
+  `Value` reservation, and ordinary guidance evaluation occurring before the
+  required `Value` refusal;
+- focused GREEN: `33 passed`;
+- exact Task-1 adjacent selector: `75 passed, 145 deselected`;
+- unfiltered adjacent frontend/guidance set: `220 passed`;
+- closing target-sentinel plus full Value module: `34 passed`.
+
+- [x] **Step 1: Write failing target, shadowing, and exact-typing tests**
 
 Add table-driven tests proving:
 
@@ -324,7 +355,7 @@ Add a result-guidance test proving description and format hint remain valid
 while `(result Value :example ...)` fails with
 `value_guidance_example_unsupported` before constant-expression evaluation.
 
-- [ ] **Step 2: Run RED and collection checks**
+- [x] **Step 2: Run RED and collection checks**
 
 ```bash
 pytest --collect-only -q tests/test_workflow_lisp_transportable_value.py
@@ -335,7 +366,7 @@ pytest -q tests/test_workflow_lisp_transportable_value.py \
 Expected: collection succeeds; behavioral tests fail because target 2.19 and
 `Value` are unknown.
 
-- [ ] **Step 3: Implement the minimal target/type/guidance surface**
+- [x] **Step 3: Implement the minimal target/type/guidance surface**
 
 Add `"2.19"` to the validated target set, define
 `VALUE_MIN_TARGET_DSL_VERSION` and `target_dsl_supports_value`, and install
@@ -349,7 +380,7 @@ exact `PrimitiveTypeRef` compatibility.
 Reject a guidance example when the resolved expected type is exactly
 `PrimitiveTypeRef(name="Value")`; do not add a Value constant evaluator.
 
-- [ ] **Step 4: Run focused and adjacent suites**
+- [x] **Step 4: Run focused and adjacent suites**
 
 ```bash
 pytest -q tests/test_workflow_lisp_transportable_value.py \
@@ -361,7 +392,8 @@ pytest -q tests/test_workflow_lisp_transportable_value.py \
 
 Expected: PASS; existing `Json` refusals remain unchanged.
 
-- [ ] **Step 5: Complete ordered reviews and commit**
+- [ ] **Step 5: Complete ordered reviews and commit — final reaffirmations
+      pending; commit pending**
 
 Expected implementation commit subject:
 
