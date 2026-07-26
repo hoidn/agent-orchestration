@@ -734,8 +734,8 @@ per element in order and resumes without replay or duplication.
   passed 841 tests; bytecode compilation and scoped diff checking were clean.
 - Ordered independent verdicts were `TASK6_SPEC_APPROVED`, then
   `TASK6_QUALITY_APPROVED`.
-- Implementation commit: pending exact task commit; recorded by the immediate
-  plan-only bookkeeping commit.
+- Implementation commit:
+  `ea73d39e`.
 
 ## Task 7: Prove The Runtime-Cardinality Consumer And Close The Interstage
 
