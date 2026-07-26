@@ -27,9 +27,8 @@ pytest/pytest-xdist.
 `cfcac27f`, with ordered `STAGE8_DESIGN_SPEC_APPROVED` then
 `STAGE8_DESIGN_QUALITY_APPROVED`, followed by exact-diff reaffirmations.
 
-**Status:** Closing verification for one post-completion correctness
-correction. Tasks 1–9 remain committed, but Gate S8 is not reclosed until the
-correction below has passed final exact-diff review and committed.
+**Status:** Complete. Tasks 1–9 and the post-completion correctness correction
+are committed, and Gate S8 is reclosed at `3e95941a`.
 Preliminary closing review returned `STAGE8_FINAL_SPEC_APPROVED`, then
 `STAGE8_FINAL_QUALITY_APPROVED`; the same reviewers reaffirmed the exact
 closing diff as `STAGE8_FINAL_SPEC_REAFFIRMED`, then
@@ -1041,8 +1040,11 @@ Fresh correction verification:
 
 Ordered preliminary correction reviews returned
 `STAGE8_CORRECTION_SPEC_APPROVED`, then
-`STAGE8_CORRECTION_QUALITY_APPROVED`. Final exact-diff reaffirmations are
-pending. The correction implementation commit is pending.
+`STAGE8_CORRECTION_QUALITY_APPROVED`. After the final test and routing
+corrections, the same reviewers restarted the ordered exact-diff review and
+returned `STAGE8_CORRECTION_SPEC_REAFFIRMED`, then
+`STAGE8_CORRECTION_QUALITY_REAFFIRMED`. The correction implementation
+committed at `3e95941a`.
 
 ## Stage 8 Completion Gate
 
