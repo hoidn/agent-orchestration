@@ -30,9 +30,10 @@ pytest/pytest-xdist.
 **Status:** Accepted for execution after the selected list-traversal
 interstage closes. Preliminary review returned `STAGE8_PLAN_SPEC_APPROVED`
 then `STAGE8_PLAN_QUALITY_APPROVED`; the final exact plan/routing diff is the
-commit candidate for ordered reaffirmation. Stage 8 implementation may begin
-only after that interstage closes and this accepted plan plus its
-routing/roadmap incorporation are committed.
+commit candidate for ordered reaffirmation. The same reviewers returned
+`STAGE8_PLAN_SPEC_REAFFIRMED` then `STAGE8_PLAN_QUALITY_REAFFIRMED`, and the
+accepted plan/routing gate committed at `e565fc84`. Stage 8 implementation
+may begin only after the selected interstage closes.
 
 ---
 
@@ -54,8 +55,13 @@ Before Task 1:
       `STAGE8_PLAN_SPEC_REAFFIRMED`, then
       `STAGE8_PLAN_QUALITY_REAFFIRMED`. These tokens are the external
       commit gate; the reviewed bytes are not edited to predict their receipt.
-- [ ] Patch-stage the exact plan/routing hunks, inspect the staged diff, and
+- [x] Patch-stage the exact plan/routing hunks, inspect the staged diff, and
       commit the accepted execution gate before implementation begins.
+
+**Gate record:** commit `e565fc84`; ordered preliminary verdicts
+`STAGE8_PLAN_SPEC_APPROVED` / `STAGE8_PLAN_QUALITY_APPROVED`; ordered final
+exact-diff verdicts `STAGE8_PLAN_SPEC_REAFFIRMED` /
+`STAGE8_PLAN_QUALITY_REAFFIRMED`; routing selector test `50 passed`.
 
 ## Scope And Deliberate Cost
 
