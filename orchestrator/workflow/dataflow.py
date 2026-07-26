@@ -162,6 +162,21 @@ class DataflowManager:
                                 "violations": exc.violations,
                             },
                         )
+            elif artifact_kind == "value":
+                if isinstance(artifact_spec, dict):
+                    try:
+                        value = validate_contract_value(value, artifact_spec, self.workspace)
+                    except OutputContractError as exc:
+                        return self.contract_violation_result(
+                            "Publish contract failed",
+                            {
+                                "step": step_name,
+                                "artifact": artifact_name,
+                                "reason": "invalid_selected_value",
+                                "from": output_name,
+                                "violations": exc.violations,
+                            },
+                        )
             elif artifact_kind == "relpath":
                 if not isinstance(value, str):
                     return self.contract_violation_result(
@@ -494,7 +509,7 @@ class DataflowManager:
                             "artifact_type": artifact_type,
                         },
                     )
-            elif artifact_kind == "collection":
+            elif artifact_kind in {"collection", "value"}:
                 if isinstance(artifact_spec, dict):
                     try:
                         selected_value = validate_contract_value(selected_value, artifact_spec, self.workspace)

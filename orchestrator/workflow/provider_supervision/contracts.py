@@ -232,6 +232,7 @@ def _leaf_contract(descriptor: Mapping[str, Any]) -> dict[str, Any]:
             "Symbol": "string",
             "RunId": "string",
             "PathRel": "string",
+            "Value": "value",
         }
         name = descriptor.get("name")
         if name not in names:

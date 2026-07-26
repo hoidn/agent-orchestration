@@ -978,11 +978,14 @@ def _binding_contract_matches_type_ref(contract: Any, type_ref: Any) -> bool:
     if not isinstance(type_ref, str) or not type_ref:
         return False
     contract_kind = getattr(contract, "kind", None)
+    if contract_kind == "value":
+        return type_ref == "Value"
     if contract_kind == "scalar":
         expected = {
             "string": "String",
             "integer": "Int",
             "boolean": "Bool",
+            "Value": "Value",
         }.get(getattr(contract, "value_type", None))
         if expected is None:
             return True
@@ -994,11 +997,14 @@ def _binding_contract_matches_type_ref(contract: Any, type_ref: Any) -> bool:
 
 def _type_ref_for_contract(contract: Any, fallback: Any) -> str:
     contract_kind = getattr(contract, "kind", None)
+    if contract_kind == "value":
+        return "Value"
     if contract_kind == "scalar":
         mapped = {
             "string": "String",
             "integer": "Int",
             "boolean": "Bool",
+            "Value": "Value",
         }.get(getattr(contract, "value_type", None))
         if isinstance(mapped, str):
             return mapped

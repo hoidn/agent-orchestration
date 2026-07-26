@@ -2218,6 +2218,8 @@ def _surface_contract_from_structured_field(field: Mapping[str, Any]) -> dict[st
     }
     if definition.get("type") == "relpath":
         definition["kind"] = "relpath"
+    elif definition.get("type") == "value":
+        definition["kind"] = "value"
     elif definition.get("type") in {"optional", "list", "map"}:
         definition["kind"] = "collection"
     else:
