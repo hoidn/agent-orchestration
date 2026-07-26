@@ -12,7 +12,11 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import elaborate_expression
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.syntax import SyntaxNode
-from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, TypeParamRef
+from orchestrator.workflow_lisp.type_env import (
+    FrontendTypeEnvironment,
+    ListTypeRef,
+    TypeParamRef,
+)
 from orchestrator.workflow_lisp.typecheck import typecheck_expression
 
 
@@ -366,27 +370,28 @@ def test_typecheck_loop_state_rejects_unresolved_type_parameter(tmp_path: Path) 
     _assert_diagnostic_code(excinfo, "loop_state_unresolved_type_parameter")
 
 
-def test_typecheck_loop_state_rejects_non_projectable_field_type(tmp_path: Path) -> None:
+def test_typecheck_loop_state_accepts_projectable_list_field(tmp_path: Path) -> None:
     type_env = _build_type_env(tmp_path)
     expr = elaborate_expression(
         _expression_syntax("(loop-state (history List[String] history))"),
         bound_names=frozenset({"history"}),
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        typecheck_expression(
-            expr,
-            type_env=type_env,
-            value_env={
-                "history": type_env.resolve_type(
-                    "List[String]",
-                    span=expr.span,
-                    form_path=expr.form_path,
-                )
-            },
-        )
+    typed = typecheck_expression(
+        expr,
+        type_env=type_env,
+        value_env={
+            "history": type_env.resolve_type(
+                "List[String]",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        },
+    )
 
-    _assert_diagnostic_code(excinfo, "loop_state_not_projectable")
+    history_type = typed.type_ref.field_types["history"]
+    assert isinstance(history_type, ListTypeRef)
+    assert history_type.item_type_ref.name == "String"
 
 
 def test_lowering_loop_state_seed_can_feed_loop_recur_state(tmp_path: Path) -> None:

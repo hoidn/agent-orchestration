@@ -15,6 +15,7 @@ from ..expressions import (
     GeneratedRelpathSeedExpr,
     IfExpr,
     LetStarExpr,
+    LoopStateSeedExpr,
     LiteralExpr,
     LoopRecurExpr,
     MatchExpr,
@@ -34,7 +35,14 @@ from ..loops import (
     projection_relpath_fields,
 )
 from ..procedures import TypedProcedureDef
-from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
+from ..type_env import (
+    ListTypeRef,
+    PathTypeRef,
+    PrimitiveTypeRef,
+    RecordTypeRef,
+    TypeRef,
+    UnionTypeRef,
+)
 from ..typecheck import TypedExpr
 from .context import (
     _compile_error,
@@ -139,7 +147,10 @@ def _emit_repeat_until_from_emitter_input(
             form_path=expr.initial_state_expr.form_path,
         )
     result_type = emitter_input.result_type_ref
-    if not isinstance(result_type, (RecordTypeRef, UnionTypeRef, PathTypeRef, PrimitiveTypeRef)):
+    if not isinstance(
+        result_type,
+        (ListTypeRef, RecordTypeRef, UnionTypeRef, PathTypeRef, PrimitiveTypeRef),
+    ):
         raise _compile_error(
             code="workflow_return_not_exportable",
             message="`loop/recur` result type cannot lower through the shared validation seam",
@@ -172,7 +183,7 @@ def _emit_repeat_until_from_emitter_input(
                 optional_relpath_fields=state_optional_relpath_fields,
             ),
         )
-    seed_step = _build_loop_seed_step(
+    seed_steps = _build_loop_seed_steps(
         expr=expr,
         state_type=state_type,
         state_projection=plan.state_projection,
@@ -316,7 +327,10 @@ def _emit_repeat_until_from_emitter_input(
         span=expr.span,
         form_path=expr.form_path,
     )
-    if isinstance(result_type, (RecordTypeRef, PathTypeRef, PrimitiveTypeRef)):
+    if isinstance(
+        result_type,
+        (ListTypeRef, RecordTypeRef, PathTypeRef, PrimitiveTypeRef),
+    ):
         def _normalized_artifact_name(field) -> str:
             if isinstance(result_type, RecordTypeRef):
                 return field.generated_name
@@ -430,7 +444,7 @@ def _emit_repeat_until_from_emitter_input(
         result_step_id=result_step_id,
         normalized_result_fields=normalized_result_fields,
     )
-    return [seed_step, repeat_step, result_step], result_terminal
+    return [*seed_steps, repeat_step, result_step], result_terminal
 
 
 def _build_loop_current_state_steps(
@@ -532,7 +546,7 @@ def _build_loop_current_state_steps(
     ]
 
 
-def _build_loop_seed_step(
+def _build_loop_seed_steps(
     *,
     expr: LoopRecurExpr,
     state_type: TypeRef,
@@ -542,22 +556,58 @@ def _build_loop_seed_step(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     initial_state_value: Any,
-) -> dict[str, Any]:
+) -> list[dict[str, Any]]:
     from .control_match import _binding_terminal_for_inline_match
 
     if not isinstance(state_type, UnionTypeRef):
-        return _materialize_values_step(
-            step_name=step_name,
-            step_id=step_id,
-            values=_loop_projection_materialize_values(
-                expr.initial_state_expr,
-                projection=state_projection,
-                local_values=local_values,
-                context=context,
-                allow_missing_target_fields=state_projection.optional_relpath_fields,
-                allow_missing_active_fields=True,
-            ),
+        projection_expr = _loop_seed_pure_projection_expr(
+            expr.initial_state_expr,
+            state_type=state_type,
+            local_values=local_values,
         )
+        if projection_expr is not None:
+            lowered = lower_pure_projection_step(
+                projection_expr,
+                result_type=state_type,
+                context=context,
+                local_values=local_values,
+                step_name=step_name,
+                step_id=step_id,
+                source_expr=expr.initial_state_expr,
+                stable_target="loop_state_seed",
+                output_contracts={
+                    field.generated_name: internal_loop_contract(
+                        field,
+                        allow_missing_target_fields=state_projection.optional_relpath_fields,
+                    )
+                    for field in state_projection.flattened_fields
+                },
+            )
+            return [lowered.step]
+        component_steps, component_sources = _build_loop_seed_component_projections(
+            expr=expr.initial_state_expr,
+            state_type=state_type,
+            state_projection=state_projection,
+            step_name=step_name,
+            context=context,
+            local_values=local_values,
+        )
+        return [
+            *component_steps,
+            _materialize_values_step(
+                step_name=step_name,
+                step_id=step_id,
+                values=_loop_projection_materialize_values(
+                    expr.initial_state_expr,
+                    projection=state_projection,
+                    local_values=local_values,
+                    context=context,
+                    allow_missing_target_fields=state_projection.optional_relpath_fields,
+                    allow_missing_active_fields=True,
+                    source_overrides=component_sources,
+                ),
+            )
+        ]
 
     binding_terminal = _binding_terminal_for_inline_match(initial_state_value)
     if binding_terminal is None:
@@ -596,11 +646,151 @@ def _build_loop_seed_step(
                 )
             ],
         }
-    return {
-        "name": step_name,
-        "id": step_id,
-        "match": {"ref": binding_terminal.output_refs["return__variant"], "cases": cases},
-    }
+    return [
+        {
+            "name": step_name,
+            "id": step_id,
+            "match": {"ref": binding_terminal.output_refs["return__variant"], "cases": cases},
+        }
+    ]
+
+
+def _loop_seed_pure_projection_expr(
+    expr: Any,
+    *,
+    state_type: TypeRef,
+    local_values: Mapping[str, Any],
+) -> Any | None:
+    projection_expr = _resolve_loop_pure_projection_expr(
+        expr,
+        local_values=local_values,
+    )
+    if projection_expr is not None and isinstance(state_type, ListTypeRef):
+        return projection_expr
+    if (
+        projection_expr is not None
+        and isinstance(state_type, RecordTypeRef)
+        and isinstance(projection_expr, RecordExpr)
+        and any(
+            isinstance(field_type, ListTypeRef)
+            for field_type in state_type.field_types.values()
+        )
+    ):
+        return projection_expr
+    resolved_seed = _resolve_inline_expr_value(
+        expr,
+        local_values=local_values,
+    )
+    if isinstance(state_type, RecordTypeRef) and isinstance(resolved_seed, Mapping):
+        reconstructed_fields: list[tuple[str, Any]] = []
+        for field in state_type.definition.fields:
+            field_value = resolved_seed.get(field.name)
+            if not is_pure_projection_expr(field_value):
+                break
+            reconstructed_fields.append((field.name, field_value))
+        else:
+            if any(
+                isinstance(state_type.field_types.get(field_name), ListTypeRef)
+                for field_name, _ in reconstructed_fields
+            ):
+                return RecordExpr(
+                    type_name=state_type.name,
+                    fields=tuple(reconstructed_fields),
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=getattr(expr, "expansion_stack", ()),
+                )
+    projection_expr = expr
+    if isinstance(expr, LoopStateSeedExpr) and isinstance(state_type, RecordTypeRef):
+        requires_collection_projection = any(
+            isinstance(state_type.field_types.get(field.name), ListTypeRef)
+            and _is_loop_pure_projection_candidate(field.value_expr)
+            for field in expr.fields
+        )
+        if not requires_collection_projection:
+            return None
+        projection_expr = RecordExpr(
+            type_name=state_type.name,
+            fields=tuple((field.name, field.value_expr) for field in expr.fields),
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    if _is_loop_pure_projection_candidate(projection_expr):
+        return projection_expr
+    return None
+
+
+def _build_loop_seed_component_projections(
+    *,
+    expr: Any,
+    state_type: TypeRef,
+    state_projection: LoopValueProjection,
+    step_name: str,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    if not isinstance(state_type, RecordTypeRef):
+        return [], {}
+    resolved_seed = _resolve_inline_expr_value(
+        expr,
+        local_values=local_values,
+    )
+    component_steps: list[dict[str, Any]] = []
+    component_sources: dict[str, dict[str, Any]] = {}
+    for field in state_projection.flattened_fields:
+        if field.contract_definition.get("type") != "list":
+            continue
+        relative_path = field.source_path[1:]
+        field_type = _loop_record_field_type_at_path(
+            state_type,
+            relative_path,
+        )
+        if not isinstance(field_type, ListTypeRef):
+            continue
+        field_expr = _resolve_inline_field_value(
+            resolved_seed,
+            field_path=relative_path,
+            local_values=local_values,
+        )
+        projection_expr = _resolve_loop_pure_projection_expr(
+            field_expr,
+            local_values=local_values,
+        )
+        if projection_expr is None:
+            continue
+        component_step_name = f"{step_name}__{field.generated_name}"
+        component_step_id = context.normalize_generated_step_id(component_step_name)
+        lowered = lower_pure_projection_step(
+            projection_expr,
+            result_type=field_type,
+            context=context,
+            local_values=local_values,
+            step_name=component_step_name,
+            step_id=component_step_id,
+            source_expr=field_expr,
+            stable_target=f"loop_state_seed_{field.generated_name}",
+        )
+        component_steps.append(lowered.step)
+        component_sources[field.generated_name] = {
+            "ref": lowered.output_refs["return"],
+        }
+    return component_steps, component_sources
+
+
+def _loop_record_field_type_at_path(
+    record_type: RecordTypeRef,
+    field_path: tuple[str, ...],
+) -> TypeRef | None:
+    current: TypeRef = record_type
+    for field_name in field_path:
+        if not isinstance(current, RecordTypeRef):
+            return None
+        next_type = current.field_types.get(field_name)
+        if next_type is None:
+            return None
+        current = next_type
+    return current
 
 
 def _loop_case_outputs_from_projection(
@@ -1165,8 +1355,6 @@ def _lower_loop_terminal_expr(
     local_values: Mapping[str, Any],
     active_variant_name: str | None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
-    from .core import _resolve_lowering_expr_type
-
     step_id = context.normalize_generated_step_id(body_step_name)
     emitted_steps: list[dict[str, Any]] = []
     resolved_state_expr = _resolve_loop_pure_projection_expr(state_expr, local_values=local_values)
@@ -1183,7 +1371,7 @@ def _lower_loop_terminal_expr(
         state_step_id = context.normalize_generated_step_id(state_step_name)
         lowered_state = lower_pure_projection_step(
             resolved_state_expr,
-            result_type=_resolve_lowering_expr_type(resolved_state_expr, context=context),
+            result_type=state_projection.type_ref,
             context=context,
             local_values=local_values,
             step_name=state_step_name,
@@ -1518,6 +1706,7 @@ def _loop_projection_materialize_values(
     active_variant_name: str | None = None,
     allow_missing_target_fields: frozenset[str] = frozenset(),
     allow_missing_active_fields: bool = False,
+    source_overrides: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     from ..loop_state import loop_state_field_origin
 
@@ -1584,27 +1773,31 @@ def _loop_projection_materialize_values(
                         f"{context.step_name_prefix}.{field.generated_name}",
                         _origin_from_context_source(context, field_expr),
                     )
-                current_value = current_value_for(relative_path)
-                if isinstance(current_value, LiteralExpr):
-                    source = {"literal": current_value.value}
-                elif isinstance(current_value, GeneratedRelpathSeedExpr):
-                    context.generated_path_spans.setdefault(
-                        current_value.literal_path,
-                        _origin_from_context_source(context, current_value),
-                    )
-                    source = {"literal": current_value.literal_path}
-                elif isinstance(current_value, str):
-                    source = {"ref": current_value}
+                override_source = (source_overrides or {}).get(field.generated_name)
+                if override_source is not None:
+                    source = dict(override_source)
                 else:
-                    raise _compile_error(
-                        code="workflow_return_not_exportable",
-                        message=(
-                            f"`loop/recur` could not project `{field.generated_name}` from "
-                            f"`{type(expr).__name__}` in this Stage 3 slice"
-                        ),
-                        span=expr.span,
-                        form_path=expr.form_path,
-                    )
+                    current_value = current_value_for(relative_path)
+                    if isinstance(current_value, LiteralExpr):
+                        source = {"literal": current_value.value}
+                    elif isinstance(current_value, GeneratedRelpathSeedExpr):
+                        context.generated_path_spans.setdefault(
+                            current_value.literal_path,
+                            _origin_from_context_source(context, current_value),
+                        )
+                        source = {"literal": current_value.literal_path}
+                    elif isinstance(current_value, str):
+                        source = {"ref": current_value}
+                    else:
+                        raise _compile_error(
+                            code="workflow_return_not_exportable",
+                            message=(
+                                f"`loop/recur` could not project `{field.generated_name}` from "
+                                f"`{type(expr).__name__}` in this Stage 3 slice"
+                            ),
+                            span=expr.span,
+                            form_path=expr.form_path,
+                        )
             else:
                 source = {"literal": projection.placeholder_literals[field.generated_name]}
                 contract_allow_missing = allow_missing_target_fields
@@ -1628,27 +1821,31 @@ def _loop_projection_materialize_values(
                     f"{context.step_name_prefix}.{field.generated_name}",
                     _origin_from_context_source(context, field_origin),
                 )
-        current_value = current_value_for(relative_path)
-        if isinstance(current_value, LiteralExpr):
-            source = {"literal": current_value.value}
-        elif isinstance(current_value, GeneratedRelpathSeedExpr):
-            context.generated_path_spans.setdefault(
-                current_value.literal_path,
-                _origin_from_context_source(context, current_value),
-            )
-            source = {"literal": current_value.literal_path}
-        elif isinstance(current_value, str):
-            source = {"ref": current_value}
+        override_source = (source_overrides or {}).get(field.generated_name)
+        if override_source is not None:
+            source = dict(override_source)
         else:
-            raise _compile_error(
-                code="workflow_return_not_exportable",
-                message=(
-                    f"`loop/recur` could not project `{field.generated_name}` from "
-                    f"`{type(expr).__name__}` in this Stage 3 slice"
-                ),
-                span=expr.span,
-                form_path=expr.form_path,
-            )
+            current_value = current_value_for(relative_path)
+            if isinstance(current_value, LiteralExpr):
+                source = {"literal": current_value.value}
+            elif isinstance(current_value, GeneratedRelpathSeedExpr):
+                context.generated_path_spans.setdefault(
+                    current_value.literal_path,
+                    _origin_from_context_source(context, current_value),
+                )
+                source = {"literal": current_value.literal_path}
+            elif isinstance(current_value, str):
+                source = {"ref": current_value}
+            else:
+                raise _compile_error(
+                    code="workflow_return_not_exportable",
+                    message=(
+                        f"`loop/recur` could not project `{field.generated_name}` from "
+                        f"`{type(expr).__name__}` in this Stage 3 slice"
+                    ),
+                    span=expr.span,
+                    form_path=expr.form_path,
+                )
         values.append(
             {
                 "name": field.generated_name,

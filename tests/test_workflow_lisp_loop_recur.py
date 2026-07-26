@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -412,6 +414,297 @@ def test_lowering_loop_recur_supports_authored_loop_state_seed(tmp_path: Path) -
     repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
 
     assert "state__report" in repeat_step["repeat_until"]["outputs"]
+
+
+def test_pre_218_scalar_loop_authored_mapping_remains_byte_identical(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "scalar_loop.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule scalar_loop)",
+                "  (export orchestrate)",
+                "  (defworkflow orchestrate () -> Int",
+                "    (loop/recur :max 2 :state 0",
+                "      (fn (state)",
+                "        (if (< state 1)",
+                "          (continue (+ state 1))",
+                "          (done state))))))",
+            ]
+        )
+        + "\n",
+    )
+
+    result = _compile_entrypoint(
+        workflow_path,
+        source_root=tmp_path,
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+    authored = result.entry_result.lowered_workflows[0].authored_mapping
+    canonical_bytes = json.dumps(
+        authored,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+    assert len(canonical_bytes) == 6649
+    assert hashlib.sha256(canonical_bytes).hexdigest() == (
+        "57905acdc66527abdd6e021ebc97c27cfac20675bd335ae6de4ce1d16b75c479"
+    )
+
+
+def test_lowering_loop_recur_uses_pure_projection_for_list_constructor_seed(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "loop_recur_list_constructor_seed.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.18")',
+                "  (defmodule loop_recur_list_constructor_seed)",
+                "  (export orchestrate)",
+                "  (defworkflow orchestrate () -> List[String]",
+                '    (loop/recur :max 2 :state (list "first" "second")',
+                "      (fn (state)",
+                "        (if (list/empty? state)",
+                "          (done state)",
+                "          (continue (list/rest state)))))))",
+            ]
+        ),
+    )
+
+    result = _compile_entrypoint(
+        workflow_path,
+        source_root=tmp_path,
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+    bundle = result.validated_bundles_by_name[
+        "loop_recur_list_constructor_seed::orchestrate"
+    ]
+    seed_step = next(
+        step
+        for step in bundle.surface.steps
+        if step.name.endswith("__seed")
+    )
+    authored = result.entry_result.lowered_workflows[0].authored_mapping
+    authored_repeat_step = next(
+        step for step in authored["steps"] if "repeat_until" in step
+    )
+
+    assert seed_step.pure_projection is not None
+    assert seed_step.pure_projection["output_contracts"] == {
+        "state": {
+            "kind": "collection",
+            "type": "list",
+            "items": {"type": "string"},
+        }
+    }
+    list_type_descriptor = {
+        "kind": "list",
+        "item": {"kind": "primitive", "name": "String"},
+    }
+    assert seed_step.pure_projection["payload"]["result_type"] == list_type_descriptor
+    assert [
+        name
+        for name, contract in authored_repeat_step["repeat_until"]["outputs"].items()
+        if contract.get("kind") == "collection"
+    ] == ["state", "result"]
+    rest_projection = next(
+        child["pure_projection"]
+        for router in authored_repeat_step["repeat_until"]["steps"]
+        if "else" in router
+        for child in router["else"]["steps"]
+        if child.get("pure_projection", {})
+        .get("payload", {})
+        .get("expr", {})
+        .get("operator")
+        == "list/rest"
+    )
+    assert rest_projection["payload"]["result_type"] == list_type_descriptor
+
+    materialized_values: list[dict[str, object]] = []
+
+    def collect_values(value: object) -> None:
+        if isinstance(value, dict):
+            materialize = value.get("materialize_artifacts")
+            if isinstance(materialize, dict):
+                values = materialize.get("values")
+                if isinstance(values, list):
+                    materialized_values.extend(
+                        item for item in values if isinstance(item, dict)
+                    )
+            for child in value.values():
+                collect_values(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect_values(child)
+
+    collect_values(authored_repeat_step["repeat_until"])
+    assert {
+        "name": "result",
+        "source": {"literal": []},
+        "contract": {
+            "kind": "collection",
+            "type": "list",
+            "items": {"type": "string"},
+        },
+    } in materialized_values
+
+
+def test_lowering_loop_recur_projects_mixed_list_and_generated_relpath_seed(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "loop_recur_mixed_list_relpath_seed.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.18")',
+                "  (defmodule loop_recur_mixed_list_relpath_seed)",
+                "  (export orchestrate)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defworkflow orchestrate () -> List[String]",
+                "    (loop/recur",
+                "      :max 1",
+                "      :state (loop-state",
+                '               (items List[String] (list "first" "second"))',
+                "               (report WorkReport",
+                "                 (__generated-relpath-seed__",
+                "                   WorkReport",
+                '                   "artifacts/work/mixed-list-seed.md"',
+                '                   "mixed-list-seed")))',
+                "      (fn (state)",
+                "        (done state.items)))))",
+            ]
+        ),
+    )
+
+    result = _compile_entrypoint(
+        workflow_path,
+        source_root=tmp_path,
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+    bundle = result.validated_bundles_by_name[
+        "loop_recur_mixed_list_relpath_seed::orchestrate"
+    ]
+    seed_step = next(
+        step
+        for step in bundle.surface.steps
+        if step.name.endswith("__seed")
+    )
+    list_component_step = next(
+        step
+        for step in bundle.surface.steps
+        if step.name == f"{seed_step.name}__state__items"
+    )
+
+    assert list_component_step.pure_projection is not None
+    assert list_component_step.pure_projection["payload"]["expr"]["kind"] == "list"
+    assert list_component_step.pure_projection["output_contracts"]["__result__"] == {
+        "kind": "collection",
+        "type": "list",
+        "items": {"type": "string"},
+    }
+    assert not seed_step.pure_projection
+    assert seed_step.materialize_artifacts
+    seed_values = {
+        value["name"]: value
+        for value in seed_step.materialize_artifacts["values"]
+    }
+    assert seed_values["state__items"] == {
+        "name": "state__items",
+        "source": {
+            "ref": (
+                f"root.steps.{list_component_step.name}."
+                "artifacts.__result__"
+            )
+        },
+        "contract": {
+            "kind": "collection",
+            "type": "list",
+            "items": {"type": "string"},
+        },
+    }
+    assert seed_values["state__report"] == {
+        "name": "state__report",
+        "source": {"literal": "artifacts/work/mixed-list-seed.md"},
+        "contract": {
+            "kind": "relpath",
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": False,
+        },
+    }
+    assert (
+        "artifacts/work/mixed-list-seed.md"
+        in result.entry_result.lowered_workflows[0].origin_map.generated_path_spans
+    )
+
+
+@pytest.mark.parametrize(
+    "item_type",
+    (
+        "Optional[String]",
+        "Map[String,Int]",
+    ),
+)
+def test_lowering_loop_recur_carries_nested_transportable_list_elements(
+    tmp_path: Path,
+    item_type: str,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "loop_recur_nested_list_state.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.18")',
+                "  (defmodule loop_recur_nested_list_state)",
+                "  (export orchestrate)",
+                f"  (defworkflow orchestrate () -> List[{item_type}]",
+                "    (let* ((item",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs ()",
+                f"               :returns {item_type})))",
+                "      (loop/recur :max 1 :state (list item)",
+                "        (fn (state)",
+                "          (done state))))))",
+            ]
+        ),
+    )
+
+    result = _compile_entrypoint(
+        workflow_path,
+        source_root=tmp_path,
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+    bundle = result.validated_bundles_by_name[
+        "loop_recur_nested_list_state::orchestrate"
+    ]
+    repeat_step = next(
+        step for step in bundle.surface.steps if step.repeat_until is not None
+    )
+
+    state_contract = repeat_step.repeat_until.outputs["state"]
+    assert state_contract.kind == "collection"
+    assert state_contract.value_type == "list"
+    assert state_contract.definition["items"]["type"] in {"optional", "map"}
 
 
 def test_lowering_loop_recur_supports_relpath_result_projection(tmp_path: Path) -> None:

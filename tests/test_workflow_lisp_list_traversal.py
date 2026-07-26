@@ -19,8 +19,16 @@ from orchestrator.workflow_lisp.expressions import (
     ProcedureCallExpr,
     elaborate_expression,
 )
+from orchestrator.workflow_lisp.loops import ensure_loop_projectable_type
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.syntax import SyntaxNode, build_syntax_module
+from orchestrator.workflow_lisp.type_env import (
+    ListTypeRef,
+    MapTypeRef,
+    OptionalTypeRef,
+    PrimitiveTypeRef,
+    TypeParamRef,
+)
 
 
 _LIST_TRAVERSAL_AUTHORED_HEADS = (
@@ -1339,7 +1347,189 @@ def test_empty_list_uses_declared_return_context_through_match_arms(
     assert [node.element_type_ref.name for node in list_nodes] == ["Int", "Int"]
 
 
-def test_empty_list_in_loop_state_reaches_the_task4_projection_gate(
+def test_empty_list_in_loop_state_lowers_as_one_collection_field(
+    tmp_path: Path,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule empty_loop_state_context)
+          (export orchestrate)
+          (defworkflow orchestrate () -> Int
+            (loop/recur
+              :max 1
+              :state (loop-state
+                (items List[Int] (list)))
+              (fn (state)
+                (done 0)))))
+        """,
+    )
+
+    repeat_step = next(
+        step
+        for step in result.validated_bundle.surface.steps
+        if step.repeat_until is not None
+    )
+    state_fields = {
+        name: dict(contract.definition)
+        for name, contract in repeat_step.repeat_until.outputs.items()
+        if name.startswith("state")
+    }
+    assert set(state_fields) == {"state__items"}
+    assert {
+        key: value
+        for key, value in state_fields["state__items"].items()
+        if key != "from"
+    } == {
+        "kind": "collection",
+        "type": "list",
+        "items": {"type": "integer"},
+    }
+    assert state_fields["state__items"]["from"]["ref"].endswith(
+        ".artifacts.state__items"
+    )
+
+
+@pytest.mark.parametrize(
+    "list_type",
+    (
+        "List[String]",
+        "List[Path.artifact-root]",
+    ),
+)
+def test_loop_recur_accepts_whole_list_transportable_state_and_result(
+    tmp_path: Path,
+    list_type: str,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        f"""
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule list_loop_contract)
+          (export orchestrate)
+          (defworkflow orchestrate ((items {list_type})) -> {list_type}
+            (loop/recur
+              :max 1
+              :state items
+              (fn (state)
+                (done state)))))
+        """,
+    )
+
+    repeat_step = next(
+        step
+        for step in result.validated_bundle.surface.steps
+        if step.repeat_until is not None
+    )
+    assert repeat_step.repeat_until.outputs["state"].kind == "collection"
+    assert repeat_step.repeat_until.outputs["state"].value_type == "list"
+    assert repeat_step.repeat_until.outputs["result"].kind == "collection"
+    assert repeat_step.repeat_until.outputs["result"].value_type == "list"
+
+
+@pytest.mark.parametrize("state_kind", ("optional", "map"))
+def test_loop_recur_keeps_top_level_optional_and_map_state_unsupported(
+    state_kind: str,
+) -> None:
+    string_type = PrimitiveTypeRef(name="String")
+    state_type = (
+        OptionalTypeRef(name="Optional[String]", item_type_ref=string_type)
+        if state_kind == "optional"
+        else MapTypeRef(
+            name="Map[String,String]",
+            key_type_ref=string_type,
+            value_type_ref=string_type,
+        )
+    )
+    span = _expression_syntax("1").span
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        ensure_loop_projectable_type(
+            state_type,
+            code="loop_recur_state_type_invalid",
+            span=span,
+            form_path=("workflow-lisp", "defworkflow", "orchestrate"),
+        )
+
+    assert excinfo.value.diagnostics[0].code == "loop_recur_state_type_invalid"
+
+
+@pytest.mark.parametrize("state_kind", ("optional", "map"))
+def test_loop_recur_keeps_generic_top_level_optional_and_map_state_unsupported(
+    state_kind: str,
+) -> None:
+    type_param = TypeParamRef(name="T")
+    string_type = PrimitiveTypeRef(name="String")
+    state_type = (
+        OptionalTypeRef(name="Optional[T]", item_type_ref=type_param)
+        if state_kind == "optional"
+        else MapTypeRef(
+            name="Map[String,T]",
+            key_type_ref=string_type,
+            value_type_ref=type_param,
+        )
+    )
+    span = _expression_syntax("1").span
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        ensure_loop_projectable_type(
+            state_type,
+            code="loop_recur_state_type_invalid",
+            span=span,
+            form_path=("workflow-lisp", "defworkflow", "orchestrate"),
+        )
+
+    assert excinfo.value.diagnostics[0].code == "loop_recur_state_type_invalid"
+
+
+def test_loop_recur_defers_unresolved_generic_list_projection_validation() -> None:
+    span = _expression_syntax("1").span
+
+    ensure_loop_projectable_type(
+        ListTypeRef(
+            name="List[T]",
+            item_type_ref=TypeParamRef(name="T"),
+        ),
+        code="loop_recur_state_type_invalid",
+        span=span,
+        form_path=("workflow-lisp", "defworkflow", "orchestrate"),
+    )
+
+
+def test_generic_list_loop_revalidates_supported_concrete_specialization(
+    tmp_path: Path,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule generic_supported_list_loop)
+          (export orchestrate)
+          (defproc carry-list
+            :forall (T)
+            ((items List[T]))
+            -> List[T]
+            :effects ()
+            :lowering inline
+            (loop/recur :max 1 :state items
+              (fn (state)
+                (done state))))
+          (defworkflow orchestrate ((items List[String])) -> List[String]
+            (carry-list items)))
+        """,
+    )
+
+    assert result.validated_bundle.surface.outputs["__result__"].kind == "collection"
+
+
+def test_generic_list_loop_rejects_unsupported_concrete_specialization(
     tmp_path: Path,
 ) -> None:
     assert (
@@ -1349,18 +1539,105 @@ def test_empty_list_in_loop_state_reaches_the_task4_projection_gate(
             (workflow-lisp
               (:language "0.1")
               (:target-dsl "2.18")
-              (defmodule empty_loop_state_context)
+              (defmodule generic_unsupported_list_loop)
               (export orchestrate)
+              (defrecord Item
+                (value Int))
+              (defproc carry-list
+                :forall (T)
+                ((items List[T]))
+                -> List[T]
+                :effects ()
+                :lowering inline
+                (loop/recur :max 1 :state items
+                  (fn (state)
+                    (done state))))
+              (defproc instantiate-unsupported
+                ((items List[Item]))
+                -> Int
+                :effects ()
+                :lowering inline
+                (let* ((ignored (carry-list items)))
+                  0))
+              (defworkflow orchestrate () -> Int
+                0))
+            """,
+        )
+        == "list_collection_contract_unsupported"
+    )
+
+
+@pytest.mark.parametrize(
+    "state_type",
+    (
+        "Optional[T]",
+        "Map[String,T]",
+    ),
+)
+def test_generic_optional_and_map_loops_fail_before_specialization(
+    tmp_path: Path,
+    state_type: str,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            f"""
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule generic_unsupported_container_loop)
+              (export orchestrate)
+              (defproc carry-container
+                :forall (T)
+                ((value {state_type}))
+                -> {state_type}
+                :effects ()
+                :lowering inline
+                (loop/recur :max 1 :state value
+                  (fn (state)
+                    (done state))))
+              (defworkflow orchestrate () -> Int
+                0))
+            """,
+        )
+        == "loop_recur_state_type_invalid"
+    )
+
+
+@pytest.mark.parametrize(
+    ("element_definition", "seed_expr"),
+    (
+        ("(defrecord Item (value Int))", "(list (record Item :value 1))"),
+        (
+            "(defunion Item (READY (value Int)))",
+            "(list (variant Item READY :value 1))",
+        ),
+    ),
+)
+def test_loop_recur_rejects_record_and_union_collection_elements(
+    tmp_path: Path,
+    element_definition: str,
+    seed_expr: str,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            f"""
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule unsupported_loop_list)
+              (export orchestrate)
+              {element_definition}
               (defworkflow orchestrate () -> Int
                 (loop/recur
                   :max 1
-                  :state (loop-state
-                    (items List[Int] (list)))
+                  :state {seed_expr}
                   (fn (state)
                     (done 0)))))
             """,
         )
-        == "loop_state_not_projectable"
+        == "list_collection_contract_unsupported"
     )
 
 

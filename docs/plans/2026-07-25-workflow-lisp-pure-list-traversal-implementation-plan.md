@@ -489,36 +489,90 @@ resume.
 **Files:**
 
 - Modify: `orchestrator/workflow_lisp/loops.py`
-- Modify: `orchestrator/workflow_lisp/loop_state.py`
 - Modify: `orchestrator/workflow_lisp/lowering/control_loops.py`
+- Modify: `orchestrator/workflow_lisp/typecheck_dispatch.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Inspect only: `orchestrator/workflow_lisp/loop_state.py` (its existing
+  owner already delegates projectability to the shared loop gate)
+- Modify: `tests/test_workflow_lisp_loop_state.py`
 - Modify: `tests/test_workflow_lisp_loop_recur.py`
 - Modify: `tests/test_workflow_lisp_list_traversal.py`
-- Modify: the narrow owning resume test selected from
-  `tests/test_resume_command.py` and
-  `tests/test_workflow_lisp_lexical_checkpoint_default_resume.py`
+- Modify: `tests/test_resume_command.py` as the selected real resume owner
 
 **RED:**
 
-- [ ] Prove eligible `List[String]`, `List[Path.artifact-root]`, and one
+- [x] Prove eligible `List[String]`, `List[Path.artifact-root]`, and one
       supported nested Optional/Map list are currently rejected as loop state.
-- [ ] Prove top-level Optional/Map and list-of-record/union remain rejected.
-- [ ] Cover empty placeholder `[]`, one-field collection projection, canonical
+- [x] Prove top-level Optional/Map and list-of-record/union remain rejected.
+- [x] Cover empty placeholder `[]`, one-field collection projection, canonical
       JSON array persistence, and descriptor identity.
-- [ ] Add clean resume plus tampered descriptor, non-array, invalid element,
+- [x] Add clean resume plus tampered descriptor, non-array, invalid element,
       payload digest, and checkpoint digest failures.
 
 **GREEN:**
 
-- [ ] Replace the unconditional list rejection in
+- [x] Replace the unconditional list rejection in
       `ensure_loop_projectable_type` with the shared whole-list predicate.
-- [ ] Derive one collection contract field; do not flatten indices.
-- [ ] Add collection-aware empty placeholders without changing scalar,
+- [x] Derive one collection contract field; do not flatten indices.
+- [x] Add collection-aware empty placeholders without changing scalar,
       record, union, relpath, Optional, or Map top-level rules.
-- [ ] Reuse existing contract coercion and checkpoint validation on write and
+- [x] Reuse existing contract coercion and checkpoint validation on write and
       restore; do not create report/pointer artifacts.
-- [ ] Rerun loop, contract, state projection, lexical checkpoint, and resume
+- [x] Rerun loop, contract, state projection, lexical checkpoint, and resume
       selectors.
 - [ ] Obtain `TASK4_SPEC_APPROVED`, then `TASK4_QUALITY_APPROVED`, and commit.
+
+**Implementation record — commit pending (2026-07-25):**
+
+- Corrected RED was 6 failed / 4 passed at the list loop-carriage boundary.
+  The next WCC RED was `typed list expression is missing its element type`;
+  runtime then failed before generic named collection-root extraction.
+- Eligible whole-list contracts now use `is_transportable_result_type`.
+  Authored generic-procedure coverage proves unresolved `List[T]` defers and
+  is revalidated when specialized: `List[String]` passes, while
+  `List[Item]` fails with `list_collection_contract_unsupported`. Generic
+  top-level `Optional[T]` and `Map[String,T]` fail before specialization, so
+  their pre-existing refusal remains unconditional.
+- Direct whole-list seeds use the existing pure projection. A record seed
+  mixing a pure list expression with `GeneratedRelpathSeedExpr` now emits one
+  deterministic list-only pure-projection component, then keeps the canonical
+  seed step on `materialize_artifacts`: the list field is sourced from that
+  component and the generated relpath remains on its established literal,
+  contract, and origin-map path. The whole carrier and
+  `GeneratedRelpathSeedExpr` were not broadened into a pure seed. Named
+  collection roots are extracted generically at runtime; nested record
+  collection fields retain flattened field lookup.
+- Resume coverage now interrupts at the exact post-persist,
+  post-lexical-checkpoint committed `CONTINUE` boundary. Persisted state
+  carries `["first", "second"]`; resume reports a restored loop frame and
+  executes only iteration 1, proving iteration 0 is not replayed.
+- The target-2.15 scalar loop oracle was captured independently from exact
+  pre-edit commit `f6dda982` via `git archive`: 6,649 canonical authored-
+  mapping bytes, digest
+  `sha256:57905acdc66527abdd6e021ebc97c27cfac20675bd335ae6de4ce1d16b75c479`.
+  The Task-4 tree produces the identical bytes and digest.
+- Fresh final owner-file verification:
+  `pytest -q tests/test_workflow_lisp_list_traversal.py
+  tests/test_workflow_lisp_loop_recur.py
+  tests/test_workflow_lisp_loop_state.py tests/test_resume_command.py`
+  produced 327 passes in 5.04 seconds, and the same four files collect all
+  327 tests. The focused correction runs produced 221 loop/list passes and
+  27 loop-state/list-resume passes (79 deselected). Earlier adjacent
+  checkpoint/contract/pure-projection/state verification produced 284 passes
+  plus the independently reproduced committed-HEAD failure
+  `test_provider_valid_output_bundle_overrides_raw_nonzero_exit`; the Task-4
+  diff does not touch that behavior. Scoped diff checking is clean.
+- The first correction evidence review rejected direct-only generic tests and
+  a whole-record pure route for the mixed seed. Those findings were resolved
+  by the authored specialization tests and hybrid component/materializer
+  lowering above. Ordered correction review then returned
+  `TASK4_CORRECTIONS_SPEC_APPROVED` followed by
+  `TASK4_CORRECTIONS_QUALITY_APPROVED`.
+- `loop_state.py` required no production edit because it already delegates to
+  the shared projectability owner. Ordered preliminary full-diff review
+  returned `TASK4_SPEC_APPROVED` followed by `TASK4_QUALITY_APPROVED`; the
+  exact final diff is the commit candidate for spec-then-quality
+  reaffirmation.
 
 ## Task 5: Add Generic Repeat Exhaustion Diagnostic Metadata
 

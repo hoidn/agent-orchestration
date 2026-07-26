@@ -8845,6 +8845,14 @@ class WorkflowExecutor:
                 # Generated scalar pure-projection bindings may use authored boundary
                 # names instead of the generic "return" output label.
                 candidate = result_value
+            elif contract.get("kind") == "collection" and (
+                output_name == "__result__" or "__" not in output_name
+            ):
+                # A root collection remains one contract field even when loop
+                # plumbing gives it an authored `state` or `result` name. Nested
+                # record collection fields retain their flattened `prefix__field`
+                # names and continue through the structured lookup below.
+                candidate = result_value
             else:
                 path_parts = output_name.split("__")
                 if len(path_parts) > 1:

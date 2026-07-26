@@ -61,6 +61,7 @@ class LoopValueProjection:
 
     kind: str
     prefix: str
+    type_ref: TypeRef
     flattened_fields: tuple[FlattenedContractField, ...]
     union_projection: UnionWorkflowBoundaryProjection | None = None
     placeholder_literals: Mapping[str, Any] = ()
@@ -125,7 +126,7 @@ def ensure_loop_projectable_type(
             span=span,
             form_path=form_path,
         )
-    if isinstance(type_ref, (ListTypeRef, MapTypeRef, OptionalTypeRef)):
+    if isinstance(type_ref, (MapTypeRef, OptionalTypeRef)):
         _raise_loop_error(
             code=code,
             message=f"`{type_ref}` cannot be carried across `loop/recur` outputs",
@@ -135,8 +136,22 @@ def ensure_loop_projectable_type(
     if _contains_type_param_ref(type_ref):
         # Generic procedures are typechecked before specialization requests are
         # materialized. Defer loop-output projection validation until the
-        # monomorphic helper is re-typechecked with concrete bindings.
+        # monomorphic helper is re-typechecked with concrete bindings. The
+        # top-level Optional/Map refusals above remain unconditional.
         return
+    if isinstance(type_ref, ListTypeRef):
+        from .contracts import is_transportable_result_type
+
+        if not is_transportable_result_type(type_ref):
+            _raise_loop_error(
+                code="list_collection_contract_unsupported",
+                message=(
+                    f"`{type_ref.name}` cannot be carried across `loop/recur` because "
+                    "its complete list contract is not transportable"
+                ),
+                span=span,
+                form_path=form_path,
+            )
     try:
         project_loop_value(
             type_ref,
@@ -233,6 +248,7 @@ def project_loop_value(
         return LoopValueProjection(
             kind=kind,
             prefix=prefix,
+            type_ref=type_ref,
             flattened_fields=tuple(renamed_fields),
             union_projection=renamed_union_projection,
             placeholder_literals=_placeholder_literals(tuple(renamed_fields)),
@@ -252,6 +268,7 @@ def project_loop_value(
     return LoopValueProjection(
         kind=kind,
         prefix=prefix,
+        type_ref=type_ref,
         flattened_fields=fields,
         union_projection=None,
         placeholder_literals=_placeholder_literals(fields),
@@ -368,6 +385,8 @@ def _placeholder_literals(fields: tuple[FlattenedContractField, ...]) -> dict[st
         elif field_type == "relpath":
             under = str(definition.get("under", "state")).rstrip("/")
             placeholders[field.generated_name] = f"{under}/loop-placeholder.txt"
+        elif field_type == "list":
+            placeholders[field.generated_name] = []
         else:
             placeholders[field.generated_name] = ""
     return placeholders

@@ -1221,6 +1221,7 @@ def _typecheck(
             form_path=expr.body_expr.form_path,
         )
         exhaustion_summaries: list[EffectSummary] = []
+        typed_exhausted_expr = None
         if expr.on_exhausted_result_expr is not None:
             typed_exhausted = _typecheck(
                 expr.on_exhausted_result_expr,
@@ -1252,8 +1253,15 @@ def _typecheck(
                     form_path=expr.on_exhausted_result_expr.form_path,
                 )
             exhaustion_summaries.append(typed_exhausted.effect_summary)
+            typed_exhausted_expr = typed_exhausted.expr
         return _typed(
-            expr=expr,
+            expr=replace(
+                expr,
+                max_iterations_expr=typed_max.expr,
+                initial_state_expr=typed_state.expr,
+                body_expr=typed_body.expr,
+                on_exhausted_result_expr=typed_exhausted_expr,
+            ),
             type_ref=typed_body.type_ref.result_type_ref,
             effect=merge_effect_summaries(
                 typed_max.effect_summary,

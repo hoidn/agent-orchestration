@@ -17,6 +17,7 @@ import hashlib
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
 import orchestrator.cli.commands.resume as resume_command
 import orchestrator.workflow.executor as executor_module
+import orchestrator.workflow_lisp.lexical_checkpoint_restore as checkpoint_restore
 from orchestrator.cli.main import main as cli_main
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.monitor.process import write_process_metadata
@@ -25,6 +26,7 @@ from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.pure_expr import canonical_json_for_pure_value
 from orchestrator.workflow.call_frame_state import _CallFrameStateManager
 from orchestrator.workflow.executor_runtime import CallFrameStateManager
 from orchestrator.workflow.provider_attempts import (
@@ -864,6 +866,100 @@ def _compile_root_result_collection_bundle(workspace: Path):
     return module_path, bundle
 
 
+def _compile_list_loop_resume_bundle(workspace: Path):
+    module_path = workspace / "list_loop_resume.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.18")',
+                "  (defmodule list_loop_resume)",
+                "  (export orchestrate)",
+                "  (defworkflow orchestrate () -> List[String]",
+                '    (loop/recur :max 2 :state (list "first")',
+                "      (fn (state)",
+                "        (if (< (list/length state) 2)",
+                '          (continue (list/append state "second"))',
+                "          (done state))))))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(workspace,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=workspace,
+    )
+    bundle = result.validated_bundles_by_name["list_loop_resume::orchestrate"]
+    return module_path, bundle
+
+
+def _resolved_generated_bundle_path(
+    workspace: Path,
+    state_manager: StateManager,
+    *,
+    step,
+) -> Path:
+    template = step.common.output_bundle["path"]
+    assert template.startswith("${inputs.") and template.endswith("}")
+    input_name = template[len("${inputs.") : -1]
+    assert state_manager.state is not None
+    relative_path = state_manager.state.bound_inputs[input_name]
+    assert isinstance(relative_path, str)
+    return workspace / relative_path
+
+
+def _force_single_generated_step_resume(
+    state_manager: StateManager,
+    *,
+    step_name: str,
+) -> None:
+    assert state_manager.state is not None
+    state_manager.state.status = "failed"
+    state_manager.state.steps = {
+        step_name: {"status": "failed", "exit_code": 1}
+    }
+    state_manager._write_state()
+
+
+def _list_checkpoint_restore_payload() -> dict[str, object]:
+    origin_key = "list-loop::loop-state"
+    binding: dict[str, object] = {
+        "binding_name": "state",
+        "binding_kind": "loop_frame",
+        "type_ref": "List[String]",
+        "transport": "inline_json",
+        "value": ["first"],
+        "source_map_origin_key": origin_key,
+        "source_step_name": "list-loop__seed",
+        "source_step_id": "root.list_loop__seed",
+    }
+    binding["schema_digest"] = checkpoint_restore._binding_schema_digest(binding)
+    binding["value_digest"] = checkpoint_restore._binding_value_digest(binding)
+    return {
+        "schema_version": checkpoint_restore.RESTORE_PAYLOAD_SCHEMA_VERSION,
+        "eligibility": ["loop_frame"],
+        "restorable": True,
+        "resume_after": {
+            "program_point_id": "pp:list-loop",
+            "step_id": "root.list_loop__body",
+            "execution_index": 1,
+            "continuation_kind": "loop_back_edge",
+        },
+        "bindings": [binding],
+        "active_variant_proofs": [],
+        "loop_frame": None,
+        "completed_effect_barrier": None,
+        "resource_observations": [],
+    }
+
+
 def test_projection_runtime_plan_includes_root_result_output_bundle_entries(tmp_path: Path):
     workflow_path = tmp_path / "root_result_resume.yaml"
     workflow_path.write_text(
@@ -939,6 +1035,277 @@ def test_resume_root_result_collection_bundles_persist_and_resume_at_lexical_che
     assert resumed["workflow_outputs"] == {"__result__": [1, 2, 3]}
     replay_log = temp_workspace / "state" / "replay.log"
     assert replay_log.read_text(encoding="utf-8").split() == ["optional", "list"]
+
+
+def test_resume_list_loop_restores_committed_continue_boundary_without_replay(
+    tmp_path: Path,
+):
+    temp_workspace = tmp_path
+    run_id = "list-loop-committed-continue-resume"
+    module_path, bundle = _compile_list_loop_resume_bundle(temp_workspace)
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize(
+        str(module_path),
+        context=bundle_context_dict(bundle),
+    )
+    executor = WorkflowExecutor(
+        bundle,
+        temp_workspace,
+        state_manager,
+        retry_delay_ms=0,
+    )
+    original_hook = (
+        WorkflowExecutor._emit_lexical_checkpoint_shadow_after_repeat_until_commit
+    )
+
+    class _InjectedCommittedContinueInterruption(BaseException):
+        pass
+
+    def _interrupt_after_committed_continue(
+        current_executor,
+        step,
+        progress,
+    ):
+        original_hook(current_executor, step, progress)
+        if (
+            progress.get("current_iteration") == 0
+            and progress.get("condition_evaluated_for_iteration") == 0
+            and progress.get("last_condition_result") is False
+        ):
+            raise _InjectedCommittedContinueInterruption
+
+    with patch.object(
+        WorkflowExecutor,
+        "_emit_lexical_checkpoint_shadow_after_repeat_until_commit",
+        new=_interrupt_after_committed_continue,
+    ):
+        with pytest.raises(_InjectedCommittedContinueInterruption):
+            executor.execute()
+
+    persisted = state_manager.load()
+    loop_name = next(
+        step.name
+        for step in bundle.surface.steps
+        if step.repeat_until is not None
+    )
+    assert persisted.status == "running"
+    assert persisted.repeat_until[loop_name] == {
+        "current_iteration": 0,
+        "completed_iterations": [],
+        "condition_evaluated_for_iteration": 0,
+        "last_condition_result": False,
+    }
+    assert persisted.steps[loop_name]["status"] == "running"
+    assert persisted.steps[loop_name]["artifacts"]["status"] == "CONTINUE"
+    assert persisted.steps[loop_name]["artifacts"]["state"] == [
+        "first",
+        "second",
+    ]
+
+    resume_state_manager = StateManager(
+        workspace=temp_workspace,
+        run_id=run_id,
+    )
+    resume_state_manager.load()
+    resumed_iterations: list[int] = []
+    loop_executor_type = type(executor.loop_executor)
+    original_body = loop_executor_type._execute_typed_loop_body
+
+    def _record_resumed_iteration(current_loop_executor, *args, **kwargs):
+        resumed_iterations.append(kwargs["iteration_index"])
+        return original_body(current_loop_executor, *args, **kwargs)
+
+    with patch.object(
+        loop_executor_type,
+        "_execute_typed_loop_body",
+        new=_record_resumed_iteration,
+    ):
+        resumed = WorkflowExecutor(
+            bundle,
+            temp_workspace,
+            resume_state_manager,
+            retry_delay_ms=0,
+        ).execute(resume=True)
+
+    assert resumed["status"] == "completed"
+    assert resumed["workflow_outputs"] == {
+        "__result__": ["first", "second"],
+    }
+    assert resumed_iterations == [1]
+    assert resumed["repeat_until"][loop_name] == {
+        "current_iteration": None,
+        "completed_iterations": [0, 1],
+        "condition_evaluated_for_iteration": 1,
+        "last_condition_result": True,
+    }
+    restore_payload = json.loads(
+        resume_state_manager.workflow_lisp_checkpoint_restore_report_path().read_text(
+            encoding="utf-8"
+        )
+    )
+    assert restore_payload["decision_kind"] == "RESTORED"
+    assert restore_payload["restored_loop_frames"] >= 1
+
+
+def test_resume_list_loop_preserves_canonical_collection_projection_bundle(
+    tmp_path: Path,
+):
+    temp_workspace = tmp_path
+    run_id = "list-loop-collection-resume"
+    module_path, bundle = _compile_list_loop_resume_bundle(temp_workspace)
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize(
+        str(module_path),
+        context=bundle_context_dict(bundle),
+    )
+    first = WorkflowExecutor(
+        bundle,
+        temp_workspace,
+        state_manager,
+        retry_delay_ms=0,
+    ).execute()
+
+    assert first["status"] == "completed"
+    seed_step = next(
+        step
+        for step in bundle.surface.steps
+        if step.name.endswith("__seed")
+    )
+    seed_bundle_path = _resolved_generated_bundle_path(
+        temp_workspace,
+        state_manager,
+        step=seed_step,
+    )
+    seed_bundle_bytes = seed_bundle_path.read_bytes()
+    seed_bundle = json.loads(seed_bundle_bytes)
+    assert seed_bundle["result"] == ["first"]
+    assert seed_bundle_bytes.decode("utf-8") == canonical_json_for_pure_value(
+        seed_bundle
+    )
+    _force_single_generated_step_resume(
+        state_manager,
+        step_name=seed_step.name,
+    )
+
+    resume_state_manager = StateManager(
+        workspace=temp_workspace,
+        run_id=run_id,
+    )
+    resume_state_manager.load()
+    resumed = WorkflowExecutor(
+        bundle,
+        temp_workspace,
+        resume_state_manager,
+        retry_delay_ms=0,
+    ).execute(resume=True)
+
+    assert resumed["status"] == "completed"
+    assert resumed["workflow_outputs"] == {"__result__": ["first", "second"]}
+    assert resumed["steps"][seed_step.name]["debug"]["pure_projection"] == {
+        "reused_bundle": True
+    }
+    assert seed_bundle_path.read_bytes() == seed_bundle_bytes
+
+
+@pytest.mark.parametrize(
+    ("tampered_field", "tampered_value", "expected_error"),
+    (
+        ("result", "not-an-array", "contract_violation"),
+        ("result", [1], "contract_violation"),
+        (
+            "payload_digest",
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "pure_projection_resume_digest_mismatch",
+        ),
+    ),
+    ids=("non-array", "invalid-element", "payload-digest"),
+)
+def test_resume_list_loop_fails_closed_on_tampered_collection_projection_bundle(
+    tmp_path: Path,
+    tampered_field: str,
+    tampered_value: object,
+    expected_error: str,
+):
+    temp_workspace = tmp_path
+    run_id = f"list-loop-tamper-{tampered_field}"
+    module_path, bundle = _compile_list_loop_resume_bundle(temp_workspace)
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize(
+        str(module_path),
+        context=bundle_context_dict(bundle),
+    )
+    first = WorkflowExecutor(
+        bundle,
+        temp_workspace,
+        state_manager,
+        retry_delay_ms=0,
+    ).execute()
+    assert first["status"] == "completed"
+
+    seed_step = next(
+        step
+        for step in bundle.surface.steps
+        if step.name.endswith("__seed")
+    )
+    seed_bundle_path = _resolved_generated_bundle_path(
+        temp_workspace,
+        state_manager,
+        step=seed_step,
+    )
+    seed_bundle = json.loads(seed_bundle_path.read_text(encoding="utf-8"))
+    seed_bundle[tampered_field] = tampered_value
+    seed_bundle_path.write_text(
+        canonical_json_for_pure_value(seed_bundle),
+        encoding="utf-8",
+    )
+    _force_single_generated_step_resume(
+        state_manager,
+        step_name=seed_step.name,
+    )
+
+    resume_state_manager = StateManager(
+        workspace=temp_workspace,
+        run_id=run_id,
+    )
+    resume_state_manager.load()
+    resumed = WorkflowExecutor(
+        bundle,
+        temp_workspace,
+        resume_state_manager,
+        retry_delay_ms=0,
+    ).execute(resume=True)
+
+    assert resumed["status"] == "failed"
+    assert resumed["steps"][seed_step.name]["error"]["type"] == expected_error
+    if expected_error == "contract_violation":
+        assert (
+            resumed["steps"][seed_step.name]["error"]["context"]["reason"]
+            == "invalid_reused_pure_projection_result"
+        )
+
+
+def test_resume_list_loop_checkpoint_rejects_collection_descriptor_mismatch():
+    payload = _list_checkpoint_restore_payload()
+    checkpoint_restore.validate_restore_payload(payload)
+    payload["bindings"][0]["type_ref"] = "List[Int]"
+
+    with pytest.raises(
+        ValueError,
+        match=checkpoint_restore.DIAGNOSTIC_CODES.binding_schema_mismatch,
+    ):
+        checkpoint_restore.validate_restore_payload(payload)
+
+
+def test_resume_list_loop_checkpoint_rejects_collection_value_digest_mismatch():
+    payload = _list_checkpoint_restore_payload()
+    checkpoint_restore.validate_restore_payload(payload)
+    payload["bindings"][0]["value"] = ["second"]
+
+    with pytest.raises(
+        ValueError,
+        match=checkpoint_restore.DIAGNOSTIC_CODES.value_digest_mismatch,
+    ):
+        checkpoint_restore.validate_restore_payload(payload)
 
 
 def test_projection_runtime_plan_summarizes_artifacts_and_snapshots_from_executable_config(
