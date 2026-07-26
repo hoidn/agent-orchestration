@@ -19,7 +19,16 @@ from .diagnostics import (
     DiagnosticContribution,
     aggregate_diagnostic_contributions,
 )
+from .coordinates import CoordinateTranslationError, source_span_to_lsp_range
+from .navigation import (
+    NavigationIndex,
+    build_navigation_index,
+    completion_for_document,
+    definition_at_lsp_position,
+    symbols_for_document,
+)
 from .state import (
+    AcceptedCompileSnapshot,
     LspInitializationError,
     LspStateTransition,
     canonicalize_workspace_roots,
@@ -262,6 +271,100 @@ class WorkflowLispLanguageServer(LanguageServer):
         driver.apply_transition(transition)
         self._emit_transition_effects((transition,))
 
+    def definition(
+        self,
+        params: types.DefinitionParams,
+    ) -> types.Location | None:
+        """Resolve only an exact compiler-authored direct call head."""
+
+        uri = params.text_document.uri
+        navigation = self._current_navigation(uri)
+        if navigation is None:
+            return None
+        snapshot, index = navigation
+        source_path = _file_uri_path(uri)
+        target_span = definition_at_lsp_position(
+            index,
+            source_path=source_path,
+            line=params.position.line,
+            character=params.position.character,
+            accepted_text_by_path=dict(snapshot.accepted_text_by_path),
+        )
+        if target_span is None:
+            return None
+        return _location_for_span(
+            target_span,
+            accepted_text_by_path=dict(snapshot.accepted_text_by_path),
+        )
+
+    def document_symbols(
+        self,
+        params: types.DocumentSymbolParams,
+    ) -> tuple[types.DocumentSymbol, ...] | None:
+        """Return only authored module, procedure, and workflow definitions."""
+
+        uri = params.text_document.uri
+        navigation = self._current_navigation(uri)
+        if navigation is None:
+            return None
+        snapshot, index = navigation
+        source_path = _file_uri_path(uri)
+        accepted_text = dict(snapshot.accepted_text_by_path).get(source_path)
+        if accepted_text is None:
+            return None
+        result: list[types.DocumentSymbol] = []
+        for symbol in symbols_for_document(index, source_path=source_path):
+            try:
+                symbol_range = _lsp_range(
+                    source_span_to_lsp_range(symbol.span, accepted_text)
+                )
+            except CoordinateTranslationError:
+                return None
+            result.append(
+                types.DocumentSymbol(
+                    name=symbol.name,
+                    kind=(
+                        types.SymbolKind.Module
+                        if symbol.kind == "module"
+                        else types.SymbolKind.Function
+                    ),
+                    range=symbol_range,
+                    selection_range=symbol_range,
+                )
+            )
+        return tuple(result)
+
+    def completion(
+        self,
+        params: types.CompletionParams,
+    ) -> types.CompletionList:
+        """Return the exact visibility-plus-form-registry completion set."""
+
+        uri = params.text_document.uri
+        navigation = self._current_navigation(uri)
+        if navigation is None:
+            return types.CompletionList(is_incomplete=False, items=())
+        _snapshot, index = navigation
+        source_path = _file_uri_path(uri)
+        return types.CompletionList(
+            is_incomplete=False,
+            items=tuple(
+                types.CompletionItem(
+                    label=item.label,
+                    kind=(
+                        types.CompletionItemKind.Function
+                        if item.kind == "callable"
+                        else types.CompletionItemKind.Keyword
+                    ),
+                    sort_text=item.label,
+                )
+                for item in completion_for_document(
+                    index,
+                    source_path=source_path,
+                )
+            ),
+        )
+
     def log_internal_error(self, error: Exception) -> None:
         """Report an internal failure without creating a language diagnostic."""
 
@@ -277,6 +380,30 @@ class WorkflowLispLanguageServer(LanguageServer):
         if driver is None:
             raise RuntimeError("language server is not initialized")
         return driver
+
+    def _current_navigation(
+        self,
+        document_uri: str,
+    ) -> tuple[AcceptedCompileSnapshot, NavigationIndex] | None:
+        """Recheck through the sole driver authority and retain all effects."""
+
+        driver = self._require_driver()
+        transitions: list[LspStateTransition] = []
+        snapshot = driver.snapshot_if_current(
+            document_uri,
+            transition_sink=transitions.append,
+        )
+        self._emit_transition_effects(transitions)
+        if snapshot is None:
+            self._emit_transition_effects(driver.drain())
+            return None
+        compile_result = getattr(snapshot.build_value, "compile_result", None)
+        try:
+            index = build_navigation_index(compile_result)
+        except (TypeError, ValueError) as error:
+            self.log_internal_error(error)
+            return None
+        return snapshot, index
 
     def _drain_and_publish(
         self,
@@ -386,6 +513,20 @@ def create_server(
     ) -> None:
         server.change_workspace_folders(params)
 
+    @server.feature(types.TEXT_DOCUMENT_DEFINITION)
+    def definition(params: types.DefinitionParams) -> types.Location | None:
+        return server.definition(params)
+
+    @server.feature(types.TEXT_DOCUMENT_DOCUMENT_SYMBOL)
+    def document_symbol(
+        params: types.DocumentSymbolParams,
+    ) -> tuple[types.DocumentSymbol, ...] | None:
+        return server.document_symbols(params)
+
+    @server.feature(types.TEXT_DOCUMENT_COMPLETION)
+    def completion(params: types.CompletionParams) -> types.CompletionList:
+        return server.completion(params)
+
     return server
 
 
@@ -435,6 +576,24 @@ def _lsp_range(value: Mapping[str, object]) -> types.Range:
             character=int(end["character"]),
         ),
     )
+
+
+def _location_for_span(
+    span: object,
+    *,
+    accepted_text_by_path: Mapping[Path, str],
+) -> types.Location | None:
+    try:
+        path = Path(span.start.path).resolve(strict=False)
+        accepted_text = accepted_text_by_path.get(path)
+        if accepted_text is None:
+            return None
+        return types.Location(
+            uri=path.as_uri(),
+            range=_lsp_range(source_span_to_lsp_range(span, accepted_text)),
+        )
+    except (AttributeError, CoordinateTranslationError, TypeError, ValueError):
+        return None
 
 
 def _plain_value(value: object) -> object:

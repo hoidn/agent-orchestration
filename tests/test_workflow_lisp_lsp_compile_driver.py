@@ -570,6 +570,7 @@ def test_driver_coalesces_latest_generation_and_accepts_one_injected_success(
     assert entry.accepted_snapshot == lsp_state.AcceptedCompileSnapshot(
         build_value=result,
         source_revision_vector=trace.revision_vector,
+        accepted_text_by_path=((entry_path.resolve(), entry_text),),
     )
     assert entry.dependency_closure == frozenset({entry_path.resolve()})
     assert entry.diagnostic_contributions == ()

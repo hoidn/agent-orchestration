@@ -89,6 +89,7 @@ class AcceptedCompileSnapshot:
 
     build_value: object
     source_revision_vector: tuple[tuple[Path, str], ...]
+    accepted_text_by_path: tuple[tuple[Path, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -427,6 +428,13 @@ def accept_compile_success(
     normalized_snapshot = replace(
         snapshot,
         source_revision_vector=normalized_revision_vector,
+        accepted_text_by_path=tuple(
+            (
+                _canonical_path(path),
+                text,
+            )
+            for path, text in snapshot.accepted_text_by_path
+        ),
     )
     _validate_diagnostic_contributions(
         diagnostic_contributions,

@@ -728,6 +728,12 @@ def get_form_spec(name: str) -> FormSpec | None:
     return _FORM_REGISTRY.get(name)
 
 
+def registered_form_heads() -> tuple[str, ...]:
+    """Return every compiler-known authored head in deterministic order."""
+
+    return tuple(sorted(_FORM_REGISTRY))
+
+
 def reserved_macro_names() -> frozenset[str]:
     """Return the exact set of macro-reserved authored heads."""
 

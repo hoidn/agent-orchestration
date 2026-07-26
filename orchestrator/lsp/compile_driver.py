@@ -39,6 +39,7 @@ from .state import (
 
 BuildInMemory = Callable[..., FrontendInMemoryBuildResult]
 ServerErrorLogger = Callable[[Exception], None]
+TransitionSink = Callable[[LspStateTransition], None]
 
 
 def _ignore_server_error(_error: Exception) -> None:
@@ -196,6 +197,14 @@ class LspCompileDriver:
                     snapshot=AcceptedCompileSnapshot(
                         build_value=result,
                         source_revision_vector=revision_vector,
+                        accepted_text_by_path=tuple(
+                            (
+                                snapshot.canonical_path,
+                                snapshot.raw_decoded_text,
+                            )
+                            for snapshot in source_probe.snapshots
+                            if snapshot.raw_decoded_text is not None
+                        ),
                     ),
                     dependency_closure=frozenset(
                         trace_path
@@ -228,12 +237,16 @@ class LspCompileDriver:
     def snapshot_if_current(
         self,
         document_uri: str,
+        *,
+        transition_sink: TransitionSink | None = None,
     ) -> AcceptedCompileSnapshot | None:
         """Return navigation authority only after mandatory live-disk checks."""
 
         try:
             configuration_transition = self.recheck_configuration()
             self.apply_transition(configuration_transition)
+            if transition_sink is not None:
+                transition_sink(configuration_transition)
             if self.state.configuration_stale:
                 return None
             snapshot = current_navigation_snapshot(
@@ -243,7 +256,13 @@ class LspCompileDriver:
             if snapshot is None:
                 return None
             self._validate_trace_paths(snapshot.source_revision_vector)
-            if self._observe_source_drift(snapshot.source_revision_vector) is not None:
+            if (
+                self._observe_source_drift(
+                    snapshot.source_revision_vector,
+                    transition_sink=transition_sink,
+                )
+                is not None
+            ):
                 return None
         except Exception as error:
             self._log_server_error(error)
@@ -542,12 +561,14 @@ class LspCompileDriver:
         compile_entry_path: Path | None = None,
         generation: int | None = None,
         force_entry_reproof: bool = False,
+        transition_sink: TransitionSink | None = None,
     ) -> LspStateTransition | None:
         return self._probe_source_currentness(
             expected_revisions,
             compile_entry_path=compile_entry_path,
             generation=generation,
             force_entry_reproof=force_entry_reproof,
+            transition_sink=transition_sink,
         ).transition
 
     def _probe_source_currentness(
@@ -557,6 +578,7 @@ class LspCompileDriver:
         compile_entry_path: Path | None = None,
         generation: int | None = None,
         force_entry_reproof: bool = False,
+        transition_sink: TransitionSink | None = None,
     ) -> _SourceCurrentnessProbe:
         """Recheck one trace and retain the exact text from those same reads."""
 
@@ -607,6 +629,8 @@ class LspCompileDriver:
                 continue
             latest_transition = observe_file_revision(self.state, observed)
             self.apply_transition(latest_transition)
+            if transition_sink is not None:
+                transition_sink(latest_transition)
         if (
             (latest_transition is not None or force_entry_reproof)
             and compile_entry is not None
@@ -625,6 +649,8 @@ class LspCompileDriver:
                 disk_snapshot=observed_by_path[compile_entry.path],
             )
             self.apply_transition(latest_transition)
+            if transition_sink is not None:
+                transition_sink(latest_transition)
         return _SourceCurrentnessProbe(
             transition=latest_transition,
             snapshots=tuple(observed_by_path[path] for path in ordered_paths),
