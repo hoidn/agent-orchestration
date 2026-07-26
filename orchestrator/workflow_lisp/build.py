@@ -67,7 +67,11 @@ from .build_artifacts import (
 _public_runtime_plan_payload = _public_runtime_plan_payload_export
 
 from .command_boundaries import CertifiedAdapterBinding, ExternalToolBinding
-from .compiler import LinkedStage3CompileResult, compile_stage3_entrypoint
+from .compiler import (
+    LinkedStage3CompileResult,
+    Stage3ValidationProfile,
+    compile_stage3_entrypoint,
+)
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .lints import LINT_PROFILE_DEFAULT
 from .reader import SourceReadRecord, SourceReadTrace
@@ -124,6 +128,26 @@ class FrontendBuildRequest:
     workspace_root: Path | None = None
     lint_profile: str = LINT_PROFILE_DEFAULT
     lowering_route: LoweringRoute | str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FrontendCompileRequestCapture:
+    """Exact production-normalized compile identity before entry selection."""
+
+    source_path: Path
+    workspace_root: Path
+    source_roots: tuple[Path, ...]
+    entry_workflow: str | None
+    validation_profile: Stage3ValidationProfile
+    lint_profile: str
+    lowering_route: LoweringRoute
+    provider_externs: Mapping[str, str]
+    prompt_externs: Mapping[str, object]
+    command_boundaries: Mapping[
+        str,
+        ExternalToolBinding | CertifiedAdapterBinding,
+    ]
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle]
 
 
 @dataclass(frozen=True)
@@ -220,6 +244,7 @@ class FrontendBuildResult:
     entry_selection: FrontendEntrySelection
     imported_workflow_bundles: tuple[ImportedWorkflowBundleBinding, ...]
     compile_result: LinkedStage3CompileResult
+    compile_request_capture: FrontendCompileRequestCapture
 
 
 @dataclass(frozen=True)
@@ -284,6 +309,7 @@ class FrontendInMemoryBuildResult:
     runtime_plan_payload: Mapping[str, object] | None
     source_read_trace: FrontendSourceReadTraceSnapshot
     configuration_trace: FrontendConfigurationTraceSnapshot
+    compile_request_capture: FrontendCompileRequestCapture
 
 
 @dataclass(frozen=True)
@@ -485,6 +511,65 @@ def _freeze_imported_workflow_binding(
     )
 
 
+def _capture_frontend_compile_request(
+    resolved_request: FrontendBuildRequest,
+    *,
+    provider_externs: Mapping[str, str],
+    prompt_externs: Mapping[str, object],
+    command_boundaries: Mapping[
+        str,
+        ExternalToolBinding | CertifiedAdapterBinding,
+    ],
+    imported_bindings: tuple[ImportedWorkflowBundleBinding, ...],
+) -> tuple[
+    FrontendCompileRequestCapture,
+    tuple[ImportedWorkflowBundleBinding, ...],
+]:
+    """Copy and freeze the exact values that the production compiler consumes."""
+
+    frozen_imported_bindings = tuple(
+        _freeze_imported_workflow_binding(binding)
+        for binding in imported_bindings
+    )
+    return (
+        FrontendCompileRequestCapture(
+            source_path=resolved_request.source_path,
+            workspace_root=resolved_request.workspace_root,
+            source_roots=resolved_request.source_roots,
+            entry_workflow=resolved_request.entry_workflow,
+            validation_profile=Stage3ValidationProfile.SHARED_CALLABLE,
+            lint_profile=resolved_request.lint_profile,
+            lowering_route=normalize_lowering_route(
+                resolved_request.lowering_route
+            ),
+            provider_externs=_freeze_configuration_mapping(provider_externs),
+            prompt_externs=_freeze_configuration_mapping(prompt_externs),
+            command_boundaries=_freeze_command_boundaries(command_boundaries),
+            imported_workflow_bundles=MappingProxyType(
+                {
+                    binding.canonical_key: binding.bundle
+                    for binding in frozen_imported_bindings
+                }
+            ),
+        ),
+        frozen_imported_bindings,
+    )
+
+
+def _attach_compile_request_capture(
+    error: LispFrontendCompileError,
+    capture: FrontendCompileRequestCapture,
+) -> None:
+    """Bind a post-capture language error to the exact attempted request."""
+
+    existing = getattr(error, "compile_request_capture", None)
+    if existing is not None and existing != capture:
+        raise RuntimeError(
+            "frontend compile error carries a different request capture"
+        )
+    error.compile_request_capture = capture
+
+
 def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     """Compile one `.orc` entrypoint, validate it, and write build artifacts.
 
@@ -501,31 +586,39 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     """
 
     in_memory = build_frontend_bundle_in_memory(request)
-    (
-        validated_bundle,
-        build_root,
-        entry_selection,
-        fingerprint,
-        semantic_ir_payload,
-        executable_ir_payload,
-        source_map_payload,
-        workflow_boundary_projection_payload,
-        persisted_surface_payload,
-    ) = _require_runnable_in_memory_build(in_memory)
-    return _emit(
-        validated_bundle,
-        build_root=build_root,
-        compile_result=in_memory.compile_result,
-        entry_selection=entry_selection,
-        resolved_request=in_memory.resolved_request,
-        imported_bindings=in_memory.imported_workflow_bundles,
-        fingerprint=fingerprint,
-        semantic_ir_payload=semantic_ir_payload,
-        executable_ir_payload=executable_ir_payload,
-        source_map_payload=source_map_payload,
-        workflow_boundary_projection_payload=workflow_boundary_projection_payload,
-        persisted_surface_payload=persisted_surface_payload,
-    )
+    try:
+        (
+            validated_bundle,
+            build_root,
+            entry_selection,
+            fingerprint,
+            semantic_ir_payload,
+            executable_ir_payload,
+            source_map_payload,
+            workflow_boundary_projection_payload,
+            persisted_surface_payload,
+        ) = _require_runnable_in_memory_build(in_memory)
+        return _emit(
+            validated_bundle,
+            build_root=build_root,
+            compile_result=in_memory.compile_result,
+            entry_selection=entry_selection,
+            resolved_request=in_memory.resolved_request,
+            imported_bindings=in_memory.imported_workflow_bundles,
+            fingerprint=fingerprint,
+            semantic_ir_payload=semantic_ir_payload,
+            executable_ir_payload=executable_ir_payload,
+            source_map_payload=source_map_payload,
+            workflow_boundary_projection_payload=workflow_boundary_projection_payload,
+            persisted_surface_payload=persisted_surface_payload,
+            compile_request_capture=in_memory.compile_request_capture,
+        )
+    except LispFrontendCompileError as error:
+        _attach_compile_request_capture(
+            error,
+            in_memory.compile_request_capture,
+        )
+        raise
 
 
 def build_frontend_bundle_in_memory(
@@ -672,18 +765,23 @@ def _build_frontend_bundle_in_memory(
         source_read_trace=active_source_read_trace,
         configuration_read_trace=configuration_read_trace,
     )
-    imported_workflow_bundles = {
-        binding.canonical_key: binding.bundle
-        for binding in imported_bindings
-    }
-    compile_result, entry_selection = _compile_entry(
-        resolved_request,
-        provider_externs=provider_externs,
-        prompt_externs=prompt_externs,
-        imported_workflow_bundles=imported_workflow_bundles,
-        command_boundaries=command_boundaries,
-        source_read_trace=active_source_read_trace,
+    compile_request_capture, imported_bindings = (
+        _capture_frontend_compile_request(
+            resolved_request,
+            provider_externs=provider_externs,
+            prompt_externs=prompt_externs,
+            command_boundaries=command_boundaries,
+            imported_bindings=imported_bindings,
+        )
     )
+    try:
+        compile_result, entry_selection = _compile_entry(
+            compile_request_capture,
+            source_read_trace=active_source_read_trace,
+        )
+    except LispFrontendCompileError as error:
+        _attach_compile_request_capture(error, compile_request_capture)
+        raise
     source_read_snapshot = FrontendSourceReadTraceSnapshot(
         records=active_source_read_trace.records,
         revision_vector=active_source_read_trace.revision_vector,
@@ -713,17 +811,22 @@ def _build_frontend_bundle_in_memory(
             runtime_plan_payload=None,
             source_read_trace=source_read_snapshot,
             configuration_trace=configuration_snapshot,
+            compile_request_capture=compile_request_capture,
         )
-    reattached = _select_and_reattach(
-        compile_result,
-        entry_selection,
-        resolved_request=resolved_request,
-        imported_bindings=imported_bindings,
-        provider_externs=provider_externs,
-        prompt_externs=prompt_externs,
-        command_boundary_manifest=command_boundary_manifest,
-        source_read_trace=source_read_snapshot,
-    )
+    try:
+        reattached = _select_and_reattach(
+            compile_result,
+            entry_selection,
+            resolved_request=resolved_request,
+            imported_bindings=imported_bindings,
+            provider_externs=compile_request_capture.provider_externs,
+            prompt_externs=compile_request_capture.prompt_externs,
+            command_boundary_manifest=command_boundary_manifest,
+            source_read_trace=source_read_snapshot,
+        )
+    except LispFrontendCompileError as error:
+        _attach_compile_request_capture(error, compile_request_capture)
+        raise
     semantic_ir_payload = workflow_semantic_ir_to_json(reattached.validated_bundle.semantic_ir)
     core_workflow_ast_payload = workflow_core_ast_to_json(
         reattached.validated_bundle.core_workflow_ast
@@ -753,6 +856,7 @@ def _build_frontend_bundle_in_memory(
         runtime_plan_payload=runtime_plan_payload,
         source_read_trace=source_read_snapshot,
         configuration_trace=configuration_snapshot,
+        compile_request_capture=compile_request_capture,
     )
 
 
@@ -806,12 +910,8 @@ def _require_runnable_in_memory_build(
 
 
 def _compile_entry(
-    resolved_request: FrontendBuildRequest,
+    compile_request_capture: FrontendCompileRequestCapture,
     *,
-    provider_externs: Mapping[str, str],
-    prompt_externs: Mapping[str, object],
-    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
-    command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding],
     source_read_trace: SourceReadTrace | None = None,
 ) -> tuple[LinkedStage3CompileResult, FrontendEntrySelection | None]:
     """Compile the entry module graph and select the requested export.
@@ -821,17 +921,19 @@ def _compile_entry(
     """
 
     compile_result = compile_stage3_entrypoint(
-        resolved_request.source_path,
-        source_roots=resolved_request.source_roots,
-        entry_workflow=resolved_request.entry_workflow,
-        provider_externs=provider_externs,
-        prompt_externs=prompt_externs,
-        imported_workflow_bundles=imported_workflow_bundles,
-        command_boundaries=command_boundaries,
-        validate_shared=True,
-        workspace_root=resolved_request.workspace_root,
-        lint_profile=resolved_request.lint_profile,
-        lowering_route=resolved_request.lowering_route,
+        compile_request_capture.source_path,
+        source_roots=compile_request_capture.source_roots,
+        entry_workflow=compile_request_capture.entry_workflow,
+        provider_externs=compile_request_capture.provider_externs,
+        prompt_externs=compile_request_capture.prompt_externs,
+        imported_workflow_bundles=(
+            compile_request_capture.imported_workflow_bundles
+        ),
+        command_boundaries=compile_request_capture.command_boundaries,
+        validation_profile=compile_request_capture.validation_profile,
+        workspace_root=compile_request_capture.workspace_root,
+        lint_profile=compile_request_capture.lint_profile,
+        lowering_route=compile_request_capture.lowering_route,
         source_read_trace=source_read_trace,
     )
 
@@ -840,12 +942,12 @@ def _compile_entry(
     ]
     entry_selection = (
         None
-        if resolved_request.entry_workflow is None
+        if compile_request_capture.entry_workflow is None
         and not export_surface.workflows_by_name
         else _select_entry_workflow(
             compile_result,
-            requested_name=resolved_request.entry_workflow,
-            source_path=resolved_request.source_path,
+            requested_name=compile_request_capture.entry_workflow,
+            source_path=compile_request_capture.source_path,
         )
     )
     return compile_result, entry_selection
@@ -964,6 +1066,7 @@ def _emit(
     source_map_payload: Mapping[str, object],
     workflow_boundary_projection_payload: Mapping[str, object],
     persisted_surface_payload: Mapping[str, object],
+    compile_request_capture: FrontendCompileRequestCapture,
 ) -> FrontendBuildResult:
     """Write build artifacts and the manifest, and assemble the build result.
 
@@ -1041,6 +1144,7 @@ def _emit(
         entry_selection=entry_selection,
         imported_workflow_bundles=imported_bindings,
         compile_result=compile_result,
+        compile_request_capture=compile_request_capture,
     )
 
 
@@ -1281,17 +1385,24 @@ def _load_imported_workflow_bundle_manifest(
             source_read_trace=source_read_trace,
             configuration_read_trace=configuration_read_trace,
         )
-        (
-            bundle,
-            _,
-            _,
-            bundle_fingerprint,
-            _,
-            _,
-            _,
-            _,
-            _,
-        ) = _require_runnable_in_memory_build(compiled_result)
+        try:
+            (
+                bundle,
+                _,
+                _,
+                bundle_fingerprint,
+                _,
+                _,
+                _,
+                _,
+                _,
+            ) = _require_runnable_in_memory_build(compiled_result)
+        except LispFrontendCompileError as error:
+            _attach_compile_request_capture(
+                error,
+                compiled_result.compile_request_capture,
+            )
+            raise
         workflow_name = compiled_result.selected_workflow_name
         if workflow_name is None:
             raise RuntimeError("compiled imported workflow is missing its selected name")

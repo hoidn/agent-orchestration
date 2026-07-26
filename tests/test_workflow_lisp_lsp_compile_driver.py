@@ -1794,19 +1794,48 @@ def test_driver_run_next_consults_mutex_before_touching_queued_work(
     assert build_calls == [entry_path.resolve()]
 
 
-def test_library_only_entry_uses_one_stage3_build_and_never_stage1(
+@pytest.mark.parametrize(
+    "stdlib_module",
+    ("context", "drain", "phase", "resource"),
+)
+def test_library_only_entry_uses_one_full_shared_stage3_build_and_never_stage1(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    stdlib_module: str,
 ) -> None:
     workspace = tmp_path / "workspace"
     source_root = workspace
-    entry_path = workspace / "std" / "context.orc"
+    entry_path = workspace / "std" / f"{stdlib_module}.orc"
     entry_path.parent.mkdir(parents=True)
     shutil.copyfile(
-        Path(compiler.__file__).parent / "stdlib_modules" / "std" / "context.orc",
+        Path(compiler.__file__).parent
+        / "stdlib_modules"
+        / "std"
+        / f"{stdlib_module}.orc",
         entry_path,
     )
     calls: list[build.FrontendBuildRequest] = []
+    stage3_calls: list[tuple[Path, dict[str, object]]] = []
+    compile_stage3 = build.compile_stage3_entrypoint
+    compile_stage1 = compiler.compile_stage1_entrypoint
+
+    assert all(
+        value is not compile_stage1
+        for value in vars(build).values()
+    )
+    assert all(
+        value is not compile_stage1
+        for value in vars(compile_driver).values()
+    )
+
+    def observe_full_stage3(
+        path: Path,
+        **kwargs: object,
+    ) -> object:
+        stage3_calls.append((path.resolve(), dict(kwargs)))
+        return compile_stage3(path, **kwargs)
+
+    monkeypatch.setattr(build, "compile_stage3_entrypoint", observe_full_stage3)
 
     def one_real_build(
         request: build.FrontendBuildRequest,
@@ -1846,9 +1875,126 @@ def test_library_only_entry_uses_one_stage3_build_and_never_stage1(
     driver.drain()
 
     assert len(calls) == 1
+    assert calls[0].entry_workflow is None
+    assert len(stage3_calls) == 1
+    assert stage3_calls[0][0] == entry_path.resolve()
+    assert stage3_calls[0][1]["entry_workflow"] is None
+    assert (
+        stage3_calls[0][1]["validation_profile"]
+        is compiler.Stage3ValidationProfile.SHARED_CALLABLE
+    )
+    assert "validate_shared" not in stage3_calls[0][1]
     result = driver.state.entries[0].accepted_snapshot.build_value
     assert result.entry_selection is None
     assert result.selected_workflow_name is None
+    assert (
+        result.compile_result.validation_profile
+        is compiler.Stage3ValidationProfile.SHARED_CALLABLE
+    )
+    assert driver.state.entries[0].compile_status == "success"
+
+
+def test_each_eligible_generation_runs_one_full_shared_stage3_without_cache_or_provisional_phase(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The accepted 1.87-second observation is evidence, not a timing gate."""
+
+    workspace = tmp_path / "workspace"
+    entry_path = workspace / "std" / "context.orc"
+    entry_path.parent.mkdir(parents=True)
+    shutil.copyfile(
+        Path(compiler.__file__).parent / "stdlib_modules" / "std" / "context.orc",
+        entry_path,
+    )
+    build_requests: list[build.FrontendBuildRequest] = []
+    stage3_calls: list[dict[str, object]] = []
+    compile_stage3 = build.compile_stage3_entrypoint
+
+    def observe_full_stage3(
+        path: Path,
+        **kwargs: object,
+    ) -> object:
+        stage3_calls.append({"path": path.resolve(), **kwargs})
+        return compile_stage3(path, **kwargs)
+
+    def one_real_build_per_generation(
+        request: build.FrontendBuildRequest,
+        *,
+        source_read_trace: SourceReadTrace,
+    ) -> build.FrontendInMemoryBuildResult:
+        build_requests.append(request)
+        return build.build_frontend_bundle_in_memory(
+            request,
+            source_read_trace=source_read_trace,
+        )
+
+    monkeypatch.setattr(build, "compile_stage3_entrypoint", observe_full_stage3)
+    monkeypatch.setattr(
+        compiler,
+        "compile_stage1_entrypoint",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Stage 1 must not be called")
+        ),
+    )
+    driver = compile_driver.initialize_compile_driver(
+        lsp_state.initialize_lsp_state(
+            root_uri=workspace.as_uri(),
+            initialization_options={"source_roots": (workspace,)},
+        ),
+        build_in_memory=one_real_build_per_generation,
+    )
+    text = entry_path.read_text(encoding="utf-8")
+    driver.apply_transition(
+        lsp_state.open_entry(
+            driver.state,
+            document_uri=entry_path.as_uri(),
+            editor_text=text,
+            disk_snapshot=compile_driver.probe_disk_source(entry_path),
+        )
+    )
+
+    opened = driver.drain()
+    first_compile_result = (
+        driver.state.entries[0].accepted_snapshot.build_value.compile_result
+    )
+    driver.apply_transition(
+        lsp_state.save_entry(
+            driver.state,
+            document_uri=entry_path.as_uri(),
+            disk_snapshot=compile_driver.probe_disk_source(entry_path),
+        )
+    )
+    saved = driver.drain()
+    second_compile_result = (
+        driver.state.entries[0].accepted_snapshot.build_value.compile_result
+    )
+
+    assert len(opened) == len(saved) == 1
+    assert [request.entry_workflow for request in build_requests] == [None, None]
+    assert len(stage3_calls) == 2
+    assert {
+        (
+            call["path"],
+            call["entry_workflow"],
+            call["validation_profile"],
+        )
+        for call in stage3_calls
+    } == {
+        (
+            entry_path.resolve(),
+            None,
+            compiler.Stage3ValidationProfile.SHARED_CALLABLE,
+        )
+    }
+    assert all("validate_shared" not in call for call in stage3_calls)
+    assert first_compile_result is not second_compile_result
+    assert (
+        first_compile_result.validation_profile
+        is second_compile_result.validation_profile
+        is compiler.Stage3ValidationProfile.SHARED_CALLABLE
+    )
+    assert driver.state.entries[0].generation == 2
     assert driver.state.entries[0].compile_status == "success"
 
 

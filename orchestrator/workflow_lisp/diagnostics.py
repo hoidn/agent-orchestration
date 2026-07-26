@@ -12,7 +12,7 @@ from .lints import (
     required_lint_rule,
     required_lint_severity,
 )
-from .spans import SourceSpan
+from .spans import SourcePosition, SourceSpan
 
 
 _VALIDATION_PASS_TO_PHASE = {
@@ -337,6 +337,137 @@ def serialize_diagnostics(
         serialize_diagnostic(diagnostic, lint_profile=lint_profile)
         for diagnostic in diagnostics
     ]
+
+
+def capture_frontend_diagnostic_identities(
+    diagnostics: Iterable[LispFrontendDiagnostic],
+) -> tuple[tuple[object, ...], ...]:
+    """Capture the ordered post-metadata compiler identity of diagnostics."""
+
+    return tuple(
+        _capture_frontend_diagnostic_identity(diagnostic)
+        for diagnostic in diagnostics
+    )
+
+
+def _capture_frontend_diagnostic_identity(
+    diagnostic: LispFrontendDiagnostic,
+) -> tuple[object, ...]:
+    classified = with_diagnostic_metadata(diagnostic)
+    return (
+        classified.code,
+        (
+            diagnostic.diagnostic_kind
+            if diagnostic.diagnostic_kind is not None
+            else classified.diagnostic_kind
+        ),
+        (
+            diagnostic.severity
+            if diagnostic.severity is not None
+            else classified.severity or "error"
+        ),
+        (
+            diagnostic.phase
+            if diagnostic.phase is not None
+            else classified.phase
+        ),
+        (
+            diagnostic.validation_pass
+            if diagnostic.validation_pass is not None
+            else classified.validation_pass
+        ),
+        (
+            diagnostic.authority_layer
+            if diagnostic.authority_layer is not None
+            else classified.authority_layer
+        ),
+        _capture_source_span_identity(diagnostic.span, nullable=False),
+        diagnostic.form_path,
+        tuple(
+            _capture_expansion_frame_identity(frame)
+            for frame in diagnostic.expansion_stack
+        ),
+    )
+
+
+def _capture_source_span_identity(
+    span: SourceSpan | None,
+    *,
+    nullable: bool,
+) -> tuple[object, ...] | None:
+    if span is None:
+        if nullable:
+            return None
+        raise TypeError(
+            "frontend diagnostic identity requires a non-null SourceSpan"
+        )
+    if not isinstance(span, SourceSpan):
+        raise TypeError(
+            "frontend diagnostic identity requires a SourceSpan or None"
+        )
+    return (
+        str(Path(span.start.path).resolve(strict=False)),
+        _capture_source_position_identity(span.start),
+        _capture_source_position_identity(span.end),
+    )
+
+
+def _capture_source_position_identity(
+    position: SourcePosition,
+) -> tuple[int, int, int]:
+    if not isinstance(position, SourcePosition):
+        raise TypeError(
+            "frontend diagnostic identity requires SourcePosition values"
+        )
+    return (position.line, position.column, position.offset)
+
+
+def _capture_expansion_frame_identity(frame: object) -> tuple[object, ...]:
+    missing = object()
+    macro_name = getattr(frame, "macro_name", missing)
+    function_name = getattr(frame, "function_name", missing)
+    has_macro_name = isinstance(macro_name, str) and bool(macro_name)
+    has_function_name = isinstance(function_name, str) and bool(function_name)
+    if has_macro_name == has_function_name:
+        raise TypeError(
+            "frontend diagnostic identity requires exactly one valid "
+            "macro_name or function_name"
+        )
+    call_span = getattr(frame, "call_span", missing)
+    definition_span = getattr(frame, "definition_span", missing)
+    if call_span is missing or definition_span is missing:
+        raise TypeError(
+            "frontend diagnostic identity requires call_span and "
+            "definition_span frame fields"
+        )
+    if has_macro_name:
+        expansion_id = getattr(frame, "expansion_id", missing)
+        if expansion_id is missing or not (
+            expansion_id is None or isinstance(expansion_id, str)
+        ):
+            raise TypeError(
+                "frontend diagnostic macro frame requires a nullable "
+                "string expansion_id"
+            )
+        return (
+            "macro",
+            macro_name,
+            expansion_id,
+            _capture_source_span_identity(call_span, nullable=True),
+            _capture_source_span_identity(definition_span, nullable=True),
+        )
+    helper_expansion_id = getattr(frame, "expansion_id", None)
+    if helper_expansion_id is not None:
+        raise TypeError(
+            "frontend diagnostic helper frame cannot carry an expansion_id"
+        )
+    return (
+        "helper",
+        function_name,
+        None,
+        _capture_source_span_identity(call_span, nullable=True),
+        _capture_source_span_identity(definition_span, nullable=True),
+    )
 
 
 def _render_expansion_notes(expansion_stack: tuple[object, ...]) -> tuple[str, ...]:

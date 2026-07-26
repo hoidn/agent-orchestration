@@ -4,7 +4,7 @@ import hashlib
 import importlib
 import inspect
 import json
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import FrozenInstanceError, fields, replace
 from pathlib import Path
 
 import pytest
@@ -35,6 +35,19 @@ IMPORTED_ENTRY = IMPORTED_SOURCE_ROOT / "neurips" / "entry.orc"
 CLI_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "cli"
 STDLIB_ROOT = REPO_ROOT / "orchestrator" / "workflow_lisp" / "stdlib_modules"
 LIBRARY_ONLY_SOURCE = STDLIB_ROOT / "std" / "context.orc"
+PRODUCTION_REQUEST_CAPTURE_FIELDS = (
+    "source_path",
+    "workspace_root",
+    "source_roots",
+    "entry_workflow",
+    "validation_profile",
+    "lint_profile",
+    "lowering_route",
+    "provider_externs",
+    "prompt_externs",
+    "command_boundaries",
+    "imported_workflow_bundles",
+)
 
 
 def _tree_snapshot(root: Path) -> tuple[tuple[str, str, bytes | str], ...]:
@@ -89,6 +102,47 @@ def _imported_request(build, tmp_path: Path):
     )
 
 
+def _assert_exact_production_request_capture(
+    capture: object,
+    *,
+    request: object,
+    configuration: object,
+    validation_profile: object,
+) -> None:
+    assert tuple(field.name for field in fields(capture)) == (
+        PRODUCTION_REQUEST_CAPTURE_FIELDS
+    )
+    assert tuple(
+        getattr(capture, field_name)
+        for field_name in PRODUCTION_REQUEST_CAPTURE_FIELDS
+    ) == (
+        request.source_path.resolve(),
+        request.workspace_root.resolve(),
+        tuple(path.resolve() for path in request.source_roots),
+        request.entry_workflow,
+        validation_profile,
+        request.lint_profile,
+        configuration.lowering_route,
+        configuration.provider_externs,
+        configuration.prompt_externs,
+        configuration.command_boundaries,
+        {
+            binding.canonical_key: binding.bundle
+            for binding in configuration.imported_workflow_bundles
+        },
+    )
+    with pytest.raises(FrozenInstanceError):
+        capture.entry_workflow = "mutated"
+    with pytest.raises(TypeError):
+        capture.provider_externs["unexpected"] = "mutated"
+    with pytest.raises(TypeError):
+        capture.prompt_externs["unexpected"] = {"mutated": True}
+    with pytest.raises(TypeError):
+        capture.command_boundaries["unexpected"] = object()
+    with pytest.raises(TypeError):
+        capture.imported_workflow_bundles["unexpected"] = object()
+
+
 def test_in_memory_build_public_signature_exposes_only_source_trace() -> None:
     build = importlib.import_module("orchestrator.workflow_lisp.build")
 
@@ -108,6 +162,97 @@ def test_in_memory_build_public_signature_exposes_only_source_trace() -> None:
         "source_read_trace": SourceReadTrace | None,
         "return": build.FrontendInMemoryBuildResult,
     }
+
+
+def test_production_request_capture_is_exact_ordered_and_immutable_after_loaders(
+    tmp_path: Path,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    compiler = importlib.import_module("orchestrator.workflow_lisp.compiler")
+    request = _imported_request(build, tmp_path)
+    configuration = build.load_frontend_initialization_configuration(
+        workspace_root=request.workspace_root,
+        source_roots=request.source_roots,
+        provider_externs_path=request.provider_externs_path,
+        prompt_externs_path=request.prompt_externs_path,
+        command_boundaries_path=request.command_boundaries_path,
+        imported_workflow_bundles_path=request.imported_workflow_bundles_path,
+        lowering_route=request.lowering_route,
+    )
+
+    result = build.build_frontend_bundle_in_memory(request)
+
+    _assert_exact_production_request_capture(
+        result.compile_request_capture,
+        request=request,
+        configuration=configuration,
+        validation_profile=compiler.Stage3ValidationProfile.SHARED_CALLABLE,
+    )
+
+
+def test_same_production_request_capture_is_retained_on_success_and_language_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    compiler = importlib.import_module("orchestrator.workflow_lisp.compiler")
+    request = build.FrontendBuildRequest(
+        source_path=SOURCE,
+        source_roots=(SOURCE.parent,),
+        entry_workflow="entry-publication-runtime",
+        provider_externs_path=CLI_FIXTURES / "providers.json",
+        prompt_externs_path=CLI_FIXTURES / "prompts.json",
+        command_boundaries_path=CLI_FIXTURES / "commands.json",
+        workspace_root=tmp_path,
+    )
+    configuration = build.load_frontend_initialization_configuration(
+        workspace_root=request.workspace_root,
+        source_roots=request.source_roots,
+        provider_externs_path=request.provider_externs_path,
+        prompt_externs_path=request.prompt_externs_path,
+        command_boundaries_path=request.command_boundaries_path,
+        imported_workflow_bundles_path=None,
+        lowering_route=request.lowering_route,
+    )
+    success = build.build_frontend_bundle_in_memory(request)
+    expected_capture = success.compile_request_capture
+    expected_error = build.LispFrontendCompileError(())
+
+    def fail_at_compile_seam(
+        compile_request_capture: object,
+        *,
+        source_read_trace: SourceReadTrace,
+    ) -> object:
+        assert compile_request_capture == expected_capture
+        assert (
+            compile_request_capture.provider_externs
+            == configuration.provider_externs
+        )
+        assert (
+            compile_request_capture.prompt_externs
+            == configuration.prompt_externs
+        )
+        assert compile_request_capture.imported_workflow_bundles == {}
+        assert (
+            compile_request_capture.command_boundaries
+            == configuration.command_boundaries
+        )
+        assert isinstance(source_read_trace, SourceReadTrace)
+        raise expected_error
+
+    monkeypatch.setattr(build, "_compile_entry", fail_at_compile_seam)
+
+    with pytest.raises(build.LispFrontendCompileError) as caught:
+        build.build_frontend_bundle_in_memory(request)
+
+    assert caught.value is expected_error
+    assert caught.value.compile_request_capture == expected_capture
+    _assert_exact_production_request_capture(
+        caught.value.compile_request_capture,
+        request=request,
+        configuration=configuration,
+        validation_profile=compiler.Stage3ValidationProfile.SHARED_CALLABLE,
+    )
 
 
 def test_read_only_build_matches_persistent_prefix_without_mutating_workspace(
@@ -495,6 +640,66 @@ def test_library_only_in_memory_result_is_explicit_and_non_runnable(
 
     assert imported_error.value.diagnostics[0].code == "entry_workflow_required"
     assert _tree_snapshot(tmp_path) == before_import
+
+
+def test_recursive_library_only_import_error_retains_child_capture_without_writes(
+    tmp_path: Path,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    child_source = tmp_path / "child.orc"
+    child_source.write_text(
+        "\n".join(
+            (
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule child))",
+                "",
+            )
+        ),
+        encoding="utf-8",
+    )
+    manifest_path = tmp_path / "imports.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "child": {
+                    "kind": "compiled",
+                    "path": child_source.name,
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    child_request = build.FrontendBuildRequest(
+        source_path=child_source,
+        source_roots=(tmp_path,),
+        entry_workflow=None,
+        workspace_root=tmp_path,
+    )
+
+    with pytest.raises(build.LispFrontendCompileError) as direct_error:
+        build.build_frontend_bundle(child_request)
+    expected_diagnostics = direct_error.value.diagnostics
+    before_recursive_attempt = _tree_snapshot(tmp_path)
+
+    with pytest.raises(build.LispFrontendCompileError) as recursive_error:
+        build.load_imported_workflow_bundle_manifest(
+            manifest_path,
+            workspace_root=tmp_path,
+            source_roots=(tmp_path,),
+        )
+
+    error = recursive_error.value
+    assert error.diagnostics == expected_diagnostics
+    assert tuple(diagnostic.code for diagnostic in error.diagnostics) == (
+        "entry_workflow_required",
+    )
+    assert error.compile_request_capture.source_path == child_source.resolve()
+    assert error.compile_request_capture.entry_workflow is None
+    assert _tree_snapshot(tmp_path) == before_recursive_attempt
+    assert not (tmp_path / ".orchestrate").exists()
 
 
 def test_configuration_trace_hashes_the_one_json_read_and_returns_a_snapshot(

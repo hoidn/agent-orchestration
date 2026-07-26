@@ -495,11 +495,11 @@ decision.
 **Files:**
 
 - Modify: `orchestrator/workflow_lisp/build.py`
-- Modify: `orchestrator/workflow_lisp/build_manifest_io.py`
+- Modify: `orchestrator/workflow_lisp/diagnostics.py`
 - Modify: `orchestrator/cli/commands/run.py` only if the unchanged dry-run
   command needs a test-visible pass-through for the shared captured value
-- Modify: `orchestrator/lsp/compile_driver.py`
 - Modify: `tests/test_workflow_lisp_build_in_memory.py`
+- Modify: `tests/test_workflow_lisp_lsp_compile_driver.py`
 - Create: `tests/test_workflow_lisp_lsp_cli_parity.py`
 
 `FrontendBuildRequest` and the value returned by
@@ -510,38 +510,64 @@ the LSP may consume it but must not define another normalizer.
 
 **RED:**
 
-- [ ] Prove F1's four library-only modules invoke exactly one full Stage-3
+- [x] Prove F1's four library-only modules invoke exactly one full Stage-3
       compile with `entry_workflow=null`; Stage 1 is neither imported nor
       called and no second phase starts.
-- [ ] For F2, first compare the exact 11-field normalized request tuple at the
+- [x] For F2, first compare the exact 11-field normalized request tuple at the
       shared pre-entry-selection/input-binding seam, then compare the complete
       ordered post-`with_diagnostic_metadata` diagnostic tuple.
-- [ ] Cover F2 in both directions for extra/missing/replaced/reordered explicit
+- [x] Cover F2 in both directions for extra/missing/replaced/reordered explicit
       source roots, every other request field, normalized loaded bundle value,
       raw span end, metadata, form path, and expansion order. Wording-only
       message/note changes remain non-identity.
-- [ ] Prove both the unchanged dry-run CLI and LSP receive the captured value
+- [x] Prove both the unchanged dry-run CLI and LSP receive the captured value
       from the same production owner and that the LSP cannot substitute
       workspace-root, lint, or lowering defaults.
-- [ ] Preserve F3's accepted 1.87-second evidence and add a guard proving it
+- [x] Preserve F3's accepted 1.87-second evidence and add a guard proving it
       does not select Stage 1, a second publication phase, or caching.
 
 **GREEN:**
 
-- [ ] Add one immutable production request-capture value at the exact shared
+- [x] Add one immutable production request-capture value at the exact shared
       seam after `_resolve_request` plus production manifest loading and before
       entry selection/input binding.
-- [ ] Expose that same value through the read-only build result so unchanged
+- [x] Expose that same value through the read-only build result so unchanged
       dry-run CLI and LSP observations compare without a test-only or LSP-only
       normalizer.
-- [ ] Fix LSP compile policy to `SHARED_CALLABLE` plus unchanged production
+- [x] Fix LSP compile policy to `SHARED_CALLABLE` plus unchanged production
       lint/lowering defaults and reject editor overrides.
-- [ ] Enforce and record F1-F3 as a completed gate before any diagnostic
+- [x] Enforce and record F1-F3 as a completed gate before any diagnostic
       transport or navigation handler exists.
-- [ ] Rerun build-core, compile-driver, production dry-run, diagnostic
+- [x] Rerun build-core, compile-driver, production dry-run, diagnostic
       metadata, and CLI-parity regressions.
-- [ ] Obtain `STAGE8_TASK4_SPEC_APPROVED`, then
-      `STAGE8_TASK4_QUALITY_APPROVED`, and commit.
+- [x] Obtain `STAGE8_TASK4_SPEC_APPROVED`, then
+      `STAGE8_TASK4_QUALITY_APPROVED`.
+- [ ] Commit Task 4.
+
+**Implementation record:** pending implementation commit.
+
+- RED established the missing production-owned 11-field compile-request
+  capture and diagnostic-identity owner. The core slice had two intended
+  request-capture failures while F1/F3 already proved the existing Stage-3
+  route; the 29-case parity slice failed only on the two absent production
+  surfaces.
+- GREEN adds one frozen structural request value after production loaders and
+  makes it the Stage-3 authority for both persistent CLI and read-only LSP
+  paths. Post-seam language failures, including recursive imported-child
+  selection rejection, retain the exact attempted capture.
+- Real bare and ordered-explicit CLI/LSP pairs prove equal caller captures and
+  exact production effective-root outcomes. A real malformed source proves
+  equal nonempty post-metadata diagnostic identity; structural mutation
+  controls cover every request/diagnostic field while excluding only
+  message/note wording.
+- F1 covers all four library modules with no Stage-1 alias or call. F3 covers
+  two eligible generations with one fresh full Stage-3 compile apiece and no
+  timing threshold, provisional phase, or cache reuse.
+- Fresh Task-4/build/driver/CLI/diagnostic selectors collect 530 tests and pass
+  530. Source/module/source-map adjacency passes 156.
+- `py_compile` and scoped `git diff --check` are clean.
+- Ordered preliminary reviews returned `STAGE8_TASK4_SPEC_APPROVED`, then
+  `STAGE8_TASK4_QUALITY_APPROVED`.
 
 ## Task 5: Translate Coordinates And Own Diagnostic Contributions
 
