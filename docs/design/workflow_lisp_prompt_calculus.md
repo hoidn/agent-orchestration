@@ -14,8 +14,10 @@
     prompt preludes)
   - `docs/design/workflow_lisp_pure_list_traversal.md` (mapping substrate)
   - `docs/design/workflow_language_design_principles.md`
-- **Sequencing:** head of the post-Stage-8 queue by owner direction. No
-  dependency on Stage 8; consumes the list-traversal delta when it lands.
+- **Sequencing:** head of the post-Stage-8 successor queue by owner
+  direction. Prerequisite: the opt-in transportable top value type
+  (`Value`), which is the unstated-return default of prompt-carried
+  signatures. The list-traversal delta and Stage 8 have both landed.
 
 ## The asymmetry this direction closes
 
@@ -258,10 +260,12 @@ bridges both eras without re-wrapping through a structural constraint:
 ```
 
 Feature status within this example: structural constraints, `string/concat`,
-evidence, and resume exist today; `list/map-effect`, `path/join-under`, and
-the list operators are the pure-list-traversal delta; `defprompt` with
-prompt-carried signatures is this design's first tranche; `Value` and authored `fail` are
-parsimony-wave candidates in the roadmap's post-Stage-8 queue.
+evidence, resume, `list/map-effect`, `path/join-under`, and the list
+operators all exist today (the list surface landed with the completed
+pure-list-traversal interstage); `defprompt` with prompt-carried
+signatures is this design's first tranche; `Value` is that tranche's
+prerequisite, as the unstated-return default; authored `fail` is a
+shelved consumer-triggered candidate expected at the hardening phase.
 
 ## Boundaries
 

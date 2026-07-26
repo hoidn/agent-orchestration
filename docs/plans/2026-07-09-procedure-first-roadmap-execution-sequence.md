@@ -862,27 +862,34 @@ are the 2026-07-25 owner-directed language directions:
 2. **Prompt calculus direction (owner-directed 2026-07-25) — head of this
    queue.** `docs/design/workflow_lisp_prompt_calculus.md`: a typed
    compositional prompt layer (defprompt fragments with typed slots,
-   completeness checking, fragment/result coherence, E4P-based prompt
-   identity, judgment views). Subsumes the E4P diagnostics item below as
-   its component 3/4. First tranche after its design review: defprompt +
-   slot-discharge checking.
-3. **Type-and-union parsimony wave (owner taste direction, 2026-07-25;
-   principle 29).** Ergonomics-wave candidates, each needing a small
-   design: (a) a declared authored failure channel — typed fail-closed
-   workflow failure with diagnostic payload, giving propagate-only
-   outcomes a home outside nominal unions; (b) structural union coercion —
-   eliminating hand-written re-wrap matches between structurally identical
-   unions; (c) structural record admissibility — constraint-satisfying
-   records usable where a structurally sufficient shape is expected,
-   without nominal conversion; (d) an opt-in transportable top value type
-   for loose-then-narrow authoring under "contracts may only narrow."
-   (e) named constraint bundles — `defconstraint` aliases for recurring
-   `:where` clause sets, giving structural contracts a name for intent,
-   reuse, and tooling without any conformance mandate; existing consumer:
-   `std/drain`'s nine-clause `:where` block, currently repeated wherever a
-   compatible selection union is demanded. The existing
-   structural-constraint machinery (`is-record`, `has-field`,
-   `has-union-variant`) is the checker substrate for all five.
+   prompt-carried signatures, partial application, completeness
+   checking, E4P-based prompt identity, judgment views). Subsumes the
+   E4P diagnostics item below as its component 3/4. First tranche after
+   its design review: defprompt + slot-discharge checking + call-site
+   result derivation. Prerequisite: the opt-in transportable top value
+   type (`Value`), extracted from item 3 by owner decision 2026-07-26 —
+   the first tranche's loose unstated-return default cannot ship
+   without it.
+3. **Type-and-union parsimony candidates (owner taste direction
+   2026-07-25; shelved as a workstream by owner decision 2026-07-26).**
+   Not a queue. Ergonomics claims are only verifiable against real
+   authoring practice, and the prompt calculus is about to reshape that
+   practice, so no candidate is selected in advance. Former candidate
+   (d), the opt-in transportable top value type, leaves this list
+   entirely: prompt-carried signatures default unstated returns to
+   `Value`, making it a prerequisite of item 2's first tranche rather
+   than an ergonomics candidate. The shelved candidates — (a) a declared
+   authored failure channel giving propagate-only outcomes a home
+   outside nominal unions; (b) structural union coercion; (c) structural
+   record admissibility; (e) `defconstraint` named constraint bundles
+   (existing consumer: `std/drain`'s repeated nine-clause `:where`
+   block) — re-enter only when a live consumer demonstrates the pain,
+   each through its own small design under principles 28 and 29. (a)'s
+   expected consumer moment is the calculus hardening phase; (b) and (c)
+   are likely mooted by the union diet plus (a) and must re-justify
+   against post-calculus idioms. The existing structural-constraint
+   machinery (`is-record`, `has-field`, `has-union-variant`) remains the
+   checker substrate for any that return.
 4. **Prompt-identity diagnostics (E4P discipline).** Independent of any
    search program and schedulable any time as a small item: apply the
    role-separated prompt-identity split (boundary invariant 8) to the
