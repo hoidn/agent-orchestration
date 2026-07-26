@@ -525,7 +525,7 @@ pytest -q tests/test_workflow_lisp_transportable_value.py \
 
 Expected: PASS, including unchanged narrower descriptor behavior.
 
-- [ ] **Step 5: Complete ordered reviews and commit — reviews pending**
+- [x] **Step 5: Complete ordered reviews and commit — `a67d35ea`**
 
 Expected implementation commit subject:
 
@@ -610,7 +610,7 @@ pytest -q tests/test_output_contract_value.py \
 Expected: PASS; existing narrower coercion and validation behavior is
 unchanged.
 
-- [x] **Step 5: Complete ordered reviews and commit — `a67d35ea`**
+- [ ] **Step 5: Complete ordered reviews and commit — reviews pending**
 
 Expected implementation commit subject:
 
