@@ -465,9 +465,9 @@ invalidation.
 - [x] Rerun the new state/driver tests plus build/compiler/import regressions.
 - [x] Obtain `STAGE8_TASK3_SPEC_APPROVED`, then
       `STAGE8_TASK3_QUALITY_APPROVED`.
-- [ ] Commit Task 3.
+- [x] Commit Task 3.
 
-**Implementation record:** pending implementation commit.
+**Implementation record:** commit `87016ecc`.
 
 - RED established the missing one-root state machine, immutable production
   configuration snapshot, serialized compile driver, exact source/currentness
@@ -481,6 +481,9 @@ invalidation.
 - Scoped `py_compile` and `git diff --check` are clean.
 - Ordered preliminary reviews returned `STAGE8_TASK3_SPEC_APPROVED`, then
   `STAGE8_TASK3_QUALITY_APPROVED`.
+- Ordered final exact-diff reviews returned
+  `STAGE8_TASK3_SPEC_REAFFIRMED`, then
+  `STAGE8_TASK3_QUALITY_REAFFIRMED`.
 
 ## Task 4: Capture The Production Request And Prove F1-F3
 
