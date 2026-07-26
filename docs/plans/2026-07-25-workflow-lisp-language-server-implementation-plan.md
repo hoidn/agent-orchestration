@@ -27,12 +27,12 @@ pytest/pytest-xdist.
 `cfcac27f`, with ordered `STAGE8_DESIGN_SPEC_APPROVED` then
 `STAGE8_DESIGN_QUALITY_APPROVED`, followed by exact-diff reaffirmations.
 
-**Status:** Closing verification. Tasks 1–8 are committed; Task 9's
-integration, packaging, documentation, focused, and broad evidence is
-assembled. Preliminary closing review returned
-`STAGE8_FINAL_SPEC_APPROVED`, then `STAGE8_FINAL_QUALITY_APPROVED`; exact-diff
-reaffirmations and the Task 9 commit remain pending, so Gate S8 is not yet
-finally closed. Preliminary plan review returned
+**Status:** Complete. Tasks 1–9 are committed and Gate S8 is closed.
+Preliminary closing review returned `STAGE8_FINAL_SPEC_APPROVED`, then
+`STAGE8_FINAL_QUALITY_APPROVED`; the same reviewers reaffirmed the exact
+closing diff as `STAGE8_FINAL_SPEC_REAFFIRMED`, then
+`STAGE8_FINAL_QUALITY_REAFFIRMED`, and Task 9 committed at `c69c33a1`.
+Preliminary plan review returned
 `STAGE8_PLAN_SPEC_APPROVED` then `STAGE8_PLAN_QUALITY_APPROVED`; the final
 exact plan/routing diff received ordered reaffirmation from the same reviewers
 as `STAGE8_PLAN_SPEC_REAFFIRMED` then `STAGE8_PLAN_QUALITY_REAFFIRMED`, and
@@ -931,10 +931,10 @@ successors.
       tooling; make only routing/usage corrections supported by observed v1.
 - [x] Obtain `STAGE8_FINAL_SPEC_APPROVED`, then
       `STAGE8_FINAL_QUALITY_APPROVED`.
-- [ ] Patch-stage only exact Task-9-owned hunks, verify every protected
+- [x] Patch-stage only exact Task-9-owned hunks, verify every protected
       concurrent hunk is absent, and commit the reviewed closing tree.
 
-**Closing verification record (reviews pending):**
+**Closing verification record:**
 
 - Fresh LSP collection found 307 cases. The unchanged Task-4 F1/F2/F3
   selectors passed 36 cases, and the CLI-parity plus new real stdio/repository
@@ -979,8 +979,13 @@ successors.
   remaining failure identities.
 - Ordered preliminary closing reviews found no issues and returned
   `STAGE8_FINAL_SPEC_APPROVED`, followed by
-  `STAGE8_FINAL_QUALITY_APPROVED`. The exact-diff reaffirmations and commit
-  remain pending at this checkpoint.
+  `STAGE8_FINAL_QUALITY_APPROVED`. The same reviewers then reaffirmed the
+  exact 19-path staged tree as `STAGE8_FINAL_SPEC_REAFFIRMED`, followed by
+  `STAGE8_FINAL_QUALITY_REAFFIRMED`. The reviewed closing tree committed at
+  `c69c33a1`; its cached `docs/index.md` diff excluded the owner-authored
+  Evolution-roadmap hunk, which remained unstaged.
+
+**Task 9 implementation record:** commit `c69c33a1`.
 
 ## Stage 8 Completion Gate
 
