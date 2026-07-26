@@ -48,6 +48,7 @@ from ..expressions import (
 from ..phase import IMPLEMENTATION_ATTEMPT_PHASE_NAME, PHASE_TARGET_SPECS, PhaseScope
 from ..procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
 from ..procedures import ProcedureCatalog
+from ..reader import SourceReadTrace
 from ..spans import SourceSpan
 from ..type_env import ListTypeRef, MapTypeRef, OptionalTypeRef, PathTypeRef, PrimitiveTypeRef, ProcRefTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from ..typecheck import TypedExpr
@@ -721,7 +722,10 @@ def _transition_declaration_payload(
         "transition_schema_version": 1,
         "resource": {
             "resource_kind": resource_def.name.replace("-", "_"),
-            "state_type": _transition_type_descriptor(resource_state_type),
+            "state_type": _transition_type_descriptor(
+                resource_state_type,
+                source_read_trace=context.source_read_trace,
+            ),
             "backing": (
                 {"kind": "bridge", "path_input": resource_def.backing_path_input}
                 if resource_def.backing_kind == "bridge"
@@ -730,8 +734,14 @@ def _transition_declaration_payload(
         },
         "transition": {
             "name": transition_def.name,
-            "request_type": _transition_type_descriptor(request_type),
-            "result_type": _transition_type_descriptor(result_type),
+            "request_type": _transition_type_descriptor(
+                request_type,
+                source_read_trace=context.source_read_trace,
+            ),
+            "result_type": _transition_type_descriptor(
+                result_type,
+                source_read_trace=context.source_read_trace,
+            ),
             "preconditions": preconditions,
             "updates": updates,
             "write_set": list(transition_def.write_set),
@@ -774,7 +784,11 @@ def _transition_backend_payload(
     return payload
 
 
-def _transition_type_descriptor(type_ref: TypeRef) -> dict[str, Any]:
+def _transition_type_descriptor(
+    type_ref: TypeRef,
+    *,
+    source_read_trace: SourceReadTrace | None = None,
+) -> dict[str, Any]:
     if isinstance(type_ref, PrimitiveTypeRef):
         if type_ref.allowed_values:
             return {"kind": "enum", "name": type_ref.name, "allowed": list(type_ref.allowed_values)}
@@ -787,23 +801,47 @@ def _transition_type_descriptor(type_ref: TypeRef) -> dict[str, Any]:
             "must_exist_target": type_ref.definition.must_exist,
         }
     if isinstance(type_ref, OptionalTypeRef):
-        return {"kind": "optional", "item": _transition_type_descriptor(type_ref.item_type_ref)}
+        return {
+            "kind": "optional",
+            "item": _transition_type_descriptor(
+                type_ref.item_type_ref,
+                source_read_trace=source_read_trace,
+            ),
+        }
     if isinstance(type_ref, ListTypeRef):
-        return {"kind": "list", "item": _transition_type_descriptor(type_ref.item_type_ref)}
+        return {
+            "kind": "list",
+            "item": _transition_type_descriptor(
+                type_ref.item_type_ref,
+                source_read_trace=source_read_trace,
+            ),
+        }
     if isinstance(type_ref, MapTypeRef):
         return {
             "kind": "map",
-            "key": _transition_type_descriptor(type_ref.key_type_ref),
-            "value": _transition_type_descriptor(type_ref.value_type_ref),
+            "key": _transition_type_descriptor(
+                type_ref.key_type_ref,
+                source_read_trace=source_read_trace,
+            ),
+            "value": _transition_type_descriptor(
+                type_ref.value_type_ref,
+                source_read_trace=source_read_trace,
+            ),
         }
     if isinstance(type_ref, RecordTypeRef):
         return {
             "kind": "record",
-            "name": _nominal_descriptor_name(type_ref),
+            "name": _nominal_descriptor_name(
+                type_ref,
+                source_read_trace=source_read_trace,
+            ),
             "fields": [
                 {
                     "name": field.name,
-                    "type": _transition_type_descriptor(type_ref.field_types[field.name]),
+                    "type": _transition_type_descriptor(
+                        type_ref.field_types[field.name],
+                        source_read_trace=source_read_trace,
+                    ),
                 }
                 for field in type_ref.definition.fields
             ],
@@ -811,14 +849,20 @@ def _transition_type_descriptor(type_ref: TypeRef) -> dict[str, Any]:
     if isinstance(type_ref, UnionTypeRef):
         return {
             "kind": "union",
-            "name": _nominal_descriptor_name(type_ref),
+            "name": _nominal_descriptor_name(
+                type_ref,
+                source_read_trace=source_read_trace,
+            ),
             "variants": [
                 {
                     "name": variant.name,
                     "fields": [
                         {
                             "name": field.name,
-                            "type": _transition_type_descriptor(type_ref.variant_field_types[variant.name][field.name]),
+                            "type": _transition_type_descriptor(
+                                type_ref.variant_field_types[variant.name][field.name],
+                                source_read_trace=source_read_trace,
+                            ),
                         }
                         for field in variant.fields
                     ],
@@ -845,8 +889,24 @@ def _build_transition_pure_payload(
         local_values=local_values,
     )
     bindings = dict(payload.get("bindings", {}))
-    bindings.setdefault("state", {"type": _transition_type_descriptor(state_type)})
-    bindings.setdefault("request", {"type": _transition_type_descriptor(request_type)})
+    bindings.setdefault(
+        "state",
+        {
+            "type": _transition_type_descriptor(
+                state_type,
+                source_read_trace=context.source_read_trace,
+            )
+        },
+    )
+    bindings.setdefault(
+        "request",
+        {
+            "type": _transition_type_descriptor(
+                request_type,
+                source_read_trace=context.source_read_trace,
+            )
+        },
+    )
     payload["bindings"] = bindings
     return payload, binding_refs
 

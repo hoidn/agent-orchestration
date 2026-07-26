@@ -42,7 +42,7 @@ from ..expressions import (
     UnionVariantExpr,
 )
 from ..expression_traversal import walk_expr
-from ..reader import read_sexpr_file
+from ..reader import SourceReadTrace, read_sexpr_file
 from ..syntax import build_syntax_module
 from ..type_env import (
     FrontendTypeEnvironment,
@@ -178,13 +178,18 @@ def evaluate_closed_pure_expr(
     *,
     result_type: TypeRef,
     type_env: FrontendTypeEnvironment,
+    source_read_trace: SourceReadTrace | None = None,
 ) -> Any:
     """Evaluate one already-typechecked expression with no runtime bindings."""
 
     context = type(
         "GuidancePureProjectionContext",
         (),
-        {"type_env": type_env, "local_type_bindings": {}},
+        {
+            "type_env": type_env,
+            "local_type_bindings": {},
+            "source_read_trace": source_read_trace,
+        },
     )()
     payload, binding_refs = build_pure_projection_payload(
         expr,
@@ -202,10 +207,15 @@ def evaluate_typed_constant(
     *,
     result_type: TypeRef,
     type_env: FrontendTypeEnvironment,
+    source_read_trace: SourceReadTrace | None = None,
 ) -> Any:
     """Normalize JSON-native compile-time data through the shared evaluator."""
 
-    descriptor = _type_descriptor(result_type, type_env=type_env)
+    descriptor = _type_descriptor(
+        result_type,
+        type_env=type_env,
+        source_read_trace=source_read_trace,
+    )
     return evaluate_pure_expr(
         {
             "pure_expr_schema_version": PURE_EXPR_SCHEMA_VERSION,
@@ -323,6 +333,7 @@ def build_pure_projection_payload(
         inferred_type,
         result_type,
         type_env=context.type_env,
+        source_read_trace=context.source_read_trace,
     ) and not (
         isinstance(result_type, PrimitiveTypeRef)
         and result_type.allowed_values
@@ -346,7 +357,11 @@ def build_pure_projection_payload(
             expr,
             payload_expr=payload_expr,
         ),
-        "result_type": _type_descriptor(result_type, type_env=context.type_env),
+        "result_type": _type_descriptor(
+            result_type,
+            type_env=context.type_env,
+            source_read_trace=context.source_read_trace,
+        ),
         "bindings": bindings,
         "expr": payload_expr,
     }
@@ -407,10 +422,16 @@ def _pure_projection_type_equivalent(
     result_type: TypeRef,
     *,
     type_env: FrontendTypeEnvironment,
+    source_read_trace: SourceReadTrace | None = None,
 ) -> bool:
-    if _type_descriptor(inferred_type, type_env=type_env) == _type_descriptor(
+    if _type_descriptor(
+        inferred_type,
+        type_env=type_env,
+        source_read_trace=source_read_trace,
+    ) == _type_descriptor(
         result_type,
         type_env=type_env,
+        source_read_trace=source_read_trace,
     ):
         return True
     if (
@@ -442,18 +463,49 @@ def _short_type_name(name: str) -> str:
     return name.rsplit("::", 1)[-1].rsplit("/", 1)[-1]
 
 
-@lru_cache(maxsize=None)
-def _module_export_info(source_path: str) -> tuple[str, frozenset[str]] | None:
+def _load_module_export_info(
+    source_path: str,
+    *,
+    source_read_trace: SourceReadTrace | None = None,
+) -> tuple[str, frozenset[str]] | None:
     if source_path.startswith("<prelude:"):
         return None
     path = Path(source_path)
-    syntax_module = build_syntax_module(read_sexpr_file(path))
+    syntax_module = build_syntax_module(
+        read_sexpr_file(
+            path,
+            source_read_trace=source_read_trace,
+        )
+    )
     if syntax_module.module_name is None:
         return None
     return syntax_module.module_name, frozenset(syntax_module.exports)
 
 
-def _nominal_descriptor_name(type_ref: TypeRef) -> str:
+@lru_cache(maxsize=None)
+def _cached_module_export_info(source_path: str) -> tuple[str, frozenset[str]] | None:
+    return _load_module_export_info(source_path)
+
+
+def _module_export_info(
+    source_path: str,
+    *,
+    source_read_trace: SourceReadTrace | None = None,
+) -> tuple[str, frozenset[str]] | None:
+    if source_read_trace is None:
+        return _cached_module_export_info(source_path)
+    return _load_module_export_info(
+        source_path,
+        source_read_trace=source_read_trace,
+    )
+
+
+def _nominal_descriptor_name(
+    type_ref: TypeRef,
+    *,
+    type_env: FrontendTypeEnvironment | None = None,
+    source_read_trace: SourceReadTrace | None = None,
+) -> str:
     if carrier_metadata_for_type(type_ref) is not None:
         return "workflow_lisp/private::loop-state-carrier"
     if "::" in type_ref.name:
@@ -461,12 +513,19 @@ def _nominal_descriptor_name(type_ref: TypeRef) -> str:
     if "/" in type_ref.name:
         module_name, member_name = type_ref.name.rsplit("/", 1)
         return f"{module_name}::{member_name}"
+    if type_env is not None:
+        known_name = type_env.nominal_descriptor_name(type_ref)
+        if known_name is not None:
+            return known_name
     definition = getattr(type_ref, "definition", None)
     span = getattr(definition, "span", None)
     start = getattr(span, "start", None)
     source_path = getattr(start, "path", None)
     if source_path:
-        info = _module_export_info(source_path)
+        info = _module_export_info(
+            source_path,
+            source_read_trace=source_read_trace,
+        )
         if info is not None:
             module_name, exported_names = info
             if getattr(definition, "name", None) in exported_names:
@@ -552,7 +611,16 @@ def _payload_expr(
         type_ref = lexical_types.get(expr.name) or context.local_type_bindings.get(expr.name)
         if type_ref is None:
             raise KeyError(f"missing local type binding for `{expr.name}`")
-        bindings.setdefault(expr.name, {"type": _type_descriptor(type_ref, type_env=context.type_env)})
+        bindings.setdefault(
+            expr.name,
+            {
+                "type": _type_descriptor(
+                    type_ref,
+                    type_env=context.type_env,
+                    source_read_trace=context.source_read_trace,
+                )
+            },
+        )
         binding_refs.setdefault(
             expr.name,
             _binding_ref_value(expr.name, local_values=local_values),
@@ -562,21 +630,33 @@ def _payload_expr(
         type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
         return {
             "kind": "literal",
-            "type": _type_descriptor(type_ref, type_env=context.type_env),
+            "type": _type_descriptor(
+                type_ref,
+                type_env=context.type_env,
+                source_read_trace=context.source_read_trace,
+            ),
             "value": expr.value,
         }, type_ref
     if isinstance(expr, GeneratedRelpathSeedExpr):
         type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
         return {
             "kind": "literal",
-            "type": _type_descriptor(type_ref, type_env=context.type_env),
+            "type": _type_descriptor(
+                type_ref,
+                type_env=context.type_env,
+                source_read_trace=context.source_read_trace,
+            ),
             "value": expr.literal_path,
         }, type_ref
     if isinstance(expr, EnumMemberExpr):
         type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
         return {
             "kind": "literal",
-            "type": _type_descriptor(type_ref, type_env=context.type_env),
+            "type": _type_descriptor(
+                type_ref,
+                type_env=context.type_env,
+                source_read_trace=context.source_read_trace,
+            ),
             "value": expr.member_name,
         }, type_ref
     if isinstance(expr, FieldAccessExpr):
@@ -623,7 +703,11 @@ def _payload_expr(
         type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
         return {
             "kind": "record",
-            "type": _type_descriptor(type_ref, type_env=context.type_env),
+            "type": _type_descriptor(
+                type_ref,
+                type_env=context.type_env,
+                source_read_trace=context.source_read_trace,
+            ),
             "fields": [
                 {
                     "name": field_name,
@@ -644,7 +728,11 @@ def _payload_expr(
         type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
         return {
             "kind": "union",
-            "type": _type_descriptor(type_ref, type_env=context.type_env),
+            "type": _type_descriptor(
+                type_ref,
+                type_env=context.type_env,
+                source_read_trace=context.source_read_trace,
+            ),
             "variant": expr.variant_name,
             "fields": [
                 {
@@ -666,7 +754,11 @@ def _payload_expr(
         type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
         return {
             "kind": "record_update",
-            "record_type": _type_descriptor(type_ref, type_env=context.type_env),
+            "record_type": _type_descriptor(
+                type_ref,
+                type_env=context.type_env,
+                source_read_trace=context.source_read_trace,
+            ),
             "base": _payload_expr(
                 expr.base_expr,
                 context=context,
@@ -718,6 +810,7 @@ def _payload_expr(
             "element_type": _type_descriptor(
                 type_ref.item_type_ref,
                 type_env=context.type_env,
+                source_read_trace=context.source_read_trace,
             ),
             "items": [
                 _payload_expr(
@@ -748,6 +841,7 @@ def _payload_expr(
                 source_type.item_type_ref,
                 expr.element_type_ref,
                 type_env=context.type_env,
+                source_read_trace=context.source_read_trace,
             )
         ):
             raise LispFrontendCompileError(
@@ -770,6 +864,7 @@ def _payload_expr(
             "element_type": _type_descriptor(
                 expr.element_type_ref,
                 type_env=context.type_env,
+                source_read_trace=context.source_read_trace,
             ),
             "compiler_owned": True,
             "invariant_diagnostic": "list_nonempty_invariant_broken",
@@ -808,19 +903,25 @@ def _payload_expr(
                 "type": _type_descriptor(
                     source_type.item_type_ref,
                     type_env=context.type_env,
+                    source_read_trace=context.source_read_trace,
                 ),
             },
             "body": body_node,
             "result_element_type": _type_descriptor(
                 body_type,
                 type_env=context.type_env,
+                source_read_trace=context.source_read_trace,
             ),
         }, type_ref
     if isinstance(expr, PathJoinUnderExpr):
         type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
         return {
             "kind": "path_join_under",
-            "path_type": _type_descriptor(type_ref, type_env=context.type_env),
+            "path_type": _type_descriptor(
+                type_ref,
+                type_env=context.type_env,
+                source_read_trace=context.source_read_trace,
+            ),
             "child": _payload_expr(
                 expr.child_expr,
                 context=context,
@@ -1060,7 +1161,12 @@ def _field_type(type_ref: TypeRef, field_name: str, *, type_env: FrontendTypeEnv
     raise KeyError(f"unknown field `{field_name}` on `{type(type_ref).__name__}`")
 
 
-def _type_descriptor(type_ref: TypeRef, *, type_env: FrontendTypeEnvironment) -> dict[str, Any]:
+def _type_descriptor(
+    type_ref: TypeRef,
+    *,
+    type_env: FrontendTypeEnvironment,
+    source_read_trace: SourceReadTrace | None = None,
+) -> dict[str, Any]:
     if isinstance(type_ref, PrimitiveTypeRef):
         if type_ref.allowed_values:
             return {
@@ -1077,23 +1183,53 @@ def _type_descriptor(type_ref: TypeRef, *, type_env: FrontendTypeEnvironment) ->
             "must_exist_target": type_ref.definition.must_exist,
         }
     if isinstance(type_ref, OptionalTypeRef):
-        return {"kind": "optional", "item": _type_descriptor(type_ref.item_type_ref, type_env=type_env)}
+        return {
+            "kind": "optional",
+            "item": _type_descriptor(
+                type_ref.item_type_ref,
+                type_env=type_env,
+                source_read_trace=source_read_trace,
+            ),
+        }
     if isinstance(type_ref, ListTypeRef):
-        return {"kind": "list", "item": _type_descriptor(type_ref.item_type_ref, type_env=type_env)}
+        return {
+            "kind": "list",
+            "item": _type_descriptor(
+                type_ref.item_type_ref,
+                type_env=type_env,
+                source_read_trace=source_read_trace,
+            ),
+        }
     if isinstance(type_ref, MapTypeRef):
         return {
             "kind": "map",
-            "key": _type_descriptor(type_ref.key_type_ref, type_env=type_env),
-            "value": _type_descriptor(type_ref.value_type_ref, type_env=type_env),
+            "key": _type_descriptor(
+                type_ref.key_type_ref,
+                type_env=type_env,
+                source_read_trace=source_read_trace,
+            ),
+            "value": _type_descriptor(
+                type_ref.value_type_ref,
+                type_env=type_env,
+                source_read_trace=source_read_trace,
+            ),
         }
     if isinstance(type_ref, RecordTypeRef):
         return {
             "kind": "record",
-            "name": _nominal_descriptor_name(type_ref),
+            "name": _nominal_descriptor_name(
+                type_ref,
+                type_env=type_env,
+                source_read_trace=source_read_trace,
+            ),
             "fields": [
                 {
                     "name": field.name,
-                    "type": _type_descriptor(type_ref.field_types[field.name], type_env=type_env),
+                    "type": _type_descriptor(
+                        type_ref.field_types[field.name],
+                        type_env=type_env,
+                        source_read_trace=source_read_trace,
+                    ),
                 }
                 for field in type_ref.definition.fields
             ],
@@ -1101,7 +1237,11 @@ def _type_descriptor(type_ref: TypeRef, *, type_env: FrontendTypeEnvironment) ->
     if isinstance(type_ref, UnionTypeRef):
         return {
             "kind": "union",
-            "name": _nominal_descriptor_name(type_ref),
+            "name": _nominal_descriptor_name(
+                type_ref,
+                type_env=type_env,
+                source_read_trace=source_read_trace,
+            ),
             "variants": [
                 {
                     "name": variant.name,
@@ -1111,6 +1251,7 @@ def _type_descriptor(type_ref: TypeRef, *, type_env: FrontendTypeEnvironment) ->
                             "type": _type_descriptor(
                                 type_ref.variant_field_types[variant.name][field.name],
                                 type_env=type_env,
+                                source_read_trace=source_read_trace,
                             ),
                         }
                         for field in variant.fields
@@ -1146,6 +1287,7 @@ def _type_descriptor(type_ref: TypeRef, *, type_env: FrontendTypeEnvironment) ->
                     "type": _type_descriptor(
                         variant_field_types[field.name],
                         type_env=type_env,
+                        source_read_trace=source_read_trace,
                     ),
                 }
                 for field in type_ref.definition.fields

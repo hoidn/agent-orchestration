@@ -254,43 +254,62 @@ every Stage-3 source read.
 - Modify: `orchestrator/workflow_lisp/reader.py`
 - Modify: `orchestrator/workflow_lisp/modules.py`
 - Modify: `orchestrator/workflow_lisp/compiler.py`
+- Modify: `orchestrator/workflow_lisp/type_env.py`
+- Modify: `orchestrator/workflow_lisp/result_guidance.py`
 - Modify: exact reachable Stage-3 reread owners under
   `orchestrator/workflow_lisp/lowering/`
+- Modify: exact reachable Stage-3 reread owners under
+  `orchestrator/workflow_lisp/wcc/`
 - Create: `tests/test_workflow_lisp_source_read_trace.py`
 - Modify: existing reader/module/compiler tests only where they own adjacent
   compatibility assertions
 
 **RED:**
 
-- [ ] Prove `read_sexpr_file` currently cannot return ordered immutable read
+- [x] Prove `read_sexpr_file` currently cannot return ordered immutable read
       records or a canonical revision vector.
-- [ ] Prove one invocation performs one `read_bytes` and derives unchanged
+- [x] Prove one invocation performs one `read_bytes` and derives unchanged
       raw bytes, strict UTF-8 text, and parser text from that one value.
-- [ ] Cover LF/CRLF/bare-CR: parser text, AST, spans, and diagnostics match the
+- [x] Cover LF/CRLF/bare-CR: parser text, AST, spans, and diagnostics match the
       legacy universal-newline reader while raw digests remain distinct.
-- [ ] Cover exact editor equality in both directions; parser normalization
+- [x] Cover exact editor equality in both directions; parser normalization
       must never make mismatched editor/disk text clean.
-- [ ] Cover ordered `A(v1), B(v1), A(v1)` acceptance and
+- [x] Cover ordered `A(v1), B(v1), A(v1)` acceptance and
       `A(v1), B(v1), A(v2)` refusal.
-- [ ] Cover distinct missing/unreadable sentinels and strict-decode failure.
-- [ ] Prove every reachable Stage-3/import/lowering reread joins one explicit
+- [x] Cover distinct missing/unreadable sentinels and strict-decode failure.
+- [x] Prove every reachable Stage-3/import/lowering reread joins one explicit
       collector and Stage 1 has no trace path.
 
 **GREEN:**
 
-- [ ] Add immutable `SourceReadRecord` and `SourceReadTrace` in the reader.
-- [ ] Canonicalize each path, assign a monotonic ordinal, call `read_bytes`
+- [x] Add immutable `SourceReadRecord` and `SourceReadTrace` in the reader.
+- [x] Canonicalize each path, assign a monotonic ordinal, call `read_bytes`
       once, hash exact bytes, strict-decode, then apply only
       `.replace("\r\n", "\n").replace("\r", "\n")` for parser text.
-- [ ] Preserve existing read/parse failures after recording their sentinel or
+- [x] Preserve existing read/parse failures after recording their sentinel or
       exact raw revision.
-- [ ] Reject repeated-path digest disagreement immediately.
-- [ ] Thread the optional collector explicitly through Stage 3, module graph
+- [x] Reject repeated-path digest disagreement immediately.
+- [x] Thread the optional collector explicitly through Stage 3, module graph
       resolution, and every reachable source reread. Use no module global.
-- [ ] Rerun reader, parser, module graph, compiler, lowering, and source-map
+- [x] Rerun reader, parser, module graph, compiler, lowering, and source-map
       regressions.
 - [ ] Obtain `STAGE8_TASK1_SPEC_APPROVED`, then
       `STAGE8_TASK1_QUALITY_APPROVED`, and commit.
+
+**Implementation record (commit pending):**
+
+- RED established the missing immutable collector/Stage-3 plumbing and the
+  nominal result-guidance reread that escaped the first collector pass.
+- The focused source-read module collects 18 tests and passes 18.
+- Fresh adjacent selectors pass: result guidance/pure projection 20; lowering
+  and pure projection 183; reader/modules/source maps 139; WCC inventory 82;
+  materialize/provider-peer surfaces 88; WCC M1-M5 plus characterization 233;
+  collection types/typed prompts/result guidance 38.
+- `py_compile`, scoped `git diff --check`, and the direct-read seam scan across
+  compiler, modules, lowering, and WCC are clean.
+- Ordered preliminary reviews returned `STAGE8_TASK1_SPEC_APPROVED`, then
+  `STAGE8_TASK1_QUALITY_APPROVED`. Exact-diff reaffirmations and the
+  implementation commit remain pending.
 
 ## Task 2: Extract The Shared Read-Only In-Memory Build Core
 

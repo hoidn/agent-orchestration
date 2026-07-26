@@ -18,6 +18,7 @@ from ..workflows import (
     WorkflowCatalog,
 )
 from ..procedures import ProcedureCatalog, TypedProcedureDef
+from ..reader import SourceReadTrace
 from .defunctionalize import (
     lower_wcc_m2_workflow_definitions,
     lower_wcc_m3_workflow_definitions,
@@ -54,6 +55,7 @@ def lower_wcc_m1_workflow_definitions(
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env: FrontendTypeEnvironment,
     target_dsl_version: str = "2.14",
+    source_read_trace: SourceReadTrace | None = None,
 ) -> tuple[LoweredWorkflow, ...]:
     """Lower pure-subset workflows through WCC M1, then reuse legacy lowering."""
 
@@ -77,6 +79,7 @@ def lower_wcc_m1_workflow_definitions(
         command_boundary_environment=command_boundary_environment,
         type_env=type_env,
         target_dsl_version=target_dsl_version,
+        source_read_trace=source_read_trace,
     )
 
 

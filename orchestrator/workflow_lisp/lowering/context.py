@@ -16,6 +16,7 @@ from ..contracts import WorkflowBoundaryProjection
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..phase import PhaseScope
 from ..procedures import TypedProcedureDef
+from ..reader import SourceReadTrace
 from ..spans import SourceSpan
 from ..type_env import FrontendTypeEnvironment, TypeRef
 from ..workflows import (
@@ -138,6 +139,7 @@ class _LoweringContext:
     lower_call_expr: Callable[..., Any] | None = None
     record_step_origin: Callable[..., Any] | None = None
     normalize_generated_step_id: Callable[..., Any] | None = None
+    source_read_trace: SourceReadTrace | None = None
 
 
 @dataclass(frozen=True)

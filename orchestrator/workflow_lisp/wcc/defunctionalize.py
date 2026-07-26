@@ -52,6 +52,7 @@ from ..phase_family_boundary import (
     record_direct_entry_phase_context_binding,
 )
 from ..procedures import ProcedureCatalog, ProcedureLoweringMode, TypedProcedureDef
+from ..reader import SourceReadTrace, _read_source_file_views
 from ..syntax import target_dsl_supports_list_traversal
 from ..typecheck_context import TypedExpr
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef, WorkflowRefTypeRef
@@ -216,23 +217,34 @@ def _sha256_bytes(value: bytes) -> str:
     return f"sha256:{hashlib.sha256(value).hexdigest()}"
 
 
-def _workflow_version_policy_from_path(path: Path | None) -> str:
-    if path is None or not path.exists():
-        return "unknown"
+def _workflow_source_policy_metadata(
+    path: Path | None,
+    *,
+    source_read_trace: SourceReadTrace | None = None,
+) -> tuple[str, str | None]:
+    if path is None:
+        return "unknown", None
     try:
-        text = path.read_text(encoding="utf-8")
+        views = _read_source_file_views(
+            path,
+            source_read_trace=source_read_trace,
+        )
     except OSError:
-        return "unknown"
+        return "unknown", None
+    text = views.parser_text
     if path.suffix == ".orc":
         match = re.search(r'\(:target-dsl\s+"([^"]+)"\)', text)
-        return match.group(1) if match is not None else "unknown"
-    for line in text.splitlines():
-        if line.strip().startswith("version:"):
-            _, _, value = line.partition(":")
-            version = value.strip()
-            if version:
-                return version
-    return "unknown"
+        version = match.group(1) if match is not None else "unknown"
+    else:
+        version = "unknown"
+        for line in text.splitlines():
+            if line.strip().startswith("version:"):
+                _, _, value = line.partition(":")
+                candidate = value.strip()
+                if candidate:
+                    version = candidate
+                    break
+    return version, _sha256_bytes(views.raw_bytes)
 
 
 def _provider_prompt_input_contract_digest(
@@ -265,14 +277,14 @@ def _workflow_call_policy_metadata(
 ) -> tuple[str, str]:
     imported_bundle = context.imported_workflow_bundles.get(callee_workflow)
     workflow_path = imported_bundle.provenance.workflow_path if imported_bundle is not None else context.workflow_path
-    target_dsl_version = (
-        imported_bundle.surface.version
-        if imported_bundle is not None
-        else _workflow_version_policy_from_path(workflow_path)
+    source_version, source_checksum = _workflow_source_policy_metadata(
+        workflow_path,
+        source_read_trace=context.source_read_trace,
     )
+    target_dsl_version = imported_bundle.surface.version if imported_bundle is not None else source_version
     callee_checksum = (
-        _sha256_bytes(workflow_path.read_bytes())
-        if workflow_path is not None and workflow_path.exists()
+        source_checksum
+        if source_checksum is not None
         else _sha256_text(callee_workflow)
     )
     return target_dsl_version, callee_checksum
@@ -294,6 +306,7 @@ def lower_wcc_m2_workflow_definitions(
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env,
     target_dsl_version: str = "2.14",
+    source_read_trace: SourceReadTrace | None = None,
 ) -> tuple[lowering_core.LoweredWorkflow, ...]:
     """Lower bounded straight-line workflows through WCC M2."""
     return _lower_wcc_workflow_definitions(
@@ -312,6 +325,7 @@ def lower_wcc_m2_workflow_definitions(
         type_env=type_env,
         route_schema_version=WCC_M2_ROUTE_SCHEMA_VERSION,
         target_dsl_version=target_dsl_version,
+        source_read_trace=source_read_trace,
     )
 
 
@@ -331,6 +345,7 @@ def lower_wcc_m3_workflow_definitions(
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env,
     target_dsl_version: str = "2.14",
+    source_read_trace: SourceReadTrace | None = None,
 ) -> tuple[lowering_core.LoweredWorkflow, ...]:
     """Lower bounded same-file match workflows through WCC M3."""
 
@@ -350,6 +365,7 @@ def lower_wcc_m3_workflow_definitions(
         type_env=type_env,
         route_schema_version=WCC_M3_ROUTE_SCHEMA_VERSION,
         target_dsl_version=target_dsl_version,
+        source_read_trace=source_read_trace,
     )
 
 
@@ -369,6 +385,7 @@ def lower_wcc_m4_workflow_definitions(
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env,
     target_dsl_version: str = "2.14",
+    source_read_trace: SourceReadTrace | None = None,
 ) -> tuple[lowering_core.LoweredWorkflow, ...]:
     """Lower bounded loop workflows through WCC M4."""
 
@@ -388,6 +405,7 @@ def lower_wcc_m4_workflow_definitions(
         type_env=type_env,
         route_schema_version="wcc_m4",
         target_dsl_version=target_dsl_version,
+        source_read_trace=source_read_trace,
     )
 
 
@@ -408,6 +426,7 @@ def _lower_wcc_workflow_definitions(
     type_env,
     route_schema_version: str,
     target_dsl_version: str = "2.14",
+    source_read_trace: SourceReadTrace | None = None,
 ) -> tuple[lowering_core.LoweredWorkflow, ...]:
     """Lower WCC workflows through one route-selected normalized program shape."""
 
@@ -546,6 +565,7 @@ def _lower_wcc_workflow_definitions(
             specialize_workflow=specialize_workflow,
             route_schema_version=route_schema_version,
             target_dsl_version=target_dsl_version,
+            source_read_trace=source_read_trace,
         )
         lowered_by_name[workflow_name] = lowered
         lowered_order.append(workflow_name)
@@ -592,6 +612,7 @@ def _lower_one_wcc_workflow(
     specialize_workflow: Any,
     route_schema_version: str,
     target_dsl_version: str = "2.14",
+    source_read_trace: SourceReadTrace | None = None,
 ) -> lowering_core.LoweredWorkflow:
     inputs, outputs, boundary_projection = derive_workflow_signature_contracts(typed_workflow.signature)
     authored_inputs = {name: dict(contract.definition) for name, contract in inputs.items()}
@@ -658,6 +679,7 @@ def _lower_one_wcc_workflow(
         requires_guarded_case_step_hoist=bool(
             pre_lowering_phase_family_classification.compatibility_bridge_inputs
         ),
+        source_read_trace=source_read_trace,
         lower_expression=lowering_core._lower_expression,
         lower_call_expr=lowering_core._lower_call_expr,
         record_step_origin=lowering_core._record_step_origin,
@@ -4216,8 +4238,13 @@ def _provider_supervision_contract(
     name: str,
     type_ref: TypeRef,
     type_env: object,
+    source_read_trace: SourceReadTrace | None = None,
 ) -> ExecutableContract:
-    descriptor = _type_descriptor(type_ref, type_env=type_env)
+    descriptor = _type_descriptor(
+        type_ref,
+        type_env=type_env,
+        source_read_trace=source_read_trace,
+    )
     canonical_name, contract_kind, value_type = (
         derive_result_contract_identity(descriptor)
     )
@@ -4238,8 +4265,13 @@ def _provider_peer_group_contract(
     name: str,
     type_ref: TypeRef,
     type_env: object,
+    source_read_trace: SourceReadTrace | None = None,
 ) -> ExecutableContract:
-    descriptor = _type_descriptor(type_ref, type_env=type_env)
+    descriptor = _type_descriptor(
+        type_ref,
+        type_env=type_env,
+        source_read_trace=source_read_trace,
+    )
     canonical_name, contract_kind, value_type = (
         derive_result_contract_identity(descriptor)
     )
@@ -4376,7 +4408,10 @@ def _lower_provider_peer_group_member(
     )
     if prompt_contract is None:
         try:
-            source_workflow_bytes = context.workflow_path.read_bytes()
+            source_workflow_bytes = _read_source_file_views(
+                context.workflow_path,
+                source_read_trace=context.source_read_trace,
+            ).raw_bytes
         except OSError:
             _raise_provider_peer_group_lowering_error(
                 member,
@@ -4486,6 +4521,7 @@ def _lower_provider_peer_group_member(
             name=perform.metadata.type_ref.name,
             type_ref=perform.metadata.type_ref,
             type_env=context.type_env,
+            source_read_trace=context.source_read_trace,
         )
     except (TypeError, ValueError) as exc:
         _raise_provider_peer_group_lowering_error(
@@ -4607,7 +4643,10 @@ def _lower_provider_supervision_member(
     )
     if prompt_contract is None:
         try:
-            source_workflow_bytes = context.workflow_path.read_bytes()
+            source_workflow_bytes = _read_source_file_views(
+                context.workflow_path,
+                source_read_trace=context.source_read_trace,
+            ).raw_bytes
         except OSError:
             _raise_provider_supervision_lowering_error(
                 member,
@@ -4719,6 +4758,7 @@ def _lower_provider_supervision_member(
             name=perform.metadata.type_ref.name,
             type_ref=perform.metadata.type_ref,
             type_env=context.type_env,
+            source_read_trace=context.source_read_trace,
         )
     except (TypeError, ValueError) as exc:
         _raise_provider_supervision_lowering_error(
@@ -4887,6 +4927,7 @@ def _lower_provider_peer_group_binding(
                 "type": _type_descriptor(
                     member_types[member_id],
                     type_env=context.type_env,
+                    source_read_trace=context.source_read_trace,
                 )
             }
             for member_id in member_ids
@@ -4899,6 +4940,7 @@ def _lower_provider_peer_group_binding(
             name=binding_type.name,
             type_ref=binding_type,
             type_env=context.type_env,
+            source_read_trace=context.source_read_trace,
         )
     except (TypeError, ValueError) as exc:
         _raise_provider_peer_group_lowering_error(
@@ -5127,12 +5169,14 @@ def _lower_provider_supervision_binding(
         "type": _type_descriptor(
             worker_raw_type,
             type_env=context.type_env,
+            source_read_trace=context.source_read_trace,
         )
     }
     settlement_bindings[group.supervisor_name] = {
         "type": _type_descriptor(
             supervisor_raw_type,
             type_env=context.type_env,
+            source_read_trace=context.source_read_trace,
         )
     }
     settlement_payload = {
@@ -5149,6 +5193,7 @@ def _lower_provider_supervision_binding(
             name=binding_type.name,
             type_ref=binding_type,
             type_env=context.type_env,
+            source_read_trace=context.source_read_trace,
         )
     except (TypeError, ValueError) as exc:
         _raise_provider_supervision_lowering_error(

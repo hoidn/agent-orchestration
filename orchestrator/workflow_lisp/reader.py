@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+import hashlib
 import re
 from pathlib import Path
 
@@ -12,6 +14,63 @@ from .spans import SourcePosition, SourceSpan
 
 _INTEGER_RE = re.compile(r"-?\d+\Z")
 _FLOAT_RE = re.compile(r"-?(?:\d+\.\d*|\d*\.\d+)\Z")
+
+
+@dataclass(frozen=True)
+class SourceReadRecord:
+    """One exact source-file read observed by a compiler-owned trace."""
+
+    canonical_path: Path
+    revision: str
+    ordinal: int
+
+
+@dataclass(frozen=True)
+class _SourceReadViews:
+    """Ephemeral source contents derived from one physical read."""
+
+    raw_bytes: bytes
+    raw_decoded_text: str
+    parser_text: str
+
+
+class SourceReadTrace:
+    """Ordered source-read collector with fail-closed revision consistency."""
+
+    def __init__(self) -> None:
+        self._records: list[SourceReadRecord] = []
+        self._revisions_by_path: dict[Path, str] = {}
+
+    @property
+    def records(self) -> tuple[SourceReadRecord, ...]:
+        """Return immutable records in physical-read order."""
+
+        return tuple(self._records)
+
+    @property
+    def revision_vector(self) -> tuple[tuple[Path, str], ...]:
+        """Return the unique canonical path/revision vector in path order."""
+
+        return tuple(sorted(self._revisions_by_path.items(), key=lambda item: item[0].as_posix()))
+
+    def _record(
+        self,
+        *,
+        canonical_path: Path,
+        revision: str,
+    ) -> SourceReadRecord:
+        record = SourceReadRecord(
+            canonical_path=canonical_path,
+            revision=revision,
+            ordinal=len(self._records),
+        )
+        self._records.append(record)
+        previous_revision = self._revisions_by_path.setdefault(canonical_path, revision)
+        if previous_revision != revision:
+            raise RuntimeError(
+                f"source `{canonical_path}` changed during one compiler read trace"
+            )
+        return record
 
 
 class _Reader:
@@ -252,7 +311,60 @@ def read_sexpr_text(source: str, *, source_path: str) -> ListExpr:
     return _Reader(source, source_path).read()
 
 
-def read_sexpr_file(path: Path) -> ListExpr:
+def _read_source_file_views(
+    path: Path,
+    *,
+    source_read_trace: SourceReadTrace | None = None,
+) -> _SourceReadViews:
+    """Read one exact source value and derive its strict and parser text views."""
+
+    canonical_path = path.resolve()
+    try:
+        raw_bytes = canonical_path.read_bytes()
+    except FileNotFoundError:
+        if source_read_trace is not None:
+            source_read_trace._record(
+                canonical_path=canonical_path,
+                revision="missing",
+            )
+        raise
+    except OSError:
+        if source_read_trace is not None:
+            source_read_trace._record(
+                canonical_path=canonical_path,
+                revision="unreadable",
+            )
+        raise
+
+    revision = f"sha256:{hashlib.sha256(raw_bytes).hexdigest()}"
+    try:
+        raw_decoded_text = raw_bytes.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        if source_read_trace is not None:
+            source_read_trace._record(
+                canonical_path=canonical_path,
+                revision=revision,
+            )
+        raise
+    parser_text = raw_decoded_text.replace("\r\n", "\n").replace("\r", "\n")
+    if source_read_trace is not None:
+        source_read_trace._record(
+            canonical_path=canonical_path,
+            revision=revision,
+        )
+    return _SourceReadViews(
+        raw_bytes=raw_bytes,
+        raw_decoded_text=raw_decoded_text,
+        parser_text=parser_text,
+    )
+
+
+def read_sexpr_file(
+    path: Path,
+    *,
+    source_read_trace: SourceReadTrace | None = None,
+) -> ListExpr:
     """Read a UTF-8 `.orc` file into a source-spanned top-level S-expression list."""
 
-    return read_sexpr_text(path.read_text(encoding="utf-8"), source_path=str(path))
+    views = _read_source_file_views(path, source_read_trace=source_read_trace)
+    return read_sexpr_text(views.parser_text, source_path=str(path))

@@ -279,6 +279,7 @@ class FrontendTypeEnvironment:
         schema_names: frozenset[str] = frozenset(),
         resource_defs: Mapping[str, ResourceDef] | None = None,
         transition_defs: Mapping[str, TransitionDef] | None = None,
+        nominal_descriptor_names_by_definition_id: dict[int, str] | None = None,
     ):
         self._type_refs = dict(type_refs)
         self.target_dsl_version = target_dsl_version
@@ -287,6 +288,9 @@ class FrontendTypeEnvironment:
         self._schema_names = frozenset(schema_names)
         self._resource_defs = dict(resource_defs or {})
         self._transition_defs = dict(transition_defs or {})
+        self._nominal_descriptor_names_by_definition_id = dict(
+            nominal_descriptor_names_by_definition_id or {}
+        )
 
     @classmethod
     def from_module(
@@ -464,7 +468,27 @@ class FrontendTypeEnvironment:
                 import_scope=import_scope,
                 imported_transition_defs=imported_transition_defs or {},
             ),
+            nominal_descriptor_names_by_definition_id={
+                id(definition): (
+                    f"{module.module_name}::{definition.name}"
+                    if (
+                        module.module_name is not None
+                        and definition.name in module.exports
+                    )
+                    else definition.name
+                )
+                for definition in module.definitions
+                if isinstance(definition, (RecordDef, UnionDef))
+            },
         )
+
+    def nominal_descriptor_name(self, type_ref: TypeRef) -> str | None:
+        """Return the compile-known contract identity for one local nominal type."""
+
+        definition = getattr(type_ref, "definition", None)
+        if definition is None:
+            return None
+        return self._nominal_descriptor_names_by_definition_id.get(id(definition))
 
     def resolve_type(
         self,

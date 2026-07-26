@@ -21,6 +21,7 @@ from ..expressions import (
 )
 from ..phase import IMPLEMENTATION_ATTEMPT_ARTIFACT_ROOT
 from ..result_guidance import ResultGuidance
+from ..reader import _read_source_file_views
 from ..type_env import TypeRef
 from ..workflows import PromptExtern, ProviderExtern
 from .context import _compile_error, _TerminalResult
@@ -619,7 +620,10 @@ def _lower_prompt_dependencies(
             form_path=spec.form_path,
         )
     try:
-        source_bytes = context.workflow_path.read_bytes()
+        source_bytes = _read_source_file_views(
+            context.workflow_path,
+            source_read_trace=context.source_read_trace,
+        ).raw_bytes
     except OSError as exc:
         raise _compile_error(
             code="prompt_dependency_source_unreadable",

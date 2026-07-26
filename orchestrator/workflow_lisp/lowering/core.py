@@ -132,7 +132,7 @@ from ..phase_family_boundary import (
     record_direct_entry_phase_context_binding,
 )
 from ..macros import collect_macro_catalog, expand_module_forms
-from ..reader import read_sexpr_file
+from ..reader import SourceReadTrace, read_sexpr_file
 from ..spans import SourceSpan
 from ..syntax import WorkflowLispSyntaxModule, build_syntax_module, syntax_head_name, syntax_node_datum
 from ..type_env import (
@@ -726,6 +726,7 @@ def lower_workflow_definitions(
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env: FrontendTypeEnvironment | None = None,
     target_dsl_version: str = "2.14",
+    source_read_trace: SourceReadTrace | None = None,
 ) -> tuple[LoweredWorkflow, ...]:
     """Lower typechecked frontend workflows into shared workflow dictionaries.
 
@@ -752,7 +753,12 @@ def lower_workflow_definitions(
         **{workflow.definition.name: workflow for workflow in typed_workflows},
         **private_workflows,
     }
-    resolved_type_env = type_env or FrontendTypeEnvironment.from_module(_definition_only_module(workflow_path))
+    resolved_type_env = type_env or FrontendTypeEnvironment.from_module(
+        _definition_only_module(
+            workflow_path,
+            source_read_trace=source_read_trace,
+        )
+    )
     lowered_by_name: dict[str, LoweredWorkflow] = {}
     visiting: set[str] = set()
     specialized_workflows: dict[tuple[str, tuple[tuple[str, str], ...]], TypedWorkflowDef] = {}
@@ -868,6 +874,7 @@ def lower_workflow_definitions(
             ensure_workflow_lowered=lower_one,
             specialize_workflow=specialize_workflow,
             target_dsl_version=target_dsl_version,
+            source_read_trace=source_read_trace,
         )
         lowered_by_name[workflow_name] = lowered
         visiting.remove(workflow_name)
@@ -1002,6 +1009,7 @@ def _lower_one_workflow(
     ensure_workflow_lowered: Any,
     specialize_workflow: Any,
     target_dsl_version: str = "2.14",
+    source_read_trace: SourceReadTrace | None = None,
 ) -> LoweredWorkflow:
     """Lower one typed workflow body and assemble its shared mapping.
 
@@ -1069,6 +1077,7 @@ def _lower_one_workflow(
         lower_call_expr=_lower_call_expr,
         record_step_origin=_record_step_origin,
         normalize_generated_step_id=_normalize_generated_step_id,
+        source_read_trace=source_read_trace,
     )
     local_values = _signature_local_values(typed_workflow)
     steps, terminal = _lower_expression(typed_workflow.typed_body, context=context, local_values=local_values)
@@ -2534,8 +2543,17 @@ def _definition_only_syntax_module(module_syntax: WorkflowLispSyntaxModule) -> W
     )
 
 
-def _definition_only_module(workflow_path: Path):
+def _definition_only_module(
+    workflow_path: Path,
+    *,
+    source_read_trace: SourceReadTrace | None = None,
+):
     """Load only definitions from a source path using the current syntax path."""
 
-    syntax_module = build_syntax_module(read_sexpr_file(workflow_path))
+    syntax_module = build_syntax_module(
+        read_sexpr_file(
+            workflow_path,
+            source_read_trace=source_read_trace,
+        )
+    )
     return elaborate_definition_module(_definition_only_syntax_module(syntax_module))

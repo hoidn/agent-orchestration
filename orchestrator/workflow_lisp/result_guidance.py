@@ -43,6 +43,7 @@ def normalized_result_guidance_payload(
     expected_type=None,
     type_env=None,
     workspace: Path | None = None,
+    source_read_trace=None,
 ) -> dict[str, Any] | None:
     """Project authored guidance once into the canonical JSON-native wire payload."""
 
@@ -61,6 +62,7 @@ def normalized_result_guidance_payload(
             expected_type=expected_type,
             type_env=type_env,
             workspace=workspace,
+            source_read_trace=source_read_trace,
         )
     return payload or None
 
@@ -205,6 +207,7 @@ def validate_result_guidance_example(
     expected_type,
     type_env,
     workspace: Path | None = None,
+    source_read_trace=None,
 ) -> Any | None:
     """Elaborate, typecheck, evaluate, and schema-check one authored example."""
 
@@ -271,6 +274,7 @@ def validate_result_guidance_example(
             typed.expr,
             result_type=typed.type_ref,
             type_env=type_env,
+            source_read_trace=source_read_trace,
         )
     except (LispFrontendCompileError, TypeError, ValueError) as exc:
         _raise_example_type_mismatch(expected_type, example_node=example_node, cause=exc)
@@ -280,6 +284,7 @@ def validate_result_guidance_example(
         type_env=type_env,
         example_node=example_node,
         workspace=workspace,
+        source_read_trace=source_read_trace,
     )
 
 
@@ -290,6 +295,7 @@ def validate_typed_guidance_constant(
     type_env,
     example_node: SyntaxNode,
     workspace: Path | None = None,
+    source_read_trace=None,
 ) -> Any:
     """Validate JSON-native constant data through pure and output schemas."""
 
@@ -302,6 +308,7 @@ def validate_typed_guidance_constant(
             value,
             result_type=expected_type,
             type_env=type_env,
+            source_read_trace=source_read_trace,
         )
         _validate_against_structured_result_contract(
             normalized,
@@ -322,6 +329,7 @@ def validate_module_result_guidance(
     procedure_defs: tuple[object, ...] = (),
     workflow_defs: tuple[object, ...] = (),
     workspace: Path | None = None,
+    source_read_trace=None,
 ) -> None:
     """Validate all definition and callable guidance visible in one module."""
 
@@ -351,6 +359,7 @@ def validate_module_result_guidance(
                     expected_type=field_type,
                     type_env=type_env,
                     workspace=workspace,
+                    source_read_trace=source_read_trace,
                 )
 
     for definition in (*function_defs, *procedure_defs, *workflow_defs):
@@ -376,6 +385,7 @@ def validate_module_result_guidance(
             expected_type=return_type,
             type_env=type_env,
             workspace=workspace,
+            source_read_trace=source_read_trace,
         )
 
 

@@ -134,7 +134,7 @@ from .procedure_specialization import (
     discover_workflow_ref_specializations as _discover_workflow_ref_specializations_owner,
     procedure_catalog_with_specializations as _procedure_catalog_with_specializations_owner,
 )
-from .reader import read_sexpr_file
+from .reader import SourceReadTrace, _read_source_file_views, read_sexpr_file
 from .result_guidance import validate_module_result_guidance
 from .spans import SourcePosition, SourceSpan
 from .source_map import build_source_map_document
@@ -385,6 +385,7 @@ def _effective_source_roots(
     path: Path,
     *,
     source_roots: tuple[Path, ...] | None = None,
+    source_read_trace: SourceReadTrace | None = None,
 ) -> tuple[Path, ...]:
     """Compute the import search roots for one compile request.
 
@@ -394,7 +395,10 @@ def _effective_source_roots(
     """
 
     configured_roots = tuple(Path(root) for root in (source_roots or ()))
-    inferred_entry_root = _infer_entry_source_root(path)
+    inferred_entry_root = _infer_entry_source_root(
+        path,
+        source_read_trace=source_read_trace,
+    )
     entry_root = next(
         (
             root
@@ -415,17 +419,29 @@ def _effective_source_roots(
     return tuple(deduped_roots)
 
 
-def _syntax_module_uses_module_graph(path: Path) -> bool:
+def _syntax_module_uses_module_graph(
+    path: Path,
+    *,
+    source_read_trace: SourceReadTrace | None = None,
+) -> bool:
     """Return whether single-file wrapper helpers must resolve imports."""
 
-    syntax_module = build_syntax_module(read_sexpr_file(path))
+    syntax_module = build_syntax_module(
+        read_sexpr_file(path, source_read_trace=source_read_trace)
+    )
     return bool(syntax_module.imports)
 
 
-def _infer_entry_source_root(path: Path) -> Path:
+def _infer_entry_source_root(
+    path: Path,
+    *,
+    source_read_trace: SourceReadTrace | None = None,
+) -> Path:
     """Infer the module source root from `defmodule` when possible."""
 
-    syntax_module = build_syntax_module(read_sexpr_file(path))
+    syntax_module = build_syntax_module(
+        read_sexpr_file(path, source_read_trace=source_read_trace)
+    )
     module_name = syntax_module.module_name
     if module_name is None:
         return path.parent
@@ -592,6 +608,7 @@ def compile_stage3_entrypoint(
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
+    source_read_trace: SourceReadTrace | None = None,
 ) -> LinkedStage3CompileResult:
     """Compile an entrypoint and imports through the executable frontend path.
 
@@ -612,7 +629,11 @@ def compile_stage3_entrypoint(
     reset_loop_state_metadata()
     compile_result, results = _run_stage3_entrypoint_validation_pipeline(
         path,
-        source_roots=_effective_source_roots(path, source_roots=source_roots),
+        source_roots=_effective_source_roots(
+            path,
+            source_roots=source_roots,
+            source_read_trace=source_read_trace,
+        ),
         entry_workflow=entry_workflow,
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
@@ -623,6 +644,7 @@ def compile_stage3_entrypoint(
         lint_profile=lint_profile,
         lowering_route=normalized_lowering_route,
         family_profile_catalog=family_profile_catalog,
+        source_read_trace=source_read_trace,
     )
     additional_diagnostics = ()
     if compile_result is not None:
@@ -672,6 +694,7 @@ def compile_stage3_module(
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
+    source_read_trace: SourceReadTrace | None = None,
 ) -> Stage3CompileResult:
     """Compile one `.orc` file through the executable frontend pipeline."""
 
@@ -680,7 +703,10 @@ def compile_stage3_module(
         validate_shared=validate_shared,
         validation_profile=validation_profile,
     )
-    if _syntax_module_uses_module_graph(path):
+    if _syntax_module_uses_module_graph(
+        path,
+        source_read_trace=source_read_trace,
+    ):
         if normalized_lowering_route in {LoweringRoute.WCC_M2, LoweringRoute.WCC_M3}:
             _raise_wcc_module_graph_unsupported(path, normalized_lowering_route)
         linked = compile_stage3_entrypoint(
@@ -695,6 +721,7 @@ def compile_stage3_module(
             lint_profile=lint_profile,
             lowering_route=normalized_lowering_route,
             family_profile_catalog=family_profile_catalog,
+            source_read_trace=source_read_trace,
         )
         return linked.entry_result
 
@@ -709,6 +736,7 @@ def compile_stage3_module(
         lint_profile=lint_profile,
         lowering_route=normalized_lowering_route,
         family_profile_catalog=family_profile_catalog,
+        source_read_trace=source_read_trace,
     )
     diagnostics = _finalize_stage3_diagnostics(
         results,
@@ -1230,13 +1258,18 @@ def _run_stage3_entrypoint_validation_pipeline(
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
+    source_read_trace: SourceReadTrace | None = None,
 ) -> tuple[LinkedStage3CompileResult | None, tuple[object, ...]]:
     normalized_validation_profile = _normalize_stage3_validation_profile(
         validate_shared=validate_shared,
         validation_profile=validation_profile,
     )
     normalized_lowering_route = normalize_lowering_route(lowering_route)
-    graph = resolve_module_graph(path, source_roots=source_roots)
+    graph = resolve_module_graph(
+        path,
+        source_roots=source_roots,
+        source_read_trace=source_read_trace,
+    )
     compile_result: LinkedStage3CompileResult | None = None
     selected_workflow_name: str | None = None
 
@@ -1254,6 +1287,7 @@ def _run_stage3_entrypoint_validation_pipeline(
             lint_profile=lint_profile,
             lowering_route=normalized_lowering_route,
             family_profile_catalog=family_profile_catalog,
+            source_read_trace=source_read_trace,
         )
         compile_result = replace(
             compile_result,
@@ -1432,6 +1466,7 @@ def _lower_workflows_for_route(
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env: FrontendTypeEnvironment,
     target_dsl_version: str = "2.14",
+    source_read_trace: SourceReadTrace | None = None,
 ):
     resolved_procedures_by_name = MappingProxyType(
         {procedure.definition.name: procedure for procedure in typed_procedures}
@@ -1453,6 +1488,7 @@ def _lower_workflows_for_route(
             command_boundary_environment=command_boundary_environment,
             type_env=type_env,
             target_dsl_version=target_dsl_version,
+            source_read_trace=source_read_trace,
         )
     if lowering_route is LoweringRoute.WCC_M2:
         validate_wcc_m2_route_supported(typed_workflows, typed_procedures)
@@ -1471,6 +1507,7 @@ def _lower_workflows_for_route(
             command_boundary_environment=command_boundary_environment,
             type_env=type_env,
             target_dsl_version=target_dsl_version,
+            source_read_trace=source_read_trace,
         )
     if lowering_route is LoweringRoute.WCC_M3:
         validate_wcc_m3_route_supported(typed_workflows, typed_procedures)
@@ -1489,6 +1526,7 @@ def _lower_workflows_for_route(
             command_boundary_environment=command_boundary_environment,
             type_env=type_env,
             target_dsl_version=target_dsl_version,
+            source_read_trace=source_read_trace,
         )
     if lowering_route is LoweringRoute.WCC_M4:
         validate_wcc_m4_route_supported(
@@ -1511,6 +1549,7 @@ def _lower_workflows_for_route(
             command_boundary_environment=command_boundary_environment,
             type_env=type_env,
             target_dsl_version=target_dsl_version,
+            source_read_trace=source_read_trace,
         )
     return lower_workflow_definitions(
         typed_workflows,
@@ -1524,6 +1563,7 @@ def _lower_workflows_for_route(
         command_boundary_environment=command_boundary_environment,
         type_env=type_env,
         target_dsl_version=target_dsl_version,
+        source_read_trace=source_read_trace,
     )
 
 
@@ -1559,6 +1599,7 @@ def _run_stage3_validation_pipeline(
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
+    source_read_trace: SourceReadTrace | None = None,
 ) -> tuple[ValidationPipelineState, tuple[object, ...]]:
     normalized_validation_profile = _normalize_stage3_validation_profile(
         validate_shared=validate_shared,
@@ -1568,7 +1609,13 @@ def _run_stage3_validation_pipeline(
     effective_imported_workflow_bundles = dict(imported_workflow_bundles or {})
 
     def parse_pass(state: ValidationPipelineState) -> ValidationPipelineState:
-        return replace(state, parse_tree=read_sexpr_file(path))
+        return replace(
+            state,
+            parse_tree=read_sexpr_file(
+                path,
+                source_read_trace=source_read_trace,
+            ),
+        )
 
     def module_pass(state: ValidationPipelineState) -> ValidationPipelineState:
         return replace(state, syntax_module=build_syntax_module(state.parse_tree))
@@ -1597,6 +1644,7 @@ def _run_stage3_validation_pipeline(
             procedure_defs=procedure_defs,
             workflow_defs=workflow_defs,
             workspace=workspace_root,
+            source_read_trace=source_read_trace,
         )
         workflow_catalog = build_workflow_catalog(
             module,
@@ -1630,7 +1678,10 @@ def _run_stage3_validation_pipeline(
         reusable_state_producer_context = _derive_reusable_state_producer_context(
             definition_module=module,
             source_file_digests={
-                module.module_name or path.stem: _sha256_path(path),
+                module.module_name or path.stem: _sha256_path(
+                    path,
+                    source_read_trace=source_read_trace,
+                ),
             },
             provider_externs=provider_externs,
             prompt_externs=prompt_externs,
@@ -1732,6 +1783,7 @@ def _run_stage3_validation_pipeline(
             command_boundary_environment=state.command_boundary_environment,
             type_env=state.type_env,
             target_dsl_version=state.module.target_dsl_version,
+            source_read_trace=source_read_trace,
         )
         return replace(state, lowered_workflows=lowered_workflows)
 
@@ -2009,8 +2061,16 @@ def _selected_stage3_entry_workflow_name(
     return compile_result.graph.entry_module_name
 
 
-def _sha256_path(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def _sha256_path(
+    path: Path,
+    *,
+    source_read_trace: SourceReadTrace | None = None,
+) -> str:
+    views = _read_source_file_views(
+        path,
+        source_read_trace=source_read_trace,
+    )
+    return hashlib.sha256(views.raw_bytes).hexdigest()
 
 
 def _stable_json(value: object) -> object:
@@ -2144,6 +2204,7 @@ def _compile_stage3_graph(
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
+    source_read_trace: SourceReadTrace | None = None,
 ) -> LinkedStage3CompileResult:
     """Compile a resolved module graph in dependency order.
 
@@ -2360,7 +2421,10 @@ def _compile_stage3_graph(
         reusable_state_producer_context = _derive_reusable_state_producer_context(
             definition_module=definition_module,
             source_file_digests={
-                imported_module_name: _sha256_path(imported_module_source.path)
+                imported_module_name: _sha256_path(
+                    imported_module_source.path,
+                    source_read_trace=source_read_trace,
+                )
                 for imported_module_name, imported_module_source in sorted(graph.modules_by_name.items())
             },
             provider_externs=provider_externs,
@@ -2391,6 +2455,7 @@ def _compile_stage3_graph(
             procedure_defs=procedure_defs,
             workflow_defs=workflow_defs,
             workspace=workspace_root,
+            source_read_trace=source_read_trace,
         )
         typed_functions = typecheck_function_definitions(
             function_defs,
@@ -2535,6 +2600,7 @@ def _compile_stage3_graph(
             command_boundary_environment=command_boundary_environment,
             type_env=type_env,
             target_dsl_version=module_source.syntax_module.target_dsl_version,
+            source_read_trace=source_read_trace,
         )
         requires_internal_bundle_validation = (
             normalized_validation_profile is not Stage3ValidationProfile.SHARED_CALLABLE

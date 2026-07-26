@@ -9,7 +9,7 @@ from pathlib import Path
 from .definitions import WorkflowLispModule
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .macros import MacroCatalog, MacroDef
-from .reader import read_sexpr_file
+from .reader import SourceReadTrace, read_sexpr_file
 from .spans import SourceSpan
 from .syntax import (
     PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
@@ -272,6 +272,7 @@ def resolve_module_graph(
     path: Path,
     *,
     source_roots: tuple[Path, ...] | None = None,
+    source_read_trace: SourceReadTrace | None = None,
 ) -> LinkedModuleGraph:
     """Discover, parse, and topologically order modules reachable from `path`.
 
@@ -286,7 +287,9 @@ def resolve_module_graph(
     topological: list[str] = []
 
     def load_module(module_path: Path) -> ResolvedModuleSource:
-        syntax_module = build_syntax_module(read_sexpr_file(module_path))
+        syntax_module = build_syntax_module(
+            read_sexpr_file(module_path, source_read_trace=source_read_trace)
+        )
         if syntax_module.module_name is None:
             raise LispFrontendCompileError(
                 (
