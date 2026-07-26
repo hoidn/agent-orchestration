@@ -46,6 +46,9 @@ LANGUAGE_QUALITY_ROADMAP_PATH = (
 TRANSPORTABLE_VALUE_DESIGN_PATH = (
     "docs/design/workflow_lisp_transportable_value_type.md"
 )
+TRANSPORTABLE_VALUE_PLAN_PATH = (
+    "docs/plans/2026-07-26-workflow-lisp-transportable-value-implementation-plan.md"
+)
 EVOLUTION_FOLLOW_ON_ROADMAP_PATH = (
     "docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md"
 )
@@ -1087,6 +1090,9 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     value_design = (REPO_ROOT / TRANSPORTABLE_VALUE_DESIGN_PATH).read_text(
         encoding="utf-8"
     )
+    value_plan = (REPO_ROOT / TRANSPORTABLE_VALUE_PLAN_PATH).read_text(
+        encoding="utf-8"
+    )
     evolution = (REPO_ROOT / EVOLUTION_FOLLOW_ON_ROADMAP_PATH).read_text(
         encoding="utf-8"
     )
@@ -1097,8 +1103,12 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     normalized_successor = _normalized_routing_text(successor)
     assert "status: active" in normalized_successor
     assert "q0" in normalized_successor and "value" in normalized_successor
-    assert "design accepted; implementation plan pending" in normalized_successor
+    assert (
+        "design and implementation plan accepted; implementation pending"
+        in normalized_successor
+    )
     assert "design review pending" not in normalized_successor
+    assert "implementation plan pending" not in normalized_successor
     assert "q1" in normalized_successor and "prompt core" in normalized_successor
     assert "e0" in normalized_successor and "unselected" in normalized_successor
     assert "evolution follow on roadmap remains parked" in normalized_successor
@@ -1121,6 +1131,14 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "status: accepted" in normalized_value
     assert "target: dsl 2.19" in normalized_value
     assert "selected consumer" in normalized_value
+
+    normalized_plan = _normalized_routing_text(
+        "\n".join(value_plan.splitlines()[:45])
+    )
+    assert "status: accepted implementation plan" in normalized_plan
+    assert "value_q0_plan_spec_approved" in normalized_plan
+    assert "value_q0_plan_quality_approved" in normalized_plan
+    assert TRANSPORTABLE_VALUE_PLAN_PATH in successor
 
     normalized_sequence = _normalized_routing_text(sequence)
     assert "stage 8 is the active numbered stage" not in normalized_sequence

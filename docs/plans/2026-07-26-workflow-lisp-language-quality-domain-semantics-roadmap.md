@@ -42,7 +42,7 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 
 | Stage | Work | Entry condition | Completion gate | Status |
 | --- | --- | --- | --- | --- |
-| Q0 | Transportable `Value` prerequisite | Stage 8 complete; owner prerequisite decision recorded | accepted design; reviewed implementation plan; target-2.19 implementation with direct-root, loader, runtime, resume, classic/WCC, docs, and broad non-security evidence | active — design accepted; implementation plan pending |
+| Q0 | Transportable `Value` prerequisite | Stage 8 complete; owner prerequisite decision recorded | accepted design; reviewed implementation plan; target-2.19 implementation with direct-root, loader, runtime, resume, classic/WCC, docs, and broad non-security evidence | active — design and implementation plan accepted; implementation pending |
 | Q1 | Prompt core | Q0 complete; prompt-calculus design corrected and accepted | target-gated `defprompt`, imports, closed slot kinds, fully applied named fills, exact discharge/placeholder diagnostics, prompt-carried result derivation, deterministic flattening through existing prompt composition, one migrated real consumer | blocked by Q0 |
 | Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | blocked by Q1 |
 | Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | blocked by Q2 |
@@ -64,6 +64,9 @@ identity definition, and this roadmap absorbs no substrate work.
 
 Authority target:
 `docs/design/workflow_lisp_transportable_value_type.md`.
+
+Reviewed implementation selector:
+`docs/plans/2026-07-26-workflow-lisp-transportable-value-implementation-plan.md`.
 
 Required order:
 
