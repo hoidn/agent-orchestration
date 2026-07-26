@@ -237,6 +237,7 @@ def derive_workflow_semantic_ir(
     runtime_plan: WorkflowRuntimePlan,
     imports: Mapping[str, Any],
     provenance: WorkflowProvenance,
+    source_map_payload: Mapping[str, object] | None = None,
 ) -> SemanticWorkflowIR:
     workflow_name = (
         core_workflow_ast.workflow_name
@@ -766,27 +767,27 @@ def derive_workflow_semantic_ir(
                 origin_key=key,
                 coverage=value,
             )
-    if isinstance(provenance.frontend_source_trace_path, Path) and provenance.frontend_source_trace_path.exists():
-        workflow_payload = _load_frontend_source_map_workflow_payload(
-            workflow_name,
-            provenance.frontend_source_trace_path,
+    workflow_payload = _resolve_frontend_source_map_workflow_payload(
+        workflow_name,
+        provenance=provenance,
+        source_map_payload=source_map_payload,
+    )
+    if workflow_payload is not None:
+        source_map.update(_frontend_source_map_bridges_from_payload(workflow_name, workflow_payload))
+        _promote_frontend_source_map_effects(
+            workflow_name=workflow_name,
+            workflow_payload=workflow_payload,
+            statements=statements,
+            surface_steps_by_step_id=surface_steps_by_step_id,
+            statement_ids_by_step_id=statement_ids_by_step_id,
+            statement_effect_ids_by_statement_id=statement_effect_ids_by_statement_id,
+            effects=effects,
         )
-        if workflow_payload is not None:
-            source_map.update(_frontend_source_map_bridges_from_payload(workflow_name, workflow_payload))
-            _promote_frontend_source_map_effects(
-                workflow_name=workflow_name,
-                workflow_payload=workflow_payload,
-                statements=statements,
-                surface_steps_by_step_id=surface_steps_by_step_id,
-                statement_ids_by_step_id=statement_ids_by_step_id,
-                statement_effect_ids_by_statement_id=statement_effect_ids_by_statement_id,
-                effects=effects,
+        for statement_id, effect_ids in statement_effect_ids_by_statement_id.items():
+            statements[statement_id] = replace(
+                statements[statement_id],
+                effect_ids=tuple(effect_ids),
             )
-            for statement_id, effect_ids in statement_effect_ids_by_statement_id.items():
-                statements[statement_id] = replace(
-                    statements[statement_id],
-                    effect_ids=tuple(effect_ids),
-                )
 
     semantic_ir = SemanticWorkflowIR(
         schema_version=WORKFLOW_SEMANTIC_IR_SCHEMA_VERSION,
@@ -1515,7 +1516,39 @@ def _load_frontend_source_map_workflow_payload(
         payload = json.loads(source_map_path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         return None
-    workflows = payload.get("workflows")
+    if not isinstance(payload, Mapping):
+        return None
+    return _frontend_source_map_workflow_payload_from_payload(
+        workflow_name,
+        payload,
+    )
+
+
+def _resolve_frontend_source_map_workflow_payload(
+    workflow_name: str,
+    *,
+    provenance: WorkflowProvenance,
+    source_map_payload: Mapping[str, object] | None,
+) -> Mapping[str, Any] | None:
+    if source_map_payload is not None:
+        return _frontend_source_map_workflow_payload_from_payload(
+            workflow_name,
+            source_map_payload,
+        )
+    source_map_path = provenance.frontend_source_trace_path
+    if not isinstance(source_map_path, Path) or not source_map_path.exists():
+        return None
+    return _load_frontend_source_map_workflow_payload(
+        workflow_name,
+        source_map_path,
+    )
+
+
+def _frontend_source_map_workflow_payload_from_payload(
+    workflow_name: str,
+    source_map_payload: Mapping[str, object],
+) -> Mapping[str, Any] | None:
+    workflows = source_map_payload.get("workflows")
     if not isinstance(workflows, Mapping):
         return None
     workflow_payload = workflows.get(workflow_name)

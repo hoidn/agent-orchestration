@@ -295,9 +295,15 @@ def build_core_workflow_ast(
     surface: SurfaceWorkflow,
     imports: Mapping[str, Any],
     provenance: WorkflowProvenance,
+    *,
+    source_map_payload: Mapping[str, object] | None = None,
 ) -> CoreWorkflowAST:
     workflow_name = surface.name or ""
-    command_boundary_metadata = _load_command_boundary_metadata(provenance, workflow_name=workflow_name)
+    command_boundary_metadata = _load_command_boundary_metadata(
+        provenance,
+        workflow_name=workflow_name,
+        source_map_payload=source_map_payload,
+    )
     core_workflow_ast = CoreWorkflowAST(
         schema_version=CORE_WORKFLOW_AST_SCHEMA_VERSION,
         workflow_name=workflow_name,
@@ -772,15 +778,41 @@ def _load_command_boundary_metadata(
     provenance: WorkflowProvenance,
     *,
     workflow_name: str,
+    source_map_payload: Mapping[str, object] | None = None,
 ) -> Mapping[str, tuple[str, str]]:
+    if source_map_payload is not None:
+        return _command_boundary_metadata_from_payload(
+            source_map_payload,
+            workflow_name=workflow_name,
+        )
+
     source_trace_path = provenance.frontend_source_trace_path
-    if not workflow_name or not isinstance(source_trace_path, Path) or not source_trace_path.exists():
+    if (
+        not workflow_name
+        or not isinstance(source_trace_path, Path)
+        or not source_trace_path.exists()
+    ):
         return MappingProxyType({})
     try:
         payload = json.loads(source_trace_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return MappingProxyType({})
-    workflows = payload.get("workflows")
+    if not isinstance(payload, Mapping):
+        return MappingProxyType({})
+    return _command_boundary_metadata_from_payload(
+        payload,
+        workflow_name=workflow_name,
+    )
+
+
+def _command_boundary_metadata_from_payload(
+    source_map_payload: Mapping[str, object],
+    *,
+    workflow_name: str,
+) -> Mapping[str, tuple[str, str]]:
+    if not workflow_name:
+        return MappingProxyType({})
+    workflows = source_map_payload.get("workflows")
     if not isinstance(workflows, Mapping):
         return MappingProxyType({})
     workflow_payload = workflows.get(workflow_name)

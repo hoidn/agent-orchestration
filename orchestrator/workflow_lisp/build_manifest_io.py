@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -31,6 +31,62 @@ from .workflows import normalize_public_prompt_extern_binding, prompt_extern_sou
 
 if TYPE_CHECKING:
     from .build import FrontendBuildRequest
+
+
+@dataclass(frozen=True)
+class ConfigurationReadRecord:
+    """One exact JSON configuration-file read observed by a build trace."""
+
+    canonical_path: Path
+    revision: str
+    ordinal: int
+
+
+class ConfigurationReadTrace:
+    """Ordered JSON configuration reads with fail-closed revision consistency."""
+
+    def __init__(self) -> None:
+        self._records: list[ConfigurationReadRecord] = []
+        self._revisions_by_path: dict[Path, str] = {}
+
+    @property
+    def records(self) -> tuple[ConfigurationReadRecord, ...]:
+        """Return immutable records in physical-read order."""
+
+        return tuple(self._records)
+
+    @property
+    def revision_vector(self) -> tuple[tuple[Path, str], ...]:
+        """Return unique canonical paths and revisions in path order."""
+
+        return tuple(
+            sorted(
+                self._revisions_by_path.items(),
+                key=lambda item: item[0].as_posix(),
+            )
+        )
+
+    def _record(
+        self,
+        *,
+        canonical_path: Path,
+        revision: str,
+    ) -> ConfigurationReadRecord:
+        record = ConfigurationReadRecord(
+            canonical_path=canonical_path,
+            revision=revision,
+            ordinal=len(self._records),
+        )
+        self._records.append(record)
+        previous_revision = self._revisions_by_path.setdefault(
+            canonical_path,
+            revision,
+        )
+        if previous_revision != revision:
+            raise RuntimeError(
+                f"configuration `{canonical_path}` changed during one configuration read trace"
+            )
+        return record
 
 
 def _resolve_request(request: FrontendBuildRequest) -> FrontendBuildRequest:
@@ -70,10 +126,15 @@ def _load_string_mapping(
     manifest_path: Path | None,
     *,
     label: str,
+    configuration_read_trace: ConfigurationReadTrace | None = None,
 ) -> Mapping[str, str]:
     if manifest_path is None:
         return {}
-    payload = _load_json_file(manifest_path, label=label)
+    payload = _load_json_file(
+        manifest_path,
+        label=label,
+        configuration_read_trace=configuration_read_trace,
+    )
     if not isinstance(payload, Mapping):
         raise LispFrontendCompileError(
             (
@@ -102,10 +163,16 @@ def _load_string_mapping(
 
 def _load_prompt_extern_mapping(
     manifest_path: Path | None,
+    *,
+    configuration_read_trace: ConfigurationReadTrace | None = None,
 ) -> Mapping[str, str | dict[str, str]]:
     if manifest_path is None:
         return {}
-    payload = _load_json_file(manifest_path, label="prompt externs manifest")
+    payload = _load_json_file(
+        manifest_path,
+        label="prompt externs manifest",
+        configuration_read_trace=configuration_read_trace,
+    )
     if not isinstance(payload, Mapping):
         raise LispFrontendCompileError(
             (
@@ -149,10 +216,16 @@ def _load_prompt_extern_mapping(
 
 def _load_command_boundaries_manifest_payload(
     manifest_path: Path | None,
+    *,
+    configuration_read_trace: ConfigurationReadTrace | None = None,
 ) -> Mapping[str, object]:
     if manifest_path is None:
         return {}
-    payload = _load_json_file(manifest_path, label="command boundaries manifest")
+    payload = _load_json_file(
+        manifest_path,
+        label="command boundaries manifest",
+        configuration_read_trace=configuration_read_trace,
+    )
     if not isinstance(payload, Mapping):
         raise LispFrontendCompileError(
             (
@@ -691,11 +764,21 @@ def _require_view_binding(
     )
 
 
-def _load_json_file(path: Path, *, label: str) -> Any:
+def _load_json_file(
+    path: Path,
+    *,
+    label: str,
+    configuration_read_trace: ConfigurationReadTrace | None = None,
+) -> Any:
+    canonical_path = path.resolve()
     try:
-        with open(path, "r", encoding="utf-8") as handle:
-            return json.load(handle)
+        raw_bytes = canonical_path.read_bytes()
     except FileNotFoundError as exc:
+        if configuration_read_trace is not None:
+            configuration_read_trace._record(
+                canonical_path=canonical_path,
+                revision="missing",
+            )
         raise LispFrontendCompileError(
             (
                 _cli_request_diagnostic(
@@ -705,6 +788,24 @@ def _load_json_file(path: Path, *, label: str) -> Any:
                 ),
             )
         ) from exc
+    except OSError:
+        if configuration_read_trace is not None:
+            configuration_read_trace._record(
+                canonical_path=canonical_path,
+                revision="unreadable",
+            )
+        raise
+
+    revision = f"sha256:{hashlib.sha256(raw_bytes).hexdigest()}"
+    if configuration_read_trace is not None:
+        configuration_read_trace._record(
+            canonical_path=canonical_path,
+            revision=revision,
+        )
+    decoded_text = raw_bytes.decode("utf-8", errors="strict")
+    parser_text = decoded_text.replace("\r\n", "\n").replace("\r", "\n")
+    try:
+        return json.loads(parser_text)
     except json.JSONDecodeError as exc:
         raise LispFrontendCompileError(
             (

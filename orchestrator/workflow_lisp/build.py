@@ -8,6 +8,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from orchestrator.workflow.core_ast import (
+    _load_command_boundary_metadata,
+    build_core_workflow_ast,
+    workflow_core_ast_to_json,
+)
 from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow.persisted_surface import (
@@ -18,11 +23,16 @@ from orchestrator.workflow.persisted_surface import (
     persisted_surface_sha256,
     serialize_persisted_workflow_surface_graph,
 )
-from orchestrator.workflow.runtime_plan import enrich_workflow_runtime_plan
+from orchestrator.workflow.runtime_plan import (
+    derive_workflow_runtime_plan,
+    enrich_workflow_runtime_plan,
+)
 from orchestrator.workflow.semantic_ir import derive_workflow_semantic_ir, workflow_semantic_ir_to_json
 from orchestrator.workflow.surface_ast import WorkflowProvenance
 
 from .build_manifest_io import (
+    ConfigurationReadRecord,
+    ConfigurationReadTrace,
     _cli_request_diagnostic,
     _json_data,
     _load_command_boundaries_manifest_payload,
@@ -37,7 +47,6 @@ from .build_artifacts import (
     _build_manifest,
     _checkpoint_program_identity,
     _collect_origin_keys,
-    _command_boundary_metadata_for_workflow,
     _display_workflow_name,
     _fingerprint_build,
     _origin_payload,
@@ -60,6 +69,7 @@ from .command_boundaries import CertifiedAdapterBinding, ExternalToolBinding
 from .compiler import LinkedStage3CompileResult, compile_stage3_entrypoint
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .lints import LINT_PROFILE_DEFAULT
+from .reader import SourceReadRecord, SourceReadTrace
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION
 from .wcc.route import LoweringRoute
 
@@ -212,6 +222,47 @@ class FrontendBuildResult:
 
 
 @dataclass(frozen=True)
+class FrontendSourceReadTraceSnapshot:
+    """Immutable source-read evidence captured at the build-core boundary."""
+
+    records: tuple[SourceReadRecord, ...]
+    revision_vector: tuple[tuple[Path, str], ...]
+
+
+@dataclass(frozen=True)
+class FrontendConfigurationTraceSnapshot:
+    """Immutable JSON configuration-read evidence captured by one build."""
+
+    records: tuple[ConfigurationReadRecord, ...]
+    revision_vector: tuple[tuple[Path, str], ...]
+
+
+@dataclass(frozen=True)
+class FrontendInMemoryBuildResult:
+    """Read-only value prefix shared by persistent builds and LSP consumers."""
+
+    build_root: Path | None
+    manifest_path: Path | None
+    resolved_request: FrontendBuildRequest
+    selected_workflow_name: str | None
+    validated_bundle: LoadedWorkflowBundle | None
+    diagnostics: tuple[LispFrontendDiagnostic, ...]
+    entry_selection: FrontendEntrySelection | None
+    imported_workflow_bundles: tuple[ImportedWorkflowBundleBinding, ...]
+    compile_result: LinkedStage3CompileResult
+    fingerprint: str | None
+    source_map_payload: Mapping[str, object] | None
+    workflow_boundary_projection_payload: Mapping[str, object] | None
+    persisted_surface_payload: Mapping[str, object] | None
+    semantic_ir_payload: Mapping[str, object] | None
+    core_workflow_ast_payload: Mapping[str, object] | None
+    executable_ir_payload: Mapping[str, object] | None
+    runtime_plan_payload: Mapping[str, object] | None
+    source_read_trace: FrontendSourceReadTraceSnapshot
+    configuration_trace: FrontendConfigurationTraceSnapshot
+
+
+@dataclass(frozen=True)
 class FrontendArtifactExportRequest:
     """One caller-requested convenience export of a canonical build artifact."""
 
@@ -234,20 +285,78 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     build_root) -> `_emit` (artifact/manifest writes + result construction).
     """
 
+    in_memory = build_frontend_bundle_in_memory(request)
+    (
+        validated_bundle,
+        build_root,
+        entry_selection,
+        fingerprint,
+        semantic_ir_payload,
+        executable_ir_payload,
+        source_map_payload,
+        workflow_boundary_projection_payload,
+        persisted_surface_payload,
+    ) = _require_runnable_in_memory_build(in_memory)
+    return _emit(
+        validated_bundle,
+        build_root=build_root,
+        compile_result=in_memory.compile_result,
+        entry_selection=entry_selection,
+        resolved_request=in_memory.resolved_request,
+        imported_bindings=in_memory.imported_workflow_bundles,
+        fingerprint=fingerprint,
+        semantic_ir_payload=semantic_ir_payload,
+        executable_ir_payload=executable_ir_payload,
+        source_map_payload=source_map_payload,
+        workflow_boundary_projection_payload=workflow_boundary_projection_payload,
+        persisted_surface_payload=persisted_surface_payload,
+    )
+
+
+def build_frontend_bundle_in_memory(
+    request: FrontendBuildRequest,
+    *,
+    source_read_trace: SourceReadTrace | None = None,
+) -> FrontendInMemoryBuildResult:
+    """Compile, select, and reattach one entry workflow without emitting files."""
+
+    return _build_frontend_bundle_in_memory(
+        request,
+        source_read_trace=source_read_trace,
+        configuration_read_trace=ConfigurationReadTrace(),
+    )
+
+
+def _build_frontend_bundle_in_memory(
+    request: FrontendBuildRequest,
+    *,
+    source_read_trace: SourceReadTrace | None,
+    configuration_read_trace: ConfigurationReadTrace,
+) -> FrontendInMemoryBuildResult:
+    """Internal build core sharing configuration evidence through recursion."""
+
     resolved_request = _resolve_request(request)
+    active_source_read_trace = (
+        source_read_trace if source_read_trace is not None else SourceReadTrace()
+    )
     provider_externs = _load_string_mapping(
         resolved_request.provider_externs_path,
         label="provider externs manifest",
+        configuration_read_trace=configuration_read_trace,
     )
-    prompt_externs = _load_prompt_extern_mapping(resolved_request.prompt_externs_path)
+    prompt_externs = _load_prompt_extern_mapping(
+        resolved_request.prompt_externs_path,
+        configuration_read_trace=configuration_read_trace,
+    )
     command_boundary_manifest = _load_command_boundaries_manifest_payload(
         resolved_request.command_boundaries_path,
+        configuration_read_trace=configuration_read_trace,
     )
     command_boundaries = _parse_command_boundaries_manifest(
         command_boundary_manifest,
         manifest_path=resolved_request.command_boundaries_path,
     )
-    imported_bindings = load_imported_workflow_bundle_manifest(
+    imported_bindings = _load_imported_workflow_bundle_manifest(
         resolved_request.imported_workflow_bundles_path,
         workspace_root=resolved_request.workspace_root,
         source_roots=resolved_request.source_roots,
@@ -255,6 +364,8 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         prompt_externs_path=resolved_request.prompt_externs_path,
         command_boundaries_path=resolved_request.command_boundaries_path,
         lowering_route=resolved_request.lowering_route,
+        source_read_trace=active_source_read_trace,
+        configuration_read_trace=configuration_read_trace,
     )
     imported_workflow_bundles = {
         binding.canonical_key: binding.bundle
@@ -266,7 +377,38 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         prompt_externs=prompt_externs,
         imported_workflow_bundles=imported_workflow_bundles,
         command_boundaries=command_boundaries,
+        source_read_trace=active_source_read_trace,
     )
+    source_read_snapshot = FrontendSourceReadTraceSnapshot(
+        records=active_source_read_trace.records,
+        revision_vector=active_source_read_trace.revision_vector,
+    )
+    configuration_snapshot = FrontendConfigurationTraceSnapshot(
+        records=configuration_read_trace.records,
+        revision_vector=configuration_read_trace.revision_vector,
+    )
+    if entry_selection is None:
+        return FrontendInMemoryBuildResult(
+            build_root=None,
+            manifest_path=None,
+            resolved_request=resolved_request,
+            selected_workflow_name=None,
+            validated_bundle=None,
+            diagnostics=compile_result.diagnostics,
+            entry_selection=None,
+            imported_workflow_bundles=imported_bindings,
+            compile_result=compile_result,
+            fingerprint=None,
+            source_map_payload=None,
+            workflow_boundary_projection_payload=None,
+            persisted_surface_payload=None,
+            semantic_ir_payload=None,
+            core_workflow_ast_payload=None,
+            executable_ir_payload=None,
+            runtime_plan_payload=None,
+            source_read_trace=source_read_snapshot,
+            configuration_trace=configuration_snapshot,
+        )
     reattached = _select_and_reattach(
         compile_result,
         entry_selection,
@@ -275,23 +417,86 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
         command_boundary_manifest=command_boundary_manifest,
+        source_read_trace=source_read_snapshot,
     )
     semantic_ir_payload = workflow_semantic_ir_to_json(reattached.validated_bundle.semantic_ir)
+    core_workflow_ast_payload = workflow_core_ast_to_json(
+        reattached.validated_bundle.core_workflow_ast
+    )
     executable_ir_payload = workflow_executable_ir_to_json(reattached.validated_bundle.ir)
+    runtime_plan_payload = _public_runtime_plan_payload(
+        reattached.validated_bundle.runtime_plan
+    )
 
-    return _emit(
-        reattached.validated_bundle,
+    return FrontendInMemoryBuildResult(
         build_root=reattached.build_root,
-        compile_result=compile_result,
-        entry_selection=entry_selection,
+        manifest_path=reattached.build_root / "manifest.json",
         resolved_request=resolved_request,
-        imported_bindings=imported_bindings,
+        selected_workflow_name=entry_selection.selected_name,
+        validated_bundle=reattached.validated_bundle,
+        diagnostics=compile_result.diagnostics,
+        entry_selection=entry_selection,
+        imported_workflow_bundles=imported_bindings,
+        compile_result=compile_result,
         fingerprint=reattached.fingerprint,
-        semantic_ir_payload=semantic_ir_payload,
-        executable_ir_payload=executable_ir_payload,
         source_map_payload=reattached.source_map_payload,
         workflow_boundary_projection_payload=reattached.workflow_boundary_projection_payload,
         persisted_surface_payload=reattached.persisted_surface_payload,
+        semantic_ir_payload=semantic_ir_payload,
+        core_workflow_ast_payload=core_workflow_ast_payload,
+        executable_ir_payload=executable_ir_payload,
+        runtime_plan_payload=runtime_plan_payload,
+        source_read_trace=source_read_snapshot,
+        configuration_trace=configuration_snapshot,
+    )
+
+
+def _require_runnable_in_memory_build(
+    result: FrontendInMemoryBuildResult,
+) -> tuple[
+    LoadedWorkflowBundle,
+    Path,
+    FrontendEntrySelection,
+    str,
+    Mapping[str, object],
+    Mapping[str, object],
+    Mapping[str, object],
+    Mapping[str, object],
+    Mapping[str, object],
+]:
+    """Return selected build values or preserve the persistent rejection."""
+
+    if result.entry_selection is None:
+        _select_entry_workflow(
+            result.compile_result,
+            requested_name=result.resolved_request.entry_workflow,
+            source_path=result.resolved_request.source_path,
+        )
+        raise RuntimeError("library-only build unexpectedly selected a workflow")
+
+    required_values = (
+        result.validated_bundle,
+        result.build_root,
+        result.fingerprint,
+        result.semantic_ir_payload,
+        result.executable_ir_payload,
+        result.source_map_payload,
+        result.workflow_boundary_projection_payload,
+        result.persisted_surface_payload,
+    )
+    if any(value is None for value in required_values):
+        raise RuntimeError("selected in-memory build is missing a required value")
+
+    return (
+        result.validated_bundle,
+        result.build_root,
+        result.entry_selection,
+        result.fingerprint,
+        result.semantic_ir_payload,
+        result.executable_ir_payload,
+        result.source_map_payload,
+        result.workflow_boundary_projection_payload,
+        result.persisted_surface_payload,
     )
 
 
@@ -302,7 +507,8 @@ def _compile_entry(
     prompt_externs: Mapping[str, object],
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding],
-) -> tuple[LinkedStage3CompileResult, FrontendEntrySelection]:
+    source_read_trace: SourceReadTrace | None = None,
+) -> tuple[LinkedStage3CompileResult, FrontendEntrySelection | None]:
     """Compile the entry module graph and select the requested export.
 
     Stage 1 of `build_frontend_bundle` (see its docstring for the full
@@ -321,12 +527,21 @@ def _compile_entry(
         workspace_root=resolved_request.workspace_root,
         lint_profile=resolved_request.lint_profile,
         lowering_route=resolved_request.lowering_route,
+        source_read_trace=source_read_trace,
     )
 
-    entry_selection = _select_entry_workflow(
-        compile_result,
-        requested_name=resolved_request.entry_workflow,
-        source_path=resolved_request.source_path,
+    export_surface = compile_result.graph.export_surfaces_by_name[
+        compile_result.graph.entry_module_name
+    ]
+    entry_selection = (
+        None
+        if resolved_request.entry_workflow is None
+        and not export_surface.workflows_by_name
+        else _select_entry_workflow(
+            compile_result,
+            requested_name=resolved_request.entry_workflow,
+            source_path=resolved_request.source_path,
+        )
     )
     return compile_result, entry_selection
 
@@ -356,6 +571,7 @@ def _select_and_reattach(
     provider_externs: Mapping[str, str],
     prompt_externs: Mapping[str, object],
     command_boundary_manifest: Mapping[str, object],
+    source_read_trace: FrontendSourceReadTraceSnapshot,
 ) -> _SelectAndReattachResult:
     """Reattach provenance and semantic IR to the selected compiled bundle.
 
@@ -385,9 +601,10 @@ def _select_and_reattach(
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
         command_boundary_manifest=command_boundary_manifest,
+        source_read_records=source_read_trace.records,
+        source_revision_vector=source_read_trace.revision_vector,
     )
     build_root = resolved_request.workspace_root / ".orchestrate" / "build" / fingerprint
-    build_root.mkdir(parents=True, exist_ok=True)
 
     source_map_path = build_root / "source_map.json"
     persisted_surface_payload = serialize_persisted_workflow_surface_graph(selected_bundle)
@@ -412,21 +629,12 @@ def _select_and_reattach(
     validated_bundle = _reattach_bundle_provenance(
         bundle=selected_bundle,
         provenance=provenance,
+        source_map_payload=source_map_payload,
     )
-    runtime_plan = enrich_workflow_runtime_plan(
-        validated_bundle.runtime_plan,
-        command_boundary_metadata=_command_boundary_metadata_for_workflow(
-            source_map_payload,
-            workflow_name=entry_selection.canonical_name,
-        ),
-        has_compiled_frontend_lineage=True,
+    validated_bundle = _reattach_bundle_semantic_ir(
+        validated_bundle,
+        source_map_payload=source_map_payload,
     )
-    validated_bundle = replace(validated_bundle, runtime_plan=runtime_plan)
-    source_map_path.write_text(
-        json.dumps(_json_data(source_map_payload), indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    validated_bundle = _reattach_bundle_semantic_ir(validated_bundle)
     return _SelectAndReattachResult(
         validated_bundle=validated_bundle,
         source_map_payload=source_map_payload,
@@ -460,6 +668,7 @@ def _emit(
     """
 
     diagnostics = compile_result.diagnostics
+    build_root.mkdir(parents=True, exist_ok=True)
     artifact_paths = _write_build_artifacts(
         build_root=build_root,
         compile_result=compile_result,
@@ -627,12 +836,44 @@ def load_imported_workflow_bundle_manifest(
     prompt_externs_path: Path | None = None,
     command_boundaries_path: Path | None = None,
     lowering_route: LoweringRoute | str | None = None,
+    source_read_trace: SourceReadTrace | None = None,
 ) -> tuple[ImportedWorkflowBundleBinding, ...]:
     """Load imported workflow bundles from one explicit manifest file."""
 
+    return _load_imported_workflow_bundle_manifest(
+        manifest_path,
+        workspace_root=workspace_root,
+        source_roots=source_roots,
+        provider_externs_path=provider_externs_path,
+        prompt_externs_path=prompt_externs_path,
+        command_boundaries_path=command_boundaries_path,
+        lowering_route=lowering_route,
+        source_read_trace=source_read_trace,
+        configuration_read_trace=ConfigurationReadTrace(),
+    )
+
+
+def _load_imported_workflow_bundle_manifest(
+    manifest_path: Path | None,
+    *,
+    workspace_root: Path,
+    source_roots: tuple[Path, ...] = (),
+    provider_externs_path: Path | None = None,
+    prompt_externs_path: Path | None = None,
+    command_boundaries_path: Path | None = None,
+    lowering_route: LoweringRoute | str | None = None,
+    source_read_trace: SourceReadTrace | None,
+    configuration_read_trace: ConfigurationReadTrace,
+) -> tuple[ImportedWorkflowBundleBinding, ...]:
+    """Internal imported-bundle loader sharing one configuration trace."""
+
     if manifest_path is None:
         return ()
-    payload = _load_json_file(manifest_path, label="imported workflow bundle manifest")
+    payload = _load_json_file(
+        manifest_path,
+        label="imported workflow bundle manifest",
+        configuration_read_trace=configuration_read_trace,
+    )
     if not payload:
         raise LispFrontendCompileError(
             (
@@ -715,7 +956,7 @@ def load_imported_workflow_bundle_manifest(
                     ),
                 )
             )
-        compiled_result = build_frontend_bundle(
+        compiled_result = _build_frontend_bundle_in_memory(
             FrontendBuildRequest(
                 source_path=resolved_bundle_path,
                 source_roots=source_roots,
@@ -731,11 +972,24 @@ def load_imported_workflow_bundle_manifest(
                 emit_debug_yaml=False,
                 workspace_root=workspace_root,
                 lowering_route=lowering_route,
-            )
+            ),
+            source_read_trace=source_read_trace,
+            configuration_read_trace=configuration_read_trace,
         )
-        bundle = compiled_result.validated_bundle
+        (
+            bundle,
+            _,
+            _,
+            bundle_fingerprint,
+            _,
+            _,
+            _,
+            _,
+            _,
+        ) = _require_runnable_in_memory_build(compiled_result)
         workflow_name = compiled_result.selected_workflow_name
-        bundle_fingerprint = compiled_result.manifest.fingerprint
+        if workflow_name is None:
+            raise RuntimeError("compiled imported workflow is missing its selected name")
         load_status = "compiled"
         bindings.append(
             ImportedWorkflowBundleBinding(
@@ -805,17 +1059,45 @@ def _reattach_bundle_provenance(
     *,
     bundle: LoadedWorkflowBundle,
     provenance: WorkflowProvenance,
+    source_map_payload: Mapping[str, object] | None = None,
 ) -> LoadedWorkflowBundle:
+    surface = replace(bundle.surface, provenance=provenance)
+    core_workflow_ast = build_core_workflow_ast(
+        surface,
+        bundle.imports,
+        provenance,
+        source_map_payload=source_map_payload,
+    )
+    ir = replace(bundle.ir, provenance=provenance)
+    runtime_plan = derive_workflow_runtime_plan(
+        ir,
+        bundle.projection,
+        provenance,
+    )
+    runtime_plan = enrich_workflow_runtime_plan(
+        runtime_plan,
+        command_boundary_metadata=_load_command_boundary_metadata(
+            provenance,
+            workflow_name=surface.name or "",
+            source_map_payload=source_map_payload,
+        ),
+        has_compiled_frontend_lineage=True,
+    )
     return replace(
         bundle,
-        surface=replace(bundle.surface, provenance=provenance),
-        core_workflow_ast=replace(bundle.core_workflow_ast, provenance=provenance),
-        ir=replace(bundle.ir, provenance=provenance),
+        surface=surface,
+        core_workflow_ast=core_workflow_ast,
+        ir=ir,
+        runtime_plan=runtime_plan,
         provenance=provenance,
     )
 
 
-def _reattach_bundle_semantic_ir(bundle: LoadedWorkflowBundle) -> LoadedWorkflowBundle:
+def _reattach_bundle_semantic_ir(
+    bundle: LoadedWorkflowBundle,
+    *,
+    source_map_payload: Mapping[str, object] | None = None,
+) -> LoadedWorkflowBundle:
     semantic_ir = derive_workflow_semantic_ir(
         core_workflow_ast=bundle.core_workflow_ast,
         surface=bundle.surface,
@@ -824,5 +1106,6 @@ def _reattach_bundle_semantic_ir(bundle: LoadedWorkflowBundle) -> LoadedWorkflow
         runtime_plan=bundle.runtime_plan,
         imports=bundle.imports,
         provenance=bundle.provenance,
+        source_map_payload=source_map_payload,
     )
     return replace(bundle, semantic_ir=semantic_ir)

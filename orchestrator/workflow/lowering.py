@@ -6,7 +6,11 @@ from dataclasses import replace
 from types import MappingProxyType
 from typing import Any, Dict, List, Mapping, Optional
 
-from .core_ast import build_core_workflow_ast, lower_core_workflow_ast
+from .core_ast import (
+    _load_command_boundary_metadata,
+    build_core_workflow_ast,
+    lower_core_workflow_ast,
+)
 from .executable_ir import (
     AdjudicatedProviderStepConfig,
     AssertStepConfig,
@@ -57,7 +61,7 @@ from .loaded_bundle import LoadedWorkflowBundle
 from .provider_peer_group.paths import derive_provider_peer_group_paths
 from .provider_supervision.paths import derive_provider_supervision_paths
 from .references import SelfOutputReference, StructuredStepReference, WorkflowInputReference
-from .runtime_plan import derive_workflow_runtime_plan
+from .runtime_plan import derive_workflow_runtime_plan, enrich_workflow_runtime_plan
 from .semantic_ir import derive_workflow_semantic_ir
 from .state_projection import (
     CallBoundaryProjection,
@@ -1509,10 +1513,16 @@ def build_loaded_workflow_bundle(
     imports: Mapping[str, LoadedWorkflowBundle],
     private_artifact_ids: tuple[str, ...] = (),
     runtime_proof_parent_ref_allowances: tuple[tuple[str, str], ...] = (),
+    source_map_payload: Mapping[str, object] | None = None,
 ) -> LoadedWorkflowBundle:
     """Lower one validated surface workflow into the shared loaded bundle contract."""
 
-    core_workflow_ast = build_core_workflow_ast(surface, imports, surface.provenance)
+    core_workflow_ast = build_core_workflow_ast(
+        surface,
+        imports,
+        surface.provenance,
+        source_map_payload=source_map_payload,
+    )
     ir, projection = _IRBuilder(
         surface,
         private_artifact_ids=private_artifact_ids,
@@ -1520,6 +1530,14 @@ def build_loaded_workflow_bundle(
     ).build()
     validate_executable_workflow(ir)
     runtime_plan = derive_workflow_runtime_plan(ir, projection, surface.provenance)
+    runtime_plan = enrich_workflow_runtime_plan(
+        runtime_plan,
+        command_boundary_metadata=_load_command_boundary_metadata(
+            surface.provenance,
+            workflow_name=surface.name or "",
+            source_map_payload=source_map_payload,
+        ),
+    )
     semantic_ir = derive_workflow_semantic_ir(
         core_workflow_ast=core_workflow_ast,
         surface=surface,
@@ -1528,6 +1546,7 @@ def build_loaded_workflow_bundle(
         runtime_plan=runtime_plan,
         imports=imports,
         provenance=surface.provenance,
+        source_map_payload=source_map_payload,
     )
     return LoadedWorkflowBundle(
         surface=surface,

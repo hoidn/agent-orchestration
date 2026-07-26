@@ -320,6 +320,8 @@ share one compile/select/reattach core; only `_emit` writes.
 **Files:**
 
 - Modify: `orchestrator/workflow_lisp/build.py`
+- Modify: `orchestrator/workflow_lisp/build_artifacts.py`
+- Modify: `orchestrator/workflow_lisp/build_manifest_io.py`
 - Modify: `orchestrator/workflow/core_ast.py`
 - Modify: `orchestrator/workflow/lowering.py`
 - Modify: `orchestrator/workflow/semantic_ir.py`
@@ -328,37 +330,60 @@ share one compile/select/reattach core; only `_emit` writes.
 
 **RED:**
 
-- [ ] Prove there is no public `build_frontend_bundle_in_memory` returning an
+- [x] Prove there is no public `build_frontend_bundle_in_memory` returning an
       immutable `FrontendInMemoryBuildResult`.
-- [ ] Capture exact no-import and recursive imported-manifest parity for
+- [x] Capture exact no-import and recursive imported-manifest parity for
       selection, loaded bundle, imported bindings, semantic/Core/executable
       values and canonical payloads, fingerprints, prospective paths, source
       map, configuration trace, and ordered `SourceReadTrace`.
-- [ ] Prove current read-only selection creates/writes build paths.
-- [ ] Cover authoritative supplied source-map payload when the prospective
+- [x] Prove current read-only selection creates/writes build paths.
+- [x] Cover authoritative supplied source-map payload when the prospective
       path is absent or contains conflicting bytes.
-- [ ] Cover `source_map_payload=None` as the sole persisted-path compatibility
+- [x] Cover `source_map_payload=None` as the sole persisted-path compatibility
       fallback.
-- [ ] Cover library-only `entry_workflow=null` and selected imported rows.
+- [x] Cover library-only `entry_workflow=null` and selected imported rows.
 
 **GREEN:**
 
-- [ ] Add the public read-only core around existing resolution, loaders,
+- [x] Add the public read-only core around existing resolution, loaders,
       recursive compilation, entry compile, selection, and reattachment.
-- [ ] Make `_select_and_reattach` a value-only operation: no mkdir, reads,
+- [x] Make `_select_and_reattach` a value-only operation: no mkdir, reads,
       writes, temporary emission, or write/delete workaround.
-- [ ] Thread an optional authoritative `source_map_payload` through Core AST,
+- [x] Thread an optional authoritative `source_map_payload` through Core AST,
       loaded-bundle/runtime-plan, semantic IR, and reattachment seams.
-- [ ] Keep `None` as the existing persisted-provenance fallback; a supplied
+- [x] Keep `None` as the existing persisted-provenance fallback; a supplied
       mapping, including `{}`, may not inspect the provenance path.
-- [ ] Make persistent `build_frontend_bundle` equal the read-only core followed
+- [x] Make persistent `build_frontend_bundle` equal the read-only core followed
       by `_emit`; recursive imported `.orc` compilation calls only the core.
-- [ ] Prove complete workspace trees are byte-identical before/after both
+- [x] Prove complete workspace trees are byte-identical before/after both
       read-only consumers and only `_emit` creates `.orchestrate/build`.
-- [ ] Rerun build, import, source-map, Core AST, semantic IR, executable, and
+- [x] Rerun build, import, source-map, Core AST, semantic IR, executable, and
       runtime-plan regressions.
 - [ ] Obtain `STAGE8_TASK2_SPEC_APPROVED`, then
       `STAGE8_TASK2_QUALITY_APPROVED`, and commit.
+
+**Implementation record (commit pending):**
+
+- RED established the absent public core, hidden selection/fingerprint I/O,
+  recursive child emission, null-selection rejection, authoritative
+  source-map gaps, missing source/configuration trace validation, excess
+  public configuration-trace parameter, and lost legacy JSON newline
+  diagnostics.
+- The new in-memory build module collects 16 tests and passes 16, including
+  exact LF/CRLF/bare-CR configuration-loader compatibility over distinct raw
+  revisions.
+- Fresh adjacent selectors pass: build/source-map/runtime/CLI 211;
+  imported-stdlib/CLI/shared validation 129; source trace/Core AST 25; and
+  applicable semantic IR 49.
+- Two semantic-IR module expectations remain red and were reproduced
+  byte-identically at pre-Task-2 `HEAD` `7fe83912`: typed-prompt lineage
+  without its retired family-profile input and pre-existing nested
+  `form_path` serialization. A separate causal audit confirmed neither is
+  owned or changed by Task 2.
+- `py_compile` and scoped `git diff --check` are clean.
+- Ordered preliminary reviews returned `STAGE8_TASK2_SPEC_APPROVED`, then
+  `STAGE8_TASK2_QUALITY_APPROVED`. Exact-diff reaffirmations and the
+  implementation commit remain pending.
 
 ## Task 3: Implement Single-Root State, Immutable Configuration, And The Serialized Driver
 
