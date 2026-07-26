@@ -286,12 +286,13 @@ Focused verification:
 - Test: `tests/test_workflow_lisp_structured_results.py`
 - Test: `tests/test_workflow_lisp_result_guidance_e2e.py`
 
-**Task 1 status:** Implementation and focused verification complete;
-preliminary ordered reviews approved; final exact-byte reaffirmations pending;
-implementation commit pending.
+**Task 1 status:** Complete at implementation commit `4379f0f5`.
 
 **Task 1 preliminary reviews:** `VALUE_Q0_TASK1_SPEC_APPROVED`, then
 `VALUE_Q0_TASK1_QUALITY_APPROVED`.
+
+**Task 1 final exact-byte reviews:** `VALUE_Q0_TASK1_SPEC_REAFFIRMED`, then
+`VALUE_Q0_TASK1_QUALITY_REAFFIRMED`.
 
 **Changed paths:**
 
@@ -392,8 +393,7 @@ pytest -q tests/test_workflow_lisp_transportable_value.py \
 
 Expected: PASS; existing `Json` refusals remain unchanged.
 
-- [ ] **Step 5: Complete ordered reviews and commit — final reaffirmations
-      pending; commit pending**
+- [x] **Step 5: Complete ordered reviews and commit — `4379f0f5`**
 
 Expected implementation commit subject:
 
