@@ -184,6 +184,83 @@
   resume never read it. A later authoritative state change makes an older
   index stale rather than changing runtime behavior.
 
+## Provider-Isolation Bundle-Transfer Journal
+
+- Every published isolated workflow-provider bundle has one controller-owned,
+  canonical `provider_isolation_bundle_transfer.v1` journal at the deterministic
+  path for its exact provider-attempt `scope` and positive `ordinal`. The
+  packaged schema is recursively closed. Its base fields are
+  `schema_version`, `state`, `invocation_identity`, `scope`, `ordinal`,
+  `staged_identity`, `target_identity`, `bundle_digest`, and `bundle_size`.
+  Each file identity binds a bounded path plus device, inode, and mount ID; all
+  digests are exact lowercase `sha256:` identities. `bundle_size` is bounded by
+  `16777216`, and numeric identity fields and the ordinal are bounded unsigned
+  64-bit integers.
+- Journal state advances monotonically through the closed set `prepared`,
+  `published`, `validated`, `rotation_pending`, and `rotated`. Exact replay of
+  the current bytes is idempotent. State regression, state skipping, a changed
+  immutable field, unknown field or state, conflicting duplicate, or
+  scope/ordinal/invocation mismatch is
+  `provider_isolation_bundle_broker_failed`.
+- `prepared` and `published` contain no validation or archive fields.
+  `validated` and every later state require `contract_digest` and the exact
+  `validation_disposition: valid|invalid`. A `valid` disposition additionally
+  requires `normalized_value_digest`; `invalid` forbids that field.
+  `rotation_pending` and `rotated` are valid only for an `invalid` disposition
+  and require `archive_identity`. Earlier states forbid `archive_identity`.
+- Durability ordering is fixed:
+  1. The broker writes and fsyncs the deterministic same-filesystem staged
+     file, then atomically writes and fsyncs `prepared` with the exact staged
+     and target identities, bundle digest, and size.
+  2. It atomically renames the staged file to the canonical target, fsyncs the
+     destination directory, revalidates the target identity and bytes, then
+     atomically replaces and fsyncs the journal as `published`. Before
+     returning success it reconciles that durable journal and target again.
+  3. The existing typed validator may run idempotently over the immutable
+     target and declared contract. Exactly one validation disposition is
+     atomically written and fsynced as `validated`.
+  4. An invalid result advances to and fsyncs `rotation_pending`, atomically
+     renames the canonical target to the deterministic archive, fsyncs the
+     containing directory, and atomically advances and fsyncs `rotated`.
+- Recovery validates the journal, exact file identities, digest, size, and
+  locations before mutation:
+  - With no journal, staged, canonical, and archive paths must all be absent. An
+    unexplained file fails closed.
+  - `prepared` with only the exact staged file completes the canonical rename.
+    `prepared` with only the exact canonical file advances to `published`.
+    Both or neither location fails closed.
+  - `published` requires only the exact canonical target. If no durable
+    validation outcome exists, the idempotent validator may run again, but only
+    one exact `validated` outcome may be persisted.
+  - `validated(valid)` requires only the exact canonical target and never
+    rotates it. `validated(invalid)` requires only the exact canonical target
+    and may advance only to `rotation_pending`.
+  - `rotation_pending` with only the exact canonical target completes the
+    archive rename. With only the exact archive it advances to `rotated`. Both
+    or neither location fails closed.
+  - `rotated` requires only the exact archive; staged and canonical locations
+    must be absent.
+- Any wrong path, byte digest, size, device, inode, mount ID, illegal
+  state/location combination, duplicate location, journal-byte change, or
+  pre-existing target/archive not explained by the same scope and ordinal fails
+  closed without unlinking, overwriting, or selecting one location by
+  preference. A positive caller acknowledgement while the journal is
+  `validated(invalid)` authorizes the broker to begin rotation; it is not retry
+  authorization. The result must then reach `rotated` before the caller may
+  authorize retry and before a new attempt can use the canonical target.
+- Symlink or mount ancestry, and any product-visible symlink/hardlink alias of
+  a staged, canonical, or archive authority, fails before transfer or
+  reconciliation mutation.
+- Missing, broker-rejected, and noneligible outcomes create no transfer journal:
+  the journal explains canonical file movement only. A controller attempt with
+  `result_channel: "none"` likewise has no bundle journal. The attempt owner,
+  not the journal, remains responsible for execution eligibility, typed-value
+  publication, retry authorization, and lifecycle closure.
+- This sidecar contract does not itself add public executor/resume lifecycle
+  state, atomically commit the validated value into `state.json`, or publish or
+  finalize isolation attestation. Those integrations must not be inferred from
+  a valid transfer journal.
+
 ## Provider-Supervision State And Resume (v2.16)
 
 - State schema remains `2.1`. One running supervision group owns one ordinary

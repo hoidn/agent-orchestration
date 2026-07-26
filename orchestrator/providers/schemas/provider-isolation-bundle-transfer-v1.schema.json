@@ -1,0 +1,252 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-orchestration.local/schemas/provider-isolation-bundle-transfer-v1.schema.json",
+  "title": "Provider isolation bundle transfer v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "state",
+    "invocation_identity",
+    "scope",
+    "ordinal",
+    "staged_identity",
+    "target_identity",
+    "bundle_digest",
+    "bundle_size"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "provider_isolation_bundle_transfer.v1"
+    },
+    "state": {
+      "enum": [
+        "prepared",
+        "published",
+        "validated",
+        "rotation_pending",
+        "rotated"
+      ]
+    },
+    "invocation_identity": {
+      "$ref": "#/$defs/digest"
+    },
+    "scope": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "pattern": "^[^\\u0000]+$"
+      }
+    },
+    "ordinal": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 18446744073709551615
+    },
+    "staged_identity": {
+      "$ref": "#/$defs/file_identity"
+    },
+    "target_identity": {
+      "$ref": "#/$defs/file_identity"
+    },
+    "bundle_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "bundle_size": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 16777216
+    },
+    "contract_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "validation_disposition": {
+      "enum": [
+        "valid",
+        "invalid"
+      ]
+    },
+    "normalized_value_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "archive_identity": {
+      "$ref": "#/$defs/file_identity"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "enum": [
+              "prepared",
+              "published"
+            ]
+          }
+        },
+        "required": [
+          "state"
+        ]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "contract_digest"
+              ]
+            },
+            {
+              "required": [
+                "validation_disposition"
+              ]
+            },
+            {
+              "required": [
+                "normalized_value_digest"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "enum": [
+              "validated",
+              "rotation_pending",
+              "rotated"
+            ]
+          }
+        },
+        "required": [
+          "state"
+        ]
+      },
+      "then": {
+        "required": [
+          "contract_digest",
+          "validation_disposition"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "validation_disposition": {
+            "const": "valid"
+          }
+        },
+        "required": [
+          "validation_disposition"
+        ]
+      },
+      "then": {
+        "required": [
+          "normalized_value_digest"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "validation_disposition": {
+            "const": "invalid"
+          }
+        },
+        "required": [
+          "validation_disposition"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "normalized_value_digest"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "enum": [
+              "rotation_pending",
+              "rotated"
+            ]
+          }
+        },
+        "required": [
+          "state"
+        ]
+      },
+      "then": {
+        "required": [
+          "archive_identity"
+        ],
+        "properties": {
+          "validation_disposition": {
+            "const": "invalid"
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "required": [
+            "archive_identity"
+          ]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "minLength": 71,
+      "maxLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000]+$"
+    },
+    "file_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "device",
+        "inode",
+        "mount_id"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "device": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "inode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        },
+        "mount_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        }
+      }
+    }
+  }
+}

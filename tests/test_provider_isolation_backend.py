@@ -6,6 +6,7 @@ import ctypes
 from dataclasses import FrozenInstanceError, replace
 import errno
 from hashlib import sha256
+import importlib
 import inspect
 import json
 import os
@@ -19,6 +20,14 @@ import subprocess
 import sys
 
 import pytest
+
+from orchestrator.providers.isolation import MAX_RESULT_BUNDLE_BYTES
+from orchestrator.providers.isolation import (
+    MAX_PROVIDER_ISOLATION_SCOPE_COMPONENTS,
+    MAX_PROVIDER_ISOLATION_SCOPE_COMPONENT_LENGTH,
+    MAX_PROVIDER_ISOLATION_RUNTIME_RELPATH_LENGTH,
+    MAX_PROVIDER_ISOLATION_UINT64,
+)
 
 
 def _backend_api():
@@ -38,6 +47,7 @@ def _make_typed_invocation_components(
     *,
     workflow: bool,
     ordinal: int = 1,
+    result_bundle_max_bytes: int = 4096,
 ):
     from orchestrator.providers.isolation_candidate import (
         REQUIRED_CANDIDATE_AUTHORITY_LABELS,
@@ -104,6 +114,7 @@ def _make_typed_invocation_components(
             result_logical_path=os.fspath(
                 candidate / ".orchestrate" / "results" / "value.json"
             ),
+            result_bundle_max_bytes=result_bundle_max_bytes,
         )
     else:
         request = api.ControllerAttemptIsolationRequest(
@@ -513,6 +524,7 @@ def test_subject_request_union_rejects_cross_combinations() -> None:
         aggregate_scope=("root", "step"),
         ordinal=1,
         result_logical_path="/workspace/product/.orchestrate/results/value.json",
+        result_bundle_max_bytes=4096,
     )
     controller = api.ControllerAttemptIsolationRequest(
         candidate_path="/workspace/product",
@@ -537,6 +549,7 @@ def test_subject_request_union_rejects_cross_combinations() -> None:
             aggregate_scope=("root",),
             ordinal=1,
             result_logical_path="/workspace/product/value.json",
+            result_bundle_max_bytes=4096,
         )
     with pytest.raises(TypeError):
         api.ControllerAttemptIsolationRequest(
@@ -548,6 +561,181 @@ def test_subject_request_union_rejects_cross_combinations() -> None:
             caller_attempt_id="direct-0001",
             command_identity="sha256:" + ("3" * 64),
             external_sink_identity="sha256:" + ("4" * 64),
+        )
+
+
+def test_workflow_request_requires_result_bundle_max_bytes() -> None:
+    api = _backend_api()
+
+    with pytest.raises(TypeError, match="result_bundle_max_bytes"):
+        api.WorkflowProviderIsolationRequest(
+            candidate_path="/workspace/product",
+            target=("/opt/provider/bin/provider", "--run"),
+            environment_digest="sha256:" + ("1" * 64),
+            result_channel="typed_bundle",
+            provider_template_identity="sha256:" + ("2" * 64),
+            aggregate_scope=("root", "step"),
+            ordinal=1,
+            result_logical_path=(
+                "/workspace/product/.orchestrate/results/value.json"
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    "result_bundle_max_bytes",
+    (False, True, 0, MAX_RESULT_BUNDLE_BYTES + 1),
+)
+def test_workflow_request_rejects_invalid_result_bundle_max_bytes(
+    result_bundle_max_bytes: object,
+) -> None:
+    api = _backend_api()
+
+    with pytest.raises(TypeError, match="must be a positive integer"):
+        api.WorkflowProviderIsolationRequest(
+            candidate_path="/workspace/product",
+            target=("/opt/provider/bin/provider", "--run"),
+            environment_digest="sha256:" + ("1" * 64),
+            result_channel="typed_bundle",
+            provider_template_identity="sha256:" + ("2" * 64),
+            aggregate_scope=("root", "step"),
+            ordinal=1,
+            result_logical_path=(
+                "/workspace/product/.orchestrate/results/value.json"
+            ),
+            result_bundle_max_bytes=result_bundle_max_bytes,
+        )
+
+
+@pytest.mark.parametrize(
+    "result_bundle_max_bytes",
+    (1, MAX_RESULT_BUNDLE_BYTES),
+)
+def test_workflow_request_accepts_result_bundle_size_boundaries(
+    result_bundle_max_bytes: int,
+) -> None:
+    api = _backend_api()
+
+    request = api.WorkflowProviderIsolationRequest(
+        candidate_path="/workspace/product",
+        target=("/opt/provider/bin/provider", "--run"),
+        environment_digest="sha256:" + ("1" * 64),
+        result_channel="typed_bundle",
+        provider_template_identity="sha256:" + ("2" * 64),
+        aggregate_scope=("root", "step"),
+        ordinal=1,
+        result_logical_path=(
+            "/workspace/product/.orchestrate/results/value.json"
+        ),
+        result_bundle_max_bytes=result_bundle_max_bytes,
+    )
+
+    assert request.result_bundle_max_bytes == result_bundle_max_bytes
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        (
+            "aggregate_scope",
+            tuple(
+                f"scope-{index}"
+                for index in range(
+                    MAX_PROVIDER_ISOLATION_SCOPE_COMPONENTS + 1
+                )
+            ),
+            "aggregate_scope",
+        ),
+        (
+            "aggregate_scope",
+            ("x" * (MAX_PROVIDER_ISOLATION_SCOPE_COMPONENT_LENGTH + 1),),
+            "aggregate_scope",
+        ),
+        (
+            "ordinal",
+            MAX_PROVIDER_ISOLATION_UINT64 + 1,
+            "ordinal",
+        ),
+        (
+            "result_logical_path",
+            (
+                "/workspace/product/.orchestrate/"
+                + "/".join(
+                    ("x" * 240,) * 16 + ("x" * 241,)
+                )
+            ),
+            "runtime-relative path",
+        ),
+    ),
+)
+def test_workflow_request_rejects_journal_unrepresentable_identity_before_scratch(
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    api = _backend_api()
+    arguments: dict[str, object] = {
+        "candidate_path": "/workspace/product",
+        "target": ("/opt/provider/bin/provider", "--run"),
+        "environment_digest": "sha256:" + ("1" * 64),
+        "result_channel": "typed_bundle",
+        "provider_template_identity": "sha256:" + ("2" * 64),
+        "aggregate_scope": ("root", "step"),
+        "ordinal": 1,
+        "result_logical_path": (
+            "/workspace/product/.orchestrate/results/value.json"
+        ),
+        "result_bundle_max_bytes": 4096,
+    }
+    arguments[field] = value
+
+    with pytest.raises(TypeError, match=message):
+        api.WorkflowProviderIsolationRequest(**arguments)
+
+
+def test_workflow_request_accepts_closed_journal_identity_boundaries() -> None:
+    api = _backend_api()
+
+    boundary_relpath = "/".join(("x" * 240,) * 17)
+    assert len(boundary_relpath) == (
+        MAX_PROVIDER_ISOLATION_RUNTIME_RELPATH_LENGTH
+    )
+    request = api.WorkflowProviderIsolationRequest(
+        candidate_path="/workspace/product",
+        target=("/opt/provider/bin/provider", "--run"),
+        environment_digest="sha256:" + ("1" * 64),
+        result_channel="typed_bundle",
+        provider_template_identity="sha256:" + ("2" * 64),
+        aggregate_scope=tuple(
+            "x" * MAX_PROVIDER_ISOLATION_SCOPE_COMPONENT_LENGTH
+            for _ in range(MAX_PROVIDER_ISOLATION_SCOPE_COMPONENTS)
+        ),
+        ordinal=MAX_PROVIDER_ISOLATION_UINT64,
+        result_logical_path=(
+            "/workspace/product/.orchestrate/" + boundary_relpath
+        ),
+        result_bundle_max_bytes=4096,
+    )
+
+    assert len(request.aggregate_scope) == MAX_PROVIDER_ISOLATION_SCOPE_COMPONENTS
+    assert request.ordinal == MAX_PROVIDER_ISOLATION_UINT64
+    assert request.result_logical_path.endswith(boundary_relpath)
+
+
+def test_controller_request_cannot_carry_result_bundle_max_bytes() -> None:
+    api = _backend_api()
+
+    with pytest.raises(TypeError, match="result_bundle_max_bytes"):
+        api.ControllerAttemptIsolationRequest(
+            candidate_path="/workspace/product",
+            target=("/opt/provider/bin/provider", "--check"),
+            environment_digest="sha256:" + ("1" * 64),
+            result_channel="none",
+            caller_kind="experiment_arm",
+            caller_attempt_id="direct-0001",
+            command_identity="sha256:" + ("3" * 64),
+            external_sink_identity="sha256:" + ("4" * 64),
+            result_bundle_max_bytes=4096,
         )
 
 
@@ -563,6 +751,7 @@ def test_invocation_plan_is_immutable_and_mount_set_is_closed() -> None:
         aggregate_scope=("root", "step"),
         ordinal=1,
         result_logical_path="/workspace/product/.orchestrate/results/value.json",
+        result_bundle_max_bytes=8192,
     )
     plan = bwrap_api.build_bubblewrap_plan(
         request=request,
@@ -582,6 +771,7 @@ def test_invocation_plan_is_immutable_and_mount_set_is_closed() -> None:
 
     assert plan.backend == "bubblewrap.v1"
     assert plan.network_preflight_digest == "sha256:" + ("6" * 64)
+    assert plan.result_bundle_max_bytes == 8192
     assert tuple(binding.role for binding in plan.mounts) == (
         "sealed_rootfs",
         "candidate",
@@ -606,8 +796,9 @@ def test_invocation_plan_is_immutable_and_mount_set_is_closed() -> None:
         "LC_ALL": "C",
         "TZ": "UTC",
         "PATH": "/opt/provider/bin",
-        "ORCHESTRATOR_OUTPUT_BUNDLE": request.result_logical_path,
+        "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": request.result_logical_path,
     }
+    assert "ORCHESTRATOR_OUTPUT_BUNDLE" not in dict(plan.environment)
     with pytest.raises(FrozenInstanceError):
         plan.hostname = "host-name"  # type: ignore[misc]
 
@@ -809,6 +1000,7 @@ def test_typed_invocation_authority_factory_binds_workflow_and_controller(
         )
         assert type(authority) is api.PinnedProviderInvocationAuthorities
         assert authority.request == request
+        assert authority.request.result_bundle_max_bytes == 4096
         assert authority.environment_digest == snapshot.digest
         assert authority.provider_prefix == "/opt/provider"
         assert authority.candidate_path == os.fspath(admission.path)
@@ -882,6 +1074,1091 @@ def test_typed_invocation_authority_factory_binds_workflow_and_controller(
         runtime.close()
         admission.close()
         snapshot.close()
+
+
+@pytest.mark.parametrize("provider_entry_kind", ("fifo", "symlink"))
+def test_workflow_invocation_broker_revalidation_opacifies_only_pinned_scratch(
+    tmp_path: Path,
+    provider_entry_kind: str,
+) -> None:
+    api = _backend_api()
+    snapshot, admission, runtime, request = _make_typed_invocation_components(
+        tmp_path,
+        workflow=True,
+    )
+    authority = None
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(b"unchanged")
+    try:
+        authority = api.pin_provider_invocation_authorities(
+            snapshot=snapshot,
+            candidate=admission,
+            runtime=runtime,
+            request=request,
+        )
+        assert authority.scratch_relpath is not None
+        scratch = admission.path / ".orchestrate" / authority.scratch_relpath
+        provider_entry = scratch / "provider-entry"
+        if provider_entry_kind == "fifo":
+            os.mkfifo(provider_entry)
+        else:
+            provider_entry.symlink_to(outside)
+
+        authority.revalidate_for_result_broker_after_quiescence()
+
+        with pytest.raises(api.ProviderIsolationInvalidPlan):
+            authority.revalidate()
+    finally:
+        if authority is not None:
+            authority.close()
+        runtime.close()
+        admission.close()
+        snapshot.close()
+
+    assert outside.read_bytes() == b"unchanged"
+
+
+def test_invocation_broker_revalidation_rejects_non_scratch_tree_mutation(
+    tmp_path: Path,
+) -> None:
+    api = _backend_api()
+    snapshot, admission, runtime, request = _make_typed_invocation_components(
+        tmp_path,
+        workflow=True,
+    )
+    authority = None
+    try:
+        authority = api.pin_provider_invocation_authorities(
+            snapshot=snapshot,
+            candidate=admission,
+            runtime=runtime,
+            request=request,
+        )
+        os.mkfifo(admission.path / ".orchestrate" / "hostile")
+
+        with pytest.raises(api.ProviderIsolationInvalidPlan):
+            authority.revalidate_for_result_broker_after_quiescence()
+    finally:
+        if authority is not None:
+            authority.close()
+        runtime.close()
+        admission.close()
+        snapshot.close()
+
+
+def test_invocation_broker_revalidation_rejects_complete_scratch_rebinding(
+    tmp_path: Path,
+) -> None:
+    api = _backend_api()
+    snapshot, admission, runtime, request = _make_typed_invocation_components(
+        tmp_path,
+        workflow=True,
+    )
+    authority = None
+    alternate_fd = -1
+    original_binding = None
+    try:
+        authority = api.pin_provider_invocation_authorities(
+            snapshot=snapshot,
+            candidate=admission,
+            runtime=runtime,
+            request=request,
+        )
+        alternate_fd, alternate_identity = runtime.create_fresh_directory(
+            "provider-invocation-scratch/alternate",
+        )
+        original_binding = (
+            authority._scratch_relpath,
+            authority._scratch_fd,
+            authority._scratch_identity,
+        )
+        authority._scratch_relpath = "provider-invocation-scratch/alternate"
+        authority._scratch_fd = alternate_fd
+        authority._scratch_identity = alternate_identity
+
+        with pytest.raises(
+            api.ProviderIsolationInvalidPlan,
+            match="scratch authority",
+        ):
+            authority.revalidate_for_result_broker_after_quiescence()
+    finally:
+        if authority is not None and original_binding is not None:
+            (
+                authority._scratch_relpath,
+                authority._scratch_fd,
+                authority._scratch_identity,
+            ) = original_binding
+        if alternate_fd >= 0:
+            os.close(alternate_fd)
+        if authority is not None:
+            authority.close()
+        runtime.close()
+        admission.close()
+        snapshot.close()
+
+
+def test_controller_invocation_cannot_enter_result_broker_revalidation_seam(
+    tmp_path: Path,
+) -> None:
+    api = _backend_api()
+    snapshot, admission, runtime, request = _make_typed_invocation_components(
+        tmp_path,
+        workflow=False,
+    )
+    authority = None
+    try:
+        authority = api.pin_provider_invocation_authorities(
+            snapshot=snapshot,
+            candidate=admission,
+            runtime=runtime,
+            request=request,
+        )
+
+        with pytest.raises(
+            api.ProviderIsolationInvalidPlan,
+            match="workflow",
+        ):
+            authority.revalidate_for_result_broker_after_quiescence()
+    finally:
+        if authority is not None:
+            authority.close()
+        runtime.close()
+        admission.close()
+        snapshot.close()
+
+
+def test_workflow_invocation_opens_one_descriptor_bound_result_broker_authority(
+    tmp_path: Path,
+) -> None:
+    api = _backend_api()
+    broker_api = importlib.import_module(
+        "orchestrator.providers.isolation_bundle_broker"
+    )
+    snapshot, admission, runtime, request = _make_typed_invocation_components(
+        tmp_path,
+        workflow=True,
+        result_bundle_max_bytes=37,
+    )
+    invocation = None
+    broker_authority = None
+    try:
+        invocation = api.pin_provider_invocation_authorities(
+            snapshot=snapshot,
+            candidate=admission,
+            runtime=runtime,
+            request=request,
+        )
+        assert invocation.scratch_relpath is not None
+        scratch = admission.path / ".orchestrate" / invocation.scratch_relpath
+        (scratch / "value.json").write_bytes(b'{"value":true}\n')
+        with pytest.raises(
+            api.ProviderIsolationInvalidPlan,
+            match="launcher-proved quiescence",
+        ):
+            invocation.open_result_broker_authority_after_quiescence(
+                minimum=32,
+            )
+        invocation._record_result_broker_quiescence(
+            "sha256:" + ("8" * 64),
+            _token=api._RESULT_BROKER_QUIESCENCE_TOKEN,
+        )
+
+        broker_authority = (
+            invocation.open_result_broker_authority_after_quiescence(
+                minimum=32,
+            )
+        )
+
+        assert (
+            type(broker_authority)
+            is api.PinnedProviderResultBrokerAuthorities
+        )
+        assert broker_authority.request is request
+        assert broker_authority.runtime_fd >= 32
+        assert broker_authority.scratch_fd >= 32
+        assert broker_authority.runtime_fd != broker_authority.scratch_fd
+        assert broker_authority.runtime_identity == runtime.identity.runtime
+        assert broker_authority.scratch_identity == invocation.scratch_identity
+        assert broker_authority.scratch_relpath == invocation.scratch_relpath
+        assert broker_authority.target_runtime_relpath == "results/value.json"
+        assert broker_authority.active_basename == "value.json"
+        assert broker_authority.result_bundle_max_bytes == 37
+        assert broker_authority.invocation_identity.startswith("sha256:")
+
+        captured = broker_api.capture_active_bundle_from_authority(
+            authority=broker_authority,
+        )
+        assert captured.classification == "captured"
+        assert captured.data == b'{"value":true}\n'
+    finally:
+        if broker_authority is not None:
+            broker_authority.close()
+            assert broker_authority.closed is True
+            assert broker_authority.runtime_fd == -1
+            assert broker_authority.scratch_fd == -1
+        if invocation is not None:
+            invocation.close()
+        runtime.close()
+        admission.close()
+        snapshot.close()
+
+
+def _bare_result_broker_authority(api):
+    from orchestrator.providers.isolation_runtime_authority import (
+        RuntimeAuthorityObjectIdentity,
+    )
+
+    runtime_fd, runtime_write_fd = os.pipe()
+    scratch_fd, scratch_write_fd = os.pipe()
+    request = api.WorkflowProviderIsolationRequest(
+        candidate_path="/workspace/product",
+        target=("/opt/provider/bin/provider", "--run"),
+        environment_digest="sha256:" + ("1" * 64),
+        result_channel="typed_bundle",
+        provider_template_identity="sha256:" + ("2" * 64),
+        aggregate_scope=("root", "step"),
+        ordinal=1,
+        result_logical_path=(
+            "/workspace/product/.orchestrate/results/value.json"
+        ),
+        result_bundle_max_bytes=4096,
+    )
+    runtime_identity = RuntimeAuthorityObjectIdentity(
+        path="/workspace/product/.orchestrate",
+        device=1,
+        inode=2,
+        mount_id=3,
+    )
+    scratch_identity = RuntimeAuthorityObjectIdentity(
+        path=(
+            "/workspace/product/.orchestrate/"
+            f"provider-invocation-scratch/{'a' * 64}"
+        ),
+        device=1,
+        inode=4,
+        mount_id=3,
+    )
+    authority = api.PinnedProviderResultBrokerAuthorities(
+        request=request,
+        runtime_fd=runtime_fd,
+        scratch_fd=scratch_fd,
+        runtime_identity=runtime_identity,
+        scratch_identity=scratch_identity,
+        scratch_relpath=f"provider-invocation-scratch/{'a' * 64}",
+        target_runtime_relpath="results/value.json",
+        active_basename="value.json",
+        invocation_identity="sha256:" + ("5" * 64),
+        _token=api._RESULT_BROKER_AUTHORITY_TOKEN,
+    )
+    return authority, runtime_fd, scratch_fd, runtime_write_fd, scratch_write_fd
+
+
+def test_result_broker_authority_close_attempts_every_fd_after_first_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _backend_api()
+    (
+        authority,
+        runtime_fd,
+        scratch_fd,
+        runtime_write_fd,
+        scratch_write_fd,
+    ) = _bare_result_broker_authority(api)
+    real_close = api.os.close
+    close_attempts: list[int] = []
+
+    def fail_first_close(fd: int) -> None:
+        close_attempts.append(fd)
+        if fd == scratch_fd:
+            raise OSError("injected scratch close failure")
+        real_close(fd)
+
+    monkeypatch.setattr(api.os, "close", fail_first_close)
+    try:
+        with pytest.raises(OSError, match="scratch close failure"):
+            authority.close()
+        assert close_attempts == [scratch_fd, runtime_fd]
+        assert authority.closed is True
+        assert authority.scratch_fd == -1
+        assert authority.runtime_fd == -1
+    finally:
+        real_close(scratch_fd)
+        real_close(runtime_write_fd)
+        real_close(scratch_write_fd)
+
+
+def test_result_broker_context_close_failure_does_not_mask_primary_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _backend_api()
+    (
+        authority,
+        runtime_fd,
+        scratch_fd,
+        runtime_write_fd,
+        scratch_write_fd,
+    ) = _bare_result_broker_authority(api)
+    real_close = api.os.close
+    close_attempts: list[int] = []
+
+    def fail_first_close(fd: int) -> None:
+        close_attempts.append(fd)
+        if fd == scratch_fd:
+            raise OSError("injected scratch close failure")
+        real_close(fd)
+
+    monkeypatch.setattr(api.os, "close", fail_first_close)
+    try:
+        with pytest.raises(RuntimeError, match="primary failure"):
+            with authority:
+                raise RuntimeError("primary failure")
+        assert close_attempts == [scratch_fd, runtime_fd]
+        assert authority.closed is True
+    finally:
+        real_close(scratch_fd)
+        real_close(runtime_write_fd)
+        real_close(scratch_write_fd)
+
+
+@pytest.mark.parametrize(
+    "execution_outcome",
+    ("eligible_zero", "nonzero", "timeout", "cancelled"),
+)
+def test_fake_owner_applies_fixed_result_retention_through_broker_authority(
+    tmp_path: Path,
+    execution_outcome: str,
+) -> None:
+    api = _backend_api()
+    broker_api = importlib.import_module(
+        "orchestrator.providers.isolation_bundle_broker"
+    )
+    snapshot, admission, runtime, request = _make_typed_invocation_components(
+        tmp_path,
+        workflow=True,
+        result_bundle_max_bytes=37,
+    )
+    results_fd, _results_identity = runtime.create_fresh_directory("results")
+    os.close(results_fd)
+    invocation = None
+    broker_authority = None
+    payload = (
+        b""
+        if execution_outcome == "eligible_zero"
+        else b'{"untrusted":"partial"}\n'
+    )
+    fake_owner_evidence: dict[str, object] = {}
+    acknowledgements: list[object] = []
+    try:
+        invocation = api.pin_provider_invocation_authorities(
+            snapshot=snapshot,
+            candidate=admission,
+            runtime=runtime,
+            request=request,
+        )
+        assert invocation.scratch_relpath is not None
+        scratch = (
+            admission.path / ".orchestrate" / invocation.scratch_relpath
+        )
+        (scratch / "value.json").write_bytes(payload)
+        (scratch / "sibling.tmp").write_bytes(b"discard")
+        invocation._record_result_broker_quiescence(
+            "sha256:" + ("8" * 64),
+            _token=api._RESULT_BROKER_QUIESCENCE_TOKEN,
+        )
+        broker_authority = (
+            invocation.open_result_broker_authority_after_quiescence()
+        )
+
+        capture = broker_api.capture_active_bundle_from_authority(
+            authority=broker_authority,
+        )
+        transfer_request = (
+            broker_api.create_bundle_transfer_request_from_authority(
+                authority=broker_authority,
+                capture=capture,
+            )
+        )
+        paths = broker_api.derive_bundle_transfer_paths(transfer_request)
+        fake_owner_evidence = {
+            "execution_outcome": execution_outcome,
+            "bundle_digest": capture.digest,
+            "bundle_size": capture.size_bytes,
+        }
+        if execution_outcome == "eligible_zero":
+            transfer_record = (
+                broker_api.prepare_and_publish_bundle_transfer(
+                    transfer_request
+                )
+            )
+            assert transfer_record is not None
+            cleanup_evidence = transfer_record
+        else:
+            # Task 4 replaces this fake decision owner. Noneligible execution
+            # never grants its captured-byte request to the publication API.
+            cleanup_evidence = capture
+
+        cleanup = (
+            broker_api.cleanup_invocation_scratch_after_acknowledgement(
+                runtime_root_fd=broker_authority.runtime_fd,
+                expected_runtime_mount_id=(
+                    broker_authority.runtime_identity.mount_id
+                ),
+                scratch_directory_fd=broker_authority.scratch_fd,
+                scratch_relative_path=broker_authority.scratch_relpath,
+                expected_scratch_identity=(
+                    broker_authority.scratch_identity
+                ),
+                evidence=cleanup_evidence,
+                acknowledgement=lambda evidence: (
+                    acknowledgements.append(evidence) or True
+                ),
+            )
+        )
+        target = (
+            admission.path
+            / ".orchestrate"
+            / paths.target_relative_path
+        )
+        journal = (
+            admission.path
+            / ".orchestrate"
+            / paths.journal_relative_path
+        )
+
+        assert capture.classification == "captured"
+        assert fake_owner_evidence["bundle_digest"] == (
+            "sha256:" + sha256(payload).hexdigest()
+        )
+        assert fake_owner_evidence["bundle_size"] == len(payload)
+        assert cleanup.removed_entry_count == 2
+        assert acknowledgements == [cleanup_evidence]
+        assert not scratch.exists()
+        if execution_outcome == "eligible_zero":
+            assert target.read_bytes() == b""
+            assert journal.is_file()
+        else:
+            assert not target.exists()
+            assert not journal.exists()
+    finally:
+        if broker_authority is not None:
+            broker_authority.close()
+        if invocation is not None:
+            invocation.close()
+        runtime.close()
+        admission.close()
+        snapshot.close()
+
+
+def test_transfer_request_factory_rejects_cross_attempt_authority_composition(
+    tmp_path: Path,
+) -> None:
+    api = _backend_api()
+    broker_api = importlib.import_module(
+        "orchestrator.providers.isolation_bundle_broker"
+    )
+    first = _make_typed_invocation_components(
+        tmp_path / "first",
+        workflow=True,
+    )
+    second = _make_typed_invocation_components(
+        tmp_path / "second",
+        workflow=True,
+        result_bundle_max_bytes=1,
+    )
+    first_snapshot, first_admission, first_runtime, first_request = first
+    second_snapshot, second_admission, second_runtime, second_request = second
+    first_results_fd, _ = first_runtime.create_fresh_directory("results")
+    second_results_fd, _ = second_runtime.create_fresh_directory("results")
+    os.close(first_results_fd)
+    os.close(second_results_fd)
+    first_invocation = None
+    second_invocation = None
+    first_broker = None
+    second_broker = None
+    try:
+        first_invocation = api.pin_provider_invocation_authorities(
+            snapshot=first_snapshot,
+            candidate=first_admission,
+            runtime=first_runtime,
+            request=first_request,
+        )
+        second_invocation = api.pin_provider_invocation_authorities(
+            snapshot=second_snapshot,
+            candidate=second_admission,
+            runtime=second_runtime,
+            request=second_request,
+        )
+        assert first_invocation.scratch_relpath is not None
+        first_scratch = (
+            first_admission.path
+            / ".orchestrate"
+            / first_invocation.scratch_relpath
+        )
+        assert second_invocation.scratch_relpath is not None
+        second_scratch = (
+            second_admission.path
+            / ".orchestrate"
+            / second_invocation.scratch_relpath
+        )
+        (first_scratch / "value.json").write_bytes(b'{"value":true}\n')
+        (second_scratch / "value.json").write_bytes(b"x")
+        first_invocation._record_result_broker_quiescence(
+            "sha256:" + ("6" * 64),
+            _token=api._RESULT_BROKER_QUIESCENCE_TOKEN,
+        )
+        second_invocation._record_result_broker_quiescence(
+            "sha256:" + ("7" * 64),
+            _token=api._RESULT_BROKER_QUIESCENCE_TOKEN,
+        )
+        first_broker = (
+            first_invocation.open_result_broker_authority_after_quiescence()
+        )
+        second_broker = (
+            second_invocation.open_result_broker_authority_after_quiescence()
+        )
+        capture = broker_api.capture_active_bundle_from_authority(
+            authority=first_broker,
+        )
+
+        transfer = broker_api.create_bundle_transfer_request_from_authority(
+            authority=first_broker,
+            capture=capture,
+        )
+
+        assert transfer.runtime_root_fd == first_broker.runtime_fd
+        assert transfer.invocation_identity == first_broker.invocation_identity
+        with pytest.raises(
+            TypeError,
+            match="authority-bound capture binding",
+        ):
+            replace(
+                capture,
+                data=b'{"value":false}\n',
+                digest=(
+                    "sha256:"
+                    + sha256(b'{"value":false}\n').hexdigest()
+                ),
+                size_bytes=len(b'{"value":false}\n'),
+            )
+        with pytest.raises(TypeError, match="capture authority binding"):
+            broker_api.create_bundle_transfer_request_from_authority(
+                authority=second_broker,
+                capture=capture,
+            )
+        bounded_second = broker_api.capture_active_bundle_from_authority(
+            authority=second_broker,
+        )
+        assert bounded_second.classification == "captured"
+        second_transfer = (
+            broker_api.create_bundle_transfer_request_from_authority(
+                authority=second_broker,
+                capture=bounded_second,
+            )
+        )
+        first_target = (
+            first_admission.path
+            / ".orchestrate"
+            / transfer.target_relative_path
+        )
+        with pytest.raises(TypeError, match="request-capture binding"):
+            replace(
+                transfer,
+                capture=bounded_second,
+                _capture_binding=bounded_second._binding,
+            )
+        assert not first_target.exists()
+        assert not (
+            first_admission.path / ".orchestrate" / broker_api._BROKER_ROOT
+        ).exists()
+        assert second_transfer.capture is bounded_second
+
+        (second_scratch / "value.json").write_bytes(b"xx")
+        bounded_oversize = broker_api.capture_active_bundle_from_authority(
+            authority=second_broker,
+        )
+        assert bounded_oversize.classification == "rejected"
+        assert bounded_oversize.reason == broker_api.BUNDLE_OVERSIZED_REASON
+        raw_oversize_bypass = broker_api.capture_active_bundle(
+            scratch_directory_fd=second_broker.scratch_fd,
+            active_basename=second_broker.active_basename,
+            expected_scratch_mount_id=second_broker.scratch_identity.mount_id,
+            max_bytes=16,
+        )
+        assert raw_oversize_bypass.classification == "captured"
+        with pytest.raises(TypeError, match="authority-bound capture"):
+            broker_api.create_bundle_transfer_request_from_authority(
+                authority=second_broker,
+                capture=raw_oversize_bypass,
+            )
+        with pytest.raises(TypeError, match="capture"):
+            replace(
+                transfer,
+                capture=raw_oversize_bypass,
+            )
+        with pytest.raises(TypeError, match="validating factory"):
+            broker_api.ProviderIsolationBundleTransferRequest(
+                runtime_root_fd=first_broker.runtime_fd,
+                expected_runtime_mount_id=(
+                    first_broker.runtime_identity.mount_id
+                ),
+                invocation_identity=first_broker.invocation_identity,
+                scope=first_request.aggregate_scope,
+                ordinal=first_request.ordinal,
+                target_relative_path=first_broker.target_runtime_relpath,
+                capture=capture,
+            )
+        with pytest.raises(TypeError, match="authority binding"):
+            replace(
+                transfer,
+                runtime_root_fd=second_broker.runtime_fd,
+                expected_runtime_mount_id=(
+                    second_broker.runtime_identity.mount_id
+                ),
+            )
+    finally:
+        if second_broker is not None:
+            second_broker.close()
+        if first_broker is not None:
+            first_broker.close()
+        if second_invocation is not None:
+            second_invocation.close()
+        if first_invocation is not None:
+            first_invocation.close()
+        second_runtime.close()
+        second_admission.close()
+        second_snapshot.close()
+        first_runtime.close()
+        first_admission.close()
+        first_snapshot.close()
+
+
+@pytest.mark.parametrize("minimum", (True, 2, -1))
+def test_result_broker_authority_rejects_invalid_descriptor_minimum(
+    tmp_path: Path,
+    minimum: object,
+) -> None:
+    api = _backend_api()
+    snapshot, admission, runtime, request = _make_typed_invocation_components(
+        tmp_path,
+        workflow=True,
+    )
+    invocation = None
+    try:
+        invocation = api.pin_provider_invocation_authorities(
+            snapshot=snapshot,
+            candidate=admission,
+            runtime=runtime,
+            request=request,
+        )
+        with pytest.raises(api.ProviderIsolationInvalidPlan):
+            invocation.open_result_broker_authority_after_quiescence(
+                minimum=minimum,
+            )
+    finally:
+        if invocation is not None:
+            invocation.close()
+        runtime.close()
+        admission.close()
+        snapshot.close()
+
+
+def test_controller_invocation_cannot_open_result_broker_authority(
+    tmp_path: Path,
+) -> None:
+    api = _backend_api()
+    snapshot, admission, runtime, request = _make_typed_invocation_components(
+        tmp_path,
+        workflow=False,
+    )
+    invocation = None
+    try:
+        invocation = api.pin_provider_invocation_authorities(
+            snapshot=snapshot,
+            candidate=admission,
+            runtime=runtime,
+            request=request,
+        )
+        with pytest.raises(
+            api.ProviderIsolationInvalidPlan,
+            match="workflow",
+        ):
+            invocation.open_result_broker_authority_after_quiescence()
+    finally:
+        if invocation is not None:
+            invocation.close()
+        runtime.close()
+        admission.close()
+        snapshot.close()
+
+
+def test_same_parent_logical_bundle_names_receive_distinct_scratch_views(
+    tmp_path: Path,
+) -> None:
+    api = _backend_api()
+    snapshot, admission, runtime, first_request = (
+        _make_typed_invocation_components(
+            tmp_path,
+            workflow=True,
+            ordinal=1,
+        )
+    )
+    second_request = replace(
+        first_request,
+        ordinal=2,
+        result_logical_path=os.fspath(
+            admission.path
+            / ".orchestrate"
+            / "results"
+            / "other-value.json"
+        ),
+    )
+    first = None
+    second = None
+    try:
+        first = api.pin_provider_invocation_authorities(
+            snapshot=snapshot,
+            candidate=admission,
+            runtime=runtime,
+            request=first_request,
+        )
+        second = api.pin_provider_invocation_authorities(
+            snapshot=snapshot,
+            candidate=admission,
+            runtime=runtime,
+            request=second_request,
+        )
+
+        assert (
+            Path(first_request.result_logical_path).parent
+            == Path(second_request.result_logical_path).parent
+        )
+        assert first.scratch_relpath != second.scratch_relpath
+        assert first.scratch_identity is not None
+        assert second.scratch_identity is not None
+        assert (
+            first.scratch_identity.device,
+            first.scratch_identity.inode,
+        ) != (
+            second.scratch_identity.device,
+            second.scratch_identity.inode,
+        )
+    finally:
+        if second is not None:
+            second.close()
+        if first is not None:
+            first.close()
+        runtime.close()
+        admission.close()
+        snapshot.close()
+
+
+@pytest.mark.parametrize(
+    (
+        "workflow",
+        "provider_entry_kind",
+        "inside_scratch",
+        "expect_success",
+        "post_release_failure",
+        "expect_broker_authority",
+    ),
+    (
+        (True, "fifo", True, True, None, True),
+        (True, "symlink", True, True, None, True),
+        (True, "fifo", False, False, None, False),
+        (False, "fifo", False, False, None, False),
+        (True, "fifo", True, False, "timeout", True),
+        (True, "symlink", True, False, "cancel", True),
+    ),
+)
+def test_execute_uses_broker_revalidation_only_for_quiescent_workflow_scratch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    workflow: bool,
+    provider_entry_kind: str,
+    inside_scratch: bool,
+    expect_success: bool,
+    post_release_failure: str | None,
+    expect_broker_authority: bool,
+) -> None:
+    from orchestrator.providers.isolation_network_preflight import (
+        PinnedProviderIsolationNetworkAuthority,
+        ProviderIsolationNetworkPreflight,
+    )
+
+    backend_api = _backend_api()
+    api = _bubblewrap_api()
+    snapshot, admission, runtime, request = _make_typed_invocation_components(
+        tmp_path,
+        workflow=workflow,
+    )
+    invocation = backend_api.pin_provider_invocation_authorities(
+        snapshot=snapshot,
+        candidate=admission,
+        runtime=runtime,
+        request=request,
+    )
+    broker_authority = None
+    events: list[object] = []
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(b"unchanged")
+    backend_fd = os.open(os.devnull, os.O_RDONLY | os.O_CLOEXEC)
+    backend_identity = type(
+        "BackendIdentity",
+        (),
+        {"digest": "sha256:" + ("5" * 64)},
+    )()
+
+    class PinnedBackend:
+        executable_fd = backend_fd
+        identity = backend_identity
+
+        def revalidate(self):
+            events.append("backend_revalidate")
+            return self.identity
+
+    capability = ProviderIsolationNetworkPreflight(
+        schema_version="provider_isolation_network_preflight.v1",
+        endpoint_set_digest="sha256:" + ("6" * 64),
+        canonical_json=b"{}",
+        digest="sha256:" + ("7" * 64),
+    )
+    network_authority = object.__new__(
+        PinnedProviderIsolationNetworkAuthority
+    )
+    object.__setattr__(network_authority, "_capability", capability)
+    slot_path = tmp_path / "post-quiescence-containment"
+    slot_path.mkdir(mode=0o700)
+    outer_pid = 4242
+    provider_pid = 4343
+
+    class Slot:
+        identity_digest = "sha256:" + ("8" * 64)
+        path = slot_path
+        member_reads = 0
+
+        def revalidate(self) -> None:
+            events.append("slot_revalidate")
+
+        @property
+        def populated(self) -> bool:
+            return False
+
+        def add_pid(self, pid: int) -> None:
+            assert pid == outer_pid
+            events.append("outer_enrolled")
+
+        def members(self) -> tuple[int, ...]:
+            self.member_reads += 1
+            if self.member_reads == 1:
+                return (outer_pid,)
+            return (outer_pid, provider_pid)
+
+        def kill(self) -> None:
+            events.append("slot_kill")
+
+        def wait_empty(self, *, timeout_seconds: float) -> None:
+            assert timeout_seconds > 0
+            events.append("slot_empty")
+
+        def remove(self) -> None:
+            events.append("slot_remove")
+            slot_path.rmdir()
+
+    class ReleaseGate:
+        containment_identity = Slot.identity_digest
+        events = ("launch_intent",)
+        release_consumed = False
+        release_permit = None
+
+        def record_commit(self) -> object:
+            events.append("commit")
+            return object()
+
+        def consume_release(self, _permit: object) -> None:
+            events.append("release")
+
+    original_full_revalidate = (
+        backend_api.PinnedProviderInvocationAuthorities.revalidate
+    )
+    original_broker_revalidate = (
+        backend_api.PinnedProviderInvocationAuthorities
+        .revalidate_for_result_broker_after_quiescence
+    )
+
+    def recording_full_revalidate(
+        authority: backend_api.PinnedProviderInvocationAuthorities,
+    ) -> None:
+        events.append("full_revalidate")
+        original_full_revalidate(authority)
+
+    def recording_broker_revalidate(
+        authority: backend_api.PinnedProviderInvocationAuthorities,
+    ) -> None:
+        events.append("broker_revalidate")
+        original_broker_revalidate(authority)
+
+    def finish_provider(
+        *,
+        stdout_fd: int,
+        stderr_fd: int,
+        status_fd: int,
+        wait_state,
+        **_kwargs,
+    ) -> tuple[int, str, str]:
+        for fd in (stdout_fd, stderr_fd, status_fd):
+            os.close(fd)
+        wait_state.reaped = True
+        if inside_scratch:
+            assert invocation.scratch_relpath is not None
+            parent = (
+                admission.path
+                / ".orchestrate"
+                / invocation.scratch_relpath
+            )
+        else:
+            parent = admission.path / ".orchestrate"
+        provider_entry = parent / "provider-entry"
+        if provider_entry_kind == "fifo":
+            os.mkfifo(provider_entry)
+        else:
+            provider_entry.symlink_to(outside)
+        events.append("provider_quiesced")
+        if post_release_failure == "timeout":
+            raise TimeoutError("injected post-release timeout")
+        if post_release_failure == "cancel":
+            raise KeyboardInterrupt("injected post-release cancellation")
+        return 0, "", ""
+
+    monkeypatch.setattr(api.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(api.os, "getegid", lambda: 1000)
+    monkeypatch.setattr(api.os, "getgroups", lambda: [1000])
+    monkeypatch.setattr(
+        api,
+        "_validate_cgroup_launch_authorities",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(api.os, "fork", lambda: outer_pid)
+    monkeypatch.setattr(
+        api,
+        "_wait_for_bwrap_child_pid",
+        lambda *_args, **_kwargs: provider_pid,
+    )
+    monkeypatch.setattr(
+        api,
+        "_pin_rootless_child",
+        lambda *_args, **_kwargs: (-1, -1, 12345),
+    )
+    monkeypatch.setattr(
+        api,
+        "_wait_for_boundary_ready",
+        lambda *_args, **_kwargs: events.append("boundary_ready"),
+    )
+    monkeypatch.setattr(
+        api,
+        "_validate_pinned_rootless_child_boundary",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr(api, "_write_all_fd", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(api, "_drain_and_wait", finish_provider)
+    monkeypatch.setattr(
+        PinnedProviderIsolationNetworkAuthority,
+        "revalidate",
+        lambda _self: capability,
+    )
+    monkeypatch.setattr(
+        backend_api.PinnedProviderInvocationAuthorities,
+        "revalidate",
+        recording_full_revalidate,
+    )
+    monkeypatch.setattr(
+        backend_api.PinnedProviderInvocationAuthorities,
+        "revalidate_for_result_broker_after_quiescence",
+        recording_broker_revalidate,
+    )
+
+    try:
+        if workflow:
+            with pytest.raises(
+                backend_api.ProviderIsolationInvalidPlan,
+                match="launcher-proved quiescence",
+            ):
+                invocation.open_result_broker_authority_after_quiescence()
+        if expect_success:
+            result = api.execute_bubblewrap_invocation(
+                invocation_authorities=invocation,
+                pinned_backend=PinnedBackend(),
+                credentials={},
+                declared_credential_names=(),
+                release_gate=ReleaseGate(),
+                containment_slot=Slot(),
+                network_authority=network_authority,
+            )
+            assert result.returncode == 0
+            assert result.containment_empty is True
+            if workflow:
+                broker_authority = (
+                    invocation.open_result_broker_authority_after_quiescence()
+                )
+                assert (
+                    type(broker_authority)
+                    is backend_api.PinnedProviderResultBrokerAuthorities
+                )
+                with pytest.raises(
+                    backend_api.ProviderIsolationInvalidPlan,
+                    match="already opened",
+                ):
+                    invocation.open_result_broker_authority_after_quiescence()
+        else:
+            expected_error = (
+                api.ProviderIsolationLaunchError
+                if post_release_failure is not None
+                else backend_api.ProviderIsolationInvalidPlan
+            )
+            with pytest.raises(expected_error):
+                api.execute_bubblewrap_invocation(
+                    invocation_authorities=invocation,
+                    pinned_backend=PinnedBackend(),
+                    credentials={},
+                    declared_credential_names=(),
+                    release_gate=ReleaseGate(),
+                    containment_slot=Slot(),
+                    network_authority=network_authority,
+                )
+            if expect_broker_authority:
+                broker_authority = (
+                    invocation.open_result_broker_authority_after_quiescence()
+                )
+                assert (
+                    type(broker_authority)
+                    is backend_api.PinnedProviderResultBrokerAuthorities
+                )
+    finally:
+        if broker_authority is not None:
+            broker_authority.close()
+        os.close(backend_fd)
+        invocation.close()
+        runtime.close()
+        admission.close()
+        snapshot.close()
+
+    quiesced_index = events.index("provider_quiesced")
+    empty_index = events.index("slot_empty")
+    assert quiesced_index < empty_index
+    if workflow:
+        assert events.index("broker_revalidate") > empty_index
+        assert all(
+            index < quiesced_index
+            for index, event in enumerate(events)
+            if event == "full_revalidate"
+        )
+    else:
+        assert "broker_revalidate" not in events
+        assert any(
+            index > empty_index
+            for index, event in enumerate(events)
+            if event == "full_revalidate"
+        )
+    assert outside.read_bytes() == b"unchanged"
 
 
 def test_invocation_authority_factory_failure_after_scratch_creation_closes_and_removes_scratch(
@@ -3846,6 +5123,7 @@ def test_real_rootless_projection_denies_external_and_publishes_only_scratch(
         result_logical_path=os.fspath(
             candidate / ".orchestrate" / "results" / "probe.json"
         ),
+        result_bundle_max_bytes=4096,
     )
     expected_environment = _fixed_environment(
         {},

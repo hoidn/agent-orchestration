@@ -1407,14 +1407,21 @@ git commit -m "feat(providers): add fail-closed bubblewrap backend"
   `orchestrator/providers/schemas/provider-isolation-bundle-transfer-v1.schema.json`
 - Create: `tests/test_provider_isolation_bundle_broker.py`
 - Modify: `orchestrator/providers/isolation.py`
+- Modify: `orchestrator/providers/isolation_backend.py`
+- Modify: `orchestrator/providers/isolation_environment.py`
 - Modify: `orchestrator/providers/isolation_runtime_authority.py`
 - Modify: `orchestrator/providers/isolation_bubblewrap.py`
+- Modify: `orchestrator/providers/provider_launch_shim.py`
 - Modify: `tests/test_provider_isolation_backend.py`
+- Modify: `tests/test_provider_launch_shim.py`
+- Modify: `tests/test_provider_isolation_runtime_authority.py`
 - Modify: `tests/test_provider_isolation_schema_resources.py`
+- Modify: `tests/fixtures/provider_isolation/probe_provider.py`
+- Modify: `docs/capability_status_matrix.md`
 - Modify: `specs/io.md`
 - Modify: `specs/state.md`
 
-- [ ] **Step 1: Add and collect broker tests**
+- [x] **Step 1: Add and collect broker tests**
 
 Cover:
 
@@ -1427,6 +1434,12 @@ Cover:
 - exact `result_bundle.max_bytes` behavior at `limit - 1`, `limit`, and
   `limit + 1`, with oversize classified
   `provider_isolation_bundle_oversized`;
+- exact non-boolean positive `result_bundle_max_bytes` carriage on the
+  workflow-provider request and launch plan, with missing, zero, boolean, and
+  over-limit values rejected before scratch allocation;
+- exact carriage through the established
+  `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` environment contract, with the accidental
+  unsuffixed spelling absent;
 - descriptor-stable type/size/copy behavior under symlink exchange, FIFO
   replacement, append/truncate mutation, and parent-path replacement;
 - atomic same-filesystem publication with file fsync, rename, and destination
@@ -1462,21 +1475,23 @@ Cover:
 
 ```bash
 pytest --collect-only -q tests/test_provider_isolation_bundle_broker.py
+pytest --collect-only -q tests/test_provider_isolation_runtime_authority.py
 pytest --collect-only -q tests/test_provider_isolation_schema_resources.py
 ```
 
-- [ ] **RED: Run before implementing the broker**
+- [x] **RED: Run before implementing the broker**
 
 ```bash
 pytest -q \
   tests/test_provider_isolation_bundle_broker.py \
+  tests/test_provider_isolation_runtime_authority.py \
   tests/test_provider_isolation_schema_resources.py
 ```
 
 Expected: FAIL because broker behavior and the packaged transfer schema are
 absent.
 
-- [ ] **Step 2: Implement the minimum broker**
+- [x] **Step 2: Implement the minimum broker**
 
 On Linux, hold the scratch-parent directory descriptor and pin the exact active
 basename with `openat(O_PATH|O_NOFOLLOW|O_CLOEXEC)`. Classify errno/type with
@@ -1490,11 +1505,32 @@ is no pathname fallback.
 Write and fsync a deterministic same-filesystem staged file. Atomically persist
 and fsync the closed transfer journal with its scope/ordinal, staged/target
 identities, and digest before renaming the staged file to the canonical target;
-fsync the destination directory and atomically advance/fsync the journal.
+fsync the destination directory, revalidate the exact target, atomically
+advance/fsync the journal, and reconcile the resulting durable state before
+returning success. Construct publication requests only from the exact
+revalidated post-quiescence authority so request fields cannot be
+cross-composed between attempts. Production capture must likewise derive the
+active basename and byte limit from that authority and bind its source,
+classification, digest, and size into the request; raw captures,
+caller-selected larger limits, changed captures, and captures from another
+attempt are not publishable. Persist and revalidate one combined
+request/capture-source binding so two independently valid objects from
+different attempts cannot be substituted together.
 If the required descriptor or fsync operations are unavailable, fail closed.
 Clean scratch only after bounded evidence fields are captured and the caller's
-acknowledgement interface confirms publication. Task 3 tests that interface
-with a fake; it does not create or finalize an attestation.
+acknowledgement interface confirms that the evidence and any publication are
+durably accounted for. Atomically quarantine each twice-proved entry under a
+private no-replace name and revalidate the moved entry against its held
+descriptor before removing it; a replacement at the final pathname boundary
+must survive in quarantine and fail closed. Task 3 tests that interface with a
+fake; it does not create or finalize an attestation.
+
+Every prelaunch and readiness check retains full runtime-tree revalidation.
+Only after workflow-provider quiescence may the invocation authority use a
+broker-specific revalidation that keeps the exact scratch directory
+descriptor/path/mount identity pinned while treating its provider-created
+contents as opaque for descriptor-first broker classification. Controller
+attempts and non-scratch runtime descendants never use that exception.
 
 The broker transfers bytes only. It must not parse typed results or duplicate
 the existing output-contract validator. It exposes explicit monotonic
@@ -1503,7 +1539,7 @@ transitions plus a reconciliation API. Task 4 invokes the existing validator,
 records `valid`/`invalid`, and finalizes attestation; Task 5 binds this
 reconciliation before public resume can launch.
 
-- [ ] **Step 3: Connect broker paths to the mount plan**
+- [x] **Step 3: Connect broker paths to the mount plan**
 
 The provider-visible bundle path keeps its logical current value. The
 Bubblewrap plan overlays invocation scratch at the bundle parent while host
@@ -1511,7 +1547,7 @@ state keeps the allocated runtime target. Prove that two bundle names sharing
 one host parent still receive different scratch views and cannot enumerate one
 another.
 
-- [ ] **Step 4: Specify IO/state behavior**
+- [x] **Step 4: Specify IO/state behavior**
 
 Document active bundle brokerage, missing-bundle authority, the fixed
 success/failure retention matrix, invalid-result archive lifecycle, complete
@@ -1519,39 +1555,56 @@ crash/recovery matrix, retry target behavior, exact policy size bound, and the
 fact that the provider-visible path is a namespace mapping rather than a new
 workflow value. V1 has no retention policy knob.
 
-- [ ] **GREEN: Verify broker and backend**
+- [x] **GREEN: Verify broker and backend**
 
 ```bash
 pytest -q \
+  tests/test_provider_isolation_runtime_authority.py \
   tests/test_provider_isolation_bundle_broker.py \
-  tests/test_provider_isolation_backend.py
+  tests/test_provider_isolation_backend.py \
+  tests/test_provider_launch_shim.py \
+  tests/test_provider_isolation_schema_resources.py
 git diff --check -- \
   orchestrator/providers/isolation.py \
+  orchestrator/providers/isolation_backend.py \
+  orchestrator/providers/isolation_environment.py \
   orchestrator/providers/isolation_runtime_authority.py \
   orchestrator/providers/isolation_bubblewrap.py \
   orchestrator/providers/isolation_bundle_broker.py \
+  orchestrator/providers/provider_launch_shim.py \
   orchestrator/providers/schemas/provider-isolation-bundle-transfer-v1.schema.json \
   tests/test_provider_isolation_bundle_broker.py \
   tests/test_provider_isolation_backend.py \
+  tests/test_provider_launch_shim.py \
+  tests/test_provider_isolation_runtime_authority.py \
   tests/test_provider_isolation_schema_resources.py \
+  tests/fixtures/provider_isolation/probe_provider.py \
+  docs/capability_status_matrix.md \
   specs/io.md \
   specs/state.md
 ```
 
 Expected: PASS.
 
-- [ ] **Step 5: Independent reviews and commit**
+- [x] **Step 5: Independent reviews and commit**
 
 ```bash
 git add \
   orchestrator/providers/isolation.py \
+  orchestrator/providers/isolation_backend.py \
+  orchestrator/providers/isolation_environment.py \
   orchestrator/providers/isolation_runtime_authority.py \
   orchestrator/providers/isolation_bubblewrap.py \
   orchestrator/providers/isolation_bundle_broker.py \
+  orchestrator/providers/provider_launch_shim.py \
   orchestrator/providers/schemas/provider-isolation-bundle-transfer-v1.schema.json \
   tests/test_provider_isolation_bundle_broker.py \
   tests/test_provider_isolation_backend.py \
+  tests/test_provider_launch_shim.py \
+  tests/test_provider_isolation_runtime_authority.py \
   tests/test_provider_isolation_schema_resources.py \
+  tests/fixtures/provider_isolation/probe_provider.py \
+  docs/capability_status_matrix.md \
   specs/io.md \
   specs/state.md
 git commit -m "feat(providers): broker isolated phase results"

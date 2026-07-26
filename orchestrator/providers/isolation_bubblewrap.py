@@ -29,6 +29,7 @@ from orchestrator.providers.isolation_backend import (
     CgroupV2ContainmentSlot,
     DurableLaunchReleaseGate,
     WorkflowProviderIsolationRequest,
+    _RESULT_BROKER_QUIESCENCE_TOKEN,
 )
 from orchestrator.providers.isolation_network_preflight import (
     PinnedProviderIsolationNetworkAuthority,
@@ -539,6 +540,7 @@ def execute_bubblewrap_invocation(
     child_proc_fd = -1
     child_starttime = -1
     slot_removed = False
+    provider_released = False
     try:
         pinned_backend.revalidate()
         containment_slot.revalidate()
@@ -714,6 +716,7 @@ def execute_bubblewrap_invocation(
         network_authority.revalidate()
         permit = release_gate.record_commit()
         release_gate.consume_release(permit)
+        provider_released = True
         _write_all_fd(credential_write, frame)
         _safe_close(credential_write)
         parent_fds.remove(credential_write)
@@ -730,10 +733,18 @@ def execute_bubblewrap_invocation(
             if fd in parent_fds:
                 parent_fds.remove(fd)
         containment_slot.wait_empty(timeout_seconds=_remaining(deadline))
-        invocation_authorities.revalidate()
+        if type(request) is WorkflowProviderIsolationRequest:
+            invocation_authorities.revalidate_for_result_broker_after_quiescence()
+        else:
+            invocation_authorities.revalidate()
         containment_identity = containment_slot.identity_digest
         containment_slot.remove()
         slot_removed = True
+        if type(request) is WorkflowProviderIsolationRequest:
+            invocation_authorities._record_result_broker_quiescence(
+                containment_identity,
+                _token=_RESULT_BROKER_QUIESCENCE_TOKEN,
+            )
         return BubblewrapLaunchResult(
             plan=plan,
             network_preflight_digest=plan.network_preflight_digest,
@@ -762,11 +773,27 @@ def execute_bubblewrap_invocation(
         for fd in (*owned_fds, *parent_fds, *reservations, child_pidfd, child_proc_fd):
             _safe_close(fd)
         if not slot_removed:
+            broker_containment_identity = (
+                containment_slot.identity_digest
+                if (
+                    provider_released
+                    and type(request) is WorkflowProviderIsolationRequest
+                )
+                else None
+            )
             _teardown_bubblewrap_containment(
                 containment_slot=containment_slot,
                 outer_pid=outer_pid,
                 outer_reaped=wait_state.reaped,
             )
+            slot_removed = True
+            if (
+                broker_containment_identity is not None
+            ):
+                invocation_authorities._record_result_broker_quiescence(
+                    broker_containment_identity,
+                    _token=_RESULT_BROKER_QUIESCENCE_TOKEN,
+                )
 
 
 def _require_mount_authority_fd(fd: int, *, role: str) -> None:

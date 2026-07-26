@@ -793,7 +793,7 @@ def main() -> int:
         json.dumps(record, sort_keys=True, separators=(",", ":"))
         + "\n"
     )
-    output_value = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE")
+    output_value = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH")
     if output_value is not None:
         Path(output_value).write_text(encoded, encoding="utf-8")
     print(encoded, end="")

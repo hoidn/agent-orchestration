@@ -1700,7 +1700,7 @@ def test_shim_bootstrap_orders_both_sweeps_before_exact_exec_boundary(
                 "LANG": "C",
                 "LC_ALL": "C",
                 "TZ": "UTC",
-                "ORCHESTRATOR_OUTPUT_BUNDLE": (
+                "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": (
                     "/workspace/product/.orchestrate/results/value.json"
                 ),
                 "PATH": f"{PROVIDER_PREFIX}/bin",

@@ -160,8 +160,8 @@ _BOOTSTRAP_LOCAL_IMPORTS = (
     "function:launch_provider_via_shim:import:time",
 )
 _REVIEWED_BOOTSTRAP_SHIM_DIGEST = (
-    "sha256:7977b36e524a26073a207b982c0e2612"
-    "cce910a1f27c12650a6f4a69f84eb2fe"
+    "sha256:f1be89661bb0f0d75ce5daa8273aae4a"
+    "bfdb91f7dd5634ed88f20451c1ca425c"
 )
 
 

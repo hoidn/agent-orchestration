@@ -18,7 +18,14 @@ import time
 from typing import Any, Literal, Protocol, runtime_checkable
 import unicodedata
 
-from orchestrator.providers.isolation import canonical_isolation_json_bytes
+from orchestrator.providers.isolation import (
+    MAX_PROVIDER_ISOLATION_SCOPE_COMPONENTS,
+    MAX_PROVIDER_ISOLATION_SCOPE_COMPONENT_LENGTH,
+    MAX_PROVIDER_ISOLATION_RUNTIME_RELPATH_LENGTH,
+    MAX_PROVIDER_ISOLATION_UINT64,
+    MAX_RESULT_BUNDLE_BYTES,
+    canonical_isolation_json_bytes,
+)
 from orchestrator.providers import isolation_environment as _environment
 from orchestrator.providers.isolation_candidate import (
     ProviderCandidateAdmission,
@@ -134,6 +141,7 @@ class WorkflowProviderIsolationRequest:
     aggregate_scope: tuple[str, ...]
     ordinal: int
     result_logical_path: str
+    result_bundle_max_bytes: int
     subject_kind: Literal["workflow_provider"] = field(
         init=False, default="workflow_provider"
     )
@@ -163,33 +171,65 @@ class WorkflowProviderIsolationRequest:
         if (
             type(self.aggregate_scope) is not tuple
             or not self.aggregate_scope
+            or len(self.aggregate_scope)
+            > MAX_PROVIDER_ISOLATION_SCOPE_COMPONENTS
         ):
-            raise TypeError("aggregate_scope must be a nonempty tuple")
+            raise TypeError(
+                "aggregate_scope must be a nonempty bounded tuple"
+            )
+        normalized_scope = tuple(
+            _require_text(item, "aggregate_scope item")
+            for item in self.aggregate_scope
+        )
+        if any(
+            len(item) > MAX_PROVIDER_ISOLATION_SCOPE_COMPONENT_LENGTH
+            for item in normalized_scope
+        ):
+            raise TypeError(
+                "aggregate_scope items exceed the journal length bound"
+            )
         object.__setattr__(
             self,
             "aggregate_scope",
-            tuple(
-                _require_text(item, "aggregate_scope item")
-                for item in self.aggregate_scope
-            ),
+            normalized_scope,
         )
         if isinstance(self.ordinal, bool) or not isinstance(self.ordinal, int):
             raise TypeError("ordinal must be a positive integer")
-        if self.ordinal < 1:
-            raise TypeError("ordinal must be a positive integer")
+        if self.ordinal < 1 or self.ordinal > MAX_PROVIDER_ISOLATION_UINT64:
+            raise TypeError("ordinal must be one positive uint64 integer")
         result_path = _require_absolute_path(
             self.result_logical_path,
             "result_logical_path",
         )
         candidate = Path(self.candidate_path)
         result = Path(result_path)
+        runtime_root = candidate / ".orchestrate"
         try:
-            result.relative_to(candidate)
+            runtime_relative = result.relative_to(runtime_root)
         except ValueError as exc:
             raise TypeError(
-                "workflow result logical path must be below candidate authority"
+                "workflow result logical path must be below runtime authority"
             ) from exc
+        runtime_relpath = runtime_relative.as_posix()
+        if (
+            not runtime_relative.parts
+            or len(runtime_relpath)
+            > MAX_PROVIDER_ISOLATION_RUNTIME_RELPATH_LENGTH
+        ):
+            raise TypeError(
+                "workflow result runtime-relative path exceeds the journal "
+                "length bound"
+            )
         object.__setattr__(self, "result_logical_path", result_path)
+        if (
+            type(self.result_bundle_max_bytes) is not int
+            or self.result_bundle_max_bytes < 1
+            or self.result_bundle_max_bytes > MAX_RESULT_BUNDLE_BYTES
+        ):
+            raise TypeError(
+                "result_bundle_max_bytes must be a positive integer "
+                f"no greater than {MAX_RESULT_BUNDLE_BYTES}"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,9 +290,219 @@ ProviderIsolationRequest = (
 )
 
 
+_RESULT_BROKER_AUTHORITY_TOKEN = object()
+_RESULT_BROKER_QUIESCENCE_TOKEN = object()
+
+
+class PinnedProviderResultBrokerAuthorities:
+    """Caller-owned descriptor authority for one quiescent result broker."""
+
+    __slots__ = (
+        "_request",
+        "_runtime_fd",
+        "_scratch_fd",
+        "_runtime_identity",
+        "_scratch_identity",
+        "_scratch_relpath",
+        "_target_runtime_relpath",
+        "_active_basename",
+        "_invocation_identity",
+        "_closed",
+    )
+
+    def __init__(
+        self,
+        *,
+        request: WorkflowProviderIsolationRequest,
+        runtime_fd: int,
+        scratch_fd: int,
+        runtime_identity: RuntimeAuthorityObjectIdentity,
+        scratch_identity: RuntimeAuthorityObjectIdentity,
+        scratch_relpath: str,
+        target_runtime_relpath: str,
+        active_basename: str,
+        invocation_identity: str,
+        _token: object | None = None,
+    ):
+        if _token is not _RESULT_BROKER_AUTHORITY_TOKEN:
+            raise ProviderIsolationInvalidPlan(
+                "result broker authorities require the validating factory"
+            )
+        self._request = request
+        self._runtime_fd = runtime_fd
+        self._scratch_fd = scratch_fd
+        self._runtime_identity = runtime_identity
+        self._scratch_identity = scratch_identity
+        self._scratch_relpath = scratch_relpath
+        self._target_runtime_relpath = target_runtime_relpath
+        self._active_basename = active_basename
+        self._invocation_identity = invocation_identity
+        self._closed = False
+
+    @property
+    def request(self) -> WorkflowProviderIsolationRequest:
+        return self._request
+
+    @property
+    def runtime_fd(self) -> int:
+        return self._runtime_fd
+
+    @property
+    def scratch_fd(self) -> int:
+        return self._scratch_fd
+
+    @property
+    def runtime_identity(self) -> RuntimeAuthorityObjectIdentity:
+        return self._runtime_identity
+
+    @property
+    def scratch_identity(self) -> RuntimeAuthorityObjectIdentity:
+        return self._scratch_identity
+
+    @property
+    def scratch_relpath(self) -> str:
+        return self._scratch_relpath
+
+    @property
+    def target_runtime_relpath(self) -> str:
+        return self._target_runtime_relpath
+
+    @property
+    def active_basename(self) -> str:
+        return self._active_basename
+
+    @property
+    def invocation_identity(self) -> str:
+        return self._invocation_identity
+
+    @property
+    def result_bundle_max_bytes(self) -> int:
+        return self._request.result_bundle_max_bytes
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def revalidate(self) -> None:
+        """Revalidate the exact duplicated post-quiescence broker authority."""
+
+        if self._closed:
+            raise ProviderIsolationInvalidPlan(
+                "result broker authorities are closed"
+            )
+        try:
+            if type(self._request) is not WorkflowProviderIsolationRequest:
+                raise ProviderIsolationInvalidPlan(
+                    "result broker request has an invalid exact type"
+                )
+            if (
+                self._scratch_relpath
+                != _invocation_scratch_relpath(self._request)
+            ):
+                raise ProviderIsolationInvalidPlan(
+                    "result broker scratch binding changed"
+                )
+            target_relpath, active_basename = (
+                _result_broker_target_runtime_relpath(self._request)
+            )
+            if (
+                target_relpath != self._target_runtime_relpath
+                or active_basename != self._active_basename
+                or self._invocation_identity
+                != _result_broker_invocation_identity(
+                    self._request,
+                    target_runtime_relpath=target_relpath,
+                )
+            ):
+                raise ProviderIsolationInvalidPlan(
+                    "result broker invocation binding changed"
+                )
+            for fd, identity, label in (
+                (self._runtime_fd, self._runtime_identity, "runtime"),
+                (self._scratch_fd, self._scratch_identity, "scratch"),
+            ):
+                observed = os.fstat(fd)
+                if (
+                    not stat.S_ISDIR(observed.st_mode)
+                    or observed.st_dev != identity.device
+                    or observed.st_ino != identity.inode
+                    or _environment._statx_mount_id(fd)
+                    != identity.mount_id
+                    or observed.st_uid != os.geteuid()
+                    or observed.st_gid != os.getegid()
+                    or stat.S_IMODE(observed.st_mode) != 0o700
+                ):
+                    raise ProviderIsolationInvalidPlan(
+                        f"result broker {label} descriptor changed authority"
+                    )
+            if (
+                self._runtime_identity.mount_id
+                != self._scratch_identity.mount_id
+            ):
+                raise ProviderIsolationInvalidPlan(
+                    "result broker descriptors crossed a mount boundary"
+                )
+        except ProviderIsolationInvalidPlan:
+            raise
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise ProviderIsolationInvalidPlan(
+                "result broker authority revalidation failed"
+            ) from exc
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        first_failure: BaseException | None = None
+        try:
+            for fd_name in ("_scratch_fd", "_runtime_fd"):
+                fd = getattr(self, fd_name)
+                if fd < 0:
+                    continue
+                try:
+                    os.close(fd)
+                except BaseException as exc:
+                    if first_failure is None:
+                        first_failure = exc
+                    else:
+                        first_failure.add_note(
+                            f"additional descriptor-close failure: {exc!r}"
+                        )
+                finally:
+                    setattr(self, fd_name, -1)
+        finally:
+            self._closed = True
+        if first_failure is not None:
+            raise first_failure
+
+    def __enter__(self) -> "PinnedProviderResultBrokerAuthorities":
+        if self._closed:
+            raise ProviderIsolationInvalidPlan(
+                "result broker authorities are closed"
+            )
+        return self
+
+    def __exit__(
+        self,
+        _exc_type: object,
+        exc: BaseException | None,
+        _traceback: object,
+    ) -> None:
+        try:
+            self.close()
+        except BaseException as close_exc:
+            if exc is None:
+                raise
+            exc.add_note(
+                f"result-broker authority close also failed: {close_exc!r}"
+            )
+
+
 _PINNED_INVOCATION_AUTHORITY_TOKEN = object()
 _INVOCATION_SCRATCH_SCHEMA_VERSION = (
     "provider_isolation_invocation_scratch.v1"
+)
+_RESULT_BROKER_INVOCATION_SCHEMA_VERSION = (
+    "provider_isolation_result_broker_invocation.v1"
 )
 
 
@@ -272,6 +522,8 @@ class PinnedProviderInvocationAuthorities:
         "_scratch_relpath",
         "_scratch_fd",
         "_scratch_identity",
+        "_broker_quiescence_identity",
+        "_result_broker_authority_opened",
         "_closed",
     )
 
@@ -303,6 +555,8 @@ class PinnedProviderInvocationAuthorities:
         self._scratch_relpath = scratch_relpath
         self._scratch_fd = scratch_fd
         self._scratch_identity = scratch_identity
+        self._broker_quiescence_identity: str | None = None
+        self._result_broker_authority_opened = False
         self._closed = False
 
     @property
@@ -393,6 +647,190 @@ class PinnedProviderInvocationAuthorities:
             raise ProviderIsolationInvalidPlan(
                 "pinned invocation authority revalidation failed"
             ) from exc
+
+    def revalidate_for_result_broker_after_quiescence(self) -> None:
+        """Revalidate one workflow authority at the broker transition."""
+
+        if self._closed:
+            raise ProviderIsolationInvalidPlan(
+                "pinned invocation authorities are closed"
+            )
+        try:
+            _require_typed_invocation_components(
+                snapshot=self._snapshot,
+                candidate=self._candidate,
+                runtime=self._runtime,
+                request=self._request,
+            )
+            if type(self._request) is not WorkflowProviderIsolationRequest:
+                raise ProviderIsolationInvalidPlan(
+                    "result broker revalidation requires a workflow invocation"
+                )
+            if (
+                self._scratch_relpath is None
+                or self._scratch_fd < 0
+                or self._scratch_identity is None
+                or self._scratch_relpath
+                != _invocation_scratch_relpath(self._request)
+            ):
+                raise ProviderIsolationInvalidPlan(
+                    "workflow invocation scratch authority is absent or changed"
+                )
+            self._snapshot.revalidate_for_launch()
+            self._candidate.revalidate()
+            self._runtime.revalidate_for_broker_after_quiescence(
+                self._scratch_relpath,
+                self._scratch_fd,
+                self._scratch_identity,
+            )
+            _require_invocation_cross_binding(
+                snapshot=self._snapshot,
+                candidate=self._candidate,
+                runtime=self._runtime,
+                request=self._request,
+            )
+            if (
+                self._snapshot.digest != self._environment_digest
+                or self._snapshot.manifest.provider_prefix
+                != self._provider_prefix
+                or os.fspath(self._candidate.path) != self._candidate_path
+                or self._candidate.root_identity != self._candidate_identity
+                or self._runtime.identity != self._runtime_identity
+            ):
+                raise ProviderIsolationInvalidPlan(
+                    "pinned invocation authority binding changed"
+                )
+        except ProviderIsolationInvalidPlan:
+            raise
+        except (OSError, TypeError, ValueError) as exc:
+            raise ProviderIsolationInvalidPlan(
+                "pinned invocation broker revalidation failed"
+            ) from exc
+
+    def _record_result_broker_quiescence(
+        self,
+        containment_identity: str,
+        *,
+        _token: object | None = None,
+    ) -> None:
+        """Record the launcher's one exact empty-containment transition."""
+
+        if _token is not _RESULT_BROKER_QUIESCENCE_TOKEN:
+            raise ProviderIsolationInvalidPlan(
+                "result broker quiescence requires the launcher authority"
+            )
+        if self._broker_quiescence_identity is not None:
+            raise ProviderIsolationInvalidPlan(
+                "result broker quiescence was already recorded"
+            )
+        identity = _require_digest(
+            containment_identity,
+            "containment_identity",
+        )
+        self.revalidate_for_result_broker_after_quiescence()
+        self._broker_quiescence_identity = identity
+
+    def open_result_broker_authority_after_quiescence(
+        self,
+        *,
+        minimum: int = 16,
+    ) -> PinnedProviderResultBrokerAuthorities:
+        """Duplicate the exact runtime/scratch capability for bundle brokerage."""
+
+        if type(self._request) is not WorkflowProviderIsolationRequest:
+            raise ProviderIsolationInvalidPlan(
+                "result broker authority requires a workflow invocation"
+            )
+        if (
+            isinstance(minimum, bool)
+            or not isinstance(minimum, int)
+            or minimum < 3
+        ):
+            raise ProviderIsolationInvalidPlan(
+                "result broker descriptor minimum must be an integer >= 3"
+            )
+        if self._broker_quiescence_identity is None:
+            raise ProviderIsolationInvalidPlan(
+                "result broker authority requires launcher-proved quiescence"
+            )
+        if self._result_broker_authority_opened:
+            raise ProviderIsolationInvalidPlan(
+                "result broker authority was already opened"
+            )
+        runtime_fd = -1
+        scratch_fd = -1
+        try:
+            self.revalidate_for_result_broker_after_quiescence()
+            if (
+                type(self._request) is not WorkflowProviderIsolationRequest
+                or self._scratch_relpath is None
+                or self._scratch_fd < 0
+                or self._scratch_identity is None
+            ):
+                raise ProviderIsolationInvalidPlan(
+                    "result broker authority requires a workflow invocation"
+                )
+            target_runtime_relpath, active_basename = (
+                _result_broker_target_runtime_relpath(self._request)
+            )
+            runtime_fd = (
+                self._runtime
+                .duplicate_runtime_fd_for_broker_after_quiescence(
+                    self._scratch_relpath,
+                    self._scratch_fd,
+                    self._scratch_identity,
+                    minimum=minimum,
+                )
+            )
+            scratch_fd = fcntl.fcntl(
+                self._scratch_fd,
+                fcntl.F_DUPFD_CLOEXEC,
+                max(minimum, runtime_fd + 1),
+            )
+            scratch = os.fstat(scratch_fd)
+            if (
+                not stat.S_ISDIR(scratch.st_mode)
+                or scratch.st_dev != self._scratch_identity.device
+                or scratch.st_ino != self._scratch_identity.inode
+                or _environment._statx_mount_id(scratch_fd)
+                != self._scratch_identity.mount_id
+                or scratch.st_uid != os.geteuid()
+                or stat.S_IMODE(scratch.st_mode) != 0o700
+            ):
+                raise ProviderIsolationInvalidPlan(
+                    "result broker scratch descriptor changed authority"
+                )
+            invocation_identity = _result_broker_invocation_identity(
+                self._request,
+                target_runtime_relpath=target_runtime_relpath,
+            )
+            self.revalidate_for_result_broker_after_quiescence()
+            result = PinnedProviderResultBrokerAuthorities(
+                request=self._request,
+                runtime_fd=runtime_fd,
+                scratch_fd=scratch_fd,
+                runtime_identity=self._runtime.identity.runtime,
+                scratch_identity=self._scratch_identity,
+                scratch_relpath=self._scratch_relpath,
+                target_runtime_relpath=target_runtime_relpath,
+                active_basename=active_basename,
+                invocation_identity=invocation_identity,
+                _token=_RESULT_BROKER_AUTHORITY_TOKEN,
+            )
+            runtime_fd = -1
+            scratch_fd = -1
+            self._result_broker_authority_opened = True
+            return result
+        except ProviderIsolationInvalidPlan:
+            raise
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise ProviderIsolationInvalidPlan(
+                "result broker authorities could not be duplicated"
+            ) from exc
+        finally:
+            for fd in (scratch_fd, runtime_fd):
+                if fd >= 0:
+                    os.close(fd)
 
     def _duplicate_setup_fds(self) -> tuple[int, int, int | None]:
         """Duplicate the closed mount-source set after live revalidation."""
@@ -681,6 +1119,49 @@ def _invocation_scratch_relpath(
     return f"provider-invocation-scratch/{identity}"
 
 
+def _result_broker_target_runtime_relpath(
+    request: WorkflowProviderIsolationRequest,
+) -> tuple[str, str]:
+    runtime_root = PurePath(request.candidate_path) / ".orchestrate"
+    result = PurePath(request.result_logical_path)
+    try:
+        relative = result.relative_to(runtime_root)
+    except ValueError as exc:
+        raise ProviderIsolationInvalidPlan(
+            "workflow result target must be below the runtime authority"
+        ) from exc
+    if not relative.parts:
+        raise ProviderIsolationInvalidPlan(
+            "workflow result target must name one runtime file"
+        )
+    relpath = relative.as_posix()
+    if relpath != posixpath.normpath(relpath):
+        raise ProviderIsolationInvalidPlan(
+            "workflow result target runtime path is not canonical"
+        )
+    return relpath, relative.name
+
+
+def _result_broker_invocation_identity(
+    request: WorkflowProviderIsolationRequest,
+    *,
+    target_runtime_relpath: str,
+) -> str:
+    document = {
+        "schema_version": _RESULT_BROKER_INVOCATION_SCHEMA_VERSION,
+        "subject_kind": request.subject_kind,
+        "environment_digest": request.environment_digest,
+        "provider_template_identity": request.provider_template_identity,
+        "aggregate_scope": list(request.aggregate_scope),
+        "ordinal": request.ordinal,
+        "target_runtime_relpath": target_runtime_relpath,
+        "result_bundle_max_bytes": request.result_bundle_max_bytes,
+    }
+    return "sha256:" + sha256(
+        canonical_isolation_json_bytes(document)
+    ).hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderIsolationMount:
     """One role-labelled descriptor-bound mount in a closed plan."""
@@ -725,6 +1206,7 @@ class ProviderInvocationIsolationPlan:
     backend_identity_digest: str
     network_preflight_digest: str
     request: ProviderIsolationRequest
+    result_bundle_max_bytes: int | None = field(init=False)
     mounts: tuple[ProviderIsolationMount, ...]
     provider_prefix: str
     synthetic_home: str
@@ -767,6 +1249,15 @@ class ProviderInvocationIsolationPlan:
             self.request.result_logical_path
             if isinstance(self.request, WorkflowProviderIsolationRequest)
             else None
+        )
+        object.__setattr__(
+            self,
+            "result_bundle_max_bytes",
+            (
+                self.request.result_bundle_max_bytes
+                if isinstance(self.request, WorkflowProviderIsolationRequest)
+                else None
+            ),
         )
         expected_environment = tuple(
             _fixed_environment(

@@ -979,7 +979,7 @@ def _fixed_environment(
         "PATH": f"{provider_prefix}/bin",
     }
     if output_bundle is not None:
-        environment["ORCHESTRATOR_OUTPUT_BUNDLE"] = output_bundle
+        environment["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] = output_bundle
     for name, raw_value in credentials.items():
         try:
             value = raw_value.decode("utf-8", errors="strict")

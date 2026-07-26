@@ -410,6 +410,74 @@ class ProviderIsolationRuntimeAuthority:
         ) as exc:
             raise _invalid(f"runtime authority revalidation failed: {exc}") from exc
 
+    def revalidate_for_broker_after_quiescence(
+        self,
+        active_scratch_relpath: str,
+        scratch_directory_fd: int,
+        expected_scratch_identity: RuntimeAuthorityObjectIdentity,
+    ) -> None:
+        """Revalidate while keeping one exact active scratch subtree opaque."""
+
+        scratch_parts = _parse_runtime_relpath(active_scratch_relpath)
+        if type(expected_scratch_identity) is not RuntimeAuthorityObjectIdentity:
+            raise _invalid("broker scratch directory identity is not typed")
+        expected_path = (
+            f"{self._identity.runtime.path}/{active_scratch_relpath}"
+        )
+        if expected_scratch_identity.path != expected_path:
+            raise _invalid("broker scratch directory path identity does not match")
+
+        self._require_open()
+        try:
+            root_identity = self._identity.ancestry[0]
+            if _capture_directory_identity(
+                self._ancestry_fds[0],
+                root_identity.path,
+            ) != root_identity:
+                raise _invalid("candidate root ancestry changed")
+            for edge in self._ancestry_edges:
+                _revalidate_edge(edge)
+            _revalidate_edge(self._runtime_edge)
+            _require_private_runtime_directory(self._runtime_fd)
+            if self._identity.runtime.mount_id != self._identity.candidate.mount_id:
+                raise _invalid("runtime directory crosses the candidate mount")
+
+            held_scratch = _capture_directory_identity(
+                scratch_directory_fd,
+                expected_scratch_identity.path,
+            )
+            if (
+                held_scratch != expected_scratch_identity
+                or held_scratch.mount_id != self._identity.runtime.mount_id
+            ):
+                raise _invalid("broker scratch directory identity changed")
+            _require_private_runtime_directory(scratch_directory_fd)
+
+            _validate_runtime_tree(
+                self._runtime_fd,
+                expected_mount_id=self._identity.runtime.mount_id,
+                opaque_directory=(
+                    scratch_parts,
+                    scratch_directory_fd,
+                    expected_scratch_identity,
+                ),
+            )
+            _reject_candidate_runtime_aliases(
+                self._candidate_fd,
+                candidate_mount_id=self._identity.candidate.mount_id,
+            )
+        except ProviderIsolationRuntimeAuthorityError:
+            raise
+        except (
+            MountIdentityUnavailable,
+            OSError,
+            UnicodeError,
+            ValueError,
+        ) as exc:
+            raise _invalid(
+                f"broker post-quiescence revalidation failed: {exc}"
+            ) from exc
+
     def duplicate_candidate_fd(self) -> int:
         """Return a caller-owned descriptor for the revalidated candidate."""
 
@@ -435,6 +503,60 @@ class ProviderIsolationRuntimeAuthority:
             raise _invalid(
                 f"runtime descriptor duplication failed: {exc}"
             ) from exc
+
+    def duplicate_runtime_fd_for_broker_after_quiescence(
+        self,
+        active_scratch_relpath: str,
+        scratch_directory_fd: int,
+        expected_scratch_identity: RuntimeAuthorityObjectIdentity,
+        *,
+        minimum: int = 16,
+    ) -> int:
+        """Duplicate the runtime root after exact broker revalidation."""
+
+        if (
+            isinstance(minimum, bool)
+            or not isinstance(minimum, int)
+            or minimum < 3
+        ):
+            raise _invalid(
+                "broker runtime descriptor minimum must be an integer >= 3"
+            )
+        duplicate_fd = -1
+        try:
+            self.revalidate_for_broker_after_quiescence(
+                active_scratch_relpath,
+                scratch_directory_fd,
+                expected_scratch_identity,
+            )
+            duplicate_fd = fcntl.fcntl(
+                self._runtime_fd,
+                fcntl.F_DUPFD_CLOEXEC,
+                minimum,
+            )
+            observed = _capture_directory_identity(
+                duplicate_fd,
+                self._identity.runtime.path,
+            )
+            if observed != self._identity.runtime:
+                raise _invalid("broker runtime descriptor identity changed")
+            _require_private_runtime_directory(duplicate_fd)
+            self.revalidate_for_broker_after_quiescence(
+                active_scratch_relpath,
+                scratch_directory_fd,
+                expected_scratch_identity,
+            )
+            result_fd = duplicate_fd
+            duplicate_fd = -1
+            return result_fd
+        except ProviderIsolationRuntimeAuthorityError:
+            raise
+        except (MountIdentityUnavailable, OSError, ValueError) as exc:
+            raise _invalid(
+                f"broker runtime descriptor duplication failed: {exc}"
+            ) from exc
+        finally:
+            _close_fds(duplicate_fd, [])
 
     def create_fresh_directory(
         self,
@@ -1336,8 +1458,21 @@ def _normalize_link_target(
     return tuple(components)
 
 
-def _validate_runtime_tree(directory_fd: int, *, expected_mount_id: int) -> None:
+def _validate_runtime_tree(
+    directory_fd: int,
+    *,
+    expected_mount_id: int,
+    opaque_directory: (
+        tuple[
+            tuple[str, ...],
+            int,
+            RuntimeAuthorityObjectIdentity,
+        ]
+        | None
+    ) = None,
+) -> None:
     budget = _TraversalBudget()
+    found_opaque_directory = opaque_directory is None
     frames = [
         _TraversalFrame(
             fd=directory_fd,
@@ -1370,6 +1505,7 @@ def _validate_runtime_tree(directory_fd: int, *, expected_mount_id: int) -> None
             mount_id = _statx_mount_id(frame.fd, name)
             if mount_id != expected_mount_id:
                 raise _invalid("runtime descendant crosses a mount boundary")
+            relpath = (*frame.prefix, name)
             if stat.S_ISLNK(observed.st_mode):
                 raise _invalid("runtime descendants may not be symlinks")
             if stat.S_ISREG(observed.st_mode):
@@ -1392,6 +1528,38 @@ def _validate_runtime_tree(directory_fd: int, *, expected_mount_id: int) -> None
                     raise _invalid(
                         "runtime descendant crosses a mount boundary"
                     )
+                if (
+                    opaque_directory is not None
+                    and relpath == opaque_directory[0]
+                ):
+                    expected_opaque_identity = opaque_directory[2]
+                    opened = _capture_directory_identity(
+                        child_fd,
+                        expected_opaque_identity.path,
+                    )
+                    linked = _capture_linked_directory_identity(
+                        frame.fd,
+                        name,
+                        expected_opaque_identity.path,
+                    )
+                    held = _capture_directory_identity(
+                        opaque_directory[1],
+                        expected_opaque_identity.path,
+                    )
+                    if not (
+                        opened
+                        == linked
+                        == held
+                        == expected_opaque_identity
+                    ):
+                        raise _invalid(
+                            "broker scratch directory binding identity changed"
+                        )
+                    _require_private_runtime_directory(child_fd)
+                    _require_private_runtime_directory(opaque_directory[1])
+                    found_opaque_directory = True
+                    continue
+
                 child_names = _bounded_traversal_names(
                     child_fd,
                     budget,
@@ -1400,7 +1568,7 @@ def _validate_runtime_tree(directory_fd: int, *, expected_mount_id: int) -> None
                 frames.append(
                     _TraversalFrame(
                         fd=child_fd,
-                        prefix=(),
+                        prefix=relpath,
                         depth=child_depth,
                         names=child_names,
                     )
@@ -1412,6 +1580,9 @@ def _validate_runtime_tree(directory_fd: int, *, expected_mount_id: int) -> None
         for frame in reversed(frames):
             if frame.owned:
                 _close_fds(frame.fd, [])
+
+    if not found_opaque_directory:
+        raise _invalid("broker scratch directory path is missing")
 
 
 def _require_bytes(payload: bytes) -> bytes:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import fcntl
 import importlib
 import os
 from pathlib import Path
@@ -738,6 +739,297 @@ def test_revalidate_normalizes_value_error(
             authority.revalidate()
 
         assert raised.value.code == "provider_isolation_candidate_invalid"
+
+
+@pytest.mark.parametrize("provider_entry_kind", ("fifo", "symlink"))
+def test_broker_post_quiescence_revalidation_treats_only_exact_scratch_contents_as_opaque(
+    tmp_path: Path,
+    provider_entry_kind: str,
+) -> None:
+    api = _api()
+    candidate = _candidate(tmp_path)
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(b"unchanged")
+
+    with api.ProviderIsolationRuntimeAuthority.create_fresh(candidate) as authority:
+        scratch_fd, scratch_identity = authority.create_fresh_directory(
+            "runs/attempt-1/scratch",
+            parents=True,
+        )
+        try:
+            scratch = candidate / ".orchestrate/runs/attempt-1/scratch"
+            provider_entry = scratch / "provider-entry"
+            if provider_entry_kind == "fifo":
+                os.mkfifo(provider_entry)
+            else:
+                provider_entry.symlink_to(outside)
+
+            authority.revalidate_for_broker_after_quiescence(
+                "runs/attempt-1/scratch",
+                scratch_fd,
+                scratch_identity,
+            )
+
+            with pytest.raises(api.ProviderIsolationRuntimeAuthorityError):
+                authority.revalidate()
+        finally:
+            os.close(scratch_fd)
+
+
+@pytest.mark.parametrize("hostile_kind", ("fifo", "symlink"))
+def test_broker_post_quiescence_revalidation_rejects_hostile_entry_outside_scratch(
+    tmp_path: Path,
+    hostile_kind: str,
+) -> None:
+    api = _api()
+    candidate = _candidate(tmp_path)
+
+    with api.ProviderIsolationRuntimeAuthority.create_fresh(candidate) as authority:
+        scratch_fd, scratch_identity = authority.create_fresh_directory("scratch")
+        try:
+            hostile = candidate / ".orchestrate/hostile"
+            if hostile_kind == "fifo":
+                os.mkfifo(hostile)
+            else:
+                hostile.symlink_to(tmp_path / "outside")
+
+            with pytest.raises(api.ProviderIsolationRuntimeAuthorityError):
+                authority.revalidate_for_broker_after_quiescence(
+                    "scratch",
+                    scratch_fd,
+                    scratch_identity,
+                )
+        finally:
+            os.close(scratch_fd)
+
+
+def test_broker_post_quiescence_revalidation_rejects_scratch_binding_swap(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    candidate = _candidate(tmp_path)
+
+    with api.ProviderIsolationRuntimeAuthority.create_fresh(candidate) as authority:
+        scratch_fd, scratch_identity = authority.create_fresh_directory("scratch")
+        try:
+            scratch = candidate / ".orchestrate/scratch"
+            scratch.rename(candidate / ".orchestrate/displaced-scratch")
+            scratch.mkdir(mode=0o700)
+
+            with pytest.raises(api.ProviderIsolationRuntimeAuthorityError):
+                authority.revalidate_for_broker_after_quiescence(
+                    "scratch",
+                    scratch_fd,
+                    scratch_identity,
+                )
+        finally:
+            os.close(scratch_fd)
+
+
+def test_broker_post_quiescence_revalidation_rejects_scratch_mount_id_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    candidate = _candidate(tmp_path)
+
+    with api.ProviderIsolationRuntimeAuthority.create_fresh(candidate) as authority:
+        scratch_fd, scratch_identity = authority.create_fresh_directory("scratch")
+        real_mount_id = api._statx_mount_id
+
+        def drifted_mount_id(directory_fd: int, name: str | None = None) -> int:
+            value = real_mount_id(directory_fd, name)
+            if name is None:
+                observed = os.fstat(directory_fd)
+            else:
+                observed = os.stat(
+                    name,
+                    dir_fd=directory_fd,
+                    follow_symlinks=False,
+                )
+            if observed.st_ino == scratch_identity.inode:
+                return value + 1
+            return value
+
+        monkeypatch.setattr(api, "_statx_mount_id", drifted_mount_id)
+        try:
+            with pytest.raises(api.ProviderIsolationRuntimeAuthorityError):
+                authority.revalidate_for_broker_after_quiescence(
+                    "scratch",
+                    scratch_fd,
+                    scratch_identity,
+                )
+        finally:
+            os.close(scratch_fd)
+
+
+@pytest.mark.parametrize(
+    "scratch_relpath",
+    ("", "/scratch", "scratch/", "scratch/../other"),
+)
+def test_broker_post_quiescence_revalidation_rejects_invalid_scratch_path(
+    tmp_path: Path,
+    scratch_relpath: str,
+) -> None:
+    api = _api()
+    candidate = _candidate(tmp_path)
+
+    with api.ProviderIsolationRuntimeAuthority.create_fresh(candidate) as authority:
+        scratch_fd, scratch_identity = authority.create_fresh_directory("scratch")
+        try:
+            with pytest.raises(api.ProviderIsolationRuntimeAuthorityError):
+                authority.revalidate_for_broker_after_quiescence(
+                    scratch_relpath,
+                    scratch_fd,
+                    scratch_identity,
+                )
+        finally:
+            os.close(scratch_fd)
+
+
+def test_broker_post_quiescence_revalidation_rejects_missing_scratch_path(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    candidate = _candidate(tmp_path)
+
+    with api.ProviderIsolationRuntimeAuthority.create_fresh(candidate) as authority:
+        held_fd, held_identity = authority.create_fresh_directory("held")
+        try:
+            with pytest.raises(api.ProviderIsolationRuntimeAuthorityError):
+                authority.revalidate_for_broker_after_quiescence(
+                    "missing",
+                    held_fd,
+                    replace(
+                        held_identity,
+                        path=f"{authority.identity.runtime.path}/missing",
+                    ),
+                )
+        finally:
+            os.close(held_fd)
+
+
+@pytest.mark.parametrize("entry_kind", ("file", "symlink", "fifo"))
+def test_broker_post_quiescence_revalidation_rejects_non_directory_scratch_path(
+    tmp_path: Path,
+    entry_kind: str,
+) -> None:
+    api = _api()
+    candidate = _candidate(tmp_path)
+
+    with api.ProviderIsolationRuntimeAuthority.create_fresh(candidate) as authority:
+        held_fd, held_identity = authority.create_fresh_directory("held")
+        try:
+            scratch = candidate / ".orchestrate/scratch"
+            if entry_kind == "file":
+                scratch.write_bytes(b"not a directory")
+            elif entry_kind == "symlink":
+                scratch.symlink_to(candidate / ".orchestrate/held")
+            else:
+                os.mkfifo(scratch)
+
+            with pytest.raises(api.ProviderIsolationRuntimeAuthorityError):
+                authority.revalidate_for_broker_after_quiescence(
+                    "scratch",
+                    held_fd,
+                    replace(held_identity, path=f"{authority.identity.runtime.path}/scratch"),
+                )
+        finally:
+            os.close(held_fd)
+
+
+def test_broker_post_quiescence_revalidation_rejects_mismatched_held_descriptor(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    candidate = _candidate(tmp_path)
+
+    with api.ProviderIsolationRuntimeAuthority.create_fresh(candidate) as authority:
+        scratch_fd, scratch_identity = authority.create_fresh_directory("scratch")
+        other_fd, _ = authority.create_fresh_directory("other")
+        try:
+            with pytest.raises(api.ProviderIsolationRuntimeAuthorityError):
+                authority.revalidate_for_broker_after_quiescence(
+                    "scratch",
+                    other_fd,
+                    scratch_identity,
+                )
+        finally:
+            os.close(other_fd)
+            os.close(scratch_fd)
+
+
+def test_broker_post_quiescence_duplicates_only_the_revalidated_runtime_descriptor(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    candidate = _candidate(tmp_path)
+
+    with api.ProviderIsolationRuntimeAuthority.create_fresh(candidate) as authority:
+        scratch_fd, scratch_identity = authority.create_fresh_directory("scratch")
+        try:
+            os.mkfifo(candidate / ".orchestrate/scratch/provider-result")
+
+            duplicate_fd = authority.duplicate_runtime_fd_for_broker_after_quiescence(
+                "scratch",
+                scratch_fd,
+                scratch_identity,
+                minimum=32,
+            )
+            try:
+                duplicate = api._capture_directory_identity(
+                    duplicate_fd,
+                    authority.identity.runtime.path,
+                )
+                assert duplicate == authority.identity.runtime
+                assert duplicate_fd >= 32
+                assert fcntl.fcntl(duplicate_fd, fcntl.F_GETFD) & fcntl.FD_CLOEXEC
+            finally:
+                os.close(duplicate_fd)
+        finally:
+            os.close(scratch_fd)
+
+
+@pytest.mark.parametrize("minimum", (True, 2, -1))
+def test_broker_post_quiescence_runtime_descriptor_duplicate_rejects_invalid_minimum(
+    tmp_path: Path,
+    minimum: object,
+) -> None:
+    api = _api()
+    candidate = _candidate(tmp_path)
+
+    with api.ProviderIsolationRuntimeAuthority.create_fresh(candidate) as authority:
+        scratch_fd, scratch_identity = authority.create_fresh_directory("scratch")
+        try:
+            with pytest.raises(api.ProviderIsolationRuntimeAuthorityError):
+                authority.duplicate_runtime_fd_for_broker_after_quiescence(
+                    "scratch",
+                    scratch_fd,
+                    scratch_identity,
+                    minimum=minimum,
+                )
+        finally:
+            os.close(scratch_fd)
+
+
+def test_broker_post_quiescence_runtime_descriptor_duplicate_rejects_other_hostile_runtime_content(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    candidate = _candidate(tmp_path)
+
+    with api.ProviderIsolationRuntimeAuthority.create_fresh(candidate) as authority:
+        scratch_fd, scratch_identity = authority.create_fresh_directory("scratch")
+        try:
+            os.mkfifo(candidate / ".orchestrate/outside-scratch")
+            with pytest.raises(api.ProviderIsolationRuntimeAuthorityError):
+                authority.duplicate_runtime_fd_for_broker_after_quiescence(
+                    "scratch",
+                    scratch_fd,
+                    scratch_identity,
+                )
+        finally:
+            os.close(scratch_fd)
 
 
 def test_runtime_symlink_is_rejected_without_touching_its_outside_target(

@@ -41,8 +41,12 @@
       of this same runtime-owned explicit-path bundle contract.
   - Provider structured-bundle environment:
     - For provider steps with `output_bundle.path` or `variant_output.path`, the
-      runtime resolves the workspace-relative bundle path before invocation and
-      exposes the resolved target as `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`.
+      runtime resolves the workspace-relative logical bundle path before
+      invocation and exposes that logical value as
+      `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`. An unrestricted invocation uses the
+      resolved host target directly; an isolated workflow-provider invocation
+      maps the same logical value to the private scratch projection specified
+      below.
     - The runtime-owned value wins over authored step environment values or
       provider-template environment values for the same name.
     - Prompt contract text may repeat the same path and schema, but prompt text
@@ -102,6 +106,90 @@
   - Reusable-call boundary:
     - `output_file`, `expected_outputs.path`, `output_bundle.path`, `consume_bundle.path`, and all deterministic `relpath` outputs stay workspace-relative whether a workflow runs top-level or under `call`.
     - `call` namespaces runtime-owned identities, provenance, and logs; it does not namespace authored output paths.
+
+## Provider-Phase-Isolated Bundle Brokerage
+
+- An isolated `workflow_provider` attempt with a typed-bundle result channel
+  retains its logical `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`. Inside the provider
+  namespace, the parent of that logical path is an invocation-private scratch
+  directory rather than the host runtime directory. The provider can write the
+  active basename but cannot enumerate or read prior or sibling host bundles.
+- Brokerage begins only after the provider and every descendant are quiescent.
+  It uses the already-held prelaunch scratch-directory descriptor together
+  with its exact runtime-relative path and device/inode/mount binding. The
+  publication request is created only from that exact revalidated
+  post-quiescence authority; callers cannot independently compose its runtime
+  descriptor, invocation identity, scope, ordinal, target path, or captured
+  bytes. Production capture derives the size bound from that authority and
+  binds the capture classification, digest, size, source scratch identity, and
+  configured limit to it. A raw descriptor capture, a capture from another
+  attempt, a capture taken with a caller-selected larger limit, or altered
+  captured bytes are not publication authority. A combined request/capture
+  binding is revalidated when the request is constructed and again before
+  publication, so independently valid request and capture objects from
+  different attempts cannot be paired. The
+  broker pins the active basename descriptor-relatively with no-follow
+  `O_PATH` semantics, classifies it with `fstat` before any readable open, and
+  accepts only a regular file. It then reads the same pinned inode, verifies
+  type, device, inode, and mount identity before and after the bounded copy,
+  and has no pathname-reopen fallback. Directory, FIFO, device, symlink, swap,
+  mutation, alias, or mount-crossing observations fail closed without a
+  blocking or device-readable open. Unavailable required Linux descriptor,
+  mount-identity, atomic-rename, or fsync machinery fails as
+  `provider_isolation_bundle_broker_failed`; v1 has no fallback.
+- Symlink or mount ancestry, or any product-visible symlink/hardlink alias of a
+  staged, canonical, or archived bundle authority, fails before transfer. The
+  broker never selects among aliased locations.
+- `result_bundle.max_bytes` is a non-boolean integer in the inclusive range
+  `1..16777216`. An empty regular bundle and a bundle whose size is exactly the
+  configured limit are eligible for transfer. A bundle larger than that limit
+  is rejected as `provider_isolation_bundle_oversized`; the broker never
+  transfers or publishes more than the configured bound. A read of at most one
+  sentinel byte beyond the bound is permitted only to classify oversize or
+  concurrent growth, and that byte is never staged or published.
+- The broker transfers bytes only. The declared `output_bundle` or
+  `variant_output` contract and the existing typed bundle validator remain the
+  sole semantic authority. Journal state, a successful copy, stdout, and
+  provider prose do not validate or publish a workflow value.
+- Retention is fixed:
+  - For a quiescent zero exit eligible for typed validation, an exact regular
+    bounded bundle is atomically published at the runtime-owned canonical host
+    target and retained even if typed validation later reports `invalid`.
+  - If eligible output is absent, the canonical target remains absent and the
+    existing `missing` output-contract outcome remains authoritative. No
+    publication or transfer journal is fabricated.
+  - If eligible output is rejected by broker admission, no canonical target is
+    published and no transfer journal is fabricated. The owning per-ordinal
+    lifecycle records the `rejected` outcome; the broker establishes only the
+    absence invariant. The rejected object and scratch siblings are never
+    copied.
+  - A retryable nonzero exit, timeout, or cancellation is not eligible for
+    typed validation. When the exact held active basename is an admitted
+    regular bundle, the broker records its bounded metadata and digest; it
+    publishes no canonical target and creates no transfer journal.
+  - A validated `valid` target remains at the canonical runtime-owned path. A
+    validated `invalid` target must rotate atomically to its deterministic
+    provider-masked archive before another attempt may launch or reuse the
+    canonical target.
+- Every attempt receives a fresh empty scratch root. After the broker has
+  captured the required bounded evidence, the complete scratch tree, including
+  sibling files, may be removed only after the owning caller confirms that the
+  evidence and any publication are durably accounted for. Ordinary execution
+  may acknowledge cleanup only after finalized attestation. Each twice-proved
+  entry is atomically moved without replacement to a controller-private
+  quarantine name and revalidated against its held descriptor immediately
+  before removal. A final-boundary replacement therefore remains quarantined
+  and fails cleanup rather than being deleted. No later provider receives or
+  mounts a prior attempt's scratch.
+- A `controller_attempt` with `result_channel: "none"` has no result scratch,
+  bundle environment binding, broker invocation, canonical bundle target, or
+  transfer journal.
+- V1 has no retention-policy knob. These rules are not alterable by workflow,
+  provider-template, policy, or caller configuration.
+- This section specifies the bundle-broker substrate. It does not by itself
+  select the isolated launcher from public execution, commit a typed workflow
+  value, finalize an isolation attestation, or make public run/resume
+  integration complete.
 
 ## Source-Relative vs Workspace-Relative Taxonomy
 
