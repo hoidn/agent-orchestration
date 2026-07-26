@@ -428,6 +428,7 @@ class WccLoopContinue:
 class WccLoopDone:
     metadata: WccNodeMetadata
     result: WccValue
+    state: WccValue | None = None
 
 
 @dataclass(frozen=True)
@@ -440,6 +441,9 @@ class WccRecJoin:
     exhaustion: "WccBody | None"
     initial_state: WccValue | None = None
     roles: WccLoopRole = WccLoopRole()
+    exhaustion_diagnostic_code: str | None = None
+    single_iteration_effect_kinds: tuple[str, ...] | None = None
+    effect_cardinality_diagnostic_code: str | None = None
 
 
 @dataclass(frozen=True)

@@ -9,7 +9,7 @@ from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
 
 
 _LIST_TRAVERSAL_SPECIAL_FORM_NAMES = frozenset(
-    {"list", "list/map", "path/join-under"}
+    {"list", "list/map", "list/map-effect", "path/join-under"}
 )
 _LIST_TRAVERSAL_AUTHORED_HEADS = (
     _LIST_TRAVERSAL_SPECIAL_FORM_NAMES
@@ -297,6 +297,18 @@ _FORM_SPECS = (
         elaboration_route="list_map",
         feature_tags=("pure_expression_core", "list_traversal"),
         rationale="Target-2.18 pure mapping remains a lexical binder, not a function value.",
+    ),
+    _spec(
+        "list/map-effect",
+        kind=FormKind.CORE_EFFECT,
+        owner_module="expressions",
+        introduced_in="workflow_lisp_pure_list_traversal",
+        remove_by=None,
+        macro_bindable=False,
+        admitted_top_level=False,
+        elaboration_route="list_map_effect",
+        feature_tags=("list_traversal",),
+        rationale="Target-2.18 bounded effectful mapping remains a lexical binder, not a function value.",
     ),
     _spec(
         "path/join-under",

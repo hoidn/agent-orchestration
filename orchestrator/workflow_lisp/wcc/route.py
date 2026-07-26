@@ -13,6 +13,7 @@ from ..expressions import (
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
+    CompilerListNonemptyHeadExpr,
     ContinueExpr,
     DoneExpr,
     EnumMemberExpr,
@@ -78,7 +79,12 @@ _PURE_WCC_M1_EXPR_TYPES = (
     UnionVariantExpr,
     LetStarExpr,
 )
-_LIST_TRAVERSAL_VALUE_TYPES = (ListExpr, ListMapExpr, PathJoinUnderExpr)
+_LIST_TRAVERSAL_VALUE_TYPES = (
+    CompilerListNonemptyHeadExpr,
+    ListExpr,
+    ListMapExpr,
+    PathJoinUnderExpr,
+)
 
 
 def normalize_lowering_route(route: LoweringRoute | str | None) -> LoweringRoute:
@@ -765,6 +771,13 @@ def _validate_wcc_m4_expr_supported(
             local_workflow_signatures=local_workflow_signatures,
             workflow_ref_value_names=workflow_ref_value_names,
         )
+        if expr.terminal_state_expr is not None:
+            _validate_wcc_m4_expr_supported(
+                expr.terminal_state_expr,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
         return
     if isinstance(expr, LoopStateSeedExpr):
         for field in expr.fields:

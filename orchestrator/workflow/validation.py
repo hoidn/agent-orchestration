@@ -168,6 +168,7 @@ class WorkflowMappingBuildRequest:
     compiler_owned_repeat_until_metadata: Mapping[
         str, Mapping[str, Any]
     ] = field(default_factory=dict)
+    compiler_owned_nested_if_step_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -227,6 +228,9 @@ class _WorkflowMappingValidator:
             else metadata
             for step_id, metadata in request.compiler_owned_repeat_until_metadata.items()
         }
+        self._compiler_owned_nested_if_step_ids = tuple(
+            request.compiler_owned_nested_if_step_ids
+        )
         self.SUPPORTED_VERSIONS = options.supported_versions
         self.VERSION_ORDER = options.version_order
         self.SUPPORTED_OUTPUT_TYPES = options.supported_output_types
@@ -308,6 +312,115 @@ class _WorkflowMappingValidator:
         for step_id in set(declared) - set(actual):
             self._add_error(
                 f"Step id '{step_id}': compiler-owned repeat_until metadata declaration has no emitted metadata"
+            )
+
+    def _validate_compiler_owned_nested_if_steps(
+        self,
+        workflow: Mapping[str, Any],
+    ) -> None:
+        """Require exact step-id declarations for compiler-owned nested ifs."""
+
+        declared_items = self._compiler_owned_nested_if_step_ids
+        declared = set(declared_items)
+        if len(declared) != len(declared_items):
+            self._add_error(
+                "compiler-owned nested if step-id declarations must be unique"
+            )
+        if declared and self._frontend_kind != "workflow_lisp":
+            self._add_error(
+                "compiler-owned nested if steps require the Workflow Lisp frontend"
+            )
+
+        eligible: set[str] = set()
+        duplicate_eligible: set[str] = set()
+
+        def visit(
+            steps: object,
+            *,
+            inside_compiler_owned_repeat: bool,
+        ) -> None:
+            if not isinstance(steps, list):
+                return
+            for step in steps:
+                if not isinstance(step, Mapping):
+                    continue
+                is_nested_if = "if" in step
+                step_id = step.get("id")
+                if (
+                    inside_compiler_owned_repeat
+                    and is_nested_if
+                    and isinstance(step_id, str)
+                    and step_id
+                ):
+                    if step_id in eligible:
+                        duplicate_eligible.add(step_id)
+                    eligible.add(step_id)
+
+                for branch_name in ("then", "else"):
+                    branch = step.get(branch_name)
+                    branch_steps = (
+                        branch.get("steps")
+                        if isinstance(branch, Mapping)
+                        else branch
+                    )
+                    visit(
+                        branch_steps,
+                        inside_compiler_owned_repeat=(
+                            inside_compiler_owned_repeat
+                        ),
+                    )
+
+                match_node = step.get("match")
+                cases = (
+                    match_node.get("cases")
+                    if isinstance(match_node, Mapping)
+                    else None
+                )
+                if isinstance(cases, Mapping):
+                    for case in cases.values():
+                        case_steps = (
+                            case.get("steps")
+                            if isinstance(case, Mapping)
+                            else case
+                        )
+                        visit(
+                            case_steps,
+                            inside_compiler_owned_repeat=(
+                                inside_compiler_owned_repeat
+                            ),
+                        )
+
+                repeat = step.get("repeat_until")
+                if isinstance(repeat, Mapping):
+                    step_id = step.get("id")
+                    owns_nested = (
+                        inside_compiler_owned_repeat
+                        or (
+                            isinstance(step_id, str)
+                            and step_id
+                            in self._compiler_owned_repeat_until_metadata
+                        )
+                    )
+                    visit(
+                        repeat.get("steps"),
+                        inside_compiler_owned_repeat=owns_nested,
+                    )
+
+        visit(
+            workflow.get("steps"),
+            inside_compiler_owned_repeat=False,
+        )
+        for step_id in sorted(duplicate_eligible):
+            self._add_error(
+                f"compiler-owned nested if step id '{step_id}' is duplicated"
+            )
+        for step_id in sorted(eligible - declared):
+            self._add_error(
+                f"compiler-owned nested if step id '{step_id}' is undeclared"
+            )
+        for step_id in sorted(declared - eligible):
+            self._add_error(
+                f"compiler-owned nested if step-id declaration '{step_id}' has no eligible emitted step"
             )
 
     def _normalize_v214_ergonomics(self, workflow: Dict[str, Any], version: str) -> None:
@@ -1155,6 +1268,7 @@ class _WorkflowMappingValidator:
                     parent_non_step_results=parent_non_step_results,
                     top_level=top_level,
                     allow_nested=allow_nested_structured
+                    or authored_id in self._compiler_owned_nested_if_step_ids
                     or name in self._dedicated_runtime_proof_nested_structured_step_names,
                     proof_context=proof_context,
                 )
@@ -1194,6 +1308,7 @@ class _WorkflowMappingValidator:
                     scope_non_step_results=scope_non_step_results,
                     parent_non_step_results=parent_non_step_results,
                     top_level=top_level,
+                    allow_nested=False,
                     proof_context=proof_context,
                 )
                 continue
@@ -2264,10 +2379,11 @@ class _WorkflowMappingValidator:
         scope_non_step_results: Set[str],
         parent_non_step_results: Optional[Set[str]],
         top_level: bool,
+        allow_nested: bool = False,
         proof_context: Optional[Dict[str, str]] = None,
     ) -> None:
         """Validate one top-level post-test repeat_until statement."""
-        if not top_level:
+        if not top_level and not allow_nested:
             self._add_error(
                 f"Step '{step_name}': structured repeat_until is only supported on top-level steps in v{STRUCTURED_REPEAT_UNTIL_VERSION}"
             )
@@ -6372,6 +6488,7 @@ def validate_workflow_mapping(
             "compiler prompt dependency contracts require the Workflow Lisp frontend"
         )
     validator._validate_compiler_owned_repeat_until_metadata(workflow)
+    validator._validate_compiler_owned_nested_if_steps(workflow)
     version = workflow.get("version")
     if not version:
         validator._add_error("'version' field is required")

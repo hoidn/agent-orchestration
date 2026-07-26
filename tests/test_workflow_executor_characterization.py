@@ -40,6 +40,88 @@ def _runtime_step_dict(executor: WorkflowExecutor, node_id: str) -> dict:
     return dict(executor._runtime_step_for_node_id(node_id))
 
 
+def _reference_resolution_executor(tmp_path: Path) -> WorkflowExecutor:
+    bundle = _load_workflow_bundle(
+        tmp_path,
+        {
+            "version": "2.7",
+            "name": "reference-resolution-characterization",
+            "steps": [
+                {
+                    "name": "Anchor",
+                    "id": "anchor",
+                    "command": ["true"],
+                }
+            ],
+        },
+    )
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="reference-resolution-characterization",
+    )
+    state_manager.initialize("workflow.yaml")
+    return WorkflowExecutor(bundle, tmp_path, state_manager)
+
+
+def test_parent_ref_nested_projection_prefers_unique_current_self_scope(
+    tmp_path: Path,
+) -> None:
+    executor = _reference_resolution_executor(tmp_path)
+    current = {
+        "CurrentBranch.Target": {
+            "artifacts": {"value": 7},
+        }
+    }
+    state = {
+        "steps": {
+            "Loop[0].OldBranch.Target": {"artifacts": {"value": 1}},
+            "Loop[1].OldBranch.Target": {"artifacts": {"value": 2}},
+        }
+    }
+
+    value, error = executor._resolve_ref_value(
+        "parent.steps.Target.artifacts.value",
+        state,
+        scope={
+            "self_steps": current,
+            "parent_steps": {},
+            "root_steps": state["steps"],
+        },
+    )
+
+    assert error is None
+    assert value == 7
+
+
+def test_parent_ref_nested_projection_fails_closed_for_ambiguous_current_scope(
+    tmp_path: Path,
+) -> None:
+    executor = _reference_resolution_executor(tmp_path)
+    current = {
+        "FirstBranch.Target": {"artifacts": {"value": 1}},
+        "SecondBranch.Target": {"artifacts": {"value": 2}},
+    }
+    state = {
+        "steps": {
+            "StaleIteration.Target": {"artifacts": {"value": 99}},
+        }
+    }
+
+    value, error = executor._resolve_ref_value(
+        "parent.steps.Target.artifacts.value",
+        state,
+        scope={
+            "self_steps": current,
+            "parent_steps": {},
+            "root_steps": state["steps"],
+        },
+    )
+
+    assert value is None
+    assert error is not None
+    assert error["error"]["type"] == "materialize_ref_unresolved"
+
+
 def test_executor_requires_loaded_workflow_bundle(tmp_path: Path):
     workflow = {
         "version": "2.5",

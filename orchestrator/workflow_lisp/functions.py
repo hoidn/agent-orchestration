@@ -11,6 +11,7 @@ from .expression_traversal import walk_expr
 from .expressions import (
     CallExpr,
     CommandResultExpr,
+    CompilerListNonemptyHeadExpr,
     ContinueExpr,
     DoneExpr,
     EnumMemberExpr,
@@ -21,6 +22,7 @@ from .expressions import (
     IfExpr,
     LetStarExpr,
     ListExpr,
+    ListMapEffectExpr,
     ListMapExpr,
     LiveProviderPeerBinding,
     LiveProviderBinding,
@@ -415,7 +417,7 @@ def _normalize_expr(
                 for item in expr.items
             ),
         )
-    if isinstance(expr, ListMapExpr):
+    if isinstance(expr, (ListMapExpr, ListMapEffectExpr)):
         return replace(
             expr,
             source_expr=_normalize_expr(
@@ -424,6 +426,14 @@ def _normalize_expr(
             ),
             body_expr=_normalize_expr(
                 expr.body_expr,
+                typed_functions_by_name=typed_functions_by_name,
+            ),
+        )
+    if isinstance(expr, CompilerListNonemptyHeadExpr):
+        return replace(
+            expr,
+            source_expr=_normalize_expr(
+                expr.source_expr,
                 typed_functions_by_name=typed_functions_by_name,
             ),
         )
@@ -729,7 +739,7 @@ def _clone_function_expr(
             form_path=form_path,
             expansion_stack=expansion_stack,
         )
-    if isinstance(expr, ListMapExpr):
+    if isinstance(expr, (ListMapExpr, ListMapEffectExpr)):
         return replace(
             expr,
             source_expr=_clone_function_expr(
@@ -740,6 +750,19 @@ def _clone_function_expr(
             ),
             body_expr=_clone_function_expr(
                 expr.body_expr,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            ),
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if isinstance(expr, CompilerListNonemptyHeadExpr):
+        return replace(
+            expr,
+            source_expr=_clone_function_expr(
+                expr.source_expr,
                 span=span,
                 form_path=form_path,
                 expansion_stack=expansion_stack,
@@ -1010,6 +1033,8 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
         return "finalize-selected-item"
     if isinstance(expr, LoopRecurExpr):
         return "loop/recur"
+    if isinstance(expr, ListMapEffectExpr):
+        return "list/map-effect"
     if isinstance(expr, FieldAccessExpr | NameExpr | LiteralExpr | EnumMemberExpr):
         return None
     if isinstance(expr, RecordExpr):
@@ -1035,6 +1060,8 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
         if violation is not None:
             return violation
         return _find_purity_violation(expr.body_expr)
+    if isinstance(expr, CompilerListNonemptyHeadExpr):
+        return _find_purity_violation(expr.source_expr)
     if isinstance(expr, PathJoinUnderExpr):
         return _find_purity_violation(expr.child_expr)
     if isinstance(expr, RecordUpdateExpr):
@@ -1097,7 +1124,10 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
     if isinstance(expr, ContinueExpr):
         return _find_purity_violation(expr.state_expr)
     if isinstance(expr, DoneExpr):
-        return _find_purity_violation(expr.result_expr)
+        violation = _find_purity_violation(expr.result_expr)
+        if violation is not None or expr.terminal_state_expr is None:
+            return violation
+        return _find_purity_violation(expr.terminal_state_expr)
     return f"unsupported expression container {type(expr).__name__}"
 
 

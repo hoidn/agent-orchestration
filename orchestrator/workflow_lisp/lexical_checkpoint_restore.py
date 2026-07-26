@@ -1189,6 +1189,7 @@ def select_restore_candidate(
     state: Mapping[str, Any],
     checkpoint_id: str | None = None,
     restart_node_id: str | None = None,
+    required_frame_identity: Mapping[str, Any] | None = None,
     executable_workflow: Any | None = None,
     loaded_workflow: Any | None = None,
 ) -> RestoreDecision:
@@ -1403,6 +1404,26 @@ def select_restore_candidate(
                         checkpoint_id=point.checkpoint_id,
                         diagnostics=(DIAGNOSTIC_CODES.checkpoint_record_reference_invalid,),
                     )
+                if required_frame_identity is not None:
+                    entry_frame = _mapping(
+                        entry_map.get("frame_identity")
+                    )
+                    frame_matches = tuple(
+                        entry_frame.get(field) == expected
+                        for field, expected
+                        in required_frame_identity.items()
+                    )
+                    if any(frame_matches) and not all(frame_matches):
+                        return RestoreDecision(
+                            kind=RESTORE_DECISION_INVALID,
+                            checkpoint_id=point.checkpoint_id,
+                            record_id=str(entry_map.get("record_id")),
+                            diagnostics=(
+                                checkpoints.DIAGNOSTIC_CODES.completed_effect_invalid,
+                            ),
+                        )
+                    if frame_matches and not any(frame_matches):
+                        continue
                 storage_scope = _mapping(point_payload.get("storage")).get(
                     "resume_scope"
                 )
@@ -1628,6 +1649,7 @@ def select_restore_candidate(
                             state=state,
                             workspace=state_manager.workspace,
                             executable_workflow=executable_workflow,
+                            runtime_plan=runtime_plan,
                         )
                     except ValueError as exc:
                         return RestoreDecision(

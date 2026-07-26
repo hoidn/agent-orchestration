@@ -13,6 +13,7 @@ from ..expressions import (
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
+    CompilerListNonemptyHeadExpr,
     ContinueExpr,
     DoneExpr,
     EnumMemberExpr,
@@ -1537,6 +1538,24 @@ def _elaborate_expr_to_body(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
+        state_prefix: tuple[WccLet, ...] = ()
+        state_value = None
+        if expr.terminal_state_expr is not None:
+            state_prefix, state_value = _elaborate_expr_to_value(
+                expr.terminal_state_expr,
+                scope=scope.child_scope(
+                    "loop-done",
+                    authored_binding_name="state",
+                ),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
         done_node = WccLoopDone(
             metadata=scope.body_metadata(
                 role="loop:done",
@@ -1554,8 +1573,9 @@ def _elaborate_expr_to_body(
                 phase_scope=active_phase_scope,
             ),
             result=result_value,
+            state=state_value,
         )
-        return _wrap_prefix_lets(prefix, done_node)
+        return _wrap_prefix_lets((*prefix, *state_prefix), done_node)
     if isinstance(
         expr,
         (
@@ -2219,6 +2239,13 @@ def _elaborate_loop_recur_to_body(
         body=body,
         exhaustion=exhaustion,
         initial_state=initial_state,
+        exhaustion_diagnostic_code=expr.exhaustion_diagnostic_code,
+        single_iteration_effect_kinds=(
+            expr.single_iteration_effect_kinds
+        ),
+        effect_cardinality_diagnostic_code=(
+            expr.effect_cardinality_diagnostic_code
+        ),
     )
     return _wrap_prefix_lets((*state_prefix, *budget_prefix), rec_join)
 
@@ -2429,6 +2456,7 @@ def _elaborate_expr_to_value(
             LoopStateSeedExpr,
             LoopStateUpdateExpr,
             GeneratedRelpathSeedExpr,
+            CompilerListNonemptyHeadExpr,
             ListExpr,
             ListMapExpr,
             PathJoinUnderExpr,
@@ -4647,6 +4675,8 @@ def _infer_expr_type(
             name=f"List[{expr.result_item_type_ref.name}]",
             item_type_ref=expr.result_item_type_ref,
         )
+    if isinstance(expr, CompilerListNonemptyHeadExpr):
+        return expr.element_type_ref
     if isinstance(expr, PathJoinUnderExpr):
         if not isinstance(expr.path_type_ref, PathTypeRef):
             raise TypeError("typed path/join-under expression is missing its path type")
@@ -4727,7 +4757,21 @@ def _infer_expr_type(
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
         )
-        return LoopControlTypeRef(state_type_ref=result_type, result_type_ref=result_type)
+        state_type = (
+            _infer_expr_type(
+                expr.terminal_state_expr,
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+            )
+            if expr.terminal_state_expr is not None
+            else result_type
+        )
+        return LoopControlTypeRef(
+            state_type_ref=state_type,
+            result_type_ref=result_type,
+        )
     if isinstance(expr, LoopRecurExpr):
         state_type = _infer_expr_type(
             expr.initial_state_expr,

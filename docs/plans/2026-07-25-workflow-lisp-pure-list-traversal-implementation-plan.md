@@ -677,36 +677,65 @@ per element in order and resumes without replay or duplication.
 
 **RED:**
 
-- [ ] Cover malformed binder, absent/computed/zero/negative `:max`, impure
+- [x] Cover malformed binder, absent/computed/zero/negative `:max`, impure
       source, unsupported body composition, and unsupported complete source
       or result list contract.
-- [ ] Cover empty, one, `N < max`, `N == max`, and `N > max`, asserting exact
+- [x] Cover empty, one, `N < max`, `N == max`, and `N > max`, asserting exact
       call counts and order.
-- [ ] On `N > max`, require generic `error.type`, exact
+- [x] On `N > max`, require generic `error.type`, exact
       `list_map_effect_cap_exceeded` code, and no `(max + 1)`th call.
-- [ ] Cover body failure with no append and interruption after committed body
+- [x] Cover body failure with no append and interruption after committed body
       effect but before accumulator commit with no replay, duplicate, skip, or
       reorder.
-- [ ] Freeze stable loop/iteration/checkpoint/source-map identity and assert no
+- [x] Freeze stable loop/iteration/checkpoint/source-map identity and assert no
       new executable node kind.
 
 **GREEN:**
 
-- [ ] Add the source binder node and validate the first-tranche body as one
+- [x] Add the source binder node and validate the first-tranche body as one
       specialized existing provider/command/workflow/procedure call with pure
       arguments.
-- [ ] Evaluate/seed the source once, carry `remaining` and `results`, and use
+- [x] Evaluate/seed the source once, carry `remaining` and `results`, and use
       compiler-owned schema-2 nonempty extraction only in the generated
       nonempty branch.
-- [ ] Append only after the committed body boundary.
-- [ ] Return `done` in the iteration that consumes the last element so
+- [x] Append only after the committed body boundary.
+- [x] Return `done` in the iteration that consumes the last element so
       `N == max` succeeds.
-- [ ] Attach the generic exhaustion code metadata and map all generated roles
+- [x] Attach the generic exhaustion code metadata and map all generated roles
       to the authored form span.
-- [ ] Reuse existing prior-boundary resume validation; do not add a special
+- [x] Reuse existing prior-boundary resume validation; do not add a special
       restart or recovery path.
-- [ ] Rerun focused list, WCC M4, loop, build, checkpoint, and resume selectors.
-- [ ] Obtain `TASK6_SPEC_APPROVED`, then `TASK6_QUALITY_APPROVED`, and commit.
+- [x] Rerun focused list, WCC M4, loop, build, checkpoint, and resume selectors.
+- [x] Obtain `TASK6_SPEC_APPROVED`, then `TASK6_QUALITY_APPROVED`, and commit.
+
+**Implementation record — complete (2026-07-25):**
+
+- Target-2.18 `list/map-effect` now elaborates to a typed source binder and
+  erases through WCC to existing pure projections plus `repeat_until`; no
+  executable node kind was added.
+- The generated state carries `remaining` and `results`, compiler-only schema
+  2 nonempty extraction is confined to the nonempty branch, and the terminal
+  iteration persists the consumed state while returning the completed result.
+- Post-specialization effect cardinality is an opt-in structural constraint on
+  the synthetic loop. Direct provider, command, workflow, and inline-procedure
+  boundaries are accepted; multiple specialized effects and unsupported
+  composition fail with `list_map_effect_body_unsupported`. Ordinary loops do
+  not opt in and retain their established lowering.
+- Nested effect checkpoints reuse the existing lexical record and restore
+  contract. Records bind the static point, exact iteration-qualified runtime
+  step id, enclosing repeat visit, iteration, and call frame; absent,
+  ambiguous, or tampered evidence fails closed, while a validated committed
+  boundary resumes without replay before accumulator projection.
+- Exact compiler declarations bind generated nested `if` steps by id, and
+  generated exhaustion retains the generic runtime error type with
+  `list_map_effect_cap_exceeded` as its optional code.
+- Fresh collection found 230 list-traversal tests and 93 resume tests. The
+  combined list/resume/WCC/loop/build/executor/checkpoint regression gate
+  passed 841 tests; bytecode compilation and scoped diff checking were clean.
+- Ordered independent verdicts were `TASK6_SPEC_APPROVED`, then
+  `TASK6_QUALITY_APPROVED`.
+- Implementation commit: pending exact task commit; recorded by the immediate
+  plan-only bookkeeping commit.
 
 ## Task 7: Prove The Runtime-Cardinality Consumer And Close The Interstage
 

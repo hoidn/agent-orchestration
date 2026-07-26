@@ -727,7 +727,12 @@ def _free_wcc_names_in_body(
             for name in _referenced_wcc_names(arg)
             if name not in bound_names
         }
-    if isinstance(body, (WccLoopDone, WccHalt)):
+    if isinstance(body, WccLoopDone):
+        names = _referenced_wcc_names(body.result)
+        if body.state is not None:
+            names.update(_referenced_wcc_names(body.state))
+        return names - bound_names
+    if isinstance(body, WccHalt):
         return _referenced_wcc_names(body.result) - bound_names
     return set()
 

@@ -95,6 +95,8 @@ class RepeatUntilEmitterInput:
     on_exhausted_result_expr: "ExprNode | None" = None
     source_expr: Any | None = None
     exhaustion_diagnostic_code: str | None = None
+    single_iteration_effect_kinds: tuple[str, ...] | None = None
+    effect_cardinality_diagnostic_code: str | None = None
 
 
 def ensure_loop_projectable_type(

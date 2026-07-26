@@ -8,6 +8,7 @@ from .expressions import (
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
+    CompilerListNonemptyHeadExpr,
     ContinueExpr,
     DoneExpr,
     EnumMemberExpr,
@@ -20,6 +21,7 @@ from .expressions import (
     LetProcExpr,
     LetStarExpr,
     ListExpr,
+    ListMapEffectExpr,
     ListMapExpr,
     LiteralExpr,
     MaterializeViewExpr,
@@ -122,6 +124,10 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return expr.items
     if isinstance(expr, ListMapExpr):
         return (expr.source_expr, expr.body_expr)
+    if isinstance(expr, ListMapEffectExpr):
+        return (expr.source_expr, expr.body_expr)
+    if isinstance(expr, CompilerListNonemptyHeadExpr):
+        return (expr.source_expr,)
     if isinstance(expr, PathJoinUnderExpr):
         return (expr.child_expr,)
     if isinstance(expr, RecordUpdateExpr):
@@ -173,7 +179,11 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
     if isinstance(expr, ContinueExpr):
         return (expr.state_expr,)
     if isinstance(expr, DoneExpr):
-        return (expr.result_expr,)
+        return (
+            (expr.result_expr,)
+            if expr.terminal_state_expr is None
+            else (expr.result_expr, expr.terminal_state_expr)
+        )
     if isinstance(expr, LoopRecurExpr):
         children: list[ExprNode] = [
             expr.max_iterations_expr,

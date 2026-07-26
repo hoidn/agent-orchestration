@@ -78,6 +78,7 @@ from ..expressions import (
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
+    CompilerListNonemptyHeadExpr,
     ContinueExpr,
     DoneExpr,
     EnumMemberExpr,
@@ -359,6 +360,7 @@ class LoweredWorkflow:
     compiler_owned_repeat_until_metadata: Mapping[
         str, Mapping[str, Any]
     ] = field(default_factory=dict)
+    compiler_owned_nested_if_step_ids: tuple[str, ...] = ()
 
 
 def _capture_generated_repeat_until_on_exhausted_refs(
@@ -463,6 +465,78 @@ def _capture_compiler_owned_repeat_until_metadata(
             )
         captured[step_id] = MappingProxyType(metadata)
     return MappingProxyType(captured)
+
+
+def _capture_compiler_owned_nested_if_step_ids(
+    authored_mapping: Mapping[str, object],
+) -> tuple[str, ...]:
+    """Bind nested if descendants of compiler-coded repeat loops by step id."""
+
+    captured: set[str] = set()
+
+    def visit(steps: object, *, inside_compiler_owned_repeat: bool) -> None:
+        if not isinstance(steps, Sequence) or isinstance(steps, (str, bytes)):
+            return
+        for step in steps:
+            if not isinstance(step, Mapping):
+                continue
+            is_nested_if = "if" in step
+            step_id = step.get("id")
+            if (
+                inside_compiler_owned_repeat
+                and is_nested_if
+                and isinstance(step_id, str)
+                and step_id
+            ):
+                captured.add(step_id)
+
+            for branch_name in ("then", "else"):
+                branch = step.get(branch_name)
+                branch_steps = (
+                    branch.get("steps")
+                    if isinstance(branch, Mapping)
+                    else branch
+                )
+                visit(
+                    branch_steps,
+                    inside_compiler_owned_repeat=inside_compiler_owned_repeat,
+                )
+
+            match_node = step.get("match")
+            cases = (
+                match_node.get("cases")
+                if isinstance(match_node, Mapping)
+                else None
+            )
+            if isinstance(cases, Mapping):
+                for case in cases.values():
+                    case_steps = (
+                        case.get("steps")
+                        if isinstance(case, Mapping)
+                        else case
+                    )
+                    visit(
+                        case_steps,
+                        inside_compiler_owned_repeat=(
+                            inside_compiler_owned_repeat
+                        ),
+                    )
+
+            repeat = step.get("repeat_until")
+            if isinstance(repeat, Mapping):
+                visit(
+                    repeat.get("steps"),
+                    inside_compiler_owned_repeat=(
+                        inside_compiler_owned_repeat
+                        or "exhaustion_diagnostic_code" in repeat
+                    ),
+                )
+
+    visit(
+        authored_mapping.get("steps"),
+        inside_compiler_owned_repeat=False,
+    )
+    return tuple(sorted(captured))
 
 
 def _all_step_names_from_steps(steps: Sequence[object]) -> set[str]:
@@ -1435,6 +1509,11 @@ def _lower_one_workflow(
         compiler_owned_repeat_until_metadata=(
             _capture_compiler_owned_repeat_until_metadata(authored_mapping)
         ),
+        compiler_owned_nested_if_step_ids=(
+            _capture_compiler_owned_nested_if_step_ids(
+                authored_mapping
+            )
+        ),
     )
 
 
@@ -2031,6 +2110,8 @@ def _infer_inline_binding_type(expr: Any, *, context: _LoweringContext) -> TypeR
         return _resolve_lowering_expr_type(expr.base_expr, context=context)
     if isinstance(expr, PureOpExpr):
         return _resolve_pure_op_type(expr, context=context)
+    if isinstance(expr, CompilerListNonemptyHeadExpr):
+        return expr.element_type_ref
     if isinstance(expr, IfExpr):
         return _resolve_lowering_expr_type(expr, context=context)
     if isinstance(expr, ProviderBundlePathExpr):
@@ -2174,6 +2255,8 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
         )
     if isinstance(expr, PureOpExpr):
         return _resolve_pure_op_type(expr, context=context)
+    if isinstance(expr, CompilerListNonemptyHeadExpr):
+        return expr.element_type_ref
     if isinstance(expr, ProviderBundlePathExpr):
         return context.type_env.resolve_type(
             expr.target_type_name,
@@ -2423,6 +2506,8 @@ def _typed_workflow_dependencies(
             return
         if isinstance(expr, DoneExpr):
             walk(expr.result_expr)
+            if expr.terminal_state_expr is not None:
+                walk(expr.terminal_state_expr)
             return
         if isinstance(expr, RecordExpr):
             for _, value in expr.fields:
@@ -2543,6 +2628,9 @@ def _validate_one_lowered_workflow(
             ),
             compiler_owned_repeat_until_metadata=(
                 lowered_workflow.compiler_owned_repeat_until_metadata
+            ),
+            compiler_owned_nested_if_step_ids=(
+                lowered_workflow.compiler_owned_nested_if_step_ids
             ),
             runtime_proof_parent_ref_allowances=(
                 _runtime_proof_parent_ref_allowances_for_generated_private_steps(

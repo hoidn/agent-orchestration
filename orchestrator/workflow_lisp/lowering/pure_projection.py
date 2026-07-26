@@ -25,6 +25,7 @@ from ..contracts import (
 )
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import (
+    CompilerListNonemptyHeadExpr,
     EnumMemberExpr,
     FieldAccessExpr,
     GeneratedRelpathSeedExpr,
@@ -91,6 +92,7 @@ def is_pure_projection_expr(
             PureOpExpr,
             ListExpr,
             ListMapExpr,
+            CompilerListNonemptyHeadExpr,
             PathJoinUnderExpr,
             RecordUpdateExpr,
         ),
@@ -368,7 +370,15 @@ def _required_pure_expr_schema_version(
     if payload_expr is not None and _payload_requires_schema_2(payload_expr):
         return 2
     for node in walk_expr(expr):
-        if isinstance(node, (ListExpr, ListMapExpr, PathJoinUnderExpr)):
+        if isinstance(
+            node,
+            (
+                CompilerListNonemptyHeadExpr,
+                ListExpr,
+                ListMapExpr,
+                PathJoinUnderExpr,
+            ),
+        ):
             return 2
         if isinstance(node, PureOpExpr):
             spec = PURE_EXPR_OPERATOR_CATALOG.get(node.operator)
@@ -518,6 +528,7 @@ def _payload_expr(
                     LetStarExpr,
                     ListExpr,
                     ListMapExpr,
+                    CompilerListNonemptyHeadExpr,
                     LiteralExpr,
                     NameExpr,
                     PathJoinUnderExpr,
@@ -721,6 +732,48 @@ def _payload_expr(
                 for item in expr.items
             ],
         }, type_ref
+    if isinstance(expr, CompilerListNonemptyHeadExpr):
+        source_node, source_type = _payload_expr(
+            expr.source_expr,
+            context=context,
+            local_values=local_values,
+            lexical_bindings=lexical_bindings,
+            lexical_types=lexical_types,
+            bindings=bindings,
+            binding_refs=binding_refs,
+        )
+        if (
+            not isinstance(source_type, ListTypeRef)
+            or not _pure_projection_type_equivalent(
+                source_type.item_type_ref,
+                expr.element_type_ref,
+                type_env=context.type_env,
+            )
+        ):
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="list_nonempty_invariant_broken",
+                        message=(
+                            "compiler-owned nonempty head source does not "
+                            "match its exact element type"
+                        ),
+                        span=expr.span,
+                        form_path=expr.form_path,
+                        expansion_stack=expr.expansion_stack,
+                    ),
+                )
+            )
+        return {
+            "kind": "list_nonempty_head",
+            "source": source_node,
+            "element_type": _type_descriptor(
+                expr.element_type_ref,
+                type_env=context.type_env,
+            ),
+            "compiler_owned": True,
+            "invariant_diagnostic": "list_nonempty_invariant_broken",
+        }, expr.element_type_ref
     if isinstance(expr, ListMapExpr):
         type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
         assert isinstance(type_ref, ListTypeRef)
@@ -854,6 +907,7 @@ def _runtime_binding_value(value: Any) -> Any:
             PureOpExpr,
             ListExpr,
             ListMapExpr,
+            CompilerListNonemptyHeadExpr,
             PathJoinUnderExpr,
             RecordUpdateExpr,
             UnionVariantExpr,
@@ -927,6 +981,8 @@ def _infer_expr_type(
             name=f"List[{expr.result_item_type_ref.name}]",
             item_type_ref=expr.result_item_type_ref,
         )
+    if isinstance(expr, CompilerListNonemptyHeadExpr):
+        return expr.element_type_ref
     if isinstance(expr, PathJoinUnderExpr):
         if expr.path_type_ref is None:
             raise TypeError("typed path/join-under expression is missing its path type")

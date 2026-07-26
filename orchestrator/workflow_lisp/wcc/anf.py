@@ -218,13 +218,36 @@ def _normalize_body(body: WccBody) -> WccBody:
             args.append(normalized_arg)
         return _wrap_pending_lets(tuple(pending), replace(body, state_args=tuple(args)))
     if isinstance(body, WccLoopDone):
-        prefix, result = _normalize_value(body.result)
-        if _is_atomic_effect_arg(result):
-            return _wrap_pending_lets(prefix, replace(body, result=result))
-        generated = _generated_pending_let(result, purpose="loop:done")
-        done_atom = _generated_name_atom(result.metadata, purpose="loop:done")
-        done = replace(body, result=done_atom)
-        return _wrap_pending_lets((*prefix, generated), done)
+        pending: list[_PendingLet] = []
+        result_prefix, result = _normalize_value(body.result)
+        pending.extend(result_prefix)
+        if not _is_atomic_effect_arg(result):
+            pending.append(
+                _generated_pending_let(result, purpose="loop:done")
+            )
+            result = _generated_name_atom(
+                result.metadata,
+                purpose="loop:done",
+            )
+        state = body.state
+        if state is not None:
+            state_prefix, state = _normalize_value(state)
+            pending.extend(state_prefix)
+            if not _is_atomic_effect_arg(state):
+                pending.append(
+                    _generated_pending_let(
+                        state,
+                        purpose="loop:done:state",
+                    )
+                )
+                state = _generated_name_atom(
+                    state.metadata,
+                    purpose="loop:done:state",
+                )
+        return _wrap_pending_lets(
+            tuple(pending),
+            replace(body, result=result, state=state),
+        )
     prefix, result = _normalize_value(body.result)
     if isinstance(result, _WCC_ATOM_TYPES):
         return _wrap_pending_lets(prefix, replace(body, result=result))

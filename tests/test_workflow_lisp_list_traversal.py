@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import importlib
 import json
 from pathlib import Path
@@ -7,19 +8,27 @@ import re
 
 import pytest
 
+from orchestrator.state import StateManager
+from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.validation import (
+    _WorkflowMappingValidator,
     WorkflowBoundaryValidationPolicy,
     WorkflowMappingBuildRequest,
     WorkflowMappingValidationOptions,
     validate_workflow_mapping,
 )
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.expression_traversal import walk_expr
 from orchestrator.workflow_lisp.expressions import (
+    DoneExpr,
     FunctionCallExpr,
+    LiteralExpr,
     ProcedureCallExpr,
     elaborate_expression,
 )
 from orchestrator.workflow_lisp.loops import ensure_loop_projectable_type
+from orchestrator.workflow_lisp.lowering import core as lowering_core
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.syntax import SyntaxNode, build_syntax_module
 from orchestrator.workflow_lisp.type_env import (
@@ -29,11 +38,22 @@ from orchestrator.workflow_lisp.type_env import (
     PrimitiveTypeRef,
     TypeParamRef,
 )
+from orchestrator.workflow_lisp.wcc.defunctionalize import (
+    _frontend_expr_from_wcc_loop_body,
+)
+from orchestrator.workflow_lisp.wcc.model import (
+    WCC_M4_ROUTE_SCHEMA_VERSION,
+    WccIdentityFactory,
+    WccLiteralAtom,
+    WccLoopDone,
+)
+from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
 _LIST_TRAVERSAL_AUTHORED_HEADS = (
     "list",
     "list/map",
+    "list/map-effect",
     "path/join-under",
     "list/empty?",
     "list/head",
@@ -1811,6 +1831,913 @@ def test_frontend_pure_map_rejects_record_and_union_collection_elements(
             """,
         )
         == "list_collection_contract_unsupported"
+    )
+
+
+@pytest.mark.parametrize(
+    "binder",
+    (
+        "()",
+        "((item))",
+        "((item xs) (other xs))",
+        "((__compiler_item xs))",
+    ),
+)
+def test_frontend_effect_map_rejects_invalid_binder_shapes(
+    tmp_path: Path,
+    binder: str,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            f"""
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule invalid_effect_map_binder)
+              (export orchestrate)
+              (defworkflow child ((value Int)) -> Int value)
+              (defworkflow orchestrate ((xs List[Int])) -> List[Int]
+                (list/map-effect {binder} :max 2
+                  (call child :value item))))
+            """,
+        )
+        == "list_map_binder_invalid"
+    )
+
+
+@pytest.mark.parametrize(
+    "max_clause",
+    (
+        "",
+        ":max (+ 1 1)",
+        ":max 0",
+        ":max -1",
+    ),
+    ids=("absent", "computed", "zero", "negative"),
+)
+def test_frontend_effect_map_requires_positive_literal_max(
+    tmp_path: Path,
+    max_clause: str,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            f"""
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule invalid_effect_map_max)
+              (export orchestrate)
+              (defworkflow child ((value Int)) -> Int value)
+              (defworkflow orchestrate ((xs List[Int])) -> List[Int]
+                (list/map-effect ((item xs)) {max_clause}
+                  (call child :value item))))
+            """,
+        )
+        == "list_map_effect_max_invalid"
+    )
+
+
+def test_frontend_effect_map_rejects_effectful_source(
+    tmp_path: Path,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            """
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule impure_effect_map_source)
+              (export orchestrate)
+              (defworkflow source () -> List[Int] (list 1))
+              (defworkflow child ((value Int)) -> Int value)
+              (defworkflow orchestrate () -> List[Int]
+                (list/map-effect ((item (call source))) :max 2
+                  (call child :value item))))
+            """,
+        )
+        == "list_map_effect_body_unsupported"
+    )
+
+
+def test_frontend_effect_map_rejects_effectful_body_composition(
+    tmp_path: Path,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            """
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule composed_effect_map_body)
+              (export orchestrate)
+              (defworkflow child ((value Int)) -> Int value)
+              (defworkflow orchestrate ((xs List[Int])) -> List[Int]
+                (list/map-effect ((item xs)) :max 2
+                  (if true
+                    (call child :value item)
+                    (call child :value item)))))
+            """,
+        )
+        == "list_map_effect_body_unsupported"
+    )
+
+
+def test_frontend_effect_map_rejects_effectful_call_argument(
+    tmp_path: Path,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            """
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule nested_effect_map_argument)
+              (export orchestrate)
+              (defworkflow source () -> Int 1)
+              (defworkflow child ((value Int)) -> Int value)
+              (defworkflow orchestrate ((xs List[Int])) -> List[Int]
+                (list/map-effect ((item xs)) :max 2
+                  (call child :value (call source)))))
+            """,
+        )
+        == "list_map_effect_body_unsupported"
+    )
+
+
+def test_frontend_effect_map_accepts_computed_pure_call_argument(
+    tmp_path: Path,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule pure_effect_map_argument)
+          (export orchestrate)
+          (defworkflow child ((value Int)) -> Int value)
+          (defworkflow orchestrate () -> List[Int]
+            (list/map-effect ((item (list 1 2))) :max 2
+              (call child :value (+ item 10)))))
+        """,
+        lowering_route="wcc_m4",
+    )
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="pure-effect-map-argument",
+    )
+    state_manager.initialize(str(tmp_path / "pure_effect_map_argument.orc"))
+
+    state = WorkflowExecutor(
+        result.validated_bundle,
+        tmp_path,
+        state_manager,
+        retry_delay_ms=0,
+    ).execute(on_error="stop")
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {"__result__": [11, 12]}
+
+
+@pytest.mark.parametrize(
+    ("module_name", "body", "expected_effect_kind"),
+    (
+        (
+            "effect_map_provider_boundary",
+            (
+                "(provider-result providers.worker "
+                ":prompt prompts.worker :inputs (item) :returns Int)"
+            ),
+            "provider",
+        ),
+        (
+            "effect_map_command_boundary",
+            (
+                "(command-result run_item "
+                ':argv ("echo" item) :returns Int)'
+            ),
+            "command",
+        ),
+    ),
+)
+def test_frontend_effect_map_accepts_existing_provider_and_command_boundaries(
+    tmp_path: Path,
+    module_name: str,
+    body: str,
+    expected_effect_kind: str,
+) -> None:
+    module_path = tmp_path / f"{module_name}.orc"
+    module_path.write_text(
+        f"""
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule {module_name})
+          (export orchestrate)
+          (defworkflow orchestrate ((items List[Int])) -> List[Int]
+            (list/map-effect ((item items)) :max 2
+              {body})))
+        """.strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "worker.md").write_text(
+        "provider prompt\n",
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(
+        module_path,
+        provider_externs={"providers.worker": "fake-worker"},
+        prompt_externs={"prompts.worker": "worker.md"},
+        command_boundaries={
+            "run_item": ExternalToolBinding(
+                name="run_item",
+                stable_command=("echo",),
+            )
+        },
+        lowering_route="wcc_m4",
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    lowered = result.lowered_workflows[0]
+    effect_points = tuple(
+        point
+        for point in lowered.lexical_checkpoint_points
+        if point.get("point_kind") == "effect_boundary"
+    )
+
+    assert len(effect_points) == 1
+    assert (
+        effect_points[0]["effect_boundary"]["effect_kind"]
+        == expected_effect_kind
+    )
+    assert any(
+        "repeat_until" in step
+        for step in lowered.authored_mapping["steps"]
+    )
+
+
+def test_frontend_effect_map_accepts_one_specialized_private_workflow_call(
+    tmp_path: Path,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule specialized_single_effect_map)
+          (export orchestrate)
+          (defworkflow child ((value Int)) -> Int value)
+          (defproc invoke-child
+            ((value Int))
+            -> Int
+            :effects ((calls-workflow specialized_single_effect_map::child))
+            :lowering inline
+            (call child :value (+ value 10)))
+          (defworkflow orchestrate () -> List[Int]
+            (list/map-effect ((item (list 1 2))) :max 2
+              (invoke-child item))))
+        """,
+        lowering_route="wcc_m4",
+    )
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="specialized-single-effect-map",
+    )
+    state_manager.initialize(
+        str(tmp_path / "specialized_single_effect_map.orc")
+    )
+
+    state = WorkflowExecutor(
+        result.validated_bundle,
+        tmp_path,
+        state_manager,
+        retry_delay_ms=0,
+    ).execute(on_error="stop")
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {"__result__": [11, 12]}
+
+
+def test_frontend_effect_map_rejects_two_effects_after_specialization(
+    tmp_path: Path,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            """
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule specialized_multiple_effect_map)
+              (export orchestrate)
+              (defworkflow child ((value Int)) -> Int value)
+              (defproc invoke-child-twice
+                ((value Int))
+                -> Int
+                :effects ((calls-workflow specialized_multiple_effect_map::child))
+                :lowering inline
+                (let* ((first (call child :value value)))
+                  (call child :value (+ first 1))))
+              (defworkflow orchestrate () -> List[Int]
+                (list/map-effect ((item (list 1 2))) :max 2
+                  (invoke-child-twice item))))
+            """,
+        )
+        == "list_map_effect_body_unsupported"
+    )
+
+
+def test_terminal_loop_state_survives_wcc_round_trip_and_generic_traversal() -> None:
+    span = _expression_syntax("1").span
+    int_type = PrimitiveTypeRef(name="Int")
+    factory = WccIdentityFactory(
+        owner_name="terminal-state-round-trip",
+        lexical_owner_chain=("workflow", "loop"),
+        route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
+    )
+    result_value = WccLiteralAtom(
+        metadata=factory.atom_metadata(
+            role="loop-result",
+            type_ref=int_type,
+            source_span=span,
+            form_path=("workflow-lisp", "loop-result"),
+        ),
+        value=11,
+        literal_kind="int",
+    )
+    terminal_state = WccLiteralAtom(
+        metadata=factory.atom_metadata(
+            role="loop-terminal-state",
+            type_ref=int_type,
+            source_span=span,
+            form_path=("workflow-lisp", "loop-terminal-state"),
+        ),
+        value=22,
+        literal_kind="int",
+    )
+
+    restored = _frontend_expr_from_wcc_loop_body(
+        WccLoopDone(
+            metadata=factory.body_metadata(
+                role="loop-done",
+                type_ref=int_type,
+                source_span=span,
+                form_path=("workflow-lisp", "loop-done"),
+            ),
+            result=result_value,
+            state=terminal_state,
+        )
+    )
+
+    assert isinstance(restored, DoneExpr)
+    assert isinstance(restored.result_expr, LiteralExpr)
+    assert isinstance(restored.terminal_state_expr, LiteralExpr)
+    assert [
+        node.value
+        for node in walk_expr(restored)
+        if isinstance(node, LiteralExpr)
+    ] == [11, 22]
+
+
+@pytest.mark.parametrize(
+    "workflow_source",
+    (
+        """
+        (defrecord Item (value Int))
+        (defworkflow child ((value Item)) -> Int value.value)
+        (defworkflow orchestrate ((xs List[Item])) -> List[Int]
+          (list/map-effect ((item xs)) :max 2
+            (call child :value item)))
+        """,
+        """
+        (defrecord Item (value Int))
+        (defworkflow child ((value Int)) -> Item
+          (record Item :value value))
+        (defworkflow orchestrate ((xs List[Int])) -> Int
+          (let* ((mapped
+                    (list/map-effect ((item xs)) :max 2
+                      (call child :value item))))
+            1))
+        """,
+    ),
+    ids=("source-contract", "result-contract"),
+)
+def test_frontend_effect_map_rejects_unsupported_complete_list_contract(
+    tmp_path: Path,
+    workflow_source: str,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            f"""
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule unsupported_effect_map_contract)
+              (export orchestrate)
+              {workflow_source})
+            """,
+        )
+        == "list_collection_contract_unsupported"
+    )
+
+
+def test_frontend_effect_map_erases_to_existing_repeat_loop(
+    tmp_path: Path,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule effect_map_erasure)
+          (export orchestrate)
+          (defworkflow child ((value Int)) -> Int (+ value 1))
+          (defworkflow orchestrate () -> List[Int]
+            (list/map-effect ((item (list 3 1 2))) :max 3
+              (call child :value item))))
+        """,
+        lowering_route="wcc_m4",
+    )
+
+    repeat_steps = [
+        step
+        for lowered in result.compile_result.entry_result.lowered_workflows
+        if lowered.typed_workflow.definition.name.endswith("::orchestrate")
+        for step in lowered.authored_mapping["steps"]
+        if "repeat_until" in step
+    ]
+    assert len(repeat_steps) == 1
+    assert repeat_steps[0]["repeat_until"]["max_iterations"] == 3
+    assert (
+        repeat_steps[0]["repeat_until"]["exhaustion_diagnostic_code"]
+        == "list_map_effect_cap_exceeded"
+    )
+    assert {
+        node.kind.value
+        for node in result.validated_bundle.ir.nodes.values()
+    }.isdisjoint({"list_map_effect", "list-map-effect"})
+
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="effect-map-erasure",
+    )
+    state_manager.initialize(str(tmp_path / "effect_map_erasure.orc"))
+    state = WorkflowExecutor(
+        result.validated_bundle,
+        tmp_path,
+        state_manager,
+        retry_delay_ms=0,
+    ).execute(on_error="stop")
+
+    loop_state = state["steps"][repeat_steps[0]["name"]]
+    assert state["status"] == "completed", loop_state
+    assert state["workflow_outputs"] == {"__result__": [4, 2, 3]}
+
+
+def _compiler_nested_if_declaration_probe(
+    tmp_path: Path,
+    *,
+    branch_id: str = "generated_branch",
+    branch_name: str = "GeneratedBranch",
+    declared_ids: tuple[str, ...] = ("generated_branch",),
+    frontend_kind: str | None = "workflow_lisp",
+) -> _WorkflowMappingValidator:
+    mapping = {
+        "steps": [
+            {
+                "name": "GeneratedLoop",
+                "id": "generated_loop",
+                "repeat_until": {
+                    "exhaustion_diagnostic_code": (
+                        "bounded_traversal_cap_exceeded"
+                    ),
+                    "steps": [
+                        {
+                            "name": branch_name,
+                            "id": branch_id,
+                            "if": {"compare": {}},
+                            "then": {"steps": []},
+                            "else": {"steps": []},
+                        }
+                    ],
+                },
+            }
+        ]
+    }
+    validator = _WorkflowMappingValidator(
+        WorkflowMappingBuildRequest(
+            authored_mapping=mapping,
+            workflow_path=tmp_path / "compiler-nested-if-probe.orc",
+            frontend_kind=frontend_kind,
+            compiler_owned_repeat_until_metadata={
+                "generated_loop": {
+                    "exhaustion_diagnostic_code": (
+                        "bounded_traversal_cap_exceeded"
+                    ),
+                }
+            },
+            compiler_owned_nested_if_step_ids=declared_ids,
+        ),
+        WorkflowMappingValidationOptions(
+            workspace_root=tmp_path,
+            boundary_validation_policy=(
+                WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
+            ),
+        ),
+    )
+    validator._validate_compiler_owned_nested_if_steps(mapping)
+    return validator
+
+
+def test_compiler_owned_nested_if_declaration_matches_exact_step_id(
+    tmp_path: Path,
+) -> None:
+    validator = _compiler_nested_if_declaration_probe(tmp_path)
+
+    assert validator.errors == []
+
+
+@pytest.mark.parametrize(
+    ("declared_ids", "expected_message"),
+    (
+        ((), "is undeclared"),
+        (
+            ("generated_branch", "extra_branch"),
+            "has no eligible emitted step",
+        ),
+        (
+            ("generated_branch", "generated_branch"),
+            "must be unique",
+        ),
+    ),
+    ids=("missing", "extra", "duplicate"),
+)
+def test_compiler_owned_nested_if_declaration_fails_closed_for_inexact_ids(
+    tmp_path: Path,
+    declared_ids: tuple[str, ...],
+    expected_message: str,
+) -> None:
+    validator = _compiler_nested_if_declaration_probe(
+        tmp_path,
+        declared_ids=declared_ids,
+    )
+
+    assert any(
+        expected_message in error.message for error in validator.errors
+    )
+
+
+def test_compiler_owned_nested_if_declaration_rejects_non_lisp_frontend(
+    tmp_path: Path,
+) -> None:
+    validator = _compiler_nested_if_declaration_probe(
+        tmp_path,
+        frontend_kind=None,
+    )
+
+    assert any(
+        "require the Workflow Lisp frontend" in error.message
+        for error in validator.errors
+    )
+
+
+def test_compiler_owned_nested_if_declaration_binds_id_not_display_name(
+    tmp_path: Path,
+) -> None:
+    renamed = _compiler_nested_if_declaration_probe(
+        tmp_path,
+        branch_name="RenamedGeneratedBranch",
+    )
+    tampered_id = _compiler_nested_if_declaration_probe(
+        tmp_path,
+        branch_id="tampered_branch",
+    )
+
+    assert renamed.errors == []
+    assert {
+        error.message for error in tampered_id.errors
+    } == {
+        (
+            "compiler-owned nested if step id 'tampered_branch' "
+            "is undeclared"
+        ),
+        (
+            "compiler-owned nested if step-id declaration "
+            "'generated_branch' has no eligible emitted step"
+        ),
+    }
+
+
+def test_effect_map_lowering_captures_every_compiler_owned_nested_if_id(
+    tmp_path: Path,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule effect_map_nested_if_ids)
+          (export orchestrate)
+          (defworkflow child ((value Int)) -> Int value)
+          (defworkflow orchestrate () -> List[Int]
+            (list/map-effect ((item (list 1))) :max 1
+              (call child :value item))))
+        """,
+        lowering_route="wcc_m4",
+    )
+    lowered = next(
+        workflow
+        for workflow in result.compile_result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::orchestrate")
+    )
+    captured = lowering_core._capture_compiler_owned_nested_if_step_ids(
+        lowered.authored_mapping
+    )
+
+    assert captured
+    assert captured == lowered.compiler_owned_nested_if_step_ids
+
+    missing = replace(
+        lowered,
+        compiler_owned_nested_if_step_ids=captured[:-1],
+    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        lowering_core._validate_one_lowered_workflow(
+            missing,
+            workspace_root=tmp_path,
+            imported_bundles={},
+            workflow_is_imported=False,
+            boundary_validation_policy=(
+                WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
+            ),
+        )
+    assert "is undeclared" in excinfo.value.diagnostics[0].message
+
+
+def _run_effect_map_source(
+    tmp_path: Path,
+    *,
+    module_name: str,
+    child_param_type: str,
+    child_return_type: str,
+    child_body: str,
+    source_expr: str,
+    max_iterations: int,
+    entry_params: str = "()",
+    bound_inputs: dict[str, object] | None = None,
+):
+    result = _build_source(
+        tmp_path,
+        f"""
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule {module_name})
+          (export orchestrate)
+          (defworkflow child
+            ((value {child_param_type}))
+            -> {child_return_type}
+            {child_body})
+          (defworkflow orchestrate {entry_params} -> List[{child_return_type}]
+            (list/map-effect ((item {source_expr})) :max {max_iterations}
+              (call child :value item))))
+        """,
+        lowering_route="wcc_m4",
+    )
+    repeat_step = next(
+        step
+        for lowered in result.compile_result.entry_result.lowered_workflows
+        if lowered.typed_workflow.definition.name.endswith("::orchestrate")
+        for step in lowered.authored_mapping["steps"]
+        if "repeat_until" in step
+    )
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id=f"{module_name}-run",
+    )
+    state_manager.initialize(
+        str(tmp_path / f"{module_name}.orc"),
+        bound_inputs=bound_inputs,
+    )
+    state = WorkflowExecutor(
+        result.validated_bundle,
+        tmp_path,
+        state_manager,
+        retry_delay_ms=0,
+    ).execute(on_error="stop")
+    return result, repeat_step, state
+
+
+def _effect_map_call_frames(
+    state: dict[str, object],
+) -> list[dict[str, object]]:
+    call_frames = state.get("call_frames")
+    assert isinstance(call_frames, dict)
+    frames = [
+        frame
+        for frame in call_frames.values()
+        if isinstance(frame, dict)
+        and str(frame.get("import_alias", "")).endswith("::child")
+    ]
+
+    def iteration(frame: dict[str, object]) -> int:
+        match = re.search(r"__loop#(\d+)", str(frame["call_frame_id"]))
+        assert match is not None
+        return int(match.group(1))
+
+    return sorted(frames, key=iteration)
+
+
+@pytest.mark.parametrize(
+    (
+        "case_name",
+        "max_iterations",
+        "expected_inputs",
+        "expected_outputs",
+    ),
+    (
+        ("empty", 1, [], []),
+        ("one", 1, [7], [8]),
+        ("below_cap", 3, [3, 1], [4, 2]),
+        ("at_cap", 3, [3, 1, 2], [4, 2, 3]),
+    ),
+)
+def test_frontend_effect_map_runtime_commits_exact_calls_in_source_order(
+    tmp_path: Path,
+    case_name: str,
+    max_iterations: int,
+    expected_inputs: list[int],
+    expected_outputs: list[int],
+) -> None:
+    _, repeat_step, state = _run_effect_map_source(
+        tmp_path,
+        module_name=f"effect_map_runtime_{case_name}",
+        child_param_type="Int",
+        child_return_type="Int",
+        child_body="(+ value 1)",
+        source_expr="items",
+        max_iterations=max_iterations,
+        entry_params="((items List[Int]))",
+        bound_inputs={"items": expected_inputs},
+    )
+
+    frames = _effect_map_call_frames(state)
+    loop_state = state["steps"][repeat_step["name"]]
+    assert state["status"] == "completed", loop_state
+    assert state["workflow_outputs"] == {"__result__": expected_outputs}
+    assert [frame["status"] for frame in frames] == [
+        "completed"
+    ] * len(expected_inputs)
+    assert [
+        frame["bound_inputs"]["value"] for frame in frames
+    ] == expected_inputs
+    assert [
+        frame["state"]["workflow_outputs"]["__result__"]
+        for frame in frames
+    ] == expected_outputs
+    if case_name == "at_cap":
+        assert loop_state["artifacts"]["state__remaining"] == []
+        assert (
+            loop_state["artifacts"]["state__results"]
+            == expected_outputs
+        )
+
+
+def test_frontend_effect_map_runtime_fails_with_exact_cap_diagnostic_before_max_plus_one(
+    tmp_path: Path,
+) -> None:
+    _, repeat_step, state = _run_effect_map_source(
+        tmp_path,
+        module_name="effect_map_runtime_cap",
+        child_param_type="Int",
+        child_return_type="Int",
+        child_body="(+ value 1)",
+        source_expr="(list 3 1 2)",
+        max_iterations=2,
+    )
+
+    frames = _effect_map_call_frames(state)
+    loop_state = state["steps"][repeat_step["name"]]
+    assert state["status"] == "failed"
+    assert loop_state["status"] == "failed"
+    assert loop_state["error"]["type"] == "repeat_until_iterations_exhausted"
+    assert loop_state["error"]["code"] == "list_map_effect_cap_exceeded"
+    assert [frame["bound_inputs"]["value"] for frame in frames] == [3, 1]
+    assert [frame["status"] for frame in frames] == [
+        "completed",
+        "completed",
+    ]
+    assert [
+        frame["state"]["workflow_outputs"]["__result__"]
+        for frame in frames
+    ] == [4, 2]
+
+
+def test_frontend_effect_map_runtime_body_failure_does_not_append_or_call_later_items(
+    tmp_path: Path,
+) -> None:
+    _, repeat_step, state = _run_effect_map_source(
+        tmp_path,
+        module_name="effect_map_runtime_body_failure",
+        child_param_type="Int",
+        child_return_type="Int",
+        child_body="(+ value 1)",
+        source_expr="items",
+        max_iterations=3,
+        entry_params="((items List[Int]))",
+        bound_inputs={"items": [1, 9223372036854775807, 3]},
+    )
+
+    frames = _effect_map_call_frames(state)
+    loop_state = state["steps"][repeat_step["name"]]
+    assert state["status"] == "failed"
+    assert loop_state["status"] == "failed"
+    assert [frame["bound_inputs"]["value"] for frame in frames] == [
+        1,
+        9223372036854775807,
+    ]
+    assert [frame["status"] for frame in frames] == [
+        "completed",
+        "failed",
+    ]
+    assert loop_state["artifacts"]["state__results"] == [2]
+    assert loop_state["artifacts"]["state__remaining"] == [
+        9223372036854775807,
+        3,
+    ]
+
+
+def test_frontend_effect_map_generated_roles_and_source_spans_are_stable(
+    tmp_path: Path,
+) -> None:
+    source = """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule effect_map_stable_roles)
+          (export orchestrate)
+          (defworkflow child ((value Int)) -> Int (+ value 1))
+          (defworkflow orchestrate () -> List[Int]
+            (list/map-effect ((item (list 3 1))) :max 2
+              (call child :value item))))
+    """
+
+    def generated_roles(root: Path) -> dict[str, tuple[object, ...]]:
+        result = _build_source(
+            root,
+            source,
+            lowering_route="wcc_m4",
+        )
+        source_map = json.loads(
+            result.artifact_paths["source_map"].read_text(encoding="utf-8")
+        )
+        step_ids = source_map["workflows"][
+            "effect_map_stable_roles::orchestrate"
+        ]["step_ids"]
+        return {
+            step_id: (
+                origin["line"],
+                origin["column"],
+                origin["end_line"],
+                origin["end_column"],
+                origin["generated_name_origin"],
+                tuple(origin["form_path"]),
+            )
+            for step_id, origin in step_ids.items()
+            if step_id.startswith("effect_map_stable_roles::orchestrate__")
+        }
+
+    first = generated_roles(tmp_path / "first")
+    second = generated_roles(tmp_path / "second")
+
+    assert first == second
+    assert {
+        "effect_map_stable_roles::orchestrate__seed",
+        "effect_map_stable_roles::orchestrate__loop",
+        "effect_map_stable_roles::orchestrate__body",
+        "effect_map_stable_roles::orchestrate__body__condition",
+        "effect_map_stable_roles::orchestrate__body__else__item",
+    }.issubset(first)
+    assert any(
+        "__list_map_effect_result__call_effect_map_stable_roles::child"
+        in step_id
+        for step_id in first
+    )
+    assert all(
+        role[-1]
+        == ("workflow-lisp", "defworkflow", "orchestrate")
+        for role in first.values()
     )
 
 

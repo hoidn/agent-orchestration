@@ -5182,6 +5182,20 @@ class WorkflowExecutor:
             nested_name,
             self._to_step_result(result, nested_name),
         )
+        if (
+            result.get("status") == "completed"
+            and loop_step is not None
+            and isinstance(runtime_step_id, str)
+            and runtime_step_id
+        ):
+            self._emit_lexical_checkpoint_shadow_after_nested_step_commit(
+                step=step,
+                loop_step=loop_step,
+                loop_name=resolved_loop_name,
+                iteration_index=resolved_iteration_index,
+                runtime_step_id=runtime_step_id,
+                finalized=result,
+            )
         self._finalize_consumes(
             step,
             nested_name,
@@ -7230,15 +7244,15 @@ class WorkflowExecutor:
         )
 
     @staticmethod
-    def _rewrite_scoped_ref_for_nested_projection(
+    def _nested_projection_ref_candidates(
         ref: str,
         *,
         scope_name: str,
         step_results: Dict[str, Any],
-    ) -> str | None:
+    ) -> tuple[str, ...]:
         prefix = f"{scope_name}.steps."
         if not ref.startswith(prefix) or not isinstance(step_results, dict):
-            return None
+            return ()
 
         remainder = ref[len(prefix):]
         step_name: str | None = None
@@ -7249,16 +7263,31 @@ class WorkflowExecutor:
                 suffix = marker + trailing
                 break
         if step_name is None:
-            return None
+            return ()
 
         candidates = [
             key
             for key in step_results
             if key == step_name or key.endswith(f".{step_name}")
         ]
+        return tuple(f"{prefix}{candidate}{suffix}" for candidate in candidates)
+
+    @classmethod
+    def _rewrite_scoped_ref_for_nested_projection(
+        cls,
+        ref: str,
+        *,
+        scope_name: str,
+        step_results: Dict[str, Any],
+    ) -> str | None:
+        candidates = cls._nested_projection_ref_candidates(
+            ref,
+            scope_name=scope_name,
+            step_results=step_results,
+        )
         if len(candidates) != 1:
             return None
-        return f"{prefix}{candidates[0]}{suffix}"
+        return candidates[0]
 
     def _resolve_ref_value(
         self,
@@ -7299,9 +7328,32 @@ class WorkflowExecutor:
                     candidate_step_maps: list[dict[str, Any]] = []
                     if isinstance(scope, dict) and isinstance(scope.get(f"{scope_name}_steps"), dict):
                         candidate_step_maps.append(scope[f"{scope_name}_steps"])
+                    if (
+                        scope_name == "parent"
+                        and isinstance(scope, dict)
+                        and isinstance(scope.get("self_steps"), dict)
+                        and scope["self_steps"] not in candidate_step_maps
+                    ):
+                        candidate_step_maps.append(scope["self_steps"])
                     if isinstance(state.get("steps"), dict):
                         candidate_step_maps.append(state["steps"])
                     for step_results in candidate_step_maps:
+                        rewritten_candidates = (
+                            self._nested_projection_ref_candidates(
+                                candidate_ref,
+                                scope_name=scope_name,
+                                step_results=step_results,
+                            )
+                        )
+                        if len(rewritten_candidates) > 1:
+                            return None, self._v214_failure_result(
+                                "materialize_ref_unresolved",
+                                "Structured ref matched multiple nested projections",
+                                context={
+                                    "ref": candidate_ref,
+                                    "reason": "ambiguous_nested_projection",
+                                },
+                            )
                         rewritten_ref = self._rewrite_scoped_ref_for_nested_projection(
                             candidate_ref,
                             scope_name=scope_name,
@@ -7310,7 +7362,7 @@ class WorkflowExecutor:
                         if not isinstance(rewritten_ref, str):
                             continue
                         retry_scope = dict(scope) if isinstance(scope, dict) else {}
-                        retry_scope.setdefault(f"{scope_name}_steps", step_results)
+                        retry_scope[f"{scope_name}_steps"] = step_results
                         try:
                             return self.reference_resolver.resolve(rewritten_ref, state, scope=retry_scope).value, None
                         except ReferenceResolutionError:
@@ -9430,6 +9482,116 @@ class WorkflowExecutor:
             execution_index=execution_index,
             visit_count=visit_count,
             loop_iteration=current_iteration,
+        )
+
+    def _emit_lexical_checkpoint_shadow_after_nested_step_commit(
+        self,
+        *,
+        step: RuntimeStepInput,
+        loop_step: RuntimeStepInput,
+        loop_name: str,
+        iteration_index: int,
+        runtime_step_id: str,
+        finalized: Mapping[str, Any],
+    ) -> None:
+        if self.runtime_plan is None or self.projection is None:
+            return
+        nested_node = self._executable_node_for_step(step)
+        static_step_id = (
+            nested_node.node_id
+            if nested_node is not None
+            and isinstance(getattr(nested_node, "node_id", None), str)
+            else None
+        )
+        if not isinstance(static_step_id, str) or not static_step_id:
+            raise ValueError(
+                "nested lexical checkpoint executable identity is unavailable"
+            )
+        matching_points = tuple(
+            point
+            for point in self.runtime_plan.lexical_checkpoint_points
+            if point.step_id == static_step_id
+        )
+        if not matching_points:
+            return
+        if len(matching_points) != 1:
+            raise ValueError(
+                f"duplicate lexical checkpoint step id: {static_step_id}"
+            )
+        point = matching_points[0]
+        loop_node = self._executable_node_for_step(loop_step)
+        if loop_node is None:
+            raise ValueError(
+                "nested lexical checkpoint owner is unavailable"
+            )
+        owner_node_id = loop_node.node_id
+        owner_projection = self.projection.repeat_until_nodes.get(
+            owner_node_id
+        )
+        if (
+            owner_projection is None
+            or point.node_id
+            not in owner_projection.nested_step_id_suffixes
+        ):
+            raise ValueError(
+                "nested lexical checkpoint owner does not match repeat frame"
+            )
+        expected_runtime_step_id = (
+            self.projection.repeat_until_runtime_step_id(
+                owner_node_id,
+                iteration_index,
+                point.node_id,
+            )
+        )
+        if runtime_step_id != expected_runtime_step_id:
+            raise ValueError(
+                "nested lexical checkpoint runtime step id mismatch"
+            )
+        owner_plan_node = self.runtime_plan.nodes.get(owner_node_id)
+        execution_index = (
+            owner_plan_node.execution_index
+            if owner_plan_node is not None
+            else None
+        )
+        if not isinstance(execution_index, int):
+            raise ValueError(
+                "nested lexical checkpoint owner has no execution index"
+            )
+        step_visits = (
+            self.state_manager.state.step_visits
+            if self.state_manager.state is not None
+            else {}
+        )
+        visit_count = (
+            step_visits.get(loop_name)
+            if isinstance(step_visits, dict)
+            else None
+        )
+        if not isinstance(visit_count, int):
+            raise ValueError(
+                "nested lexical checkpoint owner visit is unavailable"
+            )
+        call_frame_id = None
+        debug_payload = finalized.get("debug")
+        if isinstance(debug_payload, Mapping):
+            call_debug = debug_payload.get("call")
+            if isinstance(call_debug, Mapping):
+                candidate = call_debug.get("call_frame_id")
+                if isinstance(candidate, str) and candidate:
+                    call_frame_id = candidate
+        from orchestrator.workflow_lisp.lexical_checkpoints import (
+            emit_runtime_shadow_record,
+        )
+
+        emit_runtime_shadow_record(
+            executor=self,
+            step_id=static_step_id,
+            execution_index=execution_index,
+            visit_count=visit_count,
+            loop_iteration=iteration_index,
+            call_frame_id=call_frame_id,
+            runtime_step_id=runtime_step_id,
+            committed_step_state=finalized,
         )
 
     def _attach_outcome(

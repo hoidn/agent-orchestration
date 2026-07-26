@@ -900,6 +900,188 @@ def _compile_list_loop_resume_bundle(workspace: Path):
     return module_path, bundle
 
 
+def _compile_list_map_effect_resume_bundle(workspace: Path):
+    module_path = workspace / "list_map_effect_resume.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.18")',
+                "  (defmodule list_map_effect_resume)",
+                "  (export orchestrate)",
+                "  (defworkflow child ((value Int)) -> Int (+ value 10))",
+                "  (defworkflow orchestrate () -> List[Int]",
+                "    (list/map-effect ((item (list 1 2))) :max 2",
+                "      (call child :value item))))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(workspace,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=workspace,
+    )
+    bundle = result.validated_bundles_by_name[
+        "list_map_effect_resume::orchestrate"
+    ]
+    return module_path, bundle
+
+
+def _interrupt_list_map_effect_after_committed_call(
+    workspace: Path,
+    *,
+    run_id: str,
+    interrupt_iteration: int = 0,
+    suppress_checkpoint_shadow: bool = False,
+    suppress_checkpoint_shadow_iteration: int | None = None,
+) -> SimpleNamespace:
+    module_path, bundle = _compile_list_map_effect_resume_bundle(workspace)
+    state_manager = StateManager(workspace=workspace, run_id=run_id)
+    state_manager.initialize(
+        str(module_path),
+        context=bundle_context_dict(bundle),
+    )
+    original_nested = WorkflowExecutor._execute_nested_loop_step
+    original_call = WorkflowExecutor._execute_call
+    original_emit = (
+        WorkflowExecutor._emit_lexical_checkpoint_shadow_after_nested_step_commit
+    )
+    committed_call_ids: list[str | None] = []
+    interrupted = {"done": False}
+
+    class _InjectedPostCallInterruption(BaseException):
+        pass
+
+    def _record_call(current_executor, step, state, **kwargs):
+        committed_call_ids.append(kwargs.get("runtime_step_id"))
+        return original_call(current_executor, step, state, **kwargs)
+
+    def _emit_or_suppress_checkpoint(current_executor, **kwargs):
+        if (
+            suppress_checkpoint_shadow
+            or kwargs.get("iteration_index")
+            == suppress_checkpoint_shadow_iteration
+        ):
+            return None
+        return original_emit(current_executor, **kwargs)
+
+    def _interrupt_before_accumulator_projection(
+        current_executor,
+        step,
+        context,
+        state,
+        iteration_state,
+        parent_scope_steps,
+        **kwargs,
+    ):
+        result = original_nested(
+            current_executor,
+            step,
+            context,
+            state,
+            iteration_state,
+            parent_scope_steps,
+            **kwargs,
+        )
+        if (
+            not interrupted["done"]
+            and isinstance(step.get("call"), str)
+            and result.get("status") == "completed"
+            and kwargs.get("iteration_index") == interrupt_iteration
+        ):
+            interrupted["done"] = True
+            raise _InjectedPostCallInterruption
+        return result
+
+    with (
+        patch.object(WorkflowExecutor, "_execute_call", new=_record_call),
+        patch.object(
+            WorkflowExecutor,
+            "_emit_lexical_checkpoint_shadow_after_nested_step_commit",
+            new=_emit_or_suppress_checkpoint,
+        ),
+        patch.object(
+            WorkflowExecutor,
+            "_execute_nested_loop_step",
+            new=_interrupt_before_accumulator_projection,
+        ),
+    ):
+        with pytest.raises(_InjectedPostCallInterruption):
+            WorkflowExecutor(
+                bundle,
+                workspace,
+                state_manager,
+                retry_delay_ms=0,
+            ).execute()
+
+    persisted = state_manager.load()
+    assert persisted.status == "running"
+    assert len(committed_call_ids) == interrupt_iteration + 1
+    return SimpleNamespace(
+        module_path=module_path,
+        bundle=bundle,
+        state_manager=state_manager,
+        committed_call_ids=committed_call_ids,
+        interrupted_iteration=interrupt_iteration,
+    )
+
+
+def _list_map_effect_checkpoint_sidecars(
+    interrupted_run: SimpleNamespace,
+    *,
+    loop_iteration: int = 0,
+) -> SimpleNamespace:
+    effect_point = next(
+        point
+        for point in interrupted_run.bundle.runtime_plan.lexical_checkpoint_points
+        if point.point_kind == "effect_boundary"
+    )
+    qualified_checkpoint = next(
+        checkpoint
+        for checkpoint in interrupted_run.bundle.runtime_plan.resume_checkpoints
+        if checkpoint.node_id == effect_point.node_id
+        and checkpoint.runtime_step_id_mode == "qualified_iteration"
+    )
+    index_path = (
+        interrupted_run.state_manager.workspace
+        / ".orchestrate"
+        / "runs"
+        / interrupted_run.state_manager.run_id
+        / "workflow_lisp"
+        / "checkpoints"
+        / "index"
+        / f"{effect_point.checkpoint_id}.json"
+    )
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    matching_entries = [
+        entry
+        for entry in index_payload["records"]
+        if entry["frame_identity"]["loop_iteration"] == loop_iteration
+    ]
+    assert len(matching_entries) == 1
+    index_entry = matching_entries[0]
+    record_path = (
+        interrupted_run.state_manager.workspace
+        / index_entry["record_path"]
+    )
+    return SimpleNamespace(
+        effect_point=effect_point,
+        qualified_checkpoint=qualified_checkpoint,
+        index_path=index_path,
+        index_payload=index_payload,
+        index_entry=index_entry,
+        record_path=record_path,
+        record_payload=json.loads(record_path.read_text(encoding="utf-8")),
+    )
+
+
 def _resolved_generated_bundle_path(
     workspace: Path,
     state_manager: StateManager,
@@ -1145,6 +1327,370 @@ def test_resume_list_loop_restores_committed_continue_boundary_without_replay(
     )
     assert restore_payload["decision_kind"] == "RESTORED"
     assert restore_payload["restored_loop_frames"] >= 1
+
+
+def test_resume_list_map_effect_reuses_committed_call_before_accumulator_projection(
+    tmp_path: Path,
+) -> None:
+    run_id = "list-map-effect-call-boundary-resume"
+    interrupted_run = _interrupt_list_map_effect_after_committed_call(
+        tmp_path,
+        run_id=run_id,
+    )
+    sidecars = _list_map_effect_checkpoint_sidecars(interrupted_run)
+    bundle = interrupted_run.bundle
+    original_call = WorkflowExecutor._execute_call
+    committed_call_ids = interrupted_run.committed_call_ids
+    checkpoint = sidecars.qualified_checkpoint
+    expected_runtime_step_id = (
+        f"{checkpoint.iteration_owner_node_id}#0."
+        f"{checkpoint.iteration_step_id_suffix}"
+    )
+    expected_call_frame_id = f"{expected_runtime_step_id}::visit::1"
+
+    def _record_call(current_executor, step, state, **kwargs):
+        committed_call_ids.append(kwargs.get("runtime_step_id"))
+        return original_call(current_executor, step, state, **kwargs)
+
+    assert sidecars.index_payload["checkpoint_id"] == sidecars.effect_point.checkpoint_id
+    assert sidecars.record_payload["checkpoint_id"] == sidecars.effect_point.checkpoint_id
+    assert (
+        sidecars.record_payload["program_point_id"]
+        == sidecars.effect_point.program_point_id
+    )
+    assert (
+        sidecars.index_payload["records"][0]["frame_identity"]
+        == sidecars.record_payload["frame_identity"]
+    )
+    assert sidecars.record_payload["frame_identity"] == {
+        "execution_index": bundle.runtime_plan.nodes[
+            checkpoint.iteration_owner_node_id
+        ].execution_index,
+        "visit_count": 1,
+        "loop_iteration": 0,
+        "call_frame_id": expected_call_frame_id,
+        "runtime_step_id": expected_runtime_step_id,
+    }
+    assert sidecars.record_payload["loop_frame_state"] is None
+    assert sidecars.record_payload["completed_effect_refs"][0]["call_frame_id"] == (
+        expected_call_frame_id
+    )
+    assert (
+        sidecars.record_payload["completed_effect_refs"][0]["step_id"]
+        == sidecars.effect_point.step_id
+    )
+
+    resume_state_manager = StateManager(workspace=tmp_path, run_id=run_id)
+    resume_state_manager.load()
+    with patch.object(WorkflowExecutor, "_execute_call", new=_record_call):
+        resumed = WorkflowExecutor(
+            bundle,
+            tmp_path,
+            resume_state_manager,
+            retry_delay_ms=0,
+        ).execute(resume=True)
+
+    assert resumed["status"] == "completed"
+    assert resumed["workflow_outputs"] == {"__result__": [11, 12]}
+    assert len(committed_call_ids) == 2
+    assert len(set(committed_call_ids)) == 2
+    default_resume = json.loads(
+        resume_state_manager.workflow_lisp_checkpoint_default_resume_report_path().read_text(
+            encoding="utf-8"
+        )
+    )
+    assert default_resume["selection_reason"] == "validated_prior_boundary"
+    assert default_resume["checkpoint_id"] == sidecars.effect_point.checkpoint_id
+
+
+def test_resume_list_map_effect_reuses_second_iteration_committed_call_without_replay(
+    tmp_path: Path,
+) -> None:
+    run_id = "list-map-effect-second-call-boundary-resume"
+    interrupted_run = _interrupt_list_map_effect_after_committed_call(
+        tmp_path,
+        run_id=run_id,
+        interrupt_iteration=1,
+    )
+    sidecars = _list_map_effect_checkpoint_sidecars(
+        interrupted_run,
+        loop_iteration=1,
+    )
+    checkpoint = sidecars.qualified_checkpoint
+    expected_runtime_step_id = (
+        f"{checkpoint.iteration_owner_node_id}#1."
+        f"{checkpoint.iteration_step_id_suffix}"
+    )
+    expected_call_frame_id = f"{expected_runtime_step_id}::visit::1"
+    original_call = WorkflowExecutor._execute_call
+
+    assert len(sidecars.index_payload["records"]) == 2
+    assert sidecars.index_entry["frame_identity"] == {
+        "execution_index": interrupted_run.bundle.runtime_plan.nodes[
+            checkpoint.iteration_owner_node_id
+        ].execution_index,
+        "visit_count": 1,
+        "loop_iteration": 1,
+        "call_frame_id": expected_call_frame_id,
+        "runtime_step_id": expected_runtime_step_id,
+    }
+    assert (
+        sidecars.record_payload["frame_identity"]
+        == sidecars.index_entry["frame_identity"]
+    )
+    assert len(sidecars.record_payload["completed_effect_refs"]) == 1
+    assert sidecars.record_payload["completed_effect_refs"][0][
+        "call_frame_id"
+    ] == expected_call_frame_id
+    assert sidecars.record_payload["completed_effect_refs"][0][
+        "step_id"
+    ] == sidecars.effect_point.step_id
+    assert interrupted_run.committed_call_ids == [
+        (
+            f"{checkpoint.iteration_owner_node_id}#0."
+            f"{checkpoint.iteration_step_id_suffix}"
+        ),
+        expected_runtime_step_id,
+    ]
+
+    def _record_call(current_executor, step, state, **kwargs):
+        interrupted_run.committed_call_ids.append(
+            kwargs.get("runtime_step_id")
+        )
+        return original_call(current_executor, step, state, **kwargs)
+
+    resume_state_manager = StateManager(workspace=tmp_path, run_id=run_id)
+    resume_state_manager.load()
+    with patch.object(WorkflowExecutor, "_execute_call", new=_record_call):
+        resumed = WorkflowExecutor(
+            interrupted_run.bundle,
+            tmp_path,
+            resume_state_manager,
+            retry_delay_ms=0,
+        ).execute(resume=True)
+
+    assert resumed["status"] == "completed"
+    assert resumed["workflow_outputs"] == {"__result__": [11, 12]}
+    assert interrupted_run.committed_call_ids == [
+        (
+            f"{checkpoint.iteration_owner_node_id}#0."
+            f"{checkpoint.iteration_step_id_suffix}"
+        ),
+        expected_runtime_step_id,
+    ]
+    default_resume = json.loads(
+        resume_state_manager.workflow_lisp_checkpoint_default_resume_report_path().read_text(
+            encoding="utf-8"
+        )
+    )
+    assert default_resume["selection_reason"] == "validated_prior_boundary"
+    assert default_resume["checkpoint_id"] == sidecars.effect_point.checkpoint_id
+    assert default_resume["record_id"] == sidecars.record_payload["record_id"]
+
+
+def test_resume_list_map_effect_fails_closed_when_second_iteration_shadow_is_suppressed(
+    tmp_path: Path,
+) -> None:
+    run_id = "list-map-effect-suppressed-second-call-shadow"
+    interrupted_run = _interrupt_list_map_effect_after_committed_call(
+        tmp_path,
+        run_id=run_id,
+        interrupt_iteration=1,
+        suppress_checkpoint_shadow_iteration=1,
+    )
+    first_effect_sidecars = _list_map_effect_checkpoint_sidecars(
+        interrupted_run,
+        loop_iteration=0,
+    )
+    loop_back_point = next(
+        point
+        for point in interrupted_run.bundle.runtime_plan.lexical_checkpoint_points
+        if point.point_kind == "loop_back_edge"
+    )
+    loop_back_index_path = (
+        tmp_path
+        / ".orchestrate"
+        / "runs"
+        / run_id
+        / "workflow_lisp"
+        / "checkpoints"
+        / "index"
+        / f"{loop_back_point.checkpoint_id}.json"
+    )
+    loop_back_index = json.loads(
+        loop_back_index_path.read_text(encoding="utf-8")
+    )
+    original_call = WorkflowExecutor._execute_call
+
+    assert len(first_effect_sidecars.index_payload["records"]) == 1
+    assert (
+        first_effect_sidecars.index_entry["frame_identity"]["loop_iteration"]
+        == 0
+    )
+    assert len(loop_back_index["records"]) == 1
+    assert loop_back_index["records"][0]["frame_identity"]["loop_iteration"] == 0
+
+    def _record_call(current_executor, step, state, **kwargs):
+        interrupted_run.committed_call_ids.append(
+            kwargs.get("runtime_step_id")
+        )
+        return original_call(current_executor, step, state, **kwargs)
+
+    resume_state_manager = StateManager(workspace=tmp_path, run_id=run_id)
+    resume_state_manager.load()
+    with patch.object(WorkflowExecutor, "_execute_call", new=_record_call):
+        resumed = WorkflowExecutor(
+            interrupted_run.bundle,
+            tmp_path,
+            resume_state_manager,
+            retry_delay_ms=0,
+        ).execute(resume=True)
+
+    assert resumed["status"] == "failed"
+    assert resumed["error"]["type"] == "lexical_default_resume_invalid"
+    assert resumed["error"]["context"]["diagnostics"] == [
+        "lexical_default_resume_prior_boundary_not_restorable"
+    ]
+    assert len(interrupted_run.committed_call_ids) == 2
+    default_resume = json.loads(
+        resume_state_manager.workflow_lisp_checkpoint_default_resume_report_path().read_text(
+            encoding="utf-8"
+        )
+    )
+    assert default_resume["mode"] == "FAIL_CLOSED"
+    assert default_resume["checkpoint_id"] != loop_back_point.checkpoint_id
+
+
+@pytest.mark.parametrize(
+    ("frame_field", "tampered_value"),
+    (
+        ("runtime_step_id", "root.tampered#0.effect"),
+        ("loop_iteration", 1),
+    ),
+)
+def test_resume_list_map_effect_rejects_tampered_nested_checkpoint_frame_identity(
+    tmp_path: Path,
+    frame_field: str,
+    tampered_value: object,
+) -> None:
+    run_id = f"list-map-effect-tampered-{frame_field}"
+    interrupted_run = _interrupt_list_map_effect_after_committed_call(
+        tmp_path,
+        run_id=run_id,
+    )
+    sidecars = _list_map_effect_checkpoint_sidecars(interrupted_run)
+    sidecars.index_payload["records"][0]["frame_identity"][
+        frame_field
+    ] = tampered_value
+    sidecars.record_payload["frame_identity"][frame_field] = tampered_value
+    interrupted_run.state_manager.write_runtime_sidecar_json(
+        sidecars.index_path,
+        sidecars.index_payload,
+    )
+    interrupted_run.state_manager.write_runtime_sidecar_json(
+        sidecars.record_path,
+        sidecars.record_payload,
+    )
+
+    original_call = WorkflowExecutor._execute_call
+
+    def _record_call(current_executor, step, state, **kwargs):
+        interrupted_run.committed_call_ids.append(
+            kwargs.get("runtime_step_id")
+        )
+        return original_call(current_executor, step, state, **kwargs)
+
+    resume_state_manager = StateManager(workspace=tmp_path, run_id=run_id)
+    resume_state_manager.load()
+    with patch.object(WorkflowExecutor, "_execute_call", new=_record_call):
+        resumed = WorkflowExecutor(
+            interrupted_run.bundle,
+            tmp_path,
+            resume_state_manager,
+            retry_delay_ms=0,
+        ).execute(resume=True)
+
+    assert resumed["status"] == "failed"
+    assert resumed["error"]["type"] == "lexical_restore_invalid"
+    assert resumed["error"]["context"]["diagnostics"] == [
+        "lexical_default_resume_invalid_checkpoint",
+        "lexical_checkpoint_completed_effect_invalid",
+    ]
+    assert len(interrupted_run.committed_call_ids) == 1
+
+
+def test_resume_list_map_effect_fails_closed_when_committed_call_shadow_is_suppressed(
+    tmp_path: Path,
+) -> None:
+    run_id = "list-map-effect-suppressed-call-shadow"
+    interrupted_run = _interrupt_list_map_effect_after_committed_call(
+        tmp_path,
+        run_id=run_id,
+        suppress_checkpoint_shadow=True,
+    )
+    original_call = WorkflowExecutor._execute_call
+
+    def _record_call(current_executor, step, state, **kwargs):
+        interrupted_run.committed_call_ids.append(
+            kwargs.get("runtime_step_id")
+        )
+        return original_call(current_executor, step, state, **kwargs)
+
+    resume_state_manager = StateManager(workspace=tmp_path, run_id=run_id)
+    resume_state_manager.load()
+    with patch.object(WorkflowExecutor, "_execute_call", new=_record_call):
+        resumed = WorkflowExecutor(
+            interrupted_run.bundle,
+            tmp_path,
+            resume_state_manager,
+            retry_delay_ms=0,
+        ).execute(resume=True)
+
+    assert resumed["status"] == "failed"
+    assert resumed["error"]["type"] == "lexical_default_resume_invalid"
+    assert resumed["error"]["context"]["diagnostics"] == [
+        "lexical_default_resume_prior_boundary_not_restorable"
+    ]
+    assert len(interrupted_run.committed_call_ids) == 1
+
+
+def test_resume_list_map_effect_rejects_ambiguous_nested_effect_boundaries(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp.lexical_checkpoint_default_resume import (
+        _nearest_prior_effect_boundary,
+    )
+
+    _, bundle = _compile_list_map_effect_resume_bundle(tmp_path)
+    effect_point = next(
+        point
+        for point in bundle.runtime_plan.lexical_checkpoint_points
+        if point.point_kind == "effect_boundary"
+    )
+    checkpoint = next(
+        candidate
+        for candidate in bundle.runtime_plan.resume_checkpoints
+        if candidate.node_id == effect_point.node_id
+        and candidate.runtime_step_id_mode == "qualified_iteration"
+    )
+    runtime_plan = replace(
+        bundle.runtime_plan,
+        lexical_checkpoint_points=(
+            *bundle.runtime_plan.lexical_checkpoint_points,
+            replace(
+                effect_point,
+                checkpoint_id=f"{effect_point.checkpoint_id}:duplicate",
+            ),
+        ),
+    )
+
+    selected, diagnostic = _nearest_prior_effect_boundary(
+        runtime_plan=runtime_plan,
+        restart_node_id=checkpoint.iteration_owner_node_id,
+    )
+
+    assert selected is None
+    assert diagnostic == "lexical_default_resume_prior_boundary_ambiguous"
 
 
 def test_resume_list_loop_preserves_canonical_collection_projection_bundle(

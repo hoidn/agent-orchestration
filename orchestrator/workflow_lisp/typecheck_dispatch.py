@@ -21,6 +21,7 @@ from .expressions import (
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
+    CompilerListNonemptyHeadExpr,
     ContinueExpr,
     DoneExpr,
     EnumMemberExpr,
@@ -33,8 +34,10 @@ from .expressions import (
     LetProcExpr,
     LetStarExpr,
     ListExpr,
+    ListMapEffectExpr,
     ListMapExpr,
     LiteralExpr,
+    LoopStateField,
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
     LoopRecurExpr,
@@ -507,6 +510,11 @@ def _typecheck(
     if isinstance(expr, ListExpr):
         expected_list = expected_type if isinstance(expected_type, ListTypeRef) else None
         if not expr.items:
+            if expected_list is None and expr.element_type_ref is not None:
+                expected_list = ListTypeRef(
+                    name=f"List[{expr.element_type_ref.name}]",
+                    item_type_ref=expr.element_type_ref,
+                )
             if expected_list is None:
                 _raise_error(
                     "empty `(list)` requires one exact expected `List[T]` context",
@@ -674,6 +682,355 @@ def _typecheck(
             type_ref=result_type,
             effect=EMPTY_EFFECT_SUMMARY,
         )
+    if isinstance(expr, CompilerListNonemptyHeadExpr):
+        typed_source = recurse(expr.source_expr)
+        if not isinstance(typed_source.type_ref, ListTypeRef):
+            _raise_error(
+                "compiler-owned nonempty head requires a List source",
+                code="list_nonempty_invariant_broken",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        if (
+            typed_source.effect_summary != EMPTY_EFFECT_SUMMARY
+            or not _type_refs_compatible(
+                typed_source.type_ref.item_type_ref,
+                expr.element_type_ref,
+            )
+        ):
+            _raise_error(
+                "compiler-owned nonempty head has inconsistent source metadata",
+                code="list_nonempty_invariant_broken",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        return _typed(
+            expr=replace(expr, source_expr=typed_source.expr),
+            type_ref=expr.element_type_ref,
+            effect=EMPTY_EFFECT_SUMMARY,
+        )
+    if isinstance(expr, ListMapEffectExpr):
+        typed_source = recurse(expr.source_expr)
+        if not isinstance(typed_source.type_ref, ListTypeRef):
+            _raise_error(
+                "`list/map-effect` source must have a List type",
+                code="pure_expr_operand_type_mismatch",
+                span=expr.source_expr.span,
+                form_path=expr.source_expr.form_path,
+                expansion_stack=expr.source_expr.expansion_stack,
+            )
+        if typed_source.effect_summary != EMPTY_EFFECT_SUMMARY:
+            _raise_error(
+                "`list/map-effect` source must be pure",
+                code="list_map_effect_body_unsupported",
+                span=expr.source_expr.span,
+                form_path=expr.source_expr.form_path,
+                expansion_stack=expr.source_expr.expansion_stack,
+            )
+        if not _is_transportable_result_type(typed_source.type_ref):
+            _raise_error(
+                (
+                    "list collection contract is unsupported for complete type "
+                    f"`{_type_label(typed_source.type_ref)}`"
+                ),
+                code="list_collection_contract_unsupported",
+                span=expr.source_expr.span,
+                form_path=expr.source_expr.form_path,
+                expansion_stack=expr.source_expr.expansion_stack,
+            )
+        if not isinstance(
+            expr.body_expr,
+            (
+                ProviderResultExpr,
+                CommandResultExpr,
+                CallExpr,
+                ProcedureCallExpr,
+            ),
+        ):
+            _raise_error(
+                (
+                    "`list/map-effect` body must be one provider, command, "
+                    "workflow, or procedure call"
+                ),
+                code="list_map_effect_body_unsupported",
+                span=expr.body_expr.span,
+                form_path=expr.body_expr.form_path,
+                expansion_stack=expr.body_expr.expansion_stack,
+            )
+        body_env = {
+            **value_env,
+            expr.binder_name: typed_source.type_ref.item_type_ref,
+        }
+        typed_body = recurse(expr.body_expr, value_env=body_env)
+        from .expression_traversal import iter_child_exprs
+        from .functions import _find_purity_violation
+
+        nested_effect = next(
+            (
+                violation
+                for child in iter_child_exprs(typed_body.expr)
+                if (violation := _find_purity_violation(child)) is not None
+            ),
+            None,
+        )
+        if nested_effect is not None:
+            _raise_error(
+                (
+                    "`list/map-effect` call arguments must be pure; found "
+                    f"effectful form `{nested_effect}`"
+                ),
+                code="list_map_effect_body_unsupported",
+                span=expr.body_expr.span,
+                form_path=expr.body_expr.form_path,
+                expansion_stack=expr.body_expr.expansion_stack,
+            )
+        result_type = ListTypeRef(
+            name=f"List[{typed_body.type_ref.name}]",
+            item_type_ref=typed_body.type_ref,
+        )
+        if not _is_transportable_result_type(result_type):
+            _raise_error(
+                (
+                    "list collection contract is unsupported for complete type "
+                    f"`{_type_label(result_type)}`"
+                ),
+                code="list_collection_contract_unsupported",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        if expected_type is not None and not _type_refs_compatible(
+            expected_type,
+            result_type,
+        ):
+            _raise_error(
+                (
+                    f"`list/map-effect` produced `{_type_label(result_type)}` but "
+                    f"the checked context expected `{_type_label(expected_type)}`"
+                ),
+                code="pure_expr_operand_type_mismatch",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        state_name = "__list_map_effect_state"
+        next_state_name = "__list_map_effect_next_state"
+        effect_result_name = "__list_map_effect_result"
+        tail_name = "__list_map_effect_tail"
+        appended_name = "__list_map_effect_results"
+
+        def _state_field(field_name: str) -> FieldAccessExpr:
+            return FieldAccessExpr(
+                base=NameExpr(
+                    name=state_name,
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+                fields=(field_name,),
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+
+        remaining = _state_field("remaining")
+        results = _state_field("results")
+        tail = PureOpExpr(
+            operator="list/rest",
+            args=(remaining,),
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+        appended = PureOpExpr(
+            operator="list/append",
+            args=(
+                results,
+                NameExpr(
+                    name=effect_result_name,
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+            ),
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+        updated_state = LoopStateUpdateExpr(
+            base_expr=NameExpr(
+                name=state_name,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            ),
+            overrides=(
+                (
+                    "remaining",
+                    NameExpr(
+                        name=tail_name,
+                        span=expr.span,
+                        form_path=expr.form_path,
+                        expansion_stack=expr.expansion_stack,
+                    ),
+                ),
+                (
+                    "results",
+                    NameExpr(
+                        name=appended_name,
+                        span=expr.span,
+                        form_path=expr.form_path,
+                        expansion_stack=expr.expansion_stack,
+                    ),
+                ),
+            ),
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+        inner_control = IfExpr(
+            condition_expr=PureOpExpr(
+                operator="list/empty?",
+                args=(
+                    NameExpr(
+                        name=tail_name,
+                        span=expr.span,
+                        form_path=expr.form_path,
+                        expansion_stack=expr.expansion_stack,
+                    ),
+                ),
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            ),
+            then_expr=DoneExpr(
+                result_expr=NameExpr(
+                    name=appended_name,
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+                terminal_state_expr=NameExpr(
+                    name=next_state_name,
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+            ),
+            else_expr=ContinueExpr(
+                state_expr=NameExpr(
+                    name=next_state_name,
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            ),
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+        nonempty_body = LetStarExpr(
+            bindings=(
+                (
+                    expr.binder_name,
+                    CompilerListNonemptyHeadExpr(
+                        source_expr=remaining,
+                        element_type_ref=typed_source.type_ref.item_type_ref,
+                        span=expr.span,
+                        form_path=expr.form_path,
+                        expansion_stack=expr.expansion_stack,
+                    ),
+                ),
+                (effect_result_name, typed_body.expr),
+                (tail_name, tail),
+                (appended_name, appended),
+                (next_state_name, updated_state),
+            ),
+            body=inner_control,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+        loop_body = IfExpr(
+            condition_expr=PureOpExpr(
+                operator="list/empty?",
+                args=(remaining,),
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            ),
+            then_expr=DoneExpr(
+                result_expr=results,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            ),
+            else_expr=nonempty_body,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+        synthetic_loop = LoopRecurExpr(
+            max_iterations_expr=LiteralExpr(
+                value=expr.max_iterations,
+                literal_kind="int",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            ),
+            initial_state_expr=LoopStateSeedExpr(
+                fields=(
+                    LoopStateField(
+                        name="remaining",
+                        type_name=typed_source.type_ref.name,
+                        value_expr=typed_source.expr,
+                        span=expr.span,
+                        form_path=expr.form_path,
+                        expansion_stack=expr.expansion_stack,
+                    ),
+                    LoopStateField(
+                        name="results",
+                        type_name=result_type.name,
+                        value_expr=ListExpr(
+                            items=(),
+                            element_type_ref=typed_body.type_ref,
+                            span=expr.span,
+                            form_path=expr.form_path,
+                            expansion_stack=expr.expansion_stack,
+                        ),
+                        span=expr.span,
+                        form_path=expr.form_path,
+                        expansion_stack=expr.expansion_stack,
+                    ),
+                ),
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            ),
+            binding_name=state_name,
+            body_expr=loop_body,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+            exhaustion_diagnostic_code="list_map_effect_cap_exceeded",
+            single_iteration_effect_kinds=(
+                "provider",
+                "command",
+                "call",
+            ),
+            effect_cardinality_diagnostic_code=(
+                "list_map_effect_body_unsupported"
+            ),
+        )
+        return recurse(synthetic_loop, expected_type=result_type)
     if isinstance(expr, PathJoinUnderExpr):
         try:
             path_type = type_env.resolve_type(
@@ -992,6 +1349,36 @@ def _typecheck(
             )
         loop_context = session_state.loop_context[-1]
         typed_result = recurse(expr.result_expr)
+        typed_terminal_state = (
+            recurse(expr.terminal_state_expr)
+            if expr.terminal_state_expr is not None
+            else None
+        )
+        if (
+            typed_terminal_state is not None
+            and typed_terminal_state.effect_summary != EMPTY_EFFECT_SUMMARY
+        ):
+            _raise_error(
+                "compiler-owned terminal loop state must be pure",
+                code="loop_recur_done_terminal_state_invalid",
+                span=expr.terminal_state_expr.span,
+                form_path=expr.terminal_state_expr.form_path,
+                expansion_stack=expr.terminal_state_expr.expansion_stack,
+            )
+        if (
+            typed_terminal_state is not None
+            and typed_terminal_state.type_ref != loop_context.state_type_ref
+        ):
+            _raise_error(
+                (
+                    "compiler-owned terminal loop state expected "
+                    f"`{_type_label(loop_context.state_type_ref)}` but got "
+                    f"`{_type_label(typed_terminal_state.type_ref)}`"
+                ),
+                code="loop_recur_done_type_mismatch",
+                span=expr.terminal_state_expr.span,
+                form_path=expr.terminal_state_expr.form_path,
+            )
         if loop_context.result_type_ref is not None and typed_result.type_ref != loop_context.result_type_ref:
             _raise_error(
                 f"`done` expected `{_type_label(loop_context.result_type_ref)}` but got `{_type_label(typed_result.type_ref)}`",
@@ -1000,7 +1387,15 @@ def _typecheck(
                 form_path=expr.result_expr.form_path,
             )
         return _typed(
-            expr=expr,
+            expr=replace(
+                expr,
+                result_expr=typed_result.expr,
+                terminal_state_expr=(
+                    typed_terminal_state.expr
+                    if typed_terminal_state is not None
+                    else None
+                ),
+            ),
             type_ref=LoopControlTypeRef(
                 state_type_ref=loop_context.state_type_ref,
                 result_type_ref=typed_result.type_ref,

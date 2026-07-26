@@ -18,6 +18,7 @@ from ..expression_traversal import iter_child_exprs
 from ..expressions import (
     CallExpr,
     CommandResultExpr,
+    CompilerListNonemptyHeadExpr,
     ContinueExpr,
     DoneExpr,
     EnumMemberExpr,
@@ -965,6 +966,11 @@ def _lower_one_wcc_workflow(
                 authored_mapping
             )
         ),
+        compiler_owned_nested_if_step_ids=(
+            lowering_core._capture_compiler_owned_nested_if_step_ids(
+                authored_mapping
+            )
+        ),
     )
 
 
@@ -1627,6 +1633,11 @@ def _build_effect_resume_policy_payload(
         callee_workflow = None
         if isinstance(value, WccCall):
             callee_workflow = value.specialized_callee_name or value.callee_name
+        elif (
+            isinstance(value, WccPerform)
+            and value.perform_kind == "workflow_call"
+        ):
+            callee_workflow = value.target_name
         target_dsl_version, callee_checksum = _workflow_call_policy_metadata(
             context=context,
             callee_workflow=callee_workflow or step_id,
@@ -2180,6 +2191,223 @@ def _defunctionalize_body(
     )
 
 
+def _lowered_effect_boundary_kind(
+    emitted_steps: list[dict[str, Any]],
+    *,
+    terminal: _TerminalResult,
+) -> str | None:
+    """Classify an observed boundary from its lowered structural step."""
+
+    matching_steps: list[Mapping[str, Any]] = []
+
+    def visit(value: Any) -> None:
+        if isinstance(value, Mapping):
+            if value.get("id") == terminal.step_id:
+                matching_steps.append(value)
+            for nested in value.values():
+                visit(nested)
+            return
+        if isinstance(value, (tuple, list)):
+            for nested in value:
+                visit(nested)
+
+    visit(emitted_steps)
+    if not matching_steps:
+        return None
+    if len(matching_steps) != 1:
+        raise ValueError(
+            "lowered loop iteration terminal identity is ambiguous"
+        )
+    step = matching_steps[0]
+    boundary_keys = (
+        ("provider", "provider"),
+        ("command", "command"),
+        ("call", "call"),
+        ("materialize_view", "materialize_view"),
+        ("resource_transition", "resource_transition"),
+        ("resume_or_start", "resume_or_start"),
+        ("provider_supervision", "provider_supervision"),
+        ("provider_peer_group", "provider_peer_group"),
+        ("finalize_selected_item", "finalize_selected_item"),
+    )
+    observed = tuple(
+        kind
+        for key, kind in boundary_keys
+        if key in step
+    )
+    if not observed:
+        return None
+    if len(observed) != 1:
+        raise ValueError(
+            "lowered loop iteration terminal effect kind is ambiguous"
+        )
+    return observed[0]
+
+
+def _normalized_inline_procedure_wcc_body(
+    value: WccCall,
+    *,
+    procedure: TypedProcedureDef,
+    context: _LoweringContext,
+) -> WccBody:
+    workflow_return_types = {
+        name: workflow.signature.return_type_ref
+        for name, workflow in context.workflows_by_name.items()
+    }
+    workflow_return_types.update(
+        {
+            name: signature.return_type_ref
+            for name, signature
+            in context.workflow_catalog.signatures_by_name.items()
+        }
+    )
+    procedure_return_types = {
+        name: candidate.signature.return_type_ref
+        for name, candidate in context.typed_procedures.items()
+    }
+    route_schema_version = value.metadata.node_id.split(":", 2)[1]
+    return normalize_wcc_body_to_anf(
+        elaborate_typed_workflow_body(
+            procedure.typed_body,
+            owner_name=procedure.definition.name,
+            type_env=_procedure_type_env_for(
+                procedure,
+                procedure_type_envs=context.procedure_type_envs,
+                default=context.type_env,
+            ),
+            value_env=_procedure_signature_local_type_bindings(procedure),
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            route_schema_version=route_schema_version,
+        )
+    )
+
+
+def _iter_specialized_loop_effect_values(
+    body: WccBody,
+    *,
+    context: _LoweringContext,
+    active_procedures: frozenset[str] = frozenset(),
+):
+    if isinstance(body, WccLet):
+        value = body.bound_value
+        if isinstance(
+            value,
+            (WccPerform, WccProviderSupervision, WccProviderPeerGroup),
+        ):
+            yield value
+        elif isinstance(value, WccCall):
+            procedure = (
+                context.typed_procedures.get(
+                    value.specialized_callee_name
+                )
+                or context.typed_procedures.get(value.callee_name)
+            )
+            if (
+                procedure is not None
+                and procedure.resolved_lowering_mode
+                is ProcedureLoweringMode.INLINE
+            ):
+                procedure_name = procedure.signature.name
+                if procedure_name in active_procedures:
+                    raise LispFrontendCompileError(
+                        (
+                            LispFrontendDiagnostic(
+                                code="proc_lowering_cycle",
+                                message=(
+                                    "recursive procedure specialization "
+                                    f"cycle detected for `{procedure_name}`"
+                                ),
+                                span=value.metadata.source_span,
+                                form_path=value.metadata.form_path,
+                                phase="lowering",
+                            ),
+                        )
+                    )
+                yield from _iter_specialized_loop_effect_values(
+                    _normalized_inline_procedure_wcc_body(
+                        value,
+                        procedure=procedure,
+                        context=context,
+                    ),
+                    context=context,
+                    active_procedures=(
+                        active_procedures | {procedure_name}
+                    ),
+                )
+            else:
+                yield value
+        yield from _iter_specialized_loop_effect_values(
+            body.body,
+            context=context,
+            active_procedures=active_procedures,
+        )
+        return
+    if isinstance(body, WccIf):
+        yield from _iter_specialized_loop_effect_values(
+            body.then_body,
+            context=context,
+            active_procedures=active_procedures,
+        )
+        yield from _iter_specialized_loop_effect_values(
+            body.else_body,
+            context=context,
+            active_procedures=active_procedures,
+        )
+        return
+    if isinstance(body, WccCase):
+        for arm in body.arms:
+            yield from _iter_specialized_loop_effect_values(
+                arm.body,
+                context=context,
+                active_procedures=active_procedures,
+            )
+        return
+    if isinstance(body, WccJoin):
+        yield from _iter_specialized_loop_effect_values(
+            body.body,
+            context=context,
+            active_procedures=active_procedures,
+        )
+        yield from _iter_specialized_loop_effect_values(
+            body.continuation,
+            context=context,
+            active_procedures=active_procedures,
+        )
+        return
+    if isinstance(body, WccRecJoin):
+        yield from _iter_specialized_loop_effect_values(
+            body.body,
+            context=context,
+            active_procedures=active_procedures,
+        )
+        if body.exhaustion is not None:
+            yield from _iter_specialized_loop_effect_values(
+                body.exhaustion,
+                context=context,
+                active_procedures=active_procedures,
+            )
+
+
+def _loop_effect_compile_error(
+    body: WccRecJoin,
+    *,
+    code: str,
+    message: str,
+) -> LispFrontendCompileError:
+    return LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code=code,
+                message=message,
+                span=body.metadata.source_span,
+                form_path=body.metadata.form_path,
+                phase="lowering",
+            ),
+        )
+    )
+
+
 def _defunctionalize_rec_join(
     body: WccRecJoin,
     *,
@@ -2212,7 +2440,85 @@ def _defunctionalize_rec_join(
                 ),
             )
         )
+    constrained_effect_kinds = body.single_iteration_effect_kinds
+    expected_effect_values = (
+        list(
+            _iter_specialized_loop_effect_values(
+                body.body,
+                context=context,
+            )
+        )
+        if constrained_effect_kinds is not None
+        else []
+    )
+    pending_effect_values = list(expected_effect_values)
+    lowered_effect_step_ids: set[str] = set()
+    lowered_effect_kinds: list[str] = []
+
+    def observe_lowered_effect(
+        *,
+        expr: Any,
+        type_ref: TypeRef | None,
+        terminal: _TerminalResult,
+        emitted_steps: list[dict[str, Any]],
+        context: _LoweringContext,
+        local_values: Mapping[str, Any],
+    ) -> None:
+        del expr, type_ref
+        effect_kind = _lowered_effect_boundary_kind(
+            emitted_steps,
+            terminal=terminal,
+        )
+        if effect_kind is None or terminal.step_id in lowered_effect_step_ids:
+            return
+        if not pending_effect_values:
+            raise _loop_effect_compile_error(
+                body,
+                code=(
+                    body.effect_cardinality_diagnostic_code
+                    or "wcc_lowering_route_unsupported"
+                ),
+                message=(
+                    "lowered loop iteration produced an effect boundary "
+                    "without a specialized WCC source"
+                ),
+            )
+        value = pending_effect_values.pop(0)
+        expected_kind = _effect_boundary_step_kind(value)
+        if expected_kind != effect_kind:
+            raise _loop_effect_compile_error(
+                body,
+                code=(
+                    body.effect_cardinality_diagnostic_code
+                    or "wcc_lowering_route_unsupported"
+                ),
+                message=(
+                    "lowered loop iteration effect kind does not match its "
+                    "specialized WCC source"
+                ),
+            )
+        lowered_effect_step_ids.add(terminal.step_id)
+        lowered_effect_kinds.append(effect_kind)
+        if lexical_checkpoint_points is not None:
+            lexical_checkpoint_points.append(
+                _effect_boundary_checkpoint_point_payload(
+                    workflow_name=context.workflow_name,
+                    value=value,
+                    terminal=terminal,
+                    context=context,
+                    local_values=local_values,
+                )
+            )
+
     loop_local_values = _materialize_wcc_record_locals(local_values)
+    loop_context = (
+        replace(
+            context,
+            effect_boundary_observer=observe_lowered_effect,
+        )
+        if constrained_effect_kinds is not None
+        else context
+    )
     steps, terminal = _emit_repeat_until_from_emitter_input(
         RepeatUntilEmitterInput(
             max_iterations_expr=_frontend_expr_from_wcc_value(body.budget),
@@ -2227,10 +2533,45 @@ def _defunctionalize_rec_join(
                 if body.exhaustion is not None
                 else None
             ),
+            exhaustion_diagnostic_code=body.exhaustion_diagnostic_code,
+            single_iteration_effect_kinds=(
+                body.single_iteration_effect_kinds
+            ),
+            effect_cardinality_diagnostic_code=(
+                body.effect_cardinality_diagnostic_code
+            ),
         ),
-        context=context,
+        context=loop_context,
         local_values=loop_local_values,
     )
+    if pending_effect_values:
+        raise _loop_effect_compile_error(
+            body,
+            code=(
+                body.effect_cardinality_diagnostic_code
+                or "wcc_lowering_route_unsupported"
+            ),
+            message=(
+                "specialized WCC loop effect did not bind to exactly one "
+                "lowered iteration boundary"
+            ),
+        )
+    if body.single_iteration_effect_kinds is not None and (
+        len(lowered_effect_kinds) != 1
+        or lowered_effect_kinds[0]
+        not in body.single_iteration_effect_kinds
+    ):
+        raise _loop_effect_compile_error(
+            body,
+            code=(
+                body.effect_cardinality_diagnostic_code
+                or "wcc_lowering_route_unsupported"
+            ),
+            message=(
+                "loop iteration must lower to exactly one permitted effect "
+                "boundary after specialization"
+            ),
+        )
     if lexical_checkpoint_points is not None:
         repeat_step = next(
             (
@@ -3129,7 +3470,16 @@ def _is_static_terminal_literal(value: Any) -> bool:
 
 
 def _contains_pure_operator(expr: Any, *, local_values: Mapping[str, Any]) -> bool:
-    if isinstance(expr, (PureOpExpr, ListExpr, ListMapExpr, PathJoinUnderExpr)):
+    if isinstance(
+        expr,
+        (
+            CompilerListNonemptyHeadExpr,
+            PureOpExpr,
+            ListExpr,
+            ListMapExpr,
+            PathJoinUnderExpr,
+        ),
+    ):
         return True
     if isinstance(expr, NameExpr):
         local_expr = local_values.get(expr.name)
@@ -3160,7 +3510,15 @@ def _contains_schema2_list_form(
     *,
     local_values: Mapping[str, Any],
 ) -> bool:
-    if isinstance(expr, (ListExpr, ListMapExpr, PathJoinUnderExpr)):
+    if isinstance(
+        expr,
+        (
+            CompilerListNonemptyHeadExpr,
+            ListExpr,
+            ListMapExpr,
+            PathJoinUnderExpr,
+        ),
+    ):
         return True
     if isinstance(expr, PureOpExpr):
         spec = PURE_EXPR_OPERATOR_CATALOG.get(expr.operator)
@@ -5471,6 +5829,14 @@ def _frontend_expr_from_wcc_loop_body(body: WccBody, env: Mapping[str, object] |
     if isinstance(body, WccLoopDone):
         return DoneExpr(
             result_expr=_frontend_expr_from_wcc_value_with_env(body.result, resolved_env),
+            terminal_state_expr=(
+                _frontend_expr_from_wcc_value_with_env(
+                    body.state,
+                    resolved_env,
+                )
+                if body.state is not None
+                else None
+            ),
             span=body.metadata.source_span,
             form_path=body.metadata.form_path,
             expansion_stack=body.metadata.expansion_stack,

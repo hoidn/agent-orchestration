@@ -118,6 +118,15 @@ def _emit_repeat_until_from_loop_recur_expr(
             form_path=expr.form_path,
             on_exhausted_result_expr=expr.on_exhausted_result_expr,
             source_expr=expr,
+            exhaustion_diagnostic_code=(
+                expr.exhaustion_diagnostic_code
+            ),
+            single_iteration_effect_kinds=(
+                expr.single_iteration_effect_kinds
+            ),
+            effect_cardinality_diagnostic_code=(
+                expr.effect_cardinality_diagnostic_code
+            ),
         ),
         context=context,
         local_values=local_values,
@@ -448,7 +457,11 @@ def _emit_repeat_until_from_emitter_input(
         result_step_id=result_step_id,
         normalized_result_fields=normalized_result_fields,
     )
-    return [*seed_steps, repeat_step, result_step], result_terminal
+    emitted_steps = [*seed_steps, repeat_step, result_step]
+    from .procedures import _rewrite_nested_sibling_step_refs
+
+    _rewrite_nested_sibling_step_refs(emitted_steps)
+    return emitted_steps, result_terminal
 
 
 def _build_loop_current_state_steps(
@@ -851,6 +864,18 @@ def _lower_loop_body_expr(
             local_values=local_values,
             step_name_prefix=f"{body_step_name}__{binding_name}",
         )
+        if (
+            context.effect_boundary_observer is not None
+            and normalized_binding.terminal is not None
+        ):
+            context.effect_boundary_observer(
+                expr=binding_expr,
+                type_ref=normalized_binding.binding_type,
+                terminal=normalized_binding.terminal,
+                emitted_steps=normalized_binding.emitted_steps,
+                context=context,
+                local_values=local_values,
+            )
         loop_local_values = dict(local_values)
         if normalized_binding.local_value is not None:
             loop_local_values[binding_name] = (
@@ -1317,11 +1342,19 @@ def _lower_loop_body_expr(
             expr,
             body_step_name=body_step_name,
             status_value="DONE",
-            state_expr=NameExpr(
-                name=loop_binding_name,
-                span=expr.span,
-                form_path=expr.form_path,
-                expansion_stack=getattr(expr, "expansion_stack", ()),
+            state_expr=(
+                expr.terminal_state_expr
+                if expr.terminal_state_expr is not None
+                else NameExpr(
+                    name=loop_binding_name,
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=getattr(
+                        expr,
+                        "expansion_stack",
+                        (),
+                    ),
+                )
             ),
             result_expr=expr.result_expr,
             on_exhausted_result_expr=None,

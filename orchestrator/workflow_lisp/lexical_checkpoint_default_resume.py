@@ -87,13 +87,62 @@ def _nearest_prior_effect_boundary(
         for point in checkpoint_points
         if getattr(point, "point_kind", None) == "effect_boundary"
     )
-    if any(getattr(point, "node_id", None) not in order for point in effect_points):
+    checkpoint_ids = tuple(
+        getattr(point, "checkpoint_id", None) for point in effect_points
+    )
+    if any(
+        not isinstance(checkpoint_id, str) or not checkpoint_id
+        for checkpoint_id in checkpoint_ids
+    ):
         return None, "lexical_default_resume_prior_boundary_unordered"
+    if len(set(checkpoint_ids)) != len(checkpoint_ids):
+        return None, "lexical_default_resume_prior_boundary_duplicate"
+
+    nested_owners: dict[str, tuple[str, ...]] = {}
+    for point in effect_points:
+        point_node_id = getattr(point, "node_id", None)
+        if point_node_id in order:
+            continue
+        owners = tuple(
+            node_id
+            for node_id, node in getattr(
+                runtime_plan,
+                "nodes",
+                {},
+            ).items()
+            if (
+                getattr(
+                    getattr(node, "kind", None),
+                    "value",
+                    getattr(node, "kind", None),
+                )
+                == "repeat_until_frame"
+                and point_node_id
+                in tuple(getattr(node, "nested_body_node_ids", ()) or ())
+            )
+        )
+        if not owners:
+            return None, "lexical_default_resume_prior_boundary_unordered"
+        if len(owners) != 1:
+            return None, "lexical_default_resume_prior_boundary_ambiguous"
+        nested_owners[str(point_node_id)] = owners
+
+    current_repeat_points = tuple(
+        point
+        for point in effect_points
+        if nested_owners.get(str(getattr(point, "node_id", None)))
+        == (restart_node_id,)
+    )
+    if len(current_repeat_points) > 1:
+        return None, "lexical_default_resume_prior_boundary_ambiguous"
+    if len(current_repeat_points) == 1:
+        return current_repeat_points[0], None
 
     prior_points = tuple(
         point
         for point in effect_points
-        if order[str(getattr(point, "node_id"))] < restart_index
+        if getattr(point, "node_id", None) in order
+        and order[str(getattr(point, "node_id"))] < restart_index
     )
     if not prior_points:
         return None, "lexical_default_resume_prior_boundary_missing"
@@ -103,22 +152,167 @@ def _nearest_prior_effect_boundary(
         for point in prior_points
         if order[str(getattr(point, "node_id"))] == nearest_index
     )
-    checkpoint_ids = tuple(getattr(point, "checkpoint_id", None) for point in nearest_points)
-    if any(not isinstance(checkpoint_id, str) or not checkpoint_id for checkpoint_id in checkpoint_ids):
-        return None, "lexical_default_resume_prior_boundary_unordered"
-    if len(set(checkpoint_ids)) != len(checkpoint_ids):
-        return None, "lexical_default_resume_prior_boundary_duplicate"
+    nearest_checkpoint_ids = tuple(
+        getattr(point, "checkpoint_id", None)
+        for point in nearest_points
+    )
     if len(nearest_points) != 1:
         return None, "lexical_default_resume_prior_boundary_ambiguous"
     if (
         sum(
-            getattr(point, "checkpoint_id", None) == checkpoint_ids[0]
+            getattr(point, "checkpoint_id", None)
+            == nearest_checkpoint_ids[0]
             for point in checkpoint_points
         )
         != 1
     ):
         return None, "lexical_default_resume_prior_boundary_duplicate"
     return nearest_points[0], None
+
+
+def _current_committed_nested_effect_boundary(
+    *,
+    runtime_plan: Any,
+    state: Mapping[str, Any],
+    restart_node_id: str,
+) -> tuple[Any | None, Mapping[str, Any] | None, str | None]:
+    nodes = getattr(runtime_plan, "nodes", {})
+    restart_node = (
+        nodes.get(restart_node_id)
+        if isinstance(nodes, Mapping)
+        else None
+    )
+    restart_kind = getattr(
+        getattr(restart_node, "kind", None),
+        "value",
+        getattr(restart_node, "kind", None),
+    )
+    if restart_kind != "repeat_until_frame":
+        return None, None, None
+
+    nested_node_ids = tuple(
+        getattr(restart_node, "nested_body_node_ids", ()) or ()
+    )
+    effect_points = tuple(
+        point
+        for point in getattr(
+            runtime_plan,
+            "lexical_checkpoint_points",
+            (),
+        )
+        if (
+            getattr(point, "point_kind", None) == "effect_boundary"
+            and getattr(point, "node_id", None) in nested_node_ids
+        )
+    )
+    if not effect_points:
+        return None, None, None
+    if len(effect_points) != 1:
+        return (
+            None,
+            None,
+            "lexical_default_resume_prior_boundary_ambiguous",
+        )
+    point = effect_points[0]
+    owners = tuple(
+        node_id
+        for node_id, node in nodes.items()
+        if (
+            getattr(
+                getattr(node, "kind", None),
+                "value",
+                getattr(node, "kind", None),
+            )
+            == "repeat_until_frame"
+            and getattr(point, "node_id", None)
+            in tuple(getattr(node, "nested_body_node_ids", ()) or ())
+        )
+    )
+    if owners != (restart_node_id,):
+        return (
+            None,
+            None,
+            (
+                "lexical_default_resume_prior_boundary_unordered"
+                if not owners
+                else "lexical_default_resume_prior_boundary_ambiguous"
+            ),
+        )
+
+    presentation_key = getattr(restart_node, "presentation_key", None)
+    progress = _mapping(
+        _mapping(state.get("repeat_until")).get(presentation_key)
+    )
+    iteration = progress.get("current_iteration")
+    if (
+        isinstance(iteration, bool)
+        or not isinstance(iteration, int)
+        or iteration < 0
+    ):
+        return None, None, None
+    checkpoints = tuple(
+        checkpoint
+        for checkpoint in getattr(
+            runtime_plan,
+            "resume_checkpoints",
+            (),
+        )
+        if (
+            getattr(checkpoint, "node_id", None)
+            == getattr(point, "node_id", None)
+            and getattr(checkpoint, "runtime_step_id_mode", None)
+            == "qualified_iteration"
+            and getattr(checkpoint, "iteration_owner_node_id", None)
+            == restart_node_id
+        )
+    )
+    if len(checkpoints) != 1:
+        return (
+            None,
+            None,
+            (
+                "lexical_default_resume_prior_boundary_unordered"
+                if not checkpoints
+                else "lexical_default_resume_prior_boundary_ambiguous"
+            ),
+        )
+    suffix = getattr(
+        checkpoints[0],
+        "iteration_step_id_suffix",
+        None,
+    )
+    if not isinstance(suffix, str) or not suffix:
+        return (
+            None,
+            None,
+            "lexical_default_resume_prior_boundary_unordered",
+        )
+    runtime_step_id = f"{restart_node_id}#{iteration}.{suffix}"
+    committed = tuple(
+        candidate
+        for candidate in _mapping(state.get("steps")).values()
+        if (
+            isinstance(candidate, Mapping)
+            and candidate.get("step_id") == runtime_step_id
+            and candidate.get("status") == "completed"
+        )
+    )
+    if len(committed) > 1:
+        return (
+            None,
+            None,
+            "lexical_default_resume_prior_boundary_ambiguous",
+        )
+    if not committed:
+        return None, None, None
+    return (
+        point,
+        {
+            "loop_iteration": iteration,
+            "runtime_step_id": runtime_step_id,
+        },
+        None,
+    )
 
 
 def serialize_default_resume_payload(payload: Mapping[str, Any]) -> str:
@@ -242,14 +436,44 @@ def determine_runtime_default_resume_decision(
 
         restore_selector = select_restore_candidate
 
-    restore_decision = restore_selector(
-        state_manager=state_manager,
+    (
+        required_effect_point,
+        required_frame_identity,
+        required_effect_diagnostic,
+    ) = _current_committed_nested_effect_boundary(
         runtime_plan=runtime_plan,
         state=state,
         restart_node_id=restart_node_id,
-        executable_workflow=executable_workflow,
-        loaded_workflow=loaded_workflow,
     )
+    if required_effect_diagnostic is not None:
+        payload["mode"] = MODE_FAIL_CLOSED
+        payload["diagnostics"] = [required_effect_diagnostic]
+        return payload
+    selection_reason = (
+        "validated_prior_boundary"
+        if required_effect_point is not None
+        else "node_local"
+    )
+    restore_kwargs = {
+        "state_manager": state_manager,
+        "runtime_plan": runtime_plan,
+        "state": state,
+        "executable_workflow": executable_workflow,
+        "loaded_workflow": loaded_workflow,
+    }
+    if required_effect_point is not None:
+        restore_kwargs.update(
+            {
+                "checkpoint_id": getattr(
+                    required_effect_point,
+                    "checkpoint_id",
+                ),
+                "required_frame_identity": required_frame_identity,
+            }
+        )
+    else:
+        restore_kwargs["restart_node_id"] = restart_node_id
+    restore_decision = restore_selector(**restore_kwargs)
     payload.update(
         {
             "restore_decision": getattr(restore_decision, "kind", None),
@@ -271,14 +495,14 @@ def determine_runtime_default_resume_decision(
                 "selection_observation": getattr(
                     restore_decision, "selection_observation", None
                 ),
-                "selection_reason": "node_local",
+                "selection_reason": selection_reason,
             },
             "checkpoint_id": getattr(restore_decision, "checkpoint_id", None),
             "record_id": getattr(restore_decision, "record_id", None),
             "source_map_origin_key": getattr(
                 restore_decision, "source_map_origin_key", None
             ),
-            "selection_reason": "node_local",
+            "selection_reason": selection_reason,
         }
     )
     decision_diagnostics = list(getattr(restore_decision, "diagnostics", ()) or ())
@@ -299,6 +523,13 @@ def determine_runtime_default_resume_decision(
         ]
         return payload
     if payload["restore_decision"] == "NOT_RESTORABLE":
+        if required_effect_point is not None:
+            payload["mode"] = MODE_FAIL_CLOSED
+            payload["diagnostics"] = [
+                "lexical_default_resume_prior_boundary_not_restorable",
+                *decision_diagnostics,
+            ]
+            return payload
         if relevant_points:
             if (
                 getattr(restore_decision, "selection_observation", None)

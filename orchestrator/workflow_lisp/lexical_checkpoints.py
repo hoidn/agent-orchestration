@@ -897,6 +897,7 @@ def collect_completed_effect_refs(
     executor: Any,
     *,
     point: Any,
+    committed_step_state: Mapping[str, Any] | None = None,
 ) -> list[Mapping[str, Any]]:
     effect_boundary = _mapping(_point_details(point).get("effect_boundary"))
     effect_kind = effect_boundary.get("effect_kind")
@@ -905,7 +906,11 @@ def collect_completed_effect_refs(
     if effect_kind == "pure_projection":
         return []
     runtime_step = _runtime_step_for_point(executor, point)
-    step_state = _step_state_for_runtime_step(executor, runtime_step)
+    step_state = (
+        _mapping(committed_step_state)
+        if committed_step_state is not None
+        else _step_state_for_runtime_step(executor, runtime_step)
+    )
     if step_state.get("status") != "completed":
         return []
     point_policy = _mapping(effect_boundary.get("policy"))
@@ -1069,6 +1074,7 @@ def validate_completed_effect_refs_against_authoritative_state(
     state: Mapping[str, Any],
     workspace: Path,
     executable_workflow: Any,
+    runtime_plan: Any,
 ) -> None:
     from orchestrator.workflow.runtime_step import RuntimeStep
 
@@ -1086,7 +1092,67 @@ def validate_completed_effect_refs_against_authoritative_state(
     if node is None:
         raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
     runtime_step = RuntimeStep(node=node, name=str(expected_point.get("presentation_key") or ""), step_id=str(expected_point.get("step_id") or ""))
-    step_state = _mapping(_mapping(state.get("steps")).get(runtime_step.name))
+    qualified_checkpoints = tuple(
+        checkpoint
+        for checkpoint in getattr(runtime_plan, "resume_checkpoints", ())
+        if (
+            getattr(checkpoint, "node_id", None) == node_id
+            and getattr(checkpoint, "runtime_step_id_mode", None)
+            == "qualified_iteration"
+        )
+    )
+    if len(qualified_checkpoints) > 1:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    if qualified_checkpoints:
+        checkpoint = qualified_checkpoints[0]
+        frame_identity = _mapping(record.get("frame_identity"))
+        iteration = frame_identity.get("loop_iteration")
+        observed_runtime_step_id = frame_identity.get("runtime_step_id")
+        owner_node_id = getattr(
+            checkpoint,
+            "iteration_owner_node_id",
+            None,
+        )
+        suffix = getattr(
+            checkpoint,
+            "iteration_step_id_suffix",
+            None,
+        )
+        if (
+            isinstance(iteration, bool)
+            or not isinstance(iteration, int)
+            or iteration < 0
+            or not isinstance(observed_runtime_step_id, str)
+            or not observed_runtime_step_id
+            or not isinstance(owner_node_id, str)
+            or not owner_node_id
+            or not isinstance(suffix, str)
+            or not suffix
+        ):
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        expected_runtime_step_id = (
+            f"{owner_node_id}#{iteration}.{suffix}"
+        )
+        if observed_runtime_step_id != expected_runtime_step_id:
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        candidates = tuple(
+            _mapping(candidate)
+            for candidate in _mapping(state.get("steps")).values()
+            if (
+                isinstance(candidate, Mapping)
+                and candidate.get("step_id")
+                == expected_runtime_step_id
+            )
+        )
+        if len(candidates) != 1:
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        step_state = candidates[0]
+    else:
+        if "runtime_step_id" in _mapping(record.get("frame_identity")):
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        step_state = _mapping(
+            _mapping(state.get("steps")).get(runtime_step.name)
+        )
 
     if effect_kind in {"command", "provider"}:
         if step_state.get("status") != "completed":
@@ -1301,6 +1367,10 @@ def _runtime_plan_points_by_step_id(runtime_plan: Any) -> dict[str, Any]:
     for point in getattr(runtime_plan, "lexical_checkpoint_points", ()):
         step_id = _point_field(point, "step_id")
         if isinstance(step_id, str) and step_id:
+            if step_id in points_by_step_id:
+                raise ValueError(
+                    f"duplicate lexical checkpoint step id: {step_id}"
+                )
             points_by_step_id[step_id] = point
     return points_by_step_id
 
@@ -1533,6 +1603,8 @@ def emit_runtime_shadow_record(
     visit_count: int,
     loop_iteration: int | None = None,
     call_frame_id: str | None = None,
+    runtime_step_id: str | None = None,
+    committed_step_state: Mapping[str, Any] | None = None,
 ) -> Mapping[str, Any] | None:
     runtime_plan = getattr(executor, "runtime_plan", None)
     if runtime_plan is None:
@@ -1596,6 +1668,10 @@ def emit_runtime_shadow_record(
             "loop_iteration": loop_iteration,
             "call_frame_id": call_frame_id,
         }
+        if runtime_step_id is not None:
+            if not runtime_step_id:
+                raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
+            frame_identity["runtime_step_id"] = runtime_step_id
         record = {
             "schema_version": CHECKPOINT_RECORD_SCHEMA_VERSION,
             "checkpoint_id": checkpoint_id,
@@ -1618,7 +1694,12 @@ def emit_runtime_shadow_record(
             "provisional_policy": "shadow_record_only",
             "typed_binding_refs": [],
             "active_variant_proofs": [],
-            "loop_frame_state": None if loop_iteration is None else {"iteration": loop_iteration},
+            "loop_frame_state": (
+                {"iteration": loop_iteration}
+                if loop_iteration is not None
+                and runtime_step_id is None
+                else None
+            ),
             "pending_effect_policy": {
                 "effect_kind": _point_details(point).get("step_kind", point_kind),
                 "policy_status": "shadow_record_only",
@@ -1630,7 +1711,11 @@ def emit_runtime_shadow_record(
                 "diagnostics": [],
             },
         }
-        completed_effect_refs = collect_completed_effect_refs(executor, point=point)
+        completed_effect_refs = collect_completed_effect_refs(
+            executor,
+            point=point,
+            committed_step_state=committed_step_state,
+        )
         record["completed_effect_refs"] = [dict(ref) for ref in completed_effect_refs]
         restore_payload = capture_restore_payload(
             executor=executor,

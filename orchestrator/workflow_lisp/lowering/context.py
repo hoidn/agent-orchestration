@@ -129,6 +129,9 @@ class _LoweringContext:
     composition_scope_kind: str | None = None
     composition_scope_owner_step_name: str | None = None
     requires_guarded_case_step_hoist: bool = False
+    # Optional compiler observer used by structured emitters that must bind
+    # lowered effect leaves back to their source-level control point.
+    effect_boundary_observer: Callable[..., Any] | None = None
     # recursion entry points, set by core at construction; break the
     # leaf -> core back-import cycle for mutual recursion only
     lower_expression: Callable[..., Any] | None = None

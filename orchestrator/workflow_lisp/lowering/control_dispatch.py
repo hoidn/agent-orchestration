@@ -101,8 +101,27 @@ def _lower_finalize_selected_item(*args, **kwargs):
     return _phase_resource_lower_finalize_selected_item(*args, **kwargs)
 
 
-def _lower_expression(*args, **kwargs):
-    return _control_lower_expression_impl(*args, **kwargs)
+def _lower_expression(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+):
+    result = _control_lower_expression_impl(
+        typed_expr,
+        context=context,
+        local_values=local_values,
+    )
+    if context.effect_boundary_observer is not None:
+        context.effect_boundary_observer(
+            expr=typed_expr.expr,
+            type_ref=typed_expr.type_ref,
+            terminal=result[1],
+            emitted_steps=result[0],
+            context=context,
+            local_values=local_values,
+        )
+    return result
 
 
 def _lower_let_star(*args, **kwargs):

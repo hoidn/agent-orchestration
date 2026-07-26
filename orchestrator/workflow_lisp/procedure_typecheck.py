@@ -1533,8 +1533,19 @@ def _expr_returns_local_proc_value(
             visited_calls=visited_calls,
         )
     if isinstance(expr, DoneExpr):
-        return _expr_returns_local_proc_value(
+        result_returns_local = _expr_returns_local_proc_value(
             expr.result_expr,
+            generated_name,
+            target_dsl_version=target_dsl_version,
+            value_bindings=bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=active_proc_ref_env,
+            visited_calls=visited_calls,
+        )
+        if result_returns_local or expr.terminal_state_expr is None:
+            return result_returns_local
+        return _expr_returns_local_proc_value(
+            expr.terminal_state_expr,
             generated_name,
             target_dsl_version=target_dsl_version,
             value_bindings=bindings,

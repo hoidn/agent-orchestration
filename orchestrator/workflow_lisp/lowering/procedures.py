@@ -918,6 +918,7 @@ def _lower_procedure_call(
         lowering_schema_version=context.lowering_schema_version,
         procedure_type_envs=context.procedure_type_envs,
         active_procedure_calls=context.active_procedure_calls | {procedure.signature.name},
+        effect_boundary_observer=context.effect_boundary_observer,
         lower_expression=context.lower_expression,
         lower_call_expr=context.lower_call_expr,
         record_step_origin=context.record_step_origin,

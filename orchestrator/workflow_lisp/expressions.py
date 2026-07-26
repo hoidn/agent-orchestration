@@ -145,6 +145,32 @@ class ListMapExpr:
 
 
 @dataclass(frozen=True)
+class ListMapEffectExpr:
+    """One target-2.18 bounded effectful lexical list-mapping binder."""
+
+    binder_name: str
+    source_expr: "ExprNode"
+    max_iterations: int
+    body_expr: "ExprNode"
+    source_item_type_ref: "TypeRef | None"
+    result_item_type_ref: "TypeRef | None"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class CompilerListNonemptyHeadExpr:
+    """One compiler-owned, statically nonempty list-head projection."""
+
+    source_expr: "ExprNode"
+    element_type_ref: "TypeRef"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class PathJoinUnderExpr:
     """One target-2.18 pure rooted-path construction form."""
 
@@ -586,6 +612,7 @@ class DoneExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    terminal_state_expr: "ExprNode | None" = None
 
 
 @dataclass(frozen=True)
@@ -600,6 +627,9 @@ class LoopRecurExpr:
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
     on_exhausted_result_expr: "ExprNode | None" = None
+    exhaustion_diagnostic_code: str | None = None
+    single_iteration_effect_kinds: tuple[str, ...] | None = None
+    effect_cardinality_diagnostic_code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -690,6 +720,8 @@ ExprNode = (
     | PureOpExpr
     | ListExpr
     | ListMapExpr
+    | ListMapEffectExpr
+    | CompilerListNonemptyHeadExpr
     | PathJoinUnderExpr
     | RecordUpdateExpr
     | LoopStateSeedExpr
@@ -1163,6 +1195,7 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
         "pure_op": _elaborate_pure_op,
         "list": _elaborate_list_constructor,
         "list_map": _elaborate_list_map,
+        "list_map_effect": _elaborate_list_map_effect,
         "path_join_under": _elaborate_path_join_under,
         "record_update": _elaborate_record_update,
         "loop_state": _elaborate_loop_state,
@@ -1391,6 +1424,82 @@ def _elaborate_list_map(
     return ListMapExpr(
         binder_name=binder.resolved_name,
         source_expr=source_expr,
+        body_expr=body_expr,
+        source_item_type_ref=None,
+        result_item_type_ref=None,
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_list_map_effect(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ListMapEffectExpr:
+    _require_list_traversal_target(datum)
+    if (
+        len(datum.items) != 5
+        or not isinstance(datum.items[2], SyntaxKeyword)
+        or datum.items[2].value != ":max"
+        or not isinstance(datum.items[3], SyntaxInt)
+        or isinstance(datum.items[3].value, bool)
+        or datum.items[3].value <= 0
+    ):
+        _raise_error(
+            "`list/map-effect` requires `:max` followed by a positive integer literal",
+            code="list_map_effect_max_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    raw_binders = datum.items[1]
+    if (
+        not isinstance(raw_binders, SyntaxList)
+        or len(raw_binders.items) != 1
+        or not isinstance(raw_binders.items[0], SyntaxList)
+        or len(raw_binders.items[0].items) != 2
+    ):
+        _raise_error(
+            "`list/map-effect` binder must be exactly `((name list-expr))`",
+            code="list_map_binder_invalid",
+            span=raw_binders.span,
+            form_path=form_path,
+            expansion_stack=raw_binders.expansion_stack,
+        )
+    raw_binding = raw_binders.items[0]
+    binder = syntax_identifier(raw_binding.items[0])
+    if (
+        binder is None
+        or binder.resolved_name.startswith("__")
+        or binder.resolved_name in bound_names
+    ):
+        _raise_error(
+            "`list/map-effect` binder name is invalid, reserved, or already bound",
+            code="list_map_binder_invalid",
+            span=raw_binding.items[0].span,
+            form_path=form_path,
+            expansion_stack=raw_binding.items[0].expansion_stack,
+        )
+    source_expr = _elaborate(
+        raw_binding.items[1],
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+    )
+    body_expr = _elaborate(
+        datum.items[4],
+        form_path=form_path,
+        bound_names=frozenset((*bound_names, binder.resolved_name)),
+        procedure_names=procedure_names,
+    )
+    return ListMapEffectExpr(
+        binder_name=binder.resolved_name,
+        source_expr=source_expr,
+        max_iterations=datum.items[3].value,
         body_expr=body_expr,
         source_item_type_ref=None,
         result_item_type_ref=None,

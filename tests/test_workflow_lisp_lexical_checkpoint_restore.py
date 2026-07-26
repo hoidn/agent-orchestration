@@ -2303,7 +2303,10 @@ def test_restore_selector_rejects_r3_imported_workflow_call_callee_drift(tmp_pat
 
     assert decision.kind == "INVALID"
     assert decision.policy_decision == "INVALID"
-    assert "lexical_checkpoint_completed_effect_invalid" in decision.diagnostics
+    assert (
+        "lexical_checkpoint_effect_policy_digest_mismatch"
+        in decision.diagnostics
+    )
 
 
 def test_runtime_resume_restores_private_bindings_and_loop_frame_from_checkpoint_sidecars(tmp_path: Path) -> None:

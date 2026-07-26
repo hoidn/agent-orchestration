@@ -568,11 +568,13 @@ def _apply_hygiene(
             env=active_env,
         )
     if (
-        head_name == "list/map"
+        head_name in {"list/map", "list/map-effect"}
         and _LIST_TRAVERSAL_FORMS_ARE_CORE_DURING_HYGIENE.get()
     ):
-        return _hygienic_list_map(
+        return _hygienic_list_binder_form(
             datum,
+            expected_length=3 if head_name == "list/map" else 5,
+            body_index=2 if head_name == "list/map" else 4,
             macro_name=macro_name,
             expansion_id=expansion_id,
             env=active_env,
@@ -678,14 +680,16 @@ def _hygienic_generic_list(
     )
 
 
-def _hygienic_list_map(
+def _hygienic_list_binder_form(
     datum: SyntaxList,
     *,
+    expected_length: int,
+    body_index: int,
     macro_name: str,
     expansion_id: str,
     env: Mapping[str, str],
 ) -> SyntaxDatum:
-    if len(datum.items) != 3:
+    if len(datum.items) != expected_length:
         return _hygienic_generic_list(
             datum,
             macro_name=macro_name,
@@ -729,23 +733,22 @@ def _hygienic_list_map(
         local_env[binder.resolved_name] = renamed.resolved_name
         binder = renamed
     body = _apply_hygiene(
-        datum.items[2],
+        datum.items[body_index],
         macro_name=macro_name,
         expansion_id=expansion_id,
         env=local_env,
     )
+    updated = list(datum.items)
+    updated[1] = replace(
+        bindings_node,
+        items=(
+            replace(raw_binding, items=(binder, source)),
+        ),
+    )
+    updated[body_index] = body
     return replace(
         datum,
-        items=(
-            datum.items[0],
-            replace(
-                bindings_node,
-                items=(
-                    replace(raw_binding, items=(binder, source)),
-                ),
-            ),
-            body,
-        ),
+        items=tuple(updated),
     )
 
 
