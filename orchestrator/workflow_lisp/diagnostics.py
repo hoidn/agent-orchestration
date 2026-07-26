@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Iterable
 
 from .lints import (
@@ -255,8 +256,18 @@ class LispFrontendDiagnostic:
 class LispFrontendCompileError(Exception):
     """Raised when Workflow Lisp compilation accumulates diagnostics."""
 
-    def __init__(self, diagnostics: tuple[LispFrontendDiagnostic, ...]):
+    def __init__(
+        self,
+        diagnostics: tuple[LispFrontendDiagnostic, ...],
+        *,
+        configuration_revision_vector: tuple[tuple[Path, str], ...] | None = None,
+        configuration_revision_conflict_paths: tuple[Path, ...] | None = None,
+    ):
         self.diagnostics = diagnostics
+        self.configuration_revision_vector = configuration_revision_vector
+        self.configuration_revision_conflict_paths = (
+            configuration_revision_conflict_paths
+        )
         super().__init__(render_diagnostics(diagnostics))
 
 

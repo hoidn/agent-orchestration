@@ -402,69 +402,85 @@ invalidation.
 
 **RED:**
 
-- [ ] Cover one `rootUri`, one folder, and equivalent spellings of the same
+- [x] Cover one `rootUri`, one folder, and equivalent spellings of the same
       canonical root; reject zero/two roots and uncontained entries/explicit
       source roots before state or compilation.
-- [ ] Accept traced `.orc` only under the workspace or exact frozen builtin
+- [x] Accept traced `.orc` only under the workspace or exact frozen builtin
       stdlib root; reject every other external path.
-- [ ] Prove workspace and builtin roots never enter caller `source_roots`
+- [x] Prove workspace and builtin roots never enter caller `source_roots`
       unless the workspace was separately explicit.
-- [ ] Cover immutable production-loaded provider/prompt/command/imported
+- [x] Cover immutable production-loaded provider/prompt/command/imported
       configuration and recursive imported closure.
-- [ ] At initialization, preserve each unconfigured optional input as absent
+- [x] At initialization, preserve each unconfigured optional input as absent
       and reject every configured missing/unreadable input. Reject
       `lint_profile` or `lowering_route` in `initializationOptions`.
-- [ ] After initialization, cover changed/missing/unreadable configuration
+- [x] After initialization, cover changed/missing/unreadable configuration
       and root-folder changes latching restart-required
       `configuration_stale`; byte reversion does not unlatch it.
-- [ ] Cover clean `didOpen` against exact `raw_decoded_text`; mismatched editor
+- [x] Cover clean `didOpen` against exact `raw_decoded_text`; mismatched editor
       text, missing/unreadable disk state, and strict-decode failure create
       dirty/unavailable state, schedule zero compiles, and expose no
       navigation snapshot.
-- [ ] Cover serialized compiles, per-entry generations, debounce/coalescing,
+- [x] Cover serialized compiles, per-entry generations, debounce/coalescing,
       latest-generation acceptance, and late-result discard.
-- [ ] Cover trusted `A -> B`, unrelated C negative control, closed B,
+- [x] Cover trusted `A -> B`, unrelated C negative control, closed B,
       missing/unreadable B, unknown-closure all-open invalidation, and
       `didClose` ownership cleanup.
-- [ ] Cover a current language-error completion with a complete, consistent
+- [x] Cover a current language-error completion with a complete, consistent
       trace retaining its precise closure/vector; only incomplete or
       inconsistent error traces become closure-unknown.
-- [ ] Cover the state transition for a delivered `.orc`
+- [x] Cover the state transition for a delivered `.orc`
       create/change/delete observation and its eager invalidation result, with
       a reverse control proving such delivery is never required for
       correctness. Server capability registration belongs to Task 6.
-- [ ] Cover mandatory post-compile and pre-request digest/config/root rechecks
+- [x] Cover mandatory post-compile and pre-request digest/config/root rechecks
       without watcher delivery.
-- [ ] Prove library-only entries use exactly one Stage-3 compile and Stage 1
+- [x] Prove library-only entries use exactly one Stage-3 compile and Stage 1
       is neither imported nor called.
 
 **GREEN:**
 
-- [ ] Canonicalize and freeze exactly one workspace root, the exact production
+- [x] Canonicalize and freeze exactly one workspace root, the exact production
       builtin stdlib root, ordered explicit caller roots, fixed production
       lint/lowering defaults, and `SHARED_CALLABLE`.
-- [ ] Freeze the complete configuration vector and implement the latched stale
+- [x] Freeze the complete configuration vector and implement the latched stale
       transition plus one restart-required notice.
-- [ ] Keep initialization failure separate from post-initialization staleness,
+- [x] Keep initialization failure separate from post-initialization staleness,
       and expose no lint/lowering override in the initialization schema.
-- [ ] Represent entry/open/dirty/pending/success/failure/closure-unknown state
+- [x] Represent entry/open/dirty/pending/success/failure/closure-unknown state
       immutably enough that generation acceptance is atomic.
-- [ ] Use one worker and one fresh `SourceReadTrace` per generation; call the
+- [x] Use one worker and one fresh `SourceReadTrace` per generation; call the
       read-only core exactly once.
-- [ ] Derive successful closures only from internally consistent compiler
+- [x] Derive successful closures only from internally consistent compiler
       traces; probes/watchers schedule but never become authority.
-- [ ] Maintain trace/diagnostic-target reverse ownership and implement both
+- [x] Maintain trace/diagnostic-target reverse ownership and implement both
       precise and conservative invalidation rules, including precise
       trustworthy language-error closures.
-- [ ] Expose one state/driver transition that Task 6 can call for delivered
+- [x] Expose one state/driver transition that Task 6 can call for delivered
       file-watch observations; it must use the same revision/invalidation
       authority as notification-free checks. Server capability registration
       belongs to Task 6.
-- [ ] Rehash the complete source/configuration vector and builtin-root identity
+- [x] Rehash the complete source/configuration vector and builtin-root identity
       before acceptance and every later snapshot response.
-- [ ] Rerun the new state/driver tests plus build/compiler/import regressions.
-- [ ] Obtain `STAGE8_TASK3_SPEC_APPROVED`, then
-      `STAGE8_TASK3_QUALITY_APPROVED`, and commit.
+- [x] Rerun the new state/driver tests plus build/compiler/import regressions.
+- [x] Obtain `STAGE8_TASK3_SPEC_APPROVED`, then
+      `STAGE8_TASK3_QUALITY_APPROVED`.
+- [ ] Commit Task 3.
+
+**Implementation record:** pending implementation commit.
+
+- RED established the missing one-root state machine, immutable production
+  configuration snapshot, serialized compile driver, exact source/currentness
+  proofs, and deterministic reverse invalidation.
+- The Task-3 state/driver/source/build selectors collect 238 tests and pass
+  238. Fresh adjacent compiler/build/import/CLI/diagnostic selectors pass 426.
+- The process-local mutex is covered in both directions: natural concurrent
+  callers remain serialized, while a deterministic held-mutex control leaves
+  state and queued work untouched and fails under the legacy boolean
+  check/set mutation.
+- Scoped `py_compile` and `git diff --check` are clean.
+- Ordered preliminary reviews returned `STAGE8_TASK3_SPEC_APPROVED`, then
+  `STAGE8_TASK3_QUALITY_APPROVED`.
 
 ## Task 4: Capture The Production Request And Prove F1-F3
 

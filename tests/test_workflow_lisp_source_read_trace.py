@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.workflow_lisp import compiler as workflow_lisp_compiler
 from orchestrator.workflow_lisp.compiler import (
     compile_stage1_entrypoint,
     compile_stage3_entrypoint,
@@ -43,6 +44,32 @@ def _module_source(module_name: str, *, imported_module: str | None = None) -> b
         "  (defrecord Result\n"
         "    (value String)))\n"
     ).encode("utf-8")
+
+
+def _invalid_export_module_source(module_name: str) -> bytes:
+    return (
+        "(workflow-lisp\n"
+        '  (:language "0.1")\n'
+        '  (:target-dsl "2.18")\n'
+        f"  (defmodule {module_name})\n"
+        "  (export MissingDefinition))\n"
+    ).encode("utf-8")
+
+
+def _compile_library_entry(
+    path: Path,
+    *,
+    source_root: Path,
+    source_read_trace=None,
+):
+    return compile_stage3_entrypoint(
+        path,
+        source_roots=(source_root,),
+        validation_profile="frontend_only",
+        workspace_root=source_root.parent,
+        lowering_route="legacy",
+        source_read_trace=source_read_trace,
+    )
 
 
 def _workflow_module_source(module_name: str) -> bytes:
@@ -290,6 +317,90 @@ def test_trace_accepts_identical_rereads_and_rejects_changed_rereads(
         read_sexpr_file(path_a, source_read_trace=changed_trace)
 
 
+def test_trace_retains_structural_revision_conflict_after_bytes_revert(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = (tmp_path / "entry.orc").resolve()
+    original = b"(original)"
+    changed = b"(changed)"
+    payloads = [original, changed, original]
+
+    def read_in_sequence(self: Path) -> bytes:
+        assert self == path
+        return payloads.pop(0)
+
+    monkeypatch.setattr(Path, "read_bytes", read_in_sequence)
+    trace = _new_trace()
+    read_sexpr_file(path, source_read_trace=trace)
+
+    with pytest.raises(RuntimeError, match="changed during one compiler read trace"):
+        read_sexpr_file(path, source_read_trace=trace)
+
+    read_sexpr_file(path, source_read_trace=trace)
+
+    assert tuple(record.revision for record in trace.records) == (
+        _revision(original),
+        _revision(changed),
+        _revision(original),
+    )
+    assert trace.revision_vector == ((path, _revision(original)),)
+    assert trace.revision_conflict_paths == (path,)
+
+
+def test_module_graph_read_attempt_lifecycle_is_frozen_and_fail_closed(
+    tmp_path: Path,
+) -> None:
+    entry_spelling = tmp_path / "src" / "graph" / ".." / "graph" / "entry.orc"
+    dependency_spelling = (
+        tmp_path / "src" / "graph" / ".." / "graph" / "dependency.orc"
+    )
+    entry_path = entry_spelling.resolve()
+    dependency_path = dependency_spelling.resolve()
+    trace = _new_trace()
+
+    attempt_id = trace._begin_module_graph_read_attempt(entry_spelling)
+
+    assert attempt_id == 0
+    assert tuple(field.name for field in fields(trace.module_graph_read_attempts[0])) == (
+        "attempt_id",
+        "canonical_entry_path",
+        "started_at_ordinal",
+        "completed_at_ordinal",
+        "module_paths",
+    )
+    assert trace.module_graph_read_attempts[0].canonical_entry_path == entry_path
+    assert trace.module_graph_read_attempts[0].started_at_ordinal == 0
+    assert trace.module_graph_read_attempts[0].completed_at_ordinal is None
+    assert trace.module_graph_read_attempts[0].module_paths is None
+
+    trace._record(canonical_path=entry_path, revision="missing")
+    trace._complete_module_graph_read_attempt(
+        attempt_id,
+        module_paths=(dependency_spelling, entry_spelling),
+    )
+
+    completed = trace.module_graph_read_attempts[0]
+    assert completed.completed_at_ordinal == 1
+    assert completed.module_paths == (dependency_path, entry_path)
+    with pytest.raises(FrozenInstanceError):
+        completed.module_paths = ()  # type: ignore[misc]
+    with pytest.raises(RuntimeError, match="already completed"):
+        trace._complete_module_graph_read_attempt(
+            attempt_id,
+            module_paths=(entry_path,),
+        )
+    with pytest.raises(RuntimeError, match="unknown module-graph read attempt"):
+        trace._complete_module_graph_read_attempt(
+            99,
+            module_paths=(entry_path,),
+        )
+
+    next_attempt_id = trace._begin_module_graph_read_attempt(entry_path)
+    assert next_attempt_id == 1
+    assert trace.module_graph_read_attempts[1].started_at_ordinal == 1
+
+
 def test_trace_distinguishes_missing_unreadable_and_invalid_utf8(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -353,8 +464,196 @@ def test_module_graph_uses_one_collector_for_imports_and_final_entry_reread(
     )
 
 
+def test_stage3_graph_attempt_completes_with_topological_canonical_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_root = tmp_path / "src"
+    entry_path = source_root / "graph" / "entry.orc"
+    dependency_path = source_root / "graph" / "dependency.orc"
+    entry_path.parent.mkdir(parents=True)
+    entry_path.write_bytes(
+        _module_source("graph/entry", imported_module="graph/dependency")
+    )
+    dependency_path.write_bytes(_module_source("graph/dependency"))
+    trace = _new_trace()
+    graph_return_boundaries: list[int] = []
+    real_resolve_module_graph = workflow_lisp_compiler.resolve_module_graph
+
+    def capture_graph_return_boundary(*args, **kwargs):
+        graph = real_resolve_module_graph(*args, **kwargs)
+        graph_return_boundaries.append(len(trace.records))
+        return graph
+
+    monkeypatch.setattr(
+        workflow_lisp_compiler,
+        "resolve_module_graph",
+        capture_graph_return_boundary,
+    )
+
+    result = _compile_library_entry(
+        entry_path,
+        source_root=source_root,
+        source_read_trace=trace,
+    )
+
+    assert result.graph.topological_order == ("graph/dependency", "graph/entry")
+    assert len(trace.module_graph_read_attempts) == 1
+    attempt = trace.module_graph_read_attempts[0]
+    assert attempt.attempt_id == 0
+    assert attempt.canonical_entry_path == entry_path.resolve()
+    assert attempt.started_at_ordinal == 0
+    assert attempt.completed_at_ordinal == graph_return_boundaries[0]
+    assert attempt.completed_at_ordinal < len(trace.records)
+    assert attempt.module_paths == (
+        dependency_path.resolve(),
+        entry_path.resolve(),
+    )
+
+
+def test_stage3_graph_attempt_stays_complete_when_later_language_validation_fails(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    entry_path = source_root / "graph" / "entry.orc"
+    entry_path.parent.mkdir(parents=True)
+    entry_path.write_bytes(_invalid_export_module_source("graph/entry"))
+    trace = _new_trace()
+
+    with pytest.raises(LispFrontendCompileError):
+        _compile_library_entry(
+            entry_path,
+            source_root=source_root,
+            source_read_trace=trace,
+        )
+
+    assert len(trace.module_graph_read_attempts) == 1
+    attempt = trace.module_graph_read_attempts[0]
+    assert attempt.completed_at_ordinal is not None
+    assert attempt.module_paths == (entry_path.resolve(),)
+
+
+@pytest.mark.parametrize("failure_kind", ("malformed", "missing-import", "cycle"))
+def test_stage3_graph_failures_leave_their_attempt_incomplete(
+    tmp_path: Path,
+    failure_kind: str,
+) -> None:
+    source_root = tmp_path / "src"
+    entry_path = source_root / "graph" / "entry.orc"
+    entry_path.parent.mkdir(parents=True)
+    if failure_kind == "malformed":
+        entry_path.write_bytes(b"(workflow-lisp")
+    elif failure_kind == "missing-import":
+        entry_path.write_bytes(
+            _module_source("graph/entry", imported_module="graph/missing")
+        )
+    else:
+        left_path = source_root / "graph" / "left.orc"
+        entry_path.write_bytes(
+            _module_source("graph/entry", imported_module="graph/left")
+        )
+        left_path.write_bytes(
+            _module_source("graph/left", imported_module="graph/entry")
+        )
+    trace = _new_trace()
+
+    with pytest.raises((FileNotFoundError, LispFrontendCompileError)):
+        _compile_library_entry(
+            entry_path,
+            source_root=source_root,
+            source_read_trace=trace,
+        )
+
+    assert len(trace.module_graph_read_attempts) == 1
+    attempt = trace.module_graph_read_attempts[0]
+    assert attempt.canonical_entry_path == entry_path.resolve()
+    assert attempt.completed_at_ordinal is None
+    assert attempt.module_paths is None
+
+
+def test_shared_trace_does_not_leak_a_completed_graph_into_a_later_failure(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    child_path = source_root / "graph" / "child.orc"
+    outer_path = source_root / "graph" / "outer.orc"
+    child_path.parent.mkdir(parents=True)
+    child_path.write_bytes(_module_source("graph/child"))
+    outer_path.write_bytes(
+        _module_source("graph/outer", imported_module="graph/missing")
+    )
+    trace = _new_trace()
+
+    _compile_library_entry(
+        child_path,
+        source_root=source_root,
+        source_read_trace=trace,
+    )
+    with pytest.raises((FileNotFoundError, LispFrontendCompileError)):
+        _compile_library_entry(
+            outer_path,
+            source_root=source_root,
+            source_read_trace=trace,
+        )
+
+    child_attempt, outer_attempt = trace.module_graph_read_attempts
+    assert child_attempt.attempt_id == 0
+    assert child_attempt.module_paths == (child_path.resolve(),)
+    assert child_attempt.completed_at_ordinal is not None
+    assert outer_attempt.attempt_id == 1
+    assert outer_attempt.canonical_entry_path == outer_path.resolve()
+    assert outer_attempt.completed_at_ordinal is None
+    assert outer_attempt.module_paths is None
+
+
+def test_repeated_stage3_entry_uses_distinct_monotonic_graph_attempt_ids(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    entry_path = source_root / "graph" / "entry.orc"
+    entry_path.parent.mkdir(parents=True)
+    entry_path.write_bytes(_module_source("graph/entry"))
+    trace = _new_trace()
+
+    _compile_library_entry(
+        entry_path,
+        source_root=source_root,
+        source_read_trace=trace,
+    )
+    _compile_library_entry(
+        entry_path,
+        source_root=source_root,
+        source_read_trace=trace,
+    )
+
+    first, second = trace.module_graph_read_attempts
+    assert (first.attempt_id, second.attempt_id) == (0, 1)
+    assert first.canonical_entry_path == second.canonical_entry_path == entry_path.resolve()
+    assert first.completed_at_ordinal is not None
+    assert second.completed_at_ordinal is not None
+    assert first.module_paths == second.module_paths == (entry_path.resolve(),)
+    assert second.started_at_ordinal > first.completed_at_ordinal
+
+
 def test_stage1_entrypoint_has_no_source_read_trace_surface() -> None:
     assert "source_read_trace" not in inspect.signature(compile_stage1_entrypoint).parameters
+
+
+def test_stage3_entrypoint_without_trace_preserves_existing_compile_behavior(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    entry_path = source_root / "graph" / "entry.orc"
+    entry_path.parent.mkdir(parents=True)
+    entry_path.write_bytes(_module_source("graph/entry"))
+
+    result = _compile_library_entry(
+        entry_path,
+        source_root=source_root,
+    )
+
+    assert result.graph.entry_module_name == "graph/entry"
+    assert result.graph.topological_order == ("graph/entry",)
 
 
 def test_stage3_entrypoint_traces_every_orc_read_without_using_read_text(

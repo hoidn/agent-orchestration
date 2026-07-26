@@ -627,6 +627,11 @@ def compile_stage3_entrypoint(
         _raise_wcc_module_graph_unsupported(path, normalized_lowering_route)
 
     reset_loop_state_metadata()
+    module_graph_read_attempt_id = (
+        source_read_trace._begin_module_graph_read_attempt(path)
+        if source_read_trace is not None
+        else None
+    )
     compile_result, results = _run_stage3_entrypoint_validation_pipeline(
         path,
         source_roots=_effective_source_roots(
@@ -645,6 +650,7 @@ def compile_stage3_entrypoint(
         lowering_route=normalized_lowering_route,
         family_profile_catalog=family_profile_catalog,
         source_read_trace=source_read_trace,
+        _module_graph_read_attempt_id=module_graph_read_attempt_id,
     )
     additional_diagnostics = ()
     if compile_result is not None:
@@ -1259,6 +1265,7 @@ def _run_stage3_entrypoint_validation_pipeline(
     lowering_route: LoweringRoute | str | None = None,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
     source_read_trace: SourceReadTrace | None = None,
+    _module_graph_read_attempt_id: int | None = None,
 ) -> tuple[LinkedStage3CompileResult | None, tuple[object, ...]]:
     normalized_validation_profile = _normalize_stage3_validation_profile(
         validate_shared=validate_shared,
@@ -1270,6 +1277,16 @@ def _run_stage3_entrypoint_validation_pipeline(
         source_roots=source_roots,
         source_read_trace=source_read_trace,
     )
+    if source_read_trace is not None:
+        if _module_graph_read_attempt_id is None:
+            raise RuntimeError("module-graph read attempt id is missing")
+        source_read_trace._complete_module_graph_read_attempt(
+            _module_graph_read_attempt_id,
+            module_paths=tuple(
+                graph.modules_by_name[module_name].path
+                for module_name in graph.topological_order
+            ),
+        )
     compile_result: LinkedStage3CompileResult | None = None
     selected_workflow_name: str | None = None
 

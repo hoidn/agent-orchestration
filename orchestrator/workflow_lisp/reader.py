@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import re
 from pathlib import Path
@@ -26,6 +26,17 @@ class SourceReadRecord:
 
 
 @dataclass(frozen=True)
+class ModuleGraphReadAttempt:
+    """One all-or-nothing module-graph discovery attempt."""
+
+    attempt_id: int
+    canonical_entry_path: Path
+    started_at_ordinal: int
+    completed_at_ordinal: int | None
+    module_paths: tuple[Path, ...] | None
+
+
+@dataclass(frozen=True)
 class _SourceReadViews:
     """Ephemeral source contents derived from one physical read."""
 
@@ -40,6 +51,7 @@ class SourceReadTrace:
     def __init__(self) -> None:
         self._records: list[SourceReadRecord] = []
         self._revisions_by_path: dict[Path, str] = {}
+        self._module_graph_read_attempts: list[ModuleGraphReadAttempt] = []
 
     @property
     def records(self) -> tuple[SourceReadRecord, ...]:
@@ -52,6 +64,70 @@ class SourceReadTrace:
         """Return the unique canonical path/revision vector in path order."""
 
         return tuple(sorted(self._revisions_by_path.items(), key=lambda item: item[0].as_posix()))
+
+    @property
+    def revision_conflict_paths(self) -> tuple[Path, ...]:
+        """Return paths whose ordered records contain conflicting revisions."""
+
+        first_revision_by_path: dict[Path, str] = {}
+        conflicts: list[Path] = []
+        for record in self._records:
+            first_revision = first_revision_by_path.setdefault(
+                record.canonical_path,
+                record.revision,
+            )
+            if (
+                first_revision != record.revision
+                and record.canonical_path not in conflicts
+            ):
+                conflicts.append(record.canonical_path)
+        return tuple(conflicts)
+
+    @property
+    def module_graph_read_attempts(self) -> tuple[ModuleGraphReadAttempt, ...]:
+        """Return immutable graph-attempt metadata in monotonic id order."""
+
+        return tuple(self._module_graph_read_attempts)
+
+    def _begin_module_graph_read_attempt(self, entry_path: Path) -> int:
+        """Begin one graph attempt at the next source-read ordinal."""
+
+        attempt_id = len(self._module_graph_read_attempts)
+        self._module_graph_read_attempts.append(
+            ModuleGraphReadAttempt(
+                attempt_id=attempt_id,
+                canonical_entry_path=Path(entry_path).resolve(),
+                started_at_ordinal=len(self._records),
+                completed_at_ordinal=None,
+                module_paths=None,
+            )
+        )
+        return attempt_id
+
+    def _complete_module_graph_read_attempt(
+        self,
+        attempt_id: int,
+        *,
+        module_paths: tuple[Path, ...],
+    ) -> None:
+        """Complete one known, still-open graph attempt."""
+
+        if (
+            not isinstance(attempt_id, int)
+            or attempt_id < 0
+            or attempt_id >= len(self._module_graph_read_attempts)
+        ):
+            raise RuntimeError(f"unknown module-graph read attempt `{attempt_id}`")
+        attempt = self._module_graph_read_attempts[attempt_id]
+        if attempt.completed_at_ordinal is not None:
+            raise RuntimeError(
+                f"module-graph read attempt `{attempt_id}` is already completed"
+            )
+        self._module_graph_read_attempts[attempt_id] = replace(
+            attempt,
+            completed_at_ordinal=len(self._records),
+            module_paths=tuple(Path(path).resolve() for path in module_paths),
+        )
 
     def _record(
         self,

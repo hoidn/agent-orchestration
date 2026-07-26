@@ -7,6 +7,7 @@ import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import MappingProxyType
 
 from orchestrator.workflow.core_ast import (
     _load_command_boundary_metadata,
@@ -71,7 +72,7 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .lints import LINT_PROFILE_DEFAULT
 from .reader import SourceReadRecord, SourceReadTrace
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION
-from .wcc.route import LoweringRoute
+from .wcc.route import LoweringRoute, normalize_lowering_route
 
 
 # Artifact helpers remain re-exported from this historical module boundary so
@@ -238,6 +239,29 @@ class FrontendConfigurationTraceSnapshot:
 
 
 @dataclass(frozen=True)
+class FrontendInitializationConfiguration:
+    """Production-loaded, immutable frontend context without an entry source."""
+
+    workspace_root: Path
+    source_roots: tuple[Path, ...]
+    provider_externs_path: Path | None
+    prompt_externs_path: Path | None
+    command_boundaries_path: Path | None
+    imported_workflow_bundles_path: Path | None
+    lowering_route: LoweringRoute
+    provider_externs: Mapping[str, str]
+    prompt_externs: Mapping[str, object]
+    command_boundary_manifest: Mapping[str, object]
+    command_boundaries: Mapping[
+        str,
+        ExternalToolBinding | CertifiedAdapterBinding,
+    ]
+    imported_workflow_bundles: tuple[ImportedWorkflowBundleBinding, ...]
+    source_read_trace: FrontendSourceReadTraceSnapshot
+    configuration_trace: FrontendConfigurationTraceSnapshot
+
+
+@dataclass(frozen=True)
 class FrontendInMemoryBuildResult:
     """Read-only value prefix shared by persistent builds and LSP consumers."""
 
@@ -268,6 +292,197 @@ class FrontendArtifactExportRequest:
 
     artifact_name: str
     destination: Path
+
+
+def load_frontend_initialization_configuration(
+    *,
+    workspace_root: Path,
+    source_roots: tuple[Path, ...] = (),
+    provider_externs_path: Path | None = None,
+    prompt_externs_path: Path | None = None,
+    command_boundaries_path: Path | None = None,
+    imported_workflow_bundles_path: Path | None = None,
+    lowering_route: LoweringRoute | str | None = None,
+) -> FrontendInitializationConfiguration:
+    """Load one frontend context without requiring or compiling an entry source."""
+
+    canonical_workspace_root = workspace_root.resolve()
+    canonical_source_roots = tuple(root.resolve() for root in source_roots)
+    canonical_provider_path = (
+        provider_externs_path.resolve() if provider_externs_path is not None else None
+    )
+    canonical_prompt_path = (
+        prompt_externs_path.resolve() if prompt_externs_path is not None else None
+    )
+    canonical_command_path = (
+        command_boundaries_path.resolve()
+        if command_boundaries_path is not None
+        else None
+    )
+    canonical_imported_path = (
+        imported_workflow_bundles_path.resolve()
+        if imported_workflow_bundles_path is not None
+        else None
+    )
+    normalized_lowering_route = normalize_lowering_route(lowering_route)
+    source_read_trace = SourceReadTrace()
+    configuration_read_trace = ConfigurationReadTrace()
+
+    provider_externs = _load_string_mapping(
+        canonical_provider_path,
+        label="provider externs manifest",
+        configuration_read_trace=configuration_read_trace,
+    )
+    prompt_externs = _load_prompt_extern_mapping(
+        canonical_prompt_path,
+        configuration_read_trace=configuration_read_trace,
+    )
+    command_boundary_manifest = _load_command_boundaries_manifest_payload(
+        canonical_command_path,
+        configuration_read_trace=configuration_read_trace,
+    )
+    command_boundaries = _parse_command_boundaries_manifest(
+        command_boundary_manifest,
+        manifest_path=canonical_command_path,
+    )
+    imported_workflow_bundles = _load_imported_workflow_bundle_manifest(
+        canonical_imported_path,
+        workspace_root=canonical_workspace_root,
+        source_roots=canonical_source_roots,
+        provider_externs_path=canonical_provider_path,
+        prompt_externs_path=canonical_prompt_path,
+        command_boundaries_path=canonical_command_path,
+        lowering_route=normalized_lowering_route,
+        source_read_trace=source_read_trace,
+        configuration_read_trace=configuration_read_trace,
+    )
+
+    return FrontendInitializationConfiguration(
+        workspace_root=canonical_workspace_root,
+        source_roots=canonical_source_roots,
+        provider_externs_path=canonical_provider_path,
+        prompt_externs_path=canonical_prompt_path,
+        command_boundaries_path=canonical_command_path,
+        imported_workflow_bundles_path=canonical_imported_path,
+        lowering_route=normalized_lowering_route,
+        provider_externs=_freeze_configuration_mapping(provider_externs),
+        prompt_externs=_freeze_configuration_mapping(prompt_externs),
+        command_boundary_manifest=_freeze_configuration_mapping(
+            command_boundary_manifest
+        ),
+        command_boundaries=_freeze_command_boundaries(command_boundaries),
+        imported_workflow_bundles=tuple(
+            _freeze_imported_workflow_binding(binding)
+            for binding in imported_workflow_bundles
+        ),
+        source_read_trace=FrontendSourceReadTraceSnapshot(
+            records=source_read_trace.records,
+            revision_vector=source_read_trace.revision_vector,
+        ),
+        configuration_trace=FrontendConfigurationTraceSnapshot(
+            records=configuration_read_trace.records,
+            revision_vector=configuration_read_trace.revision_vector,
+        ),
+    )
+
+
+def _freeze_configuration_mapping(
+    value: Mapping[str, object],
+) -> Mapping[str, object]:
+    """Recursively freeze one already validated production configuration mapping."""
+
+    return MappingProxyType(
+        {
+            key: _freeze_configuration_value(item)
+            for key, item in value.items()
+        }
+    )
+
+
+def _freeze_configuration_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        return _freeze_configuration_mapping(value)
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_configuration_value(item) for item in value)
+    return value
+
+
+def _freeze_command_boundaries(
+    value: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding],
+) -> Mapping[str, ExternalToolBinding | CertifiedAdapterBinding]:
+    """Copy and freeze nested certified-adapter configuration payloads."""
+
+    return MappingProxyType(
+        {
+            name: (
+                replace(
+                    binding,
+                    input_contract=_freeze_configuration_mapping(
+                        binding.input_contract
+                    ),
+                    path_safety=_freeze_configuration_mapping(
+                        binding.path_safety
+                    ),
+                )
+                if isinstance(binding, CertifiedAdapterBinding)
+                else binding
+            )
+            for name, binding in value.items()
+        }
+    )
+
+
+def _freeze_imported_workflow_binding(
+    binding: ImportedWorkflowBundleBinding,
+) -> ImportedWorkflowBundleBinding:
+    """Freeze the reproduced mutable provenance payload on a retained bundle."""
+
+    bundle = binding.bundle
+    coverage = bundle.provenance.frontend_source_map_coverage
+    if coverage is None:
+        return binding
+    provenance = replace(
+        bundle.provenance,
+        frontend_source_map_coverage=_freeze_configuration_mapping(coverage),
+    )
+    surface = (
+        replace(bundle.surface, provenance=provenance)
+        if bundle.surface.provenance is bundle.provenance
+        else bundle.surface
+    )
+    core_workflow_ast = bundle.core_workflow_ast
+    retained_surface = core_workflow_ast._surface_workflow
+    if (
+        retained_surface is not None
+        and retained_surface.provenance is bundle.provenance
+    ):
+        core_workflow_ast = replace(
+            core_workflow_ast,
+            _surface_workflow=replace(
+                retained_surface,
+                provenance=provenance,
+            ),
+        )
+    if core_workflow_ast.provenance is bundle.provenance:
+        core_workflow_ast = replace(
+            core_workflow_ast,
+            provenance=provenance,
+        )
+    executable_ir = (
+        replace(bundle.ir, provenance=provenance)
+        if bundle.ir.provenance is bundle.provenance
+        else bundle.ir
+    )
+    return replace(
+        binding,
+        bundle=replace(
+            bundle,
+            surface=surface,
+            core_workflow_ast=core_workflow_ast,
+            ir=executable_ir,
+            provenance=provenance,
+        ),
+    )
 
 
 def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
@@ -320,11 +535,101 @@ def build_frontend_bundle_in_memory(
 ) -> FrontendInMemoryBuildResult:
     """Compile, select, and reattach one entry workflow without emitting files."""
 
-    return _build_frontend_bundle_in_memory(
-        request,
-        source_read_trace=source_read_trace,
-        configuration_read_trace=ConfigurationReadTrace(),
+    configuration_read_trace = ConfigurationReadTrace()
+    try:
+        return _build_frontend_bundle_in_memory(
+            request,
+            source_read_trace=source_read_trace,
+            configuration_read_trace=configuration_read_trace,
+        )
+    except Exception as error:
+        _attach_build_configuration_evidence(
+            error,
+            configuration_read_trace.revision_vector,
+            configuration_read_trace.revision_conflict_paths,
+        )
+        raise
+
+
+def _attach_build_configuration_evidence(
+    error: Exception,
+    revision_vector: tuple[tuple[Path, str], ...],
+    revision_conflict_paths: tuple[Path, ...],
+) -> None:
+    """Bind one build attempt's structural configuration evidence to its error."""
+
+    existing = getattr(error, "configuration_revision_vector", None)
+    retained_vector = revision_vector
+    existing_is_normalized = _configuration_revision_vector_is_normalized(
+        existing
     )
+    if existing_is_normalized:
+        existing_by_path = dict(existing)
+        observed_is_covered = all(
+            existing_by_path.get(path) == revision
+            for path, revision in revision_vector
+        )
+        if len(existing) >= len(revision_vector) and observed_is_covered:
+            retained_vector = existing
+
+    existing_conflicts = getattr(
+        error,
+        "configuration_revision_conflict_paths",
+        None,
+    )
+    retained_conflicts = revision_conflict_paths
+    if (
+        retained_vector is existing
+        and _configuration_conflict_paths_are_valid(
+            existing_conflicts,
+            revision_vector=retained_vector,
+        )
+    ):
+        retained_conflicts = tuple(
+            (
+                *existing_conflicts,
+                *(
+                    path
+                    for path in revision_conflict_paths
+                    if path not in existing_conflicts
+                ),
+            )
+        )
+
+    error.configuration_revision_vector = retained_vector
+    error.configuration_revision_conflict_paths = retained_conflicts
+
+
+def _configuration_revision_vector_is_normalized(value: object) -> bool:
+    if not isinstance(value, tuple):
+        return False
+    if any(
+        not isinstance(item, tuple)
+        or len(item) != 2
+        or not isinstance(item[0], Path)
+        or not isinstance(item[1], str)
+        for item in value
+    ):
+        return False
+    return (
+        len(dict(value)) == len(value)
+        and value == tuple(sorted(value, key=lambda item: item[0].as_posix()))
+    )
+
+
+def _configuration_conflict_paths_are_valid(
+    value: object,
+    *,
+    revision_vector: tuple[tuple[Path, str], ...],
+) -> bool:
+    if (
+        not isinstance(value, tuple)
+        or any(not isinstance(path, Path) for path in value)
+        or len(set(value)) != len(value)
+    ):
+        return False
+    revision_paths = {path for path, _revision in revision_vector}
+    return all(path in revision_paths for path in value)
 
 
 def _build_frontend_bundle_in_memory(

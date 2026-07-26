@@ -66,6 +66,24 @@ class ConfigurationReadTrace:
             )
         )
 
+    @property
+    def revision_conflict_paths(self) -> tuple[Path, ...]:
+        """Return paths whose ordered records contain conflicting revisions."""
+
+        first_revision_by_path: dict[Path, str] = {}
+        conflicts: list[Path] = []
+        for record in self._records:
+            first_revision = first_revision_by_path.setdefault(
+                record.canonical_path,
+                record.revision,
+            )
+            if (
+                first_revision != record.revision
+                and record.canonical_path not in conflicts
+            ):
+                conflicts.append(record.canonical_path)
+        return tuple(conflicts)
+
     def _record(
         self,
         *,

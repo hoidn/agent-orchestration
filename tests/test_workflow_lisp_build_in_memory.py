@@ -4,7 +4,7 @@ import hashlib
 import importlib
 import inspect
 import json
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 
 import pytest
@@ -715,4 +715,703 @@ def test_recursive_configuration_revision_mismatch_fails_closed(
         build.build_frontend_bundle_in_memory(request)
 
     assert provider_reads == 2
+    assert not (tmp_path / ".orchestrate").exists()
+
+
+def test_initialization_configuration_without_optional_paths_is_frozen_and_read_free(
+    tmp_path: Path,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    first_root = (tmp_path / "src").resolve()
+    second_root = (tmp_path / "lib").resolve()
+    workspace_root = tmp_path.resolve()
+    before = _tree_snapshot(tmp_path)
+
+    configuration = build.load_frontend_initialization_configuration(
+        workspace_root=workspace_root,
+        source_roots=(first_root, first_root, second_root),
+    )
+
+    assert isinstance(configuration, build.FrontendInitializationConfiguration)
+    assert configuration.workspace_root == workspace_root
+    assert configuration.source_roots == (first_root, first_root, second_root)
+    assert configuration.provider_externs_path is None
+    assert configuration.prompt_externs_path is None
+    assert configuration.command_boundaries_path is None
+    assert configuration.imported_workflow_bundles_path is None
+    assert configuration.lowering_route is build.LoweringRoute.WCC_M4
+    assert configuration.provider_externs == {}
+    assert configuration.prompt_externs == {}
+    assert configuration.command_boundary_manifest == {}
+    assert configuration.command_boundaries == {}
+    assert configuration.imported_workflow_bundles == ()
+    assert configuration.source_read_trace.records == ()
+    assert configuration.source_read_trace.revision_vector == ()
+    assert configuration.configuration_trace.records == ()
+    assert configuration.configuration_trace.revision_vector == ()
+    assert _tree_snapshot(tmp_path) == before
+
+    with pytest.raises(FrozenInstanceError):
+        configuration.workspace_root = tmp_path / "other"  # type: ignore[misc]
+    with pytest.raises(TypeError):
+        configuration.provider_externs["providers.execute"] = "other"  # type: ignore[index]
+
+    signature = inspect.signature(build.load_frontend_initialization_configuration)
+    assert "source_path" not in signature.parameters
+    assert tuple(signature.parameters) == (
+        "workspace_root",
+        "source_roots",
+        "provider_externs_path",
+        "prompt_externs_path",
+        "command_boundaries_path",
+        "imported_workflow_bundles_path",
+        "lowering_route",
+    )
+
+
+def test_initialization_configuration_uses_production_loaders_and_shared_recursive_traces(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    provider_path = (CLI_FIXTURES / "providers.json").resolve()
+    prompt_path = (CLI_FIXTURES / "prompts.json").resolve()
+    command_path = (CLI_FIXTURES / "commands.json").resolve()
+    imported_manifest_path = (
+        CLI_FIXTURES / "imported_workflow_bundles.json"
+    ).resolve()
+    imported_source_path = (CLI_FIXTURES / "imported_selector.orc").resolve()
+    configured_paths = {
+        provider_path,
+        prompt_path,
+        command_path,
+        imported_manifest_path,
+    }
+    configuration_reads: list[Path] = []
+    source_reads: list[Path] = []
+    read_bytes = Path.read_bytes
+
+    def traced_read_bytes(path: Path) -> bytes:
+        canonical_path = path.resolve()
+        if canonical_path in configured_paths:
+            configuration_reads.append(canonical_path)
+        if canonical_path.suffix == ".orc":
+            source_reads.append(canonical_path)
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", traced_read_bytes)
+    before = _tree_snapshot(tmp_path)
+
+    configuration = build.load_frontend_initialization_configuration(
+        workspace_root=tmp_path.resolve(),
+        source_roots=(CLI_FIXTURES.resolve(),),
+        provider_externs_path=provider_path,
+        prompt_externs_path=prompt_path,
+        command_boundaries_path=command_path,
+        imported_workflow_bundles_path=imported_manifest_path,
+    )
+
+    assert configuration.provider_externs == {
+        "providers.execute": "test-provider"
+    }
+    assert configuration.prompt_externs == {
+        "prompts.implementation.execute": (
+            "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+        )
+    }
+    assert configuration.command_boundary_manifest == {
+        "run_checks": {
+            "kind": "external_tool",
+            "stable_command": ("python", "scripts/run_checks.py"),
+        }
+    }
+    assert tuple(configuration.command_boundaries) == ("run_checks",)
+    assert configuration.command_boundaries["run_checks"].stable_command == (
+        "python",
+        "scripts/run_checks.py",
+    )
+    assert len(configuration.imported_workflow_bundles) == 1
+    imported = configuration.imported_workflow_bundles[0]
+    assert imported.canonical_key == "selector-run"
+    assert imported.resolved_bundle_path == imported_source_path
+    assert imported.load_status == "compiled"
+    assert tuple(
+        record.canonical_path
+        for record in configuration.configuration_trace.records
+    ) == tuple(configuration_reads)
+    assert configuration_reads == [
+        provider_path,
+        prompt_path,
+        command_path,
+        imported_manifest_path,
+        provider_path,
+        prompt_path,
+        command_path,
+    ]
+    assert tuple(
+        record.canonical_path for record in configuration.source_read_trace.records
+    ) == tuple(source_reads)
+    assert source_reads
+    assert set(source_reads) == {imported_source_path}
+    assert _tree_snapshot(tmp_path) == before
+    assert not (tmp_path / ".orchestrate").exists()
+
+    with pytest.raises(TypeError):
+        configuration.command_boundary_manifest["run_checks"]["kind"] = "other"  # type: ignore[index]
+
+
+@pytest.mark.parametrize(
+    "configured_field",
+    (
+        "provider_externs_path",
+        "prompt_externs_path",
+        "command_boundaries_path",
+        "imported_workflow_bundles_path",
+    ),
+)
+def test_initialization_configuration_preserves_configured_missing_failure(
+    tmp_path: Path,
+    configured_field: str,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    options = {configured_field: tmp_path / f"missing-{configured_field}.json"}
+
+    with pytest.raises(build.LispFrontendCompileError) as error:
+        build.load_frontend_initialization_configuration(
+            workspace_root=tmp_path,
+            **options,
+        )
+
+    assert error.value.diagnostics[0].code == "workflow_lisp_manifest_missing"
+    assert not (tmp_path / ".orchestrate").exists()
+
+
+def test_initialization_configuration_preserves_unreadable_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    provider_path = (tmp_path / "providers.json").resolve()
+    provider_path.write_text("{}\n", encoding="utf-8")
+    read_bytes = Path.read_bytes
+
+    def reject_provider_read(path: Path) -> bytes:
+        if path.resolve() == provider_path:
+            raise PermissionError("unreadable configuration")
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", reject_provider_read)
+
+    with pytest.raises(PermissionError):
+        build.load_frontend_initialization_configuration(
+            workspace_root=tmp_path,
+            provider_externs_path=provider_path,
+        )
+
+    assert not (tmp_path / ".orchestrate").exists()
+
+
+@pytest.mark.parametrize(
+    ("configured_field", "payload", "diagnostic_code"),
+    (
+        ("provider_externs_path", [], "workflow_lisp_manifest_invalid"),
+        (
+            "prompt_externs_path",
+            {"prompt": {"input_file": "one", "asset_file": "two"}},
+            "workflow_lisp_manifest_invalid",
+        ),
+        (
+            "command_boundaries_path",
+            {"run": {"stable_command": [1]}},
+            "command_boundary_manifest_invalid",
+        ),
+        (
+            "imported_workflow_bundles_path",
+            {},
+            "imported_workflow_bundle_manifest_empty",
+        ),
+    ),
+)
+def test_initialization_configuration_preserves_production_schema_failures(
+    tmp_path: Path,
+    configured_field: str,
+    payload: object,
+    diagnostic_code: str,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    manifest_path = tmp_path / f"{configured_field}.json"
+    manifest_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+    with pytest.raises(build.LispFrontendCompileError) as error:
+        build.load_frontend_initialization_configuration(
+            workspace_root=tmp_path,
+            **{configured_field: manifest_path},
+        )
+
+    assert error.value.diagnostics[0].code == diagnostic_code
+    assert not (tmp_path / ".orchestrate").exists()
+
+
+def test_public_build_language_error_carries_same_attempt_configuration_vector(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    diagnostics = importlib.import_module(
+        "orchestrator.workflow_lisp.diagnostics"
+    )
+    invalid_source = (
+        REPO_ROOT
+        / "tests"
+        / "fixtures"
+        / "workflow_lisp"
+        / "invalid"
+        / "unknown_type.orc"
+    )
+    provider_path = (tmp_path / "providers.json").resolve()
+    provider_path.write_bytes(b'{"provider":"revision-a"}\n')
+    revision_b = b'{"provider":"revision-b"}\n'
+    read_bytes = Path.read_bytes
+    mutated = False
+
+    def mutate_to_b_during_build(path: Path) -> bytes:
+        nonlocal mutated
+        if path.resolve() == provider_path and not mutated:
+            mutated = True
+            path.write_bytes(revision_b)
+            return revision_b
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", mutate_to_b_during_build)
+    request = build.FrontendBuildRequest(
+        source_path=invalid_source,
+        source_roots=(invalid_source.parent,),
+        provider_externs_path=provider_path,
+        workspace_root=tmp_path,
+    )
+
+    with pytest.raises(build.LispFrontendCompileError) as error:
+        build.build_frontend_bundle_in_memory(request)
+
+    assert mutated is True
+    assert error.value.configuration_revision_vector == (
+        (
+            provider_path,
+            f"sha256:{hashlib.sha256(revision_b).hexdigest()}",
+        ),
+    )
+    assert str(error.value) == diagnostics.render_diagnostics(
+        error.value.diagnostics
+    )
+    assert not (tmp_path / ".orchestrate").exists()
+
+
+def test_public_build_success_binds_configuration_revision_read_during_attempt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    provider_path = (tmp_path / "providers.json").resolve()
+    provider_path.write_bytes(b'{"provider":"revision-a"}\n')
+    revision_b = b'{"provider":"revision-b"}\n'
+    read_bytes = Path.read_bytes
+    mutated = False
+
+    def mutate_to_b_during_build(path: Path) -> bytes:
+        nonlocal mutated
+        if path.resolve() == provider_path and not mutated:
+            mutated = True
+            path.write_bytes(revision_b)
+            return revision_b
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", mutate_to_b_during_build)
+    request = build.FrontendBuildRequest(
+        source_path=SOURCE,
+        source_roots=(SOURCE.parent,),
+        entry_workflow="entry-publication-runtime",
+        provider_externs_path=provider_path,
+        workspace_root=tmp_path,
+    )
+
+    result = build.build_frontend_bundle_in_memory(request)
+
+    assert mutated is True
+    assert result.configuration_trace.revision_vector == (
+        (
+            provider_path,
+            f"sha256:{hashlib.sha256(revision_b).hexdigest()}",
+        ),
+    )
+    assert not (tmp_path / ".orchestrate").exists()
+
+
+def test_public_build_loader_and_recursive_errors_carry_attempt_configuration(
+    tmp_path: Path,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    invalid_json_path = (tmp_path / "invalid-providers.json").resolve()
+    invalid_json_bytes = b"{invalid-json\n"
+    invalid_json_path.write_bytes(invalid_json_bytes)
+    loader_request = build.FrontendBuildRequest(
+        source_path=SOURCE,
+        source_roots=(SOURCE.parent,),
+        entry_workflow="entry-publication-runtime",
+        provider_externs_path=invalid_json_path,
+        workspace_root=tmp_path,
+    )
+
+    with pytest.raises(build.LispFrontendCompileError) as loader_error:
+        build.build_frontend_bundle_in_memory(loader_request)
+
+    assert loader_error.value.configuration_revision_vector == (
+        (
+            invalid_json_path,
+            f"sha256:{hashlib.sha256(invalid_json_bytes).hexdigest()}",
+        ),
+    )
+
+    invalid_import = (
+        REPO_ROOT
+        / "tests"
+        / "fixtures"
+        / "workflow_lisp"
+        / "invalid"
+        / "unknown_type.orc"
+    )
+    imported_manifest_path = (tmp_path / "imports.json").resolve()
+    imported_manifest_path.write_text(
+        json.dumps(
+            {
+                "broken": {
+                    "kind": "compiled",
+                    "path": str(invalid_import),
+                }
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    imported_manifest_bytes = imported_manifest_path.read_bytes()
+    recursive_request = build.FrontendBuildRequest(
+        source_path=SOURCE,
+        source_roots=(invalid_import.parent, SOURCE.parent),
+        entry_workflow="entry-publication-runtime",
+        imported_workflow_bundles_path=imported_manifest_path,
+        workspace_root=tmp_path,
+    )
+
+    with pytest.raises(build.LispFrontendCompileError) as recursive_error:
+        build.build_frontend_bundle_in_memory(recursive_request)
+
+    assert recursive_error.value.configuration_revision_vector == (
+        (
+            imported_manifest_path,
+            f"sha256:{hashlib.sha256(imported_manifest_bytes).hexdigest()}",
+        ),
+    )
+    assert not (tmp_path / ".orchestrate").exists()
+
+
+def test_public_build_no_configuration_error_binds_empty_vector_but_direct_compile_does_not(
+    tmp_path: Path,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    compiler = importlib.import_module("orchestrator.workflow_lisp.compiler")
+    invalid_source = (
+        REPO_ROOT
+        / "tests"
+        / "fixtures"
+        / "workflow_lisp"
+        / "invalid"
+        / "unknown_type.orc"
+    )
+    request = build.FrontendBuildRequest(
+        source_path=invalid_source,
+        source_roots=(invalid_source.parent,),
+        workspace_root=tmp_path,
+    )
+
+    with pytest.raises(build.LispFrontendCompileError) as build_error:
+        build.build_frontend_bundle_in_memory(request)
+    with pytest.raises(build.LispFrontendCompileError) as direct_error:
+        compiler.compile_stage3_entrypoint(
+            invalid_source,
+            source_roots=(invalid_source.parent,),
+            workspace_root=tmp_path,
+        )
+
+    assert build_error.value.configuration_revision_vector == ()
+    assert build_error.value.configuration_revision_conflict_paths == ()
+    assert direct_error.value.configuration_revision_vector is None
+    assert direct_error.value.configuration_revision_conflict_paths is None
+    assert build_error.value.diagnostics == direct_error.value.diagnostics
+    assert str(build_error.value) == str(direct_error.value)
+    assert not (tmp_path / ".orchestrate").exists()
+
+
+@pytest.mark.parametrize("error_kind", ("lisp", "generic"))
+def test_public_build_preserves_more_complete_compatible_error_configuration_vector(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error_kind: str,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    first_path = (tmp_path / "first.json").resolve()
+    second_path = (tmp_path / "second.json").resolve()
+    first_revision = "sha256:" + ("1" * 64)
+    complete_vector = (
+        (first_path, first_revision),
+        (second_path, "sha256:" + ("2" * 64)),
+    )
+    if error_kind == "lisp":
+        existing_error = build.LispFrontendCompileError(
+            (),
+            configuration_revision_vector=complete_vector,
+            configuration_revision_conflict_paths=(second_path,),
+        )
+        expected_type = build.LispFrontendCompileError
+    else:
+        existing_error = RuntimeError("generic failure with shared evidence")
+        existing_error.configuration_revision_vector = complete_vector
+        existing_error.configuration_revision_conflict_paths = (second_path,)
+        expected_type = RuntimeError
+
+    def fail_with_shared_trace(
+        request: build.FrontendBuildRequest,
+        *,
+        source_read_trace: SourceReadTrace | None,
+        configuration_read_trace: object,
+    ) -> object:
+        configuration_read_trace._record(  # type: ignore[attr-defined]
+            canonical_path=first_path,
+            revision=first_revision,
+        )
+        raise existing_error
+
+    monkeypatch.setattr(
+        build,
+        "_build_frontend_bundle_in_memory",
+        fail_with_shared_trace,
+    )
+    request = build.FrontendBuildRequest(
+        source_path=SOURCE,
+        workspace_root=tmp_path,
+    )
+
+    with pytest.raises(expected_type) as caught:
+        build.build_frontend_bundle_in_memory(request)
+
+    assert caught.value is existing_error
+    assert caught.value.configuration_revision_vector == complete_vector
+    assert caught.value.configuration_revision_conflict_paths == (second_path,)
+    assert not (tmp_path / ".orchestrate").exists()
+
+
+def test_public_build_generic_recursive_configuration_conflict_survives_aba_reversion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    manifest_io = importlib.import_module(
+        "orchestrator.workflow_lisp.build_manifest_io"
+    )
+    provider_path = (tmp_path / "providers.json").resolve()
+    revision_a_bytes = b'{"providers.execute":"provider-a"}\n'
+    revision_b_bytes = b'{"providers.execute":"provider-b"}\n'
+    provider_path.write_bytes(revision_a_bytes)
+    request = replace(
+        _imported_request(build, tmp_path),
+        provider_externs_path=provider_path,
+    )
+    configured_paths = (
+        provider_path,
+        request.prompt_externs_path.resolve(),
+        request.command_boundaries_path.resolve(),
+        request.imported_workflow_bundles_path.resolve(),
+    )
+    expected_vector = tuple(
+        sorted(
+            (
+                (
+                    path,
+                    f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}",
+                )
+                for path in configured_paths
+            ),
+            key=lambda item: item[0].as_posix(),
+        )
+    )
+    read_bytes = Path.read_bytes
+    provider_reads = 0
+    raised_by_trace: list[RuntimeError] = []
+    record = manifest_io.ConfigurationReadTrace._record
+
+    def aba_read(path: Path) -> bytes:
+        nonlocal provider_reads
+        if path.resolve() != provider_path:
+            return read_bytes(path)
+        provider_reads += 1
+        if provider_reads == 1:
+            return revision_a_bytes
+        provider_path.write_bytes(revision_b_bytes)
+        try:
+            return revision_b_bytes
+        finally:
+            provider_path.write_bytes(revision_a_bytes)
+
+    def capture_trace_error(
+        trace: object,
+        *,
+        canonical_path: Path,
+        revision: str,
+    ) -> object:
+        try:
+            return record(
+                trace,
+                canonical_path=canonical_path,
+                revision=revision,
+            )
+        except RuntimeError as error:
+            raised_by_trace.append(error)
+            raise
+
+    monkeypatch.setattr(Path, "read_bytes", aba_read)
+    monkeypatch.setattr(
+        manifest_io.ConfigurationReadTrace,
+        "_record",
+        capture_trace_error,
+    )
+
+    with pytest.raises(RuntimeError) as caught:
+        build.build_frontend_bundle_in_memory(request)
+
+    assert provider_reads == 2
+    assert read_bytes(provider_path) == revision_a_bytes
+    assert raised_by_trace == [caught.value]
+    assert caught.value.configuration_revision_vector == expected_vector
+    assert caught.value.configuration_revision_conflict_paths == (
+        provider_path,
+    )
+    assert not (tmp_path / ".orchestrate").exists()
+
+
+def test_public_build_unchanged_generic_error_carries_nonconflicting_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    provider_path = (tmp_path / "providers.json").resolve()
+    provider_bytes = b'{"provider":"unchanged"}\n'
+    provider_path.write_bytes(provider_bytes)
+    expected_error = PermissionError("source is unreadable")
+    read_bytes = Path.read_bytes
+
+    def fail_source_read(path: Path) -> bytes:
+        if path.resolve() == SOURCE.resolve():
+            raise expected_error
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", fail_source_read)
+    request = build.FrontendBuildRequest(
+        source_path=SOURCE,
+        source_roots=(SOURCE.parent,),
+        entry_workflow="entry-publication-runtime",
+        provider_externs_path=provider_path,
+        workspace_root=tmp_path,
+    )
+
+    with pytest.raises(PermissionError) as caught:
+        build.build_frontend_bundle_in_memory(request)
+
+    assert caught.value is expected_error
+    assert caught.value.configuration_revision_vector == (
+        (
+            provider_path,
+            f"sha256:{hashlib.sha256(provider_bytes).hexdigest()}",
+        ),
+    )
+    assert caught.value.configuration_revision_conflict_paths == ()
+    assert not (tmp_path / ".orchestrate").exists()
+
+
+def test_initialization_configuration_copies_and_deep_freezes_retained_payloads(
+    tmp_path: Path,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    command_path = (tmp_path / "certified-adapter.json").resolve()
+    command_path.write_text(
+        json.dumps(
+            {
+                "normalize": {
+                    "kind": "certified_adapter",
+                    "stable_command": ["python", "scripts/normalize.py"],
+                    "input_contract": {
+                        "type": "object",
+                        "properties": {
+                            "payload": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            }
+                        },
+                    },
+                    "output_type_name": "Normalized",
+                    "effects": ["structured_result"],
+                    "path_safety": {
+                        "kind": "workspace_relpath",
+                        "rules": [
+                            {
+                                "root": "workspace",
+                                "modes": ["read"],
+                            }
+                        ],
+                    },
+                    "source_map_behavior": "step",
+                    "fixture_ids": ["normalize_ok"],
+                    "negative_fixture_ids": ["normalize_bad"],
+                }
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    configuration = build.load_frontend_initialization_configuration(
+        workspace_root=tmp_path.resolve(),
+        source_roots=(CLI_FIXTURES.resolve(),),
+        provider_externs_path=CLI_FIXTURES / "providers.json",
+        prompt_externs_path=CLI_FIXTURES / "prompts.json",
+        command_boundaries_path=command_path,
+        imported_workflow_bundles_path=CLI_FIXTURES
+        / "imported_workflow_bundles.json",
+    )
+
+    adapter = configuration.command_boundaries["normalize"]
+    manifest_adapter = configuration.command_boundary_manifest["normalize"]
+    assert adapter.input_contract is not manifest_adapter["input_contract"]
+    assert adapter.path_safety is not manifest_adapter["path_safety"]
+    assert adapter.input_contract["properties"]["payload"]["items"] == {
+        "type": "string"
+    }
+    assert adapter.path_safety["rules"][0]["modes"] == ("read",)
+    with pytest.raises(TypeError):
+        adapter.input_contract["properties"]["payload"]["items"]["type"] = "integer"
+    with pytest.raises(TypeError):
+        adapter.path_safety["rules"][0]["root"] = "other"
+
+    imported = configuration.imported_workflow_bundles[0]
+    coverage = imported.bundle.provenance.frontend_source_map_coverage
+    assert coverage is imported.bundle.surface.provenance.frontend_source_map_coverage
+    assert coverage is imported.bundle.core_workflow_ast.provenance.frontend_source_map_coverage
+    assert coverage is imported.bundle.ir.provenance.frontend_source_map_coverage
+    assert (
+        coverage
+        is imported.bundle.core_workflow_ast._surface_workflow.provenance.frontend_source_map_coverage
+    )
+    with pytest.raises(TypeError):
+        coverage["frontend_ast"] = "mutated"
+    with pytest.raises(TypeError):
+        imported.bundle.imports["other"] = imported.bundle
     assert not (tmp_path / ".orchestrate").exists()
