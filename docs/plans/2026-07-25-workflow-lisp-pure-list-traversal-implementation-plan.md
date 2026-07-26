@@ -359,9 +359,9 @@ compiler-owned nonempty extraction from one golden-vector contract.
       globally.
 - [x] Use the same evaluator for folding; do not duplicate operator semantics.
 - [x] Rerun golden vectors twice—runtime evaluation and compile-time folding.
-- [ ] Obtain `TASK2_SPEC_APPROVED`, then `TASK2_QUALITY_APPROVED`, and commit.
+- [x] Obtain `TASK2_SPEC_APPROVED`, then `TASK2_QUALITY_APPROVED`, and commit.
 
-**Implementation record (2026-07-25; implementation commit pending):**
+**Implementation record (2026-07-25; complete):**
 
 - Initial RED collected 133 tests and produced only intended missing-behavior
   failures (`62 failed, 71 passed`). A follow-up unresolved-path diagnostic
@@ -382,8 +382,10 @@ compiler-owned nonempty extraction from one golden-vector contract.
 - The operator-justification registry required five list-operator rows to
   preserve its exact catalog invariant; no registry assertion was weakened.
 - Ordered preliminary review verdicts are `TASK2_SPEC_APPROVED` then
-  `TASK2_QUALITY_APPROVED`. The implementation commit is pending final
-  exact-diff reaffirmation.
+  `TASK2_QUALITY_APPROVED`; final exact-diff verdicts are
+  `TASK2_SPEC_REAFFIRMED` then `TASK2_QUALITY_REAFFIRMED`.
+- Implementation commit:
+  `2debaac4a2c4ba0615a6766bde4ebe4342542a06`.
 
 ## Task 3: Add Frontend List, Map, Path, And Expected-Type Forms
 
