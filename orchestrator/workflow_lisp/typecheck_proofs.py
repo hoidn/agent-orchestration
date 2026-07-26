@@ -171,6 +171,7 @@ def typecheck_match_expr(
     context,
     recurse,
     typed_factory,
+    expected_type: TypeRef | None = None,
 ):
     from dataclasses import replace
 
@@ -223,6 +224,7 @@ def typecheck_match_expr(
             arm.body,
             value_env=arm_env,
             proof_scope=ProofScope(facts=arm_facts),
+            expected_type=expected_type,
         )
         arm_summaries.append(typed_body.effect_summary)
         rewritten_arms.append(replace(arm, body=typed_body.expr))

@@ -221,6 +221,7 @@ def _typecheck_loop_state_seed(
             form_path=field.form_path,
             expansion_stack=field.expansion_stack,
         )
+        typed_value = recurse(field.value_expr, expected_type=resolved_type)
         if not allows_generic_type_param:
             _ensure_no_unresolved_type_params(
                 resolved_type,
@@ -244,7 +245,6 @@ def _typecheck_loop_state_seed(
                 span=field.span,
                 form_path=field.form_path,
             )
-        typed_value = recurse(field.value_expr)
         if not type_refs_compatible(resolved_type, typed_value.type_ref):
             raise_error(
                 (
@@ -334,7 +334,7 @@ def _typecheck_loop_state_update(
                 form_path=field_expr.form_path,
                 expansion_stack=field_expr.expansion_stack,
             )
-        typed_value = recurse(field_expr)
+        typed_value = recurse(field_expr, expected_type=expected_type)
         if not type_refs_compatible(expected_type, typed_value.type_ref):
             raise_error(
                 (

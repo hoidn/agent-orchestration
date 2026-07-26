@@ -14,6 +14,7 @@ from typing import Any
 from ..contracts import GeneratedInternalInput, derive_workflow_signature_contracts
 from ..conditionals import PureExprCondition, render_condition_predicate
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from ..expression_traversal import iter_child_exprs
 from ..expressions import (
     CallExpr,
     CommandResultExpr,
@@ -23,6 +24,8 @@ from ..expressions import (
     FieldAccessExpr,
     IfExpr,
     LetStarExpr,
+    ListExpr,
+    ListMapExpr,
     LiteralExpr,
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
@@ -30,6 +33,7 @@ from ..expressions import (
     MatchArm,
     MatchExpr,
     NameExpr,
+    PathJoinUnderExpr,
     PureOpExpr,
     ProcedureCallExpr,
     PromptDependencySpec,
@@ -183,7 +187,10 @@ from orchestrator.workflow.prompt_dependency_contract import (
     PromptDependencyPosition,
     _build_compiler_prompt_dependency_contract,
 )
-from orchestrator.workflow.pure_expr import validate_pure_expr_payload
+from orchestrator.workflow.pure_expr import (
+    PURE_EXPR_OPERATOR_CATALOG,
+    validate_pure_expr_payload,
+)
 from orchestrator.workflow.surface_ast import freeze_value
 from ..lowering.control_match import (
     _binding_terminal_for_inline_match,
@@ -2949,6 +2956,11 @@ def _lower_resolved_union_variant_terminal(
         resolved_expr = resolved_expr.result_expr
     if not isinstance(resolved_expr, UnionVariantExpr):
         return None
+    if _contains_schema2_list_form(
+        resolved_expr,
+        local_values=local_values,
+    ):
+        return None
     return lowering_core._lower_union_variant_expr(
         TypedExpr(
             expr=resolved_expr,
@@ -3112,7 +3124,7 @@ def _is_static_terminal_literal(value: Any) -> bool:
 
 
 def _contains_pure_operator(expr: Any, *, local_values: Mapping[str, Any]) -> bool:
-    if isinstance(expr, PureOpExpr):
+    if isinstance(expr, (PureOpExpr, ListExpr, ListMapExpr, PathJoinUnderExpr)):
         return True
     if isinstance(expr, NameExpr):
         local_expr = local_values.get(expr.name)
@@ -3136,6 +3148,37 @@ def _contains_pure_operator(expr: Any, *, local_values: Mapping[str, Any]) -> bo
             for _, binding_expr in expr.bindings
         ) or _contains_pure_operator(expr.body, local_values=local_values)
     return False
+
+
+def _contains_schema2_list_form(
+    expr: Any,
+    *,
+    local_values: Mapping[str, Any],
+) -> bool:
+    if isinstance(expr, (ListExpr, ListMapExpr, PathJoinUnderExpr)):
+        return True
+    if isinstance(expr, PureOpExpr):
+        spec = PURE_EXPR_OPERATOR_CATALOG.get(expr.operator)
+        if spec is not None and spec.min_schema_version >= 2:
+            return True
+    if isinstance(expr, NameExpr):
+        local_expr = local_values.get(expr.name)
+        return (
+            local_expr is not None
+            and local_expr is not expr
+            and _contains_schema2_list_form(
+                local_expr,
+                local_values=local_values,
+            )
+        )
+    try:
+        children = iter_child_exprs(expr)
+    except TypeError:
+        return False
+    return any(
+        _contains_schema2_list_form(child, local_values=local_values)
+        for child in children
+    )
 
 
 def _wcc_terminal_output_refs_for_expr(

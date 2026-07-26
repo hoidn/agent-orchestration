@@ -20,6 +20,8 @@ from .expressions import (
     FunctionCallExpr,
     IfExpr,
     LetStarExpr,
+    ListExpr,
+    ListMapExpr,
     LiveProviderPeerBinding,
     LiveProviderBinding,
     LiteralExpr,
@@ -31,6 +33,7 @@ from .expressions import (
     MatchArm,
     MatchExpr,
     NameExpr,
+    PathJoinUnderExpr,
     PhaseTargetExpr,
     PureOpExpr,
     ProcedureCallExpr,
@@ -260,6 +263,7 @@ def typecheck_function_definitions(
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,
             function_catalog=function_catalog,
+            expected_type=signature.return_type_ref,
         )
         if not type_refs_compatible(signature.return_type_ref, typed_body.type_ref):
             raise LispFrontendCompileError(
@@ -401,6 +405,34 @@ def _normalize_expr(
             args=tuple(
                 _normalize_expr(arg, typed_functions_by_name=typed_functions_by_name)
                 for arg in expr.args
+            ),
+        )
+    if isinstance(expr, ListExpr):
+        return replace(
+            expr,
+            items=tuple(
+                _normalize_expr(item, typed_functions_by_name=typed_functions_by_name)
+                for item in expr.items
+            ),
+        )
+    if isinstance(expr, ListMapExpr):
+        return replace(
+            expr,
+            source_expr=_normalize_expr(
+                expr.source_expr,
+                typed_functions_by_name=typed_functions_by_name,
+            ),
+            body_expr=_normalize_expr(
+                expr.body_expr,
+                typed_functions_by_name=typed_functions_by_name,
+            ),
+        )
+    if isinstance(expr, PathJoinUnderExpr):
+        return replace(
+            expr,
+            child_expr=_normalize_expr(
+                expr.child_expr,
+                typed_functions_by_name=typed_functions_by_name,
             ),
         )
     if isinstance(expr, RecordUpdateExpr):
@@ -681,6 +713,54 @@ def _clone_function_expr(
             form_path=form_path,
             expansion_stack=expansion_stack,
         )
+    if isinstance(expr, ListExpr):
+        return replace(
+            expr,
+            items=tuple(
+                _clone_function_expr(
+                    item,
+                    span=span,
+                    form_path=form_path,
+                    expansion_stack=expansion_stack,
+                )
+                for item in expr.items
+            ),
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if isinstance(expr, ListMapExpr):
+        return replace(
+            expr,
+            source_expr=_clone_function_expr(
+                expr.source_expr,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            ),
+            body_expr=_clone_function_expr(
+                expr.body_expr,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            ),
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if isinstance(expr, PathJoinUnderExpr):
+        return replace(
+            expr,
+            child_expr=_clone_function_expr(
+                expr.child_expr,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            ),
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
     if isinstance(expr, RecordUpdateExpr):
         return replace(
             expr,
@@ -944,6 +1024,19 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
             if violation is not None:
                 return violation
         return None
+    if isinstance(expr, ListExpr):
+        for item in expr.items:
+            violation = _find_purity_violation(item)
+            if violation is not None:
+                return violation
+        return None
+    if isinstance(expr, ListMapExpr):
+        violation = _find_purity_violation(expr.source_expr)
+        if violation is not None:
+            return violation
+        return _find_purity_violation(expr.body_expr)
+    if isinstance(expr, PathJoinUnderExpr):
+        return _find_purity_violation(expr.child_expr)
     if isinstance(expr, RecordUpdateExpr):
         violation = _find_purity_violation(expr.base_expr)
         if violation is not None:

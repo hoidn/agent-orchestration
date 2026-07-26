@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib
+import json
 from pathlib import Path
+import re
 
 import pytest
 
@@ -12,8 +14,25 @@ from orchestrator.workflow.validation import (
     validate_workflow_mapping,
 )
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.expressions import (
+    FunctionCallExpr,
+    ProcedureCallExpr,
+    elaborate_expression,
+)
 from orchestrator.workflow_lisp.reader import read_sexpr_text
-from orchestrator.workflow_lisp.syntax import build_syntax_module
+from orchestrator.workflow_lisp.syntax import SyntaxNode, build_syntax_module
+
+
+_LIST_TRAVERSAL_AUTHORED_HEADS = (
+    "list",
+    "list/map",
+    "path/join-under",
+    "list/empty?",
+    "list/head",
+    "list/rest",
+    "list/append",
+    "list/length",
+)
 
 
 def _module_source(target_dsl: str) -> str:
@@ -87,6 +106,105 @@ def _projection_payload(result) -> dict[str, object]:
     ]
     assert len(projection_steps) == 1
     return projection_steps[0].pure_projection
+
+
+def _build_source(
+    tmp_path: Path,
+    source: str,
+    *,
+    entry_workflow: str = "orchestrate",
+    filename: str | None = None,
+    source_roots: tuple[Path, ...] | None = None,
+    lowering_route: str | None = None,
+):
+    if filename is None:
+        module_match = re.search(r"\(defmodule\s+([^()\s]+)\)", source)
+        assert module_match is not None
+        filename = f"{module_match.group(1)}.orc"
+    source_path = tmp_path / filename
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    source_path.write_text(source.strip() + "\n", encoding="utf-8")
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    return build.build_frontend_bundle(
+        build.FrontendBuildRequest(
+            source_path=source_path,
+            source_roots=source_roots or (tmp_path,),
+            entry_workflow=entry_workflow,
+            provider_externs_path=None,
+            prompt_externs_path=None,
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=None,
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+            lowering_route=lowering_route,
+        )
+    )
+
+
+def _diagnostic_code_for_source(
+    tmp_path: Path,
+    source: str,
+    *,
+    filename: str | None = None,
+) -> str:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_source(tmp_path, source, filename=filename)
+    return excinfo.value.diagnostics[0].code
+
+
+def _expression_syntax(source: str) -> SyntaxNode:
+    parse_tree = read_sexpr_text(
+        source,
+        source_path="inline_list_traversal_compatibility.orc",
+    )
+    assert len(parse_tree.items) == 1
+    datum = parse_tree.items[0]
+    return SyntaxNode(
+        datum=datum,
+        span=datum.span,
+        module_path="inline_list_traversal_compatibility.orc",
+        form_path=("workflow-lisp", "list-traversal-compatibility"),
+    )
+
+
+def _write_legacy_list_traversal_macro(
+    tmp_path: Path,
+    *,
+    head: str,
+) -> None:
+    module_path = tmp_path / "legacy" / "list-macros.orc"
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text(
+        f"""
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.17")
+          (defmodule legacy/list-macros)
+          (export {head})
+          (defmacro {head} (value) value))
+        """.strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_list_map_template_macro(tmp_path: Path) -> None:
+    module_path = tmp_path / "helpers" / "list-map-macros.orc"
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text(
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule helpers/list-map-macros)
+          (export map-plus-one)
+          (defmacro map-plus-one (values)
+            (list/map ((item values))
+              (+ item 1))))
+        """.strip()
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def test_target_218_is_accepted_and_owns_one_list_traversal_gate() -> None:
@@ -1047,3 +1165,826 @@ def test_validate_enforces_schema_2_list_operator_operand_and_result_types(
         pure_expr.validate_pure_expr_payload(payload)
 
     assert excinfo.value.code == expected_code
+
+
+def test_frontend_list_constructor_and_total_operators_synthesize_exact_types(
+    tmp_path: Path,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule list_surface)
+          (export orchestrate)
+          (defun is-empty ((items List[Int])) -> Bool
+            (list/empty? items))
+          (defun first-item ((items List[Int])) -> Optional[Int]
+            (list/head items))
+          (defun remaining-items ((items List[Int])) -> List[Int]
+            (list/rest items))
+          (defun append-item ((items List[Int]) (item Int)) -> List[Int]
+            (list/append items item))
+          (defun item-count ((items List[Int])) -> Int
+            (list/length items))
+          (defworkflow orchestrate
+            ((items List[Int]))
+            -> List[Int]
+            (append-item (list 1 2) 3)))
+        """,
+    )
+
+    projection = _projection_payload(result)
+    payload = projection["payload"]
+    assert payload["pure_expr_schema_version"] == 2
+    # Each helper body is checked against its distinct declared result above;
+    # reaching a bundle proves all five operator result types synthesized.
+    assert payload["expr"]["kind"] == "op"
+    assert payload["expr"]["operator"] == "list/append"
+    assert payload["expr"]["args"][0] == {
+        "kind": "list",
+        "element_type": _INT,
+        "items": (
+            _literal(_INT, 1),
+            _literal(_INT, 2),
+        ),
+    }
+
+
+def test_frontend_list_constructor_rejects_mixed_element_types(
+    tmp_path: Path,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            """
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule list_mismatch)
+              (export orchestrate)
+              (defworkflow orchestrate () -> List[Int]
+                (list 1 "wrong")))
+            """,
+        )
+        == "pure_expr_operand_type_mismatch"
+    )
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        "(list)",
+        "(record Box :items (list))",
+        "(variant Choice READY :items (list))",
+        "(identity-list (list))",
+        "(if true (list) (list 1))",
+    ),
+    ids=(
+        "declared-return",
+        "record-field",
+        "union-field",
+        "direct-callable-argument",
+        "if-branch",
+    ),
+)
+def test_empty_list_uses_only_enumerated_exact_expected_type_contexts(
+    tmp_path: Path,
+    body: str,
+) -> None:
+    definitions = """
+      (defrecord Box (items List[Int]))
+      (defunion Choice
+        (EMPTY)
+        (READY (items List[Int])))
+      (defun identity-list ((items List[Int])) -> List[Int] items)
+    """
+    params = "()"
+    return_type = (
+        "Box"
+        if body.startswith("(record")
+        else "Choice"
+        if body.startswith("(variant")
+        else "List[Int]"
+    )
+    result = _build_source(
+        tmp_path,
+        f"""
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule empty_context)
+          (export orchestrate)
+          {definitions}
+          (defworkflow orchestrate {params} -> {return_type}
+            {body}))
+        """,
+    )
+
+    if return_type == "List[Int]":
+        payload = _projection_payload(result)["payload"]
+        assert payload["pure_expr_schema_version"] == 2
+
+
+def test_empty_list_uses_declared_return_context_through_match_arms(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "match_empty_context.orc"
+    source_path.write_text(
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule match_empty_context)
+          (defunion Choice
+            (EMPTY)
+            (READY (items List[Int])))
+          (defun choice-items ((choice Choice)) -> List[Int]
+            (match choice
+              ((EMPTY value) (list))
+              ((READY value) (list 1)))))
+        """.strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    compiler = importlib.import_module("orchestrator.workflow_lisp.compiler")
+    definitions = importlib.import_module("orchestrator.workflow_lisp.definitions")
+    functions = importlib.import_module("orchestrator.workflow_lisp.functions")
+    reader = importlib.import_module("orchestrator.workflow_lisp.reader")
+    syntax = importlib.import_module("orchestrator.workflow_lisp.syntax")
+    type_env_module = importlib.import_module("orchestrator.workflow_lisp.type_env")
+    traversal = importlib.import_module("orchestrator.workflow_lisp.expression_traversal")
+    expressions = importlib.import_module("orchestrator.workflow_lisp.expressions")
+
+    syntax_module = syntax.build_syntax_module(reader.read_sexpr_file(source_path))
+    module = definitions.elaborate_definition_module(
+        compiler._definition_only_syntax_module(syntax_module)
+    )
+    compiler._validate_definition_module(module)
+    type_env = type_env_module.FrontendTypeEnvironment.from_module(module)
+    function_defs = functions.elaborate_function_definitions(syntax_module)
+    catalog = functions.build_function_catalog(function_defs, type_env=type_env)
+    typed = functions.typecheck_function_definitions(
+        function_defs,
+        type_env=type_env,
+        function_catalog=catalog,
+    )
+
+    list_nodes = [
+        node
+        for node in traversal.walk_expr(typed[0].typed_body.expr)
+        if isinstance(node, expressions.ListExpr)
+    ]
+    assert [node.element_type_ref.name for node in list_nodes] == ["Int", "Int"]
+
+
+def test_empty_list_in_loop_state_reaches_the_task4_projection_gate(
+    tmp_path: Path,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            """
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule empty_loop_state_context)
+              (export orchestrate)
+              (defworkflow orchestrate () -> Int
+                (loop/recur
+                  :max 1
+                  :state (loop-state
+                    (items List[Int] (list)))
+                  (fn (state)
+                    (done 0)))))
+            """,
+        )
+        == "loop_state_not_projectable"
+    )
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        "(list)",
+        "(let* ((items (list))) items)",
+    ),
+    ids=("standalone-wrong-expected-type", "unannotated-let"),
+)
+def test_empty_list_without_exact_list_context_fails_closed(
+    tmp_path: Path,
+    body: str,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            f"""
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule empty_context_required)
+              (export orchestrate)
+              (defworkflow orchestrate () -> Int
+                {body}))
+            """,
+        )
+        == "list_empty_type_context_required"
+    )
+
+
+def test_frontend_pure_map_captures_lexically_and_lowers_one_schema2_value(
+    tmp_path: Path,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule pure_map)
+          (export orchestrate)
+          (defworkflow orchestrate
+            ((items List[Int]) (offset Int))
+            -> List[Int]
+            (list/map ((item items))
+              (+ item offset))))
+        """,
+    )
+
+    projection = _projection_payload(result)
+    payload = projection["payload"]
+    assert payload["pure_expr_schema_version"] == 2
+    assert payload["expr"]["kind"] == "list_map"
+    assert payload["expr"]["source"] == {"kind": "binding", "name": "items"}
+    assert payload["expr"]["binder"] == {"name": "item", "type": _INT}
+    pure_expr = importlib.import_module("orchestrator.workflow.pure_expr")
+    assert pure_expr.evaluate_pure_expr(
+        payload,
+        resolved_bindings={"items": [3, 1, 2], "offset": 10},
+    ) == [13, 11, 12]
+
+
+@pytest.mark.parametrize(
+    "binder",
+    (
+        "()",
+        "((item))",
+        "((item xs) (other xs))",
+        "((__compiler_item xs))",
+    ),
+)
+def test_frontend_pure_map_rejects_invalid_binder_shapes(
+    tmp_path: Path,
+    binder: str,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            f"""
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule invalid_map_binder)
+              (export orchestrate)
+              (defworkflow orchestrate ((xs List[Int])) -> List[Int]
+                (list/map {binder} 1)))
+            """,
+        )
+        == "list_map_binder_invalid"
+    )
+
+
+def test_frontend_pure_map_rejects_effectful_body(
+    tmp_path: Path,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            """
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule impure_map)
+              (export orchestrate)
+              (defworkflow child ((value Int)) -> Int value)
+              (defworkflow orchestrate ((xs List[Int])) -> List[Int]
+                (list/map ((item xs))
+                  (call child :value item))))
+            """,
+        )
+        == "list_map_body_effect_forbidden"
+    )
+
+
+@pytest.mark.parametrize(
+    "element_type",
+    (
+        "Optional[String]",
+        "Map[String,Int]",
+    ),
+)
+def test_frontend_pure_map_accepts_whole_list_transportable_nested_shapes(
+    tmp_path: Path,
+    element_type: str,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        f"""
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule nested_map)
+          (export orchestrate)
+          (defun map-items
+            ((items List[{element_type}]))
+            -> List[{element_type}]
+            (list/map ((item items)) item))
+          (defworkflow orchestrate () -> Int 1))
+        """,
+    )
+
+    assert result.validated_bundle.surface.name == "nested_map::orchestrate"
+
+
+@pytest.mark.parametrize(
+    "element_definition",
+    (
+        "(defrecord Item (value Int))",
+        "(defunion Item (READY (value Int)))",
+    ),
+)
+def test_frontend_pure_map_rejects_record_and_union_collection_elements(
+    tmp_path: Path,
+    element_definition: str,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            f"""
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule unsupported_map_contract)
+              (export orchestrate)
+              {element_definition}
+              (defun map-items ((items List[Item])) -> List[Item]
+                (list/map ((item items)) item))
+              (defworkflow orchestrate () -> Int 1))
+            """,
+        )
+        == "list_collection_contract_unsupported"
+    )
+
+
+@pytest.mark.parametrize(
+    ("path_type", "expected_under"),
+    (
+        ("Path.state-root", "state"),
+        ("Path.artifact-root", "artifacts"),
+        ("LocalReport", "artifacts/reports"),
+    ),
+)
+def test_frontend_path_join_under_resolves_exact_prelude_and_local_family(
+    tmp_path: Path,
+    path_type: str,
+    expected_under: str,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        f"""
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule path_join)
+          (export orchestrate)
+          (defpath LocalReport
+            :kind relpath
+            :under "artifacts/reports"
+            :must-exist true)
+          (defworkflow orchestrate ((child String)) -> {path_type}
+            (path/join-under {path_type} child)))
+        """,
+    )
+
+    payload = _projection_payload(result)["payload"]
+    assert payload["pure_expr_schema_version"] == 2
+    assert payload["expr"]["kind"] == "path_join_under"
+    assert payload["expr"]["path_type"]["under"] == expected_under
+    assert payload["expr"]["path_type"]["name"].endswith(path_type)
+    if path_type == "LocalReport":
+        assert payload["expr"]["path_type"]["must_exist_target"] is True
+
+
+def test_frontend_path_join_under_resolves_imported_family(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "paths"
+    package.mkdir()
+    (package / "types.orc").write_text(
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule paths/types)
+          (export ImportedReport)
+          (defpath ImportedReport
+            :kind relpath
+            :under "artifacts/imported"
+            :must-exist false))
+        """.strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    result = _build_source(
+        tmp_path,
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule paths/entry)
+          (import paths/types :only (ImportedReport))
+          (export orchestrate)
+          (defworkflow orchestrate ((child String)) -> ImportedReport
+            (path/join-under ImportedReport child)))
+        """,
+        filename="paths/entry.orc",
+    )
+
+    descriptor = _projection_payload(result)["payload"]["expr"]["path_type"]
+    assert descriptor["name"] == "paths/types::ImportedReport"
+    assert descriptor["under"] == "artifacts/imported"
+
+
+@pytest.mark.parametrize(
+    ("path_type", "child", "expected_code"),
+    (
+        ("String", '"child.md"', "path_join_under_type_invalid"),
+        ("Path.state-root", "1", "pure_expr_operand_type_mismatch"),
+        ("MalformedRoot", '"child.md"', "path_join_under_root_invalid"),
+        ("Path.state-root", '""', "path_join_under_child_invalid"),
+        ("Path.state-root", '"/absolute.md"', "path_join_under_escape"),
+        ("Path.state-root", '"../escape.md"', "path_join_under_escape"),
+    ),
+)
+def test_frontend_path_join_under_preserves_exact_refusal_families(
+    tmp_path: Path,
+    path_type: str,
+    child: str,
+    expected_code: str,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            f"""
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule invalid_path_join)
+              (export orchestrate)
+              (defpath MalformedRoot
+                :kind relpath
+                :under "."
+                :must-exist false)
+              (defworkflow orchestrate () -> {path_type}
+                (path/join-under {path_type} {child})))
+            """,
+        )
+        == expected_code
+    )
+
+
+def test_list_traversal_authored_head_inventory_is_exact() -> None:
+    registry = importlib.import_module(
+        "orchestrator.workflow_lisp.form_registry"
+    )
+
+    assert registry.list_traversal_authored_heads() == frozenset(
+        _LIST_TRAVERSAL_AUTHORED_HEADS
+    )
+
+
+@pytest.mark.parametrize("head", _LIST_TRAVERSAL_AUTHORED_HEADS)
+@pytest.mark.parametrize("callable_lane", ("function", "procedure", "bound"))
+def test_target_217_list_traversal_heads_defer_to_same_named_callable(
+    head: str,
+    callable_lane: str,
+) -> None:
+    expression = elaborate_expression(
+        _expression_syntax(f"({head} 1)"),
+        target_dsl_version="2.17",
+        function_names=(
+            frozenset({head})
+            if callable_lane == "function"
+            else frozenset()
+        ),
+        procedure_names=(
+            frozenset({head})
+            if callable_lane == "procedure"
+            else frozenset()
+        ),
+        bound_names=(
+            frozenset({head})
+            if callable_lane == "bound"
+            else frozenset()
+        ),
+    )
+
+    expected_type = (
+        FunctionCallExpr
+        if callable_lane == "function"
+        else ProcedureCallExpr
+    )
+    assert isinstance(expression, expected_type)
+    assert expression.callee_name == head
+
+
+@pytest.mark.parametrize("head", _LIST_TRAVERSAL_AUTHORED_HEADS)
+def test_target_217_list_traversal_heads_are_macro_bindable(
+    tmp_path: Path,
+    head: str,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        f"""
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.17")
+          (defmodule legacy_list_traversal_macro)
+          (export orchestrate)
+          (defmacro {head} (value) value)
+          (defworkflow orchestrate () -> Int
+            ({head} 1)))
+        """,
+    )
+
+    assert (
+        result.validated_bundle.surface.name
+        == "legacy_list_traversal_macro::orchestrate"
+    )
+
+
+@pytest.mark.parametrize("head", _LIST_TRAVERSAL_AUTHORED_HEADS)
+def test_target_217_receiver_imports_and_expands_legacy_list_macro(
+    tmp_path: Path,
+    head: str,
+) -> None:
+    _write_legacy_list_traversal_macro(tmp_path, head=head)
+
+    result = _build_source(
+        tmp_path,
+        f"""
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.17")
+          (defmodule legacy_macro_receiver)
+          (import legacy/list-macros :only ({head}))
+          (export orchestrate)
+          (defworkflow orchestrate () -> Int
+            ({head} 1)))
+        """,
+    )
+
+    assert (
+        result.validated_bundle.surface.name
+        == "legacy_macro_receiver::orchestrate"
+    )
+
+
+@pytest.mark.parametrize("head", _LIST_TRAVERSAL_AUTHORED_HEADS)
+def test_target_218_receiver_rejects_imported_legacy_list_macro(
+    tmp_path: Path,
+    head: str,
+) -> None:
+    _write_legacy_list_traversal_macro(tmp_path, head=head)
+
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            f"""
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule current_macro_receiver)
+              (import legacy/list-macros :only ({head}))
+              (export orchestrate)
+              (defworkflow orchestrate () -> Int
+                ({head} 1)))
+            """,
+        )
+        == "macro_reserved_name"
+    )
+
+
+def test_target_218_local_macro_hygienically_introduces_list_map_binder(
+    tmp_path: Path,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule local_list_map_hygiene)
+          (export orchestrate)
+          (defmacro map-plus-one (values)
+            (list/map ((item values))
+              (+ item 1)))
+          (defworkflow orchestrate
+            ((values List[Int]) (item Int))
+            -> List[Int]
+            (map-plus-one values)))
+        """,
+    )
+
+    expression = _projection_payload(result)["payload"]["expr"]
+    binder_name = expression["binder"]["name"]
+    assert binder_name == "%macro__map-plus-one__m0001__item"
+    assert binder_name != "item"
+    assert expression["body"]["args"][0] == {
+        "kind": "binding",
+        "name": binder_name,
+    }
+
+
+def test_target_218_imported_macro_hygienically_introduces_list_map_binder(
+    tmp_path: Path,
+) -> None:
+    _write_list_map_template_macro(tmp_path)
+
+    result = _build_source(
+        tmp_path,
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule imported_list_map_hygiene)
+          (import helpers/list-map-macros :only (map-plus-one))
+          (export orchestrate)
+          (defworkflow orchestrate
+            ((values List[Int]) (item Int))
+            -> List[Int]
+            (map-plus-one values)))
+        """,
+    )
+
+    expression = _projection_payload(result)["payload"]["expr"]
+    binder_name = expression["binder"]["name"]
+    assert binder_name == "%macro__map-plus-one__m0001__item"
+    assert binder_name != "item"
+    assert expression["body"]["args"][0] == {
+        "kind": "binding",
+        "name": binder_name,
+    }
+
+
+def test_target_217_user_macro_list_map_head_keeps_generic_hygiene(
+    tmp_path: Path,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.17")
+          (defmodule legacy_list_map_hygiene)
+          (export orchestrate)
+          (defmacro list/map (bindings body) body)
+          (defmacro use-legacy-map (values)
+            (list/map ((item values))
+              (+ item 1)))
+          (defworkflow orchestrate
+            ((values List[Int]) (item Int))
+            -> Int
+            (use-legacy-map values)))
+        """,
+    )
+
+    expression = _projection_payload(result)["payload"]["expr"]
+    assert expression["kind"] == "op"
+    assert expression["operator"] == "+"
+    assert expression["args"][0] == {
+        "kind": "binding",
+        "name": "item",
+    }
+
+
+@pytest.mark.parametrize("head", _LIST_TRAVERSAL_AUTHORED_HEADS)
+def test_target_218_list_traversal_heads_remain_macro_reserved(
+    tmp_path: Path,
+    head: str,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            f"""
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.18")
+              (defmodule owned_list_traversal_macro)
+              (export orchestrate)
+              (defmacro {head} (value) value)
+              (defworkflow orchestrate () -> Int
+                ({head} 1)))
+            """,
+        )
+        == "macro_reserved_name"
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "params", "return_type"),
+    (
+        ("(list 1)", "()", "List[Int]"),
+        (
+            "(list/map ((item xs)) item)",
+            "((xs List[Int]))",
+            "List[Int]",
+        ),
+        (
+            '(path/join-under Path.state-root "child")',
+            "()",
+            "Path.state-root",
+        ),
+        ("(list/empty? xs)", "((xs List[Int]))", "Bool"),
+        ("(list/head xs)", "((xs List[Int]))", "Optional[Int]"),
+        ("(list/rest xs)", "((xs List[Int]))", "List[Int]"),
+        ("(list/append xs 1)", "((xs List[Int]))", "List[Int]"),
+        ("(list/length xs)", "((xs List[Int]))", "Int"),
+    ),
+)
+def test_every_new_list_surface_is_rejected_below_target_218(
+    tmp_path: Path,
+    body: str,
+    params: str,
+    return_type: str,
+) -> None:
+    assert (
+        _diagnostic_code_for_source(
+            tmp_path,
+            f"""
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.17")
+              (defmodule target_gate)
+              (export orchestrate)
+              (defworkflow orchestrate {params} -> {return_type}
+                {body}))
+            """,
+        )
+        == "list_traversal_target_dsl_unsupported"
+    )
+
+
+def test_schema2_list_frontend_stays_inside_existing_ir_node_families(
+    tmp_path: Path,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule list_ir_shape)
+          (export orchestrate)
+          (defworkflow orchestrate ((xs List[Int])) -> List[Int]
+            (list/map ((item xs)) (+ item 1))))
+        """,
+    )
+
+    executable_ir = json.loads(
+        result.artifact_paths["executable_ir"].read_text(encoding="utf-8")
+    )
+    core_ast = json.loads(
+        result.artifact_paths["core_workflow_ast"].read_text(encoding="utf-8")
+    )
+    assert executable_ir["schema_version"] == "workflow_executable_ir.v1"
+    assert core_ast["schema_version"] == "core_workflow_ast.v1"
+    projection = _projection_payload(result)
+    assert projection["payload"]["pure_expr_schema_version"] == 2
+    assert all(
+        step.pure_projection is not None
+        for step in result.validated_bundle.surface.steps
+    )
+
+
+def test_list_values_route_through_wcc_as_values_without_new_nodes(
+    tmp_path: Path,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.18")
+          (defmodule list_wcc_routes)
+          (export orchestrate)
+          (defworkflow orchestrate () -> List[Int]
+            (list/map ((item (list 1 2))) item)))
+        """,
+        lowering_route="wcc_m4",
+    )
+
+    payload = _projection_payload(result)["payload"]
+    assert payload["pure_expr_schema_version"] == 2
+    assert payload["expr"]["kind"] == "list_map"

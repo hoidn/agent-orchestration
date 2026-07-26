@@ -265,6 +265,7 @@ def typecheck_procedure_definitions(
                 proc_ref_resolution_context=proc_ref_resolution_context,
                 proc_ref_value_env=proc_ref_value_env,
                 shared_union_field_capabilities=shared_union_field_capabilities,
+                expected_type=signature.return_type_ref,
             )
         except LispFrontendCompileError as exc:
             if specialization is None:
@@ -480,9 +481,11 @@ def typecheck_procedure_call_expr(
                 form_path=expr.form_path,
             )
         arg_summaries: list[EffectSummary] = []
+        rewritten_args: list[ExprNode] = []
         for arg_expr, (param_name, expected_type) in zip(expr.args, bound_proc_ref.residual_params, strict=True):
-            typed_arg = recurse(arg_expr)
+            typed_arg = recurse(arg_expr, expected_type=expected_type)
             arg_summaries.append(typed_arg.effect_summary)
+            rewritten_args.append(typed_arg.expr)
             if not type_refs_compatible(expected_type, typed_arg.type_ref):
                 raise_error(
                     f"procedure argument `{param_name}` expected `{type_label(expected_type)}`"
@@ -502,7 +505,7 @@ def typecheck_procedure_call_expr(
             ),
         )
         return typed_factory(
-            expr=expr,
+            expr=replace(expr, args=tuple(rewritten_args)),
             type_ref=bound_proc_ref.return_type_ref,
             effect=merge_effect_summaries(*arg_summaries, procedure_summary),
         )
@@ -516,9 +519,11 @@ def typecheck_procedure_call_expr(
                 form_path=expr.form_path,
             )
         arg_summaries: list[EffectSummary] = []
+        rewritten_args = []
         for arg_expr, expected_type in zip(expr.args, generic_proc_ref_type.param_type_refs, strict=True):
-            typed_arg = recurse(arg_expr)
+            typed_arg = recurse(arg_expr, expected_type=expected_type)
             arg_summaries.append(typed_arg.effect_summary)
+            rewritten_args.append(typed_arg.expr)
             if not type_refs_compatible(expected_type, typed_arg.type_ref):
                 raise_error(
                     f"procedure argument expected `{type_label(expected_type)}`"
@@ -528,7 +533,7 @@ def typecheck_procedure_call_expr(
                     form_path=arg_expr.form_path,
                 )
         return typed_factory(
-            expr=expr,
+            expr=replace(expr, args=tuple(rewritten_args)),
             type_ref=generic_proc_ref_type.return_type_ref,
             effect=merge_effect_summaries(*arg_summaries),
         )
@@ -567,11 +572,13 @@ def typecheck_procedure_call_expr(
             form_path=expr.form_path,
         )
     arg_summaries: list[EffectSummary] = []
+    rewritten_args: list[ExprNode] = []
     proc_ref_bindings: dict[str, ResolvedProcRefValue] = {}
     for arg_expr, (param_name, expected_type) in zip(expr.args, signature.params, strict=True):
         if isinstance(expected_type, WorkflowRefTypeRef):
             typed_arg = typecheck_workflow_ref_argument(arg_expr, expected_type)
             arg_summaries.append(typed_arg.effect_summary)
+            rewritten_args.append(typed_arg.expr)
             if not type_refs_compatible(expected_type, typed_arg.type_ref):
                 raise_error(
                     f"workflow ref argument `{param_name}` does not match `{expected_type.name}`",
@@ -583,6 +590,7 @@ def typecheck_procedure_call_expr(
         if isinstance(expected_type, ProcRefTypeRef):
             typed_arg, resolved_proc_ref = typecheck_proc_ref_argument(arg_expr, expected_type)
             arg_summaries.append(typed_arg.effect_summary)
+            rewritten_args.append(typed_arg.expr)
             if resolved_proc_ref is not None:
                 proc_ref_bindings[param_name] = resolved_proc_ref
             if not type_refs_compatible(expected_type, typed_arg.type_ref):
@@ -593,8 +601,9 @@ def typecheck_procedure_call_expr(
                     form_path=arg_expr.form_path,
                 )
             continue
-        typed_arg = recurse(arg_expr)
+        typed_arg = recurse(arg_expr, expected_type=expected_type)
         arg_summaries.append(typed_arg.effect_summary)
+        rewritten_args.append(typed_arg.expr)
         if not type_refs_compatible(expected_type, typed_arg.type_ref):
             raise_error(
                 f"procedure argument `{param_name}` expected `{type_label(expected_type)}`"
@@ -622,7 +631,7 @@ def typecheck_procedure_call_expr(
         ),
     )
     return typed_factory(
-        expr=expr,
+        expr=replace(expr, args=tuple(rewritten_args)),
         type_ref=signature.return_type_ref,
         effect=merge_effect_summaries(*arg_summaries, procedure_summary),
     )
@@ -944,6 +953,7 @@ def typecheck_generated_procedure(
         procedure_effects_by_name=context.procedure_effects_by_name,
         workflow_effects_by_name=context.workflow_effects_by_name,
         proc_ref_resolution_context=context.proc_ref_resolution_context,
+        expected_type=signature.return_type_ref,
     )
     return TypedProcedureDef(
         definition=definition,

@@ -7,7 +7,11 @@ from contextvars import ContextVar
 from dataclasses import dataclass, replace
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from .form_registry import admitted_top_level_heads, reserved_macro_names
+from .form_registry import (
+    admitted_top_level_heads,
+    list_traversal_authored_heads,
+    reserved_macro_names,
+)
 from .spans import SourceSpan
 from .syntax import (
     ExpansionFrame,
@@ -28,6 +32,7 @@ from .syntax import (
     syntax_head_name,
     syntax_node_datum,
     top_level_form_path,
+    target_dsl_supports_list_traversal,
     target_dsl_supports_provider_peer_messaging,
 )
 
@@ -38,6 +43,12 @@ _ALLOWED_TOP_LEVEL_HEADS = admitted_top_level_heads()
 _PEER_FORM_IS_CORE_DURING_HYGIENE: ContextVar[bool] = ContextVar(
     "workflow_lisp_peer_form_is_core_during_hygiene",
     default=True,
+)
+_LIST_TRAVERSAL_FORMS_ARE_CORE_DURING_HYGIENE: ContextVar[bool] = (
+    ContextVar(
+        "workflow_lisp_list_traversal_forms_are_core_during_hygiene",
+        default=True,
+    )
 )
 
 
@@ -64,6 +75,7 @@ class MacroCatalog:
 @dataclass
 class _ExpansionAllocator:
     peer_form_is_core: bool
+    list_traversal_forms_are_core: bool
     next_id: int = 1
 
     def allocate(self) -> str:
@@ -109,6 +121,24 @@ def collect_macro_catalog_with_imports(
                 form_path=imported_peer_macro.form_path,
             )
         )
+    if target_dsl_supports_list_traversal(
+        module_syntax.target_dsl_version
+    ):
+        for imported_name in sorted(
+            imported_names & list_traversal_authored_heads()
+        ):
+            imported_macro = definitions_by_name[imported_name]
+            diagnostics.append(
+                LispFrontendDiagnostic(
+                    code="macro_reserved_name",
+                    message=(
+                        "imported macro may not bind reserved head "
+                        f"`{imported_name}`"
+                    ),
+                    span=imported_macro.span,
+                    form_path=imported_macro.form_path,
+                )
+            )
     for form in module_syntax.forms:
         datum = syntax_node_datum(form)
         if syntax_head_name(datum) != "defmacro":
@@ -124,6 +154,12 @@ def collect_macro_catalog_with_imports(
         ):
             reserved_names = (
                 reserved_names - {"with-live-provider-peers"}
+            )
+        if not target_dsl_supports_list_traversal(
+            module_syntax.target_dsl_version
+        ):
+            reserved_names = (
+                reserved_names - list_traversal_authored_heads()
             )
         if macro_def.name in reserved_names:
             diagnostics.append(
@@ -170,7 +206,12 @@ def expand_module_forms(
             target_dsl_supports_provider_peer_messaging(
                 module_syntax.target_dsl_version
             )
-        )
+        ),
+        list_traversal_forms_are_core=(
+            target_dsl_supports_list_traversal(
+                module_syntax.target_dsl_version
+            )
+        ),
     )
     expanded_forms: list[SyntaxNode] = []
     for form in module_syntax.forms:
@@ -348,6 +389,11 @@ def _expand_macro_call(
     peer_form_token = _PEER_FORM_IS_CORE_DURING_HYGIENE.set(
         allocator.peer_form_is_core
     )
+    list_traversal_forms_token = (
+        _LIST_TRAVERSAL_FORMS_ARE_CORE_DURING_HYGIENE.set(
+            allocator.list_traversal_forms_are_core
+        )
+    )
     try:
         hygienic = _apply_hygiene(
             instantiated,
@@ -355,6 +401,9 @@ def _expand_macro_call(
             expansion_id=expansion_id,
         )
     finally:
+        _LIST_TRAVERSAL_FORMS_ARE_CORE_DURING_HYGIENE.reset(
+            list_traversal_forms_token
+        )
         _PEER_FORM_IS_CORE_DURING_HYGIENE.reset(peer_form_token)
     expanded = _expand_datum(
         hygienic,
@@ -518,6 +567,16 @@ def _apply_hygiene(
             expansion_id=expansion_id,
             env=active_env,
         )
+    if (
+        head_name == "list/map"
+        and _LIST_TRAVERSAL_FORMS_ARE_CORE_DURING_HYGIENE.get()
+    ):
+        return _hygienic_list_map(
+            datum,
+            macro_name=macro_name,
+            expansion_id=expansion_id,
+            env=active_env,
+        )
     if head_name == "record":
         return _replace_list_item_range(
             datum,
@@ -615,6 +674,77 @@ def _hygienic_generic_list(
                 env=env,
             )
             for index, item in enumerate(datum.items)
+        ),
+    )
+
+
+def _hygienic_list_map(
+    datum: SyntaxList,
+    *,
+    macro_name: str,
+    expansion_id: str,
+    env: Mapping[str, str],
+) -> SyntaxDatum:
+    if len(datum.items) != 3:
+        return _hygienic_generic_list(
+            datum,
+            macro_name=macro_name,
+            expansion_id=expansion_id,
+            env=env,
+        )
+    bindings_node = datum.items[1]
+    if (
+        not isinstance(bindings_node, SyntaxList)
+        or len(bindings_node.items) != 1
+        or not isinstance(bindings_node.items[0], SyntaxList)
+        or len(bindings_node.items[0].items) != 2
+        or not isinstance(
+            bindings_node.items[0].items[0],
+            SyntaxIdentifier,
+        )
+    ):
+        return _hygienic_generic_list(
+            datum,
+            macro_name=macro_name,
+            expansion_id=expansion_id,
+            env=env,
+        )
+
+    raw_binding = bindings_node.items[0]
+    binder = raw_binding.items[0]
+    assert isinstance(binder, SyntaxIdentifier)
+    source = _apply_hygiene(
+        raw_binding.items[1],
+        macro_name=macro_name,
+        expansion_id=expansion_id,
+        env=env,
+    )
+    local_env = dict(env)
+    if binder.introduced_by_expansion_id == expansion_id:
+        renamed = introduced_identifier(
+            binder,
+            macro_name=macro_name,
+            expansion_id=expansion_id,
+        )
+        local_env[binder.resolved_name] = renamed.resolved_name
+        binder = renamed
+    body = _apply_hygiene(
+        datum.items[2],
+        macro_name=macro_name,
+        expansion_id=expansion_id,
+        env=local_env,
+    )
+    return replace(
+        datum,
+        items=(
+            datum.items[0],
+            replace(
+                bindings_node,
+                items=(
+                    replace(raw_binding, items=(binder, source)),
+                ),
+            ),
+            body,
         ),
     )
 

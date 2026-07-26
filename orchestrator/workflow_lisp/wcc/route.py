@@ -8,6 +8,7 @@ from enum import Enum
 
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..effects import EMPTY_EFFECT_SUMMARY
+from ..expression_traversal import iter_child_exprs
 from ..expressions import (
     BindProcExpr,
     CallExpr,
@@ -20,6 +21,8 @@ from ..expressions import (
     GeneratedRelpathSeedExpr,
     IfExpr,
     LetStarExpr,
+    ListExpr,
+    ListMapExpr,
     LiteralExpr,
     MaterializeViewExpr,
     LoopRecurExpr,
@@ -27,6 +30,7 @@ from ..expressions import (
     LoopStateUpdateExpr,
     MatchExpr,
     NameExpr,
+    PathJoinUnderExpr,
     PhaseTargetExpr,
     PureOpExpr,
     ProduceOneOfExpr,
@@ -74,6 +78,7 @@ _PURE_WCC_M1_EXPR_TYPES = (
     UnionVariantExpr,
     LetStarExpr,
 )
+_LIST_TRAVERSAL_VALUE_TYPES = (ListExpr, ListMapExpr, PathJoinUnderExpr)
 
 
 def normalize_lowering_route(route: LoweringRoute | str | None) -> LoweringRoute:
@@ -691,6 +696,15 @@ def _validate_wcc_m4_expr_supported(
     local_workflow_signatures: Mapping[str, WorkflowSignature],
     workflow_ref_value_names: frozenset[str],
 ) -> None:
+    if isinstance(expr, _LIST_TRAVERSAL_VALUE_TYPES):
+        for child in iter_child_exprs(expr):
+            _validate_wcc_m4_expr_supported(
+                child,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
+        return
     if isinstance(
         expr,
         (WithLiveProvidersExpr, WithLiveProviderPeersExpr),

@@ -13,7 +13,11 @@ from typing import TYPE_CHECKING, Any, Callable
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from .form_registry import FormKind, get_form_spec
+from .form_registry import (
+    FormKind,
+    get_form_spec,
+    list_traversal_authored_heads,
+)
 from .phase_stdlib import (
     ProduceOneOfCandidateFieldSpec,
     ProduceOneOfCandidateSpec,
@@ -25,6 +29,7 @@ from .result_guidance import ReturnSpec, parse_return_spec
 from .spans import SourceSpan
 from .syntax import (
     ExpansionStack,
+    LIST_TRAVERSAL_MIN_TARGET_DSL_VERSION,
     MAX_STATIC_LIVE_PROVIDER_PEERS,
     SyntaxBool,
     SyntaxFloat,
@@ -37,6 +42,7 @@ from .syntax import (
     syntax_head,
     syntax_identifier,
     syntax_node_datum,
+    target_dsl_supports_list_traversal,
     target_dsl_supports_provider_peer_messaging,
 )
 
@@ -108,6 +114,43 @@ class PureOpExpr:
 
     operator: str
     args: tuple["ExprNode", ...]
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class ListExpr:
+    """One target-2.18 ordered list constructor."""
+
+    items: tuple["ExprNode", ...]
+    element_type_ref: "TypeRef | None"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class ListMapExpr:
+    """One target-2.18 pure lexical list-mapping binder."""
+
+    binder_name: str
+    source_expr: "ExprNode"
+    body_expr: "ExprNode"
+    source_item_type_ref: "TypeRef | None"
+    result_item_type_ref: "TypeRef | None"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class PathJoinUnderExpr:
+    """One target-2.18 pure rooted-path construction form."""
+
+    path_type_name: str
+    child_expr: "ExprNode"
+    path_type_ref: "TypeRef | None"
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
@@ -645,6 +688,9 @@ ExprNode = (
     | FieldAccessExpr
     | RecordExpr
     | PureOpExpr
+    | ListExpr
+    | ListMapExpr
+    | PathJoinUnderExpr
     | RecordUpdateExpr
     | LoopStateSeedExpr
     | LoopStateUpdateExpr
@@ -870,6 +916,19 @@ def _elaborate_list(
             expansion_stack=datum.expansion_stack,
         )
     form_spec = get_form_spec(head.resolved_name)
+    if (
+        form_spec is not None
+        and head.resolved_name in list_traversal_authored_heads()
+        and not target_dsl_supports_list_traversal(
+            _ACTIVE_TARGET_DSL_VERSION or ""
+        )
+        and (
+            head.resolved_name in _ACTIVE_FUNCTION_NAMES
+            or head.resolved_name in procedure_names
+            or head.resolved_name in bound_names
+        )
+    ):
+        form_spec = None
     if (
         head.resolved_name == "with-live-provider-peers"
         and _ACTIVE_TARGET_DSL_VERSION is not None
@@ -1102,6 +1161,9 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
     return {
         "record": _elaborate_record,
         "pure_op": _elaborate_pure_op,
+        "list": _elaborate_list_constructor,
+        "list_map": _elaborate_list_map,
+        "path_join_under": _elaborate_path_join_under,
         "record_update": _elaborate_record_update,
         "loop_state": _elaborate_loop_state,
         "variant": _elaborate_variant,
@@ -1140,6 +1202,23 @@ def _looks_like_pure_operator_head(name: str) -> bool:
     if "/" in name:
         return True
     return name in {"and", "or", "not", "min", "max", "some?", "or-else", "record-update"}
+
+
+def _require_list_traversal_target(datum: SyntaxList) -> None:
+    if target_dsl_supports_list_traversal(
+        _ACTIVE_TARGET_DSL_VERSION or ""
+    ):
+        return
+    _raise_error(
+        (
+            "list traversal and rooted path construction require target DSL "
+            f"{LIST_TRAVERSAL_MIN_TARGET_DSL_VERSION} or newer"
+        ),
+        code="list_traversal_target_dsl_unsupported",
+        span=datum.span,
+        form_path=datum.form_path,
+        expansion_stack=datum.expansion_stack,
+    )
 
 
 def _elaborate_record(
@@ -1208,6 +1287,9 @@ def _elaborate_pure_op(
 ) -> PureOpExpr:
     head = syntax_head(datum)
     assert head is not None
+    spec = PURE_EXPR_OPERATOR_CATALOG[head.resolved_name]
+    if spec.min_schema_version >= 2:
+        _require_list_traversal_target(datum)
     return PureOpExpr(
         operator=head.resolved_name,
         args=tuple(
@@ -1219,6 +1301,139 @@ def _elaborate_pure_op(
             )
             for item in datum.items[1:]
         ),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_list_constructor(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ListExpr:
+    _require_list_traversal_target(datum)
+    return ListExpr(
+        items=tuple(
+            _elaborate(
+                item,
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            )
+            for item in datum.items[1:]
+        ),
+        element_type_ref=None,
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_list_map(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ListMapExpr:
+    _require_list_traversal_target(datum)
+    if len(datum.items) != 3:
+        _raise_error(
+            "`list/map` requires one binder list and one pure body",
+            code="list_map_binder_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    raw_binders = datum.items[1]
+    if (
+        not isinstance(raw_binders, SyntaxList)
+        or len(raw_binders.items) != 1
+        or not isinstance(raw_binders.items[0], SyntaxList)
+        or len(raw_binders.items[0].items) != 2
+    ):
+        _raise_error(
+            "`list/map` binder must be exactly `((name list-expr))`",
+            code="list_map_binder_invalid",
+            span=raw_binders.span,
+            form_path=form_path,
+            expansion_stack=raw_binders.expansion_stack,
+        )
+    raw_binding = raw_binders.items[0]
+    binder = syntax_identifier(raw_binding.items[0])
+    if (
+        binder is None
+        or binder.resolved_name.startswith("__")
+        or binder.resolved_name in bound_names
+    ):
+        _raise_error(
+            "`list/map` binder name is invalid, reserved, or already bound",
+            code="list_map_binder_invalid",
+            span=raw_binding.items[0].span,
+            form_path=form_path,
+            expansion_stack=raw_binding.items[0].expansion_stack,
+        )
+    source_expr = _elaborate(
+        raw_binding.items[1],
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+    )
+    body_expr = _elaborate(
+        datum.items[2],
+        form_path=form_path,
+        bound_names=frozenset((*bound_names, binder.resolved_name)),
+        procedure_names=procedure_names,
+    )
+    return ListMapExpr(
+        binder_name=binder.resolved_name,
+        source_expr=source_expr,
+        body_expr=body_expr,
+        source_item_type_ref=None,
+        result_item_type_ref=None,
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_path_join_under(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> PathJoinUnderExpr:
+    _require_list_traversal_target(datum)
+    if len(datum.items) != 3:
+        _raise_error(
+            "`path/join-under` requires a path type and one child expression",
+            code="path_join_under_type_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    path_type = syntax_identifier(datum.items[1])
+    if path_type is None:
+        _raise_error(
+            "`path/join-under` first operand must be a resolved path type",
+            code="path_join_under_type_invalid",
+            span=datum.items[1].span,
+            form_path=form_path,
+            expansion_stack=datum.items[1].expansion_stack,
+        )
+    return PathJoinUnderExpr(
+        path_type_name=path_type.resolved_name,
+        child_expr=_elaborate(
+            datum.items[2],
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        ),
+        path_type_ref=None,
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,

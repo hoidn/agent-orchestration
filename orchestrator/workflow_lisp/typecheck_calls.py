@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from .context_classification import classify_structural_private_exec_context
 from .effects import (
     EMPTY_EFFECT_SUMMARY,
@@ -323,6 +325,7 @@ def typecheck_call_expr(
     )
     seen_bindings: set[str] = set()
     binding_summaries = []
+    rewritten_bindings: list[tuple[str, ExprNode]] = []
     for binding_name, binding_expr in expr.bindings:
         if binding_name in seen_bindings:
             raise_error(
@@ -363,6 +366,7 @@ def typecheck_call_expr(
                     span=binding_expr.span,
                     form_path=binding_expr.form_path,
                 )
+            rewritten_bindings.append((binding_name, typed_binding.expr))
             continue
         if isinstance(expected_type, ProcRefTypeRef):
             typed_binding, _ = typecheck_proc_ref_argument(
@@ -382,8 +386,9 @@ def typecheck_call_expr(
                     span=binding_expr.span,
                     form_path=binding_expr.form_path,
                 )
+            rewritten_bindings.append((binding_name, typed_binding.expr))
             continue
-        typed_binding = recurse(binding_expr)
+        typed_binding = recurse(binding_expr, expected_type=expected_type)
         binding_summaries.append(typed_binding.effect_summary)
         if not type_refs_compatible(expected_type, typed_binding.type_ref):
             raise_error(
@@ -393,6 +398,7 @@ def typecheck_call_expr(
                 span=binding_expr.span,
                 form_path=binding_expr.form_path,
             )
+        rewritten_bindings.append((binding_name, typed_binding.expr))
     missing_bindings = [
         name
         for name, expected_type in ordered_params
@@ -436,7 +442,7 @@ def typecheck_call_expr(
         direct_effects=(CallsWorkflowEffect(subject=(signature_name,)),)
     )
     return typed_factory(
-        expr=expr,
+        expr=replace(expr, bindings=tuple(rewritten_bindings)),
         type_ref=return_type,
         effect=merge_effect_summaries(
             *binding_summaries,
@@ -471,9 +477,11 @@ def typecheck_function_call_expr(
             form_path=expr.form_path,
         )
     arg_summaries = []
+    rewritten_args: list[ExprNode] = []
     for arg_expr, (param_name, expected_type) in zip(expr.args, signature.params, strict=True):
-        typed_arg = recurse(arg_expr)
+        typed_arg = recurse(arg_expr, expected_type=expected_type)
         arg_summaries.append(typed_arg.effect_summary)
+        rewritten_args.append(typed_arg.expr)
         if not type_refs_compatible(expected_type, typed_arg.type_ref):
             raise_error(
                 f"function argument `{param_name}` expected `{_type_label(expected_type)}`"
@@ -483,7 +491,7 @@ def typecheck_function_call_expr(
                 form_path=arg_expr.form_path,
             )
     return typed_factory(
-        expr=expr,
+        expr=replace(expr, args=tuple(rewritten_args)),
         type_ref=signature.return_type_ref,
         effect=merge_effect_summaries(*arg_summaries),
     )

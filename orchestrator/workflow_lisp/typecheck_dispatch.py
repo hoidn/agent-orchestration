@@ -32,6 +32,8 @@ from .expressions import (
     IfExpr,
     LetProcExpr,
     LetStarExpr,
+    ListExpr,
+    ListMapExpr,
     LiteralExpr,
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
@@ -39,6 +41,7 @@ from .expressions import (
     MaterializeViewExpr,
     MatchExpr,
     NameExpr,
+    PathJoinUnderExpr,
     PhaseTargetExpr,
     ProcRefLiteralExpr,
     ProduceOneOfExpr,
@@ -115,6 +118,7 @@ from .typecheck_proofs import (
 )
 from .type_env import (
     FrontendTypeEnvironment,
+    ListTypeRef,
     OptionalTypeRef,
     PathTypeRef,
     PrimitiveTypeRef,
@@ -138,6 +142,14 @@ if TYPE_CHECKING:
     )
 
 
+def _is_transportable_result_type(type_ref: TypeRef) -> bool:
+    # `contracts` owns this predicate but imports workflow signatures, which
+    # return through this typechecker during module initialization.
+    from .contracts import is_transportable_result_type
+
+    return is_transportable_result_type(type_ref)
+
+
 def typecheck_expression(
     expr: ExprNode,
     *,
@@ -155,6 +167,7 @@ def typecheck_expression(
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     proc_ref_value_env: Mapping[str, ResolvedProcRefValue] | None = None,
     shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...] = (),
+    expected_type: TypeRef | None = None,
 ) -> TypedExpr:
     """Typecheck one supported Workflow Lisp expression."""
 
@@ -182,6 +195,7 @@ def typecheck_expression(
             procedure_effects_by_name=procedure_effects_by_name or {},
             workflow_effects_by_name=workflow_effects_by_name or {},
             proc_ref_resolution_context=proc_ref_resolution_context,
+            expected_type=expected_type,
         )
         from .procedure_typecheck import _replace_eliminated_let_procs as _replace_eliminated_let_procs_owner
 
@@ -215,6 +229,7 @@ def _typecheck(
     procedure_effects_by_name: Mapping[str, EffectSummary],
     workflow_effects_by_name: Mapping[str, EffectSummary],
     proc_ref_resolution_context: ProcRefResolutionContext | None,
+    expected_type: TypeRef | None = None,
 ) -> TypedExpr:
     session_state = get_session_state()
     context = TypecheckContext(
@@ -261,6 +276,7 @@ def _typecheck(
         )
         recurse_proc_ref_value_env = overrides.pop("proc_ref_value_env", None)
         recurse_value_expr_env = overrides.pop("value_expr_env", None)
+        recurse_expected_type = overrides.pop("expected_type", None)
         if overrides:
             raise TypeError(f"unexpected recurse overrides: {sorted(overrides)}")
         previous_proc_ref_env = session_state.proc_ref_value_env
@@ -283,6 +299,7 @@ def _typecheck(
                 procedure_effects_by_name=recurse_procedure_effects,
                 workflow_effects_by_name=recurse_workflow_effects,
                 proc_ref_resolution_context=recurse_proc_ref_resolution_context,
+                expected_type=recurse_expected_type,
             )
         finally:
             session_state.proc_ref_value_env = previous_proc_ref_env
@@ -487,6 +504,234 @@ def _typecheck(
             type_ref=resolved.residual_type_ref,
             effect=EMPTY_EFFECT_SUMMARY,
         )
+    if isinstance(expr, ListExpr):
+        expected_list = expected_type if isinstance(expected_type, ListTypeRef) else None
+        if not expr.items:
+            if expected_list is None:
+                _raise_error(
+                    "empty `(list)` requires one exact expected `List[T]` context",
+                    code="list_empty_type_context_required",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                )
+            list_type = expected_list
+            item_type = expected_list.item_type_ref
+            typed_items = ()
+        else:
+            typed_item_values = tuple(
+                recurse(
+                    item,
+                    expected_type=(
+                        expected_list.item_type_ref
+                        if expected_list is not None
+                        else None
+                    ),
+                )
+                for item in expr.items
+            )
+            item_type = typed_item_values[0].type_ref
+            if any(
+                not _type_refs_compatible(item_type, typed_item.type_ref)
+                for typed_item in typed_item_values[1:]
+            ):
+                _raise_error(
+                    "list constructor elements must have one exact compatible type",
+                    code="pure_expr_operand_type_mismatch",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                )
+            list_type = ListTypeRef(
+                name=f"List[{item_type.name}]",
+                item_type_ref=item_type,
+            )
+            if expected_list is not None and not _type_refs_compatible(
+                expected_list,
+                list_type,
+            ):
+                _raise_error(
+                    (
+                        "list constructor type did not match its exact expected "
+                        f"context `{_type_label(expected_list)}`"
+                    ),
+                    code="pure_expr_operand_type_mismatch",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                )
+            typed_items = tuple(item.expr for item in typed_item_values)
+            if any(
+                item.effect_summary != EMPTY_EFFECT_SUMMARY
+                for item in typed_item_values
+            ):
+                _raise_error(
+                    "list constructor elements must be pure",
+                    code="effect_not_permitted",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                )
+        if not _is_transportable_result_type(list_type):
+            _raise_error(
+                (
+                    "list collection contract is unsupported for complete type "
+                    f"`{_type_label(list_type)}`"
+                ),
+                code="list_collection_contract_unsupported",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        return _typed(
+            expr=replace(
+                expr,
+                items=typed_items,
+                element_type_ref=item_type,
+            ),
+            type_ref=list_type,
+            effect=EMPTY_EFFECT_SUMMARY,
+        )
+    if isinstance(expr, ListMapExpr):
+        typed_source = recurse(expr.source_expr)
+        if not isinstance(typed_source.type_ref, ListTypeRef):
+            _raise_error(
+                "`list/map` source must have a List type",
+                code="pure_expr_operand_type_mismatch",
+                span=expr.source_expr.span,
+                form_path=expr.source_expr.form_path,
+                expansion_stack=expr.source_expr.expansion_stack,
+            )
+        if typed_source.effect_summary != EMPTY_EFFECT_SUMMARY:
+            _raise_error(
+                "`list/map` source must be pure",
+                code="list_map_body_effect_forbidden",
+                span=expr.source_expr.span,
+                form_path=expr.source_expr.form_path,
+                expansion_stack=expr.source_expr.expansion_stack,
+            )
+        if not _is_transportable_result_type(typed_source.type_ref):
+            _raise_error(
+                (
+                    "list collection contract is unsupported for complete type "
+                    f"`{_type_label(typed_source.type_ref)}`"
+                ),
+                code="list_collection_contract_unsupported",
+                span=expr.source_expr.span,
+                form_path=expr.source_expr.form_path,
+                expansion_stack=expr.source_expr.expansion_stack,
+            )
+        body_env = {
+            **value_env,
+            expr.binder_name: typed_source.type_ref.item_type_ref,
+        }
+        typed_body = recurse(expr.body_expr, value_env=body_env)
+        if typed_body.effect_summary != EMPTY_EFFECT_SUMMARY:
+            _raise_error(
+                "`list/map` body must be pure",
+                code="list_map_body_effect_forbidden",
+                span=expr.body_expr.span,
+                form_path=expr.body_expr.form_path,
+                expansion_stack=expr.body_expr.expansion_stack,
+            )
+        result_type = ListTypeRef(
+            name=f"List[{typed_body.type_ref.name}]",
+            item_type_ref=typed_body.type_ref,
+        )
+        if not _is_transportable_result_type(result_type):
+            _raise_error(
+                (
+                    "list collection contract is unsupported for complete type "
+                    f"`{_type_label(result_type)}`"
+                ),
+                code="list_collection_contract_unsupported",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        if expected_type is not None and not _type_refs_compatible(
+            expected_type,
+            result_type,
+        ):
+            _raise_error(
+                (
+                    f"`list/map` produced `{_type_label(result_type)}` but "
+                    f"the checked context expected `{_type_label(expected_type)}`"
+                ),
+                code="pure_expr_operand_type_mismatch",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        return _typed(
+            expr=replace(
+                expr,
+                source_expr=typed_source.expr,
+                body_expr=typed_body.expr,
+                source_item_type_ref=typed_source.type_ref.item_type_ref,
+                result_item_type_ref=typed_body.type_ref,
+            ),
+            type_ref=result_type,
+            effect=EMPTY_EFFECT_SUMMARY,
+        )
+    if isinstance(expr, PathJoinUnderExpr):
+        try:
+            path_type = type_env.resolve_type(
+                expr.path_type_name,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        except LispFrontendCompileError as exc:
+            if exc.diagnostics and exc.diagnostics[0].code == "type_unknown":
+                _raise_error(
+                    (
+                        "`path/join-under` selected an unresolved or non-path "
+                        f"type `{expr.path_type_name}`"
+                    ),
+                    code="path_join_under_type_invalid",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                )
+            raise
+        if not isinstance(path_type, PathTypeRef):
+            _raise_error(
+                (
+                    "`path/join-under` selected an unresolved or non-path "
+                    f"type `{expr.path_type_name}`"
+                ),
+                code="path_join_under_type_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        typed_child = recurse(expr.child_expr)
+        if typed_child.type_ref != PrimitiveTypeRef(name="String"):
+            _raise_error(
+                "`path/join-under` child must have exact `String` type",
+                code="pure_expr_operand_type_mismatch",
+                span=expr.child_expr.span,
+                form_path=expr.child_expr.form_path,
+                expansion_stack=expr.child_expr.expansion_stack,
+            )
+        if typed_child.effect_summary != EMPTY_EFFECT_SUMMARY:
+            _raise_error(
+                "`path/join-under` child must be pure",
+                code="effect_not_permitted",
+                span=expr.child_expr.span,
+                form_path=expr.child_expr.form_path,
+                expansion_stack=expr.child_expr.expansion_stack,
+            )
+        return _typed(
+            expr=replace(
+                expr,
+                child_expr=typed_child.expr,
+                path_type_ref=path_type,
+            ),
+            type_ref=path_type,
+            effect=EMPTY_EFFECT_SUMMARY,
+        )
     if isinstance(expr, (PureOpExpr, RecordUpdateExpr)):
         return _typecheck_pure_expr(
             expr,
@@ -563,6 +808,13 @@ def _typecheck(
                     span=field_expr.span,
                     form_path=field_expr.form_path,
                 )
+            field_expected_type = record_type.field_types.get(field_name)
+            if field_expected_type is None:
+                field_expected_type = type_env.resolve_type(
+                    expected_field.type_name,
+                    span=field_expr.span,
+                    form_path=field_expr.form_path,
+                )
             typed_field = _typecheck(
                 field_expr,
                 type_env=type_env,
@@ -576,6 +828,7 @@ def _typecheck(
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
                 proc_ref_resolution_context=proc_ref_resolution_context,
+                expected_type=field_expected_type,
             )
             if typed_field.effect_summary != EMPTY_EFFECT_SUMMARY:
                 _raise_error(
@@ -586,16 +839,12 @@ def _typecheck(
                 )
             field_summaries.append(typed_field.effect_summary)
             rewritten_fields.append((field_name, typed_field.expr))
-            expected_type = record_type.field_types.get(field_name)
-            if expected_type is None:
-                expected_type = type_env.resolve_type(
-                    expected_field.type_name,
-                    span=field_expr.span,
-                    form_path=field_expr.form_path,
-                )
-            if not _type_refs_compatible(expected_type, typed_field.type_ref):
+            if not _type_refs_compatible(
+                field_expected_type,
+                typed_field.type_ref,
+            ):
                 _raise_error(
-                    f"record field `{field_name}` expected `{_type_label(expected_type)}`"
+                    f"record field `{field_name}` expected `{_type_label(field_expected_type)}`"
                     f" but got `{_type_label(typed_field.type_ref)}`",
                     code="type_mismatch",
                     span=field_expr.span,
@@ -650,6 +899,16 @@ def _typecheck(
                     span=field_expr.span,
                     form_path=field_expr.form_path,
                 )
+            field_expected_type = union_type.variant_field_types.get(
+                expr.variant_name,
+                {},
+            ).get(field_name)
+            if field_expected_type is None:
+                field_expected_type = type_env.resolve_type(
+                    expected_field.type_name,
+                    span=field_expr.span,
+                    form_path=field_expr.form_path,
+                )
             typed_field = _typecheck(
                 field_expr,
                 type_env=type_env,
@@ -663,6 +922,7 @@ def _typecheck(
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
                 proc_ref_resolution_context=proc_ref_resolution_context,
+                expected_type=field_expected_type,
             )
             if typed_field.effect_summary != EMPTY_EFFECT_SUMMARY:
                 _raise_error(
@@ -673,16 +933,12 @@ def _typecheck(
                 )
             field_summaries.append(typed_field.effect_summary)
             rewritten_fields.append((field_name, typed_field.expr))
-            expected_type = union_type.variant_field_types.get(expr.variant_name, {}).get(field_name)
-            if expected_type is None:
-                expected_type = type_env.resolve_type(
-                    expected_field.type_name,
-                    span=field_expr.span,
-                    form_path=field_expr.form_path,
-                )
-            if not _type_refs_compatible(expected_type, typed_field.type_ref):
+            if not _type_refs_compatible(
+                field_expected_type,
+                typed_field.type_ref,
+            ):
                 _raise_error(
-                    f"union field `{field_name}` expected `{_type_label(expected_type)}`"
+                    f"union field `{field_name}` expected `{_type_label(field_expected_type)}`"
                     f" but got `{_type_label(typed_field.type_ref)}`",
                     code="type_mismatch",
                     span=field_expr.span,
@@ -861,6 +1117,7 @@ def _typecheck(
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
             proc_ref_resolution_context=proc_ref_resolution_context,
+            expected_type=expected_type,
         )
         typed_else = _typecheck(
             expr.else_expr,
@@ -875,6 +1132,7 @@ def _typecheck(
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
             proc_ref_resolution_context=proc_ref_resolution_context,
+            expected_type=expected_type,
         )
         result_type = _unify_loop_control_types(typed_then.type_ref, typed_else.type_ref)
         if result_type is None:
@@ -897,7 +1155,12 @@ def _typecheck(
                 )
             result_type = typed_then.type_ref
         return _typed(
-            expr=expr,
+            expr=replace(
+                expr,
+                condition_expr=typed_condition.expr,
+                then_expr=typed_then.expr,
+                else_expr=typed_else.expr,
+            ),
             type_ref=result_type,
             effect=merge_effect_summaries(
                 typed_then.effect_summary,
@@ -910,6 +1173,7 @@ def _typecheck(
             context=context,
             recurse=recurse,
             typed_factory=_typed,
+            expected_type=expected_type,
         )
     if isinstance(expr, LoopRecurExpr):
         typed_max = recurse(expr.max_iterations_expr)

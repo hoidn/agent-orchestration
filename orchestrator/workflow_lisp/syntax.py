@@ -62,6 +62,22 @@ def target_dsl_supports_provider_peer_messaging(
     return target >= minimum
 
 
+def target_dsl_supports_list_traversal(target_dsl_version: str) -> bool:
+    """Return whether a validated target includes pure list traversal."""
+
+    try:
+        target = tuple(
+            int(part) for part in target_dsl_version.split(".")
+        )
+        minimum = tuple(
+            int(part)
+            for part in LIST_TRAVERSAL_MIN_TARGET_DSL_VERSION.split(".")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
 @dataclass(frozen=True)
 class ExpansionFrame:
     """One macro-expansion provenance frame."""

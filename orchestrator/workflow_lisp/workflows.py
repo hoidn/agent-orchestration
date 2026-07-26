@@ -2543,6 +2543,7 @@ def typecheck_workflow_definitions(
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
                 proc_ref_resolution_context=proc_ref_resolution_context,
+                expected_type=signature.return_type_ref,
             )
         finally:
             clear_active_reusable_state_producer_context()

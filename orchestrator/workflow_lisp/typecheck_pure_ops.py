@@ -7,7 +7,15 @@ from dataclasses import replace
 from .effects import EMPTY_EFFECT_SUMMARY, merge_effect_summaries
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
 from .expressions import PureOpExpr, RecordUpdateExpr
-from .type_env import OptionalTypeRef, PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef
+from .type_env import (
+    ListTypeRef,
+    OptionalTypeRef,
+    PathTypeRef,
+    PrimitiveTypeRef,
+    RecordTypeRef,
+    TypeRef,
+    type_refs_compatible,
+)
 from .typecheck_context import raise_error, _type_label
 
 
@@ -201,6 +209,62 @@ def typecheck_pure_expr(
             return typed_factory(
                 expr=rewritten,
                 type_ref=optional_type.item_type_ref,
+                effect=merge_effect_summaries(*summaries),
+            )
+
+        if operator in {
+            "list/empty?",
+            "list/head",
+            "list/rest",
+            "list/append",
+            "list/length",
+        }:
+            list_type = arg_types[0]
+            if not isinstance(list_type, ListTypeRef):
+                _raise_operand_mismatch(
+                    expr=expr,
+                    message=f"operator `{operator}` requires a List first operand",
+                )
+            from .contracts import is_transportable_result_type
+
+            if not is_transportable_result_type(list_type):
+                raise_error(
+                    (
+                        "list collection contract is unsupported for complete type "
+                        f"`{_type_label(list_type)}`"
+                    ),
+                    code="list_collection_contract_unsupported",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                )
+            if operator == "list/empty?":
+                result_type = PrimitiveTypeRef(name="Bool")
+            elif operator == "list/head":
+                result_type = OptionalTypeRef(
+                    name=f"Optional[{list_type.item_type_ref.name}]",
+                    item_type_ref=list_type.item_type_ref,
+                )
+            elif operator == "list/rest":
+                result_type = list_type
+            elif operator == "list/append":
+                if not type_refs_compatible(
+                    list_type.item_type_ref,
+                    arg_types[1],
+                ):
+                    _raise_operand_mismatch(
+                        expr=expr,
+                        message=(
+                            "`list/append` item type must match the list element "
+                            "type"
+                        ),
+                    )
+                result_type = list_type
+            else:
+                result_type = PrimitiveTypeRef(name="Int")
+            return typed_factory(
+                expr=rewritten,
+                type_ref=result_type,
                 effect=merge_effect_summaries(*summaries),
             )
 

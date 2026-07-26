@@ -10,6 +10,7 @@ from typing import Any
 
 from orchestrator.workflow.pure_expr import (
     PURE_EXPR_SCHEMA_VERSION,
+    PURE_EXPR_OPERATOR_CATALOG,
     PureExprEvaluationError,
     evaluate_pure_expr,
     pure_expr_payload_digest,
@@ -29,13 +30,17 @@ from ..expressions import (
     GeneratedRelpathSeedExpr,
     IfExpr,
     LetStarExpr,
+    ListExpr,
+    ListMapExpr,
     LiteralExpr,
     NameExpr,
+    PathJoinUnderExpr,
     PureOpExpr,
     RecordExpr,
     RecordUpdateExpr,
     UnionVariantExpr,
 )
+from ..expression_traversal import walk_expr
 from ..reader import read_sexpr_file
 from ..syntax import build_syntax_module
 from ..type_env import (
@@ -58,6 +63,7 @@ from .values import ProjectedPathRef, _resolve_inline_expr_value
 
 
 PURE_PROJECTION_EFFECT_KIND = "pure_projection"
+_LEXICAL_LOCAL_BINDING = object()
 
 
 @dataclass(frozen=True)
@@ -83,6 +89,9 @@ def is_pure_projection_expr(
             NameExpr,
             FieldAccessExpr,
             PureOpExpr,
+            ListExpr,
+            ListMapExpr,
+            PathJoinUnderExpr,
             RecordUpdateExpr,
         ),
     ):
@@ -331,7 +340,10 @@ def build_pure_projection_payload(
             )
         )
     payload = {
-        "pure_expr_schema_version": PURE_EXPR_SCHEMA_VERSION,
+        "pure_expr_schema_version": _required_pure_expr_schema_version(
+            expr,
+            payload_expr=payload_expr,
+        ),
         "result_type": _type_descriptor(result_type, type_env=context.type_env),
         "bindings": bindings,
         "expr": payload_expr,
@@ -346,6 +358,38 @@ def build_pure_projection_payload(
             expansion_stack=getattr(expr, "expansion_stack", ()),
         )
     return payload, binding_refs
+
+
+def _required_pure_expr_schema_version(
+    expr: Any,
+    *,
+    payload_expr: Mapping[str, Any] | None = None,
+) -> int:
+    if payload_expr is not None and _payload_requires_schema_2(payload_expr):
+        return 2
+    for node in walk_expr(expr):
+        if isinstance(node, (ListExpr, ListMapExpr, PathJoinUnderExpr)):
+            return 2
+        if isinstance(node, PureOpExpr):
+            spec = PURE_EXPR_OPERATOR_CATALOG.get(node.operator)
+            if spec is not None and spec.min_schema_version >= 2:
+                return 2
+    return PURE_EXPR_SCHEMA_VERSION
+
+
+def _payload_requires_schema_2(node: Any) -> bool:
+    if isinstance(node, Mapping):
+        kind = node.get("kind")
+        if kind in {"list", "list_map", "path_join_under", "list_nonempty_head"}:
+            return True
+        if kind == "op":
+            spec = PURE_EXPR_OPERATOR_CATALOG.get(node.get("operator"))
+            if spec is not None and spec.min_schema_version >= 2:
+                return True
+        return any(_payload_requires_schema_2(value) for value in node.values())
+    if isinstance(node, (list, tuple)):
+        return any(_payload_requires_schema_2(value) for value in node)
+    return False
 
 
 def _pure_projection_type_equivalent(
@@ -451,6 +495,9 @@ def _payload_expr(
         )
     if isinstance(expr, NameExpr):
         if expr.name in lexical_bindings:
+            if lexical_bindings[expr.name] is _LEXICAL_LOCAL_BINDING:
+                type_ref = lexical_types[expr.name]
+                return {"kind": "binding", "name": expr.name}, type_ref
             return _payload_expr(
                 lexical_bindings[expr.name],
                 context=context,
@@ -469,8 +516,11 @@ def _payload_expr(
                     EnumMemberExpr,
                     IfExpr,
                     LetStarExpr,
+                    ListExpr,
+                    ListMapExpr,
                     LiteralExpr,
                     NameExpr,
+                    PathJoinUnderExpr,
                     PureOpExpr,
                     RecordExpr,
                     RecordUpdateExpr,
@@ -649,6 +699,85 @@ def _payload_expr(
                 for arg in expr.args
             ],
         }, type_ref
+    if isinstance(expr, ListExpr):
+        type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
+        assert isinstance(type_ref, ListTypeRef)
+        return {
+            "kind": "list",
+            "element_type": _type_descriptor(
+                type_ref.item_type_ref,
+                type_env=context.type_env,
+            ),
+            "items": [
+                _payload_expr(
+                    item,
+                    context=context,
+                    local_values=local_values,
+                    lexical_bindings=lexical_bindings,
+                    lexical_types=lexical_types,
+                    bindings=bindings,
+                    binding_refs=binding_refs,
+                )[0]
+                for item in expr.items
+            ],
+        }, type_ref
+    if isinstance(expr, ListMapExpr):
+        type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
+        assert isinstance(type_ref, ListTypeRef)
+        source_node, source_type = _payload_expr(
+            expr.source_expr,
+            context=context,
+            local_values=local_values,
+            lexical_bindings=lexical_bindings,
+            lexical_types=lexical_types,
+            bindings=bindings,
+            binding_refs=binding_refs,
+        )
+        assert isinstance(source_type, ListTypeRef)
+        child_bindings = dict(lexical_bindings)
+        child_bindings[expr.binder_name] = _LEXICAL_LOCAL_BINDING
+        child_types = dict(lexical_types)
+        child_types[expr.binder_name] = source_type.item_type_ref
+        body_node, body_type = _payload_expr(
+            expr.body_expr,
+            context=context,
+            local_values=local_values,
+            lexical_bindings=child_bindings,
+            lexical_types=child_types,
+            bindings=bindings,
+            binding_refs=binding_refs,
+        )
+        return {
+            "kind": "list_map",
+            "source": source_node,
+            "binder": {
+                "name": expr.binder_name,
+                "type": _type_descriptor(
+                    source_type.item_type_ref,
+                    type_env=context.type_env,
+                ),
+            },
+            "body": body_node,
+            "result_element_type": _type_descriptor(
+                body_type,
+                type_env=context.type_env,
+            ),
+        }, type_ref
+    if isinstance(expr, PathJoinUnderExpr):
+        type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
+        return {
+            "kind": "path_join_under",
+            "path_type": _type_descriptor(type_ref, type_env=context.type_env),
+            "child": _payload_expr(
+                expr.child_expr,
+                context=context,
+                local_values=local_values,
+                lexical_bindings=lexical_bindings,
+                lexical_types=lexical_types,
+                bindings=bindings,
+                binding_refs=binding_refs,
+            )[0],
+        }, type_ref
     if isinstance(expr, IfExpr):
         type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
         return {
@@ -716,7 +845,21 @@ def _runtime_binding_value(value: Any) -> Any:
         return value
     if value is None:
         return None
-    if isinstance(value, (NameExpr, FieldAccessExpr, RecordExpr, PureOpExpr, RecordUpdateExpr, UnionVariantExpr, IfExpr)):
+    if isinstance(
+        value,
+        (
+            NameExpr,
+            FieldAccessExpr,
+            RecordExpr,
+            PureOpExpr,
+            ListExpr,
+            ListMapExpr,
+            PathJoinUnderExpr,
+            RecordUpdateExpr,
+            UnionVariantExpr,
+            IfExpr,
+        ),
+    ):
         resolved = _resolve_inline_expr_value(value, local_values={})
         if resolved is value:
             raise TypeError(f"runtime binding cannot resolve expression `{type(value).__name__}`")
@@ -770,6 +913,24 @@ def _infer_expr_type(
         )
     if isinstance(expr, RecordUpdateExpr):
         return _infer_expr_type(expr.base_expr, context=context, lexical_types=lexical_types)
+    if isinstance(expr, ListExpr):
+        if expr.element_type_ref is None:
+            raise TypeError("typed list expression is missing its element type")
+        return ListTypeRef(
+            name=f"List[{expr.element_type_ref.name}]",
+            item_type_ref=expr.element_type_ref,
+        )
+    if isinstance(expr, ListMapExpr):
+        if expr.result_item_type_ref is None:
+            raise TypeError("typed list/map expression is missing its result element type")
+        return ListTypeRef(
+            name=f"List[{expr.result_item_type_ref.name}]",
+            item_type_ref=expr.result_item_type_ref,
+        )
+    if isinstance(expr, PathJoinUnderExpr):
+        if expr.path_type_ref is None:
+            raise TypeError("typed path/join-under expression is missing its path type")
+        return expr.path_type_ref
     if isinstance(expr, PureOpExpr):
         arg_types = tuple(
             _infer_expr_type(arg, context=context, lexical_types=lexical_types)
@@ -786,6 +947,18 @@ def _infer_expr_type(
             return PrimitiveTypeRef(name="String")
         if operator == "string/empty?":
             return PrimitiveTypeRef(name="Bool")
+        if operator == "list/empty?":
+            return PrimitiveTypeRef(name="Bool")
+        if operator == "list/head":
+            assert isinstance(arg_types[0], ListTypeRef)
+            return OptionalTypeRef(
+                name=f"Optional[{arg_types[0].item_type_ref.name}]",
+                item_type_ref=arg_types[0].item_type_ref,
+            )
+        if operator in {"list/rest", "list/append"}:
+            return arg_types[0]
+        if operator == "list/length":
+            return PrimitiveTypeRef(name="Int")
         raise TypeError(f"unsupported pure operator `{operator}`")
     if isinstance(expr, IfExpr):
         return _infer_expr_type(expr.then_expr, context=context, lexical_types=lexical_types)

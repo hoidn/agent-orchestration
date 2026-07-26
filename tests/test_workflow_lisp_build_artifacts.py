@@ -1132,6 +1132,36 @@ def _build_pure_expr_selector_projection(tmp_path: Path):
     )
 
 
+def _build_list_traversal_projection(tmp_path: Path):
+    source_path = tmp_path / "list_artifacts.orc"
+    source_path.write_text(
+        """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.18")
+  (defmodule list_artifacts)
+  (export orchestrate)
+  (defworkflow orchestrate ((items List[Int])) -> List[Int]
+    (list/map ((item items)) (+ item 1))))
+""",
+        encoding="utf-8",
+    )
+    build = _build_module()
+    return build.build_frontend_bundle(
+        build.FrontendBuildRequest(
+            source_path=source_path,
+            source_roots=(tmp_path,),
+            entry_workflow="orchestrate",
+            provider_externs_path=None,
+            prompt_externs_path=None,
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=None,
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+
+
 def _build_materialize_view_allocated_target(tmp_path: Path):
     build = _build_module()
     request_cls = getattr(build, "FrontendBuildRequest")
@@ -4501,6 +4531,30 @@ def test_build_artifacts_expose_pure_projection_effects_and_generated_paths(tmp_
         "kind": "relpath",
         "type": "relpath",
     }
+
+
+def test_list_traversal_build_artifacts_reuse_existing_pure_projection_nodes(
+    tmp_path: Path,
+) -> None:
+    result = _build_list_traversal_projection(tmp_path)
+    core_ast = json.loads(
+        result.artifact_paths["core_workflow_ast"].read_text(encoding="utf-8")
+    )
+    executable_ir = json.loads(
+        result.artifact_paths["executable_ir"].read_text(encoding="utf-8")
+    )
+
+    assert [node["kind"] for node in core_ast["body"]] == ["pure_projection"]
+    assert {node["kind"] for node in executable_ir["nodes"].values()} == {
+        "pure_projection"
+    }
+    core_payload = core_ast["body"][0]["pure_projection"]["payload"]
+    executable_payload = next(iter(executable_ir["nodes"].values()))[
+        "execution_config"
+    ]["pure_projection"]["payload"]
+    assert core_payload == executable_payload
+    assert core_payload["pure_expr_schema_version"] == 2
+    assert core_payload["expr"]["kind"] == "list_map"
 
 
 def test_build_artifacts_expose_materialize_view_effects_and_generated_paths(tmp_path: Path) -> None:

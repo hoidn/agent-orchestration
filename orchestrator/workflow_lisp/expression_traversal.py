@@ -19,6 +19,8 @@ from .expressions import (
     IfExpr,
     LetProcExpr,
     LetStarExpr,
+    ListExpr,
+    ListMapExpr,
     LiteralExpr,
     MaterializeViewExpr,
     LoopStateSeedExpr,
@@ -26,6 +28,7 @@ from .expressions import (
     LoopRecurExpr,
     MatchExpr,
     NameExpr,
+    PathJoinUnderExpr,
     PhaseTargetExpr,
     PureOpExpr,
     ProcedureCallExpr,
@@ -115,6 +118,12 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return tuple(field_expr for _, field_expr in expr.fields)
     if isinstance(expr, PureOpExpr):
         return expr.args
+    if isinstance(expr, ListExpr):
+        return expr.items
+    if isinstance(expr, ListMapExpr):
+        return (expr.source_expr, expr.body_expr)
+    if isinstance(expr, PathJoinUnderExpr):
+        return (expr.child_expr,)
     if isinstance(expr, RecordUpdateExpr):
         return (expr.base_expr,) + tuple(field_expr for _, field_expr in expr.overrides)
     if isinstance(expr, LoopStateSeedExpr):

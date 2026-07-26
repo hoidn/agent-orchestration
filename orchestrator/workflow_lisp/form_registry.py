@@ -8,6 +8,19 @@ from enum import Enum
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
 
 
+_LIST_TRAVERSAL_SPECIAL_FORM_NAMES = frozenset(
+    {"list", "list/map", "path/join-under"}
+)
+_LIST_TRAVERSAL_AUTHORED_HEADS = (
+    _LIST_TRAVERSAL_SPECIAL_FORM_NAMES
+    | frozenset(
+        name
+        for name, spec in PURE_EXPR_OPERATOR_CATALOG.items()
+        if spec.min_schema_version >= 2
+    )
+)
+
+
 class FormKind(Enum):
     """Classification for compiler-known authored heads."""
 
@@ -260,6 +273,42 @@ _FORM_SPECS = (
             ),
         )
         for operator_name in PURE_EXPR_OPERATOR_CATALOG
+    ),
+    _spec(
+        "list",
+        kind=FormKind.CORE_SPECIAL,
+        owner_module="expressions",
+        introduced_in="workflow_lisp_pure_list_traversal",
+        remove_by=None,
+        macro_bindable=False,
+        admitted_top_level=False,
+        elaboration_route="list",
+        feature_tags=("pure_expression_core", "list_traversal"),
+        rationale="Target-2.18 list construction elaborates as a typed pure value.",
+    ),
+    _spec(
+        "list/map",
+        kind=FormKind.CORE_SPECIAL,
+        owner_module="expressions",
+        introduced_in="workflow_lisp_pure_list_traversal",
+        remove_by=None,
+        macro_bindable=False,
+        admitted_top_level=False,
+        elaboration_route="list_map",
+        feature_tags=("pure_expression_core", "list_traversal"),
+        rationale="Target-2.18 pure mapping remains a lexical binder, not a function value.",
+    ),
+    _spec(
+        "path/join-under",
+        kind=FormKind.CORE_SPECIAL,
+        owner_module="expressions",
+        introduced_in="workflow_lisp_pure_list_traversal",
+        remove_by=None,
+        macro_bindable=False,
+        admitted_top_level=False,
+        elaboration_route="path_join_under",
+        feature_tags=("pure_expression_core", "list_traversal"),
+        rationale="Target-2.18 rooted path construction selects one explicit load-bearing path family.",
     ),
     _spec(
         "loop-state",
@@ -671,6 +720,12 @@ def reserved_macro_names() -> frozenset[str]:
     """Return the exact set of macro-reserved authored heads."""
 
     return _RESERVED_MACRO_NAMES
+
+
+def list_traversal_authored_heads() -> frozenset[str]:
+    """Return target-2.18 list-traversal authored heads."""
+
+    return _LIST_TRAVERSAL_AUTHORED_HEADS
 
 
 def admitted_top_level_heads() -> frozenset[str]:

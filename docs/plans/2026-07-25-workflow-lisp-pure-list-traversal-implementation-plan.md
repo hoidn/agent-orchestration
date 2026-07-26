@@ -395,13 +395,19 @@ function values.
 
 **Files:**
 
+- Modify: `orchestrator/workflow_lisp/syntax.py`
 - Modify: `orchestrator/workflow_lisp/form_registry.py`
+- Modify: `orchestrator/workflow_lisp/macros.py`
 - Modify: `orchestrator/workflow_lisp/expressions.py`
 - Modify: `orchestrator/workflow_lisp/expression_traversal.py`
 - Modify: `orchestrator/workflow_lisp/functions.py`
-- Modify: `orchestrator/workflow_lisp/procedure_specialization.py`
+- Modify: `orchestrator/workflow_lisp/loop_state.py`
+- Modify: `orchestrator/workflow_lisp/procedure_typecheck.py`
+- Modify: `orchestrator/workflow_lisp/typecheck_calls.py`
 - Modify: `orchestrator/workflow_lisp/typecheck_dispatch.py`
+- Modify: `orchestrator/workflow_lisp/typecheck_proofs.py`
 - Modify: `orchestrator/workflow_lisp/typecheck_pure_ops.py`
+- Modify: `orchestrator/workflow_lisp/workflows.py`
 - Modify: `orchestrator/workflow_lisp/lowering/pure_projection.py`
 - Modify: `orchestrator/workflow_lisp/wcc/route.py`
 - Modify: `orchestrator/workflow_lisp/wcc/elaborate.py`
@@ -411,35 +417,66 @@ function values.
 
 **RED:**
 
-- [ ] Cover constructor/operator type synthesis and each exact diagnostic.
-- [ ] Cover `(list)` in loop-state, record/union field, direct callable
+- [x] Cover constructor/operator type synthesis and each exact diagnostic.
+- [x] Cover `(list)` in loop-state, record/union field, direct callable
       argument, declared return, and propagated `if`/`match` branch contexts.
-- [ ] Cover standalone and unannotated-`let*` empty-list rejection.
-- [ ] Cover valid/invalid pure-map binder shapes, lexical capture, input
+- [x] Cover standalone and unannotated-`let*` empty-list rejection.
+- [x] Cover valid/invalid pure-map binder shapes, lexical capture, input
       evaluated once, body purity, ordering, and whole-list transport
       admissibility including supported nested Optional/Map and rejected
       record/union elements.
-- [ ] Cover explicit prelude/local/imported path families, exact result type,
+- [x] Cover explicit prelude/local/imported path families, exact result type,
       deferred existence, and all three path refusal families.
-- [ ] Assert no new Core/Executable node kind and schema-1 projections remain
+- [x] Assert no new Core/Executable node kind and schema-1 projections remain
       byte-identical.
 
 **GREEN:**
 
-- [ ] Add dedicated immutable frontend nodes for constructor, pure binder, and
+- [x] Add dedicated immutable frontend nodes for constructor, pure binder, and
       rooted path form; keep binder syntax non-value-producing.
-- [ ] Prove every new source form/operator is rejected below target 2.18
+- [x] Prove every new source form/operator is rejected below target 2.18
       through the accepted target/surface diagnostic.
-- [ ] Add a narrowly scoped expected-type argument only at the accepted
+- [x] Add a narrowly scoped expected-type argument only at the accepted
       checked positions; do not add global inference or annotated `let*`.
-- [ ] Gate every form/operator at target 2.18.
-- [ ] Apply `is_transportable_result_type(List[T])` to complete source/result
+- [x] Gate every form/operator at target 2.18.
+- [x] Apply `is_transportable_result_type(List[T])` to complete source/result
       list types and report `list_collection_contract_unsupported`.
-- [ ] Emit schema-2 pure payloads with resolved descriptors and source maps.
-- [ ] Route the new pure forms through WCC as values, not effects or nodes.
-- [ ] Rerun focused frontend, build-artifact, WCC M1/M2/M4, and pure
+- [x] Emit schema-2 pure payloads with resolved descriptors and source maps.
+- [x] Route the new pure forms through WCC as values, not effects or nodes.
+- [x] Rerun focused frontend, build-artifact, WCC M1/M2/M4, and pure
       expression selectors.
 - [ ] Obtain `TASK3_SPEC_APPROVED`, then `TASK3_QUALITY_APPROVED`, and commit.
+
+**Implementation record (2026-07-25; implementation commit pending):**
+
+- The initial frontend RED collected 111 tests and failed only at the intended
+  missing seams (`36 failed, 75 passed`). The first complete GREEN boundary
+  passed all 112 then-current focused tests.
+- Preliminary review found that globally registered 2.18 heads incorrectly
+  reserved the same spellings in target 2.17. A 33-case callable/local-macro
+  RED and a later 8-case imported-macro RED drove one canonical authored-head
+  inventory plus target-aware callable and local/imported macro ownership.
+  All eight spellings remain available to resolved 2.17 callables/macros,
+  remain compiler-owned at 2.18, and still fail through the target diagnostic
+  below 2.18 when no legacy binding resolves.
+- Quality review then exposed missing macro hygiene for the `list/map`
+  binder. Local and imported macro cases were both RED with
+  `list_map_binder_invalid`; the target-aware hygiene owner now rewrites the
+  source in the outer environment and the introduced binder/body in one
+  extended environment. The opposite 2.17 user-macro case remains generic.
+- Final collection is 176 focused tests. The exact frontend/pure/macro/
+  procedure/all-WCC/build selector passes (`709 passed in 4.61s`); the
+  build/workflow/procedure owner regression passes (`365 passed in 8.24s`);
+  bytecode compilation and the scoped diff check are clean.
+- `procedure_specialization.py` required no edit because its discovery paths
+  already delegate to the updated shared `iter_child_exprs`. The added
+  caller-owner files are the exact owners of loop-state, direct-call,
+  declared-return, branch propagation, target-aware name ownership, and
+  macro-hygiene contexts; no general inference or new Core/Executable node
+  was added.
+- Ordered preliminary verdicts are `TASK3_SPEC_APPROVED` then
+  `TASK3_QUALITY_APPROVED`. The implementation commit is pending final
+  exact-diff reaffirmation.
 
 ## Task 4: Carry Collection-Contract Lists Through Loops And Resume
 

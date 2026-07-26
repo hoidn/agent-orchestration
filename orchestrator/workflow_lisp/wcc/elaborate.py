@@ -21,6 +21,8 @@ from ..expressions import (
     GeneratedRelpathSeedExpr,
     IfExpr,
     LetStarExpr,
+    ListExpr,
+    ListMapExpr,
     LiteralExpr,
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
@@ -28,6 +30,7 @@ from ..expressions import (
     MaterializeViewExpr,
     MatchExpr,
     NameExpr,
+    PathJoinUnderExpr,
     PhaseTargetExpr,
     ProcRefLiteralExpr,
     PureOpExpr,
@@ -55,7 +58,9 @@ from ..procedure_refs import ResolvedProcRefValue
 from ..spans import SourceSpan
 from ..type_env import (
     FrontendTypeEnvironment,
+    ListTypeRef,
     OptionalTypeRef,
+    PathTypeRef,
     PrimitiveTypeRef,
     ProcRefTypeRef,
     RecordTypeRef,
@@ -1030,6 +1035,25 @@ def _rewrite_specialization_value_captures(
                 bindings=tuple(rewritten_bindings),
                 body=rewritten_body,
             )
+        if isinstance(node, ListMapExpr):
+            rewritten_source = rewrite(
+                node.source_expr,
+                shadowed=shadowed,
+            )
+            rewritten_body = rewrite(
+                node.body_expr,
+                shadowed=shadowed | {node.binder_name},
+            )
+            if (
+                rewritten_source is node.source_expr
+                and rewritten_body is node.body_expr
+            ):
+                return node
+            return replace(
+                node,
+                source_expr=rewritten_source,
+                body_expr=rewritten_body,
+            )
         if isinstance(node, tuple):
             rewritten_items = tuple(
                 rewrite(item, shadowed=shadowed)
@@ -1957,6 +1981,13 @@ def _bind_proc_runtime_capture_sites(
                     shadowed=shadowed | {arm.binding_name},
                 )
             return
+        if isinstance(node, ListMapExpr):
+            visit(node.source_expr, shadowed=shadowed)
+            visit(
+                node.body_expr,
+                shadowed=shadowed | {node.binder_name},
+            )
+            return
         if isinstance(node, tuple | list):
             for item in node:
                 visit(item, shadowed=shadowed)
@@ -2398,6 +2429,9 @@ def _elaborate_expr_to_value(
             LoopStateSeedExpr,
             LoopStateUpdateExpr,
             GeneratedRelpathSeedExpr,
+            ListExpr,
+            ListMapExpr,
+            PathJoinUnderExpr,
             ProviderBundlePathExpr,
             ResourceTransitionExpr,
         ),
@@ -4599,6 +4633,24 @@ def _infer_expr_type(
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
         )
+    if isinstance(expr, ListExpr):
+        if expr.element_type_ref is None:
+            raise TypeError("typed list expression is missing its element type")
+        return ListTypeRef(
+            name=f"List[{expr.element_type_ref.name}]",
+            item_type_ref=expr.element_type_ref,
+        )
+    if isinstance(expr, ListMapExpr):
+        if expr.result_item_type_ref is None:
+            raise TypeError("typed list/map expression is missing its result element type")
+        return ListTypeRef(
+            name=f"List[{expr.result_item_type_ref.name}]",
+            item_type_ref=expr.result_item_type_ref,
+        )
+    if isinstance(expr, PathJoinUnderExpr):
+        if not isinstance(expr.path_type_ref, PathTypeRef):
+            raise TypeError("typed path/join-under expression is missing its path type")
+        return expr.path_type_ref
     if isinstance(expr, FieldAccessExpr):
         current: TypeRef = value_env[expr.base.name]
         for field_name in expr.fields:
@@ -4644,6 +4696,19 @@ def _infer_expr_type(
             return PrimitiveTypeRef(name="String")
         if operator == "string/empty?":
             return PrimitiveTypeRef(name="Bool")
+        if operator == "list/empty?":
+            return PrimitiveTypeRef(name="Bool")
+        if operator == "list/head":
+            if not isinstance(arg_types[0], ListTypeRef):
+                raise TypeError("list/head requires a list during WCC inference")
+            return OptionalTypeRef(
+                name=f"Optional[{arg_types[0].item_type_ref.name}]",
+                item_type_ref=arg_types[0].item_type_ref,
+            )
+        if operator in {"list/rest", "list/append"}:
+            return arg_types[0]
+        if operator == "list/length":
+            return PrimitiveTypeRef(name="Int")
         raise TypeError(f"unsupported WCC pure operator inference `{operator}`")
     if isinstance(expr, ContinueExpr):
         state_type = _infer_expr_type(
