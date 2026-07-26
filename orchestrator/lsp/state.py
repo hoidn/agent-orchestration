@@ -14,6 +14,8 @@ from orchestrator.workflow_lisp.compiler import Stage3ValidationProfile
 from orchestrator.workflow_lisp.lints import LINT_PROFILE_DEFAULT
 from orchestrator.workflow_lisp.wcc.route import LoweringRoute, normalize_lowering_route
 
+from .diagnostics import DiagnosticContribution
+
 
 _CONFIGURATION_PATH_FIELDS = (
     "provider_externs_path",
@@ -103,9 +105,7 @@ class CompileEntryState:
     accepted_snapshot: AcceptedCompileSnapshot | None
     dependency_closure: frozenset[Path] | None = None
     dependency_revision_vector: tuple[tuple[Path, str], ...] | None = None
-    diagnostic_target_uris: tuple[str, ...] = ()
-    contribution_keys: frozenset[str] = frozenset()
-    diagnostics: tuple[object, ...] = ()
+    diagnostic_contributions: tuple[DiagnosticContribution, ...] = ()
 
     @property
     def navigation_snapshot(self) -> AcceptedCompileSnapshot | None:
@@ -407,9 +407,7 @@ def accept_compile_success(
     generation: int,
     snapshot: AcceptedCompileSnapshot,
     dependency_closure: frozenset[Path],
-    diagnostic_target_uris: tuple[str, ...],
-    contribution_keys: frozenset[str],
-    diagnostics: tuple[object, ...] = (),
+    diagnostic_contributions: tuple[DiagnosticContribution, ...],
 ) -> LspStateTransition:
     """Accept one current successful generation and its precise ownership."""
 
@@ -430,6 +428,15 @@ def accept_compile_success(
         snapshot,
         source_revision_vector=normalized_revision_vector,
     )
+    _validate_diagnostic_contributions(
+        diagnostic_contributions,
+        owner_path=entry.path,
+        generation=generation,
+    )
+    republish_uris = _merge_republish_uris(
+        _diagnostic_target_uris(entry.diagnostic_contributions),
+        _diagnostic_target_uris(diagnostic_contributions),
+    )
     updated = replace(
         entry,
         pending_generation=None,
@@ -437,13 +444,11 @@ def accept_compile_success(
         accepted_snapshot=normalized_snapshot,
         dependency_closure=dependency_closure,
         dependency_revision_vector=normalized_revision_vector,
-        diagnostic_target_uris=diagnostic_target_uris,
-        contribution_keys=contribution_keys,
-        diagnostics=diagnostics,
+        diagnostic_contributions=diagnostic_contributions,
     )
     return LspStateTransition(
         state=replace(state, entries=_replace_entry(state.entries, updated)),
-        effects=StateEffects(republish_uris=diagnostic_target_uris),
+        effects=StateEffects(republish_uris=republish_uris),
     )
 
 
@@ -454,9 +459,7 @@ def accept_compile_language_error(
     generation: int,
     dependency_closure: frozenset[Path] | None,
     dependency_revision_vector: tuple[tuple[Path, str], ...] | None,
-    diagnostic_target_uris: tuple[str, ...],
-    contribution_keys: frozenset[str],
-    diagnostics: tuple[object, ...] = (),
+    diagnostic_contributions: tuple[DiagnosticContribution, ...],
 ) -> LspStateTransition:
     """Accept one current language-error completion with explicit ownership."""
 
@@ -472,6 +475,15 @@ def accept_compile_language_error(
         dependency_closure,
         dependency_revision_vector,
     )
+    _validate_diagnostic_contributions(
+        diagnostic_contributions,
+        owner_path=entry.path,
+        generation=generation,
+    )
+    republish_uris = _merge_republish_uris(
+        _diagnostic_target_uris(entry.diagnostic_contributions),
+        _diagnostic_target_uris(diagnostic_contributions),
+    )
     updated = replace(
         entry,
         pending_generation=None,
@@ -479,13 +491,11 @@ def accept_compile_language_error(
         accepted_snapshot=None,
         dependency_closure=dependency_closure,
         dependency_revision_vector=normalized_revision_vector,
-        diagnostic_target_uris=diagnostic_target_uris,
-        contribution_keys=contribution_keys,
-        diagnostics=diagnostics,
+        diagnostic_contributions=diagnostic_contributions,
     )
     return LspStateTransition(
         state=replace(state, entries=_replace_entry(state.entries, updated)),
-        effects=StateEffects(republish_uris=diagnostic_target_uris),
+        effects=StateEffects(republish_uris=republish_uris),
     )
 
 
@@ -612,7 +622,9 @@ def close_entry(
         ),
         effects=StateEffects(
             canceled_generations=_pending_generation_effect(path, entry),
-            republish_uris=entry.diagnostic_target_uris,
+            republish_uris=_diagnostic_target_uris(
+                entry.diagnostic_contributions
+            ),
         ),
     )
 
@@ -630,7 +642,7 @@ def _entry_owns_observed_path(
 
 def _diagnostic_target_paths(entry: CompileEntryState) -> frozenset[Path]:
     paths: set[Path] = set()
-    for uri in entry.diagnostic_target_uris:
+    for uri in _diagnostic_target_uris(entry.diagnostic_contributions):
         try:
             paths.add(_canonical_file_uri(uri))
         except LspInitializationError:
@@ -749,6 +761,12 @@ def latch_configuration_stale(state: LspState) -> LspStateTransition:
         for entry in state.entries
         if entry.pending_generation is not None
     )
+    republish_uris = _merge_republish_uris(
+        *(
+            _diagnostic_target_uris(entry.diagnostic_contributions)
+            for entry in state.entries
+        )
+    )
     return LspStateTransition(
         state=replace(
             state,
@@ -757,9 +775,74 @@ def latch_configuration_stale(state: LspState) -> LspStateTransition:
         ),
         effects=StateEffects(
             canceled_generations=canceled,
+            republish_uris=republish_uris,
             restart_notice_required=True,
         ),
     )
+
+
+def _validate_diagnostic_contributions(
+    diagnostic_contributions: tuple[DiagnosticContribution, ...],
+    *,
+    owner_path: Path,
+    generation: int,
+) -> None:
+    """Validate the structural contribution boundary without nominal coupling."""
+
+    if not isinstance(diagnostic_contributions, tuple):
+        raise TypeError("diagnostic contributions must be a tuple")
+    owner_uri = owner_path.as_uri()
+    for contribution in diagnostic_contributions:
+        try:
+            compile_entry_uri = contribution.compile_entry_uri
+            target_uri = contribution.target_uri
+            accepted_generation = contribution.accepted_generation
+            parity_identity = contribution.parity_identity
+        except AttributeError as error:
+            raise TypeError(
+                "diagnostic contributions must expose owner, target, "
+                "generation, and parity identity"
+            ) from error
+        if not isinstance(compile_entry_uri, str):
+            raise TypeError("diagnostic contribution owner URI must be a string")
+        if _canonical_file_uri(compile_entry_uri).as_uri() != owner_uri:
+            raise ValueError(
+                "diagnostic contribution owner does not match compile entry"
+            )
+        if not isinstance(target_uri, str):
+            raise TypeError("diagnostic contribution target URI must be a string")
+        if _canonical_file_uri(target_uri).as_uri() != target_uri:
+            raise ValueError(
+                "diagnostic contribution target URI must be canonical"
+            )
+        if (
+            type(accepted_generation) is not int
+            or accepted_generation != generation
+        ):
+            raise ValueError(
+                "diagnostic contribution generation does not match completion"
+            )
+        if not isinstance(parity_identity, tuple):
+            raise TypeError(
+                "diagnostic contribution parity identity must be a tuple"
+            )
+
+
+def _diagnostic_target_uris(
+    diagnostic_contributions: tuple[DiagnosticContribution, ...],
+) -> tuple[str, ...]:
+    return _merge_republish_uris(
+        tuple(
+            contribution.target_uri
+            for contribution in diagnostic_contributions
+        )
+    )
+
+
+def _merge_republish_uris(
+    *uri_groups: tuple[str, ...],
+) -> tuple[str, ...]:
+    return tuple(sorted({uri for group in uri_groups for uri in group}))
 
 
 def current_navigation_snapshot(

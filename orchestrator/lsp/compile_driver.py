@@ -20,6 +20,7 @@ from orchestrator.workflow_lisp.build import (
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.reader import SourceReadTrace
 
+from .diagnostics import translate_frontend_diagnostics
 from .state import (
     AcceptedCompileSnapshot,
     DiskSourceSnapshot,
@@ -42,6 +43,22 @@ ServerErrorLogger = Callable[[Exception], None]
 
 def _ignore_server_error(_error: Exception) -> None:
     """Default library callback when transport logging is not wired yet."""
+
+
+@dataclass(frozen=True, slots=True)
+class _SourceCurrentnessProbe:
+    """One postflight source proof and the exact text read by that proof."""
+
+    transition: LspStateTransition | None
+    snapshots: tuple[DiskSourceSnapshot, ...]
+
+    @property
+    def accepted_text_by_path(self) -> dict[Path, str]:
+        return {
+            snapshot.canonical_path: snapshot.raw_decoded_text
+            for snapshot in self.snapshots
+            if snapshot.raw_decoded_text is not None
+        }
 
 
 @dataclass(slots=True)
@@ -155,7 +172,7 @@ class LspCompileDriver:
                     revision_vector=revision_vector,
                 )
                 self._validate_trace_paths(revision_vector)
-                source_drift = self._observe_source_drift(
+                source_probe = self._probe_source_currentness(
                     revision_vector,
                     compile_entry_path=path,
                     generation=generation,
@@ -163,9 +180,15 @@ class LspCompileDriver:
                         source_read_trace.revision_conflict_paths
                     ),
                 )
-                if source_drift is not None:
-                    return source_drift
+                if source_probe.transition is not None:
+                    return source_probe.transition
                 diagnostics = tuple(result.diagnostics)
+                diagnostic_contributions = translate_frontend_diagnostics(
+                    diagnostics,
+                    compile_entry_uri=path.as_uri(),
+                    accepted_generation=generation,
+                    accepted_text_by_path=source_probe.accepted_text_by_path,
+                )
                 transition = accept_compile_success(
                     self.state,
                     document_uri=path.as_uri(),
@@ -178,12 +201,7 @@ class LspCompileDriver:
                         trace_path
                         for trace_path, _revision in revision_vector
                     ),
-                    diagnostic_target_uris=self._diagnostic_target_uris(
-                        diagnostics,
-                        fallback_path=path,
-                    ),
-                    contribution_keys=frozenset(),
-                    diagnostics=diagnostics,
+                    diagnostic_contributions=diagnostic_contributions,
                 )
                 self.apply_transition(transition)
                 return transition
@@ -339,7 +357,7 @@ class LspCompileDriver:
             return attempt_configuration_mismatch
         revision_vector = source_read_trace.revision_vector
         self._validate_trace_paths(revision_vector)
-        source_drift = self._observe_source_drift(
+        source_probe = self._probe_source_currentness(
             revision_vector,
             compile_entry_path=path,
             generation=generation,
@@ -347,9 +365,15 @@ class LspCompileDriver:
                 source_read_trace.revision_conflict_paths
             ),
         )
-        if source_drift is not None:
-            return source_drift
+        if source_probe.transition is not None:
+            return source_probe.transition
         diagnostics = tuple(error.diagnostics)
+        diagnostic_contributions = translate_frontend_diagnostics(
+            diagnostics,
+            compile_entry_uri=path.as_uri(),
+            accepted_generation=generation,
+            accepted_text_by_path=source_probe.accepted_text_by_path,
+        )
         (
             dependency_closure,
             dependency_revision_vector,
@@ -363,12 +387,7 @@ class LspCompileDriver:
             generation=generation,
             dependency_closure=dependency_closure,
             dependency_revision_vector=dependency_revision_vector,
-            diagnostic_target_uris=self._diagnostic_target_uris(
-                diagnostics,
-                fallback_path=path,
-            ),
-            contribution_keys=frozenset(),
-            diagnostics=diagnostics,
+            diagnostic_contributions=diagnostic_contributions,
         )
         self.apply_transition(transition)
         return transition
@@ -524,6 +543,23 @@ class LspCompileDriver:
         generation: int | None = None,
         force_entry_reproof: bool = False,
     ) -> LspStateTransition | None:
+        return self._probe_source_currentness(
+            expected_revisions,
+            compile_entry_path=compile_entry_path,
+            generation=generation,
+            force_entry_reproof=force_entry_reproof,
+        ).transition
+
+    def _probe_source_currentness(
+        self,
+        expected_revisions: tuple[tuple[Path, str], ...],
+        *,
+        compile_entry_path: Path | None = None,
+        generation: int | None = None,
+        force_entry_reproof: bool = False,
+    ) -> _SourceCurrentnessProbe:
+        """Recheck one trace and retain the exact text from those same reads."""
+
         compile_entry = None
         if compile_entry_path is not None:
             compile_entry = next(
@@ -589,39 +625,10 @@ class LspCompileDriver:
                 disk_snapshot=observed_by_path[compile_entry.path],
             )
             self.apply_transition(latest_transition)
-        return latest_transition
-
-    def _diagnostic_target_uris(
-        self,
-        diagnostics: tuple[object, ...],
-        *,
-        fallback_path: Path,
-    ) -> tuple[str, ...]:
-        targets: list[str] = []
-        allowed_roots = (
-            self.state.workspace_root,
-            self.state.builtin_stdlib_source_root,
+        return _SourceCurrentnessProbe(
+            transition=latest_transition,
+            snapshots=tuple(observed_by_path[path] for path in ordered_paths),
         )
-        for diagnostic in diagnostics:
-            raw_path = getattr(
-                getattr(getattr(diagnostic, "span", None), "start", None),
-                "path",
-                None,
-            )
-            if not isinstance(raw_path, str):
-                continue
-            path = Path(raw_path)
-            if not path.is_absolute():
-                continue
-            canonical_path = path.resolve(strict=False)
-            if not any(
-                _path_is_within(canonical_path, root) for root in allowed_roots
-            ):
-                continue
-            uri = canonical_path.as_uri()
-            if uri not in targets:
-                targets.append(uri)
-        return tuple(targets) if targets else (fallback_path.as_uri(),)
 
     def _build_request(self, source_path: Path) -> FrontendBuildRequest:
         paths = self.state.options.configuration

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import replace
+from importlib import import_module
 from pathlib import Path
 import shutil
 from threading import Event, Lock, Thread
@@ -57,6 +58,28 @@ def _injected_language_error(
         diagnostics,
         configuration_revision_vector=configuration_revision_vector,
     )
+
+
+def _translate_contributions(
+    diagnostics: tuple[LispFrontendDiagnostic, ...],
+    *,
+    compile_entry_uri: str,
+    accepted_generation: int,
+    accepted_text_by_path: dict[Path, str],
+) -> tuple[object, ...]:
+    module = import_module("orchestrator.lsp.diagnostics")
+    contribution_type = getattr(module, "DiagnosticContribution", None)
+    translate = getattr(module, "translate_frontend_diagnostics", None)
+    if not isinstance(contribution_type, type) or not callable(translate):
+        pytest.fail("LSP diagnostic contribution translation is not implemented")
+    contributions = translate(
+        diagnostics,
+        compile_entry_uri=compile_entry_uri,
+        accepted_generation=accepted_generation,
+        accepted_text_by_path=accepted_text_by_path,
+    )
+    assert all(isinstance(item, contribution_type) for item in contributions)
+    return contributions
 
 
 def _configured_initial_state(
@@ -549,7 +572,7 @@ def test_driver_coalesces_latest_generation_and_accepts_one_injected_success(
         source_revision_vector=trace.revision_vector,
     )
     assert entry.dependency_closure == frozenset({entry_path.resolve()})
-    assert entry.diagnostics == ()
+    assert entry.diagnostic_contributions == ()
 
 
 def test_driver_rechecks_configuration_before_calling_builder_without_notification(
@@ -968,7 +991,7 @@ def test_source_mutation_during_build_routes_through_revision_observation(
     assert entry.pending_generation is None
     assert entry.accepted_snapshot is None
     assert entry.disk_snapshot == compile_driver.probe_disk_source(entry_path)
-    assert entry.diagnostics == ()
+    assert entry.diagnostic_contributions == ()
     assert driver.queued_generations == ()
 
 
@@ -1017,7 +1040,7 @@ def test_driver_rejects_success_built_from_disk_newer_than_clean_editor_proof(
     assert entry.compile_status == "idle"
     assert entry.accepted_snapshot is None
     assert entry.disk_snapshot == compile_driver.probe_disk_source(entry_path)
-    assert entry.diagnostics == ()
+    assert entry.diagnostic_contributions == ()
     assert driver.queued_generations == ()
 
 
@@ -1084,8 +1107,7 @@ def test_driver_rejects_language_error_from_disk_newer_than_clean_editor_proof(
     assert entry.compile_status == "idle"
     assert entry.accepted_snapshot is None
     assert entry.disk_snapshot == compile_driver.probe_disk_source(entry_path)
-    assert entry.diagnostics == ()
-    assert entry.diagnostic_target_uris == ()
+    assert entry.diagnostic_contributions == ()
     assert driver.queued_generations == ()
 
 
@@ -1150,7 +1172,7 @@ def test_trace_drift_without_prior_ownership_reproves_and_reschedules_entry(
     assert entry.buffer_status == "clean"
     assert entry.compile_status == "pending"
     assert entry.accepted_snapshot is None
-    assert entry.diagnostics == ()
+    assert entry.diagnostic_contributions == ()
     assert driver.queued_generations == ((entry_path.resolve(), 3),)
 
 
@@ -1261,7 +1283,7 @@ def test_driver_routes_external_trace_to_logged_failure_and_continues_queue(
     assert entry.compile_status == "server_error"
     assert entry.accepted_snapshot is None
     assert entry.dependency_closure is None
-    assert entry.diagnostics == ()
+    assert entry.diagnostic_contributions == ()
     assert second.compile_status == "success"
     assert driver.running is False
 
@@ -1340,7 +1362,7 @@ def test_driver_rejects_invalid_success_trace_and_continues_queue(
     assert first.pending_generation is None
     assert first.accepted_snapshot is None
     assert first.dependency_closure is None
-    assert first.diagnostics == ()
+    assert first.diagnostic_contributions == ()
     assert second.compile_status == "success"
     assert len(logged) == 1
     assert "successful compiler trace" in str(logged[0])
@@ -1409,7 +1431,7 @@ def test_driver_routes_language_error_external_trace_to_logged_server_failure(
     assert entry.compile_status == "server_error"
     assert entry.accepted_snapshot is None
     assert entry.dependency_closure is None
-    assert entry.diagnostics == ()
+    assert entry.diagnostic_contributions == ()
     assert len(logged) == 1
     assert "outside" in str(logged[0])
     assert driver.running is False
@@ -1473,7 +1495,7 @@ def test_driver_records_server_failure_when_postflight_recheck_raises(
     assert entry.compile_status == "server_error"
     assert entry.accepted_snapshot is None
     assert entry.dependency_closure is None
-    assert entry.diagnostics == ()
+    assert entry.diagnostic_contributions == ()
     assert tuple(str(error) for error in logged) == (
         "postflight root probe failed",
         "postflight root probe failed",
@@ -1998,7 +2020,7 @@ def test_each_eligible_generation_runs_one_full_shared_stage3_without_cache_or_p
     assert driver.state.entries[0].compile_status == "success"
 
 
-def test_success_retains_raw_diagnostics_and_their_exact_target_uris(
+def test_success_translates_diagnostics_to_exact_target_contributions(
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
@@ -2048,11 +2070,15 @@ def test_success_retains_raw_diagnostics_and_their_exact_target_uris(
     driver.run_next()
 
     entry = driver.state.entries[0]
-    assert entry.diagnostics == (diagnostic,)
-    assert entry.diagnostic_target_uris == (target_path.resolve().as_uri(),)
+    assert tuple(item.code for item in entry.diagnostic_contributions) == (
+        diagnostic.code,
+    )
+    assert tuple(item.target_uri for item in entry.diagnostic_contributions) == (
+        target_path.resolve().as_uri(),
+    )
 
 
-def test_completed_outer_graph_language_error_retains_precise_raw_contribution(
+def test_completed_outer_graph_language_error_translates_precise_contribution(
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
@@ -2128,8 +2154,161 @@ def test_completed_outer_graph_language_error_retains_precise_raw_contribution(
         }
     )
     assert entry.dependency_revision_vector == calls[0].revision_vector
-    assert entry.diagnostics == (diagnostic,)
-    assert entry.diagnostic_target_uris == (dependency_path.resolve().as_uri(),)
+    assert tuple(item.code for item in entry.diagnostic_contributions) == (
+        diagnostic.code,
+    )
+    assert tuple(item.target_uri for item in entry.diagnostic_contributions) == (
+        dependency_path.resolve().as_uri(),
+    )
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    ("real_success", "injected_success", "language_error"),
+)
+def test_driver_translates_raw_diagnostics_with_exact_text_and_generation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: str,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    if outcome == "real_success":
+        entry_path = workspace / "lint_warning_variant_output.orc"
+        shutil.copyfile(
+            CLI_FIXTURES.parent / "valid" / entry_path.name,
+            entry_path,
+        )
+        text = entry_path.read_text(encoding="utf-8")
+        (workspace / "prompt.md").write_text("prompt\n", encoding="utf-8")
+        providers = workspace / "providers.json"
+        prompts = workspace / "prompts.json"
+        providers.write_text(
+            '{"providers.execute":"test-provider"}\n',
+            encoding="utf-8",
+        )
+        prompts.write_text(
+            '{"prompts.implementation.execute":"prompt.md"}\n',
+            encoding="utf-8",
+        )
+        initial = lsp_state.initialize_lsp_state(
+            root_uri=workspace.as_uri(),
+            initialization_options={
+                "source_roots": (workspace,),
+                "entry_workflow": "orchestrate",
+                "provider_externs_path": providers,
+                "prompt_externs_path": prompts,
+            },
+        )
+        driver = compile_driver.initialize_compile_driver(initial)
+        raw_diagnostics: tuple[LispFrontendDiagnostic, ...] | None = None
+    else:
+        entry_path = workspace / "entry.orc"
+        text = "a😀bc\n"
+        entry_path.write_text(text, encoding="utf-8")
+        diagnostic = LispFrontendDiagnostic(
+            code=f"{outcome}_diagnostic",
+            message="raw compiler diagnostic",
+            span=SourceSpan(
+                start=SourcePosition(
+                    path=entry_path.as_posix(),
+                    line=1,
+                    column=2,
+                    offset=1,
+                ),
+                end=SourcePosition(
+                    path=entry_path.as_posix(),
+                    line=1,
+                    column=4,
+                    offset=3,
+                ),
+            ),
+        )
+        raw_diagnostics = (diagnostic,)
+
+        def injected_build(
+            request: build.FrontendBuildRequest,
+            *,
+            source_read_trace: SourceReadTrace,
+        ) -> object:
+            attempt = source_read_trace._begin_module_graph_read_attempt(
+                entry_path
+            )
+            source_read_trace._record(
+                canonical_path=entry_path.resolve(),
+                revision=compile_driver.probe_disk_source(entry_path).revision,
+            )
+            source_read_trace._complete_module_graph_read_attempt(
+                attempt,
+                module_paths=(entry_path.resolve(),),
+            )
+            if outcome == "language_error":
+                raise _injected_language_error(raw_diagnostics)
+            return _injected_success(raw_diagnostics)
+
+        driver = compile_driver.initialize_compile_driver(
+            lsp_state.initialize_lsp_state(root_uri=workspace.as_uri()),
+            build_in_memory=injected_build,
+        )
+    driver.apply_transition(
+        lsp_state.open_entry(
+            driver.state,
+            document_uri=entry_path.as_uri(),
+            editor_text=text,
+            disk_snapshot=compile_driver.probe_disk_source(entry_path),
+        )
+    )
+    driver.apply_transition(
+        lsp_state.save_entry(
+            driver.state,
+            document_uri=entry_path.as_uri(),
+            disk_snapshot=compile_driver.probe_disk_source(entry_path),
+        )
+    )
+    entry_reads: list[Path] = []
+    original_read_bytes = Path.read_bytes
+
+    def counting_read_bytes(path: Path) -> bytes:
+        if path.resolve(strict=False) == entry_path.resolve():
+            entry_reads.append(path.resolve(strict=False))
+        return original_read_bytes(path)
+
+    if outcome != "real_success":
+        monkeypatch.setattr(Path, "read_bytes", counting_read_bytes)
+
+    driver.run_next()
+
+    entry = driver.state.entries[0]
+    if raw_diagnostics is None:
+        assert entry.accepted_snapshot is not None
+        raw_diagnostics = tuple(entry.accepted_snapshot.build_value.diagnostics)
+        assert tuple(item.code for item in raw_diagnostics) == (
+            "variant_output_without_variant_specific_fields",
+        )
+    expected = _translate_contributions(
+        raw_diagnostics,
+        compile_entry_uri=entry_path.as_uri(),
+        accepted_generation=2,
+        accepted_text_by_path={entry_path.resolve(): text},
+    )
+    assert entry.diagnostic_contributions == expected
+    assert tuple(
+        contribution.accepted_generation
+        for contribution in entry.diagnostic_contributions
+    ) == (2,)
+    assert all(
+        not isinstance(contribution, LispFrontendDiagnostic)
+        for contribution in entry.diagnostic_contributions
+    )
+    if outcome != "real_success":
+        assert entry_reads == [entry_path.resolve(), entry_path.resolve()]
+        assert entry.diagnostic_contributions[0].range == {
+            "start": {"line": 0, "character": 1},
+            "end": {"line": 0, "character": 4},
+        }
+    assert not hasattr(entry, "diagnostics")
+    assert not hasattr(entry, "diagnostic_target_uris")
+    assert not hasattr(entry, "contribution_keys")
 
 
 @pytest.mark.parametrize(
@@ -2272,7 +2451,9 @@ def test_language_error_trace_completeness_fails_closed_to_unknown_state(
     assert entry.compile_status == "language_error"
     assert entry.dependency_closure is None
     assert entry.dependency_revision_vector is None
-    assert entry.diagnostics == (diagnostic,)
+    assert tuple(item.code for item in entry.diagnostic_contributions) == (
+        diagnostic.code,
+    )
 
 
 def test_language_error_complete_child_and_outer_attempts_remain_precise(
@@ -2449,7 +2630,23 @@ def test_server_failure_preserves_contribution_logs_and_continues_queue(
         editor_text=text,
         disk_snapshot=compile_driver.probe_disk_source(first_path),
     )
-    prior_diagnostics = ("prior-raw-diagnostic",)
+    position = SourcePosition(
+        path=first_path.as_posix(),
+        line=1,
+        column=1,
+        offset=0,
+    )
+    prior_diagnostic = LispFrontendDiagnostic(
+        code="prior",
+        message="prior",
+        span=SourceSpan(start=position, end=position),
+    )
+    prior_contributions = _translate_contributions(
+        (prior_diagnostic,),
+        compile_entry_uri=first_path.as_uri(),
+        accepted_generation=1,
+        accepted_text_by_path={first_path.resolve(): text},
+    )
     accepted = lsp_state.accept_compile_success(
         opened.state,
         document_uri=first_path.as_uri(),
@@ -2461,9 +2658,7 @@ def test_server_failure_preserves_contribution_logs_and_continues_queue(
             ),
         ),
         dependency_closure=frozenset({first_path.resolve()}),
-        diagnostic_target_uris=(first_path.as_uri(),),
-        contribution_keys=frozenset({"prior"}),
-        diagnostics=prior_diagnostics,
+        diagnostic_contributions=prior_contributions,
     )
     logged: list[Exception] = []
     calls: list[Path] = []
@@ -2514,9 +2709,7 @@ def test_server_failure_preserves_contribution_logs_and_continues_queue(
     assert first.compile_status == "server_error"
     assert first.accepted_snapshot is None
     assert first.dependency_closure is None
-    assert first.diagnostics == prior_diagnostics
-    assert first.diagnostic_target_uris == (first_path.as_uri(),)
-    assert first.contribution_keys == frozenset({"prior"})
+    assert first.diagnostic_contributions is prior_contributions
     assert second.compile_status == "success"
 
 
@@ -2575,7 +2768,7 @@ def test_repeated_read_mismatch_reproves_and_reschedules_clean_entry(
     assert entry.buffer_status == "clean"
     assert entry.compile_status == "pending"
     assert entry.accepted_snapshot is None
-    assert entry.diagnostics == ()
+    assert entry.diagnostic_contributions == ()
     assert driver.queued_generations == ((entry_path.resolve(), 2),)
     assert len(logged) == 1
     assert "changed during one compiler read trace" in str(logged[0])
@@ -2722,7 +2915,7 @@ def test_caught_read_conflict_reproves_before_accepting_terminal_outcome(
     assert entry.buffer_status == "clean"
     assert entry.compile_status == "pending"
     assert entry.accepted_snapshot is None
-    assert entry.diagnostics == ()
+    assert entry.diagnostic_contributions == ()
     assert driver.queued_generations == ((entry_path.resolve(), 2),)
     assert dependency_path.read_text(encoding="utf-8") == text
     assert logged == []
@@ -3079,7 +3272,7 @@ def test_late_or_configuration_stale_language_errors_are_discarded(
     else:
         entry = driver.state.entries[0]
         assert entry.buffer_status == "dirty"
-        assert entry.diagnostics == ()
+        assert entry.diagnostic_contributions == ()
 
 
 def test_late_server_failure_logs_but_does_not_synthesize_or_accept(
@@ -3128,7 +3321,7 @@ def test_late_server_failure_logs_but_does_not_synthesize_or_accept(
     entry = driver.state.entries[0]
     assert entry.buffer_status == "dirty"
     assert entry.compile_status == "idle"
-    assert entry.diagnostics == ()
+    assert entry.diagnostic_contributions == ()
     assert tuple(str(error) for error in logged) == ("late server error",)
 
 
@@ -3349,8 +3542,7 @@ def test_snapshot_if_current_fails_closed_on_external_trace_member(
         generation=1,
         snapshot=snapshot,
         dependency_closure=frozenset({entry_path.resolve(), external_path.resolve()}),
-        diagnostic_target_uris=(entry_path.as_uri(),),
-        contribution_keys=frozenset(),
+        diagnostic_contributions=(),
     )
     driver.state = accepted.state
 

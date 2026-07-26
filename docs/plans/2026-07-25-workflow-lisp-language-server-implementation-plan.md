@@ -586,39 +586,75 @@ stdio, watcher, or navigation behavior.
 - Modify: `orchestrator/lsp/compile_driver.py`
 - Create: `tests/test_workflow_lisp_lsp_coordinates.py`
 - Create: `tests/test_workflow_lisp_lsp_diagnostics.py`
+- Modify: `tests/test_workflow_lisp_lsp_state.py`
+- Modify: `tests/test_workflow_lisp_lsp_compile_driver.py`
 
 **RED:**
 
-- [ ] Cover 1-based raw spans to 0-based UTF-16 ranges, including non-BMP
+- [x] Cover 1-based raw spans to 0-based UTF-16 ranges, including non-BMP
       characters and line boundaries.
-- [ ] Cover code/severity/source/data translation from raw full diagnostics;
+- [x] Cover code/severity/source/data translation from raw full diagnostics;
       notes remain data and tests never freeze their phrasing.
-- [ ] Cover structured expansion call/definition spans as related information;
+- [x] Cover structured expansion call/definition spans as related information;
       no message/note parsing. Explicitly omit an expansion-frame related
       location when that frame's path is unreadable.
-- [ ] Cover synthetic/unreadable paths on the triggering entry at `(0,0)` with
+- [x] Cover synthetic/unreadable paths on the triggering entry at `(0,0)` with
       raw coordinates retained.
-- [ ] Cover deterministic multi-entry aggregation/deduplication, ownership
+- [x] Cover deterministic multi-entry aggregation/deduplication, ownership
       replacement, target clearing, and accepted-generation stamping.
-- [ ] Cover dirty/pending/stale/late-result contribution rules.
-- [ ] Cover an internal compile-driver exception as a state failure that
+- [x] Cover dirty/pending/stale/late-result contribution rules.
+- [x] Cover an internal compile-driver exception as a state failure that
       invalidates navigation but preserves every previously published
       contribution byte-for-byte; it is not a synthetic language diagnostic.
 
 **GREEN:**
 
-- [ ] Implement pure coordinate and diagnostic translators over raw compiler
+- [x] Implement pure coordinate and diagnostic translators over raw compiler
       objects and exact accepted-generation source text.
-- [ ] Preserve the full structured parity metadata in `Diagnostic.data`.
-- [ ] Aggregate per-entry contribution maps by the complete parity tuple;
+- [x] Preserve the full structured parity metadata in `Diagnostic.data`.
+- [x] Aggregate per-entry contribution maps by the complete parity tuple;
       choose the lexicographically first entry only as the display
       representative for wording-only duplicates.
-- [ ] Implement contribution ownership/replacement/clearing as explicit
+- [x] Implement contribution ownership/replacement/clearing as explicit
       Task-3 state transitions with no protocol dependency.
-- [ ] Rerun coordinate, diagnostics, state/driver, compiler-diagnostic, and
+- [x] Rerun coordinate, diagnostics, state/driver, compiler-diagnostic, and
       Task-4 parity regressions.
-- [ ] Obtain `STAGE8_TASK5_SPEC_APPROVED`, then
-      `STAGE8_TASK5_QUALITY_APPROVED`, and commit.
+- [x] Obtain `STAGE8_TASK5_SPEC_APPROVED`, then
+      `STAGE8_TASK5_QUALITY_APPROVED`.
+- [ ] Commit Task 5.
+
+**Implementation record:** pending implementation commit.
+
+- RED established missing coordinate/diagnostic translators and the missing
+  single contribution-ownership contract in state/driver. A real production
+  warning also exposed the compiler's `warn` severity spelling.
+- GREEN converts validated compiler spans to UTF-16 ranges, preserves the
+  complete structured diagnostic identity/data, and owns exactly one
+  immutable contribution tuple per compile entry. Current success and language
+  errors atomically republish the sorted old/new target union; dirty, pending,
+  observation, and server-error transitions preserve prior ownership; close
+  and configuration staleness retract it.
+- The driver reuses the exact disk snapshots from its post-build currentness
+  proof for translation. Injected success/error tests prove one compiler trace
+  read plus one acceptance probe and no third translation read.
+- Specification review found that compiler offsets follow the reader's
+  universal-newline parser view. A real-reader CRLF RED then established the
+  defect; the translator now validates offsets against normalized parser text
+  while deriving editor UTF-16 positions from the exact accepted disk line.
+- Quality RED hardened direct contribution construction against nested alias
+  mutation, rejects duplicate canonical owner spellings, and makes local file
+  URI parsing absolute, component-preserving, and strict-UTF-8. State remains
+  structurally admissible under principle 29; no author-facing type taxonomy
+  or Task-6 transport behavior was added.
+- Fresh Task-5/build/driver/CLI/diagnostic/source-map selectors pass 451 tests.
+  `py_compile`, focused collection, and scoped whitespace checks are clean.
+- Corrected-diff specification review returned
+  `STAGE8_TASK5_SPEC_APPROVED`; final exact-diff review returned
+  `STAGE8_TASK5_SPEC_REAFFIRMED`.
+- The bounded translation and state/driver quality reviews returned
+  `TASK5_TRANSLATION_QUALITY_REAFFIRMED` and
+  `TASK5_STATE_DRIVER_QUALITY_REAFFIRMED`, jointly satisfying the ordered
+  `STAGE8_TASK5_QUALITY_APPROVED` gate.
 
 ## Task 6: Expose A Frame-Clean Stdio And Watcher Transport
 

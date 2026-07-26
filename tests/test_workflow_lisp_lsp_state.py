@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import FrozenInstanceError, dataclass, replace
 import hashlib
 from pathlib import Path
 
@@ -20,6 +20,7 @@ from orchestrator.lsp.state import (
     change_entry,
     close_entry,
     initialize_lsp_state,
+    latch_configuration_stale,
     observe_file_revision,
     open_entry,
     record_server_failure,
@@ -33,6 +34,32 @@ from orchestrator.workflow_lisp.compiler import (
 )
 from orchestrator.workflow_lisp.lints import LINT_PROFILE_DEFAULT
 from orchestrator.workflow_lisp.wcc.route import normalize_lowering_route
+
+
+@dataclass(frozen=True, slots=True)
+class _Contribution:
+    target_uri: str
+    compile_entry_uri: str
+    accepted_generation: int
+    parity_identity: tuple[object, ...]
+
+
+def _contributions(
+    *,
+    compile_entry_uri: str,
+    target_uris: tuple[str, ...],
+    accepted_generation: int,
+    identity: str,
+) -> tuple[_Contribution, ...]:
+    return tuple(
+        _Contribution(
+            target_uri=target_uri,
+            compile_entry_uri=compile_entry_uri,
+            accepted_generation=accepted_generation,
+            parity_identity=(identity,),
+        )
+        for target_uri in target_uris
+    )
 
 
 def test_disk_source_probe_reads_once_hashes_raw_bytes_and_preserves_crlf(
@@ -323,6 +350,12 @@ def test_change_and_save_clear_navigation_without_erasing_trusted_ownership(
     dependency_revision_vector = (
         (path.resolve(), opened.state.entries[0].disk_snapshot.revision),
     )
+    diagnostic_contributions = _contributions(
+        compile_entry_uri=path.as_uri(),
+        target_uris=(path.as_uri(),),
+        accepted_generation=1,
+        identity="diagnostic-key",
+    )
     accepted_entry = replace(
         opened.state.entries[0],
         pending_generation=None,
@@ -333,8 +366,7 @@ def test_change_and_save_clear_navigation_without_erasing_trusted_ownership(
         ),
         dependency_closure=frozenset({path.resolve()}),
         dependency_revision_vector=dependency_revision_vector,
-        diagnostic_target_uris=(path.as_uri(),),
-        contribution_keys=frozenset({"diagnostic-key"}),
+        diagnostic_contributions=diagnostic_contributions,
     )
     accepted_state = replace(opened.state, entries=(accepted_entry,))
 
@@ -348,8 +380,7 @@ def test_change_and_save_clear_navigation_without_erasing_trusted_ownership(
     assert entry.navigation_snapshot is None
     assert entry.dependency_closure == frozenset({path.resolve()})
     assert entry.dependency_revision_vector == dependency_revision_vector
-    assert entry.diagnostic_target_uris == (path.as_uri(),)
-    assert entry.contribution_keys == frozenset({"diagnostic-key"})
+    assert entry.diagnostic_contributions is diagnostic_contributions
     assert changed.effects == StateEffects()
 
     path.write_text("(workflow-lisp changed)\n", encoding="utf-8")
@@ -488,8 +519,12 @@ def test_close_entry_removes_only_owner_and_returns_cancel_republish_effects(
             (first.resolve(), probe_disk_source(first).revision),
             (second.resolve(), probe_disk_source(second).revision),
         ),
-        diagnostic_target_uris=(first.as_uri(), second.as_uri()),
-        contribution_keys=frozenset({"first-contribution"}),
+        diagnostic_contributions=_contributions(
+            compile_entry_uri=first.as_uri(),
+            target_uris=(first.as_uri(), second.as_uri()),
+            accepted_generation=1,
+            identity="first-contribution",
+        ),
     )
     state = replace(state, entries=(first_entry, state.entries[1]))
 
@@ -551,7 +586,12 @@ def test_current_compile_success_stores_exact_snapshot_and_ownership(
             (path.resolve(), opened.state.entries[0].disk_snapshot.revision),
         ),
     )
-    raw_diagnostics = (object(),)
+    diagnostic_contributions = _contributions(
+        compile_entry_uri=path.as_uri(),
+        target_uris=(path.as_uri(),),
+        accepted_generation=1,
+        identity="success-contribution",
+    )
 
     accepted = accept_compile_success(
         opened.state,
@@ -559,9 +599,7 @@ def test_current_compile_success_stores_exact_snapshot_and_ownership(
         generation=1,
         snapshot=snapshot,
         dependency_closure=frozenset({path.resolve()}),
-        diagnostic_target_uris=(path.as_uri(),),
-        contribution_keys=frozenset({"success-contribution"}),
-        diagnostics=raw_diagnostics,
+        diagnostic_contributions=diagnostic_contributions,
     )
 
     entry = accepted.state.entries[0]
@@ -572,9 +610,7 @@ def test_current_compile_success_stores_exact_snapshot_and_ownership(
     assert entry.navigation_snapshot == snapshot
     assert entry.dependency_closure == frozenset({path.resolve()})
     assert entry.dependency_revision_vector == snapshot.source_revision_vector
-    assert entry.diagnostic_target_uris == (path.as_uri(),)
-    assert entry.contribution_keys == frozenset({"success-contribution"})
-    assert entry.diagnostics == raw_diagnostics
+    assert entry.diagnostic_contributions is diagnostic_contributions
 
 
 def test_compile_success_canonicalizes_snapshot_revision_paths(
@@ -604,8 +640,7 @@ def test_compile_success_canonicalizes_snapshot_revision_paths(
         generation=1,
         snapshot=snapshot,
         dependency_closure=frozenset({path.resolve()}),
-        diagnostic_target_uris=(),
-        contribution_keys=frozenset(),
+        diagnostic_contributions=(),
     )
 
     expected_vector = ((path.resolve(), revision),)
@@ -659,8 +694,7 @@ def test_compile_success_rejects_missing_or_extra_revision_vector_path(
                 source_revision_vector=source_revision_vector,
             ),
             dependency_closure=frozenset({path.resolve()}),
-            diagnostic_target_uris=(),
-            contribution_keys=frozenset(),
+            diagnostic_contributions=(),
         )
 
 
@@ -710,8 +744,7 @@ def test_current_completion_rejects_duplicate_canonical_revision_paths(
                     source_revision_vector=revision_vector,
                 ),
                 dependency_closure=frozenset({path.resolve()}),
-                diagnostic_target_uris=(),
-                contribution_keys=frozenset(),
+                diagnostic_contributions=(),
             )
         else:
             accept_compile_language_error(
@@ -720,8 +753,7 @@ def test_current_completion_rejects_duplicate_canonical_revision_paths(
                 generation=1,
                 dependency_closure=frozenset({path.resolve()}),
                 dependency_revision_vector=revision_vector,
-                diagnostic_target_uris=(),
-                contribution_keys=frozenset(),
+                diagnostic_contributions=(),
             )
 
 
@@ -754,7 +786,12 @@ def test_language_error_replaces_contribution_with_precise_or_unknown_closure(
         if supplied_closure is not None
         else None
     )
-    raw_diagnostics = (object(),)
+    diagnostic_contributions = _contributions(
+        compile_entry_uri=path.as_uri(),
+        target_uris=(path.as_uri(),),
+        accepted_generation=1,
+        identity="language-error",
+    )
 
     accepted = accept_compile_language_error(
         opened.state,
@@ -762,9 +799,7 @@ def test_language_error_replaces_contribution_with_precise_or_unknown_closure(
         generation=1,
         dependency_closure=supplied_closure,
         dependency_revision_vector=supplied_revision_vector,
-        diagnostic_target_uris=(path.as_uri(),),
-        contribution_keys=frozenset({"language-error"}),
-        diagnostics=raw_diagnostics,
+        diagnostic_contributions=diagnostic_contributions,
     )
 
     entry = accepted.state.entries[0]
@@ -774,9 +809,7 @@ def test_language_error_replaces_contribution_with_precise_or_unknown_closure(
     assert entry.navigation_snapshot is None
     assert entry.dependency_closure == supplied_closure
     assert entry.dependency_revision_vector == supplied_revision_vector
-    assert entry.diagnostic_target_uris == (path.as_uri(),)
-    assert entry.contribution_keys == frozenset({"language-error"})
-    assert entry.diagnostics == raw_diagnostics
+    assert entry.diagnostic_contributions is diagnostic_contributions
 
 
 @pytest.mark.parametrize(
@@ -813,8 +846,12 @@ def test_language_error_rejects_dependency_knownness_mismatch(
             generation=1,
             dependency_closure=dependency_closure,
             dependency_revision_vector=dependency_revision_vector,
-            diagnostic_target_uris=(path.as_uri(),),
-            contribution_keys=frozenset({"must-not-publish"}),
+            diagnostic_contributions=_contributions(
+                compile_entry_uri=path.as_uri(),
+                target_uris=(path.as_uri(),),
+                accepted_generation=1,
+                identity="must-not-publish",
+            ),
         )
 
 
@@ -839,8 +876,7 @@ def test_language_error_requires_dependency_revision_vector(
             document_uri=path.as_uri(),
             generation=1,
             dependency_closure=frozenset({path.resolve()}),
-            diagnostic_target_uris=(path.as_uri(),),
-            contribution_keys=frozenset({"must-not-publish"}),
+            diagnostic_contributions=(),
         )
 
 
@@ -881,8 +917,12 @@ def test_language_error_rejects_missing_or_extra_revision_vector_path(
             generation=1,
             dependency_closure=frozenset({path.resolve()}),
             dependency_revision_vector=dependency_revision_vector,
-            diagnostic_target_uris=(path.as_uri(),),
-            contribution_keys=frozenset({"must-not-publish"}),
+            diagnostic_contributions=_contributions(
+                compile_entry_uri=path.as_uri(),
+                target_uris=(path.as_uri(),),
+                accepted_generation=1,
+                identity="must-not-publish",
+            ),
         )
 
 
@@ -906,16 +946,19 @@ def test_server_failure_preserves_prior_contributions_and_clears_navigation(
             (path.resolve(), opened.state.entries[0].disk_snapshot.revision),
         ),
     )
-    raw_diagnostics = (object(),)
+    diagnostic_contributions = _contributions(
+        compile_entry_uri=path.as_uri(),
+        target_uris=(path.as_uri(),),
+        accepted_generation=1,
+        identity="prior-contribution",
+    )
     accepted = accept_compile_success(
         opened.state,
         document_uri=path.as_uri(),
         generation=1,
         snapshot=first_snapshot,
         dependency_closure=frozenset({path.resolve()}),
-        diagnostic_target_uris=(path.as_uri(),),
-        contribution_keys=frozenset({"prior-contribution"}),
-        diagnostics=raw_diagnostics,
+        diagnostic_contributions=diagnostic_contributions,
     )
     saved = save_entry(
         accepted.state,
@@ -936,9 +979,7 @@ def test_server_failure_preserves_prior_contributions_and_clears_navigation(
     assert entry.navigation_snapshot is None
     assert entry.dependency_closure is None
     assert entry.dependency_revision_vector is None
-    assert entry.diagnostic_target_uris == (path.as_uri(),)
-    assert entry.contribution_keys == frozenset({"prior-contribution"})
-    assert entry.diagnostics == raw_diagnostics
+    assert entry.diagnostic_contributions is diagnostic_contributions
     assert failed.effects == StateEffects()
 
 
@@ -996,8 +1037,12 @@ def test_late_closed_dirty_and_configuration_stale_completions_are_discarded(
             generation=generation,
             snapshot=snapshot,
             dependency_closure=frozenset({path.resolve()}),
-            diagnostic_target_uris=(path.as_uri(),),
-            contribution_keys=frozenset({"must-not-publish"}),
+            diagnostic_contributions=_contributions(
+                compile_entry_uri=path.as_uri(),
+                target_uris=(path.as_uri(),),
+                accepted_generation=generation,
+                identity="must-not-publish",
+            ),
         )
         assert discarded.state is candidate
         assert discarded.effects == StateEffects()
@@ -1008,8 +1053,12 @@ def test_late_closed_dirty_and_configuration_stale_completions_are_discarded(
             generation=generation,
             snapshot=malformed_snapshot,
             dependency_closure=frozenset({path.resolve()}),
-            diagnostic_target_uris=(path.as_uri(),),
-            contribution_keys=frozenset({"must-not-publish"}),
+            diagnostic_contributions=_contributions(
+                compile_entry_uri=path.as_uri(),
+                target_uris=(path.as_uri(),),
+                accepted_generation=generation,
+                identity="must-not-publish",
+            ),
         )
         assert malformed.state is candidate
         assert malformed.effects == StateEffects()
@@ -1020,8 +1069,12 @@ def test_late_closed_dirty_and_configuration_stale_completions_are_discarded(
             generation=generation,
             snapshot=duplicate_snapshot,
             dependency_closure=frozenset({path.resolve()}),
-            diagnostic_target_uris=(path.as_uri(),),
-            contribution_keys=frozenset({"must-not-publish"}),
+            diagnostic_contributions=_contributions(
+                compile_entry_uri=path.as_uri(),
+                target_uris=(path.as_uri(),),
+                accepted_generation=generation,
+                identity="must-not-publish",
+            ),
         )
         assert duplicate.state is candidate
         assert duplicate.effects == StateEffects()
@@ -1067,12 +1120,219 @@ def test_malformed_dirty_closed_and_stale_language_errors_are_discarded(
                 generation=1,
                 dependency_closure=frozenset({path.resolve()}),
                 dependency_revision_vector=malformed_revision_vector,
-                diagnostic_target_uris=(path.as_uri(),),
-                contribution_keys=frozenset({"must-not-publish"}),
+                diagnostic_contributions=_contributions(
+                    compile_entry_uri=path.as_uri(),
+                    target_uris=(path.as_uri(),),
+                    accepted_generation=1,
+                    identity="must-not-publish",
+                ),
             )
 
             assert discarded.state is candidate
             assert discarded.effects == StateEffects()
+
+
+def test_current_language_error_replaces_contributions_and_late_result_is_atomic(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    old_target = workspace / "old.orc"
+    shared_target = workspace / "shared.orc"
+    new_target = workspace / "new.orc"
+    text = "(workflow-lisp)\n"
+    for path in (entry_path, old_target, shared_target, new_target):
+        path.write_text(text, encoding="utf-8")
+    accepted_state = _accepted_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        closure=frozenset({entry_path.resolve()}),
+        revision_paths=(entry_path,),
+        contribution_target_uris=(old_target.as_uri(), shared_target.as_uri()),
+    )
+    previous = accepted_state.entries[0].diagnostic_contributions
+    pending = save_entry(
+        accepted_state,
+        document_uri=entry_path.as_uri(),
+        disk_snapshot=probe_disk_source(entry_path),
+    )
+    replacement = _contributions(
+        compile_entry_uri=entry_path.as_uri(),
+        target_uris=(shared_target.as_uri(), new_target.as_uri()),
+        accepted_generation=2,
+        identity="current-language-error",
+    )
+
+    compile_entry_revision = (
+        entry_path.resolve(),
+        probe_disk_source(entry_path).revision,
+    )
+    for malformed in (
+        (replace(replacement[0], compile_entry_uri=old_target.as_uri()),),
+        (replace(replacement[0], accepted_generation=3),),
+    ):
+        with pytest.raises(ValueError):
+            accept_compile_language_error(
+                pending.state,
+                document_uri=entry_path.as_uri(),
+                generation=2,
+                dependency_closure=frozenset({entry_path.resolve()}),
+                dependency_revision_vector=(compile_entry_revision,),
+                diagnostic_contributions=malformed,
+            )
+    current = accept_compile_language_error(
+        pending.state,
+        document_uri=entry_path.as_uri(),
+        generation=2,
+        dependency_closure=frozenset({entry_path.resolve()}),
+        dependency_revision_vector=(compile_entry_revision,),
+        diagnostic_contributions=replacement,
+    )
+    assert current.state.entries[0].diagnostic_contributions is replacement
+    assert current.effects.republish_uris == tuple(
+        sorted(
+            {
+                contribution.target_uri
+                for contribution in (*previous, *replacement)
+            }
+        )
+    )
+
+    late = accept_compile_success(
+        current.state,
+        document_uri=entry_path.as_uri(),
+        generation=1,
+        snapshot=AcceptedCompileSnapshot(
+            build_value="late",
+            source_revision_vector=(compile_entry_revision,),
+        ),
+        dependency_closure=frozenset({entry_path.resolve()}),
+        diagnostic_contributions=_contributions(
+            compile_entry_uri=entry_path.as_uri(),
+            target_uris=(old_target.as_uri(),),
+            accepted_generation=1,
+            identity="late",
+        ),
+    )
+
+    assert late.state is current.state
+    assert late.state.entries[0].diagnostic_contributions is replacement
+    assert late.effects == StateEffects()
+
+
+def test_dirty_and_pending_keep_earlier_contributions_until_current_completion(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    old_target = workspace / "old.orc"
+    new_target = workspace / "new.orc"
+    old_text = "(workflow-lisp old)\n"
+    new_text = "(workflow-lisp new)\n"
+    for path in (entry_path, old_target, new_target):
+        path.write_text(old_text, encoding="utf-8")
+    accepted_state = _accepted_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        closure=frozenset({entry_path.resolve()}),
+        revision_paths=(entry_path,),
+        contribution_target_uris=(old_target.as_uri(),),
+    )
+    previous = accepted_state.entries[0].diagnostic_contributions
+
+    dirty = change_entry(
+        accepted_state,
+        document_uri=entry_path.as_uri(),
+        editor_text=new_text,
+    )
+    entry_path.write_text(new_text, encoding="utf-8")
+    pending = save_entry(
+        dirty.state,
+        document_uri=entry_path.as_uri(),
+        disk_snapshot=probe_disk_source(entry_path),
+    )
+
+    for transition in (dirty, pending):
+        entry = transition.state.entries[0]
+        assert entry.navigation_snapshot is None
+        assert entry.diagnostic_contributions is previous
+        assert entry.diagnostic_contributions[0].accepted_generation == 1
+    assert pending.state.entries[0].compile_status == "pending"
+    replacement = _contributions(
+        compile_entry_uri=entry_path.as_uri(),
+        target_uris=(new_target.as_uri(),),
+        accepted_generation=3,
+        identity="current-success",
+    )
+    current_revision = (
+        entry_path.resolve(),
+        probe_disk_source(entry_path).revision,
+    )
+    current = accept_compile_success(
+        pending.state,
+        document_uri=entry_path.as_uri(),
+        generation=3,
+        snapshot=AcceptedCompileSnapshot(
+            build_value="current",
+            source_revision_vector=(current_revision,),
+        ),
+        dependency_closure=frozenset({entry_path.resolve()}),
+        diagnostic_contributions=replacement,
+    )
+
+    assert current.state.entries[0].diagnostic_contributions is replacement
+    assert current.state.entries[0].navigation_snapshot is not None
+    assert current.effects.republish_uris == tuple(
+        sorted({old_target.as_uri(), new_target.as_uri()})
+    )
+
+
+def test_close_stale_and_server_failure_apply_contribution_ownership_rules(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    targets = (workspace / "first.orc", workspace / "second.orc")
+    text = "(workflow-lisp)\n"
+    for path in (entry_path, *targets):
+        path.write_text(text, encoding="utf-8")
+    accepted_state = _accepted_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        closure=frozenset({entry_path.resolve()}),
+        revision_paths=(entry_path,),
+        contribution_target_uris=tuple(path.as_uri() for path in targets),
+    )
+    previous = accepted_state.entries[0].diagnostic_contributions
+    expected_targets = frozenset(contribution.target_uri for contribution in previous)
+
+    closed = close_entry(accepted_state, document_uri=entry_path.as_uri())
+    stale = latch_configuration_stale(accepted_state)
+    pending = save_entry(
+        accepted_state,
+        document_uri=entry_path.as_uri(),
+        disk_snapshot=probe_disk_source(entry_path),
+    )
+    failed = record_server_failure(
+        pending.state,
+        document_uri=entry_path.as_uri(),
+        generation=2,
+    )
+
+    assert closed.state.entries == ()
+    assert closed.effects.republish_uris == tuple(sorted(expected_targets))
+    assert stale.state.entries == ()
+    assert stale.state.configuration_stale is True
+    assert stale.effects.restart_notice_required is True
+    assert stale.effects.republish_uris == tuple(sorted(expected_targets))
+    failed_entry = failed.state.entries[0]
+    assert failed_entry.compile_status == "server_error"
+    assert failed_entry.navigation_snapshot is None
+    assert failed_entry.diagnostic_contributions is previous
+    assert failed.effects.republish_uris == ()
 
 
 def test_observed_dependency_change_invalidates_and_schedules_clean_importer(
@@ -1089,7 +1349,7 @@ def test_observed_dependency_change_invalidates_and_schedules_clean_importer(
         entry_path=entry_path,
         closure=frozenset({entry_path.resolve(), dependency_path.resolve()}),
         revision_paths=(entry_path, dependency_path),
-        contribution_key="a-contribution",
+        parity_identity="a-contribution",
     )
     dependency_path.write_text("(workflow-lisp changed)\n", encoding="utf-8")
 
@@ -1101,7 +1361,9 @@ def test_observed_dependency_change_invalidates_and_schedules_clean_importer(
     assert entry.compile_status == "pending"
     assert entry.accepted_snapshot is None
     assert entry.navigation_snapshot is None
-    assert entry.contribution_keys == frozenset({"a-contribution"})
+    assert entry.diagnostic_contributions[0].parity_identity == (
+        "a-contribution",
+    )
     assert observed.effects == StateEffects(
         scheduled_generations=((entry_path.resolve(), 2),),
     )
@@ -1430,14 +1692,14 @@ def test_closed_diagnostic_owner_does_not_remove_other_owner_edge(
         entry_path=first,
         closure=frozenset({first.resolve()}),
         revision_paths=(first,),
-        diagnostic_targets=(target.as_uri(),),
+        contribution_target_uris=(target.as_uri(),),
     )
     state = _accepted_state(
         workspace=workspace,
         entry_path=second,
         closure=frozenset({second.resolve()}),
         revision_paths=(second,),
-        diagnostic_targets=(target.as_uri(),),
+        contribution_target_uris=(target.as_uri(),),
         initial_state=state,
     )
     closed = close_entry(state, document_uri=first.as_uri())
@@ -1461,8 +1723,8 @@ def _accepted_state(
     entry_path: Path,
     closure: frozenset[Path] | None,
     revision_paths: tuple[Path, ...],
-    contribution_key: str = "contribution",
-    diagnostic_targets: tuple[str, ...] = (),
+    parity_identity: str = "contribution",
+    contribution_target_uris: tuple[str, ...] = (),
     language_error: bool = False,
     initial_state=None,
 ):
@@ -1472,6 +1734,13 @@ def _accepted_state(
         document_uri=entry_path.as_uri(),
         editor_text=entry_path.read_text(encoding="utf-8"),
         disk_snapshot=probe_disk_source(entry_path),
+    )
+    generation = opened.state.entries[-1].generation
+    diagnostic_contributions = _contributions(
+        compile_entry_uri=entry_path.as_uri(),
+        target_uris=contribution_target_uris or (entry_path.as_uri(),),
+        accepted_generation=generation,
+        identity=parity_identity,
     )
     if language_error:
         dependency_revision_vector = (
@@ -1485,11 +1754,10 @@ def _accepted_state(
         return accept_compile_language_error(
             opened.state,
             document_uri=entry_path.as_uri(),
-            generation=opened.state.entries[-1].generation,
+            generation=generation,
             dependency_closure=closure,
             dependency_revision_vector=dependency_revision_vector,
-            diagnostic_target_uris=diagnostic_targets,
-            contribution_keys=frozenset({contribution_key}),
+            diagnostic_contributions=diagnostic_contributions,
         ).state
     assert closure is not None
     snapshot = AcceptedCompileSnapshot(
@@ -1502,11 +1770,10 @@ def _accepted_state(
     return accept_compile_success(
         opened.state,
         document_uri=entry_path.as_uri(),
-        generation=opened.state.entries[-1].generation,
+        generation=generation,
         snapshot=snapshot,
         dependency_closure=closure,
-        diagnostic_target_uris=diagnostic_targets,
-        contribution_keys=frozenset({contribution_key}),
+        diagnostic_contributions=diagnostic_contributions,
     ).state
 
 
