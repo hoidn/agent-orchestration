@@ -293,6 +293,7 @@ class CallExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    authored_callee_span: SourceSpan | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -304,6 +305,7 @@ class ProcedureCallExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    authored_callee_span: SourceSpan | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -2314,6 +2316,10 @@ def _elaborate_call(
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
+        authored_callee_span=_direct_authored_callee_span(
+            datum,
+            callee_identifier,
+        ),
     )
 
 
@@ -2385,7 +2391,26 @@ def _elaborate_procedure_call(
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
+        authored_callee_span=_direct_authored_callee_span(
+            datum,
+            callee_identifier,
+        ),
     )
+
+
+def _direct_authored_callee_span(
+    call_datum: SyntaxList,
+    callee_datum: SyntaxIdentifier,
+) -> SourceSpan | None:
+    """Return exact callee provenance only for a direct authored call."""
+
+    if (
+        call_datum.expansion_stack
+        or callee_datum.expansion_stack
+        or callee_datum.introduced_by_expansion_id is not None
+    ):
+        return None
+    return callee_datum.span
 
 
 def _elaborate_with_phase(

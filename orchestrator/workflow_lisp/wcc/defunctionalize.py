@@ -6154,6 +6154,7 @@ def _frontend_expr_from_wcc_loop_binding_value(value):
                 span=value.metadata.source_span,
                 form_path=value.metadata.form_path,
                 expansion_stack=value.metadata.expansion_stack,
+                authored_callee_span=None,
             )
     if isinstance(value, WccCall):
         return ProcedureCallExpr(
@@ -6162,6 +6163,7 @@ def _frontend_expr_from_wcc_loop_binding_value(value):
             span=value.metadata.source_span,
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,
+            authored_callee_span=None,
         )
     return _frontend_expr_from_wcc_value(value)
 
