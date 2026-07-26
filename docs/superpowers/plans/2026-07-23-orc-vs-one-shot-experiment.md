@@ -213,8 +213,10 @@ until the separate provider-phase isolation design is fully implemented,
 passes its rootless `I0G` and subsequent gates, and the original public G0
 scenario is rerun successfully. The prerequisite's 2026-07-23 base has landed
 and is accepted. Task 1B's exact rootless `I0G` evidence has passed and been
-independently approved. Production `I0`, the remaining prerequisite gates,
-and the authoritative public `G0` rerun remain blockers.
+independently approved. Standalone production `I0` has also passed its three
+real directions and both ordered independent reviews. The broker, executor,
+public run/resume, attestation, remaining prerequisite gates, and the
+authoritative public `G0` rerun remain blockers.
 
 `G0` governs core control-plane/per-phase filesystem, typed-bundle, and command
 isolation. The separate historical source-retrieval probe classifies `R1`/`R2`

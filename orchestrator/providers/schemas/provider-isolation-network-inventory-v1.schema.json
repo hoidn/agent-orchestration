@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-orchestration.local/schemas/provider-isolation-network-inventory-v1.schema.json",
+  "title": "Provider isolation network inventory v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "listeners"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "provider_isolation_network_inventory.v1"
+    },
+    "listeners": {
+      "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/inet_listener"
+          },
+          {
+            "$ref": "#/$defs/abstract_unix_listener"
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inode"
+      ],
+      "properties": {
+        "uid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "inode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        }
+      }
+    },
+    "inet_listener": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "protocol",
+        "family",
+        "address",
+        "port",
+        "owner"
+      ],
+      "properties": {
+        "kind": {
+          "const": "inet"
+        },
+        "protocol": {
+          "enum": [
+            "tcp",
+            "udp"
+          ]
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "address": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 45
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "owner": {
+          "$ref": "#/$defs/owner"
+        }
+      }
+    },
+    "abstract_unix_listener": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "protocol",
+        "socket_type",
+        "name_hex",
+        "name_length",
+        "owner"
+      ],
+      "properties": {
+        "kind": {
+          "const": "abstract_unix"
+        },
+        "protocol": {
+          "const": "unix"
+        },
+        "socket_type": {
+          "enum": [
+            "stream",
+            "datagram",
+            "seqpacket"
+          ]
+        },
+        "name_hex": {
+          "type": "string",
+          "maxLength": 214,
+          "pattern": "^(?:[0-9a-f]{2})*$"
+        },
+        "name_length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 107
+        },
+        "owner": {
+          "$ref": "#/$defs/owner"
+        }
+      }
+    }
+  }
+}

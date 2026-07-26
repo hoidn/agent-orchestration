@@ -911,10 +911,11 @@ git commit -m "feat(providers): prove rootless launch authority"
 This task is the `I0` stop/go spike. Do not touch `ProviderExecutor` until it
 passes. Task 1B `I0G` is a hard prerequisite.
 
-Current-host status is not yet an `I0` pass. The reviewed AppArmor profile now
-allows rootless Bubblewrap user namespaces, but option presence, help/version
-output, Task 1A's sudo-assisted proof, and Task 1B's narrower `I0G` proof are
-not production-backend feasibility evidence.
+Current-host status is `I0_PASSED`. The standalone production backend passed
+workflow-provider, controller-attempt, and timeout/quiescence directions under
+ordinary-user Bubblewrap, and both ordered independent reviews approved the
+result. This opens Task 3 only; broker, executor, public run/resume,
+attestation, the public `G0` rerun, and live smoke remain unimplemented.
 
 **Files:**
 
@@ -932,11 +933,20 @@ not production-backend feasibility evidence.
 - Create: `tests/test_provider_isolation_runtime_authority.py`
 - Create: `tests/test_provider_isolation_network_preflight.py`
 - Create: `tests/test_provider_isolation_backend.py`
+- Create: `tests/test_provider_isolation_backend_identity_negatives.py`
 - Modify: `tests/test_provider_launch_shim.py`
 - Modify: `orchestrator/providers/isolation_environment.py`
 - Modify: `tests/test_provider_isolation_schema_resources.py`
+- Create:
+  `docs/reports/provider-isolation-backend-feasibility/README.md`
+- Modify:
+  `docs/superpowers/plans/2026-07-23-provider-phase-information-isolation.md`
+- Modify:
+  `docs/superpowers/plans/2026-07-23-orc-vs-one-shot-experiment.md`
+- Modify: `docs/capability_status_matrix.md`
+- Modify: `docs/design/README.md`
 
-- [ ] **Step 1: Add backend capability and launch-plan tests**
+- [x] **Step 1: Add backend capability and launch-plan tests**
 
 The tests build separate temporary roots for:
 
@@ -1143,7 +1153,7 @@ the broad suite remains portable. A skip is never `I0` acceptance evidence:
 this task must also record one real passing Linux execution with the exact
 backend intended for deployment.
 
-- [ ] **Step 2: Verify collection**
+- [x] **Step 2: Verify collection**
 
 ```bash
 pytest --collect-only -q tests/test_provider_isolation_backend.py
@@ -1151,12 +1161,14 @@ pytest --collect-only -q tests/test_provider_isolation_candidate.py
 pytest --collect-only -q tests/test_provider_isolation_runtime_authority.py
 pytest --collect-only -q tests/test_provider_isolation_network_preflight.py
 pytest --collect-only -q tests/test_provider_isolation_schema_resources.py
+pytest --collect-only -q \
+  tests/test_provider_isolation_backend_identity_negatives.py
 pytest --collect-only -q tests/test_provider_launch_shim.py
 ```
 
 Expected: all backend tests collect.
 
-- [ ] **RED: Run the real backend probe before implementation**
+- [x] **RED: Run the real backend probe before implementation**
 
 ```bash
 pytest -q tests/test_provider_isolation_backend.py -k "projection or sentinel or symlink"
@@ -1170,7 +1182,7 @@ pytest -q \
 
 Expected: FAIL because no backend constructs the namespace.
 
-- [ ] **Step 3: Implement backend protocol and host preflight**
+- [x] **Step 3: Implement backend protocol and host preflight**
 
 Add:
 
@@ -1224,7 +1236,7 @@ exactly fds 0/1/2. The capability fixture must enumerate that
 complete final set and attempt `openat("..")` on every directory descriptor
 that appears during a negative/tamper probe.
 
-- [ ] **Step 4: Implement the minimal filesystem projection**
+- [x] **Step 4: Implement the minimal filesystem projection**
 
 Use fresh user, mount, PID, IPC, and UTS namespaces; map the controller owner to
 provider-visible uid/gid `0:0`; disable nested user namespaces; set a fixed
@@ -1256,7 +1268,7 @@ as `cwd`. Pass argv directly; do not invoke a shell. Resolve the executable,
 shebang/interpreter, and effective `PATH` only against manifest-backed rootfs
 paths.
 
-- [ ] **Step 5: Require the denial evidence**
+- [x] **Step 5: Require the denial evidence**
 
 ```bash
 pytest -q tests/test_provider_isolation_backend.py -k "projection or sentinel or symlink"
@@ -1287,11 +1299,18 @@ Expected:
 - mount-plan audit finds no broad host grant and only the verified sealed
   rootfs as the `/` source.
 
+The process-disclosure invariant is absence of setup or foreign authority, not
+blanket denial of self-observation. `pidfd_getfd` may duplicate only PID 1's
+already-inventoried normalized stdio descriptors, and a valid-address
+`/proc/1/mem` probe may read only its known provider-owned marker. Any
+additional process, descriptor, value, path, or mismatched marker still fails
+the gate.
+
 If any denial cannot be achieved while the packaged provider runs, stop at
 `I0_BLOCKED` and revise the design. Do not add a special-case assertion or host
 mount.
 
-- [ ] **Step 6: Add fail-closed lifecycle cases**
+- [x] **Step 6: Add fail-closed lifecycle cases**
 
 Write RED tests, then implement:
 
@@ -1322,6 +1341,7 @@ pytest -q \
   tests/test_provider_isolation_candidate.py \
   tests/test_provider_isolation_runtime_authority.py \
   tests/test_provider_isolation_network_preflight.py \
+  tests/test_provider_isolation_backend_identity_negatives.py \
   tests/test_provider_isolation_backend.py
 git diff --check -- \
   orchestrator/providers/isolation.py \
@@ -1339,12 +1359,13 @@ git diff --check -- \
   tests/test_provider_isolation_network_preflight.py \
   tests/test_provider_isolation_schema_resources.py \
   tests/test_provider_isolation_backend.py \
+  tests/test_provider_isolation_backend_identity_negatives.py \
   tests/test_provider_launch_shim.py
 ```
 
 Expected: PASS with the fixture marker absent in every pre-launch failure.
 
-- [ ] **Step 7: Independent reviews and commit**
+- [x] **Step 7: Independent reviews and commit**
 
 Specification review checks the projection against every design invariant.
 Quality/security review inspects quoting, path resolution, mount order,
@@ -1367,7 +1388,13 @@ git add \
   tests/test_provider_isolation_network_preflight.py \
   tests/test_provider_isolation_schema_resources.py \
   tests/test_provider_isolation_backend.py \
-  tests/test_provider_launch_shim.py
+  tests/test_provider_isolation_backend_identity_negatives.py \
+  tests/test_provider_launch_shim.py \
+  docs/reports/provider-isolation-backend-feasibility/README.md \
+  docs/superpowers/plans/2026-07-23-provider-phase-information-isolation.md \
+  docs/superpowers/plans/2026-07-23-orc-vs-one-shot-experiment.md \
+  docs/capability_status_matrix.md \
+  docs/design/README.md
 git commit -m "feat(providers): add fail-closed bubblewrap backend"
 ```
 

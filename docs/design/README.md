@@ -87,12 +87,14 @@ surface. Use the
 [governing design](../superpowers/specs/2026-07-23-provider-phase-information-isolation-design.md)
 and
 [active implementation plan](../superpowers/plans/2026-07-23-provider-phase-information-isolation.md);
-the sealed environment and exact reviewed rootless
+the sealed environment, exact reviewed rootless
 [`I0G` evidence](../reports/provider-isolation-rootless-launch-feasibility/README.md)
-exist, but the production backend, broker, run/resume, attestation, public
-`G0` rerun, and live smoke remain. `I0G` is evidence-only, not an available
-launcher. Separate clones are experiment hygiene, not a substitute for the OS
-boundary.
+and independently reviewed standalone production
+[`I0` evidence](../reports/provider-isolation-backend-feasibility/README.md)
+exist. The broker, run/resume integration, attestation, public `G0` rerun, and
+live smoke remain. The backend launches fixed `/usr/bin/bwrap` as the ordinary
+controller user, but is not yet a public provider path. Separate clones are
+experiment hygiene, not a substitute for the OS boundary.
 
 The [resume projection-integrity hardening design-and-planning plan](../plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md)
 has completed its characterization, accepted-design, normative-contract, and

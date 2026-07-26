@@ -160,8 +160,8 @@ _BOOTSTRAP_LOCAL_IMPORTS = (
     "function:launch_provider_via_shim:import:time",
 )
 _REVIEWED_BOOTSTRAP_SHIM_DIGEST = (
-    "sha256:94b6d92bd566a45767544e06cb2daa7f"
-    "778246fa6240024ac73aaba3d7ab14c1"
+    "sha256:7977b36e524a26073a207b982c0e2612"
+    "cce910a1f27c12650a6f4a69f84eb2fe"
 )
 
 
@@ -232,6 +232,135 @@ class ProviderEnvironmentSnapshot:
     @property
     def digest(self) -> str:
         return self.manifest.digest
+
+    def revalidate_for_launch(self) -> None:
+        """Reopen and verify the exact published snapshot bound to this handle."""
+
+        if self.root_fd < 0:
+            raise ProviderIsolationEnvironmentError(
+                (_issue("$.snapshot", "provider environment snapshot is closed"),)
+            )
+        expected_authority = self.rootfs_path.parent
+        if (
+            self.authority_path != expected_authority
+            or self.manifest_path != expected_authority / "manifest.json"
+            or self.authority_path.name != self.digest
+        ):
+            raise ProviderIsolationEnvironmentError(
+                (_issue("$.snapshot", "snapshot handle paths are inconsistent"),)
+            )
+        run_root = _derive_published_snapshot_run_root(
+            self.rootfs_path,
+            expected_digest=self.digest,
+        )
+        pinned = _open_published_snapshot(
+            run_root,
+            self.digest,
+            supplied_rootfs_path=self.rootfs_path,
+        )
+        try:
+            observed = _verify_pinned_snapshot(
+                pinned,
+                expected_digest=self.digest,
+                require_symlink_free=True,
+            )
+            held = os.fstat(self.root_fd)
+            reopened = os.fstat(pinned.root_fd)
+            if (
+                held.st_dev != reopened.st_dev
+                or held.st_ino != reopened.st_ino
+                or _statx_mount_id(self.root_fd) != _statx_mount_id(pinned.root_fd)
+                or observed.canonical_json != self.manifest.canonical_json
+            ):
+                raise ProviderIsolationEnvironmentError(
+                    (
+                        _issue(
+                            "$.snapshot.identity",
+                            "snapshot handle no longer matches published authority",
+                        ),
+                    )
+                )
+            pinned.revalidate_edges()
+        finally:
+            pinned.close()
+
+    def duplicate_root_fd_for_launch(self, *, minimum: int = 16) -> int:
+        """Return a caller-owned descriptor for this exact live snapshot."""
+
+        if (
+            isinstance(minimum, bool)
+            or not isinstance(minimum, int)
+            or minimum < 3
+        ):
+            raise ProviderIsolationEnvironmentError(
+                (
+                    _issue(
+                        "$.snapshot",
+                        "snapshot duplicate descriptor minimum is invalid",
+                    ),
+                )
+            )
+        duplicate_fd = -1
+        try:
+            self.revalidate_for_launch()
+            held = os.fstat(self.root_fd)
+            held_mount_id = _statx_mount_id(self.root_fd)
+            root_entry = next(
+                (
+                    entry
+                    for entry in self.manifest.entries
+                    if entry.path == "."
+                ),
+                None,
+            )
+            if root_entry is None or root_entry.kind != "directory":
+                raise ProviderIsolationEnvironmentError(
+                    (
+                        _issue(
+                            "$.snapshot",
+                            "snapshot root directory manifest entry is absent",
+                        ),
+                    )
+                )
+            duplicate_fd = fcntl.fcntl(
+                self.root_fd,
+                fcntl.F_DUPFD_CLOEXEC,
+                minimum,
+            )
+            duplicated = os.fstat(duplicate_fd)
+            if (
+                not stat.S_ISDIR(duplicated.st_mode)
+                or duplicated.st_dev != held.st_dev
+                or duplicated.st_ino != held.st_ino
+                or _statx_mount_id(duplicate_fd) != held_mount_id
+                or stat.S_IMODE(duplicated.st_mode) != root_entry.mode
+            ):
+                raise ProviderIsolationEnvironmentError(
+                    (
+                        _issue(
+                            "$.snapshot.identity",
+                            "duplicated snapshot root authority changed",
+                        ),
+                    )
+                )
+            self.revalidate_for_launch()
+            result_fd = duplicate_fd
+            duplicate_fd = -1
+            return result_fd
+        except ProviderIsolationEnvironmentError:
+            raise
+        except (MountIdentityUnavailable, OSError, ValueError) as exc:
+            raise ProviderIsolationEnvironmentError(
+                (
+                    _issue(
+                        "$.snapshot",
+                        "snapshot descriptor duplication failed",
+                    ),
+                )
+            ) from exc
+        finally:
+            if duplicate_fd >= 0:
+                os.close(duplicate_fd)
 
     def close(self) -> None:
         if self.root_fd < 0:

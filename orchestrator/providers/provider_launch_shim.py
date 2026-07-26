@@ -963,14 +963,23 @@ def _fixed_environment(
     credentials: dict[str, bytes],
     *,
     provider_prefix: str,
+    output_bundle: str | None = None,
 ) -> dict[str, str]:
     environment = {
-        "HOME": "/home/provider",
+        "HOME": "/run/provider-home",
+        "XDG_CONFIG_HOME": "/run/provider-home/.config",
+        "XDG_CACHE_HOME": "/run/provider-home/.cache",
+        "XDG_DATA_HOME": "/run/provider-home/.local/share",
+        "TMPDIR": "/tmp",
+        "TMP": "/tmp",
+        "TEMP": "/tmp",
         "LANG": "C",
         "LC_ALL": "C",
+        "TZ": "UTC",
         "PATH": f"{provider_prefix}/bin",
-        "TMPDIR": "/tmp",
     }
+    if output_bundle is not None:
+        environment["ORCHESTRATOR_OUTPUT_BUNDLE"] = output_bundle
     for name, raw_value in credentials.items():
         try:
             value = raw_value.decode("utf-8", errors="strict")
@@ -997,12 +1006,21 @@ def _parse_count_argument(value: str) -> int:
 
 def _parse_shim_argv(
     argv: list[str],
-) -> tuple[str, tuple[str, ...], int, int, int, tuple[str, ...]]:
+) -> tuple[
+    str,
+    tuple[str, ...],
+    int,
+    int,
+    int,
+    str | None,
+    tuple[str, ...],
+]:
     provider_prefix = ""
     declared: list[str] = []
     primary_count: int | None = None
     overflow_count: int | None = None
     boundary_ready_fd: int | None = None
+    output_bundle: str | None = None
     provider_prefix_seen = False
     index = 0
     while index < len(argv):
@@ -1052,6 +1070,26 @@ def _parse_shim_argv(
             boundary_ready_fd = BOUNDARY_READY_FD
             index += 2
             continue
+        if (
+            argument == "--output-bundle"
+            and index + 1 < len(argv)
+            and output_bundle is None
+        ):
+            value = argv[index + 1]
+            if (
+                not value
+                or not value.startswith("/")
+                or value == "/"
+                or "\x00" in value
+                or len(value.encode("utf-8", errors="strict")) > 4096
+                or os.path.normpath(value) != value
+            ):
+                raise CredentialFrameError(
+                    "provider launch shim arguments are invalid"
+                )
+            output_bundle = value
+            index += 2
+            continue
         raise CredentialFrameError("provider launch shim arguments are invalid")
     else:
         target = ()
@@ -1072,6 +1110,7 @@ def _parse_shim_argv(
         primary_count,
         overflow_count,
         boundary_ready_fd,
+        output_bundle,
         target,
     )
 
@@ -1087,6 +1126,7 @@ def shim_main(argv: list[str] | None = None) -> int:
             expected_primary_count,
             expected_overflow_count,
             boundary_ready_fd,
+            output_bundle,
             target,
         ) = _parse_shim_argv(list(sys.argv[1:] if argv is None else argv))
         _join_fresh_session_keyring()
@@ -1101,6 +1141,7 @@ def shim_main(argv: list[str] | None = None) -> int:
         environment = _fixed_environment(
             credentials,
             provider_prefix=provider_prefix,
+            output_bundle=output_bundle,
         )
         credentials.clear()
         _install_key_syscall_filter()

@@ -11,6 +11,9 @@ import sys
 
 POLICY_SCHEMA = "provider-phase-isolation-v1.schema.json"
 ENVIRONMENT_SCHEMA = "provider-environment-manifest-v1.schema.json"
+NETWORK_INVENTORY_SCHEMA = (
+    "provider-isolation-network-inventory-v1.schema.json"
+)
 
 
 def test_policy_schema_loads_as_a_packaged_resource_outside_checkout_cwd(
@@ -25,6 +28,24 @@ def test_policy_schema_loads_as_a_packaged_resource_outside_checkout_cwd(
     assert schema["properties"]["schema_version"]["const"] == (
         "provider_phase_isolation.v1"
     )
+
+
+def test_network_inventory_schema_loads_as_a_packaged_closed_resource(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    isolation = importlib.import_module("orchestrator.providers.isolation")
+    root = importlib.resources.files("orchestrator.providers.schemas")
+    names = {item.name for item in root.iterdir()}
+
+    assert NETWORK_INVENTORY_SCHEMA in names
+    schema = isolation.load_provider_isolation_schema(NETWORK_INVENTORY_SCHEMA)
+    assert schema["properties"]["schema_version"]["const"] == (
+        "provider_isolation_network_inventory.v1"
+    )
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["listeners"]["maxItems"] > 0
 
 
 def test_built_wheel_imports_only_installed_package_and_loads_every_schema(
@@ -127,3 +148,4 @@ print(json.dumps(names))
     resource_names = json.loads(imported.stdout.strip().splitlines()[-1])
     assert POLICY_SCHEMA in resource_names
     assert ENVIRONMENT_SCHEMA in resource_names
+    assert NETWORK_INVENTORY_SCHEMA in resource_names

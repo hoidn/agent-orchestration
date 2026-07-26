@@ -1081,8 +1081,33 @@ def test_parse_shim_argv_requires_closed_group_and_readiness_binding() -> None:
         1,
         2,
         7,
+        None,
         (f"{PROVIDER_PREFIX}/bin/probe",),
     )
+
+
+def test_parse_shim_argv_carries_one_runtime_bound_output_path() -> None:
+    api = _api()
+    output_path = "/workspace/product/.orchestrate/results/value.json"
+
+    parsed = api._parse_shim_argv(
+        [
+            "--provider-prefix",
+            PROVIDER_PREFIX,
+            "--expected-primary-group-count",
+            "1",
+            "--expected-overflow-group-count",
+            "2",
+            "--boundary-ready-fd",
+            "7",
+            "--output-bundle",
+            output_path,
+            "--",
+            f"{PROVIDER_PREFIX}/bin/probe",
+        ]
+    )
+
+    assert parsed[-2] == output_path
 
 
 @pytest.mark.parametrize(
@@ -1635,6 +1660,8 @@ def test_shim_bootstrap_orders_both_sweeps_before_exact_exec_boundary(
             "2",
             "--boundary-ready-fd",
             "7",
+            "--output-bundle",
+            "/workspace/product/.orchestrate/results/value.json",
             "--",
             f"{PROVIDER_PREFIX}/bin/probe",
             "--version",
@@ -1663,11 +1690,20 @@ def test_shim_bootstrap_orders_both_sweeps_before_exact_exec_boundary(
             f"{PROVIDER_PREFIX}/bin/probe",
             (f"{PROVIDER_PREFIX}/bin/probe", "--version"),
             {
-                "HOME": "/home/provider",
+                "HOME": "/run/provider-home",
+                "XDG_CONFIG_HOME": "/run/provider-home/.config",
+                "XDG_CACHE_HOME": "/run/provider-home/.cache",
+                "XDG_DATA_HOME": "/run/provider-home/.local/share",
+                "TMPDIR": "/tmp",
+                "TMP": "/tmp",
+                "TEMP": "/tmp",
                 "LANG": "C",
                 "LC_ALL": "C",
+                "TZ": "UTC",
+                "ORCHESTRATOR_OUTPUT_BUNDLE": (
+                    "/workspace/product/.orchestrate/results/value.json"
+                ),
                 "PATH": f"{PROVIDER_PREFIX}/bin",
-                "TMPDIR": "/tmp",
                 "TOKEN": "secret",
             },
         ),
@@ -1798,12 +1834,18 @@ def test_shim_builds_only_fixed_environment_and_declared_credentials(
     assert result.returncode == 0, result.stderr
     observed = json.loads(result.stdout)
     assert observed == {
-        "HOME": "/home/provider",
+        "HOME": "/run/provider-home",
+        "XDG_CONFIG_HOME": "/run/provider-home/.config",
+        "XDG_CACHE_HOME": "/run/provider-home/.cache",
+        "XDG_DATA_HOME": "/run/provider-home/.local/share",
+        "TMPDIR": "/tmp",
+        "TMP": "/tmp",
+        "TEMP": "/tmp",
         "LANG": "C",
         "LC_ALL": "C",
+        "TZ": "UTC",
         "PATH": f"{PROVIDER_PREFIX}/bin",
         "TOKEN": "secret-value",
-        "TMPDIR": "/tmp",
     }
 
 

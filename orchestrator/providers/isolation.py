@@ -637,6 +637,18 @@ def _append_json_path(parent: str, name: str) -> str:
     return f"{parent}[{json.dumps(name, ensure_ascii=True)}]"
 
 
+def select_provider_isolation_backend(policy: ProviderPhaseIsolationPolicy):
+    """Resolve a validated policy through the closed backend registry."""
+
+    if not isinstance(policy, ProviderPhaseIsolationPolicy):
+        raise TypeError("provider isolation backend selection requires a policy")
+    from orchestrator.providers.isolation_backend import (
+        get_provider_isolation_backend,
+    )
+
+    return get_provider_isolation_backend(policy.backend)
+
+
 __all__ = [
     "HistoryRetrievalPolicy",
     "MAX_RESULT_BUNDLE_BYTES",
@@ -651,5 +663,6 @@ __all__ = [
     "isolation_schema_validation_issues",
     "load_provider_isolation_schema",
     "load_provider_phase_isolation_policy",
+    "select_provider_isolation_backend",
     "validate_provider_phase_isolation_policy",
 ]
