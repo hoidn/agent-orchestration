@@ -768,6 +768,35 @@ Carry Value through state and resume
 
 ### Task 5: Prove classic/WCC contract, guidance, and lowering parity
 
+**Status:** complete at implementation commit `6cf6d9bf`.
+
+**Preliminary reviews:** `VALUE_Q0_TASK5_SPEC_APPROVED`, then
+`VALUE_Q0_TASK5_QUALITY_APPROVED`.
+
+**Final exact-byte reviews:** `VALUE_Q0_TASK5_SPEC_REAFFIRMED`, then
+`VALUE_Q0_TASK5_QUALITY_REAFFIRMED`.
+
+**Changed paths:**
+
+- `orchestrator/workflow_lisp/lowering/procedures.py`
+- `tests/test_workflow_lisp_transportable_value_parity.py`
+
+**TDD evidence:**
+
+- initial RED: one classic-lowering failure with two passing
+  characterizations; the classic route rejected the inline procedure's direct
+  `NameExpr` pass-through while WCC M4 and structured guidance already passed;
+- GREEN: the classic inline-procedure path now reuses the existing
+  direct-output projection for non-record/non-union root values, without a
+  `Value`-specific effect node or structured-boundary behavior change;
+- strengthened parity: four tests compare classic and WCC M4 public,
+  semantic, executable, workflow-call, child-materialization, and compiled
+  guidance surfaces for direct `Value` plus `Optional[Value]`, `List[Value]`,
+  and `Map[String, Value]`;
+- final focused and adjacent evidence: 178 parity/procedure tests, 432
+  Value/lowering/WCC/build tests, and 81 prompt-contract/result-guidance tests
+  passed.
+
 **Files:**
 
 - Modify: `orchestrator/workflow_lisp/lowering/core.py` if RED
@@ -782,7 +811,7 @@ Carry Value through state and resume
 - Test: `tests/test_prompt_contract_injection.py`
 - Test: `tests/test_workflow_lisp_result_guidance_e2e.py`
 
-- [ ] **Step 1: Add exact classic/WCC parity tests**
+- [x] **Step 1: Add exact classic/WCC parity tests**
 
 Compile provider-result, command-result, procedure pass-through, workflow call,
 public workflow return, and nested collection cases through both routes.
@@ -801,7 +830,7 @@ authored description/format hint, and never invent field names or
 `{"value": ...}`. Do not assert literal prompt phrasing; assert the parsed
 contract block's path, field count, pointer, type, and guidance dataflow.
 
-- [ ] **Step 2: Run RED parity selectors**
+- [x] **Step 2: Run RED parity selectors**
 
 ```bash
 pytest -q tests/test_workflow_lisp_transportable_value.py \
@@ -816,13 +845,13 @@ pytest -q tests/test_workflow_lisp_transportable_value.py \
 Expected: PASS where lowering is already generic and FAIL only at
 scalar/collection classifications that omit Value.
 
-- [ ] **Step 3: Implement only evidence-backed parity fixes**
+- [x] **Step 3: Implement only evidence-backed parity fixes**
 
 Reuse the existing `GeneratedBundleContract` and direct-root machinery.
 Preserve literal `value` in typed/Core/semantic/executable/build/source-map
 surfaces. Do not add a Value-specific effect node or branch.
 
-- [ ] **Step 4: Run complete adjacent lowering suites**
+- [x] **Step 4: Run complete adjacent lowering suites**
 
 ```bash
 pytest -q tests/test_workflow_lisp_transportable_value.py \
@@ -835,7 +864,7 @@ pytest -q tests/test_workflow_lisp_transportable_value.py \
 
 Expected: PASS.
 
-- [ ] **Step 5: Complete ordered reviews and commit if production changed**
+- [x] **Step 5: Complete ordered reviews and commit if production changed — `6cf6d9bf`**
 
 Expected implementation commit subject:
 
