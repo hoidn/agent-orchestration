@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
@@ -89,7 +90,7 @@ def validate_contract_value(raw_value: Any, spec: Dict[str, Any], workspace: Pat
             spec=spec,
             workspace=resolved_workspace,
         )
-    elif isinstance(raw_value, str):
+    elif isinstance(raw_value, str) and not _descriptor_contains_value(spec):
         normalized_value = raw_value if value_type == "string" else raw_value.strip()
         parsed_value, violation = _parse_output_value(
             raw_value=normalized_value,
@@ -208,7 +209,10 @@ def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Di
         ])
 
     try:
-        document = json.loads(bundle_file.read_text(encoding="utf-8"))
+        document = _load_bundle_json(
+            bundle_file.read_text(encoding="utf-8"),
+            reject_nonstandard_constants=_contract_contains_value(output_bundle),
+        )
     except (json.JSONDecodeError, ValueError) as exc:
         raise OutputContractError([
             ContractViolation(
@@ -332,7 +336,10 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
         ])
 
     try:
-        document = json.loads(bundle_file.read_text(encoding="utf-8"))
+        document = _load_bundle_json(
+            bundle_file.read_text(encoding="utf-8"),
+            reject_nonstandard_constants=_contract_contains_value(variant_output),
+        )
     except (json.JSONDecodeError, ValueError) as exc:
         raise OutputContractError([
             ContractViolation(
@@ -678,7 +685,11 @@ def _parse_output_bundle_value(
     value_type: str,
     spec: Dict[str, Any],
     workspace: Path,
+    value_path: str = "",
 ) -> tuple[Any, ContractViolation | None]:
+    if value_type == "value":
+        return _validate_transportable_value(raw_value, value_path=value_path)
+
     if value_type == "optional":
         if raw_value is None:
             return None, None
@@ -694,6 +705,7 @@ def _parse_output_bundle_value(
             value_type=item_spec.get("type"),
             spec=item_spec,
             workspace=workspace,
+            value_path=value_path,
         )
 
     if value_type == "list":
@@ -717,6 +729,7 @@ def _parse_output_bundle_value(
                 value_type=item_spec.get("type"),
                 spec=item_spec,
                 workspace=workspace,
+                value_path=_append_value_path(value_path, str(index)),
             )
             if violation is not None:
                 violation.context["index"] = index
@@ -751,6 +764,7 @@ def _parse_output_bundle_value(
                 value_type=value_spec.get("type"),
                 spec=value_spec,
                 workspace=workspace,
+                value_path=_append_value_path(value_path, key),
             )
             if violation is not None:
                 violation.context["key"] = key
@@ -834,6 +848,144 @@ def _parse_output_bundle_value(
         message="Output contract type is not supported",
         context={"type": value_type},
     )
+
+
+def _validate_transportable_value(
+    raw_value: Any,
+    *,
+    value_path: str,
+    active_container_ids: set[int] | None = None,
+) -> tuple[Any, ContractViolation | None]:
+    """Validate and preserve one recursive JSON-domain Value."""
+
+    if active_container_ids is None:
+        active_container_ids = set()
+
+    if raw_value is None or type(raw_value) is bool or type(raw_value) is int:
+        return raw_value, None
+    if type(raw_value) is float:
+        if math.isfinite(raw_value):
+            return raw_value, None
+        return None, _invalid_transportable_value(raw_value, value_path=value_path)
+    if type(raw_value) is str:
+        return raw_value, None
+    if type(raw_value) is list:
+        container_id = id(raw_value)
+        if container_id in active_container_ids:
+            return None, _invalid_transportable_value(
+                raw_value,
+                value_path=value_path,
+            )
+        active_container_ids.add(container_id)
+        try:
+            for index, item in enumerate(raw_value):
+                _parsed_item, violation = _validate_transportable_value(
+                    item,
+                    value_path=_append_value_path(value_path, str(index)),
+                    active_container_ids=active_container_ids,
+                )
+                if violation is not None:
+                    return None, violation
+            return raw_value, None
+        finally:
+            active_container_ids.remove(container_id)
+    if type(raw_value) is dict:
+        container_id = id(raw_value)
+        if container_id in active_container_ids:
+            return None, _invalid_transportable_value(
+                raw_value,
+                value_path=value_path,
+            )
+        active_container_ids.add(container_id)
+        try:
+            for key, item in raw_value.items():
+                if type(key) is not str:
+                    return None, _invalid_transportable_value(
+                        raw_value,
+                        value_path=value_path,
+                    )
+                _parsed_item, violation = _validate_transportable_value(
+                    item,
+                    value_path=_append_value_path(value_path, key),
+                    active_container_ids=active_container_ids,
+                )
+                if violation is not None:
+                    return None, violation
+            return raw_value, None
+        finally:
+            active_container_ids.remove(container_id)
+    return None, _invalid_transportable_value(raw_value, value_path=value_path)
+
+
+def _invalid_transportable_value(
+    raw_value: Any,
+    *,
+    value_path: str,
+) -> ContractViolation:
+    return ContractViolation(
+        type="invalid_transportable_value",
+        message="Output value contains a value outside the transportable JSON domain",
+        context={
+            "value_path": value_path,
+            "value_type": type(raw_value).__name__,
+        },
+    )
+
+
+def _append_value_path(value_path: str, token: str) -> str:
+    escaped_token = token.replace("~", "~0").replace("/", "~1")
+    return f"{value_path}/{escaped_token}"
+
+
+def _contract_contains_value(contract: Mapping[str, Any]) -> bool:
+    """Return whether any output-contract descriptor contains ``type: value``."""
+
+    if _descriptor_contains_value(contract.get("discriminant")):
+        return True
+    for field_key in ("fields", "shared_fields"):
+        fields = contract.get(field_key)
+        if isinstance(fields, list) and any(
+            _descriptor_contains_value(field) for field in fields
+        ):
+            return True
+    variants = contract.get("variants")
+    if isinstance(variants, Mapping):
+        for variant in variants.values():
+            if not isinstance(variant, Mapping):
+                continue
+            fields = variant.get("fields")
+            if isinstance(fields, list) and any(
+                _descriptor_contains_value(field) for field in fields
+            ):
+                return True
+    return False
+
+
+def _descriptor_contains_value(descriptor: Any) -> bool:
+    if not isinstance(descriptor, Mapping):
+        return False
+    if descriptor.get("type") == "value":
+        return True
+    for child_key in ("item", "items", "keys", "values"):
+        if _descriptor_contains_value(descriptor.get(child_key)):
+            return True
+    return False
+
+
+def _load_bundle_json(
+    document: str | bytes,
+    *,
+    reject_nonstandard_constants: bool,
+) -> Any:
+    if isinstance(document, bytes):
+        document = document.decode("utf-8", errors="strict")
+    if reject_nonstandard_constants:
+        return json.loads(document, parse_constant=_reject_nonstandard_json_constant)
+    return json.loads(document)
+
+
+def _reject_nonstandard_json_constant(constant: str) -> None:
+    raise ValueError(f"non-standard JSON numeric constant is not allowed: {constant}")
 
 
 def _is_optional_spec(spec: Dict[str, Any]) -> bool:
