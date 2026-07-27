@@ -9,6 +9,7 @@ from pathlib import Path
 from tests.test_workflow_lisp_lsp_integration import (
     _LspProcess,
     _change,
+    _frozen_form_completion_items,
     _initialize,
     _open,
     _request,
@@ -146,7 +147,7 @@ def test_real_repository_cycle_guard_editor_session_is_read_only() -> None:
     assert _tree_digest(REPO_ROOT / ".orchestrate" / "build") == build_digest
 
 
-def test_real_repository_l1_symbols_and_signatures_are_read_only() -> None:
+def test_real_repository_l2_recovery_to_full_is_read_only() -> None:
     configuration_paths = (
         KISS_BACKLOG_ENTRY,
         KISS_BACKLOG_PROVIDERS,
@@ -285,9 +286,19 @@ def test_real_repository_l1_symbols_and_signatures_are_read_only() -> None:
             },
         )
         assert dirty_symbols["result"] is None
-        dirty_completion, _ = _request(
+        dirty_definition, _ = _request(
             process,
             request_id=23,
+            method="textDocument/definition",
+            params={
+                "textDocument": {"uri": KISS_BACKLOG_ENTRY.as_uri()},
+                "position": {"line": 161, "character": 15},
+            },
+        )
+        assert dirty_definition["result"] is None
+        dirty_completion, _ = _request(
+            process,
+            request_id=24,
             method="textDocument/completion",
             params={
                 "textDocument": {"uri": KISS_BACKLOG_ENTRY.as_uri()},
@@ -295,9 +306,63 @@ def test_real_repository_l1_symbols_and_signatures_are_read_only() -> None:
             },
         )
         assert dirty_completion["result"] == {
-            "isIncomplete": False,
-            "items": [],
+            "isIncomplete": True,
+            "items": _frozen_form_completion_items(),
         }
+
+        _change(
+            process,
+            source_path=KISS_BACKLOG_ENTRY,
+            text=source_text,
+            version=3,
+        )
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "method": "textDocument/didSave",
+                "params": {
+                    "textDocument": {
+                        "uri": KISS_BACKLOG_ENTRY.as_uri(),
+                    },
+                },
+            }
+        )
+        restored_completion, _ = _request_until(
+            process,
+            request_id=25,
+            method="textDocument/completion",
+            params={
+                "textDocument": {"uri": KISS_BACKLOG_ENTRY.as_uri()},
+                "position": {"line": 155, "character": 2},
+            },
+            result_predicate=lambda result: result == completion["result"],
+            timeout=30.0,
+        )
+        assert restored_completion["result"] == completion["result"]
+
+        restored_definition, _ = _request_until(
+            process,
+            request_id=26,
+            method="textDocument/definition",
+            params={
+                "textDocument": {"uri": KISS_BACKLOG_ENTRY.as_uri()},
+                "position": {"line": 161, "character": 15},
+            },
+            result_predicate=lambda result: result is not None,
+            timeout=30.0,
+        )
+        assert restored_definition["result"]["uri"] == (
+            KISS_BACKLOG_ENTRY.as_uri()
+        )
+        restored_symbols, _ = _request(
+            process,
+            request_id=27,
+            method="textDocument/documentSymbol",
+            params={
+                "textDocument": {"uri": KISS_BACKLOG_ENTRY.as_uri()},
+            },
+        )
+        assert restored_symbols["result"] == symbols["result"]
         process.shutdown()
     finally:
         process.close()

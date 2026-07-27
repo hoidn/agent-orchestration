@@ -12,6 +12,7 @@ import sys
 import time
 import zipfile
 
+from orchestrator.workflow_lisp.form_registry import registered_form_heads
 from tests.test_workflow_lisp_lsp_stdio import (
     _LspProcess,
     _initialize_request,
@@ -201,6 +202,18 @@ def _save_and_wait_for_diagnostics(
         timeout=30.0,
     )
     return published
+
+
+def _frozen_form_completion_items() -> list[dict[str, object]]:
+    return [
+        {
+            "label": head,
+            "kind": 14,
+            "detail": "form",
+            "sortText": head,
+        }
+        for head in registered_form_heads(target_dsl_version=None)
+    ]
 
 
 def _fixture_workspace(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
@@ -483,7 +496,7 @@ def test_import_time_ordinary_stdout_cannot_precede_protocol_frames(
         process.close()
 
 
-def test_real_stdio_fixture_diagnostics_navigation_and_cleanup_write_nothing(
+def test_real_stdio_recovery_to_full_transition_and_cleanup_write_nothing(
     tmp_path: Path,
 ) -> None:
     workspace, entry_path, options = _fixture_workspace(tmp_path)
@@ -662,8 +675,8 @@ def test_real_stdio_fixture_diagnostics_navigation_and_cleanup_write_nothing(
             },
         )
         assert dirty_completion["result"] == {
-            "isIncomplete": False,
-            "items": [],
+            "isIncomplete": True,
+            "items": _frozen_form_completion_items(),
         }
 
         entry_path.write_text(broken_text, encoding="utf-8")
@@ -675,6 +688,37 @@ def test_real_stdio_fixture_diagnostics_navigation_and_cleanup_write_nothing(
         assert len(diagnostics) == 1
         assert diagnostics[0]["code"]
         assert diagnostics[0]["data"]["phase"]
+
+        failed_definition, _ = _request(
+            process,
+            request_id=9,
+            method="textDocument/definition",
+            params={
+                "textDocument": {"uri": entry_path.as_uri()},
+                "position": {"line": 12, "character": 14},
+            },
+        )
+        assert failed_definition["result"] is None
+        failed_symbols, _ = _request(
+            process,
+            request_id=10,
+            method="textDocument/documentSymbol",
+            params={"textDocument": {"uri": entry_path.as_uri()}},
+        )
+        assert failed_symbols["result"] is None
+        failed_completion, _ = _request(
+            process,
+            request_id=11,
+            method="textDocument/completion",
+            params={
+                "textDocument": {"uri": entry_path.as_uri()},
+                "position": {"line": 0, "character": 0},
+            },
+        )
+        assert failed_completion["result"] == {
+            "isIncomplete": True,
+            "items": _frozen_form_completion_items(),
+        }
 
         _change(
             process,
@@ -689,6 +733,35 @@ def test_real_stdio_fixture_diagnostics_navigation_and_cleanup_write_nothing(
         )
         assert cleared["params"]["diagnostics"] == []
 
+        restored_definition, _ = _request_until(
+            process,
+            request_id=12,
+            method="textDocument/definition",
+            params={
+                "textDocument": {"uri": entry_path.as_uri()},
+                "position": {"line": 12, "character": 14},
+            },
+            result_predicate=lambda result: result is not None,
+        )
+        assert restored_definition["result"] == procedure_definition["result"]
+        restored_symbols, _ = _request(
+            process,
+            request_id=13,
+            method="textDocument/documentSymbol",
+            params={"textDocument": {"uri": entry_path.as_uri()}},
+        )
+        assert restored_symbols["result"] == symbols["result"]
+        restored_completion, _ = _request(
+            process,
+            request_id=14,
+            method="textDocument/completion",
+            params={
+                "textDocument": {"uri": entry_path.as_uri()},
+                "position": {"line": 0, "character": 0},
+            },
+        )
+        assert restored_completion["result"] == completion["result"]
+
         process.send(
             {
                 "jsonrpc": "2.0",
@@ -700,7 +773,7 @@ def test_real_stdio_fixture_diagnostics_navigation_and_cleanup_write_nothing(
         )
         closed_definition, _ = _request(
             process,
-            request_id=9,
+            request_id=15,
             method="textDocument/definition",
             params={
                 "textDocument": {"uri": entry_path.as_uri()},
