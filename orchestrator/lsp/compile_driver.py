@@ -18,9 +18,11 @@ from orchestrator.workflow_lisp.build import (
     load_frontend_initialization_configuration,
 )
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.form_registry import registered_form_heads
 from orchestrator.workflow_lisp.reader import SourceReadTrace
 
 from .diagnostics import translate_frontend_diagnostics
+from .navigation import NavigationCompletion, project_form_completion_rows
 from .state import (
     AcceptedCompileSnapshot,
     DiskSourceSnapshot,
@@ -89,6 +91,7 @@ class LspCompileDriver:
 
     state: LspState
     initialization_configuration: FrontendInitializationConfiguration
+    frozen_form_completions: tuple[NavigationCompletion, ...]
     _build_in_memory: BuildInMemory
     _queue: list[tuple[Path, int]]
     _latest_generation_by_path: dict[Path, int]
@@ -866,6 +869,9 @@ def initialize_compile_driver(
         workspace_root=state.workspace_root,
         builtin_stdlib_source_root=state.builtin_stdlib_source_root,
     )
+    frozen_form_completions = project_form_completion_rows(
+        tuple(registered_form_heads(target_dsl_version=None))
+    )
     vector = ImmutableConfigurationVector(
         configured_paths=(
             ("provider_externs_path", paths.provider_externs_path),
@@ -885,6 +891,7 @@ def initialize_compile_driver(
     return LspCompileDriver(
         state=replace(state, configuration_vector=vector),
         initialization_configuration=configuration,
+        frozen_form_completions=frozen_form_completions,
         _build_in_memory=build_in_memory,
         _queue=[],
         _latest_generation_by_path={},

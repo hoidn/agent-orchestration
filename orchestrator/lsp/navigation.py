@@ -13,7 +13,6 @@ from orchestrator.workflow_lisp.compiler import LinkedStage3CompileResult
 from orchestrator.workflow_lisp.effects import render_effect_set
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
 from orchestrator.workflow_lisp.expressions import CallExpr, ProcedureCallExpr
-from orchestrator.workflow_lisp.form_registry import registered_form_heads
 from orchestrator.workflow_lisp.modules import build_import_scope
 from orchestrator.workflow_lisp.procedures import ProcedureSignature
 from orchestrator.workflow_lisp.spans import SourceSpan
@@ -64,13 +63,42 @@ class NavigationIndex:
     ]
 
 
+def project_form_completion_rows(
+    heads: tuple[str, ...],
+) -> tuple[NavigationCompletion, ...]:
+    """Validate and project one exact process-frozen form-head catalog."""
+
+    if type(heads) is not tuple:
+        raise TypeError("form completion heads must be a tuple")
+    if any(type(head) is not str for head in heads):
+        raise TypeError("form completion heads must contain only strings")
+    if any(not head for head in heads):
+        raise ValueError("form completion heads must be non-empty")
+    if len(set(heads)) != len(heads):
+        raise ValueError("form completion heads must be unique")
+    if tuple(sorted(heads)) != heads:
+        raise ValueError("form completion heads must be lexicographically sorted")
+    return tuple(
+        NavigationCompletion(
+            label=head,
+            kind="form",
+            canonical_target=head,
+            detail="form",
+        )
+        for head in heads
+    )
+
+
 def build_navigation_index(
     compile_result: LinkedStage3CompileResult,
+    *,
+    frozen_form_completions: tuple[NavigationCompletion, ...],
 ) -> NavigationIndex:
     """Derive the complete v1 navigation index without reading source text."""
 
     if not isinstance(compile_result, LinkedStage3CompileResult):
         raise TypeError("navigation requires a LinkedStage3CompileResult")
+    _validate_frozen_form_completions(frozen_form_completions)
 
     definition_spans = _definition_spans(compile_result)
     definition_links: list[DefinitionLink] = []
@@ -206,15 +234,7 @@ def build_navigation_index(
                         signature=signature,
                     )
                 )
-        completion_rows.extend(
-            NavigationCompletion(
-                label=head,
-                kind="form",
-                canonical_target=head,
-                detail="form",
-            )
-            for head in registered_form_heads()
-        )
+        completion_rows.extend(frozen_form_completions)
         completions_by_path[module_path] = tuple(
             sorted(
                 completion_rows,
@@ -367,6 +387,37 @@ def _definition_spans(
     return spans
 
 
+def _validate_frozen_form_completions(
+    rows: tuple[NavigationCompletion, ...],
+) -> None:
+    if type(rows) is not tuple:
+        raise TypeError("frozen form completions must be a tuple")
+    if any(type(row) is not NavigationCompletion for row in rows):
+        raise TypeError(
+            "frozen form completions must contain NavigationCompletion rows"
+        )
+    labels = tuple(row.label for row in rows)
+    if any(type(label) is not str for label in labels):
+        raise TypeError("frozen form completion labels must be strings")
+    if any(not label for label in labels):
+        raise ValueError("frozen form completion labels must be non-empty")
+    if len(set(labels)) != len(labels):
+        raise ValueError("frozen form completion labels must be unique")
+    if tuple(sorted(labels)) != labels:
+        raise ValueError(
+            "frozen form completion labels must be lexicographically sorted"
+        )
+    if any(
+        row.kind != "form"
+        or row.canonical_target != row.label
+        or row.detail != "form"
+        for row in rows
+    ):
+        raise ValueError(
+            "frozen form completions must contain exact projected form rows"
+        )
+
+
 def _definition_links_for_expr(
     expr: object,
     *,
@@ -468,5 +519,6 @@ __all__ = [
     "completion_for_document",
     "definition_at_lsp_position",
     "lsp_position_in_source_span",
+    "project_form_completion_rows",
     "symbols_for_document",
 ]

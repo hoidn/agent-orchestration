@@ -171,6 +171,198 @@ def test_initialize_compile_driver_freezes_absent_production_configuration_once(
     assert not (workspace / ".orchestrate").exists()
 
 
+def test_initialize_compile_driver_captures_form_registry_once_after_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    initial = lsp_state.initialize_lsp_state(root_uri=workspace.as_uri())
+    production_loader = build.load_frontend_initialization_configuration
+    production_root_validator = (
+        compile_driver._validate_trace_paths_within_roots
+    )
+    events: list[object] = []
+    live_heads = ["alpha-form", "zeta-form"]
+
+    def load_then_capture(
+        **kwargs: object,
+    ) -> build.FrontendInitializationConfiguration:
+        events.append("configuration")
+        return production_loader(**kwargs)  # type: ignore[arg-type]
+
+    def validate_roots_then_capture(
+        revision_vector: tuple[tuple[Path, str], ...],
+        *,
+        workspace_root: Path,
+        builtin_stdlib_source_root: Path,
+    ) -> None:
+        events.append("root-validation")
+        production_root_validator(
+            revision_vector,
+            workspace_root=workspace_root,
+            builtin_stdlib_source_root=builtin_stdlib_source_root,
+        )
+
+    def read_registry_once(
+        *,
+        target_dsl_version: str | None = None,
+    ) -> tuple[str, ...]:
+        events.append(("registry", target_dsl_version))
+        return tuple(live_heads)
+
+    monkeypatch.setattr(
+        compile_driver,
+        "load_frontend_initialization_configuration",
+        load_then_capture,
+    )
+    monkeypatch.setattr(
+        compile_driver,
+        "_validate_trace_paths_within_roots",
+        validate_roots_then_capture,
+    )
+    monkeypatch.setattr(
+        compile_driver,
+        "registered_form_heads",
+        read_registry_once,
+        raising=False,
+    )
+
+    driver = compile_driver.initialize_compile_driver(initial)
+    captured = driver.frozen_form_completions
+    live_heads[:] = ["changed-after-initialization"]
+
+    assert events == [
+        "configuration",
+        "root-validation",
+        ("registry", None),
+    ]
+    assert tuple(row.label for row in captured) == (
+        "alpha-form",
+        "zeta-form",
+    )
+    assert driver.frozen_form_completions is captured
+    assert tuple(row.label for row in driver.frozen_form_completions) == (
+        "alpha-form",
+        "zeta-form",
+    )
+
+
+def test_initialize_compile_driver_does_not_read_registry_after_config_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    initial = lsp_state.initialize_lsp_state(root_uri=workspace.as_uri())
+    registry_calls: list[object] = []
+
+    def fail_configuration(
+        **_kwargs: object,
+    ) -> build.FrontendInitializationConfiguration:
+        raise RuntimeError("configuration rejected")
+
+    def unexpected_registry_read(
+        *,
+        target_dsl_version: str | None = None,
+    ) -> tuple[str, ...]:
+        registry_calls.append(target_dsl_version)
+        return ()
+
+    monkeypatch.setattr(
+        compile_driver,
+        "load_frontend_initialization_configuration",
+        fail_configuration,
+    )
+    monkeypatch.setattr(
+        compile_driver,
+        "registered_form_heads",
+        unexpected_registry_read,
+        raising=False,
+    )
+
+    with pytest.raises(RuntimeError, match="configuration rejected"):
+        compile_driver.initialize_compile_driver(initial)
+
+    assert registry_calls == []
+
+
+def test_initialize_compile_driver_validates_roots_before_registry_capture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    external_source = tmp_path / "imported_selector.orc"
+    shutil.copyfile(CLI_FIXTURES / "imported_selector.orc", external_source)
+    imported_manifest = workspace / "imports.json"
+    imported_manifest.write_text(
+        (
+            '{"external":{"kind":"compiled","path":"'
+            f'{external_source.as_posix()}"}}}}\n'
+        ),
+        encoding="utf-8",
+    )
+    initial = lsp_state.initialize_lsp_state(
+        root_uri=workspace.as_uri(),
+        initialization_options={
+            "imported_workflow_bundles_path": imported_manifest,
+        },
+    )
+    production_loader = build.load_frontend_initialization_configuration
+    production_root_validator = (
+        compile_driver._validate_trace_paths_within_roots
+    )
+    events: list[object] = []
+
+    def load_configuration(
+        **kwargs: object,
+    ) -> build.FrontendInitializationConfiguration:
+        events.append("configuration")
+        return production_loader(**kwargs)  # type: ignore[arg-type]
+
+    def reject_external_root(
+        revision_vector: tuple[tuple[Path, str], ...],
+        *,
+        workspace_root: Path,
+        builtin_stdlib_source_root: Path,
+    ) -> None:
+        events.append("root-validation")
+        production_root_validator(
+            revision_vector,
+            workspace_root=workspace_root,
+            builtin_stdlib_source_root=builtin_stdlib_source_root,
+        )
+
+    def unexpected_registry_read(
+        *,
+        target_dsl_version: str | None = None,
+    ) -> tuple[str, ...]:
+        events.append(("registry", target_dsl_version))
+        return ()
+
+    monkeypatch.setattr(
+        compile_driver,
+        "load_frontend_initialization_configuration",
+        load_configuration,
+    )
+    monkeypatch.setattr(
+        compile_driver,
+        "_validate_trace_paths_within_roots",
+        reject_external_root,
+    )
+    monkeypatch.setattr(
+        compile_driver,
+        "registered_form_heads",
+        unexpected_registry_read,
+    )
+
+    with pytest.raises(RuntimeError, match="outside the initialized roots"):
+        compile_driver.initialize_compile_driver(initial)
+
+    assert events == ["configuration", "root-validation"]
+
+
 def test_initialize_compile_driver_rejects_real_loader_external_recursive_source(
     tmp_path: Path,
 ) -> None:

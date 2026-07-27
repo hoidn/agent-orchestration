@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from importlib import import_module
 from pathlib import Path
 import shutil
@@ -59,10 +59,116 @@ def _navigation_surface() -> object:
         pytest.fail("orchestrator.lsp.navigation is not implemented")
 
 
-def _build_index(result: LinkedStage3CompileResult) -> object:
+def _build_index(
+    result: LinkedStage3CompileResult,
+    *,
+    form_heads: tuple[str, ...] | None = None,
+) -> object:
+    navigation = _navigation_surface()
+    build_index = getattr(navigation, "build_navigation_index", None)
+    project = getattr(navigation, "project_form_completion_rows", None)
+    assert callable(build_index), "build_navigation_index is missing"
+    assert callable(project), "project_form_completion_rows is missing"
+    if form_heads is None:
+        registry = import_module("orchestrator.workflow_lisp.form_registry")
+        registered_form_heads = getattr(
+            registry,
+            "registered_form_heads",
+            None,
+        )
+        assert callable(
+            registered_form_heads
+        ), "registered_form_heads is missing"
+        form_heads = tuple(
+            registered_form_heads(target_dsl_version=None)
+        )
+    return build_index(
+        result,
+        frozen_form_completions=project(form_heads),
+    )
+
+
+def test_project_form_completion_rows_accepts_only_exact_frozen_heads() -> None:
+    navigation = _navigation_surface()
+    project = getattr(navigation, "project_form_completion_rows", None)
+    assert callable(project), "project_form_completion_rows is missing"
+
+    rows = project(("defproc", "workflow-lisp"))
+
+    assert isinstance(rows, tuple)
+    assert tuple(
+        (row.label, row.kind, row.canonical_target, row.detail)
+        for row in rows
+    ) == (
+        ("defproc", "form", "defproc", "form"),
+        ("workflow-lisp", "form", "workflow-lisp", "form"),
+    )
+    with pytest.raises(FrozenInstanceError):
+        rows[0].label = "changed"
+
+
+@pytest.mark.parametrize(
+    "heads",
+    (
+        ["defproc"],
+        ("defproc", "defproc"),
+        ("workflow-lisp", "defproc"),
+        ("",),
+        (1,),
+    ),
+)
+def test_project_form_completion_rows_rejects_malformed_catalog(
+    heads: object,
+) -> None:
+    navigation = _navigation_surface()
+    project = getattr(navigation, "project_form_completion_rows", None)
+    assert callable(project), "project_form_completion_rows is missing"
+
+    with pytest.raises((TypeError, ValueError)):
+        project(heads)
+
+
+def test_build_navigation_index_requires_explicit_frozen_form_rows(
+    callable_result: LinkedStage3CompileResult,
+) -> None:
     build_index = getattr(_navigation_surface(), "build_navigation_index", None)
     assert callable(build_index), "build_navigation_index is missing"
-    return build_index(result)
+
+    with pytest.raises(TypeError):
+        build_index(callable_result)
+
+
+def test_build_navigation_index_reuses_explicit_form_rows_for_every_module(
+    callable_result: LinkedStage3CompileResult,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    navigation = _navigation_surface()
+    project = getattr(navigation, "project_form_completion_rows", None)
+    build_index = getattr(navigation, "build_navigation_index", None)
+    assert callable(project), "project_form_completion_rows is missing"
+    assert callable(build_index), "build_navigation_index is missing"
+    frozen_rows = project(("only-frozen-form",))
+
+    def unexpected_registry_read(*args: object, **kwargs: object) -> object:
+        pytest.fail("navigation index construction reread the form registry")
+
+    monkeypatch.setattr(
+        navigation,
+        "registered_form_heads",
+        unexpected_registry_read,
+        raising=False,
+    )
+
+    index = build_index(
+        callable_result,
+        frozen_form_completions=frozen_rows,
+    )
+
+    assert index.completions_by_path
+    assert all(
+        frozen_rows[0] in completions
+        for _path, completions in index.completions_by_path
+    )
 
 
 def _definition_at(
@@ -732,7 +838,6 @@ def test_completion_preserves_exact_import_scope_spellings_and_namespaces(
 
 def test_completion_preserves_same_label_procedure_workflow_and_form_rows(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root = tmp_path / "lsp_l1_symbols"
     shutil.copytree(L1_SYMBOLS_ROOT, root)
@@ -751,17 +856,10 @@ def test_completion_preserves_same_label_procedure_workflow_and_form_rows(
         workspace_root=root,
         lowering_route="legacy",
     )
-    navigation = _navigation_surface()
-    monkeypatch.setattr(
-        navigation,
-        "registered_form_heads",
-        lambda: ("review",),
-    )
-
     rows = tuple(
         item
         for item in _completions(
-            _build_index(result),
+            _build_index(result, form_heads=("review",)),
             entry_path,
         )
         if item.label == "review"
@@ -905,13 +1003,12 @@ def test_server_maps_completion_namespaces_details_and_protocol_kinds(
         ),
         encoding="utf-8",
     )
-    driver, entry_path = _compile_driver_for_l1_symbols_root(root)
-    navigation = _navigation_surface()
     monkeypatch.setattr(
-        navigation,
+        lsp_compile_driver,
         "registered_form_heads",
-        lambda: ("review",),
+        lambda *, target_dsl_version=None: ("review",),
     )
+    driver, entry_path = _compile_driver_for_l1_symbols_root(root)
     server = WorkflowLispLanguageServer()
     server.driver = driver
 

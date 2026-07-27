@@ -496,7 +496,10 @@ class WorkflowLispLanguageServer(LanguageServer):
             return None
         compile_result = getattr(snapshot.build_value, "compile_result", None)
         try:
-            index = build_navigation_index(compile_result)
+            index = build_navigation_index(
+                compile_result,
+                frozen_form_completions=driver.frozen_form_completions,
+            )
         except (TypeError, ValueError) as error:
             self.log_internal_error(error)
             return None
