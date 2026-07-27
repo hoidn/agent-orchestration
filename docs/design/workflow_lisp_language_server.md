@@ -37,7 +37,10 @@
   `docs/plans/2026-07-25-workflow-lisp-language-server-implementation-plan.md`.
   The 2026-07-13 roadmap amendments initially named it Stage 7 and renumbered
   it when provider live binding was inserted ahead of it. Generic client setup
-  lives in `docs/workflow_lisp_language_server_setup.md`.
+  lives in `docs/workflow_lisp_language_server_setup.md`. The bounded L0
+  reliability/actionability successor is also implemented under
+  `docs/plans/2026-07-26-workflow-lisp-language-server-l0-implementation-plan.md`;
+  L1 is the next language-server roadmap gate.
 
 ## Summary
 
@@ -1101,8 +1104,10 @@ Failure behavior:
 
 ## L0 Reliability And Diagnostic Actionability Amendment
 
-**Amendment status:** accepted 2026-07-26 after ordered independent review:
-`L0_DESIGN_SPEC_APPROVED`, then `L0_DESIGN_QUALITY_APPROVED`.
+**Amendment status:** implemented 2026-07-26. The design was accepted after
+ordered independent review: `L0_DESIGN_SPEC_APPROVED`, then
+`L0_DESIGN_QUALITY_APPROVED`. The implementation and watcher-disabled
+real-stdio gate are recorded in the L0 implementation plan.
 
 This bounded post-v1 amendment corrects four reliability/presentation defects.
 It does not add a language feature, source overlay, incremental compiler,
@@ -1195,6 +1200,10 @@ importer save.
 Eager `didOpen` reverse
 observation, unsaved-buffer analysis, multi-diagnostic recovery, full
 `form_path` rendering, and runtime debugging remain excluded.
+
+The accepted boundary is implemented. L1 authored symbols and callable
+signatures are the next routed language-server design gate; this closure does
+not pre-implement that surface.
 
 ## Verification Strategy
 

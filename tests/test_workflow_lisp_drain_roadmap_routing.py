@@ -1137,11 +1137,11 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     normalized_l0_row = _normalized_routing_text(l0_row)
     assert "| L0 |" in l0_row
-    assert "ready" in normalized_l0_row
-    assert "may execute beside q1" in normalized_l0_row
+    assert "complete" in normalized_l0_row
+    assert "reviewed implementation" in normalized_l0_row
     assert "content keyed pure projection source cache" in normalized_l0_row
     for stage, blocker in (
-        ("L1", "blocked by l0"),
+        ("L1", "next"),
         ("L2", "blocked by l1"),
         ("L3", "blocked by l2"),
         ("L4", "blocked by l3"),
@@ -1250,7 +1250,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "active post stage 8 selector" in normalized_successor_index
     assert "q series work with q1" in normalized_successor_index
-    assert "implementation plan gate" in normalized_successor_index
+    assert "tasks 1 3 are implemented" in normalized_successor_index
+    assert "task 4" in normalized_successor_index
     assert "do not select e0" in normalized_successor_index
 
     prompt_design_row = _markdown_table_row(

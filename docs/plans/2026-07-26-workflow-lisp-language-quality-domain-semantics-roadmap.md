@@ -82,16 +82,17 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 
 | Stage | Work | Entry condition | Completion gate | Status |
 | --- | --- | --- | --- | --- |
-| L0 | Reliability and diagnostic actionability | Gate S8 complete; current v1 behavior characterized | no-watcher `didSave` reverse invalidation, intentional structured initialization failures, visible compiler-owned notes/expansion provenance, and a content-keyed pure-projection source cache pass focused state/driver/stdio/diagnostic/cache tests plus one real stdio E2E without changing diagnostic identity | ready — first L-series item; may execute beside Q1 under the concurrency rule below |
-| L1 | Authored symbols and callable signatures | L0 complete; closed navigation/completion amendment accepted | authored type/resource/transition symbols and namespace-preserving procedure/workflow signature completion use existing compiler spans/catalogs, exclude generated shapes, and retain fail-closed freshness | blocked by L0 |
+| L0 | Reliability and diagnostic actionability | Gate S8 complete; current v1 behavior characterized | no-watcher `didSave` reverse invalidation, intentional structured initialization failures, visible compiler-owned notes/expansion provenance, and a content-keyed pure-projection source cache pass focused state/driver/stdio/diagnostic/cache tests plus one real stdio E2E without changing diagnostic identity | complete — reviewed implementation closes the four bounded corrections and watcher-disabled real-stdio gate |
+| L1 | Authored symbols and callable signatures | L0 complete; closed navigation/completion amendment accepted | authored type/resource/transition symbols and namespace-preserving procedure/workflow signature completion use existing compiler spans/catalogs, exclude generated shapes, and retain fail-closed freshness | next — design-amendment gate precedes implementation planning |
 | L2 | Recovery-safe static completion | L1 complete; two-tier completion amendment accepted | dirty/pending/invalidated/failed open entries receive only deterministic compiler-registry form heads as an incomplete list; stale callables remain closed and stale/closed/unassociated entries remain empty | blocked by L1 |
 | L3 | Per-source entry selection | L2 complete; immutable initialization-schema amendment accepted; compile-path reentrancy proven (substrate MR-4 complete, or an equivalent accepted reentrancy fixture) | one canonical workspace process can select an exported workflow for a named application source while compiling library entries with no selection, with exact CLI request parity and restart semantics | blocked by L2 |
 | L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and a diagnostic-currentness policy are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | blocked by L3 |
 
 The Q-series stages execute in Q-table order. Q0 is complete. Q1's corrected
-design and implementation plan have passed ordered independent review; task
-execution is active and no Q1 implementation is yet claimed. The L-series is
-an owner-selected priority queue rather than a
+design and implementation plan have passed ordered independent review; Tasks
+1–3 are implemented and independently reviewed, and Task 4 is next. L0 is
+complete and L1 is the next L-series gate. The L-series is an owner-selected
+priority queue rather than a
 claim that every adjacent stage has a compiler dependency on its predecessor;
 it executes in L-table order unless the owner explicitly reorders it. At most
 one L stage is active at a time.
@@ -225,6 +226,11 @@ the Q4 design; it may not add runtime prompt references or higher-order
 mapping.
 
 ## Stage L0: Reliability And Diagnostic Actionability
+
+**Status:** complete. The content-keyed cache, one-probe save observer,
+structured initialization failure mapping, visible compiler-owned diagnostic
+notes/roles, and watcher-disabled real-stdio importer gate are implemented.
+The broader MR-4 session-state refactor and P1–P5 remain separate.
 
 Authority targets:
 `docs/design/workflow_lisp_language_server.md` and

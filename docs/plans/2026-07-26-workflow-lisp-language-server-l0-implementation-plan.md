@@ -32,10 +32,11 @@ same-process probe returned the old export after same-path content replacement
 and returned the new export only after clearing the `lru_cache`. The minimal
 content-key correction is therefore required by L0.
 
-**Execution status:** accepted for execution after ordered independent plan
-review: `L0_IMPLEMENTATION_PLAN_SPEC_APPROVED`,
-`L0_IMPLEMENTATION_PLAN_QUALITY_APPROVED`, and post-quality
-`L0_IMPLEMENTATION_PLAN_SPEC_REAFFIRMED`.
+**Execution status:** closure commit pending. Tasks 1–4 landed at `0549625e`,
+`04bfb020`, `f921f55b`, and `c16904c1`. Task 5's watcher-disabled real-stdio
+importer gate and serialized L0 documentation/routing surface passed focused,
+broad-classification, and final ordered-review gates. The closure commit and
+exact command outcomes will be recorded in a final plan-only factual update.
 
 **Deliberate cost:** exact-content cache keys require reading content before
 lookup, so they cannot avoid the filesystem read. L0 prevents stale reuse; it
@@ -193,11 +194,11 @@ No worktree is allowed. Stage exact task paths only; never use `git add .` or
   `docs/capability_status_matrix.md`,
   `docs/design/README.md`, and `docs/index.md`.
 
-- [ ] Add one real stdio fixture with watcher registration disabled: open a
+- [x] Add one real stdio fixture with watcher registration disabled: open a
   clean importer, save changed disk-equal content for its open helper without
   `workspace/didChangeWatchedFiles`, and observe the importer generation's
   compiler-owned result.
-- [ ] Run focused L0:
+- [x] Run focused L0:
 
   ```bash
   pytest -q tests/test_workflow_lisp_pure_projection_cache.py \
@@ -209,7 +210,7 @@ No worktree is allowed. Stage exact task paths only; never use `git add .` or
     tests/test_workflow_lisp_lsp_e2e.py
   ```
 
-- [ ] In tmux, run:
+- [x] In tmux, run:
 
   ```bash
   pytest -q -n 16 --dist=worksteal \
@@ -225,7 +226,7 @@ No worktree is allowed. Stage exact task paths only; never use `git add .` or
   ```
 
   Classify unrelated failures; do not repair them under L0.
-- [ ] Obtain final ordered spec then quality review of the exact committed Task
+- [x] Obtain final ordered spec then quality review of the exact committed Task
   1–4 range plus the Task 5 E2E/closure diff.
 - [ ] Commit the E2E and serialized routing/docs closure. Record exact commits,
   focused/broad outcomes, and review tokens in a final plan-only factual update.

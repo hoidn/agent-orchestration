@@ -79,6 +79,13 @@ The implemented v1 surface is:
 
 - compiler diagnostics on clean open/save, usually one blocking diagnostic
   because the production reader and typechecker remain fail-fast;
+- reverse invalidation of clean importers when a saved, open dependency
+  changed on disk, even when the client sends no watched-file notification;
+- intentional invalid-params initialization responses for structured compiler
+  failures, carrying ordered diagnostic code/path rows without synthesizing a
+  document diagnostic;
+- visible ordered compiler notes and structured macro/helper expansion labels
+  without changing diagnostic identity or aggregation;
 - go-to-definition only when the cursor is inside an exact
   compiler-provenanced direct procedure or workflow call head, including
   visible imported and standard-library calls;
@@ -101,7 +108,10 @@ complete compiler-read `.orc` closure, including builtin standard-library
 files. Source changes invalidate affected open entries and schedule serialized
 recompilation. File watchers improve responsiveness, but every navigation
 request rechecks the bound source and configuration state even when no watcher
-notification arrived.
+notification arrived. A save performs one disk probe and selects either the
+changed-revision observer or the unchanged local-save transition, never both.
+The pure-projection export helper likewise keys untraced reuse by canonical
+path and exact content; traced compiler reads continue to bypass that cache.
 
 Initialization configuration is immutable for the server lifetime. Changes to
 configured extern or imported-workflow inputs, their recursively imported

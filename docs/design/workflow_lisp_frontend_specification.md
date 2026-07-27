@@ -4135,7 +4135,7 @@ The language-server implementation does not authorize the separately deferred
 P1–P5 frontend prerequisites: diagnostic accumulation, reader recovery,
 hover-type sidecars, unsaved source overlays, or compile caching.
 
-The L0 reliability amendment tightens that implemented consumer without
+The implemented L0 reliability amendment tightens that consumer without
 changing compiler authority:
 
 - one `didSave` disk snapshot selects either the existing reverse-revision
@@ -4155,7 +4155,8 @@ changing compiler authority:
 
 This amendment remains save-driven full compilation. It does not select source
 overlays, diagnostic recovery, type sidecars, general compile caching, or
-incremental compilation.
+incremental compilation. L1 authored symbols and callable signatures are the
+next language-server roadmap gate; they are not part of L0.
 
 ## Part XIII. CLI
 
