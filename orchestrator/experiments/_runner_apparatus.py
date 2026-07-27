@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import stat
 import string
@@ -37,6 +38,7 @@ _TREATMENT_CONFIG_FIELDS = {
     "argv",
     "environment",
     "environment_identity",
+    "provider_policy_digest",
     "timeout_milliseconds",
 }
 
@@ -128,6 +130,7 @@ def verified_assets(lock: Mapping[str, object]) -> dict[str, bytes]:
     manifest = apparatus["asset_manifest"]
     if not isinstance(manifest, list):
         raise RunnerError("apparatus.asset_manifest is not an array")
+    expected_paths: set[str] = set()
     for entry in manifest:
         if not isinstance(entry, Mapping):
             raise RunnerError("apparatus manifest entry is not an object")
@@ -135,6 +138,9 @@ def verified_assets(lock: Mapping[str, object]) -> dict[str, bytes]:
         expected_digest = entry["sha256"]
         if not isinstance(relative_path, str) or not isinstance(expected_digest, str):
             raise RunnerError("apparatus manifest entry is malformed")
+        if relative_path in expected_paths:
+            raise RunnerError(f"duplicate apparatus asset: {relative_path}")
+        expected_paths.add(relative_path)
         data = _read_manifest_asset(control_root, relative_path)
         if sha256_bytes(data) != expected_digest:
             raise RunnerError(f"apparatus asset digest mismatch: {relative_path}")
@@ -143,6 +149,61 @@ def verified_assets(lock: Mapping[str, object]) -> dict[str, bytes]:
                 f"apparatus asset exposes original control_root: {relative_path}"
             )
         verified[relative_path] = data
+
+    observed_paths: set[str] = set()
+    observed_directories: set[str] = set()
+    expected_directories = {
+        parent.as_posix()
+        for path in expected_paths
+        for parent in PurePosixPath(path).parents
+        if parent.parts
+    }
+
+    def walk(directory: Path, relative: PurePosixPath) -> None:
+        try:
+            with os.scandir(directory) as scan:
+                children = list(scan)
+        except OSError as exc:
+            raise RunnerError("cannot enumerate apparatus.control_root") from exc
+        for child in children:
+            child_relative = relative / child.name
+            try:
+                identity = child.stat(follow_symlinks=False)
+            except OSError as exc:
+                raise RunnerError(
+                    "cannot inspect apparatus control tree node: "
+                    f"{child_relative.as_posix()}"
+                ) from exc
+            if stat.S_ISDIR(identity.st_mode):
+                observed_directories.add(child_relative.as_posix())
+                walk(Path(child.path), child_relative)
+            elif stat.S_ISREG(identity.st_mode):
+                observed_paths.add(child_relative.as_posix())
+            else:
+                raise RunnerError(
+                    "apparatus control tree contains a non-regular asset: "
+                    f"{child_relative.as_posix()}"
+                )
+
+    walk(control_root, PurePosixPath())
+    extra = observed_paths - expected_paths
+    missing = expected_paths - observed_paths
+    if extra:
+        raise RunnerError("extra apparatus asset: " + ", ".join(sorted(extra)))
+    if missing:
+        raise RunnerError("missing apparatus asset: " + ", ".join(sorted(missing)))
+    extra_directories = observed_directories - expected_directories
+    missing_directories = expected_directories - observed_directories
+    if extra_directories:
+        raise RunnerError(
+            "extra apparatus directory: "
+            + ", ".join(sorted(extra_directories))
+        )
+    if missing_directories:
+        raise RunnerError(
+            "missing apparatus directory: "
+            + ", ".join(sorted(missing_directories))
+        )
     return verified
 
 
@@ -297,6 +358,7 @@ def parse_treatment_config(
     *,
     label: str,
     expected_environment_identity: str,
+    expected_provider_policy_digest: str,
 ) -> tuple[tuple[str, ...], dict[str, str], int]:
     config = strict_object(data, label=label)
     if set(config) != _TREATMENT_CONFIG_FIELDS:
@@ -310,6 +372,8 @@ def parse_treatment_config(
     )
     if config["environment_identity"] != expected_environment_identity:
         raise RunnerError(f"{label} environment identity mismatch")
+    if config["provider_policy_digest"] != expected_provider_policy_digest:
+        raise RunnerError(f"{label} provider policy digest mismatch")
     timeout = config["timeout_milliseconds"]
     if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0:
         raise RunnerError(f"{label}.timeout_milliseconds must be positive")

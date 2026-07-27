@@ -84,8 +84,10 @@ class _PreparedArm:
 @dataclass(frozen=True)
 class _Preflight:
     repo: Path
-    commit: str
+    treeish: str
     archive_digest: str
+    source_task_path: PurePosixPath
+    task_brief_digest: str
     exclusions: tuple[PurePosixPath, ...]
     visible_check_argv: tuple[str, ...]
     visible_check_timeout_milliseconds: int

@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import stat
 from collections.abc import Collection, Mapping, Sequence
@@ -163,6 +164,93 @@ def _write_payload(path: Path, data: bytes, mode: int = 0o644) -> None:
     path.chmod(mode)
 
 
+def _publish_new_payload(
+    *,
+    root: Path,
+    relative: PurePosixPath,
+    data: bytes,
+    mode: int = 0o644,
+) -> None:
+    """Atomically publish a new regular file without following path symlinks."""
+
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptors: list[int] = []
+    temporary_name: str | None = None
+    try:
+        descriptor = os.open(root, directory_flags)
+        descriptors.append(descriptor)
+        for component in relative.parts[:-1]:
+            try:
+                os.mkdir(component, mode=0o755, dir_fd=descriptor)
+            except FileExistsError:
+                pass
+            child = os.open(component, directory_flags, dir_fd=descriptor)
+            descriptors.append(child)
+            descriptor = child
+
+        filename = relative.name
+        payload_descriptor: int | None = None
+        for _attempt in range(16):
+            candidate = f".{filename}.tmp-{secrets.token_hex(8)}"
+            try:
+                payload_descriptor = os.open(
+                    candidate,
+                    os.O_WRONLY
+                    | os.O_CREAT
+                    | os.O_EXCL
+                    | getattr(os, "O_NOFOLLOW", 0),
+                    mode,
+                    dir_fd=descriptor,
+                )
+            except FileExistsError:
+                continue
+            temporary_name = candidate
+            break
+        if payload_descriptor is None or temporary_name is None:
+            _fail("evaluation_output_invalid", "temporary-name collision")
+
+        with os.fdopen(payload_descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fchmod(stream.fileno(), mode)
+            os.fsync(stream.fileno())
+        try:
+            os.link(
+                temporary_name,
+                filename,
+                src_dir_fd=descriptor,
+                dst_dir_fd=descriptor,
+                follow_symlinks=False,
+            )
+        except FileExistsError as exc:
+            raise EvaluationError(
+                "evaluation_output_exists",
+                str(root.joinpath(*relative.parts)),
+            ) from exc
+        os.unlink(temporary_name, dir_fd=descriptor)
+        temporary_name = None
+        os.fsync(descriptor)
+    except EvaluationError:
+        raise
+    except OSError as exc:
+        raise EvaluationError(
+            "evaluation_output_invalid",
+            str(root.joinpath(*relative.parts)),
+        ) from exc
+    finally:
+        if temporary_name is not None and descriptors:
+            try:
+                os.unlink(temporary_name, dir_fd=descriptors[-1])
+            except OSError:
+                pass
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
 def _entry_row(entry: TreeEntry | None) -> object:
     if entry is None:
         return None
@@ -296,6 +384,7 @@ def _build_package(
     candidate_labels: Sequence[str],
     roots_by_label: Mapping[str, Path],
     base_root: Path,
+    task_root: Path,
     task_path: PurePosixPath,
     selected_by_label: Mapping[str, Sequence[PurePosixPath]],
     checks_by_label: Mapping[str, Sequence[PurePosixPath]],
@@ -308,7 +397,7 @@ def _build_package(
         _fail("evaluation_output_exists", str(package_root))
     package_root.mkdir(parents=True)
 
-    _task_source, task_bytes, task_mode = _source_file(base_root, task_path)
+    _task_source, task_bytes, task_mode = _source_file(task_root, task_path)
     _write_payload(package_root / "task.md", task_bytes, task_mode)
 
     for label in candidate_labels:
@@ -350,7 +439,11 @@ def _build_package(
 
 def _reject_identity_leak(package_root: Path, identities: Collection[str]) -> None:
     patterns = [
-        re.compile(rb"(?<![A-Za-z0-9_])" + re.escape(value.encode("utf-8")) + rb"(?![A-Za-z0-9_])", re.I)
+        re.compile(
+            rb"(?<![A-Za-z0-9_])"
+            + re.escape(value.encode("utf-8"))
+            + rb"(?![A-Za-z0-9_])"
+        )
         for value in identities
     ]
     for path in package_root.rglob("*"):

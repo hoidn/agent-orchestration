@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -438,3 +440,28 @@ def test_real_tmux_observation_tails_display_and_cleans_private_server(
         capture_output=True,
     )
     assert completed.returncode != 0
+
+
+@pytest.mark.skipif(shutil.which("tmux") is None, reason="tmux is unavailable")
+def test_real_tmux_observation_uses_bounded_socket_under_long_tmpdir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_root = tmp_path / "run"
+    inherited_temp_root = tmp_path / ("inherited-" + ("x" * 96))
+    inherited_temp_root.mkdir()
+    monkeypatch.setenv("TMPDIR", str(inherited_temp_root))
+    monkeypatch.setattr(tempfile, "tempdir", None)
+    manager = ProviderObservationManager(run_root)
+
+    try:
+        handle = _open(manager, "long-tmpdir")
+        assert len(os.fsencode(handle.socket_path)) <= 103
+        assert not handle.socket_path.is_relative_to(inherited_temp_root)
+        assert handle.display_path.is_relative_to(run_root)
+        assert handle.finalize()["status"] == "finalized"
+        socket_directory = handle.socket_path.parent
+    finally:
+        manager.close()
+
+    assert not socket_directory.exists()

@@ -361,6 +361,7 @@ def build_calibration_packages(
                 label: role_roots[role] for label, role in roles.items()
             },
             base_root=base,
+            task_root=base,
             task_path=task,
             selected_by_label={label: selected for label in labels},
             checks_by_label={

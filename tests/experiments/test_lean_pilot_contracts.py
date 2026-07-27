@@ -30,7 +30,64 @@ def _digest(label: str) -> str:
     return f"sha256:{hashlib.sha256(label.encode('utf-8')).hexdigest()}"
 
 
+def _canonical_digest(value: object) -> str:
+    data = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(data).hexdigest()}"
+
+
+def _bundle_digest(
+    apparatus: dict[str, Any],
+    paths: list[str],
+) -> str:
+    manifest = {
+        entry["path"]: entry
+        for entry in apparatus["asset_manifest"]
+    }
+    return _canonical_digest(
+        [manifest[path] for path in sorted(paths, key=str.encode)]
+    )
+
+
+def _refresh_profile(record: dict[str, Any]) -> None:
+    record["task"]["profile_digest"] = _canonical_digest(
+        {
+            "profile_version": "lean-pilot-task-profile.v1",
+            "task_id": record["task"]["task_id"],
+            "source_path": record["task"]["source_path"],
+            "brief_digest": record["task"]["brief_digest"],
+            "archive_digest": record["archive"]["archive_digest"],
+            "selected_final_files": record["review"]["selected_final_files"],
+            "permitted_check_evidence_names": record["review"][
+                "permitted_check_evidence_names"
+            ],
+            "visible_check": record["apparatus"]["visible_check"],
+            "product_projection_exclusions": record["apparatus"][
+                "product_projection_exclusions"
+            ],
+            "evaluator_bundle_digest": record["review"]["evaluator"][
+                "bundle_digest"
+            ],
+        }
+    )
+
+
 def _apparatus() -> dict[str, Any]:
+    treatment_paths = [
+        "tasks/A1.md",
+        "config/provider.json",
+        "config/prompts.json",
+        "config/commands.json",
+        "config/treatments/direct.json",
+        "config/treatments/coordinator.json",
+        "config/treatments/orc.json",
+        "sources/treatment_driver.py",
+        "sources/task_loop.orc",
+    ]
     return {
         "control_root": "/srv/lean-pilot/control",
         "asset_manifest": [
@@ -59,7 +116,37 @@ def _apparatus() -> dict[str, Any]:
                 "path": "config/treatments/orc.json",
                 "sha256": _digest("orc-command"),
             },
+            {
+                "path": "sources/treatment_driver.py",
+                "sha256": _digest("treatment-driver"),
+            },
+            {
+                "path": "sources/task_loop.orc",
+                "sha256": _digest("task-loop"),
+            },
+            {"path": "review/rubric.md", "sha256": _digest("rubric")},
+            {
+                "path": "review/calibration-seal.json",
+                "sha256": _digest("calibration"),
+            },
+            {
+                "path": "evaluation/config.json",
+                "sha256": _digest("evaluator-config"),
+            },
+            {
+                "path": "evaluation/evaluator.py",
+                "sha256": _digest("evaluator-module"),
+            },
+            {
+                "path": "review/reviewer-command.json",
+                "sha256": _digest("reviewer-command"),
+            },
+            {
+                "path": "review/review-result.schema.json",
+                "sha256": _digest("review-result-schema"),
+            },
         ],
+        "treatment_asset_paths": treatment_paths,
         "task_path": "tasks/A1.md",
         "provider_config_path": "config/provider.json",
         "prompt_config_path": "config/prompts.json",
@@ -80,33 +167,69 @@ def _apparatus() -> dict[str, Any]:
 
 
 def _pilot_lock() -> dict[str, Any]:
-    return {
+    apparatus = _apparatus()
+    provider_policy = {
+        "family": "codex",
+        "model": "gpt-example",
+        "reasoning_effort": "high",
+        "tool_policy": "workspace-write-no-network",
+        "timeout_milliseconds": 900_000,
+        "currency": "USD",
+    }
+    evaluator_paths = [
+        "evaluation/config.json",
+        "evaluation/evaluator.py",
+    ]
+    reviewer_command_paths = [
+        "review/reviewer-command.json",
+        "review/review-result.schema.json",
+    ]
+    record = {
         "record_kind": "pilot_lock.v1",
         "pilot_id": "lean-pilot-001",
         "task": {
             "task_id": "A1",
-            "profile_digest": _digest("task-profile"),
+            "source_path": "docs/tasks/task.md",
+            "profile_digest": _digest("pending-task-profile"),
             "brief_digest": _digest("task-brief"),
         },
         "archive": {
             "repository_identity": "example/demo_task_nanobragg_entrypoint_port",
-            "revision_identity": "commit:0123456789abcdef",
+            "repository_root": "/srv/repositories/agent-orchestration",
+            "revision_identity": f"commit:{'0' * 40}",
+            "source_subtree_path": "examples/demo_task_nanobragg_entrypoint_port",
+            "source_tree_identity": f"git-tree:{'1' * 40}",
             "archive_digest": _digest("source-archive"),
         },
-        "provider_policy": {
-            "family": "codex",
-            "model": "gpt-example",
-            "reasoning_effort": "high",
-            "tool_policy": "workspace-write-no-network",
-            "timeout_milliseconds": 900_000,
-            "currency": "USD",
-        },
+        "provider_policy": provider_policy,
         "review": {
             "reviewer_ids": ["reviewer-1", "reviewer-2"],
+            "disagreement_policy": "INDETERMINATE_ON_DISAGREEMENT",
+            "selected_final_files": ["torch_port/entrypoint.py"],
+            "permitted_check_evidence_names": [
+                "check-stderr.txt",
+                "check-stdout.txt",
+                "hidden-evaluator.json",
+            ],
+            "rubric_path": "review/rubric.md",
             "rubric_digest": _digest("rubric"),
+            "calibration_evidence_path": "review/calibration-seal.json",
             "calibration_evidence_digest": _digest("calibration"),
+            "evaluator": {
+                "config_path": "evaluation/config.json",
+                "asset_paths": evaluator_paths,
+                "bundle_digest": _bundle_digest(apparatus, evaluator_paths),
+            },
+            "reviewer_command": {
+                "config_path": "review/reviewer-command.json",
+                "asset_paths": reviewer_command_paths,
+                "bundle_digest": _bundle_digest(
+                    apparatus,
+                    reviewer_command_paths,
+                ),
+            },
         },
-        "apparatus": _apparatus(),
+        "apparatus": apparatus,
         "randomization_seed": "seed-2026-07-26",
         "evidence_root": "/evidence/lean-pilot-001",
         "valid_block_count": 3,
@@ -123,27 +246,61 @@ def _pilot_lock() -> dict[str, Any]:
         "treatments": [
             {
                 "treatment_id": "DIRECT",
-                "source_digest": _digest("direct-source"),
+                "source_asset_paths": [
+                    "config/treatments/direct.json",
+                    "sources/treatment_driver.py",
+                ],
+                "source_digest": _bundle_digest(
+                    apparatus,
+                    [
+                        "config/treatments/direct.json",
+                        "sources/treatment_driver.py",
+                    ],
+                ),
                 "command_digest": _digest("direct-command"),
                 "command_config_path": "config/treatments/direct.json",
                 "provider_call_bounds": {"minimum": 1, "maximum": 1},
             },
             {
                 "treatment_id": "COORDINATOR",
-                "source_digest": _digest("coordinator-source"),
+                "source_asset_paths": [
+                    "config/treatments/coordinator.json",
+                    "sources/treatment_driver.py",
+                ],
+                "source_digest": _bundle_digest(
+                    apparatus,
+                    [
+                        "config/treatments/coordinator.json",
+                        "sources/treatment_driver.py",
+                    ],
+                ),
                 "command_digest": _digest("coordinator-command"),
                 "command_config_path": "config/treatments/coordinator.json",
                 "provider_call_bounds": {"minimum": 3, "maximum": 9},
             },
             {
                 "treatment_id": "ORC",
-                "source_digest": _digest("orc-source"),
+                "source_asset_paths": [
+                    "config/treatments/orc.json",
+                    "sources/treatment_driver.py",
+                    "sources/task_loop.orc",
+                ],
+                "source_digest": _bundle_digest(
+                    apparatus,
+                    [
+                        "config/treatments/orc.json",
+                        "sources/treatment_driver.py",
+                        "sources/task_loop.orc",
+                    ],
+                ),
                 "command_digest": _digest("orc-command"),
                 "command_config_path": "config/treatments/orc.json",
                 "provider_call_bounds": {"minimum": 3, "maximum": 9},
             },
         ],
     }
+    _refresh_profile(record)
+    return record
 
 
 def _treatment_execution(
@@ -629,6 +786,119 @@ def test_pilot_lock_accepts_three_to_nine_multi_provider_call_bounds(
 
 
 @pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("archive", "repository_root"), "relative/repository"),
+        (("archive", "source_subtree_path"), "../seed"),
+        (("archive", "source_tree_identity"), f"git-tree:{'A' * 40}"),
+        (("task", "source_path"), "/absolute/task.md"),
+        (("review", "selected_final_files", 0), "../entrypoint.py"),
+        (("review", "permitted_check_evidence_names", 0), "checks/stdout.txt"),
+    ],
+)
+def test_pilot_lock_rejects_unsafe_source_and_review_paths(
+    contracts: ModuleType,
+    path: tuple[str | int, ...],
+    value: str,
+) -> None:
+    record = _pilot_lock()
+    target: Any = record
+    for component in path[:-1]:
+        target = target[component]
+    target[path[-1]] = value
+
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "source_digest",
+        "evaluator_bundle",
+        "reviewer_command_bundle",
+        "profile_digest",
+        "rubric_digest",
+        "calibration_digest",
+    ],
+)
+def test_pilot_lock_rejects_derived_digest_drift(
+    contracts: ModuleType,
+    mutation: str,
+) -> None:
+    record = _pilot_lock()
+    if mutation == "source_digest":
+        record["treatments"][0]["source_digest"] = _digest("drift")
+    elif mutation == "evaluator_bundle":
+        record["review"]["evaluator"]["bundle_digest"] = _digest("drift")
+    elif mutation == "reviewer_command_bundle":
+        record["review"]["reviewer_command"]["bundle_digest"] = _digest("drift")
+    elif mutation == "profile_digest":
+        record["task"]["profile_digest"] = _digest("drift")
+    elif mutation == "rubric_digest":
+        record["review"]["rubric_digest"] = _digest("drift")
+    else:
+        record["review"]["calibration_evidence_digest"] = _digest("drift")
+
+    with pytest.raises(contracts.PilotContractError, match="digest_mismatch"):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "controller_asset_staged",
+        "source_asset_controller_only",
+        "command_missing_from_source",
+        "review_config_missing_from_bundle",
+        "treatment_asset_missing",
+        "orphan_manifest_asset",
+    ],
+)
+def test_pilot_lock_enforces_closed_asset_visibility_and_bundles(
+    contracts: ModuleType,
+    mutation: str,
+) -> None:
+    record = _pilot_lock()
+    if mutation == "controller_asset_staged":
+        record["apparatus"]["treatment_asset_paths"].append("review/rubric.md")
+    elif mutation == "source_asset_controller_only":
+        record["treatments"][0]["source_asset_paths"].append("review/rubric.md")
+    elif mutation == "command_missing_from_source":
+        record["treatments"][0]["source_asset_paths"].remove(
+            "config/treatments/direct.json"
+        )
+    elif mutation == "review_config_missing_from_bundle":
+        record["review"]["evaluator"]["asset_paths"].remove(
+            "evaluation/config.json"
+        )
+    elif mutation == "treatment_asset_missing":
+        record["apparatus"]["treatment_asset_paths"].append("missing.py")
+    else:
+        record["apparatus"]["asset_manifest"].append(
+            {"path": "orphan.txt", "sha256": _digest("orphan")}
+        )
+
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
+def test_pilot_lock_requires_exact_reviewer_slots_and_disagreement_policy(
+    contracts: ModuleType,
+) -> None:
+    for mutation in ("third_reviewer", "duplicate_reviewer", "adjudicator"):
+        record = _pilot_lock()
+        if mutation == "third_reviewer":
+            record["review"]["reviewer_ids"].append("reviewer-3")
+        elif mutation == "duplicate_reviewer":
+            record["review"]["reviewer_ids"][1] = "reviewer-1"
+        else:
+            record["review"]["disagreement_policy"] = "ADJUDICATE"
+        with pytest.raises(contracts.PilotContractError):
+            contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
     "mutation",
     ["missing_treatment", "duplicate_treatment", "wrong_direct_bound", "wrong_orc_bound"],
 )
@@ -1016,6 +1286,7 @@ def test_product_projection_exclusions_may_be_explicitly_empty(
 ) -> None:
     record = _pilot_lock()
     record["apparatus"]["product_projection_exclusions"] = []
+    _refresh_profile(record)
 
     assert contracts.validate_record(record) is None
 

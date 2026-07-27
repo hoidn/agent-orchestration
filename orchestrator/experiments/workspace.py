@@ -279,6 +279,55 @@ def materialize_git_archive(
     return freeze_product(destination, ())
 
 
+def _verified_git_subtree(
+    repo: Path,
+    commit: str,
+    subtree: PurePosixPath,
+    expected_tree_identity: str,
+) -> str:
+    """Resolve an exact commit subtree and verify its locked Git tree ID."""
+
+    if (
+        subtree.is_absolute()
+        or not subtree.parts
+        or any(part in {".", ".."} for part in subtree.parts)
+        or PurePosixPath(subtree.as_posix()) != subtree
+    ):
+        raise WorkspaceError("source subtree must be canonical relative POSIX text")
+    treeish = f"{commit}:{subtree.as_posix()}"
+    try:
+        resolved_commit = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--verify", f"{commit}^{{commit}}"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+        resolved_tree = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--verify", treeish],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+        object_type = subprocess.run(
+            ["git", "-C", str(repo), "cat-file", "-t", resolved_tree],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise WorkspaceError("cannot resolve locked Git commit subtree") from exc
+    if resolved_commit != commit:
+        raise WorkspaceError("locked Git commit did not resolve exactly")
+    if object_type != "tree":
+        raise WorkspaceError("locked Git subtree does not name a tree")
+    if expected_tree_identity != f"git-tree:{resolved_tree}":
+        raise WorkspaceError("Git tree identity mismatch")
+    return treeish
+
+
 def _normalize_excluded_roots(
     excluded_roots: Collection[PurePosixPath],
 ) -> tuple[PurePosixPath, ...]:

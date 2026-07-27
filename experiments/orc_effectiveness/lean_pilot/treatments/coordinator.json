@@ -27,10 +27,10 @@
     "1800"
   ],
   "environment": {
-    "CODEX_HOME": "/home/ollie/.codex",
     "PATH": "/home/ollie/.nvm/versions/node/v20.19.4/bin:/home/ollie/miniconda3/bin:/usr/local/bin:/usr/bin:/bin",
     "PYTHONUNBUFFERED": "1"
   },
   "environment_identity": "sha256:0412722e0436c61866b7f0841f09baf8803853f41f4eb1192561a36437b317ca",
+  "provider_policy_digest": "sha256:f6894af0098ad618ceaf74d6e46a76ab0519549d15f31f8b8685e40862bd0b25",
   "timeout_milliseconds": 18000000
 }

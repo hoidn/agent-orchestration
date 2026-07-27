@@ -40,6 +40,31 @@
             "sha256"
           ]
         },
+        "asset_bundle": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "config_path": {
+              "$ref": "#/$defs/relative_canonical_posix_path"
+            },
+            "asset_paths": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/relative_canonical_posix_path"
+              }
+            },
+            "bundle_digest": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "config_path",
+            "asset_paths",
+            "bundle_digest"
+          ]
+        },
         "apparatus": {
           "type": "object",
           "additionalProperties": false,
@@ -52,6 +77,14 @@
               "minItems": 1,
               "items": {
                 "$ref": "#/$defs/apparatus_asset"
+              }
+            },
+            "treatment_asset_paths": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/relative_canonical_posix_path"
               }
             },
             "task_path": {
@@ -137,6 +170,7 @@
           "required": [
             "control_root",
             "asset_manifest",
+            "treatment_asset_paths",
             "task_path",
             "provider_config_path",
             "prompt_config_path",
@@ -158,6 +192,14 @@
                 "COORDINATOR",
                 "ORC"
               ]
+            },
+            "source_asset_paths": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/relative_canonical_posix_path"
+              }
             },
             "source_digest": {
               "$ref": "#/$defs/digest"
@@ -187,6 +229,7 @@
           },
           "required": [
             "treatment_id",
+            "source_asset_paths",
             "source_digest",
             "command_digest",
             "command_config_path",
@@ -263,6 +306,9 @@
             "task_id": {
               "$ref": "#/$defs/nonempty_string"
             },
+            "source_path": {
+              "$ref": "#/$defs/relative_canonical_posix_path"
+            },
             "profile_digest": {
               "$ref": "#/$defs/digest"
             },
@@ -272,6 +318,7 @@
           },
           "required": [
             "task_id",
+            "source_path",
             "profile_digest",
             "brief_digest"
           ]
@@ -283,8 +330,19 @@
             "repository_identity": {
               "$ref": "#/$defs/nonempty_string"
             },
+            "repository_root": {
+              "$ref": "#/$defs/absolute_canonical_posix_path"
+            },
             "revision_identity": {
-              "$ref": "#/$defs/nonempty_string"
+              "type": "string",
+              "pattern": "^commit:[0-9a-f]{40,64}$"
+            },
+            "source_subtree_path": {
+              "$ref": "#/$defs/relative_canonical_posix_path"
+            },
+            "source_tree_identity": {
+              "type": "string",
+              "pattern": "^git-tree:[0-9a-f]{40,64}$"
             },
             "archive_digest": {
               "$ref": "#/$defs/digest"
@@ -292,7 +350,10 @@
           },
           "required": [
             "repository_identity",
+            "repository_root",
             "revision_identity",
+            "source_subtree_path",
+            "source_tree_identity",
             "archive_digest"
           ]
         },
@@ -337,22 +398,61 @@
             "reviewer_ids": {
               "type": "array",
               "minItems": 2,
+              "maxItems": 2,
               "uniqueItems": true,
               "items": {
                 "$ref": "#/$defs/nonempty_string"
               }
             },
+            "disagreement_policy": {
+              "const": "INDETERMINATE_ON_DISAGREEMENT"
+            },
+            "selected_final_files": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/relative_canonical_posix_path"
+              }
+            },
+            "permitted_check_evidence_names": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/safe_component"
+              }
+            },
+            "rubric_path": {
+              "$ref": "#/$defs/relative_canonical_posix_path"
+            },
             "rubric_digest": {
               "$ref": "#/$defs/digest"
             },
+            "calibration_evidence_path": {
+              "$ref": "#/$defs/relative_canonical_posix_path"
+            },
             "calibration_evidence_digest": {
               "$ref": "#/$defs/digest"
+            },
+            "evaluator": {
+              "$ref": "#/$defs/asset_bundle"
+            },
+            "reviewer_command": {
+              "$ref": "#/$defs/asset_bundle"
             }
           },
           "required": [
             "reviewer_ids",
+            "disagreement_policy",
+            "selected_final_files",
+            "permitted_check_evidence_names",
+            "rubric_path",
             "rubric_digest",
-            "calibration_evidence_digest"
+            "calibration_evidence_path",
+            "calibration_evidence_digest",
+            "evaluator",
+            "reviewer_command"
           ]
         },
         "apparatus": {

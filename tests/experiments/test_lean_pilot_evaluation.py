@@ -75,6 +75,16 @@ def _digest(value: str) -> str:
     return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
 
 
+def _bundle_digest(
+    manifest: list[dict[str, str]],
+    paths: list[str],
+) -> str:
+    by_path = {entry["path"]: entry for entry in manifest}
+    return canonical_sha256(
+        [by_path[path] for path in sorted(paths, key=str.encode)]
+    )
+
+
 def _write(path: Path, text: str, mode: int = 0o644) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -108,64 +118,118 @@ def _live_inputs(
         _write(root / "not-selected.txt", f"candidate detail {index}\n")
         product_roots[treatment_id] = root
 
-    controller_root = tmp_path / "controller"
-    for treatment_id in product_roots:
-        _write(
-            controller_root
-            / "checks"
-            / treatment_id.lower()
-            / "visible.txt",
-            "PASS\n",
-        )
+    controller_root = (tmp_path / "evidence").resolve()
+    for block_id in ("smoke-001", "live-001"):
+        for index in range(1, 4):
+            _write(
+                controller_root
+                / block_id
+                / f"arm-{index}"
+                / "check-stdout.txt",
+                "PASS\n",
+            )
 
+    apparatus_root = (tmp_path / "control").resolve()
+    apparatus_assets = {
+        "tasks/A1.md": "Implement the requested behavior.\n",
+        "providers.json": "providers",
+        "prompts.json": "prompts",
+        "commands.json": "commands",
+        "direct.json": "direct-command",
+        "coordinator.json": "coordinator-command",
+        "orc.json": "orc-command",
+        "source.py": "shared-source",
+        "review/rubric.md": "rubric",
+        "review/calibration-seal.json": "calibration",
+        "evaluation/config.json": "evaluator-config",
+        "evaluation/evaluator.py": "evaluator",
+        "review/reviewer-command.json": "reviewer-command",
+        "review/review-result.schema.json": "review-schema",
+    }
+    for relative_path, contents in apparatus_assets.items():
+        _write(apparatus_root / relative_path, contents)
+    manifest = [
+        {
+            "path": relative_path,
+            "sha256": _digest_bytes(contents.encode("utf-8")),
+        }
+        for relative_path, contents in apparatus_assets.items()
+    ]
     output_root = tmp_path / "packages"
     command_digests = {
         treatment_id: _digest(f"{treatment_id.lower()}-command")
         for treatment_id in product_roots
     }
     task_digest = _digest_bytes((base_root / "task.md").read_bytes())
+    provider_policy = {
+        "family": "fixture",
+        "model": "fixture-model",
+        "reasoning_effort": "high",
+        "tool_policy": "workspace-write-no-network",
+        "timeout_milliseconds": 1000,
+        "currency": "USD",
+    }
+    evaluator_paths = [
+        "evaluation/config.json",
+        "evaluation/evaluator.py",
+    ]
+    reviewer_command_paths = [
+        "review/reviewer-command.json",
+        "review/review-result.schema.json",
+    ]
+    treatment_asset_paths = [
+        path
+        for path in apparatus_assets
+        if not path.startswith(("evaluation/", "review/"))
+    ]
+    repository_root = (tmp_path / "repository").resolve()
+    repository_root.mkdir()
     lock = {
         "record_kind": "pilot_lock.v1",
         "pilot_id": "lean-pilot-001",
         "task": {
             "task_id": "A1",
-            "profile_digest": _digest("profile"),
+            "source_path": "task.md",
+            "profile_digest": _digest("pending-profile"),
             "brief_digest": task_digest,
         },
         "archive": {
             "repository_identity": "fixture/repository",
-            "revision_identity": "commit:0123456789abcdef",
+            "repository_root": repository_root.as_posix(),
+            "revision_identity": f"commit:{'0' * 40}",
+            "source_subtree_path": "fixture",
+            "source_tree_identity": f"git-tree:{'1' * 40}",
             "archive_digest": freeze_product(base_root, ()).digest,
         },
-        "provider_policy": {
-            "family": "fixture",
-            "model": "fixture-model",
-            "reasoning_effort": "high",
-            "tool_policy": "workspace-write-no-network",
-            "timeout_milliseconds": 1000,
-            "currency": "USD",
-        },
+        "provider_policy": provider_policy,
         "review": {
             "reviewer_ids": ["reviewer-1", "reviewer-2"],
+            "disagreement_policy": "INDETERMINATE_ON_DISAGREEMENT",
+            "selected_final_files": ["result.txt"],
+            "permitted_check_evidence_names": ["check-stdout.txt"],
+            "rubric_path": "review/rubric.md",
             "rubric_digest": _digest("rubric"),
+            "calibration_evidence_path": "review/calibration-seal.json",
             "calibration_evidence_digest": _digest("calibration"),
+            "evaluator": {
+                "config_path": "evaluation/config.json",
+                "asset_paths": evaluator_paths,
+                "bundle_digest": _bundle_digest(manifest, evaluator_paths),
+            },
+            "reviewer_command": {
+                "config_path": "review/reviewer-command.json",
+                "asset_paths": reviewer_command_paths,
+                "bundle_digest": _bundle_digest(
+                    manifest,
+                    reviewer_command_paths,
+                ),
+            },
         },
         "apparatus": {
-            "control_root": "/srv/lean-pilot/control",
-            "asset_manifest": [
-                {"path": "task.md", "sha256": task_digest},
-                {"path": "providers.json", "sha256": _digest("providers")},
-                {"path": "prompts.json", "sha256": _digest("prompts")},
-                {"path": "commands.json", "sha256": _digest("commands")},
-                *[
-                    {
-                        "path": f"{treatment_id.lower()}.json",
-                        "sha256": command_digests[treatment_id],
-                    }
-                    for treatment_id in product_roots
-                ],
-            ],
-            "task_path": "task.md",
+            "control_root": apparatus_root.as_posix(),
+            "asset_manifest": manifest,
+            "treatment_asset_paths": treatment_asset_paths,
+            "task_path": "tasks/A1.md",
             "provider_config_path": "providers.json",
             "prompt_config_path": "prompts.json",
             "command_config_path": "commands.json",
@@ -183,7 +247,7 @@ def _live_inputs(
             "quiescence_grace_milliseconds": 500,
         },
         "randomization_seed": "fixed-seed",
-        "evidence_root": (tmp_path / "evidence").resolve().as_posix(),
+        "evidence_root": controller_root.as_posix(),
         "valid_block_count": 3,
         "max_live_attempt_count": 5,
         "smoke_id": "smoke-001",
@@ -198,7 +262,14 @@ def _live_inputs(
         "treatments": [
             {
                 "treatment_id": treatment_id,
-                "source_digest": _digest(f"{treatment_id.lower()}-source"),
+                "source_asset_paths": [
+                    f"{treatment_id.lower()}.json",
+                    "source.py",
+                ],
+                "source_digest": _bundle_digest(
+                    manifest,
+                    [f"{treatment_id.lower()}.json", "source.py"],
+                ),
                 "command_digest": command_digests[treatment_id],
                 "command_config_path": f"{treatment_id.lower()}.json",
                 "provider_call_bounds": {
@@ -209,6 +280,26 @@ def _live_inputs(
             for treatment_id in product_roots
         ],
     }
+    lock["task"]["profile_digest"] = canonical_sha256(
+        {
+            "profile_version": "lean-pilot-task-profile.v1",
+            "task_id": lock["task"]["task_id"],
+            "source_path": lock["task"]["source_path"],
+            "brief_digest": lock["task"]["brief_digest"],
+            "archive_digest": lock["archive"]["archive_digest"],
+            "selected_final_files": lock["review"]["selected_final_files"],
+            "permitted_check_evidence_names": lock["review"][
+                "permitted_check_evidence_names"
+            ],
+            "visible_check": lock["apparatus"]["visible_check"],
+            "product_projection_exclusions": lock["apparatus"][
+                "product_projection_exclusions"
+            ],
+            "evaluator_bundle_digest": lock["review"]["evaluator"][
+                "bundle_digest"
+            ],
+        }
+    )
     block = {
         "record_kind": "block_attempt.v1",
         "pilot_lock_digest": canonical_sha256(lock),
@@ -228,7 +319,9 @@ def _live_inputs(
                 ).digest,
                 "provider_call_count": 1 if treatment_id == "DIRECT" else 3,
                 "elapsed_milliseconds": 100,
-                "evidence_references": [f"evidence/{treatment_id}.json"],
+                "evidence_references": [
+                    f"live-001/arm-{index}/check-stdout.txt"
+                ],
                 "token_counts": "UNKNOWN",
                 "cost": "UNKNOWN",
             }
@@ -255,6 +348,28 @@ def _snapshot(root: Path) -> dict[str, bytes]:
     }
 
 
+def _locked_selected_files(
+    lock: dict[str, Any],
+    product_roots: dict[str, Path],
+) -> dict[str, tuple[str, ...]]:
+    selected = tuple(lock["review"]["selected_final_files"])
+    return {treatment_id: selected for treatment_id in product_roots}
+
+
+def _locked_check_evidence(
+    lock: dict[str, Any],
+    block: dict[str, Any],
+) -> dict[str, tuple[str, ...]]:
+    names = tuple(lock["review"]["permitted_check_evidence_names"])
+    return {
+        execution["treatment_id"]: tuple(
+            f"{block['block_id']}/{execution['opaque_arm_label']}/{name}"
+            for name in names
+        )
+        for execution in block["treatment_executions"]
+    }
+
+
 def test_build_blind_packages_is_deterministic_and_contains_only_allowlisted_evidence(
     tmp_path: Path,
 ) -> None:
@@ -266,22 +381,15 @@ def test_build_blind_packages_is_deterministic_and_contains_only_allowlisted_evi
         output_root,
         controller_root,
     ) = _live_inputs(tmp_path)
-    selected = {
-        treatment_id: ("result.txt",) for treatment_id in product_roots
-    }
-    checks = {
-        treatment_id: (
-            f"checks/{treatment_id.lower()}/visible.txt",
-        )
-        for treatment_id in product_roots
-    }
+    selected = _locked_selected_files(lock, product_roots)
+    checks = _locked_check_evidence(lock, block)
 
     packages = build_blind_packages(
         lock=lock,
         block=block,
         base_root=base_root,
         product_roots=product_roots,
-        task_path="task.md",
+        task_path=lock["apparatus"]["task_path"],
         selected_final_files=selected,
         permitted_check_evidence=checks,
         output_root=output_root,
@@ -308,12 +416,12 @@ def test_build_blind_packages_is_deterministic_and_contains_only_allowlisted_evi
     payload_paths = {entry["path"] for entry in manifest["files"]}
     assert "task.md" in payload_paths
     for label in labels:
-        assert f"candidates/{label}/diff.patch" in payload_paths
-        assert f"candidates/{label}/files/result.txt" in payload_paths
-        assert (
-            f"candidates/{label}/checks/check-001-visible.txt"
-            in payload_paths
-        )
+            assert f"candidates/{label}/diff.patch" in payload_paths
+            assert f"candidates/{label}/files/result.txt" in payload_paths
+            assert (
+                f"candidates/{label}/checks/check-001-check-stdout.txt"
+                in payload_paths
+            )
     assert not any("not-selected" in path for path in payload_paths)
     diff_text = b"\n".join(
         (package_root / f"candidates/{label}/diff.patch").read_bytes()
@@ -345,7 +453,7 @@ def test_build_blind_packages_is_deterministic_and_contains_only_allowlisted_evi
     ):
         assert forbidden not in reviewer_bytes
 
-    mapping_path = controller_root / "label-map.json"
+    mapping_path = controller_root / "label-maps" / "live-001.json"
     mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
     assert set(mapping["packages"]["live-001"]["labels"].values()) == {
         "DIRECT",
@@ -367,17 +475,9 @@ def test_build_blind_packages_is_deterministic_and_contains_only_allowlisted_evi
         block=block_2,
         base_root=base_root_2,
         product_roots=product_roots_2,
-        task_path="task.md",
-        selected_final_files={
-            treatment_id: ("result.txt",)
-            for treatment_id in product_roots_2
-        },
-        permitted_check_evidence={
-            treatment_id: (
-                f"checks/{treatment_id.lower()}/visible.txt",
-            )
-            for treatment_id in product_roots_2
-        },
+        task_path=lock_2["apparatus"]["task_path"],
+        selected_final_files=_locked_selected_files(lock_2, product_roots_2),
+        permitted_check_evidence=_locked_check_evidence(lock_2, block_2),
         output_root=output_root_2,
         controller_root=controller_root_2,
     )
@@ -385,8 +485,224 @@ def test_build_blind_packages_is_deterministic_and_contains_only_allowlisted_evi
     assert json.loads(
         mapping_path.read_text(encoding="utf-8")
     )["packages"] == json.loads(
-        (controller_root_2 / "label-map.json").read_text(encoding="utf-8")
+        (controller_root_2 / "label-maps" / "live-001.json").read_text(
+            encoding="utf-8"
+        )
     )["packages"]
+
+
+def test_build_blind_packages_retains_one_controller_map_per_block(
+    tmp_path: Path,
+) -> None:
+    lock, block, base, products, output, controller = _live_inputs(tmp_path)
+    second_block = copy.deepcopy(block)
+    second_block["sequence_index"] = 1
+    second_block["block_id"] = "live-002"
+    for execution in second_block["treatment_executions"]:
+        arm = execution["opaque_arm_label"]
+        evidence_path = f"live-002/{arm}/check-stdout.txt"
+        _write(controller / evidence_path, "PASS\n")
+        execution["evidence_references"] = [evidence_path]
+
+    first_packages = build_blind_packages(
+        lock=lock,
+        block=block,
+        base_root=base,
+        product_roots=products,
+        task_path=lock["apparatus"]["task_path"],
+        selected_final_files=_locked_selected_files(lock, products),
+        permitted_check_evidence=_locked_check_evidence(lock, block),
+        output_root=output,
+        controller_root=controller,
+    )
+    second_packages = build_blind_packages(
+        lock=lock,
+        block=second_block,
+        base_root=base,
+        product_roots=products,
+        task_path=lock["apparatus"]["task_path"],
+        selected_final_files=_locked_selected_files(lock, products),
+        permitted_check_evidence=_locked_check_evidence(lock, second_block),
+        output_root=tmp_path / "packages-2",
+        controller_root=controller,
+    )
+
+    assert set(first_packages) == {"live-001"}
+    assert set(second_packages) == {"live-002"}
+    first_mapping = json.loads(
+        (controller / "label-maps" / "live-001.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    second_mapping = json.loads(
+        (controller / "label-maps" / "live-002.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert set(first_mapping["packages"]) == {"live-001"}
+    assert set(second_mapping["packages"]) == {"live-002"}
+
+
+def test_build_blind_packages_rejects_existing_controller_map_without_mutation(
+    tmp_path: Path,
+) -> None:
+    lock, block, base, products, output, controller = _live_inputs(tmp_path)
+    mapping_path = controller / "label-maps" / "live-001.json"
+    original = b"existing-controller-map\n"
+    mapping_path.parent.mkdir()
+    mapping_path.write_bytes(original)
+
+    with pytest.raises(EvaluationError) as caught:
+        build_blind_packages(
+            lock=lock,
+            block=block,
+            base_root=base,
+            product_roots=products,
+            task_path=lock["apparatus"]["task_path"],
+            selected_final_files=_locked_selected_files(lock, products),
+            permitted_check_evidence=_locked_check_evidence(lock, block),
+            output_root=output,
+            controller_root=controller,
+        )
+
+    assert caught.value.code == "evaluation_output_exists"
+    assert mapping_path.read_bytes() == original
+
+
+def test_build_blind_packages_rejects_controller_map_directory(
+    tmp_path: Path,
+) -> None:
+    lock, block, base, products, output, controller = _live_inputs(tmp_path)
+    mapping_path = controller / "label-maps" / "live-001.json"
+    mapping_path.mkdir(parents=True)
+
+    with pytest.raises(EvaluationError) as caught:
+        build_blind_packages(
+            lock=lock,
+            block=block,
+            base_root=base,
+            product_roots=products,
+            task_path=lock["apparatus"]["task_path"],
+            selected_final_files=_locked_selected_files(lock, products),
+            permitted_check_evidence=_locked_check_evidence(lock, block),
+            output_root=output,
+            controller_root=controller,
+        )
+
+    assert caught.value.code == "evaluation_output_exists"
+    assert mapping_path.is_dir()
+
+
+def test_build_blind_packages_rejects_controller_map_symlink_without_following(
+    tmp_path: Path,
+) -> None:
+    lock, block, base, products, output, controller = _live_inputs(tmp_path)
+    external = tmp_path / "external-controller-map.json"
+    original = b"external-controller-state\n"
+    external.write_bytes(original)
+    mapping_path = controller / "label-maps" / "live-001.json"
+    mapping_path.parent.mkdir()
+    mapping_path.symlink_to(external)
+
+    with pytest.raises(EvaluationError) as caught:
+        build_blind_packages(
+            lock=lock,
+            block=block,
+            base_root=base,
+            product_roots=products,
+            task_path=lock["apparatus"]["task_path"],
+            selected_final_files=_locked_selected_files(lock, products),
+            permitted_check_evidence=_locked_check_evidence(lock, block),
+            output_root=output,
+            controller_root=controller,
+        )
+
+    assert caught.value.code == "evaluation_output_exists"
+    assert mapping_path.is_symlink()
+    assert external.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["selected_files", "check_evidence", "evidence_root"],
+)
+def test_build_blind_packages_rejects_caller_allowlist_or_evidence_root_drift(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    lock, block, base, products, output, controller = _live_inputs(tmp_path)
+    selected = _locked_selected_files(lock, products)
+    checks = _locked_check_evidence(lock, block)
+    supplied_controller = controller
+    if mutation == "selected_files":
+        selected = {
+            treatment_id: ("not-selected.txt",)
+            for treatment_id in products
+        }
+    elif mutation == "check_evidence":
+        _write(controller / "unlocked-check.txt", "PASS\n")
+        checks = {
+            treatment_id: ("unlocked-check.txt",)
+            for treatment_id in products
+        }
+    else:
+        supplied_controller = (tmp_path / "different-evidence").resolve()
+        for paths in checks.values():
+            for relative_path in paths:
+                _write(supplied_controller / relative_path, "PASS\n")
+
+    with pytest.raises(EvaluationError) as caught:
+        build_blind_packages(
+            lock=lock,
+            block=block,
+            base_root=base,
+            product_roots=products,
+            task_path=lock["apparatus"]["task_path"],
+            selected_final_files=selected,
+            permitted_check_evidence=checks,
+            output_root=output,
+            controller_root=supplied_controller,
+        )
+
+    assert caught.value.code == "evaluation_product_binding_invalid"
+
+
+@pytest.mark.parametrize(
+    "overlap_name",
+    ["base", "product", "output", "evidence"],
+)
+def test_build_blind_packages_rejects_apparatus_root_overlap(
+    tmp_path: Path,
+    overlap_name: str,
+) -> None:
+    lock, block, base, products, output, controller = _live_inputs(tmp_path)
+    overlap_roots = {
+        "base": base,
+        "product": products["DIRECT"],
+        "output": output,
+        "evidence": controller,
+    }
+    if overlap_name == "output":
+        output.mkdir()
+    lock["apparatus"]["control_root"] = overlap_roots[
+        overlap_name
+    ].resolve().as_posix()
+    block["pilot_lock_digest"] = canonical_sha256(lock)
+
+    with pytest.raises(EvaluationError) as caught:
+        build_blind_packages(
+            lock=lock,
+            block=block,
+            base_root=base,
+            product_roots=products,
+            task_path=lock["apparatus"]["task_path"],
+            selected_final_files=_locked_selected_files(lock, products),
+            permitted_check_evidence=_locked_check_evidence(lock, block),
+            output_root=output,
+            controller_root=controller,
+        )
+
+    assert caught.value.code == "evaluation_root_overlap"
 
 
 def test_build_blind_packages_rejects_lock_block_or_frozen_product_drift(
@@ -401,11 +717,9 @@ def test_build_blind_packages_rejects_lock_block_or_frozen_product_drift(
             block=block,
             base_root=base,
             product_roots=products,
-            task_path="task.md",
-            selected_final_files={key: ("result.txt",) for key in products},
-            permitted_check_evidence={
-                key: (f"checks/{key.lower()}/visible.txt",) for key in products
-            },
+            task_path=lock["apparatus"]["task_path"],
+            selected_final_files=_locked_selected_files(lock, products),
+            permitted_check_evidence=_locked_check_evidence(lock, block),
             output_root=output,
             controller_root=controller,
         )
@@ -442,16 +756,37 @@ def test_build_blind_packages_requires_exact_live_execution_lineage(
             block=block,
             base_root=base,
             product_roots=products,
-            task_path="task.md",
-            selected_final_files={key: ("result.txt",) for key in products},
-            permitted_check_evidence={
-                key: (f"checks/{key.lower()}/visible.txt",) for key in products
-            },
+            task_path=lock["apparatus"]["task_path"],
+            selected_final_files=_locked_selected_files(lock, products),
+            permitted_check_evidence=_locked_check_evidence(lock, block),
             output_root=output,
             controller_root=controller,
         )
 
     assert caught.value.code == expected_code
+
+
+def test_build_blind_packages_accepts_the_locked_valid_smoke_lineage(
+    tmp_path: Path,
+) -> None:
+    lock, block, base, products, output, controller = _live_inputs(tmp_path)
+    block["attempt_class"] = "SMOKE"
+    block["block_id"] = lock["smoke_id"]
+    block["sequence_index"] = 0
+
+    packages = build_blind_packages(
+        lock=lock,
+        block=block,
+        base_root=base,
+        product_roots=products,
+        task_path=lock["apparatus"]["task_path"],
+        selected_final_files=_locked_selected_files(lock, products),
+        permitted_check_evidence=_locked_check_evidence(lock, block),
+        output_root=output,
+        controller_root=controller,
+    )
+
+    assert set(packages) == {lock["smoke_id"]}
 
 
 def test_build_blind_packages_fails_closed_on_identity_in_full_diff(
@@ -468,15 +803,40 @@ def test_build_blind_packages_fails_closed_on_identity_in_full_diff(
             block=block,
             base_root=base,
             product_roots=products,
-            task_path="task.md",
-            selected_final_files={key: ("result.txt",) for key in products},
-            permitted_check_evidence={
-                key: (f"checks/{key.lower()}/visible.txt",) for key in products
-            },
+            task_path=lock["apparatus"]["task_path"],
+            selected_final_files=_locked_selected_files(lock, products),
+            permitted_check_evidence=_locked_check_evidence(lock, block),
             output_root=output,
             controller_root=controller,
         )
     assert caught.value.code == "evaluation_blinding_violation"
+
+
+def test_build_blind_packages_does_not_treat_lowercase_domain_prose_as_identity(
+    tmp_path: Path,
+) -> None:
+    lock, block, base, products, output, controller = _live_inputs(tmp_path)
+    _write(
+        products["DIRECT"] / "not-selected.txt",
+        "Model the direct beam without clipping.\n",
+    )
+    block["treatment_executions"][0]["product_manifest_digest"] = freeze_product(
+        products["DIRECT"], ()
+    ).digest
+
+    packages = build_blind_packages(
+        lock=lock,
+        block=block,
+        base_root=base,
+        product_roots=products,
+        task_path=lock["apparatus"]["task_path"],
+        selected_final_files=_locked_selected_files(lock, products),
+        permitted_check_evidence=_locked_check_evidence(lock, block),
+        output_root=output,
+        controller_root=controller,
+    )
+
+    assert set(packages) == {"live-001"}
 
 
 @pytest.mark.parametrize("unsafe_id", ["../escape", "/absolute", ".", "a/b"])
@@ -491,11 +851,9 @@ def test_build_blind_packages_rejects_unsafe_block_id(
             block=block,
             base_root=base,
             product_roots=products,
-            task_path="task.md",
-            selected_final_files={key: ("result.txt",) for key in products},
-            permitted_check_evidence={
-                key: (f"checks/{key.lower()}/visible.txt",) for key in products
-            },
+            task_path=lock["apparatus"]["task_path"],
+            selected_final_files=_locked_selected_files(lock, products),
+            permitted_check_evidence=_locked_check_evidence(lock, block),
             output_root=output,
             controller_root=controller,
         )
@@ -531,15 +889,8 @@ def test_build_blind_packages_rejects_unsafe_or_incomplete_explicit_inputs(
         output_root,
         controller_root,
     ) = _live_inputs(tmp_path)
-    selected = {
-        treatment_id: ("result.txt",) for treatment_id in product_roots
-    }
-    checks = {
-        treatment_id: (
-            f"checks/{treatment_id.lower()}/visible.txt",
-        )
-        for treatment_id in product_roots
-    }
+    selected = _locked_selected_files(lock, product_roots)
+    checks = _locked_check_evidence(lock, block)
     if mutation == "selected_escape":
         selected["DIRECT"] = ("../not-selected.txt",)
     elif mutation == "check_absolute":
@@ -547,9 +898,10 @@ def test_build_blind_packages_rejects_unsafe_or_incomplete_explicit_inputs(
     elif mutation == "selected_duplicate":
         selected["DIRECT"] = ("result.txt", "result.txt")
     elif mutation == "check_duplicate":
+        locked_path = checks["DIRECT"][0]
         checks["DIRECT"] = (
-            "checks/direct/visible.txt",
-            "checks/direct/visible.txt",
+            locked_path,
+            locked_path,
         )
     elif mutation == "selected_nul":
         selected["DIRECT"] = ("result.txt\x00suffix",)
@@ -564,7 +916,7 @@ def test_build_blind_packages_rejects_unsafe_or_incomplete_explicit_inputs(
             block=block,
             base_root=base_root,
             product_roots=product_roots,
-            task_path="task.md",
+            task_path=lock["apparatus"]["task_path"],
             selected_final_files=selected,
             permitted_check_evidence=checks,
             output_root=output_root,
@@ -1654,12 +2006,17 @@ def _live_review(package_root: Path) -> dict[str, Any]:
         ],
         "pairwise_results": [
             {
-                "candidate_a_label": labels[0],
-                "candidate_b_label": labels[1],
+                "candidate_a_label": labels[left_index],
+                "candidate_b_label": labels[right_index],
                 "outcome": "INDETERMINATE",
                 "rationale": "The cited evidence is inconclusive.",
-                "evidence_citations": citations[:2],
+                "evidence_citations": [
+                    citations[left_index],
+                    citations[right_index],
+                ],
             }
+            for left_index in range(len(labels))
+            for right_index in range(left_index + 1, len(labels))
         ],
     }
 
@@ -1678,17 +2035,9 @@ def _write_live_package(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
         block=block,
         base_root=base_root,
         product_roots=product_roots,
-        task_path="task.md",
-        selected_final_files={
-            treatment_id: ("result.txt",)
-            for treatment_id in product_roots
-        },
-        permitted_check_evidence={
-            treatment_id: (
-                f"checks/{treatment_id.lower()}/visible.txt",
-            )
-            for treatment_id in product_roots
-        },
+        task_path=lock["apparatus"]["task_path"],
+        selected_final_files=_locked_selected_files(lock, product_roots),
+        permitted_check_evidence=_locked_check_evidence(lock, block),
         output_root=output_root,
         controller_root=controller_root,
     )["live-001"]
@@ -1715,6 +2064,7 @@ def test_ingest_review_accepts_unknown_guesses_and_exact_package_citations(
             ),
             "package_id": "live-001",
             "package_manifest_digest": _digest_bytes(manifest_bytes),
+            "reviewer_id": record["reviewer_id"],
         },
         used_session_ids=set(),
         prior_records=(),
@@ -1725,6 +2075,296 @@ def test_ingest_review_accepts_unknown_guesses_and_exact_package_citations(
         item["sealed_treatment_guess"] == "UNKNOWN"
         for item in loaded["candidates"]
     )
+
+
+def test_ingest_review_accepts_complete_pair_coverage_in_either_orientation(
+    tmp_path: Path,
+) -> None:
+    package_root, record = _write_live_package(tmp_path)
+    pair = record["pairwise_results"][1]
+    pair["candidate_a_label"], pair["candidate_b_label"] = (
+        pair["candidate_b_label"],
+        pair["candidate_a_label"],
+    )
+    path = tmp_path / "review.json"
+    path.write_bytes(canonical_json_bytes(record))
+    manifest_bytes = (package_root / "manifest.json").read_bytes()
+
+    loaded = ingest_review(
+        path,
+        package_root=package_root,
+        expected_bindings={
+            "pilot_lock_digest": _digest("pilot-lock"),
+            "rubric_digest": _digest("rubric"),
+            "review_class": "LIVE",
+            "candidate_labels": tuple(
+                item["opaque_label"] for item in record["candidates"]
+            ),
+            "package_id": "live-001",
+            "package_manifest_digest": _digest_bytes(manifest_bytes),
+            "reviewer_id": record["reviewer_id"],
+        },
+        used_session_ids=set(),
+        prior_records=(),
+    )
+
+    assert loaded == record
+
+
+def test_ingest_review_rejects_manifest_candidate_label_binding_drift(
+    tmp_path: Path,
+) -> None:
+    package_root, record = _write_live_package(tmp_path)
+    manifest_path = package_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["candidate_labels"] = [
+        "candidate-wrong-alpha",
+        "candidate-wrong-beta",
+        "candidate-wrong-gamma",
+    ]
+    manifest_bytes = canonical_json_bytes(manifest)
+    manifest_path.write_bytes(manifest_bytes)
+    path = tmp_path / "review.json"
+    path.write_bytes(canonical_json_bytes(record))
+
+    with pytest.raises(EvaluationError) as caught:
+        ingest_review(
+            path,
+            package_root=package_root,
+            expected_bindings={
+                "pilot_lock_digest": _digest("pilot-lock"),
+                "rubric_digest": _digest("rubric"),
+                "review_class": "LIVE",
+                "candidate_labels": tuple(
+                    item["opaque_label"] for item in record["candidates"]
+                ),
+                "package_id": "live-001",
+                "package_manifest_digest": _digest_bytes(manifest_bytes),
+                "reviewer_id": record["reviewer_id"],
+            },
+            used_session_ids=set(),
+            prior_records=(),
+        )
+
+    assert caught.value.code == "review_binding_mismatch"
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_code"),
+    [
+        ("missing", "review_package_invalid"),
+        ("unsafe", "evaluation_path_invalid"),
+        ("undeclared", "review_package_invalid"),
+    ],
+)
+def test_ingest_review_rejects_missing_unsafe_or_undeclared_manifest_task_path(
+    tmp_path: Path,
+    mutation: str,
+    expected_code: str,
+) -> None:
+    package_root, record = _write_live_package(tmp_path)
+    manifest_path = package_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if mutation == "missing":
+        del manifest["task_path"]
+    elif mutation == "unsafe":
+        manifest["task_path"] = "../task.md"
+    else:
+        manifest["task_path"] = "undeclared-task.md"
+    manifest_bytes = canonical_json_bytes(manifest)
+    manifest_path.write_bytes(manifest_bytes)
+    path = tmp_path / "review.json"
+    path.write_bytes(canonical_json_bytes(record))
+
+    with pytest.raises(EvaluationError) as caught:
+        ingest_review(
+            path,
+            package_root=package_root,
+            expected_bindings={
+                "pilot_lock_digest": _digest("pilot-lock"),
+                "rubric_digest": _digest("rubric"),
+                "review_class": "LIVE",
+                "candidate_labels": tuple(
+                    item["opaque_label"] for item in record["candidates"]
+                ),
+                "package_id": "live-001",
+                "package_manifest_digest": _digest_bytes(manifest_bytes),
+                "reviewer_id": record["reviewer_id"],
+            },
+            used_session_ids=set(),
+            prior_records=(),
+        )
+
+    assert caught.value.code == expected_code
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_code"),
+    [
+        ("missing", "review_binding_mismatch"),
+        ("duplicate", "review_binding_mismatch"),
+        ("reversed-duplicate", "review_binding_mismatch"),
+        ("extra", "review_record_invalid"),
+    ],
+)
+def test_ingest_review_rejects_incomplete_or_duplicate_pair_coverage(
+    tmp_path: Path,
+    mutation: str,
+    expected_code: str,
+) -> None:
+    package_root, record = _write_live_package(tmp_path)
+    if mutation == "missing":
+        record["pairwise_results"].pop()
+    elif mutation in {"duplicate", "reversed-duplicate"}:
+        duplicate = copy.deepcopy(record["pairwise_results"][0])
+        if mutation == "reversed-duplicate":
+            duplicate["candidate_a_label"], duplicate["candidate_b_label"] = (
+                duplicate["candidate_b_label"],
+                duplicate["candidate_a_label"],
+            )
+        else:
+            duplicate["outcome"] = "A"
+        record["pairwise_results"][-1] = duplicate
+    else:
+        duplicate = copy.deepcopy(record["pairwise_results"][0])
+        duplicate["outcome"] = "B"
+        record["pairwise_results"].append(duplicate)
+    path = tmp_path / "review.json"
+    path.write_bytes(canonical_json_bytes(record))
+    manifest_bytes = (package_root / "manifest.json").read_bytes()
+
+    with pytest.raises(EvaluationError) as caught:
+        ingest_review(
+            path,
+            package_root=package_root,
+            expected_bindings={
+                "pilot_lock_digest": _digest("pilot-lock"),
+                "rubric_digest": _digest("rubric"),
+                "review_class": "LIVE",
+                "candidate_labels": tuple(
+                    item["opaque_label"] for item in record["candidates"]
+                ),
+                "package_id": "live-001",
+                "package_manifest_digest": _digest_bytes(manifest_bytes),
+                "reviewer_id": record["reviewer_id"],
+            },
+            used_session_ids=set(),
+            prior_records=(),
+        )
+
+    assert caught.value.code == expected_code
+
+
+def test_ingest_review_rejects_smoke_as_a_review_class(
+    tmp_path: Path,
+) -> None:
+    package_root, record = _write_live_package(tmp_path)
+    record["review_class"] = "SMOKE"
+    path = tmp_path / "smoke-review.json"
+    path.write_bytes(canonical_json_bytes(record))
+
+    with pytest.raises(EvaluationError) as caught:
+        ingest_review(
+            path,
+            package_root=package_root,
+            expected_bindings={},
+            used_session_ids=set(),
+            prior_records=(),
+        )
+
+    assert caught.value.code == "review_record_invalid"
+
+
+def test_ingest_review_binds_expected_stable_reviewer_identity(
+    tmp_path: Path,
+) -> None:
+    package_root, record = _write_live_package(tmp_path)
+    path = tmp_path / "review.json"
+    path.write_bytes(canonical_json_bytes(record))
+    manifest_bytes = (package_root / "manifest.json").read_bytes()
+
+    with pytest.raises(EvaluationError) as caught:
+        ingest_review(
+            path,
+            package_root=package_root,
+            expected_bindings={
+                "pilot_lock_digest": _digest("pilot-lock"),
+                "rubric_digest": _digest("rubric"),
+                "review_class": "LIVE",
+                "candidate_labels": tuple(
+                    item["opaque_label"] for item in record["candidates"]
+                ),
+                "package_id": "live-001",
+                "package_manifest_digest": _digest_bytes(manifest_bytes),
+                "reviewer_id": "different-reviewer",
+            },
+            used_session_ids=set(),
+            prior_records=(),
+        )
+
+    assert caught.value.code == "review_binding_mismatch"
+
+
+def test_ingest_review_allows_stable_reviewer_across_blocks_on_fresh_session(
+    tmp_path: Path,
+) -> None:
+    package_root, record = _write_live_package(tmp_path)
+    path = tmp_path / "review.json"
+    path.write_bytes(canonical_json_bytes(record))
+    manifest_bytes = (package_root / "manifest.json").read_bytes()
+
+    loaded = ingest_review(
+        path,
+        package_root=package_root,
+        expected_bindings={
+            "pilot_lock_digest": _digest("pilot-lock"),
+            "rubric_digest": _digest("rubric"),
+            "review_class": "LIVE",
+            "candidate_labels": tuple(
+                item["opaque_label"] for item in record["candidates"]
+            ),
+            "package_id": "live-001",
+            "package_manifest_digest": _digest_bytes(manifest_bytes),
+            "reviewer_id": record["reviewer_id"],
+        },
+        used_session_ids={"session-prior-block"},
+        prior_records=(),
+    )
+
+    assert loaded == record
+
+
+def test_ingest_review_rejects_duplicate_reviewer_within_one_block(
+    tmp_path: Path,
+) -> None:
+    package_root, record = _write_live_package(tmp_path)
+    path = tmp_path / "review.json"
+    path.write_bytes(canonical_json_bytes(record))
+    manifest_bytes = (package_root / "manifest.json").read_bytes()
+    prior = copy.deepcopy(record)
+    prior["review_id"] = "review-same-block-prior"
+    prior["session_id"] = "session-same-block-prior"
+
+    with pytest.raises(EvaluationError) as caught:
+        ingest_review(
+            path,
+            package_root=package_root,
+            expected_bindings={
+                "pilot_lock_digest": _digest("pilot-lock"),
+                "rubric_digest": _digest("rubric"),
+                "review_class": "LIVE",
+                "candidate_labels": tuple(
+                    item["opaque_label"] for item in record["candidates"]
+                ),
+                "package_id": "live-001",
+                "package_manifest_digest": _digest_bytes(manifest_bytes),
+                "reviewer_id": record["reviewer_id"],
+            },
+            used_session_ids={"session-prior-block"},
+            prior_records=(prior,),
+        )
+
+    assert caught.value.code == "review_reviewer_reused"
 
 
 @pytest.mark.parametrize("node_kind", ["directory", "symlink", "fifo"])
@@ -1757,6 +2397,7 @@ def test_ingest_review_rejects_undeclared_nonregular_nodes(
                 ),
                 "package_id": "live-001",
                 "package_manifest_digest": _digest_bytes(manifest_bytes),
+                "reviewer_id": record["reviewer_id"],
             },
             used_session_ids=set(),
             prior_records=(),
@@ -1770,7 +2411,6 @@ def test_ingest_review_rejects_undeclared_nonregular_nodes(
     [
         ("session_ledger", "review_session_reused"),
         ("prior_session", "review_session_reused"),
-        ("prior_reviewer", "review_reviewer_reused"),
         ("citation_escape", "review_citation_escape"),
         ("nested_citation_escape", "review_citation_escape"),
         ("nested_citation_unmanifested", "review_citation_not_in_package"),
@@ -1797,6 +2437,7 @@ def test_ingest_review_rejects_reuse_escape_and_binding_mismatch(
         "package_manifest_digest": _digest_bytes(
             (package_root / "manifest.json").read_bytes()
         ),
+        "reviewer_id": record["reviewer_id"],
     }
     if mutation == "session_ledger":
         used_session_ids.add(record["session_id"])
@@ -1805,13 +2446,6 @@ def test_ingest_review_rejects_reuse_escape_and_binding_mismatch(
             {
                 "reviewer_id": "different-reviewer",
                 "session_id": record["session_id"],
-            }
-        )
-    elif mutation == "prior_reviewer":
-        prior_records.append(
-            {
-                "reviewer_id": record["reviewer_id"],
-                "session_id": "different-session",
             }
         )
     elif mutation == "citation_escape":
@@ -1883,6 +2517,7 @@ def test_ingest_review_rejects_any_package_manifest_or_payload_drift(
                 ),
                 "package_id": "live-001",
                 "package_manifest_digest": _digest_bytes(manifest_bytes),
+                "reviewer_id": record["reviewer_id"],
             },
             used_session_ids=set(),
             prior_records=(),

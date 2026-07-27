@@ -14,6 +14,8 @@ from typing import Any
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
+from ._contracts_pilot_lock import validate_pilot_lock
+
 
 _SCHEMA_PACKAGE = "orchestrator.experiments.schemas"
 _SCHEMA_NAME = "lean-pilot-records-v1.schema.json"
@@ -295,76 +297,6 @@ def _validate_summary_semantics(record: dict[str, Any]) -> None:
         )
 
 
-def _validate_pilot_lock_apparatus(record: dict[str, Any]) -> None:
-    if record["smoke_id"] in record["live_attempt_ids"]:
-        raise PilotContractError(
-            "$.smoke_id: must not collide with a live attempt ID"
-        )
-    apparatus = record["apparatus"]
-    manifest_by_path: dict[str, str] = {}
-    for index, asset in enumerate(apparatus["asset_manifest"]):
-        asset_path = asset["path"]
-        if asset_path in manifest_by_path:
-            raise PilotContractError(
-                "duplicate_asset_manifest_path:"
-                f"{asset_path}:$.apparatus.asset_manifest[{index}].path"
-            )
-        manifest_by_path[asset_path] = asset["sha256"]
-
-    for role in (
-        "task_path",
-        "provider_config_path",
-        "prompt_config_path",
-        "command_config_path",
-    ):
-        asset_path = apparatus[role]
-        if asset_path not in manifest_by_path:
-            raise PilotContractError(
-                f"missing_apparatus_asset:{role}:{asset_path}"
-            )
-
-    task_path = apparatus["task_path"]
-    if manifest_by_path[task_path] != record["task"]["brief_digest"]:
-        raise PilotContractError(f"task_brief_digest_mismatch:{task_path}")
-
-    environment = apparatus["environment"]
-    allowed_keys = set(environment["allowed_keys"])
-    credential_keys = set(environment["credential_keys"])
-    for controller_key in ("HOME", "TMPDIR"):
-        if controller_key not in allowed_keys:
-            raise PilotContractError(
-                f"missing_controller_environment_key:{controller_key}"
-            )
-        if controller_key in credential_keys:
-            raise PilotContractError(
-                "controller_environment_key_cannot_be_credential:"
-                f"{controller_key}"
-            )
-    for credential_key in sorted(credential_keys - allowed_keys):
-        raise PilotContractError(
-            f"credential_key_not_allowed:{credential_key}"
-        )
-
-    treatment_paths: set[str] = set()
-    for treatment in record["treatments"]:
-        treatment_id = treatment["treatment_id"]
-        command_path = treatment["command_config_path"]
-        if command_path in treatment_paths:
-            raise PilotContractError(
-                f"duplicate_treatment_command_config_path:{command_path}"
-            )
-        treatment_paths.add(command_path)
-        if command_path not in manifest_by_path:
-            raise PilotContractError(
-                "missing_treatment_command_config_asset:"
-                f"{treatment_id}:{command_path}"
-            )
-        if manifest_by_path[command_path] != treatment["command_digest"]:
-            raise PilotContractError(
-                f"treatment_command_digest_mismatch:{treatment_id}:{command_path}"
-            )
-
-
 def validate_record(record: object) -> None:
     """Validate one of the four exact lean-pilot record kinds."""
 
@@ -392,7 +324,11 @@ def validate_record(record: object) -> None:
         raise PilotContractError(f"record validation failed:\n{details}")
 
     if record_kind == "pilot_lock.v1":
-        _validate_pilot_lock_apparatus(record)
+        validate_pilot_lock(
+            record,
+            canonical_sha256=canonical_sha256,
+            error=PilotContractError,
+        )
     elif record_kind == "pilot_summary.v1":
         _validate_reduced_summary_fractions(record)
         _validate_summary_semantics(record)

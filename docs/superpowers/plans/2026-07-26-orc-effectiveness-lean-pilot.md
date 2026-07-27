@@ -16,11 +16,14 @@ exploratory blocks. The coordinator is frozen and parity-tested against the
 
 **Tech Stack:** Python 3, `pytest`, `jsonschema`, `tarfile`, `subprocess`, SHA-256 canonical JSON, Workflow Lisp, existing provider CLIs, and JSON evidence.
 
-> **Execution status (2026-07-27):** Tasks 1–4 are committed. Task 5 and Task
-> 6 reusable code and their contract corrections are implemented and focused
-> green. The pre-calibration module-size split and scoped quality re-review
-> passed. Calibration is the active next step. No calibration reviewer
-> session, pilot lock, smoke, or live `A1` attempt has run.
+> **Execution status (2026-07-27):** Tasks 1–6 and the pre-calibration
+> module-size gate are focused green. Locked A0 calibration round 1 passed with
+> six unique sessions and external seal
+> `sha256:ad2570d72a0608173232d53beee7990c0e2afaa198f549bae8769083cc8e7f8f`.
+> Task 6B, defined by
+> `docs/plans/2026-07-27-orc-effectiveness-lean-pilot-task7-readiness-amendment.md`,
+> is the active source-edit gate. No pilot lock, real-provider smoke, or live
+> `A1` attempt has run.
 
 ## Global Constraints
 
@@ -202,6 +205,11 @@ Later work must not depend on an interface absent from this block.
   manifest, role paths for unmodified standard Workflow Lisp extern manifests,
   a closed environment identity/allowlist/credential partition, visible-check
   argv and timeout, product exclusions, and start/quiescence bounds.
+- Separates durable repository identity from its canonical local root and
+  binds a commit-relative source subtree plus exact Git tree object.
+- Requires an exact treatment-visible asset subset, per-treatment source-asset
+  closures, derived source/bundle/profile digests, and controller-only
+  evaluator/reviewer assets.
 - No task adds a fifth first-tranche record kind.
 
 - [ ] **Step 1: Write the contract tests**
@@ -230,6 +238,17 @@ Cover:
   command-configuration paths naming manifest entries whose digests match the
   locked treatment command digests; and the task-path entry matching the task
   brief digest;
+- an exact treatment-visible manifest subset that excludes every
+  controller-only review/evaluator asset; complete per-treatment source
+  closures containing their command configurations; and exact canonical
+  source, evaluator-bundle, reviewer-command-bundle, and task-profile digest
+  derivations;
+- exactly two stable calibrated reviewer IDs, the locked
+  `INDETERMINATE_ON_DISAGREEMENT` policy, safe selected-final-file and
+  check-evidence-name allowlists, and manifest-bound rubric,
+  calibration-seal, evaluator, and reviewer-command assets;
+- each treatment command configuration binding the canonical locked
+  provider-policy digest;
 - a nonempty unique environment-key allowlist using
   `[A-Za-z_][A-Za-z0-9_]*`, required controller-owned `HOME` and `TMPDIR`, and
   unique credential-key names that are a subset of the allowlist and exclude
@@ -310,10 +329,13 @@ Load the packaged schema with `importlib.resources.files`, select the matching `
 
 Express the local apparatus shape, path syntax, required fields, and recursive
 unknown-field rejection in Draft 2020-12 schema. After schema validation, run
-one narrow deterministic semantic check for manifest-path uniqueness, role and
-treatment path references, distinct treatment command paths, and the task and
-treatment digest equalities. `validate_record` does not inspect the filesystem;
-`load_record` receives the same semantic check through `validate_record`.
+one narrow deterministic semantic check for manifest-path uniqueness; role,
+treatment, source-closure, and review/evaluator-bundle references; the exact
+treatment-visible/controller-only partition; distinct treatment command paths;
+command/provider-policy binding; and the task, command, source, bundle, rubric,
+calibration-seal, and task-profile digest equalities. `validate_record` does
+not inspect the filesystem; `load_record` receives the same semantic check
+through `validate_record`.
 
 - [ ] **Step 4: Run GREEN**
 
@@ -353,7 +375,10 @@ git commit -m "feat(experiments): add lean pilot records"
 
 Create a temporary Git repository with regular files, an executable file, a directory, and a relative symlink. Cover:
 
-- materializing the same commit three times yields byte-identical manifests;
+- materializing the same `commit:subtree` three times yields byte-identical
+  rootless manifests;
+- a locked subtree whose resolved Git tree object differs from the expected
+  tree is rejected before extraction;
 - no destination contains `.git`;
 - archive entries with absolute paths or `..` are rejected before extraction;
 - duplicate members and file/directory path collisions are rejected;
@@ -382,14 +407,17 @@ Run Git without a shell:
 
 ```python
 archive = subprocess.run(
-    ["git", "-C", str(repo), "archive", "--format=tar", commit],
+    ["git", "-C", str(repo), "archive", "--format=tar", treeish],
     check=True,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
 ).stdout
 ```
 
-Open the bytes with `tarfile.open(fileobj=io.BytesIO(archive), mode="r:")`.
+Resolve `treeish` from the locked full commit plus normalized source-subtree
+path, require `git rev-parse <commit>:<subtree>` to equal the locked tree
+object, and only then open the bytes with
+`tarfile.open(fileobj=io.BytesIO(archive), mode="r:")`.
 Validate the full member table before any filesystem mutation: normalize each
 member as `PurePosixPath`; reject absolute, empty, parent, duplicate, colliding,
 or unsupported entries; and require every relative symlink target, resolved
@@ -445,9 +473,21 @@ git commit -m "feat(experiments): materialize and freeze pilot workspaces"
 - Constructs each `ArmCommand` from the verified configuration bytes and
   rejects missing configuration, uncontrolled environment keys, implicit
   commands/timeouts, or other defaults before launch.
-- Stages every verified manifest asset for each arm under one private
-  controller-owned apparatus root while preserving its normalized relative
-  path; the original `apparatus.control_root` is never candidate-visible.
+- Requires the manifest to describe the exact regular-file tree beneath
+  `apparatus.control_root`, rejecting any missing, duplicate, symlink,
+  nonregular, or extra node, then stages only
+  `apparatus.treatment_asset_paths` for each arm under one private
+  controller-owned apparatus root while preserving normalized relative paths;
+  controller-only assets and the original `apparatus.control_root` are never
+  candidate-visible.
+- Resolves the locked full commit and source-subtree path to the exact locked
+  Git tree before `STARTED`, materializes the rootless subtree, and verifies
+  its archive digest plus the archived task bytes against the locked task
+  brief before launch.
+- Recomputes each treatment's source-closure digest from its manifest rows and
+  requires its command configuration to bind the exact locked provider-policy
+  digest; neither source nor provider policy may be inherited from an
+  uncontrolled default.
 - Atomically persists one `block_attempt.v1`; valid attempts contain exactly
   three nested treatment executions.
 - Does not implement resume, a database, a reusable state machine, or
@@ -494,8 +534,9 @@ The fixture arm supports `success`, `timeout`, `nonzero`, `spawn-child`, and `pr
   while standard Workflow Lisp extern manifests compile unchanged;
 - prompt externs use only `asset_file` paths present in the verified manifest;
   dynamic `input_file` paths fail before `STARTED`;
-- every verified asset is staged for every arm at its manifest-relative path,
-  and launch remains independent of CWD, package location, and the original
+- every asset in `apparatus.treatment_asset_paths` is staged for every arm at
+  its manifest-relative path, no controller-only manifest asset is staged, and
+  launch remains independent of CWD, package location, and the original
   control root after preflight;
 - commands, the visible check, environment keys, exclusions, start skew, and
   quiescence grace all come from the verified lock/config assets rather than
@@ -542,8 +583,11 @@ manifests, and the three treatment launcher configurations from verified
 manifest bytes beneath `apparatus.control_root`. The three treatment command
 files must be distinct and each verified file digest must equal the
 treatment's locked `command_digest`; build `ArmCommand` only after those checks
-pass. Stage every verified manifest asset under each arm's private
-`apparatus_root`, preserving the normalized relative path. Bind the three
+pass. Stage a verified manifest asset under each arm's private
+`apparatus_root` if and only if it is named in the locked
+`apparatus.treatment_asset_paths` subset, preserving the normalized relative
+path. Keep controller-only evaluator, rubric, calibration, and reviewer assets
+out of every treatment root. Bind the three
 extern-manifest placeholders to their staged standard role manifests—not to
 the treatment launcher configuration. Do not infer assets from CWD, package
 locations, or repository/fixed paths.
@@ -908,12 +952,13 @@ git commit -m "feat(experiments): freeze lean pilot treatments"
 
 Cover:
 
-- live packages require a complete valid `pilot_lock.v1`, one `VALID` `LIVE`
-  `block_attempt.v1` bound to its canonical lock digest, exactly the three
-  locked treatments, exact block-index/live-ID and execution-command-digest
-  lineage, explicit disjoint roots, a freshly re-frozen complete base matching
-  the archive digest, and freshly re-frozen product manifests under the locked
-  projection exclusions;
+- pilot packages require a complete valid `pilot_lock.v1` and either its one
+  locked `VALID` `SMOKE` attempt or one ordered locked `VALID` `LIVE` attempt,
+  bound to the canonical lock digest with exactly the three locked treatments,
+  exact attempt-class/index/ID and execution-command-digest lineage, explicit
+  disjoint roots, a freshly re-frozen complete base matching the archive
+  digest, and freshly re-frozen product manifests under the locked projection
+  exclusions;
 - block, package, calibration, and reviewer IDs used in joins are safe single
   path components;
 - opaque label assignment is deterministic from the lock seed; labels appear
@@ -968,7 +1013,9 @@ Cover:
   raw-evidence, package, and review file binding; the same two opaque labels
   have exact `REFERENCE/BASE`, `BASE/REFERENCE`, and
   `REFERENCE/REFERENCE` roles across the three ordered packages;
-- live review ingestion rejects a reviewer/session reused from calibration or another live review;
+- live review ingestion binds the expected stable calibrated reviewer identity,
+  rejects reused sessions globally, and rejects duplicate reviewer coverage
+  within one block while permitting the same reviewer role on distinct blocks;
 - live review ingestion requires a treatment guess for each opaque candidate
   while keeping the label map unavailable until sealing;
 - evidence citations must resolve inside the supplied review package.
@@ -1287,23 +1334,93 @@ blocked until this review approves.
 
 ---
 
+## Task 6B: Close The Task 7 Readiness Contracts
+
+**Plan:** `docs/plans/2026-07-27-orc-effectiveness-lean-pilot-task7-readiness-amendment.md`
+
+**Execution boundary:** This is the final provider-free reusable-contract gate
+before Task 7's pilot-specific controller slice. It does not launch the smoke
+or a live A1 attempt and does not touch the paused provider-isolation
+implementation.
+
+- [x] Add RED contract tests for Git-subtree identity, closed apparatus
+  visibility, derived digests, review/evaluator bundles, and provider-policy
+  binding.
+- [x] Implement rootless `commit:subtree` allocation and verify the locked tree,
+  archive, source task, and staged task bytes.
+- [x] Stage only the explicit treatment-asset subset and reject extra
+  control-root nodes.
+- [x] Permit locked `VALID SMOKE` package construction without making smoke
+  reviewable or scorable.
+- [x] Publish each smoke/live label map once at the deterministic
+  `label-maps/<package-id>.json` path beneath the locked evidence root, without
+  overwrite or symlink following, and retain prior block maps.
+- [x] Bind reviewer slots exactly, allow stable reviewer identities across
+  blocks, and preserve global session freshness at ingestion and synthesis.
+- [x] Require caller allowlists to equal the locked selected-file and derived
+  check-evidence paths.
+- [x] Keep every `orchestrator/experiments` production module at or below 500
+  physical lines.
+- [x] Run focused and broad verification and obtain one scoped independent
+  contract/code re-review before evidence execution.
+
+---
+
 ## Task 7: Run The Apparatus Smoke And Bounded A1 Pilot
 
 **Files:**
 
+- Create:
+  `experiments/orc_effectiveness/lean_pilot/apparatus-source-map.json`
+- Create:
+  `experiments/orc_effectiveness/lean_pilot/evaluation/nanobragg-entrypoint.json`
+- Create:
+  `experiments/orc_effectiveness/lean_pilot/reviewers/live-review-command.json`
+- Create:
+  `experiments/orc_effectiveness/lean_pilot/reviewers/live-review-output.schema.json`
+- Create: `orchestrator/experiments/_pilot_prepare.py`
+- Create: `orchestrator/experiments/_pilot_evidence.py`
+- Create: `orchestrator/experiments/_pilot_review.py`
+- Create: `orchestrator/experiments/_pilot_controller.py`
+- Modify: `scripts/experiments/lean_pilot.py`
+- Test:
+  `tests/experiments/test_lean_pilot_controller_materialization.py`
+- Test: `tests/experiments/test_lean_pilot_hidden_evaluation.py`
+- Test: `tests/experiments/test_lean_pilot_review_execution.py`
+- Test: `tests/experiments/test_lean_pilot_controller.py`
+- Test fixture:
+  `tests/experiments/fixtures/lean_pilot/fake_reviewer_cli.py`
 - Create: `experiments/orc_effectiveness/lean_pilot/pilot-lock.json`
 - Create: `docs/reports/2026-07-26-orc-effectiveness-lean-pilot.md`
 - Modify only if status/routing changed: `docs/index.md`
 - Modify only if status/routing changed: `docs/design/README.md`
 - Modify only if status/routing changed: `docs/capability_status_matrix.md`
 
-**Execution boundary:** This task creates evidence. It does not modify reusable runtime, Workflow Lisp, provider-isolation, or PtychoPINN product code.
+**Execution boundary:** This task first implements a provider-free,
+pilot-specific controller, then creates evidence. It adds no public API,
+record kind, reusable framework, or module above 500 physical lines. It does
+not modify reusable runtime, Workflow Lisp, provider-isolation, or PtychoPINN
+product code.
 
-- [ ] **Step 1: Require passing calibration, then freeze the pilot lock before any real-provider outcome**
+- [ ] **Step 1: Implement the pilot-specific controller, require passing calibration, then freeze the pilot lock before any real-provider outcome**
 
 Enter this task only with a passing locked calibration. If both calibration
 rounds failed, preserve `CALIBRATION_FAILED`, complete Task 6 and its
 verification, route that terminal status, and skip every remaining Task 7 step.
+
+Keep `scripts/experiments/lean_pilot.py` as the thin command facade and add only
+`prepare` and `execute`. Put source/control-root/lock preparation, copied-product
+evaluation/package preparation, calibrated review/binding publication, and
+bounded sequencing respectively in `_pilot_prepare.py`, `_pilot_evidence.py`,
+`_pilot_review.py`, and `_pilot_controller.py`. Keep each private production
+module at or below 500 physical lines and add no export from
+`orchestrator.experiments`.
+
+`prepare` receives explicit source-map, repository-root, full-revision,
+fresh-control-root, fresh-evidence-root, calibration-seal, and lock-output
+paths. `execute` receives the immutable lock plus explicit disjoint work,
+evaluation-copy, package, and canonical reviewer-environment paths. Neither
+command may infer one of those inputs.
 
 Before authoring the lock, require a caller-supplied canonical absolute path
 for a fresh external apparatus control root. Reject the path if it already
@@ -1331,12 +1448,26 @@ exact flat apparatus paths:
 | `experiments/orc_effectiveness/lean_pilot/treatments/coordinator.json` | `treatments/coordinator.json` |
 | `experiments/orc_effectiveness/lean_pilot/treatments/orc.json` | `treatments/orc.json` |
 
-Task 5 adds its evaluator, rubric, calibration, and other review/config assets
-through a separately explicit mapping before this step is executed; do not
-discover or infer them from repository layout. Verify every derived regular
-file is byte-identical to its named canonical source, reject missing or
-extraneous files, and generate `apparatus.asset_manifest` only from that closed
-tree. After manifest generation, treat the external control root as immutable
+`experiments/orc_effectiveness/lean_pilot/apparatus-source-map.json` is the
+single closed mapping. Read repository sources from one caller-named full Git
+commit, never the live working tree. It names the seventeen treatment-visible
+destinations in the table above and classifies the following controller-only
+closure explicitly:
+
+- `review/rubric.md`, `review/calibration-seal.json`, and
+  `review/calibration-lock.json`;
+- `evaluation/config.json`, the nanoBragg evaluator module at its existing
+  repository-shaped relative path, and exactly its runtime `cases.json`,
+  expected-tensor, and hidden-input fixtures; and
+- `review/reviewer-command.json` plus
+  `review/review-result.schema.json`.
+
+Do not discover or infer these assets from repository layout. Verify every
+derived regular file is byte-identical to its named canonical source, reject
+missing or extraneous files, and generate `apparatus.asset_manifest` only from
+that closed tree. Bind the exact `treatment_asset_paths` subset; evaluator,
+rubric, calibration, and reviewer-command assets remain controller-only.
+After manifest generation, treat the external control root as immutable
 through smoke and every live attempt. This is derived apparatus
 materialization, not a second authoritative source, CWD/package inference,
 hidden registry, fifth experiment record, or tracked flat snapshot.
@@ -1351,17 +1482,45 @@ Bind:
   provider, prompt, command-boundary, treatment-command, visible-check, and
   evaluator/config asset as a unique canonical relative path plus digest in
   `apparatus.asset_manifest`;
+- a durable repository identity plus explicit canonical repository root,
+  commit, source-subtree path, exact Git tree object, rootless archive digest,
+  and task path inside that subtree;
+- exact treatment-visible and controller-only asset partitioning,
+  per-treatment source-asset closures, and derived source digests;
 - task/provider/prompt/command-boundary role paths, each naming one manifest
   entry, with the task entry digest equal to `task.brief_digest`;
 - exact DIRECT, COORDINATOR, and ORC source/command digests plus three distinct
   treatment `command_config_path` values, each naming the manifest entry whose
   digest equals that treatment's command digest;
-- provider/model/effort/tool/timeout policy;
+- this exact prospective provider policy object:
+
+  ```json
+  {
+    "family": "codex-cli",
+    "model": "gpt-5.5",
+    "reasoning_effort": "high",
+    "tool_policy": "codex_unrestricted_workspace",
+    "timeout_milliseconds": 1800000,
+    "currency": "USD"
+  }
+  ```
+
+  Its canonical digest is
+  `sha256:f6894af0098ad618ceaf74d6e46a76ab0519549d15f31f8b8685e40862bd0b25`;
+  the immutable pilot lock is the runtime authority for the object;
 - environment identity and the complete nonempty allowed-key list, with no
   ambient environment key implied, plus the unique allowed credential-key
   subset excluding `HOME` and `TMPDIR`;
+- the exact launcher partition: treatment configurations supply only `PATH`
+  and `PYTHONUNBUFFERED`, the controller supplies `HOME` and `TMPDIR`, and
+  `SecretsManager` alone supplies credential-backed `CODEX_HOME`; the lock
+  allowlist is exactly those five names and its sole credential key is
+  `CODEX_HOME`;
 - explicit visible-check argv and positive timeout;
-- reviewer rubric and passing calibration digests;
+- exactly two stable calibrated reviewer IDs, selected-final-file and
+  permitted-check-evidence-name allowlists, reviewer rubric and passing
+  calibration-seal paths/digests, controller-only evaluator/reviewer-command
+  bundle bindings, and `INDETERMINATE_ON_DISAGREEMENT`;
 - deterministic randomization seed;
 - explicit canonical relative product-projection exclusions;
 - positive maximum-start-skew and quiescence-grace bounds; and
@@ -1373,9 +1532,10 @@ each block, Task 3 verifies every manifest file and digest beneath the locked
 control root, validates the three unmodified standard extern manifests, and
 requires each prompt extern to bind a verified `asset_file` before checking all
 role/treatment/environment bindings and writing `STARTED`, allocating, or
-launching. It then stages every verified asset under each arm's private
-apparatus root at the same relative path; the original control root is not
-passed to any treatment.
+launching. It then stages only the verified assets named by
+`apparatus.treatment_asset_paths` under each arm's private apparatus root at
+the same relative path; controller-only assets and the original control root
+are not passed to any treatment.
 
 Validate:
 
@@ -1396,26 +1556,59 @@ not apparatus assets or permitted here. The mechanical smoke gate requires all
 three nested executions, process-group quiescence, frozen products, parsed
 call accounting, and generated blind packages; it does not score task quality
 and does not enter the live denominator.
+The smoke package cannot be bound to a `review_result.v1` or summary input.
 
 Treatment-specific failure is preserved and the locked live series proceeds
 without treatment changes. A shared apparatus defect yields
 `STOP_APPARATUS_NOT_VIABLE`; repairing it requires a separately locked pilot,
 not a second smoke or mutation of this denominator.
 
+Run the verified hidden evaluator only on a fresh projected copy whose source
+and copied manifests both equal the committed product digest. Evaluator
+`PASS`/`FAIL` is candidate evidence. If evaluator execution/output validation
+or blind-package construction fails after `run_block` has already committed a
+`VALID` smoke, preserve the attempt and incident artifacts, emit no fabricated
+summary, and require a separately locked pilot. Do not rewrite the committed
+attempt or add a fifth record to force `STOP_APPARATUS_NOT_VIABLE`.
+
 - [ ] **Step 3: Run up to five live attempts to obtain three valid A1 blocks**
 
 Launch each attempt with the next ordered opaque live ID from the immutable
-lock. Preserve every `INVALID`, `ABORTED`, or surviving `STARTED` record and
-advance to the next ID only for predeclared shared contrast-breaking faults.
-The runner rejects reused, skipped, or out-of-order IDs before allocation.
+lock. Preserve every `INVALID`, `ABORTED`, or surviving `STARTED` record; each
+consumes its ordered ID and is never retried. Do not launch the next ID until
+process-group quiescence is established. The runner rejects reused, skipped,
+or out-of-order IDs before allocation.
 
 Stop when three valid blocks accrue or after five live attempts, whichever
 comes first. Do not extend after viewing any result. Failure to accrue three
-valid blocks yields `STOP_INSUFFICIENT_VALID_BLOCKS`.
+valid blocks yields `STOP_INSUFFICIENT_VALID_BLOCKS`. `INVALID`, `ABORTED`,
+and surviving `STARTED` records consume their ordered IDs and are never rerun.
+Prepare hidden-evaluator evidence and the immutable per-block package/label map
+immediately for each valid attempt, but do not start live review until
+denominator collection is complete. The post-`VALID` apparatus-defect rule
+from Step 2 applies identically to live attempts.
 
 - [ ] **Step 4: Conduct blinded live review**
 
-For every valid block, generate opaque packages and obtain two fresh independent reviews. Use a third blinded adjudicator only for material disagreement. Seal all initial reviews before unblinding treatment/cost evidence.
+For every valid block, generate opaque packages and obtain one fresh session
+for each of the two stable calibrated reviewer identities. The locked
+`INDETERMINATE_ON_DISAGREEMENT` policy uses no uncalibrated adjudicator. Seal
+all initial reviews before unblinding treatment/cost evidence.
+
+Join each result to the exact package ID, canonical package-manifest digest,
+reviewer ID, rubric digest, review class, and manifest candidate-label order.
+The live schema requires exactly three candidates, all five dimensions for
+each, and all three unordered candidate pairs exactly once. Missing,
+duplicate, reversed-duplicate, or foreign-label pairs fail closed.
+
+Publish one immutable launch intent per reviewer slot. Validation failure
+before that intent consumes no session. Once the provider starts, never
+relaunch the slot; a retained complete terminal transport may be finalized
+provider-free, while an incomplete slot halts without unblinding or summary.
+Publish canonical review bindings for all required reviews before reading any
+label-map content and publishing canonical unblinding bindings. If five
+attempts yield fewer than three valid blocks, still review every valid block
+before generating the truthful shortfall summary.
 
 - [ ] **Step 5: Generate the authoritative pilot summary**
 

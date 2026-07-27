@@ -17,6 +17,7 @@ from orchestrator.contracts import output_contract as output_contract_module
 from orchestrator.demo.evaluators.nanobragg_entrypoint import (
     evaluate_workspace as evaluate_nanobragg_workspace,
 )
+from orchestrator.experiments import canonical_sha256
 from orchestrator.providers import (
     CallPolicyBinding,
     InputMode,
@@ -63,13 +64,26 @@ A1_SEED_ROOT = ROOT / "examples" / "demo_task_nanobragg_entrypoint_port"
 ENVIRONMENT_IDENTITY = (
     "sha256:0412722e0436c61866b7f0841f09baf8803853f41f4eb1192561a36437b317ca"
 )
+PROSPECTIVE_PROVIDER_POLICY = {
+    "family": "codex-cli",
+    "model": "gpt-5.5",
+    "reasoning_effort": "high",
+    "tool_policy": "codex_unrestricted_workspace",
+    "timeout_milliseconds": 1_800_000,
+    "currency": "USD",
+}
+EXPECTED_PROVIDER_POLICY_DIGEST = (
+    "sha256:f6894af0098ad618ceaf74d6e46a76ab0519549d15f31f8b8685e40862bd0b25"
+)
 LAUNCHER_ENVIRONMENT = {
-    "CODEX_HOME": "/home/ollie/.codex",
     "PATH": (
         "/home/ollie/.nvm/versions/node/v20.19.4/bin:"
         "/home/ollie/miniconda3/bin:/usr/local/bin:/usr/bin:/bin"
     ),
     "PYTHONUNBUFFERED": "1",
+}
+CONTROLLER_CREDENTIAL_ENVIRONMENT = {
+    "CODEX_HOME": "/home/ollie/.codex",
 }
 FLAT_APPARATUS_ASSETS = (
     (COORDINATOR_SCRIPT, "treatment_driver.py"),
@@ -790,6 +804,9 @@ def _run_coordinator(
 def test_frozen_launch_configs_use_standard_manifests_and_staged_assets(
     tmp_path: Path,
 ) -> None:
+    provider_policy_digest = canonical_sha256(PROSPECTIVE_PROVIDER_POLICY)
+    assert provider_policy_digest == EXPECTED_PROVIDER_POLICY_DIGEST
+
     configuration = load_frontend_initialization_configuration(
         workspace_root=ROOT,
         source_roots=(ORC_WORKFLOW.parent,),
@@ -834,10 +851,13 @@ def test_frozen_launch_configs_use_standard_manifests_and_staged_assets(
             "argv",
             "environment",
             "environment_identity",
+            "provider_policy_digest",
             "timeout_milliseconds",
         }
         assert config["environment"] == LAUNCHER_ENVIRONMENT
+        assert "CODEX_HOME" not in config["environment"]
         assert config["environment_identity"] == ENVIRONMENT_IDENTITY
+        assert config["provider_policy_digest"] == provider_policy_digest
         assert config["timeout_milliseconds"] == 18_000_000
         maximum_calls = 1 if treatment == "direct" else 9
         maximum_visible_checks = 0 if treatment == "direct" else 2
@@ -918,6 +938,7 @@ def test_staged_workflow_compiles_from_candidate_under_closed_environment(
     temporary.mkdir()
     environment = {
         **LAUNCHER_ENVIRONMENT,
+        **CONTROLLER_CREDENTIAL_ENVIRONMENT,
         "HOME": str(home),
         "TMPDIR": str(temporary),
     }
@@ -1070,6 +1091,7 @@ def test_frozen_treatment_argv_run_through_real_staged_launcher(
     temporary.mkdir()
     environment = {
         **config["environment"],
+        **CONTROLLER_CREDENTIAL_ENVIRONMENT,
         "PATH": f"{shim_root}:{config['environment']['PATH']}",
         "HOME": str(home),
         "TMPDIR": str(temporary),
@@ -1079,15 +1101,19 @@ def test_frozen_treatment_argv_run_through_real_staged_launcher(
         for key, value in environment.items()
         if key not in {"HOME", "TMPDIR", "PATH"}
     } == {
-        key: value
-        for key, value in config["environment"].items()
-        if key != "PATH"
+        **{
+            key: value
+            for key, value in config["environment"].items()
+            if key != "PATH"
+        },
+        **CONTROLLER_CREDENTIAL_ENVIRONMENT,
     }
     assert environment["PATH"] == (
         f"{shim_root}:{LAUNCHER_ENVIRONMENT['PATH']}"
     )
     assert set(environment) == {
         *LAUNCHER_ENVIRONMENT,
+        *CONTROLLER_CREDENTIAL_ENVIRONMENT,
         "HOME",
         "TMPDIR",
     }

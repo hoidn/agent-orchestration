@@ -95,10 +95,14 @@ def _sealed_inputs(
     lock_digest = canonical_sha256(lock)
     rubric_digest = lock["review"]["rubric_digest"]  # type: ignore[index]
     review_by_id: dict[str, dict[str, Any]] = {}
+    seen_session_ids: set[str] = set()
     for value in reviews:
         record = _validate_record(value, "review_result.v1")
         if record["review_id"] in review_by_id:
             _fail("review_binding_duplicate")
+        if record["session_id"] in seen_session_ids:
+            _fail("review_session_reused")
+        seen_session_ids.add(record["session_id"])
         review_by_id[record["review_id"]] = record
     if len(sealed_review_bindings) != len(review_by_id):
         _fail("review_binding_coverage")

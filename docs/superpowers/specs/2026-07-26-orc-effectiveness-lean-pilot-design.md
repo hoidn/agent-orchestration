@@ -21,11 +21,12 @@ Authority: this document owns the current experiment design and claim boundaries
 Copy safety: this is a target experiment design. It is not evidence that the pilot has run or that `.orc` is effective.
 
 Implementation status: the reusable contracts, workspace, runner, treatment
-parity, evaluation, and reporting slices are implemented and focused green.
-The oversized runner, evaluation, and reporting modules have been split into
-thin public facades over private responsibility owners, and their scoped
-quality re-review approved. Calibration is the active next step. No
-calibration provider session, pilot lock, smoke, or live block has run.
+parity, evaluation, and reporting slices and the module-size gate are focused
+green. Locked A0 calibration round 1 passed with six unique sessions; its
+external controller seal is
+`sha256:ad2570d72a0608173232d53beee7990c0e2afaa198f549bae8769083cc8e7f8f`.
+The Task 7 readiness amendment is the active source-edit gate. No pilot lock,
+real-provider smoke, or live A1 block has run.
 
 ## Summary
 
@@ -181,6 +182,18 @@ provider, model, CLI, environment, credential, tool, or timeout value is
 inferred from ambient state. This contract binds later execution but does not
 itself launch a reviewer or add another evidence-record kind.
 
+The same two reviewer identities are stable calibrated roles. Live review
+reuses those identities only in fresh provider sessions, with exactly one slot
+per reviewer per valid block. Session IDs are globally unique across
+calibration and live review; reviewer identity is not itself a one-use session
+identifier.
+
+The passing round is sealed by a canonical auxiliary controller index that
+binds the calibration lock, controller mapping, six review/package/session
+rows, and any excluded pre-session incidents. The seal is not a fifth record
+kind or an owner attestation. `pilot_lock.v1` binds its exact bytes and the
+calibrated reviewer-execution contract before live review.
+
 ### 4. Run only an exploratory controlled-task pilot first
 
 The first live series targets exactly three valid three-treatment blocks on
@@ -200,6 +213,15 @@ packages generated. A treatment-specific failure is preserved and does not
 authorize treatment changes or prevent the locked live series. A shared
 apparatus defect stops the pilot as `STOP_APPARATUS_NOT_VIABLE`; repairing it
 requires a separately locked rerun, not mutation of this pilot.
+
+The smoke package is never reviewed or scored. `review_result.v1` continues to
+admit only calibration or live review, and deterministic synthesis accepts
+package/review bindings only for valid live block IDs.
+
+Each smoke or live block's controller-only label map is published once beneath
+the locked evidence root at `label-maps/<package-id>.json`. Publication is
+atomic and exclusive, follows no symlink, rejects any preexisting target node,
+and retains every earlier block's map unchanged.
 
 Three valid blocks are directional evidence only. The program reports every
 valid, invalid, aborted, or surviving `STARTED` attempt and does not extend the
@@ -241,11 +263,13 @@ The lean pilot records the environment and any known visibility limitations. Con
 Each block lock binds:
 
 - task profile and task brief digests;
-- source repository identity and exact archive digest;
+- durable source repository identity, its explicit canonical local root, exact
+  commit, canonical relative source-subtree path, exact Git tree object, and
+  rootless subtree-archive digest;
 - provider family, model, reasoning effort, tool policy, and timeout;
 - one explicit apparatus control root as canonical absolute POSIX text, plus a
-  content manifest whose entries are unique canonical relative POSIX paths and
-  SHA-256 digests;
+  closed content manifest whose entries are the exact regular-file tree and an
+  explicit subset of treatment-visible asset paths;
 - canonical relative role paths for the task and the unmodified standard
   Workflow Lisp provider-extern, prompt-extern, and command-boundary manifests,
   each naming exactly one content-manifest entry;
@@ -257,13 +281,19 @@ Each block lock binds:
 - treatment command/source digests and one distinct canonical relative command
   configuration path per treatment, with each command path naming a manifest
   entry whose digest equals that treatment's locked command digest; each
+  treatment names its source-asset closure and derives its source digest from
+  the sorted corresponding manifest rows; each command configuration binds the
+  canonical provider-policy digest; each
   launcher configuration supplies exactly the allowed environment keys that
   are neither controller-owned nor credential-backed;
 - explicit canonical relative product-projection exclusions, which may be an
   empty list;
 - positive maximum-start-skew and quiescence-grace bounds, with no timing
   defaults;
-- reviewer rubric and calibration evidence digests;
+- exactly two stable calibrated reviewer IDs; selected-final-file and
+  check-evidence-name allowlists; rubric and calibration-seal paths/digests;
+  controller-only evaluator and reviewer-command asset closures and bundle
+  digests; and the locked policy `INDETERMINATE_ON_DISAGREEMENT`;
 - randomization seed and opaque treatment mapping;
 - exact valid-block target, maximum live-attempt count, one smoke ID, and an
   ordered list of five opaque live-attempt IDs;
@@ -377,17 +407,19 @@ The provider manifest is never reinterpreted as a credential declaration, and
 the command-boundary manifest is never reinterpreted as shared launcher
 environment.
 
-For each arm, the controller stages every verified manifest asset beneath one
-private controller-owned apparatus root while preserving its normalized
-relative path. Launcher substitution binds `{task_path}`, `{provider_config}`,
-`{prompt_config}`, and `{command_config}` to the corresponding staged role
-assets and binds `{apparatus_root}` to that private root. `HOME` and `TMPDIR`
-come only from the controller; credential keys come only from
-`SecretsManager`; and the treatment launcher supplies exactly the remaining
-allowed keys. The resulting child environment has exactly the locked allowlist.
-The original `apparatus.control_root` is never candidate-visible. The runner
-never infers an asset from the current working directory, an installed package
-location, or a fixed/hardcoded path.
+For each arm, the controller stages exactly the locked
+`apparatus.treatment_asset_paths` subset beneath one private controller-owned
+apparatus root while preserving normalized relative paths. Controller-only
+evaluator, rubric, calibration, and reviewer-command assets remain verified
+beneath the control root but are never staged. Launcher substitution binds
+`{task_path}`, `{provider_config}`, `{prompt_config}`, and `{command_config}` to
+the corresponding staged role assets and binds `{apparatus_root}` to that
+private root. `HOME` and `TMPDIR` come only from the controller; credential
+keys come only from `SecretsManager`; and the treatment launcher supplies
+exactly the remaining allowed keys. The resulting child environment has
+exactly the locked allowlist. The original `apparatus.control_root` is never
+candidate-visible. The runner never infers an asset from the current working
+directory, an installed package location, or a fixed/hardcoded path.
 
 Treatment processes receive one opaque raw-result path, not the shared evidence
 root, peer paths, treatment map, or final attempt-record path. The controller
@@ -451,13 +483,15 @@ comparison, not a weighted quality score.
 
 After a treatment process exits or times out and its process group is quiescent, the controller records a sorted product-relative manifest with file type, mode, size, and SHA-256. Controller records and transient runtime paths are excluded by an explicit projection rule applied identically to all treatments.
 
-Live package construction accepts only a complete valid `pilot_lock.v1` and a
-`VALID` `LIVE` `block_attempt.v1` whose canonical lock digest, exact locked
+Package construction accepts only a complete valid `pilot_lock.v1` and a
+locked `VALID` `SMOKE` or `VALID` `LIVE` `block_attempt.v1` whose canonical
+lock digest, exact locked
 treatment set, and frozen product-manifest digests match freshly re-frozen
 explicit product roots under those locked exclusions. The block ID must equal
-the lock's live-attempt ID at the block sequence index, each execution command
-digest must equal its locked treatment command digest, and a fresh complete
-freeze of the base with no exclusions must equal the lock's archive digest.
+the smoke ID at index zero or the live-attempt ID at the live sequence index,
+each execution command digest must equal its locked treatment command digest,
+and a fresh complete freeze of the base with no exclusions must equal the
+lock's archive digest.
 Base, product, package, and controller roots are explicit and pairwise
 disjoint; IDs used in path joins are safe single components.
 
@@ -467,7 +501,8 @@ Frozen visible and held-out evaluators run on copies of frozen products. Their o
 
 ### Blinded review
 
-At least two fresh independent reviewers receive:
+Exactly two stable calibrated reviewer identities, each operating in a fresh
+independent provider session, receive:
 
 - the shared task and public acceptance contract;
 - a deterministic diff over the complete projected frozen base and final
@@ -482,9 +517,15 @@ transcripts, provider-call count, elapsed time, or cost until reviews are
 sealed. After each judgment but before unblinding, each reviewer records one
 forced treatment guess per opaque candidate from
 `DIRECT | COORDINATOR | ORC | UNKNOWN`. Material disagreement invokes one
-blinded adjudicator or yields `INDETERMINATE`; original reviews remain
-unchanged. Guess accuracy is a blinding diagnostic, not a reason to rewrite a
-judgment.
+prospectively calibrated and locked blinded adjudicator when named, or yields
+`INDETERMINATE`; original reviews remain unchanged. This first pilot locks
+`INDETERMINATE_ON_DISAGREEMENT` and names no adjudicator. Guess accuracy is a
+blinding diagnostic, not a reason to rewrite a judgment.
+
+Controller-only evaluator, rubric, calibration, and reviewer-command assets
+are present in the closed control manifest but excluded from the explicit
+treatment-staging subset. The runner never stages them into candidate-visible
+apparatus roots.
 
 Selected final-file snapshots and check evidence are explicit allowlists; they
 do not narrow the complete product diff. Each reviewer package has a closed,

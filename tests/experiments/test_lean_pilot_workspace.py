@@ -168,6 +168,37 @@ def test_materialize_same_commit_into_three_identical_plain_trees(
         assert os.readlink(destination / "nested-link") == "nested"
 
 
+def test_verified_git_subtree_materializes_rootless_and_rejects_tree_drift(
+    workspace: ModuleType,
+    committed_repo: tuple[Path, str],
+    tmp_path: Path,
+) -> None:
+    repo, commit = committed_repo
+    tree = _git(repo, "rev-parse", f"{commit}:nested")
+
+    treeish = workspace._verified_git_subtree(
+        repo,
+        commit,
+        PurePosixPath("nested"),
+        f"git-tree:{tree}",
+    )
+    destination = tmp_path / "subtree"
+    manifest = workspace.materialize_git_archive(repo, treeish, destination)
+
+    assert treeish == f"{commit}:nested"
+    assert [entry.path for entry in manifest.entries] == ["run.sh"]
+    assert (destination / "run.sh").read_bytes() == SCRIPT_BYTES
+    assert not (destination / "nested").exists()
+
+    with pytest.raises(workspace.WorkspaceError, match="Git tree identity mismatch"):
+        workspace._verified_git_subtree(
+            repo,
+            commit,
+            PurePosixPath("nested"),
+            f"git-tree:{'0' * 40}",
+        )
+
+
 @pytest.mark.parametrize(
     "bad_name",
     ["/absolute.txt", "nested/../parent.txt"],

@@ -51,6 +51,20 @@ def _sha256(data: bytes) -> str:
     return f"sha256:{hashlib.sha256(data).hexdigest()}"
 
 
+def _canonical_digest(value: object) -> str:
+    return contracts.canonical_sha256(value)
+
+
+def _bundle_digest(
+    manifest: list[dict[str, str]],
+    paths: list[str],
+) -> str:
+    by_path = {entry["path"]: entry for entry in manifest}
+    return _canonical_digest(
+        [by_path[path] for path in sorted(paths, key=str.encode)]
+    )
+
+
 def _write_asset(
     control_root: Path,
     relative_path: str,
@@ -67,11 +81,14 @@ def _write_asset(
     return {"path": relative_path, "sha256": _sha256(data)}
 
 
-def _committed_repo(root: Path) -> tuple[Path, str, str]:
+def _committed_repo(root: Path) -> tuple[Path, str, str, str]:
     repo = root / "source"
     repo.mkdir()
     _git(repo, "init", "-q")
-    (repo / "README.md").write_text("lean pilot source\n", encoding="utf-8")
+    seed = repo / "benchmark"
+    seed.mkdir()
+    (seed / "README.md").write_text("lean pilot source\n", encoding="utf-8")
+    (seed / "task.md").write_text("Implement the fixture.\n", encoding="utf-8")
     _git(repo, "add", "--all")
     _git(
         repo,
@@ -86,22 +103,32 @@ def _committed_repo(root: Path) -> tuple[Path, str, str]:
         "fixture",
     )
     commit = _git(repo, "rev-parse", "HEAD")
+    tree = _git(repo, "rev-parse", f"{commit}:benchmark")
     archive = workspace.materialize_git_archive(
         repo,
-        commit,
+        f"{commit}:benchmark",
         root / "archive-digest-probe",
     )
-    return repo, commit, archive.digest
+    return repo, commit, tree, archive.digest
 
 
 def _pilot_lock(
     root: Path,
     evidence_root: Path,
 ) -> dict[str, Any]:
-    repo, commit, archive_digest = _committed_repo(root)
+    repo, commit, tree, archive_digest = _committed_repo(root)
     control_root = (root / "controller").resolve()
     control_root.mkdir()
     environment_identity = _sha256(b"fixture-environment")
+    provider_policy = {
+        "family": "fixture",
+        "model": "fixture-model",
+        "reasoning_effort": "none",
+        "tool_policy": "workspace-only",
+        "timeout_milliseconds": 10_000,
+        "currency": "USD",
+    }
+    provider_policy_digest = _canonical_digest(provider_policy)
 
     manifest = [
         _write_asset(control_root, "tasks/A1.md", b"Implement the fixture.\n"),
@@ -199,11 +226,55 @@ def _pilot_lock(
                 ],
                 "environment": {"PYTHONUNBUFFERED": "1"},
                 "environment_identity": environment_identity,
+                "provider_policy_digest": provider_policy_digest,
                 "timeout_milliseconds": 10_000,
             },
         )
         manifest.append(command_assets[treatment_id])
 
+    manifest.extend(
+        [
+            _write_asset(control_root, "review/rubric.md", b"rubric"),
+            _write_asset(
+                control_root,
+                "review/calibration-seal.json",
+                b"calibration",
+            ),
+            _write_asset(
+                control_root,
+                "evaluation/config.json",
+                {"entrypoint": "evaluation/evaluator.py"},
+            ),
+            _write_asset(
+                control_root,
+                "evaluation/evaluator.py",
+                b"raise SystemExit(0)\n",
+            ),
+            _write_asset(
+                control_root,
+                "review/reviewer-command.json",
+                {"argv": ["true"]},
+            ),
+            _write_asset(
+                control_root,
+                "review/review-result.schema.json",
+                {"type": "object"},
+            ),
+        ]
+    )
+    treatment_asset_paths = [
+        entry["path"]
+        for entry in manifest
+        if not entry["path"].startswith(("evaluation/", "review/"))
+    ]
+    evaluator_paths = [
+        "evaluation/config.json",
+        "evaluation/evaluator.py",
+    ]
+    reviewer_paths = [
+        "review/reviewer-command.json",
+        "review/review-result.schema.json",
+    ]
     task_digest = manifest[0]["sha256"]
     treatments = []
     for treatment_id, bounds in (
@@ -212,45 +283,69 @@ def _pilot_lock(
         ("ORC", {"minimum": 3, "maximum": 9}),
     ):
         command_asset = command_assets[treatment_id]
+        source_paths = [
+            command_asset["path"],
+            "fixture/arm_program.py",
+        ]
+        if treatment_id == "ORC":
+            source_paths.append("fixture.orc")
         treatments.append(
             {
                 "treatment_id": treatment_id,
-                "source_digest": _sha256(f"{treatment_id}-source".encode()),
+                "source_asset_paths": source_paths,
+                "source_digest": _bundle_digest(manifest, source_paths),
                 "command_digest": command_asset["sha256"],
                 "command_config_path": command_asset["path"],
                 "provider_call_bounds": bounds,
             }
         )
 
-    return {
+    record = {
         "record_kind": "pilot_lock.v1",
         "pilot_id": "lean-pilot-runner-fixture",
         "task": {
             "task_id": "A1",
-            "profile_digest": _sha256(b"task-profile"),
+            "source_path": "task.md",
+            "profile_digest": _sha256(b"pending-task-profile"),
             "brief_digest": task_digest,
         },
         "archive": {
-            "repository_identity": str(repo.resolve()),
+            "repository_identity": "fixture/source",
+            "repository_root": repo.resolve().as_posix(),
             "revision_identity": f"commit:{commit}",
+            "source_subtree_path": "benchmark",
+            "source_tree_identity": f"git-tree:{tree}",
             "archive_digest": archive_digest,
         },
-        "provider_policy": {
-            "family": "fixture",
-            "model": "fixture-model",
-            "reasoning_effort": "none",
-            "tool_policy": "workspace-only",
-            "timeout_milliseconds": 10_000,
-            "currency": "USD",
-        },
+        "provider_policy": provider_policy,
         "review": {
             "reviewer_ids": ["fixture-reviewer-1", "fixture-reviewer-2"],
+            "disagreement_policy": "INDETERMINATE_ON_DISAGREEMENT",
+            "selected_final_files": ["README.md"],
+            "permitted_check_evidence_names": [
+                "checks.json",
+                "stderr.txt",
+                "stdout.txt",
+            ],
+            "rubric_path": "review/rubric.md",
             "rubric_digest": _sha256(b"rubric"),
+            "calibration_evidence_path": "review/calibration-seal.json",
             "calibration_evidence_digest": _sha256(b"calibration"),
+            "evaluator": {
+                "config_path": "evaluation/config.json",
+                "asset_paths": evaluator_paths,
+                "bundle_digest": _bundle_digest(manifest, evaluator_paths),
+            },
+            "reviewer_command": {
+                "config_path": "review/reviewer-command.json",
+                "asset_paths": reviewer_paths,
+                "bundle_digest": _bundle_digest(manifest, reviewer_paths),
+            },
         },
         "apparatus": {
             "control_root": control_root.as_posix(),
             "asset_manifest": manifest,
+            "treatment_asset_paths": treatment_asset_paths,
             "task_path": "tasks/A1.md",
             "provider_config_path": "config/provider.json",
             "prompt_config_path": "config/prompts.json",
@@ -287,6 +382,31 @@ def _pilot_lock(
         "claim_level": "exploratory_controlled_task",
         "treatments": treatments,
     }
+    _refresh_profile(record)
+    return record
+
+
+def _refresh_profile(lock: dict[str, Any]) -> None:
+    lock["task"]["profile_digest"] = _canonical_digest(
+        {
+            "profile_version": "lean-pilot-task-profile.v1",
+            "task_id": lock["task"]["task_id"],
+            "source_path": lock["task"]["source_path"],
+            "brief_digest": lock["task"]["brief_digest"],
+            "archive_digest": lock["archive"]["archive_digest"],
+            "selected_final_files": lock["review"]["selected_final_files"],
+            "permitted_check_evidence_names": lock["review"][
+                "permitted_check_evidence_names"
+            ],
+            "visible_check": lock["apparatus"]["visible_check"],
+            "product_projection_exclusions": lock["apparatus"][
+                "product_projection_exclusions"
+            ],
+            "evaluator_bundle_digest": lock["review"]["evaluator"][
+                "bundle_digest"
+            ],
+        }
+    )
 
 
 def _rewrite_treatment_config(
@@ -313,6 +433,10 @@ def _rewrite_treatment_config(
         if item["path"] == relative_path
     )
     manifest_entry["sha256"] = digest
+    treatment["source_digest"] = _bundle_digest(
+        lock["apparatus"]["asset_manifest"],
+        treatment["source_asset_paths"],
+    )
     contracts.validate_record(lock)
 
 
@@ -521,6 +645,124 @@ def test_manifest_asset_faults_reject_before_evidence_or_workspace(
         asset.symlink_to(outside)
 
     with pytest.raises(ValueError):
+        runner.run_block(
+            lock=lock,
+            block_id=lock["smoke_id"],
+            work_root=work_root,
+            evidence_root=evidence_root,
+        )
+
+    assert not evidence_root.exists()
+    assert not work_root.exists()
+
+
+def test_extra_control_root_asset_rejects_before_evidence_or_workspace(
+    runner: ModuleType,
+    tmp_path: Path,
+) -> None:
+    work_root = tmp_path / "work"
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    control_root = Path(lock["apparatus"]["control_root"])
+    (control_root / "unlocked.txt").write_text("extra", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="extra apparatus asset"):
+        runner.run_block(
+            lock=lock,
+            block_id=lock["smoke_id"],
+            work_root=work_root,
+            evidence_root=evidence_root,
+        )
+
+    assert not evidence_root.exists()
+    assert not work_root.exists()
+
+
+def test_extra_control_root_directory_rejects_before_evidence_or_workspace(
+    runner: ModuleType,
+    tmp_path: Path,
+) -> None:
+    work_root = tmp_path / "work"
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    control_root = Path(lock["apparatus"]["control_root"])
+    (control_root / "unlocked-directory").mkdir()
+
+    with pytest.raises(ValueError, match="extra apparatus directory"):
+        runner_apparatus.verified_assets(lock)
+
+    assert not evidence_root.exists()
+    assert not work_root.exists()
+
+
+def test_wrong_git_tree_identity_rejects_before_evidence_or_workspace(
+    runner: ModuleType,
+    tmp_path: Path,
+) -> None:
+    work_root = tmp_path / "work"
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    lock["archive"]["source_tree_identity"] = f"git-tree:{'f' * 40}"
+
+    with pytest.raises(ValueError, match="Git tree identity mismatch"):
+        runner.run_block(
+            lock=lock,
+            block_id=lock["smoke_id"],
+            work_root=work_root,
+            evidence_root=evidence_root,
+        )
+
+    assert not evidence_root.exists()
+    assert not work_root.exists()
+
+
+def test_archived_task_digest_mismatch_rejects_before_started(
+    runner: ModuleType,
+    tmp_path: Path,
+) -> None:
+    work_root = tmp_path / "work"
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    control_root = Path(lock["apparatus"]["control_root"])
+    task_path = lock["apparatus"]["task_path"]
+    changed = b"Implement a different fixture.\n"
+    (control_root / task_path).write_bytes(changed)
+    task_entry = next(
+        item
+        for item in lock["apparatus"]["asset_manifest"]
+        if item["path"] == task_path
+    )
+    task_entry["sha256"] = _sha256(changed)
+    lock["task"]["brief_digest"] = _sha256(changed)
+    _refresh_profile(lock)
+    contracts.validate_record(lock)
+
+    with pytest.raises(ValueError, match="archived task digest mismatch"):
+        runner.run_block(
+            lock=lock,
+            block_id=lock["smoke_id"],
+            work_root=work_root,
+            evidence_root=evidence_root,
+        )
+
+    assert not evidence_root.exists()
+    assert not work_root.exists()
+
+
+def test_treatment_provider_policy_mismatch_rejects_before_started(
+    runner: ModuleType,
+    tmp_path: Path,
+) -> None:
+    work_root = tmp_path / "work"
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+
+    def drift(config: dict[str, Any]) -> None:
+        config["provider_policy_digest"] = _sha256(b"different-policy")
+
+    _rewrite_treatment_config(lock, "DIRECT", drift)
+
+    with pytest.raises(ValueError, match="provider policy digest mismatch"):
         runner.run_block(
             lock=lock,
             block_id=lock["smoke_id"],
@@ -821,6 +1063,80 @@ def test_empty_locked_credential_list_remains_valid(
     assert record["status"] == "VALID"
 
 
+def _configure_codex_home_credential_partition(
+    lock: dict[str, Any],
+) -> None:
+    lock["apparatus"]["environment"]["allowed_keys"] = [
+        "CODEX_HOME",
+        "HOME",
+        "PATH",
+        "PYTHONUNBUFFERED",
+        "TMPDIR",
+    ]
+    lock["apparatus"]["environment"]["credential_keys"] = ["CODEX_HOME"]
+
+    def add_launcher_path(config: dict[str, Any]) -> None:
+        config["environment"]["PATH"] = "/usr/local/bin:/usr/bin:/bin"
+
+    _rewrite_all_treatment_configs(lock, add_launcher_path)
+
+
+def test_preflight_injects_codex_home_from_controller_credentials_only(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    credential_value = "/credential-fixture/codex-home"
+    monkeypatch.setenv("CODEX_HOME", credential_value)
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    _configure_codex_home_credential_partition(lock)
+
+    preflight = runner_preflight._preflight(
+        lock=lock,
+        block_id=lock["smoke_id"],
+        work_root=tmp_path / "work",
+        evidence_root=evidence_root,
+    )
+
+    for arm in preflight.arms:
+        environment = dict(arm.command.environment)
+        assert environment["CODEX_HOME"] == credential_value
+        assert set(environment) == {
+            "CODEX_HOME",
+            "HOME",
+            "PATH",
+            "PYTHONUNBUFFERED",
+            "TMPDIR",
+        }
+        assert arm.credential_names == ("CODEX_HOME",)
+
+
+def test_preflight_rejects_codex_home_embedded_in_treatment_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("CODEX_HOME", "/credential-fixture/codex-home")
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    _configure_codex_home_credential_partition(lock)
+
+    def embed_credential(config: dict[str, Any]) -> None:
+        config["environment"]["CODEX_HOME"] = "/embedded/credential"
+
+    _rewrite_treatment_config(lock, "DIRECT", embed_credential)
+
+    with pytest.raises(
+        ValueError,
+        match="exact locked non-controller, non-credential keys",
+    ):
+        runner_preflight._preflight(
+            lock=lock,
+            block_id=lock["smoke_id"],
+            work_root=tmp_path / "work",
+            evidence_root=evidence_root,
+        )
+
+
 @pytest.mark.parametrize(
     "root_relation",
     ["equal", "work-under-evidence", "evidence-under-work"],
@@ -852,6 +1168,60 @@ def test_work_and_evidence_roots_must_be_disjoint_before_started(
 
     assert not evidence_root.exists()
     assert not work_root.exists()
+
+
+@pytest.mark.parametrize(
+    ("repository_root", "control_root", "work_root", "evidence_root"),
+    [
+        ("/roots/repo", "/roots/control", "/roots/repo/work", "/roots/evidence"),
+        ("/roots/work/repo", "/roots/control", "/roots/work", "/roots/evidence"),
+        ("/roots/repo", "/roots/control", "/roots/work", "/roots/repo/evidence"),
+        ("/roots/evidence/repo", "/roots/control", "/roots/work", "/roots/evidence"),
+        ("/roots/repo", "/roots/control", "/roots/control/work", "/roots/evidence"),
+        ("/roots/repo", "/roots/work/control", "/roots/work", "/roots/evidence"),
+        ("/roots/repo", "/roots/control", "/roots/work", "/roots/control/evidence"),
+        ("/roots/repo", "/roots/evidence/control", "/roots/work", "/roots/evidence"),
+        ("/roots/repo", "/roots/repo/control", "/roots/work", "/roots/evidence"),
+        ("/roots/control/repo", "/roots/control", "/roots/work", "/roots/evidence"),
+    ],
+)
+def test_locked_and_runtime_root_topology_rejects_overlap_both_directions(
+    repository_root: str,
+    control_root: str,
+    work_root: str,
+    evidence_root: str,
+) -> None:
+    with pytest.raises(ValueError, match="must be pairwise disjoint"):
+        runner_preflight._validate_root_topology(
+            repository_root=Path(repository_root),
+            control_root=Path(control_root),
+            work_root=Path(work_root),
+            evidence_root=Path(evidence_root),
+        )
+
+
+def test_internal_preflight_rejects_work_root_symlink_alias_into_repository(
+    tmp_path: Path,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    repository_root = Path(lock["archive"]["repository_root"])
+    work_root = tmp_path / "work-alias"
+    work_root.symlink_to(
+        repository_root / "candidate-work",
+        target_is_directory=True,
+    )
+
+    with pytest.raises(ValueError, match="must be pairwise disjoint"):
+        runner_preflight._preflight(
+            lock=lock,
+            block_id=lock["smoke_id"],
+            work_root=work_root,
+            evidence_root=evidence_root,
+        )
+
+    assert not evidence_root.exists()
+    assert not (repository_root / "candidate-work").exists()
 
 
 @pytest.mark.parametrize("surface", ["argv", "environment"])
@@ -1156,9 +1526,11 @@ def test_standard_externs_compile_from_staged_private_apparatus_only(
     unrelated_cwd.mkdir()
     lock = _pilot_lock(tmp_path, evidence_root)
     control_root = Path(lock["apparatus"]["control_root"])
+    treatment_paths = set(lock["apparatus"]["treatment_asset_paths"])
     expected_assets = {
         entry["path"]: entry["sha256"]
         for entry in lock["apparatus"]["asset_manifest"]
+        if entry["path"] in treatment_paths
     }
     real_atomic_record = runner_block._atomic_record
     removed_after_started = False
@@ -1661,6 +2033,7 @@ def test_locked_visible_check_failure_is_an_outcome_and_runtime_is_excluded(
             "raise SystemExit(9)"
         ),
     ]
+    _refresh_profile(lock)
     contracts.validate_record(lock)
 
     record = runner.run_block(
@@ -1711,6 +2084,7 @@ def test_visible_check_failure_only_overrides_completed_semantic_terminal(
         "-c",
         "raise SystemExit(9)",
     ]
+    _refresh_profile(lock)
 
     record = runner.run_block(
         lock=lock,
@@ -1726,7 +2100,7 @@ def test_visible_check_failure_only_overrides_completed_semantic_terminal(
     assert _execution(record, "ORC")["lifecycle_outcome"] == "CHECK_FAILURE"
 
 
-def test_unused_manifest_asset_is_still_verified_before_started(
+def test_orphan_manifest_asset_rejects_before_started(
     runner: ModuleType,
     tmp_path: Path,
 ) -> None:
@@ -1740,10 +2114,8 @@ def test_unused_manifest_asset_is_still_verified_before_started(
         {"purpose": "manifest coverage"},
     )
     lock["apparatus"]["asset_manifest"].append(unused)
-    contracts.validate_record(lock)
-    (control_root / unused["path"]).write_bytes(b"tampered")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="orphan_apparatus_asset"):
         runner.run_block(
             lock=lock,
             block_id=lock["smoke_id"],
@@ -1800,10 +2172,22 @@ def test_shared_materialization_failure_atomically_invalidates_the_block(
     work_root = tmp_path / "work"
     lock = _pilot_lock(tmp_path, evidence_root)
     if shared_fault == "archive":
-        shutil.rmtree(lock["archive"]["repository_identity"])
+        shutil.rmtree(lock["archive"]["repository_root"])
     else:
         work_root.write_text("not a directory", encoding="utf-8")
     observed = _observe_atomic_records(monkeypatch)
+
+    if shared_fault == "archive":
+        with pytest.raises(ValueError):
+            runner.run_block(
+                lock=lock,
+                block_id=lock["smoke_id"],
+                work_root=work_root,
+                evidence_root=evidence_root,
+            )
+        assert observed == []
+        assert not evidence_root.exists()
+        return
 
     record = runner.run_block(
         lock=lock,
@@ -2086,7 +2470,7 @@ def test_evidence_is_external_relative_and_freeze_uses_locked_exclusions(
 
 @pytest.mark.parametrize(
     "mismatch",
-    ["implicit-repository", "raw-revision", "evidence-root"],
+    ["noncanonical-repository-root", "raw-revision", "evidence-root"],
 )
 def test_source_and_evidence_identity_mismatch_rejects_before_allocation(
     runner: ModuleType,
@@ -2097,15 +2481,14 @@ def test_source_and_evidence_identity_mismatch_rejects_before_allocation(
     supplied_evidence_root = locked_evidence_root
     work_root = tmp_path / "work"
     lock = _pilot_lock(tmp_path, locked_evidence_root)
-    if mismatch == "implicit-repository":
-        lock["archive"]["repository_identity"] = "."
+    if mismatch == "noncanonical-repository-root":
+        lock["archive"]["repository_root"] = "."
     elif mismatch == "raw-revision":
         lock["archive"]["revision_identity"] = lock["archive"][
             "revision_identity"
         ].removeprefix("commit:")
     else:
         supplied_evidence_root = tmp_path / "different-evidence"
-    contracts.validate_record(lock)
 
     with pytest.raises(ValueError):
         runner.run_block(
@@ -2136,6 +2519,7 @@ def test_runner_is_a_bounded_public_facade_over_private_modules(
         "_runner_block.py",
         "_runner_execution.py",
         "_runner_preflight.py",
+        "_runner_source.py",
         "_runner_types.py",
     }
     source_paths = _runner_source_paths(runner)

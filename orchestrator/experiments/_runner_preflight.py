@@ -7,11 +7,14 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from . import _runner_apparatus as apparatus
+from . import _runner_source as source
 from ._runner_types import ArmCommand, RunnerError, _Preflight, _PreparedArm
-from .contracts import PilotContractError, load_record, validate_record
-
-
-_COMMIT_IDENTITY = re.compile(r"^commit:([0-9a-f]{40,64})$")
+from .contracts import (
+    PilotContractError,
+    canonical_sha256,
+    load_record,
+    validate_record,
+)
 
 
 def _contains_logical_token(value: str, tokens: tuple[str, ...]) -> bool:
@@ -76,6 +79,27 @@ def _validate_candidate_visibility(
             )
 
 
+def _validate_root_topology(
+    *,
+    repository_root: Path,
+    control_root: Path,
+    work_root: Path,
+    evidence_root: Path,
+) -> None:
+    roots = (
+        ("archive.repository_root", repository_root),
+        ("apparatus.control_root", control_root),
+        ("work_root", work_root),
+        ("evidence_root", evidence_root),
+    )
+    for index, (first_label, first) in enumerate(roots):
+        for second_label, second in roots[index + 1 :]:
+            if apparatus.paths_overlap(first, second):
+                raise RunnerError(
+                    f"{first_label} and {second_label} must be pairwise disjoint"
+                )
+
+
 def _attempt_identity(
     lock: Mapping[str, object],
     block_id: str,
@@ -126,6 +150,8 @@ def _preflight(
     work_root: Path,
     evidence_root: Path,
 ) -> _Preflight:
+    work_root = Path(work_root).resolve(strict=False)
+    evidence_root = Path(evidence_root).resolve(strict=False)
     try:
         validate_record(lock)
     except PilotContractError as exc:
@@ -136,26 +162,28 @@ def _preflight(
         or evidence_root.resolve(strict=False).as_posix() != locked_evidence
     ):
         raise RunnerError("supplied evidence_root does not exactly match the lock")
-    if apparatus.paths_overlap(work_root, evidence_root):
-        raise RunnerError("work_root and evidence_root must be disjoint")
-
     archive = lock["archive"]
+    locked_apparatus = lock["apparatus"]
     if not isinstance(archive, Mapping):
         raise RunnerError("lock archive is not an object")
-    repo = apparatus.canonical_absolute_path(
-        archive["repository_identity"],
-        label="archive.repository_identity",
+    if not isinstance(locked_apparatus, Mapping):
+        raise RunnerError("lock apparatus is not an object")
+    repository_root = apparatus.canonical_absolute_path(
+        archive["repository_root"],
+        label="archive.repository_root",
     )
-    revision = archive["revision_identity"]
-    if not isinstance(revision, str):
-        raise RunnerError("archive.revision_identity is malformed")
-    match = _COMMIT_IDENTITY.fullmatch(revision)
-    if match is None:
-        raise RunnerError("archive.revision_identity must be exact commit:<rev>")
-    commit = match.group(1)
-    archive_digest = archive["archive_digest"]
-    if not isinstance(archive_digest, str):
-        raise RunnerError("archive.archive_digest is malformed")
+    control_root = apparatus.canonical_absolute_path(
+        locked_apparatus["control_root"],
+        label="apparatus.control_root",
+    )
+    _validate_root_topology(
+        repository_root=repository_root,
+        control_root=control_root,
+        work_root=work_root,
+        evidence_root=evidence_root,
+    )
+
+    source_binding = source.preflight_source(lock)
 
     attempt_class, sequence_index, record_path = _attempt_identity(
         lock,
@@ -163,9 +191,17 @@ def _preflight(
         evidence_root,
     )
     verified = apparatus.verified_assets(lock)
-    locked_apparatus = lock["apparatus"]
-    if not isinstance(locked_apparatus, Mapping):
-        raise RunnerError("lock apparatus is not an object")
+    treatment_paths = apparatus.string_list(
+        locked_apparatus["treatment_asset_paths"],
+        label="apparatus treatment_asset_paths",
+    )
+    treatment_verified = {
+        path: verified[path]
+        for path in treatment_paths
+        if path in verified
+    }
+    if len(treatment_verified) != len(treatment_paths):
+        raise RunnerError("treatment asset binding is not verified")
 
     role_paths = (
         locked_apparatus["task_path"],
@@ -177,7 +213,7 @@ def _preflight(
         raise RunnerError("apparatus role binding is not verified")
     task_path, provider_path, prompt_path, shared_command_path = role_paths
     apparatus.validate_standard_role_manifests(
-        verified=verified,
+        verified=treatment_verified,
         provider_path=provider_path,
         prompt_path=prompt_path,
         command_path=shared_command_path,
@@ -218,6 +254,7 @@ def _preflight(
     environment_identity = apparatus_environment["identity"]
     if not isinstance(environment_identity, str):
         raise RunnerError("apparatus environment identity is malformed")
+    provider_policy_digest = canonical_sha256(lock["provider_policy"])
     secret_values: dict[str, str] | None = None
 
     visible_check = locked_apparatus["visible_check"]
@@ -271,15 +308,19 @@ def _preflight(
             not isinstance(treatment_id, str)
             or not isinstance(command_path, str)
             or not isinstance(command_digest, str)
-            or command_path not in verified
+            or command_path not in treatment_verified
         ):
             raise RunnerError("treatment command binding is malformed")
-        if apparatus.sha256_bytes(verified[command_path]) != command_digest:
+        if (
+            apparatus.sha256_bytes(treatment_verified[command_path])
+            != command_digest
+        ):
             raise RunnerError(f"{treatment_id} command digest mismatch")
         config_argv, config_environment, timeout = apparatus.parse_treatment_config(
-            verified[command_path],
+            treatment_verified[command_path],
             label=f"{treatment_id} command config",
             expected_environment_identity=environment_identity,
+            expected_provider_policy_digest=provider_policy_digest,
         )
 
         opaque_label = apparatus.opaque_label(seed, block_id, treatment_id)
@@ -362,7 +403,7 @@ def _preflight(
                 ),
                 staged_assets=apparatus.stage_verified_assets(
                     root=asset_root,
-                    verified=verified,
+                    verified=treatment_verified,
                 ),
                 credential_names=credential_names,
             )
@@ -383,9 +424,11 @@ def _preflight(
         ),
     )
     return _Preflight(
-        repo=repo,
-        commit=commit,
-        archive_digest=archive_digest,
+        repo=source_binding.repo,
+        treeish=source_binding.treeish,
+        archive_digest=source_binding.archive_digest,
+        source_task_path=source_binding.task_path,
+        task_brief_digest=source_binding.task_digest,
         exclusions=exclusions,
         visible_check_argv=visible_argv,
         visible_check_timeout_milliseconds=visible_timeout,

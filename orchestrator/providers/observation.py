@@ -15,6 +15,8 @@ from typing import Mapping, Protocol
 
 
 _RECORD_SCHEMA_VERSION = "provider_observation.v1"
+# Tmux's AF_UNIX address must not inherit an unbounded caller TMPDIR.
+_SOCKET_TEMP_ROOT = "/tmp"
 
 
 class ProviderObservationError(RuntimeError):
@@ -311,7 +313,10 @@ class ProviderObservationManager:
 
         token = uuid.uuid4().hex[:12]
         self._socket_directory = Path(
-            tempfile.mkdtemp(prefix="orc-observe-")
+            tempfile.mkdtemp(
+                prefix="orc-observe-",
+                dir=_SOCKET_TEMP_ROOT,
+            )
         )
         self._socket_path = self._socket_directory / "tmux.sock"
         self._session_name = f"orc-observe-{token}"

@@ -121,6 +121,16 @@ def _digest(label: str) -> str:
     return f"sha256:{hashlib.sha256(label.encode()).hexdigest()}"
 
 
+def _bundle_digest(
+    manifest: list[dict[str, str]],
+    paths: list[str],
+) -> str:
+    by_path = {entry["path"]: entry for entry in manifest}
+    return canonical_sha256(
+        [by_path[path] for path in sorted(paths, key=str.encode)]
+    )
+
+
 def _label_mapping(lock: dict[str, Any], block_id: str) -> dict[str, str]:
     seed = lock["randomization_seed"]
     ordered_treatments = sorted(
@@ -144,10 +154,32 @@ def _label_mapping(lock: dict[str, Any], block_id: str) -> dict[str, str]:
 
 def _lock(*, reviewers: tuple[str, ...] = ("reviewer-1", "reviewer-2")) -> dict[str, Any]:
     manifest = [
-        {"path": "task.md", "sha256": _digest("task")},
+        {"path": "tasks/A1.md", "sha256": _digest("task")},
         {"path": "provider.json", "sha256": _digest("provider")},
         {"path": "prompts.json", "sha256": _digest("prompts")},
         {"path": "commands.json", "sha256": _digest("commands")},
+        {"path": "source.py", "sha256": _digest("source")},
+        {"path": "review/rubric.md", "sha256": _digest("rubric")},
+        {
+            "path": "review/calibration-seal.json",
+            "sha256": _digest("calibration"),
+        },
+        {
+            "path": "evaluation/config.json",
+            "sha256": _digest("evaluator-config"),
+        },
+        {
+            "path": "evaluation/evaluator.py",
+            "sha256": _digest("evaluator"),
+        },
+        {
+            "path": "review/reviewer-command.json",
+            "sha256": _digest("reviewer-command"),
+        },
+        {
+            "path": "review/review-result.schema.json",
+            "sha256": _digest("review-schema"),
+        },
     ]
     treatments = []
     for treatment, bounds in (
@@ -161,23 +193,39 @@ def _lock(*, reviewers: tuple[str, ...] = ("reviewer-1", "reviewer-2")) -> dict[
         treatments.append(
             {
                 "treatment_id": treatment,
-                "source_digest": _digest(f"{treatment}-source"),
+                "source_asset_paths": [path, "source.py"],
+                "source_digest": _bundle_digest(
+                    manifest,
+                    [path, "source.py"],
+                ),
                 "command_digest": digest,
                 "command_config_path": path,
                 "provider_call_bounds": bounds,
             }
         )
-    return {
+    evaluator_paths = [
+        "evaluation/config.json",
+        "evaluation/evaluator.py",
+    ]
+    reviewer_command_paths = [
+        "review/reviewer-command.json",
+        "review/review-result.schema.json",
+    ]
+    record = {
         "record_kind": "pilot_lock.v1",
         "pilot_id": "lean-pilot-test",
         "task": {
             "task_id": "A1",
-            "profile_digest": _digest("profile"),
+            "source_path": "task.md",
+            "profile_digest": _digest("pending-profile"),
             "brief_digest": _digest("task"),
         },
         "archive": {
             "repository_identity": "/source/repository",
+            "repository_root": "/source/repository",
             "revision_identity": f"commit:{'1' * 40}",
+            "source_subtree_path": "benchmark",
+            "source_tree_identity": f"git-tree:{'2' * 40}",
             "archive_digest": _digest("archive"),
         },
         "provider_policy": {
@@ -190,13 +238,40 @@ def _lock(*, reviewers: tuple[str, ...] = ("reviewer-1", "reviewer-2")) -> dict[
         },
         "review": {
             "reviewer_ids": list(reviewers),
+            "disagreement_policy": "INDETERMINATE_ON_DISAGREEMENT",
+            "selected_final_files": ["result.txt"],
+            "permitted_check_evidence_names": [
+                "check-stderr.txt",
+                "check-stdout.txt",
+                "hidden-evaluator.json",
+            ],
+            "rubric_path": "review/rubric.md",
             "rubric_digest": _digest("rubric"),
+            "calibration_evidence_path": "review/calibration-seal.json",
             "calibration_evidence_digest": _digest("calibration"),
+            "evaluator": {
+                "config_path": "evaluation/config.json",
+                "asset_paths": evaluator_paths,
+                "bundle_digest": _bundle_digest(manifest, evaluator_paths),
+            },
+            "reviewer_command": {
+                "config_path": "review/reviewer-command.json",
+                "asset_paths": reviewer_command_paths,
+                "bundle_digest": _bundle_digest(
+                    manifest,
+                    reviewer_command_paths,
+                ),
+            },
         },
         "apparatus": {
             "control_root": "/control/root",
             "asset_manifest": manifest,
-            "task_path": "task.md",
+            "treatment_asset_paths": [
+                row["path"]
+                for row in manifest
+                if not row["path"].startswith(("evaluation/", "review/"))
+            ],
+            "task_path": "tasks/A1.md",
             "provider_config_path": "provider.json",
             "prompt_config_path": "prompts.json",
             "command_config_path": "commands.json",
@@ -222,6 +297,27 @@ def _lock(*, reviewers: tuple[str, ...] = ("reviewer-1", "reviewer-2")) -> dict[
         "claim_level": "exploratory_controlled_task",
         "treatments": treatments,
     }
+    record["task"]["profile_digest"] = canonical_sha256(
+        {
+            "profile_version": "lean-pilot-task-profile.v1",
+            "task_id": record["task"]["task_id"],
+            "source_path": record["task"]["source_path"],
+            "brief_digest": record["task"]["brief_digest"],
+            "archive_digest": record["archive"]["archive_digest"],
+            "selected_final_files": record["review"]["selected_final_files"],
+            "permitted_check_evidence_names": record["review"][
+                "permitted_check_evidence_names"
+            ],
+            "visible_check": record["apparatus"]["visible_check"],
+            "product_projection_exclusions": record["apparatus"][
+                "product_projection_exclusions"
+            ],
+            "evaluator_bundle_digest": record["review"]["evaluator"][
+                "bundle_digest"
+            ],
+        }
+    )
+    return record
 
 
 def _execution(
@@ -967,47 +1063,101 @@ def test_summary_rejects_inexact_review_and_unblinding_coverage(
         reporting.build_pilot_summary(**case)
 
 
-def test_material_disagreement_uses_only_exact_locked_adjudicator_when_present(
+def test_summary_rejects_a_live_provider_session_reused_across_reviews(
     reporting: ModuleType,
 ) -> None:
-    missing = _case(
-        reporting,
-        reviewer_ids=("reviewer-1", "reviewer-2", "reviewer-3"),
-        disagree=True,
+    case = _case(reporting)
+    repeated_session = case["reviews"][0]["session_id"]
+    case["reviews"][1]["session_id"] = repeated_session
+    changed_review_id = case["reviews"][1]["review_id"]
+    case["sealed_review_bindings"] = [
+        copy.replace(
+            binding,
+            review_result_digest=canonical_sha256(
+                next(
+                    review
+                    for review in case["reviews"]
+                    if review["review_id"] == changed_review_id
+                )
+            ),
+        )
+        if binding.review_id == changed_review_id
+        else binding
+        for binding in case["sealed_review_bindings"]
+    ]
+
+    with pytest.raises(reporting.ReportingError, match="review_session_reused"):
+        reporting.build_pilot_summary(**case)
+
+
+def test_summary_rejects_any_review_binding_for_the_smoke_package(
+    reporting: ModuleType,
+) -> None:
+    case = _case(reporting)
+    review = copy.deepcopy(case["reviews"][0])
+    review["review_id"] = "smoke-reviewer-1"
+    review["session_id"] = "session-smoke-reviewer-1"
+    case["reviews"].append(review)
+    case["sealed_review_bindings"].append(
+        reporting.ReviewBinding(
+            block_id=case["lock"]["smoke_id"],
+            package_id=case["lock"]["smoke_id"],
+            package_manifest_digest=_digest("smoke-package"),
+            review_id=review["review_id"],
+            review_result_digest=canonical_sha256(review),
+            review_path="reviews/smoke-reviewer-1.json",
+            reviewer_id=review["reviewer_id"],
+            reviewer_role="INITIAL",
+        )
     )
-    unresolved = reporting.build_pilot_summary(**missing)
+
+    with pytest.raises(reporting.ReportingError, match="review_binding_invalid"):
+        reporting.build_pilot_summary(**case)
+
+
+def test_material_disagreement_uses_locked_indeterminate_policy(
+    reporting: ModuleType,
+) -> None:
+    case = _case(reporting, disagree=True)
+    unresolved = reporting.build_pilot_summary(**case)
+
+    assert unresolved["review_diagnostics"]["disagreement_count"] == 1
     assert unresolved["review_diagnostics"]["adjudication_count"] == 0
     assert _find(
         unresolved["review_diagnostics"]["blocks"], "block_id", "live-1"
     )["disagreement_disposition"] == "INDETERMINATE"
-
-    complete = _case(
-        reporting,
-        reviewer_ids=("reviewer-1", "reviewer-2", "reviewer-3"),
-        disagree=True,
-        include_adjudicator=True,
+    assert "adjudicator_review_reference" not in _find(
+        unresolved["review_diagnostics"]["blocks"], "block_id", "live-1"
     )
-    summary = reporting.build_pilot_summary(**complete)
-
-    assert summary["review_diagnostics"]["disagreement_count"] == 1
-    assert summary["review_diagnostics"]["adjudication_count"] == 1
-    diagnostic = _find(
-        summary["review_diagnostics"]["blocks"], "block_id", "live-1"
-    )
-    assert diagnostic["initial_reviews_agree"] is False
-    assert diagnostic["adjudicator_review_reference"]["reviewer_id"] == "reviewer-3"
-    assert len(diagnostic["initial_review_references"]) == 2
 
 
-def test_adjudicator_is_rejected_when_initial_reviews_agree(
+def test_unlocked_adjudicator_review_is_rejected(
     reporting: ModuleType,
 ) -> None:
-    case = _case(
-        reporting,
-        reviewer_ids=("reviewer-1", "reviewer-2", "reviewer-3"),
-        include_adjudicator=True,
+    case = _case(reporting)
+    review = _review(
+        case["lock"],
+        block_id="live-1",
+        reviewer="reviewer-3",
+        outcomes=("A", "B"),
+        guesses=("UNKNOWN",) * 3,
     )
-    with pytest.raises(reporting.ReportingError, match="adjudicator_unneeded"):
+    package_digest = _digest("package-live-1")
+    case["reviews"].append(review)
+    case["sealed_review_bindings"].append(
+        reporting.ReviewBinding(
+            block_id="live-1",
+            package_id="live-1",
+            package_manifest_digest=package_digest,
+            review_id=review["review_id"],
+            review_result_digest=canonical_sha256(review),
+            review_path=f"reviews/{review['review_id']}.json",
+            reviewer_id="reviewer-3",
+            reviewer_role="ADJUDICATOR",
+        )
+    )
+
+    with pytest.raises(reporting.ReportingError, match="reviewer_coverage_invalid"):
         reporting.build_pilot_summary(**case)
 
 
@@ -1561,12 +1711,7 @@ def test_two_reviewable_nonviable_products_require_pairwise_outcome(
 def test_markdown_renders_every_substantive_typed_summary_surface(
     reporting: ModuleType,
 ) -> None:
-    case = _case(
-        reporting,
-        reviewer_ids=("reviewer-1", "reviewer-2", "reviewer-3"),
-        disagree=True,
-        include_adjudicator=True,
-    )
+    case = _case(reporting, disagree=True)
     orc = next(
         execution
         for execution in case["block_attempts"][1]["treatment_executions"]
@@ -1590,7 +1735,6 @@ def test_markdown_renders_every_substantive_typed_summary_surface(
     assert "guess accuracy" in markdown.lower()
     first_diagnostic = summary["review_diagnostics"]["blocks"][0]
     first_initial = first_diagnostic["initial_review_references"][0]
-    adjudicator = first_diagnostic["adjudicator_review_reference"]
     reviewed_quality = summary["valid_blocks"][1]["method_outcomes"][0][
         "product_quality_review"
     ]
@@ -1601,8 +1745,6 @@ def test_markdown_renders_every_substantive_typed_summary_surface(
         first_initial["reviewer_id"],
         first_initial["review_result_digest"],
         first_initial["review_path"],
-        adjudicator["review_id"],
-        adjudicator["review_result_digest"],
         reviewed_quality["review_result_digests"][0],
         orc["evidence_references"][0],
         "PROTOCOL_FAILURE=1",

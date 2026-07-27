@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import threading
 from pathlib import Path
 from typing import Any, Mapping
@@ -78,13 +79,27 @@ def _allocate_workspaces(preflight: _Preflight, block_id: str) -> None:
         arm.command.workspace.parent.mkdir()
         manifest = workspace.materialize_git_archive(
             preflight.repo,
-            preflight.commit,
+            preflight.treeish,
             arm.command.workspace,
         )
         if manifest.digest != preflight.archive_digest:
             raise RunnerError(
                 f"source archive digest mismatch while allocating {block_id}"
             )
+        task_path = arm.command.workspace.joinpath(
+            *preflight.source_task_path.parts
+        )
+        try:
+            task_identity = task_path.lstat()
+            task_bytes = task_path.read_bytes()
+        except OSError as exc:
+            raise RunnerError("cannot recheck archived task") from exc
+        if (
+            not stat.S_ISREG(task_identity.st_mode)
+            or task_path.is_symlink()
+            or apparatus.sha256_bytes(task_bytes) != preflight.task_brief_digest
+        ):
+            raise RunnerError("archived task digest mismatch after materialization")
         manifests.append(manifest)
         arm.command.runtime_root.mkdir(parents=True)
         apparatus.write_staged_assets(arm.staged_assets)

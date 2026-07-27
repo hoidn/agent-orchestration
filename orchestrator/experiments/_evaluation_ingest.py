@@ -117,7 +117,7 @@ def ingest_review(
     used_session_ids: Collection[str],
     prior_records: Sequence[Mapping[str, object]],
 ) -> dict[str, object]:
-    """Load one sealed review and fail closed on binding or citation drift."""
+    """Load one sealed review against block-local prior review records."""
 
     try:
         record = load_record(path, expected_kind="review_result.v1")
@@ -143,6 +143,9 @@ def ingest_review(
     ):
         _fail("review_package_invalid", "manifest binding")
     _safe_component(manifest.get("package_id"))
+    expected_labels = _expected_labels(expected_bindings.get("candidate_labels"))
+    if _expected_labels(manifest.get("candidate_labels")) != expected_labels:
+        _fail("review_binding_mismatch", "candidate labels")
     rows = manifest.get("files")
     if not isinstance(rows, list):
         _fail("review_package_invalid", "files")
@@ -168,18 +171,25 @@ def ingest_review(
             or source != package.joinpath(*relative.parts)
         ):
             _fail("review_package_invalid", path_text)
+    task_path = _relative_path(manifest.get("task_path")).as_posix()
+    if task_path not in permitted_paths:
+        _fail("review_package_invalid", "task path")
     _verify_closed_package_tree(
         package,
         permitted_files=permitted_paths,
     )
 
-    expected_labels = _expected_labels(expected_bindings.get("candidate_labels"))
     actual_labels = tuple(
         item["opaque_label"] for item in record["candidates"]
     )
     if actual_labels != expected_labels:
         _fail("review_binding_mismatch", "candidate labels")
-    for key in ("pilot_lock_digest", "rubric_digest", "review_class"):
+    for key in (
+        "pilot_lock_digest",
+        "rubric_digest",
+        "review_class",
+        "reviewer_id",
+    ):
         if record.get(key) != expected_bindings.get(key):
             _fail("review_binding_mismatch", key)
 
@@ -194,6 +204,12 @@ def ingest_review(
             _fail("review_reviewer_reused", reviewer_id)
 
     label_set = set(expected_labels)
+    expected_pairs = {
+        frozenset((left, right))
+        for left_index, left in enumerate(expected_labels)
+        for right in expected_labels[left_index + 1 :]
+    }
+    observed_pairs: list[frozenset[str]] = []
     for result in record["pairwise_results"]:
         if (
             result["candidate_a_label"] not in label_set
@@ -201,6 +217,19 @@ def ingest_review(
             or result["candidate_a_label"] == result["candidate_b_label"]
         ):
             _fail("review_binding_mismatch", "pairwise labels")
+        observed_pairs.append(
+            frozenset(
+                (
+                    result["candidate_a_label"],
+                    result["candidate_b_label"],
+                )
+            )
+        )
+    if (
+        len(observed_pairs) != len(expected_pairs)
+        or set(observed_pairs) != expected_pairs
+    ):
+        _fail("review_binding_mismatch", "pairwise coverage")
 
     for citation in _citation_paths(record):
         try:
