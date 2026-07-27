@@ -1,4 +1,4 @@
-"""Focused acceptance tests for the target-2.20 prompt declaration core."""
+"""Focused acceptance tests for the 2.20 prompt core and 2.21 output positions."""
 
 from dataclasses import FrozenInstanceError, replace
 import json
@@ -11,6 +11,7 @@ import orchestrator.workflow_lisp as workflow_lisp
 import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
 import orchestrator.workflow_lisp.form_registry as form_registry
 import orchestrator.workflow_lisp.lowering.pure_projection as pure_projection_lowering
+import orchestrator.workflow_lisp.prompts as prompt_calculus
 import orchestrator.workflow_lisp.syntax as syntax
 from orchestrator.workflow.core_ast import workflow_core_ast_to_json
 from orchestrator.workflow.executable_ir import (
@@ -62,11 +63,12 @@ def _compile_fragment_workflow(
     tmp_path: Path,
     *,
     lowering_route: str,
+    target_dsl: str = "2.20",
 ):
     source_path = tmp_path / f"prompt_fragment_{lowering_route}.orc"
     source_path.write_text(
         _module_source(
-            "2.20",
+            target_dsl,
             "(defmodule demo/prompt-fragment)",
             """
             (defpath DesignDocPath
@@ -193,8 +195,10 @@ def _diagnostic_code(
 def test_prompt_calculus_target_gate_and_registry_are_target_aware() -> None:
     assert syntax.PROMPT_CALCULUS_MIN_TARGET_DSL_VERSION == "2.20"
     assert "2.20" in syntax.SUPPORTED_TARGET_DSL_VERSIONS
+    assert "2.21" in syntax.SUPPORTED_TARGET_DSL_VERSIONS
     assert not syntax.target_dsl_supports_prompt_calculus("2.19")
     assert syntax.target_dsl_supports_prompt_calculus("2.20")
+    assert syntax.target_dsl_supports_prompt_calculus("2.21")
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _parse_prompts(
@@ -223,6 +227,700 @@ def test_prompt_calculus_target_gate_and_registry_are_target_aware() -> None:
     assert "defprompt" in form_registry.admitted_top_level_heads(
         target_dsl_version="2.20"
     )
+
+
+def _source_owned_text(source: str, span) -> str:
+    return source[span.start.offset : span.end.offset]
+
+
+def _related_source_note(span) -> str:
+    return (
+        f"related source: {span.start.path}:"
+        f"{span.start.line}:{span.start.column}"
+    )
+
+
+def test_prompt_output_position_target_gate_precedes_legacy_tail_errors() -> None:
+    source = _module_source(
+        "2.20",
+        '(defprompt p (:fills (report :path :out :bad)) "{report}")',
+    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        module = syntax.build_syntax_module(
+            read_sexpr_text(source, source_path="output_target_gate.orc")
+        )
+        workflow_lisp.elaborate_prompt_definitions(module)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "prompt_output_positions_require_dsl_2_21"
+    assert _source_owned_text(source, diagnostic.span) == ":out"
+
+
+def test_prompt_output_position_parses_closed_role_and_retains_out_span() -> None:
+    source = _module_source(
+        "2.21",
+        '(defprompt p (:fills (report :path :out)) "{report}")',
+    )
+    module = syntax.build_syntax_module(
+        read_sexpr_text(source, source_path="output_role.orc")
+    )
+    (prompt,) = workflow_lisp.elaborate_prompt_definitions(module)
+    (slot,) = prompt.slots
+
+    assert slot.kind is workflow_lisp.PromptSlotKind.PATH
+    assert slot.output_role is prompt_calculus.PromptOutputRole.REQUIRED_STRING_FILE
+    assert slot.output_role.value == "required_string_file"
+    assert slot.output_role_span is not None
+    assert _source_owned_text(source, slot.output_role_span) == ":out"
+    assert slot.refinement_type_name is None
+
+
+@pytest.mark.parametrize(
+    ("slot", "owned_text"),
+    (
+        ("(report :out)", ":out"),
+        ("(report :path :out :out)", ":out"),
+        ("(report :path WorkReportPath :out)", ":out"),
+        ("(report :path :out WorkReportPath Extra)", "(report :path :out WorkReportPath Extra)"),
+    ),
+)
+def test_prompt_output_position_rejects_duplicate_misplaced_or_open_tail(
+    slot: str,
+    owned_text: str,
+) -> None:
+    source = _module_source(
+        "2.21",
+        f'(defprompt p (:fills {slot}) "{{report}}")',
+    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        module = syntax.build_syntax_module(
+            read_sexpr_text(source, source_path="output_syntax.orc")
+        )
+        workflow_lisp.elaborate_prompt_definitions(module)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "prompt_output_position_syntax_invalid"
+    if slot == "(report :path :out :out)":
+        assert diagnostic.span.start.offset == source.rindex(":out")
+    else:
+        assert _source_owned_text(source, diagnostic.span) == owned_text
+
+
+def test_prompt_output_position_syntax_and_kind_precede_q1_slot_checks() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _parse_prompts(
+            "2.21",
+            '(defprompt p (:fills (report :text :out :out)) "{report}")',
+        )
+    assert _diagnostic_code(excinfo) == "prompt_output_position_syntax_invalid"
+
+    source = _module_source(
+        "2.21",
+        '(defprompt p (:fills (report :text :out)) "{report}")',
+    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        module = syntax.build_syntax_module(
+            read_sexpr_text(source, source_path="output_kind.orc")
+        )
+        prompt_form = syntax.syntax_node_datum(module.forms[0])
+        kind_span = prompt_form.items[2].items[1].items[1].span
+        workflow_lisp.elaborate_prompt_definitions(module)
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "prompt_output_position_kind_invalid"
+    assert _source_owned_text(source, diagnostic.span) == ":out"
+    assert diagnostic.notes == (_related_source_note(kind_span),)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _parse_prompts(
+            "2.21",
+            """
+            (defprompt p
+              (:fills (report :path :out) (report :text))
+              "{report}")
+            """,
+        )
+    assert _diagnostic_code(excinfo) == "prompt_slot_duplicate"
+
+
+def test_prompt_output_position_q1_placeholder_validation_precedes_q2_refinement() -> None:
+    type_env = _output_position_type_env()
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _catalog(
+            """
+            (defprompt p
+              (:fills (report :path :out ExistingReportPath))
+              "No rendered output path")
+            """,
+            target_dsl="2.21",
+            type_env=type_env,
+        )
+    assert _diagnostic_code(excinfo) == "prompt_placeholder_missing"
+
+    source = _module_source(
+        "2.21",
+        """
+        (defprompt p
+          (:fills (report :path :out ExistingReportPath))
+          "{report}")
+        """,
+    )
+    module = syntax.build_syntax_module(
+        read_sexpr_text(source, source_path="output_refinement.orc")
+    )
+    definitions = workflow_lisp.elaborate_prompt_definitions(module)
+    output_role_span = definitions[0].slots[0].output_role_span
+    assert output_role_span is not None
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_prompt_catalog(
+            "demo/prompts",
+            definitions,
+            type_env=type_env,
+        )
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "prompt_output_position_refinement_invalid"
+    assert _source_owned_text(source, diagnostic.span) == "ExistingReportPath"
+    assert diagnostic.notes == (_related_source_note(output_role_span),)
+
+
+def test_prompt_output_position_preserves_q1_no_output_refinement_owner() -> None:
+    source = _module_source(
+        "2.20",
+        '(defprompt review (:fills (report :path String)) "{report}")',
+    )
+    module = syntax.build_syntax_module(
+        read_sexpr_text(
+            source,
+            source_path="q1_refinement_owner.orc",
+        )
+    )
+    definitions = workflow_lisp.elaborate_prompt_definitions(module)
+    slot = definitions[0].slots[0]
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_prompt_catalog(
+            "demo/prompts",
+            definitions,
+            type_env=_empty_type_env(),
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "prompt_slot_refinement_invalid"
+    assert diagnostic.message == (
+        "refinement `String` is not admissible for `:path`"
+    )
+    assert diagnostic.span == slot.span
+    assert _source_owned_text(source, diagnostic.span) == "(report :path String)"
+    assert diagnostic.form_path == slot.form_path
+    assert diagnostic.notes == ()
+
+
+def test_prompt_output_position_defect_removal_exposes_each_next_frontend_phase(
+    tmp_path: Path,
+) -> None:
+    type_env = _output_position_type_env()
+
+    q1_refinement_source = _module_source(
+        "2.21",
+        """
+        (defprompt review
+          (:fills (report :path :out String))
+          "{report}")
+        """,
+    )
+    q1_module = syntax.build_syntax_module(
+        read_sexpr_text(
+            q1_refinement_source,
+            source_path="output_precedence_q1_refinement.orc",
+        )
+    )
+    q1_definitions = workflow_lisp.elaborate_prompt_definitions(q1_module)
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_prompt_catalog(
+            "demo/prompts",
+            q1_definitions,
+            type_env=type_env,
+        )
+    q1_refinement = excinfo.value.diagnostics[0]
+    assert q1_refinement.code == "prompt_slot_refinement_invalid"
+    assert _source_owned_text(
+        q1_refinement_source,
+        q1_refinement.span,
+    ) == "String"
+    assert q1_refinement.notes == ()
+
+    q2_refinement_source = q1_refinement_source.replace(
+        "String",
+        "ExistingReportPath",
+    )
+    q2_module = syntax.build_syntax_module(
+        read_sexpr_text(
+            q2_refinement_source,
+            source_path="output_precedence_q2_refinement.orc",
+        )
+    )
+    q2_definitions = workflow_lisp.elaborate_prompt_definitions(q2_module)
+    q2_output_span = q2_definitions[0].slots[0].output_role_span
+    assert q2_output_span is not None
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_prompt_catalog(
+            "demo/prompts",
+            q2_definitions,
+            type_env=type_env,
+        )
+    q2_refinement = excinfo.value.diagnostics[0]
+    assert q2_refinement.code == "prompt_output_position_refinement_invalid"
+    assert _source_owned_text(
+        q2_refinement_source,
+        q2_refinement.span,
+    ) == "ExistingReportPath"
+    assert q2_refinement.notes == (_related_source_note(q2_output_span),)
+
+    source_root = tmp_path / "src"
+    helper_path = source_root / "demo" / "prompts.orc"
+    helper_path.parent.mkdir(parents=True)
+    helper_source = _module_source(
+        "2.21",
+        "(defmodule demo/prompts)",
+        "(export ReportPath review)",
+        """
+        (defpath ReportPath
+          :kind relpath
+          :under "artifacts/reports"
+          :must-exist false)
+        """,
+        """
+        (defprompt review
+          (:fills (report :path :out ReportPath))
+          "{report}")
+        """,
+    )
+    helper_path.write_text(helper_source, encoding="utf-8")
+    helper_module = syntax.build_syntax_module(
+        read_sexpr_text(
+            helper_source,
+            source_path=str(helper_path),
+        )
+    )
+    report_declaration = workflow_lisp.elaborate_prompt_definitions(
+        helper_module
+    )[0].slots[0]
+
+    entry_path = source_root / "demo" / "entry_missing_export.orc"
+    unresolved_prompt_source = _module_source(
+        "2.21",
+        "(defmodule demo/entry_missing_export)",
+        "(import demo/prompts :as prompts :only (ReportPath absent))",
+        """
+        (defworkflow run-review ((report ReportPath)) -> Value
+          (provider-result providers.review
+            :prompt (review :unknown report)))
+        """,
+    )
+    entry_path.write_text(unresolved_prompt_source, encoding="utf-8")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            entry_path,
+            source_roots=(source_root,),
+            provider_externs={"providers.review": "test-provider"},
+            validate_shared=False,
+            workspace_root=tmp_path,
+            lowering_route="legacy",
+        )
+    unresolved_prompt = excinfo.value.diagnostics[0]
+    assert unresolved_prompt.code == "module_export_missing"
+    assert _source_owned_text(
+        unresolved_prompt_source,
+        unresolved_prompt.span,
+    ) == "(import demo/prompts :as prompts :only (ReportPath absent))"
+    assert unresolved_prompt.notes == ()
+
+    unknown_fill_source = unresolved_prompt_source.replace(
+        "(ReportPath absent)",
+        "(ReportPath review)",
+    ).replace("demo/entry_missing_export", "demo/entry_unknown_fill")
+    unknown_fill_path = source_root / "demo" / "entry_unknown_fill.orc"
+    unknown_fill_path.write_text(unknown_fill_source, encoding="utf-8")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            unknown_fill_path,
+            source_roots=(source_root,),
+            provider_externs={"providers.review": "test-provider"},
+            validate_shared=False,
+            workspace_root=tmp_path,
+            lowering_route="legacy",
+        )
+    unknown_fill = excinfo.value.diagnostics[0]
+    assert unknown_fill.code == "prompt_fill_unknown"
+    assert _source_owned_text(
+        unknown_fill_source,
+        unknown_fill.span,
+    ) == ":unknown"
+    assert unknown_fill.notes == ()
+
+    missing_fill_source = unknown_fill_source.replace(
+        "(review :unknown report)",
+        "(review)",
+    ).replace("demo/entry_unknown_fill", "demo/entry_missing_fill")
+    missing_fill_path = source_root / "demo" / "entry_missing_fill.orc"
+    missing_fill_path.write_text(missing_fill_source, encoding="utf-8")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            missing_fill_path,
+            source_roots=(source_root,),
+            provider_externs={"providers.review": "test-provider"},
+            validate_shared=False,
+            workspace_root=tmp_path,
+            lowering_route="legacy",
+        )
+    missing_fill = excinfo.value.diagnostics[0]
+    assert missing_fill.code == "prompt_slot_undischarged"
+    assert _source_owned_text(
+        missing_fill_source,
+        missing_fill.span,
+    ) == "(review)"
+    assert missing_fill.notes == (_related_source_note(report_declaration.span),)
+
+
+def test_prompt_output_position_definition_wide_target_and_syntax_precedence() -> None:
+    below_target = _module_source(
+        "2.20",
+        """
+        (defprompt review
+          (:fills
+            (earlier :blob)
+            (report :path :out))
+          "{report}")
+        """,
+    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        module = syntax.build_syntax_module(
+            read_sexpr_text(
+                below_target,
+                source_path="output_cross_slot_target.orc",
+            )
+        )
+        workflow_lisp.elaborate_prompt_definitions(module)
+    target_gate = excinfo.value.diagnostics[0]
+    assert target_gate.code == "prompt_output_positions_require_dsl_2_21"
+    assert _source_owned_text(below_target, target_gate.span) == ":out"
+
+    competing_slots = (
+        "(report :path :out :out)",
+        "(report :path ReportPath :out)",
+    )
+    for index, later_slot in enumerate(competing_slots):
+        source = _module_source(
+            "2.21",
+            f"""
+            (defprompt review
+              (:fills
+                (earlier :text :out)
+                {later_slot})
+              "{{earlier}} {{report}}")
+            """,
+        )
+        with pytest.raises(LispFrontendCompileError) as excinfo:
+            module = syntax.build_syntax_module(
+                read_sexpr_text(
+                    source,
+                    source_path=f"output_cross_slot_syntax_{index}.orc",
+                )
+            )
+            workflow_lisp.elaborate_prompt_definitions(module)
+        syntax_error = excinfo.value.diagnostics[0]
+        assert syntax_error.code == "prompt_output_position_syntax_invalid"
+        if index == 0:
+            assert syntax_error.span.start.offset == source.rindex(":out")
+        else:
+            assert _source_owned_text(source, syntax_error.span) == ":out"
+
+    kind_only = _module_source(
+        "2.21",
+        """
+        (defprompt review
+          (:fills
+            (earlier :text :out)
+            (report :path :out))
+          "{earlier} {report}")
+        """,
+    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        module = syntax.build_syntax_module(
+            read_sexpr_text(
+                kind_only,
+                source_path="output_cross_slot_kind.orc",
+            )
+        )
+        workflow_lisp.elaborate_prompt_definitions(module)
+    kind_error = excinfo.value.diagnostics[0]
+    assert kind_error.code == "prompt_output_position_kind_invalid"
+    assert _source_owned_text(kind_only, kind_error.span) == ":out"
+
+
+@pytest.mark.parametrize(
+    ("later_slot", "template", "code", "owned_text"),
+    (
+        (
+            "(report :path :out)",
+            "{first} {report}",
+            "prompt_slot_duplicate",
+            "(report :path :out)",
+        ),
+        (
+            "(later :blob)",
+            "{first}",
+            "prompt_slot_kind_unknown",
+            ":blob",
+        ),
+        (
+            "(later :text String)",
+            "{first} {later}",
+            "prompt_slot_refinement_invalid",
+            "String",
+        ),
+        (
+            "(later :text)",
+            "{first}",
+            "prompt_placeholder_missing",
+            "(later :text)",
+        ),
+    ),
+)
+def test_prompt_output_position_all_q1_definition_checks_precede_q2_refinement(
+    later_slot: str,
+    template: str,
+    code: str,
+    owned_text: str,
+) -> None:
+    first_name = "report" if code == "prompt_slot_duplicate" else "first"
+    source = _module_source(
+        "2.21",
+        f"""
+        (defprompt review
+          (:fills
+            ({first_name} :path :out ExistingReportPath)
+            {later_slot})
+          "{template}")
+        """,
+    )
+    module = syntax.build_syntax_module(
+        read_sexpr_text(
+            source,
+            source_path=f"output_q1_before_q2_{code}.orc",
+        )
+    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        definitions = workflow_lisp.elaborate_prompt_definitions(module)
+        build_prompt_catalog(
+            "demo/prompts",
+            definitions,
+            type_env=_output_position_type_env(),
+        )
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == code
+    assert _source_owned_text(source, diagnostic.span) == owned_text
+
+
+def test_prompt_output_position_catalog_runs_all_q1_refinements_before_q2() -> None:
+    source = _module_source(
+        "2.21",
+        """
+        (defprompt review
+          (:fills
+            (report :path :out ExistingReportPath)
+            (later :path String))
+          "{report} {later}")
+        """,
+    )
+    module = syntax.build_syntax_module(
+        read_sexpr_text(
+            source,
+            source_path="output_catalog_phase_order.orc",
+        )
+    )
+    definitions = workflow_lisp.elaborate_prompt_definitions(module)
+    later_slot = definitions[0].slots[1]
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_prompt_catalog(
+            "demo/prompts",
+            definitions,
+            type_env=_output_position_type_env(),
+        )
+    q1_refinement = excinfo.value.diagnostics[0]
+    assert q1_refinement.code == "prompt_slot_refinement_invalid"
+    assert q1_refinement.span == later_slot.span
+    assert _source_owned_text(source, q1_refinement.span) == "(later :path String)"
+
+    q2_only_source = source.replace(
+        "\n            (later :path String)",
+        "",
+    ).replace(" {later}", "")
+    q2_module = syntax.build_syntax_module(
+        read_sexpr_text(
+            q2_only_source,
+            source_path="output_catalog_q2_only.orc",
+        )
+    )
+    q2_definitions = workflow_lisp.elaborate_prompt_definitions(q2_module)
+    q2_output_span = q2_definitions[0].slots[0].output_role_span
+    assert q2_output_span is not None
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_prompt_catalog(
+            "demo/prompts",
+            q2_definitions,
+            type_env=_output_position_type_env(),
+        )
+    q2_refinement = excinfo.value.diagnostics[0]
+    assert q2_refinement.code == "prompt_output_position_refinement_invalid"
+    assert _source_owned_text(
+        q2_only_source,
+        q2_refinement.span,
+    ) == "ExistingReportPath"
+    assert q2_refinement.notes == (_related_source_note(q2_output_span),)
+
+
+def _cross_slot_output_application(
+    *,
+    second_declaration: str,
+    application: str,
+    second_type,
+):
+    type_env = _output_position_type_env()
+    catalog = _catalog(
+        (
+            "(defprompt review "
+            f"(:fills (report :path :out) {second_declaration}) "
+            '"{report} {second}")'
+        ),
+        target_dsl="2.21",
+        type_env=type_env,
+    )
+    expr = _elaborate_provider(
+        f"(provider-result providers.review :prompt {application})",
+        catalog=catalog,
+        bound_names=frozenset(
+            {"providers.review", "report", "second"}
+        ),
+        target_dsl="2.21",
+    )
+    span = expr.span
+    existing_path = PathTypeRef(
+        name="ExistingReportPath",
+        definition=PathDef(
+            name="ExistingReportPath",
+            kind="relpath",
+            under="artifacts/reports",
+            must_exist=True,
+            span=span,
+        ),
+    )
+    return typecheck_expression(
+        expr,
+        type_env=type_env,
+        value_env={
+            "providers.review": PrimitiveTypeRef(name="Provider"),
+            "report": existing_path,
+            "second": second_type,
+        },
+        extern_environment=ExternEnvironment(
+            bindings_by_name={
+                "providers.review": ProviderExtern(
+                    name="providers.review",
+                    provider_id="test-provider",
+                )
+            }
+        ),
+        prompt_catalog=catalog,
+    )
+
+
+def test_prompt_output_position_application_q1_discharge_precedes_q2_fill() -> None:
+    catalog = _catalog(
+        """
+        (defprompt review
+          (:fills (report :path :out) (second :text))
+          "{report} {second}")
+        """,
+        target_dsl="2.21",
+    )
+    unknown_application = "(review :report report :unknown second)"
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _elaborate_provider(
+            f"(provider-result providers.review :prompt {unknown_application})",
+            catalog=catalog,
+            bound_names=frozenset(
+                {"providers.review", "report", "second"}
+            ),
+            target_dsl="2.21",
+        )
+    unknown = excinfo.value.diagnostics[0]
+    assert unknown.code == "prompt_fill_unknown"
+    assert _source_owned_text(
+        _provider_wrapper_source(
+            f"(provider-result providers.review :prompt {unknown_application})",
+            target_dsl="2.21",
+        ),
+        unknown.span,
+    ) == ":unknown"
+
+    missing_application = "(review :report report)"
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _elaborate_provider(
+            f"(provider-result providers.review :prompt {missing_application})",
+            catalog=catalog,
+            bound_names=frozenset({"providers.review", "report"}),
+            target_dsl="2.21",
+        )
+    missing = excinfo.value.diagnostics[0]
+    assert missing.code == "prompt_slot_undischarged"
+    assert _source_owned_text(
+        _provider_wrapper_source(
+            f"(provider-result providers.review :prompt {missing_application})",
+            target_dsl="2.21",
+        ),
+        missing.span,
+    ) == missing_application
+
+
+@pytest.mark.parametrize(
+    ("second_declaration", "second_type", "code"),
+    (
+        (
+            "(second :text)",
+            PrimitiveTypeRef(name="Int"),
+            "prompt_slot_type_mismatch",
+        ),
+        (
+            "(second :value)",
+            OptionalTypeRef(
+                name="Optional[String]",
+                item_type_ref=PrimitiveTypeRef(name="String"),
+            ),
+            "prompt_fill_renderer_unsupported",
+        ),
+    ),
+)
+def test_prompt_output_position_application_runs_all_q1_types_before_q2_fill(
+    second_declaration: str,
+    second_type,
+    code: str,
+) -> None:
+    application = "(review :report report :second second)"
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _cross_slot_output_application(
+            second_declaration=second_declaration,
+            application=application,
+            second_type=second_type,
+        )
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == code
+    assert _source_owned_text(
+        _provider_wrapper_source(
+            f"(provider-result providers.review :prompt {application})",
+            target_dsl="2.21",
+        ),
+        diagnostic.span,
+    ) == "second"
 
 
 def test_registered_form_heads_uses_the_same_target_filter_as_registry_views() -> None:
@@ -366,7 +1064,10 @@ def test_defprompt_structural_errors_are_frontend_diagnostics(
     (
         ("(message :blob)", "prompt_slot_kind_unknown"),
         ("(message :text String)", "prompt_slot_refinement_invalid"),
-        ("(message :value :out)", "prompt_slot_refinement_invalid"),
+        (
+            "(message :value :out)",
+            "prompt_output_positions_require_dsl_2_21",
+        ),
     ),
 )
 def test_defprompt_rejects_invalid_slot_kind_or_refinement(
@@ -479,10 +1180,50 @@ def _empty_type_env(*, target_dsl: str = "2.20") -> FrontendTypeEnvironment:
     return FrontendTypeEnvironment.from_module(module)
 
 
-def _catalog(*declarations: str):
+def _output_position_type_env() -> FrontendTypeEnvironment:
     parsed = syntax.build_syntax_module(
         read_sexpr_text(
-            _module_source("2.20", *declarations),
+            _module_source("2.21"),
+            source_path="inline_prompt_output_types.orc",
+        )
+    )
+    definitions = (
+        PathDef(
+            name="ReportPath",
+            kind="relpath",
+            under="artifacts/reports",
+            must_exist=False,
+            span=parsed.span,
+        ),
+        PathDef(
+            name="ExistingReportPath",
+            kind="relpath",
+            under="artifacts/reports",
+            must_exist=True,
+            span=parsed.span,
+        ),
+    )
+    module = WorkflowLispModule(
+        language_version=parsed.language_version,
+        target_dsl_version=parsed.target_dsl_version,
+        module_name="demo/prompts",
+        imports=(),
+        exports=(),
+        definitions=definitions,
+        schemas=(),
+        span=parsed.span,
+    )
+    return FrontendTypeEnvironment.from_module(module)
+
+
+def _catalog(
+    *declarations: str,
+    target_dsl: str = "2.20",
+    type_env: FrontendTypeEnvironment | None = None,
+):
+    parsed = syntax.build_syntax_module(
+        read_sexpr_text(
+            _module_source(target_dsl, *declarations),
             source_path="inline_prompt_catalog.orc",
         )
     )
@@ -490,7 +1231,7 @@ def _catalog(*declarations: str):
     return build_prompt_catalog(
         "demo/prompts",
         definitions,
-        type_env=_empty_type_env(),
+        type_env=type_env or _empty_type_env(target_dsl=target_dsl),
     )
 
 
@@ -503,10 +1244,7 @@ def _elaborate_provider(
 ):
     parsed = syntax.build_syntax_module(
         read_sexpr_text(
-            _module_source(
-                target_dsl,
-                f"(defworkflow ignored () -> Value {source})",
-            ),
+            _provider_wrapper_source(source, target_dsl=target_dsl),
             source_path="inline_prompt_wrapper.orc",
         )
     )
@@ -522,6 +1260,17 @@ def _elaborate_provider(
         bound_names=bound_names,
         prompt_catalog=catalog,
         target_dsl_version=target_dsl,
+    )
+
+
+def _provider_wrapper_source(
+    application_source: str,
+    *,
+    target_dsl: str,
+) -> str:
+    return _module_source(
+        target_dsl,
+        f"(defworkflow ignored () -> Value {application_source})",
     )
 
 
@@ -971,6 +1720,162 @@ def test_prompt_application_closed_fill_and_redeclaration_refusals(
             bound_names=frozenset({"providers.review", "m"}),
         )
     assert _diagnostic_code(excinfo) == code
+
+
+def test_prompt_output_position_missing_fill_and_caller_override_keep_q1_codes() -> None:
+    catalog = _catalog(
+        '(defprompt review (:fills (report :path :out)) "{report}")',
+        target_dsl="2.21",
+    )
+    declaration = catalog.resolve("review").slots[0].declaration
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _elaborate_provider(
+            "(provider-result providers.review :prompt (review))",
+            catalog=catalog,
+            bound_names=frozenset({"providers.review"}),
+            target_dsl="2.21",
+        )
+    missing = excinfo.value.diagnostics[0]
+    assert missing.code == "prompt_slot_undischarged"
+    assert missing.span.start.path == "inline_prompt_wrapper.orc"
+    assert missing.notes == (_related_source_note(declaration.span),)
+
+    override_application = """
+        (provider-result providers.review
+          :prompt (review :report report :out true))
+        """
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _elaborate_provider(
+            override_application,
+            catalog=catalog,
+            bound_names=frozenset({"providers.review", "report"}),
+            target_dsl="2.21",
+        )
+    override = excinfo.value.diagnostics[0]
+    assert override.code == "prompt_fill_unknown"
+    assert override.span.start.path == "inline_prompt_wrapper.orc"
+    assert _source_owned_text(
+        _provider_wrapper_source(
+            override_application,
+            target_dsl="2.21",
+        ),
+        override.span,
+    ) == ":out"
+
+
+_OUTPUT_POSITION_APPLICATION = """
+        (provider-result providers.review
+          :prompt (review :report report))
+        """
+
+
+def _typecheck_output_position(
+    *,
+    declaration: str,
+    fill_type,
+):
+    type_env = _output_position_type_env()
+    catalog = _catalog(
+        declaration,
+        target_dsl="2.21",
+        type_env=type_env,
+    )
+    expr = _elaborate_provider(
+        _OUTPUT_POSITION_APPLICATION,
+        catalog=catalog,
+        bound_names=frozenset({"providers.review", "report"}),
+        target_dsl="2.21",
+    )
+    return typecheck_expression(
+        expr,
+        type_env=type_env,
+        value_env={
+            "providers.review": PrimitiveTypeRef(name="Provider"),
+            "report": fill_type,
+        },
+        extern_environment=ExternEnvironment(
+            bindings_by_name={
+                "providers.review": ProviderExtern(
+                    name="providers.review",
+                    provider_id="test-provider",
+                )
+            }
+        ),
+        prompt_catalog=catalog,
+    )
+
+
+def test_prompt_output_position_fill_compatibility_follows_q1_type_checks() -> None:
+    source_span = syntax.build_syntax_module(
+        read_sexpr_text(
+            _module_source("2.21"),
+            source_path="output_fill_types.orc",
+        )
+    ).span
+    output_path = PathTypeRef(
+        name="ReportPath",
+        definition=PathDef(
+            name="ReportPath",
+            kind="relpath",
+            under="artifacts/reports",
+            must_exist=False,
+            span=source_span,
+        ),
+    )
+    existing_path = PathTypeRef(
+        name="ExistingReportPath",
+        definition=PathDef(
+            name="ExistingReportPath",
+            kind="relpath",
+            under="artifacts/reports",
+            must_exist=True,
+            span=source_span,
+        ),
+    )
+
+    typed = _typecheck_output_position(
+        declaration='(defprompt review (:fills (report :path :out ReportPath)) "{report}")',
+        fill_type=output_path,
+    )
+    assert typed.expr.prompt.fills[0].renderer_id == "posix-path-line"
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typecheck_output_position(
+            declaration='(defprompt review (:fills (report :path :out)) "{report}")',
+            fill_type=existing_path,
+        )
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "prompt_output_position_fill_invalid"
+    assert diagnostic.span.start.path == "inline_prompt_wrapper.orc"
+    assert _source_owned_text(
+        _provider_wrapper_source(
+            _OUTPUT_POSITION_APPLICATION,
+            target_dsl="2.21",
+        ),
+        diagnostic.span,
+    ) == "report"
+    assert diagnostic.notes == (
+        _related_source_note(
+            _catalog(
+                '(defprompt review (:fills (report :path :out)) "{report}")',
+                target_dsl="2.21",
+            ).resolve("review").slots[0].declaration.span
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typecheck_output_position(
+            declaration='(defprompt review (:fills (report :path :out ReportPath)) "{report}")',
+            fill_type=existing_path,
+        )
+    assert _diagnostic_code(excinfo) == "prompt_slot_type_mismatch"
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typecheck_output_position(
+            declaration='(defprompt review (:fills (report :path :out)) "{report}")',
+            fill_type=PrimitiveTypeRef(name="String"),
+        )
+    assert _diagnostic_code(excinfo) == "prompt_fill_renderer_unsupported"
 
 
 def test_prompt_application_fill_name_errors_precede_redeclaration_errors() -> None:
@@ -1446,6 +2351,198 @@ def test_compiled_prompt_identity_is_order_stable_and_change_sensitive() -> None
     with pytest.raises(LispFrontendCompileError) as excinfo:
         validate_compiled_prompt_fragment_identity("sha256:ABC")
     assert _diagnostic_code(excinfo) == "compiled_prompt_fragment_identity_invalid"
+
+
+_FROZEN_Q1_IDENTITY_BYTES = (
+    b'{"fully_applied_bindings":[{"slot":"left","typed_expression_identity":'
+    b'{"binding_path":["left"],"kind":"binding_path","static_type":{"kind":'
+    b'"primitive","name":"String"}}},{"slot":"right","typed_expression_identity":'
+    b'{"binding_path":["right"],"kind":"binding_path","static_type":{"kind":'
+    b'"primitive","name":"Int"}}}],"referenced_declarations":[{"qualified_name":'
+    b'"demo/prompts::review","return_spec":{"guidance":null,"type":{"kind":'
+    b'"primitive","name":"Value"}},"slots":[{"kind":"text","name":"left",'
+    b'"placeholder_policy":"required_repetition_allowed","refinement":null},'
+    b'{"kind":"value","name":"right","placeholder_policy":'
+    b'"required_repetition_allowed","refinement":null}],"template_utf8":'
+    b'"{left} {right}"}],"schema_version":"compiled_prompt_fragment_identity.v1"}'
+)
+_FROZEN_Q1_IDENTITY = (
+    "sha256:7f2688f6efd63e0bdf0d492f006086a4437dc5eb79893c3e78a37001704b132c"
+)
+_FROZEN_Q1_CARRIER_JSON = (
+    '{"compiled_prompt_fragment_identity":"sha256:'
+    'dd1b2a5365b0091c1012ecd5d768910f2fbf1a8c219d70fd46c92e0f5833014b",'
+    '"rendered_slots":[{"kind":"text","name":"message",'
+    '"placeholder_ordinals":[0,3],"renderer_id":"raw-utf8-string",'
+    '"static_type":{"kind":"primitive","name":"String"},'
+    '"value_source":{"binding":{"ref":"inputs.message"},'
+    '"kind":"typed_binding_ref"}},{"kind":"value","name":"score",'
+    '"placeholder_ordinals":[1],"renderer_id":"canonical-json",'
+    '"static_type":{"kind":"primitive","name":"Int"},'
+    '"value_source":{"binding":{"ref":"inputs.score"},'
+    '"kind":"typed_binding_ref"}},{"kind":"path","name":"report_path",'
+    '"placeholder_ordinals":[2],"renderer_id":"posix-path-line",'
+    '"static_type":{"kind":"path","must_exist_target":false,'
+    '"name":"WorkReportPath","under":"artifacts/work"},'
+    '"value_source":{"binding":{"ref":"inputs.report_path"},'
+    '"kind":"typed_binding_ref"}}],"schema_version":'
+    '"compiler_prompt_fragment_contract.v1","template_utf8":'
+    '"Message={message}; score={score}; report={report_path}; again={message}"}'
+)
+
+
+def _compile_q1_identity_at_target(target_dsl: str):
+    catalog = _catalog(
+        '(defprompt review (:fills (left :text) (right :value)) "{left} {right}")',
+        target_dsl=target_dsl,
+    )
+    expr = _elaborate_provider(
+        """
+        (provider-result providers.review
+          :prompt (review :left left :right right))
+        """,
+        catalog=catalog,
+        bound_names=frozenset({"providers.review", "left", "right"}),
+        target_dsl=target_dsl,
+    )
+    return typecheck_expression(
+        expr,
+        type_env=_empty_type_env(target_dsl=target_dsl),
+        value_env={
+            "providers.review": PrimitiveTypeRef(name="Provider"),
+            "left": PrimitiveTypeRef(name="String"),
+            "right": PrimitiveTypeRef(name="Int"),
+        },
+        extern_environment=ExternEnvironment(
+            bindings_by_name={
+                "providers.review": ProviderExtern(
+                    name="providers.review",
+                    provider_id="test-provider",
+                )
+            }
+        ),
+        prompt_catalog=catalog,
+    ).expr.prompt
+
+
+def test_q1_prompt_fragment_identity_and_carrier_bytes_are_frozen_across_target_2_21(
+    tmp_path: Path,
+) -> None:
+    prompt_220 = _compile_q1_identity_at_target("2.20")
+    prompt_221 = _compile_q1_identity_at_target("2.21")
+    projection_bytes_220 = json.dumps(
+        prompt_220.canonical_identity_projection,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    projection_bytes_221 = json.dumps(
+        prompt_221.canonical_identity_projection,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+    assert projection_bytes_220 == _FROZEN_Q1_IDENTITY_BYTES
+    assert projection_bytes_221 == _FROZEN_Q1_IDENTITY_BYTES
+    assert prompt_220.compiled_prompt_fragment_identity == _FROZEN_Q1_IDENTITY
+    assert prompt_221.compiled_prompt_fragment_identity == _FROZEN_Q1_IDENTITY
+
+    carrier_jsons = []
+    for target_dsl in ("2.20", "2.21"):
+        result = _compile_fragment_workflow(
+            tmp_path,
+            lowering_route="legacy",
+            target_dsl=target_dsl,
+        )
+        bundle = result.validated_bundles["run-review"]
+        provider_step = next(
+            step
+            for step in bundle.surface.steps
+            if step.kind.value == "provider"
+        )
+        carrier_jsons.append(
+            canonical_compiler_prompt_fragment_contract_json(
+                provider_step.compiler_prompt_fragment_contract
+            )
+        )
+    assert carrier_jsons == [
+        _FROZEN_Q1_CARRIER_JSON,
+        _FROZEN_Q1_CARRIER_JSON,
+    ]
+
+
+def test_q2_prompt_fragment_identity_adds_output_role_to_every_declaration_slot_only() -> None:
+    type_env = _output_position_type_env()
+
+    def compile_projection(*, output: bool):
+        output_modifier = " :out" if output else ""
+        catalog = _catalog(
+            (
+                "(defprompt review "
+                "(:fills (message :text) "
+                f"(report :path{output_modifier})) "
+                '"{message} {report}")'
+            ),
+            target_dsl="2.21",
+            type_env=type_env,
+        )
+        expr = _elaborate_provider(
+            """
+            (provider-result providers.review
+              :prompt (review :message message :report report))
+            """,
+            catalog=catalog,
+            bound_names=frozenset(
+                {"providers.review", "message", "report"}
+            ),
+            target_dsl="2.21",
+        )
+        span = expr.span
+        report_type = PathTypeRef(
+            name="ReportPath",
+            definition=PathDef(
+                name="ReportPath",
+                kind="relpath",
+                under="artifacts/reports",
+                must_exist=False,
+                span=span,
+            ),
+        )
+        typed = typecheck_expression(
+            expr,
+            type_env=type_env,
+            value_env={
+                "providers.review": PrimitiveTypeRef(name="Provider"),
+                "message": PrimitiveTypeRef(name="String"),
+                "report": report_type,
+            },
+            extern_environment=ExternEnvironment(
+                bindings_by_name={
+                    "providers.review": ProviderExtern(
+                        name="providers.review",
+                        provider_id="test-provider",
+                    )
+                }
+            ),
+            prompt_catalog=catalog,
+        )
+        return typed.expr.prompt.canonical_identity_projection
+
+    v1 = compile_projection(output=False)
+    v2 = compile_projection(output=True)
+    assert v1["schema_version"] == "compiled_prompt_fragment_identity.v1"
+    assert v2["schema_version"] == "compiled_prompt_fragment_identity.v2"
+    assert [
+        slot["output_role"]
+        for slot in v2["referenced_declarations"][0]["slots"]
+    ] == ["none", "required_string_file"]
+
+    normalized_v2 = json.loads(json.dumps(v2))
+    normalized_v2["schema_version"] = "compiled_prompt_fragment_identity.v1"
+    for slot in normalized_v2["referenced_declarations"][0]["slots"]:
+        del slot["output_role"]
+    assert normalized_v2 == v1
 
 
 @pytest.mark.parametrize("lowering_route", ("legacy", "wcc_m4"))

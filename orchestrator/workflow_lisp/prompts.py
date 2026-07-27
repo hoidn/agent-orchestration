@@ -31,6 +31,7 @@ from .syntax import (
     syntax_identifier,
     syntax_node_datum,
     target_dsl_supports_prompt_calculus,
+    target_dsl_supports_prompt_output_positions,
 )
 
 
@@ -47,6 +48,13 @@ class PromptSlotKind(str, Enum):
     PATH = "path"
 
 
+class PromptOutputRole(str, Enum):
+    """Closed Q2 prompt-slot output-role inventory."""
+
+    NONE = "none"
+    REQUIRED_STRING_FILE = "required_string_file"
+
+
 @dataclass(frozen=True)
 class PromptSlot:
     """One authored prompt slot in declaration order."""
@@ -57,6 +65,9 @@ class PromptSlot:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    refinement_span: SourceSpan | None = None
+    output_role: PromptOutputRole = PromptOutputRole.NONE
+    output_role_span: SourceSpan | None = None
 
 
 @dataclass(frozen=True)
@@ -70,7 +81,7 @@ class PromptTemplate:
 
 @dataclass(frozen=True)
 class PromptDef:
-    """One immutable target-2.20 prompt declaration."""
+    """One prompt declaration admitted from 2.20 with optional 2.21 output roles."""
 
     name: str
     slots: tuple[PromptSlot, ...]
@@ -144,6 +155,14 @@ class PromptCatalog:
         return self.definitions_by_name.get(name)
 
 
+@dataclass(frozen=True)
+class _SpanOwner:
+    """Minimal source owner for a retained primary or related diagnostic span."""
+
+    span: SourceSpan
+    expansion_stack: ExpansionStack = ()
+
+
 def build_prompt_catalog(
     module_name: str,
     definitions: tuple[PromptDef, ...],
@@ -182,19 +201,60 @@ def build_prompt_catalog(
             for slot in definition.slots
         )
         for resolved_slot in resolved_slots:
+            slot = resolved_slot.declaration
             if (
                 resolved_slot.refinement_type_ref is not None
                 and not _refinement_is_admissible(resolved_slot)
             ):
-                slot = resolved_slot.declaration
                 _raise_prompt_error(
                     "prompt_slot_refinement_invalid",
                     (
                         f"refinement `{slot.refinement_type_name}` is not "
                         f"admissible for `:{slot.kind.value}`"
                     ),
-                    node=slot,
+                    node=(
+                        _SpanOwner(
+                            span=slot.refinement_span or slot.span,
+                            expansion_stack=slot.expansion_stack,
+                        )
+                        if slot.output_role
+                        is PromptOutputRole.REQUIRED_STRING_FILE
+                        else slot
+                    ),
                     form_path=slot.form_path,
+                )
+        for resolved_slot in resolved_slots:
+            slot = resolved_slot.declaration
+            if (
+                resolved_slot.refinement_type_ref is not None
+                and slot.output_role
+                is PromptOutputRole.REQUIRED_STRING_FILE
+                and not _is_workspace_output_relpath(
+                    resolved_slot.refinement_type_ref
+                )
+            ):
+                declaration = resolved_slot.declaration
+                _raise_prompt_error(
+                    "prompt_output_position_refinement_invalid",
+                    (
+                        f"output-position refinement "
+                        f"`{declaration.refinement_type_name}` must be a "
+                        "workspace-relative relpath with `must_exist=false`"
+                    ),
+                    node=_SpanOwner(
+                        span=declaration.refinement_span or declaration.span,
+                        expansion_stack=declaration.expansion_stack,
+                    ),
+                    form_path=declaration.form_path,
+                    related_nodes=(
+                        _SpanOwner(
+                            span=(
+                                declaration.output_role_span
+                                or declaration.span
+                            ),
+                            expansion_stack=declaration.expansion_stack,
+                        ),
+                    ),
                 )
         return_type = type_env.resolve_type(
             definition.return_type_name,
@@ -317,11 +377,21 @@ def elaborate_prompt_application(
         if slot.declaration.name not in authored
     )
     if missing:
+        missing_output_declarations = tuple(
+            slot.declaration
+            for slot in resolved.slots
+            if (
+                slot.declaration.name in missing
+                and slot.declaration.output_role
+                is PromptOutputRole.REQUIRED_STRING_FILE
+            )
+        )
         _raise_prompt_error(
             "prompt_slot_undischarged",
             f"prompt application is missing fills: {', '.join(missing)}",
             node=node,
             form_path=form_path,
+            related_nodes=missing_output_declarations,
         )
     return PromptApplicationExpr(
         prompt=resolved,
@@ -397,6 +467,26 @@ def typecheck_prompt_application(
                 ),
             )
         )
+    for slot, fill in zip(
+        application.prompt.slots,
+        typed_fills,
+        strict=True,
+    ):
+        if (
+            slot.declaration.output_role
+            is PromptOutputRole.REQUIRED_STRING_FILE
+            and not _is_workspace_output_relpath(fill.static_type_ref)
+        ):
+            _raise_prompt_error(
+                "prompt_output_position_fill_invalid",
+                (
+                    f"output-position fill `{fill.name}` must be a "
+                    "workspace-relative relpath with `must_exist=false`"
+                ),
+                node=fill,
+                form_path=application.form_path,
+                related_nodes=(slot.declaration,),
+            )
     projection = _compiled_identity_projection(
         application.prompt,
         tuple(typed_fills),
@@ -419,7 +509,7 @@ def validate_compiled_prompt_fragment_identity(
     *,
     canonical_projection: Mapping[str, Any] | None = None,
 ) -> None:
-    """Fail closed on malformed or projection-mismatched Q1 identities."""
+    """Fail closed on malformed or projection-mismatched compiled v1/v2 identities."""
 
     if not isinstance(identity, str) or not _COMPILED_IDENTITY_RE.fullmatch(
         identity
@@ -436,6 +526,16 @@ def validate_compiled_prompt_fragment_identity(
             "compiled_prompt_fragment_identity_invalid",
             "compiled prompt fragment identity does not match its projection",
         )
+
+
+def _is_workspace_output_relpath(type_ref: object) -> bool:
+    from .type_env import PathTypeRef
+
+    return (
+        isinstance(type_ref, PathTypeRef)
+        and type_ref.definition.kind == "relpath"
+        and not type_ref.definition.must_exist
+    )
 
 
 def _refinement_is_admissible(slot: ResolvedPromptSlot) -> bool:
@@ -556,30 +656,45 @@ def _compiled_identity_projection(
     type_env,
 ) -> dict[str, Any]:
     return_spec = prompt.declaration.return_spec
+    has_output_role = any(
+        slot.declaration.output_role is not PromptOutputRole.NONE
+        for slot in prompt.slots
+    )
+
+    def slot_projection(slot: ResolvedPromptSlot) -> dict[str, Any]:
+        projection = {
+            "name": slot.declaration.name,
+            "kind": slot.declaration.kind.value,
+            "refinement": (
+                None
+                if slot.refinement_type_ref is None
+                else _normalized_type_descriptor(
+                    slot.refinement_type_ref,
+                    type_env=type_env,
+                )
+            ),
+            "placeholder_policy": (
+                "forbidden"
+                if slot.declaration.kind is PromptSlotKind.DOC
+                else "required_repetition_allowed"
+            ),
+        }
+        if has_output_role:
+            projection["output_role"] = slot.declaration.output_role.value
+        return projection
+
     return {
-        "schema_version": "compiled_prompt_fragment_identity.v1",
+        "schema_version": (
+            "compiled_prompt_fragment_identity.v2"
+            if has_output_role
+            else "compiled_prompt_fragment_identity.v1"
+        ),
         "referenced_declarations": [
             {
                 "qualified_name": prompt.qualified_name,
                 "template_utf8": prompt.declaration.template.text,
                 "slots": [
-                    {
-                        "name": slot.declaration.name,
-                        "kind": slot.declaration.kind.value,
-                        "refinement": (
-                            None
-                            if slot.refinement_type_ref is None
-                            else _normalized_type_descriptor(
-                                slot.refinement_type_ref,
-                                type_env=type_env,
-                            )
-                        ),
-                        "placeholder_policy": (
-                            "forbidden"
-                            if slot.declaration.kind is PromptSlotKind.DOC
-                            else "required_repetition_allowed"
-                        ),
-                    }
+                    slot_projection(slot)
                     for slot in prompt.slots
                 ],
                 "return_spec": {
@@ -673,13 +788,21 @@ def elaborate_prompt_definitions(
                 node=head if head is not None else form,
                 form_path=form.form_path,
             )
-        definitions.append(_elaborate_prompt_definition(form, datum))
+        definitions.append(
+            _elaborate_prompt_definition(
+                form,
+                datum,
+                target_dsl_version=module.target_dsl_version,
+            )
+        )
     return tuple(definitions)
 
 
 def _elaborate_prompt_definition(
     form: SyntaxNode,
     datum: object,
+    *,
+    target_dsl_version: str,
 ) -> PromptDef:
     if not isinstance(datum, SyntaxList) or len(datum.items) < 4:
         _raise_prompt_error(
@@ -696,7 +819,11 @@ def _elaborate_prompt_definition(
             node=datum.items[1],
             form_path=form.form_path,
         )
-    slots = _parse_slots(datum.items[2], form=form)
+    slots = _parse_slots(
+        datum.items[2],
+        form=form,
+        target_dsl_version=target_dsl_version,
+    )
     tail = datum.items[3:]
     if len(tail) == 1:
         return_spec = ReturnSpec(
@@ -759,10 +886,100 @@ def _elaborate_prompt_definition(
     )
 
 
+def _output_role_nodes(raw_slot: object) -> tuple[SyntaxKeyword, ...]:
+    if not isinstance(raw_slot, SyntaxList):
+        return ()
+    return tuple(
+        item
+        for item in raw_slot.items[1:]
+        if isinstance(item, SyntaxKeyword) and item.value == ":out"
+    )
+
+
+def _prevalidate_output_slot_phases(
+    raw_slots: tuple[object, ...],
+    *,
+    form: SyntaxNode,
+    target_dsl_version: str,
+) -> dict[int, SyntaxKeyword]:
+    """Run definition-wide Q2 target, syntax, then kind phases."""
+
+    output_nodes_by_slot = {
+        id(raw_slot): nodes
+        for raw_slot in raw_slots
+        if (nodes := _output_role_nodes(raw_slot))
+    }
+
+    if not target_dsl_supports_prompt_output_positions(target_dsl_version):
+        for raw_slot in raw_slots:
+            nodes = output_nodes_by_slot.get(id(raw_slot), ())
+            if nodes:
+                _raise_prompt_error(
+                    "prompt_output_positions_require_dsl_2_21",
+                    "`:out` prompt slots require target DSL 2.21 or later",
+                    node=nodes[0],
+                    form_path=form.form_path,
+                )
+
+    output_role_node_by_slot: dict[int, SyntaxKeyword] = {}
+    for raw_slot in raw_slots:
+        nodes = output_nodes_by_slot.get(id(raw_slot), ())
+        if not nodes:
+            continue
+        if len(nodes) > 1:
+            _raise_prompt_error(
+                "prompt_output_position_syntax_invalid",
+                "`:out` may occur at most once in a prompt slot",
+                node=nodes[1],
+                form_path=form.form_path,
+            )
+        output_role_node = nodes[0]
+        if (
+            not isinstance(raw_slot, SyntaxList)
+            or len(raw_slot.items) < 3
+            or raw_slot.items[2] is not output_role_node
+        ):
+            _raise_prompt_error(
+                "prompt_output_position_syntax_invalid",
+                "`:out` must occur immediately after `:path`",
+                node=output_role_node,
+                form_path=form.form_path,
+            )
+        if len(raw_slot.items) not in {3, 4}:
+            _raise_prompt_error(
+                "prompt_output_position_syntax_invalid",
+                "output-position slots require `(name :path :out [Type])`",
+                node=raw_slot,
+                form_path=form.form_path,
+            )
+        output_role_node_by_slot[id(raw_slot)] = output_role_node
+
+    for raw_slot in raw_slots:
+        output_role_node = output_role_node_by_slot.get(id(raw_slot))
+        if output_role_node is None:
+            continue
+        assert isinstance(raw_slot, SyntaxList)
+        kind_node = raw_slot.items[1]
+        if (
+            not isinstance(kind_node, SyntaxKeyword)
+            or kind_node.value != ":path"
+        ):
+            _raise_prompt_error(
+                "prompt_output_position_kind_invalid",
+                "`:out` is valid only on a `:path` prompt slot",
+                node=output_role_node,
+                form_path=form.form_path,
+                related_nodes=(kind_node,),
+            )
+
+    return output_role_node_by_slot
+
+
 def _parse_slots(
     node: object,
     *,
     form: SyntaxNode,
+    target_dsl_version: str,
 ) -> tuple[PromptSlot, ...]:
     if (
         not isinstance(node, SyntaxList)
@@ -776,13 +993,29 @@ def _parse_slots(
             node=node,
             form_path=form.form_path,
         )
+    raw_slots = tuple(node.items[1:])
+    output_role_node_by_slot = _prevalidate_output_slot_phases(
+        raw_slots,
+        form=form,
+        target_dsl_version=target_dsl_version,
+    )
     slots: list[PromptSlot] = []
     seen: set[str] = set()
-    for raw_slot in node.items[1:]:
-        if not isinstance(raw_slot, SyntaxList) or len(raw_slot.items) not in {
-            2,
-            3,
-        }:
+    for raw_slot in raw_slots:
+        if not isinstance(raw_slot, SyntaxList) or len(raw_slot.items) < 2:
+            _raise_prompt_error(
+                "frontend_parse_error",
+                "prompt slots require `(name :kind [Type])`",
+                node=raw_slot,
+                form_path=form.form_path,
+            )
+        output_role_node = output_role_node_by_slot.get(id(raw_slot))
+        output_role = (
+            PromptOutputRole.REQUIRED_STRING_FILE
+            if output_role_node is not None
+            else PromptOutputRole.NONE
+        )
+        if output_role_node is None and len(raw_slot.items) not in {2, 3}:
             _raise_prompt_error(
                 "frontend_parse_error",
                 "prompt slots require `(name :kind [Type])`",
@@ -828,23 +1061,35 @@ def _parse_slots(
             )
         seen.add(name.resolved_name)
         refinement_type_name: str | None = None
-        if len(raw_slot.items) == 3:
-            refinement = syntax_identifier(raw_slot.items[2])
+        refinement_span: SourceSpan | None = None
+        refinement_index = 3 if output_role_node is not None else 2
+        if len(raw_slot.items) > refinement_index:
+            refinement_node = raw_slot.items[refinement_index]
+            refinement = syntax_identifier(refinement_node)
             if refinement is None:
                 _raise_prompt_error(
-                    "prompt_slot_refinement_invalid",
-                    "prompt slot refinement must be a type name",
-                    node=raw_slot.items[2],
+                    (
+                        "prompt_output_position_syntax_invalid"
+                        if output_role_node is not None
+                        else "prompt_slot_refinement_invalid"
+                    ),
+                    (
+                        "output-position slot refinement must be a type name"
+                        if output_role_node is not None
+                        else "prompt slot refinement must be a type name"
+                    ),
+                    node=refinement_node,
                     form_path=form.form_path,
                 )
             if kind is PromptSlotKind.TEXT:
                 _raise_prompt_error(
                     "prompt_slot_refinement_invalid",
                     "`:text` prompt slots do not accept a refinement",
-                    node=raw_slot.items[2],
+                    node=refinement_node,
                     form_path=form.form_path,
                 )
             refinement_type_name = refinement.resolved_name
+            refinement_span = refinement.span
         slots.append(
             PromptSlot(
                 name=name.resolved_name,
@@ -853,6 +1098,13 @@ def _parse_slots(
                 span=raw_slot.span,
                 form_path=form.form_path,
                 expansion_stack=raw_slot.expansion_stack,
+                refinement_span=refinement_span,
+                output_role=output_role,
+                output_role_span=(
+                    output_role_node.span
+                    if output_role_node is not None
+                    else None
+                ),
             )
         )
     return tuple(slots)
@@ -947,7 +1199,17 @@ def _raise_prompt_error(
     *,
     node: object,
     form_path: tuple[str, ...],
+    related_nodes: tuple[object, ...] = (),
 ) -> NoReturn:
+    related_notes = tuple(
+        (
+            "related source: "
+            f"{related.span.start.path}:"
+            f"{related.span.start.line}:"
+            f"{related.span.start.column}"
+        )
+        for related in related_nodes
+    )
     raise LispFrontendCompileError(
         (
             LispFrontendDiagnostic(
@@ -956,6 +1218,7 @@ def _raise_prompt_error(
                 span=node.span,
                 form_path=form_path,
                 expansion_stack=getattr(node, "expansion_stack", ()),
+                notes=related_notes,
             ),
         )
     )

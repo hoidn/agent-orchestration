@@ -19,7 +19,7 @@ from .sexpr import BoolAtom, FloatAtom, IntAtom, KeywordAtom, ListExpr, SExpr, S
 from .spans import SourceSpan
 
 SUPPORTED_TARGET_DSL_VERSIONS = frozenset(
-    {"2.14", "2.15", "2.16", "2.17", "2.18", "2.19", "2.20"}
+    {"2.14", "2.15", "2.16", "2.17", "2.18", "2.19", "2.20", "2.21"}
 )
 PROVIDER_STEERING_DIRECTIVE_TYPE_NAME = "ProviderSteeringDirective"
 PROVIDER_SUPERVISION_MIN_TARGET_DSL_VERSION = "2.16"
@@ -27,6 +27,7 @@ PROVIDER_PEER_MESSAGING_MIN_TARGET_DSL_VERSION = "2.17"
 LIST_TRAVERSAL_MIN_TARGET_DSL_VERSION = "2.18"
 VALUE_MIN_TARGET_DSL_VERSION = "2.19"
 PROMPT_CALCULUS_MIN_TARGET_DSL_VERSION = "2.20"
+PROMPT_OUTPUT_POSITIONS_MIN_TARGET_DSL_VERSION = "2.21"
 MAX_STATIC_LIVE_PROVIDER_PEERS = 8
 
 
@@ -107,6 +108,24 @@ def target_dsl_supports_prompt_calculus(
         minimum = tuple(
             int(part)
             for part in PROMPT_CALCULUS_MIN_TARGET_DSL_VERSION.split(".")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
+def target_dsl_supports_prompt_output_positions(
+    target_dsl_version: str,
+) -> bool:
+    """Return whether a validated target includes prompt output positions."""
+
+    try:
+        target = tuple(
+            int(part) for part in target_dsl_version.split(".")
+        )
+        minimum = tuple(
+            int(part)
+            for part in PROMPT_OUTPUT_POSITIONS_MIN_TARGET_DSL_VERSION.split(".")
         )
     except (AttributeError, TypeError, ValueError):
         return False
