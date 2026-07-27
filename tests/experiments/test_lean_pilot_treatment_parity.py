@@ -26,6 +26,7 @@ from orchestrator.providers import (
     ProviderTemplate,
 )
 from orchestrator.state import StateManager
+from orchestrator.workflow import executor as workflow_executor_module
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
     workflow_context,
@@ -348,9 +349,12 @@ def public_boundary_trace(
     original_prepare = ProviderExecutor.prepare_invocation
     original_execute = ProviderExecutor.execute
     original_workflow_init = WorkflowExecutor.__init__
-    original_validate_record = output_contract_module.validate_output_bundle_bytes
+    original_validate_record = output_contract_module.validate_output_bundle
     original_validate_variant = (
-        output_contract_module.validate_variant_output_bundle_bytes
+        output_contract_module.validate_variant_output_bundle
+    )
+    coordinator_module = importlib.import_module(
+        "scripts.experiments.conventional_coordinator"
     )
 
     def prepare(self: ProviderExecutor, *args: Any, **kwargs: Any) -> Any:
@@ -383,12 +387,10 @@ def public_boundary_trace(
 
     def validate_record(
         contract: dict[str, Any],
-        bundle_bytes: bytes,
         workspace: Path,
     ) -> dict[str, Any]:
         result = original_validate_record(
             contract,
-            bundle_bytes,
             workspace,
         )
         if _is_provider_record_contract(contract):
@@ -397,12 +399,10 @@ def public_boundary_trace(
 
     def validate_variant(
         contract: dict[str, Any],
-        bundle_bytes: bytes,
         workspace: Path,
     ) -> dict[str, Any]:
         result = original_validate_variant(
             contract,
-            bundle_bytes,
             workspace,
         )
         trace.record_validated(workspace=workspace, kind="variant")
@@ -418,13 +418,28 @@ def public_boundary_trace(
     monkeypatch.setattr(WorkflowExecutor, "__init__", workflow_init)
     monkeypatch.setattr(
         output_contract_module,
-        "validate_output_bundle_bytes",
+        "validate_output_bundle",
         validate_record,
     )
     monkeypatch.setattr(
         output_contract_module,
-        "validate_variant_output_bundle_bytes",
+        "validate_variant_output_bundle",
         validate_variant,
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "validate_output_bundle",
+        validate_record,
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "validate_variant_output_bundle",
+        validate_variant,
+    )
+    monkeypatch.setattr(
+        coordinator_module,
+        "validate_output_bundle",
+        validate_record,
     )
     return trace
 
