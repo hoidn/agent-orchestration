@@ -30,6 +30,54 @@ def _digest(label: str) -> str:
     return f"sha256:{hashlib.sha256(label.encode('utf-8')).hexdigest()}"
 
 
+def _apparatus() -> dict[str, Any]:
+    return {
+        "control_root": "/srv/lean-pilot/control",
+        "asset_manifest": [
+            {"path": "tasks/A1.md", "sha256": _digest("task-brief")},
+            {
+                "path": "config/provider.json",
+                "sha256": _digest("provider-config"),
+            },
+            {
+                "path": "config/prompts.json",
+                "sha256": _digest("prompt-config"),
+            },
+            {
+                "path": "config/commands.json",
+                "sha256": _digest("command-config"),
+            },
+            {
+                "path": "config/treatments/direct.json",
+                "sha256": _digest("direct-command"),
+            },
+            {
+                "path": "config/treatments/coordinator.json",
+                "sha256": _digest("coordinator-command"),
+            },
+            {
+                "path": "config/treatments/orc.json",
+                "sha256": _digest("orc-command"),
+            },
+        ],
+        "task_path": "tasks/A1.md",
+        "provider_config_path": "config/provider.json",
+        "prompt_config_path": "config/prompts.json",
+        "command_config_path": "config/commands.json",
+        "environment": {
+            "identity": _digest("environment"),
+            "allowed_keys": ["PATH", "OPENAI_API_KEY"],
+        },
+        "visible_check": {
+            "argv": ["python", "-m", "pytest", "-q"],
+            "timeout_milliseconds": 120_000,
+        },
+        "product_projection_exclusions": [".git", ".pilot/runtime"],
+        "maximum_start_skew_milliseconds": 500,
+        "quiescence_grace_milliseconds": 2_000,
+    }
+
+
 def _pilot_lock() -> dict[str, Any]:
     return {
         "record_kind": "pilot_lock.v1",
@@ -57,6 +105,7 @@ def _pilot_lock() -> dict[str, Any]:
             "rubric_digest": _digest("rubric"),
             "calibration_evidence_digest": _digest("calibration"),
         },
+        "apparatus": _apparatus(),
         "randomization_seed": "seed-2026-07-26",
         "evidence_root": "evidence/lean-pilot-001",
         "valid_block_count": 3,
@@ -76,18 +125,21 @@ def _pilot_lock() -> dict[str, Any]:
                 "treatment_id": "DIRECT",
                 "source_digest": _digest("direct-source"),
                 "command_digest": _digest("direct-command"),
+                "command_config_path": "config/treatments/direct.json",
                 "provider_call_bounds": {"minimum": 1, "maximum": 1},
             },
             {
                 "treatment_id": "COORDINATOR",
                 "source_digest": _digest("coordinator-source"),
                 "command_digest": _digest("coordinator-command"),
+                "command_config_path": "config/treatments/coordinator.json",
                 "provider_call_bounds": {"minimum": 5, "maximum": 9},
             },
             {
                 "treatment_id": "ORC",
                 "source_digest": _digest("orc-source"),
                 "command_digest": _digest("orc-command"),
+                "command_config_path": "config/treatments/orc.json",
                 "provider_call_bounds": {"minimum": 5, "maximum": 9},
             },
         ],
@@ -320,6 +372,15 @@ def test_all_four_record_kinds_validate(
     assert contracts.validate_record(record) is None
 
 
+def test_pilot_lock_accepts_explicit_locked_apparatus(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_lock()
+
+    assert record["apparatus"]["product_projection_exclusions"]
+    assert contracts.validate_record(record) is None
+
+
 def test_record_kind_dispatch_is_exact(contracts: ModuleType) -> None:
     record = _pilot_lock()
     record["record_kind"] = "pilot_lock.v1 "
@@ -420,6 +481,403 @@ def test_pilot_lock_requires_exact_treatments_and_call_bounds(
         record["treatments"][2]["provider_call_bounds"]["minimum"] = 4
 
     with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    ("path", "missing_field"),
+    [
+        (("apparatus",), "apparatus"),
+        (("apparatus", "control_root"), "control_root"),
+        (("apparatus", "asset_manifest"), "asset_manifest"),
+        (("apparatus", "task_path"), "task_path"),
+        (("apparatus", "provider_config_path"), "provider_config_path"),
+        (("apparatus", "prompt_config_path"), "prompt_config_path"),
+        (("apparatus", "command_config_path"), "command_config_path"),
+        (("apparatus", "environment"), "environment"),
+        (("apparatus", "environment", "identity"), "identity"),
+        (("apparatus", "environment", "allowed_keys"), "allowed_keys"),
+        (("apparatus", "visible_check"), "visible_check"),
+        (("apparatus", "visible_check", "argv"), "argv"),
+        (
+            ("apparatus", "visible_check", "timeout_milliseconds"),
+            "timeout_milliseconds",
+        ),
+        (
+            ("apparatus", "product_projection_exclusions"),
+            "product_projection_exclusions",
+        ),
+        (
+            ("apparatus", "maximum_start_skew_milliseconds"),
+            "maximum_start_skew_milliseconds",
+        ),
+        (
+            ("apparatus", "quiescence_grace_milliseconds"),
+            "quiescence_grace_milliseconds",
+        ),
+        (("apparatus", "asset_manifest", 0, "path"), "path"),
+        (("apparatus", "asset_manifest", 0, "sha256"), "sha256"),
+        (("treatments", 0, "command_config_path"), "command_config_path"),
+    ],
+)
+def test_pilot_lock_requires_complete_apparatus_fields(
+    contracts: ModuleType,
+    path: tuple[str | int, ...],
+    missing_field: str,
+) -> None:
+    record = _pilot_lock()
+    target: Any = record
+    for component in path[:-1]:
+        target = target[component]
+    del target[path[-1]]
+
+    with pytest.raises(contracts.PilotContractError, match=missing_field):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    "bad_path",
+    [
+        "/absolute/path",
+        "",
+        ".",
+        "..",
+        "tasks/./A1.md",
+        "tasks/../A1.md",
+        "tasks//A1.md",
+        "tasks/A1.md/",
+        r"tasks\A1.md",
+        "tasks/\x00A1.md",
+    ],
+)
+def test_manifest_paths_are_canonical_relative_posix_text(
+    contracts: ModuleType,
+    bad_path: str,
+) -> None:
+    record = _pilot_lock()
+    record["apparatus"]["asset_manifest"][0]["path"] = bad_path
+
+    with pytest.raises(
+        contracts.PilotContractError,
+        match=r"\$\.apparatus\.asset_manifest\[0\]\.path",
+    ):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("apparatus", "task_path"),
+        ("apparatus", "provider_config_path"),
+        ("apparatus", "prompt_config_path"),
+        ("apparatus", "command_config_path"),
+        ("treatments", 0, "command_config_path"),
+        ("apparatus", "product_projection_exclusions", 0),
+    ],
+)
+def test_every_non_root_apparatus_path_rejects_absolute_text(
+    contracts: ModuleType,
+    path: tuple[str | int, ...],
+) -> None:
+    record = _pilot_lock()
+    target: Any = record
+    for component in path[:-1]:
+        target = target[component]
+    target[path[-1]] = "/absolute/path"
+
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    "bad_root",
+    [
+        "relative/control",
+        "/",
+        "/srv//control",
+        "/srv/./control",
+        "/srv/../control",
+        "/srv/control/",
+        r"/srv\control",
+        "/srv/\x00control",
+    ],
+)
+def test_control_root_is_canonical_non_root_absolute_posix_text(
+    contracts: ModuleType,
+    bad_root: str,
+) -> None:
+    record = _pilot_lock()
+    record["apparatus"]["control_root"] = bad_root
+
+    with pytest.raises(
+        contracts.PilotContractError,
+        match=r"\$\.apparatus\.control_root",
+    ):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize("different_digest", [False, True])
+def test_asset_manifest_paths_are_unique_even_when_digests_differ(
+    contracts: ModuleType,
+    different_digest: bool,
+) -> None:
+    record = _pilot_lock()
+    duplicate = copy.deepcopy(record["apparatus"]["asset_manifest"][0])
+    if different_digest:
+        duplicate["sha256"] = _digest("different")
+    record["apparatus"]["asset_manifest"].append(duplicate)
+
+    with pytest.raises(
+        contracts.PilotContractError,
+        match="duplicate_asset_manifest_path",
+    ):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    "role",
+    [
+        "task_path",
+        "provider_config_path",
+        "prompt_config_path",
+        "command_config_path",
+    ],
+)
+def test_apparatus_role_paths_must_name_manifest_assets(
+    contracts: ModuleType,
+    role: str,
+) -> None:
+    record = _pilot_lock()
+    record["apparatus"][role] = f"missing/{role}.json"
+
+    with pytest.raises(
+        contracts.PilotContractError,
+        match=rf"missing_apparatus_asset:{role}",
+    ):
+        contracts.validate_record(record)
+
+
+def test_treatment_command_config_path_must_name_a_manifest_asset(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_lock()
+    record["treatments"][0]["command_config_path"] = "missing/direct.json"
+
+    with pytest.raises(
+        contracts.PilotContractError,
+        match="missing_treatment_command_config_asset:DIRECT",
+    ):
+        contracts.validate_record(record)
+
+
+def test_treatment_command_config_paths_are_distinct(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_lock()
+    record["treatments"][1]["command_config_path"] = (
+        record["treatments"][0]["command_config_path"]
+    )
+
+    with pytest.raises(
+        contracts.PilotContractError,
+        match="duplicate_treatment_command_config_path",
+    ):
+        contracts.validate_record(record)
+
+
+def test_treatment_command_digest_matches_its_manifest_asset(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_lock()
+    direct_path = record["treatments"][0]["command_config_path"]
+    direct_asset = next(
+        asset
+        for asset in record["apparatus"]["asset_manifest"]
+        if asset["path"] == direct_path
+    )
+    direct_asset["sha256"] = _digest("mismatched-direct-command")
+
+    with pytest.raises(
+        contracts.PilotContractError,
+        match="treatment_command_digest_mismatch:DIRECT",
+    ):
+        contracts.validate_record(record)
+
+
+def test_task_brief_digest_matches_its_manifest_asset(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_lock()
+    task_path = record["apparatus"]["task_path"]
+    task_asset = next(
+        asset
+        for asset in record["apparatus"]["asset_manifest"]
+        if asset["path"] == task_path
+    )
+    task_asset["sha256"] = _digest("mismatched-task-brief")
+
+    with pytest.raises(
+        contracts.PilotContractError,
+        match="task_brief_digest_mismatch",
+    ):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    "allowed_keys",
+    [
+        [],
+        [""],
+        ["1INVALID"],
+        ["INVALID-NAME"],
+        ["INVALID NAME"],
+        ["PATH", "PATH"],
+    ],
+)
+def test_environment_allowed_keys_are_explicit_unique_names(
+    contracts: ModuleType,
+    allowed_keys: list[str],
+) -> None:
+    record = _pilot_lock()
+    record["apparatus"]["environment"]["allowed_keys"] = allowed_keys
+
+    with pytest.raises(
+        contracts.PilotContractError,
+        match=r"\$\.apparatus\.environment\.allowed_keys",
+    ):
+        contracts.validate_record(record)
+
+
+def test_visible_check_argv_is_explicit_and_nonempty(
+    contracts: ModuleType,
+) -> None:
+    for bad_argv in ([], [""]):
+        record = _pilot_lock()
+        record["apparatus"]["visible_check"]["argv"] = bad_argv
+
+        with pytest.raises(
+            contracts.PilotContractError,
+            match=r"\$\.apparatus\.visible_check\.argv",
+        ):
+            contracts.validate_record(record)
+
+
+@pytest.mark.parametrize("bad_timeout", [0, -1])
+def test_visible_check_timeout_is_positive(
+    contracts: ModuleType,
+    bad_timeout: int,
+) -> None:
+    record = _pilot_lock()
+    record["apparatus"]["visible_check"]["timeout_milliseconds"] = bad_timeout
+
+    with pytest.raises(
+        contracts.PilotContractError,
+        match=r"\$\.apparatus\.visible_check\.timeout_milliseconds",
+    ):
+        contracts.validate_record(record)
+
+
+def test_product_projection_exclusions_may_be_explicitly_empty(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_lock()
+    record["apparatus"]["product_projection_exclusions"] = []
+
+    assert contracts.validate_record(record) is None
+
+
+@pytest.mark.parametrize(
+    "exclusions",
+    [
+        ["/absolute"],
+        ["product//cache"],
+        ["product/cache/"],
+        ["product/../cache"],
+        [r"product\cache"],
+        ["cache", "cache"],
+    ],
+)
+def test_product_projection_exclusions_are_unique_canonical_paths(
+    contracts: ModuleType,
+    exclusions: list[str],
+) -> None:
+    record = _pilot_lock()
+    record["apparatus"]["product_projection_exclusions"] = exclusions
+
+    with pytest.raises(
+        contracts.PilotContractError,
+        match=r"\$\.apparatus\.product_projection_exclusions",
+    ):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "maximum_start_skew_milliseconds",
+        "quiescence_grace_milliseconds",
+    ],
+)
+@pytest.mark.parametrize("bad_value", [0, -1])
+def test_apparatus_timing_bounds_are_positive(
+    contracts: ModuleType,
+    field: str,
+    bad_value: int,
+) -> None:
+    record = _pilot_lock()
+    record["apparatus"][field] = bad_value
+
+    with pytest.raises(
+        contracts.PilotContractError,
+        match=rf"\$\.apparatus\.{field}",
+    ):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("apparatus",),
+        ("apparatus", "asset_manifest", 0),
+        ("apparatus", "environment"),
+        ("apparatus", "visible_check"),
+    ],
+)
+def test_apparatus_unknown_fields_are_rejected_recursively(
+    contracts: ModuleType,
+    path: tuple[str | int, ...],
+) -> None:
+    record = _pilot_lock()
+    target: Any = record
+    for component in path:
+        target = target[component]
+    target["unexpected"] = "not allowed"
+
+    with pytest.raises(contracts.PilotContractError, match="unexpected"):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("apparatus", "maximum_start_skew_milliseconds"),
+        ("apparatus", "visible_check", "timeout_milliseconds"),
+    ],
+)
+def test_apparatus_rejects_float_values_before_schema_validation(
+    contracts: ModuleType,
+    path: tuple[str, ...],
+) -> None:
+    record = _pilot_lock()
+    target: Any = record
+    for component in path[:-1]:
+        target = target[component]
+    target[path[-1]] = 1.0
+
+    with pytest.raises(
+        contracts.PilotContractError,
+        match="floating-point values are not permitted",
+    ):
         contracts.validate_record(record)
 
 
@@ -757,6 +1215,28 @@ def test_load_record_checks_expected_kind_and_validates(
 
     with pytest.raises(contracts.PilotContractError, match="expected"):
         contracts.load_record(path, expected_kind="block_attempt.v1")
+
+
+def test_load_record_applies_apparatus_semantic_validation(
+    contracts: ModuleType,
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "pilot-lock.json"
+    record = _pilot_lock()
+    task_path = record["apparatus"]["task_path"]
+    task_asset = next(
+        asset
+        for asset in record["apparatus"]["asset_manifest"]
+        if asset["path"] == task_path
+    )
+    task_asset["sha256"] = _digest("load-time-mismatch")
+    path.write_bytes(contracts.canonical_json_bytes(record))
+
+    with pytest.raises(
+        contracts.PilotContractError,
+        match="task_brief_digest_mismatch",
+    ):
+        contracts.load_record(path, expected_kind="pilot_lock.v1")
 
 
 def test_load_record_rejects_noncanonical_json_values(

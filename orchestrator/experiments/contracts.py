@@ -115,6 +115,54 @@ def _validate_reduced_summary_fractions(record: dict[str, Any]) -> None:
                 raise PilotContractError(f"{path}: fraction must be reduced")
 
 
+def _validate_pilot_lock_apparatus(record: dict[str, Any]) -> None:
+    apparatus = record["apparatus"]
+    manifest_by_path: dict[str, str] = {}
+    for index, asset in enumerate(apparatus["asset_manifest"]):
+        asset_path = asset["path"]
+        if asset_path in manifest_by_path:
+            raise PilotContractError(
+                "duplicate_asset_manifest_path:"
+                f"{asset_path}:$.apparatus.asset_manifest[{index}].path"
+            )
+        manifest_by_path[asset_path] = asset["sha256"]
+
+    for role in (
+        "task_path",
+        "provider_config_path",
+        "prompt_config_path",
+        "command_config_path",
+    ):
+        asset_path = apparatus[role]
+        if asset_path not in manifest_by_path:
+            raise PilotContractError(
+                f"missing_apparatus_asset:{role}:{asset_path}"
+            )
+
+    task_path = apparatus["task_path"]
+    if manifest_by_path[task_path] != record["task"]["brief_digest"]:
+        raise PilotContractError(f"task_brief_digest_mismatch:{task_path}")
+
+    treatment_paths: set[str] = set()
+    for treatment in record["treatments"]:
+        treatment_id = treatment["treatment_id"]
+        command_path = treatment["command_config_path"]
+        if command_path in treatment_paths:
+            raise PilotContractError(
+                f"duplicate_treatment_command_config_path:{command_path}"
+            )
+        treatment_paths.add(command_path)
+        if command_path not in manifest_by_path:
+            raise PilotContractError(
+                "missing_treatment_command_config_asset:"
+                f"{treatment_id}:{command_path}"
+            )
+        if manifest_by_path[command_path] != treatment["command_digest"]:
+            raise PilotContractError(
+                f"treatment_command_digest_mismatch:{treatment_id}:{command_path}"
+            )
+
+
 def validate_record(record: object) -> None:
     """Validate one of the four exact lean-pilot record kinds."""
 
@@ -141,7 +189,9 @@ def validate_record(record: object) -> None:
         details = "\n".join(_format_validation_error(error) for error in errors)
         raise PilotContractError(f"record validation failed:\n{details}")
 
-    if record_kind == "pilot_summary.v1":
+    if record_kind == "pilot_lock.v1":
+        _validate_pilot_lock_apparatus(record)
+    elif record_kind == "pilot_summary.v1":
         _validate_reduced_summary_fractions(record)
 
 

@@ -12,6 +12,129 @@
           "type": "string",
           "minLength": 1
         },
+        "absolute_canonical_posix_path": {
+          "type": "string",
+          "pattern": "^(?!/$)(?!.*\\\\)(?!.*\\u0000)(?!.*(?:^|/)\\.{1,2}(?:/|$))/[^/]+(?:/[^/]+)*$"
+        },
+        "relative_canonical_posix_path": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\\\)(?!.*\\u0000)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/]+(?:/[^/]+)*$"
+        },
+        "apparatus_asset": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "$ref": "#/$defs/relative_canonical_posix_path"
+            },
+            "sha256": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "path",
+            "sha256"
+          ]
+        },
+        "apparatus": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "control_root": {
+              "$ref": "#/$defs/absolute_canonical_posix_path"
+            },
+            "asset_manifest": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/apparatus_asset"
+              }
+            },
+            "task_path": {
+              "$ref": "#/$defs/relative_canonical_posix_path"
+            },
+            "provider_config_path": {
+              "$ref": "#/$defs/relative_canonical_posix_path"
+            },
+            "prompt_config_path": {
+              "$ref": "#/$defs/relative_canonical_posix_path"
+            },
+            "command_config_path": {
+              "$ref": "#/$defs/relative_canonical_posix_path"
+            },
+            "environment": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "identity": {
+                  "$ref": "#/$defs/digest"
+                },
+                "allowed_keys": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  }
+                }
+              },
+              "required": [
+                "identity",
+                "allowed_keys"
+              ]
+            },
+            "visible_check": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "argv": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/nonempty_string"
+                  }
+                },
+                "timeout_milliseconds": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "argv",
+                "timeout_milliseconds"
+              ]
+            },
+            "product_projection_exclusions": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/relative_canonical_posix_path"
+              }
+            },
+            "maximum_start_skew_milliseconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "quiescence_grace_milliseconds": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "control_root",
+            "asset_manifest",
+            "task_path",
+            "provider_config_path",
+            "prompt_config_path",
+            "command_config_path",
+            "environment",
+            "visible_check",
+            "product_projection_exclusions",
+            "maximum_start_skew_milliseconds",
+            "quiescence_grace_milliseconds"
+          ]
+        },
         "treatment": {
           "type": "object",
           "additionalProperties": false,
@@ -28,6 +151,9 @@
             },
             "command_digest": {
               "$ref": "#/$defs/digest"
+            },
+            "command_config_path": {
+              "$ref": "#/$defs/relative_canonical_posix_path"
             },
             "provider_call_bounds": {
               "type": "object",
@@ -50,6 +176,7 @@
             "treatment_id",
             "source_digest",
             "command_digest",
+            "command_config_path",
             "provider_call_bounds"
           ],
           "oneOf": [
@@ -215,6 +342,9 @@
             "calibration_evidence_digest"
           ]
         },
+        "apparatus": {
+          "$ref": "#/$defs/apparatus"
+        },
         "randomization_seed": {
           "$ref": "#/$defs/nonempty_string"
         },
@@ -309,6 +439,7 @@
         "archive",
         "provider_policy",
         "review",
+        "apparatus",
         "randomization_seed",
         "evidence_root",
         "valid_block_count",
