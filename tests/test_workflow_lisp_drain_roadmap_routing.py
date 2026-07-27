@@ -55,6 +55,9 @@ PROMPT_OUTPUT_POSITIONS_PLAN_PATH = (
 LANGUAGE_SERVER_L1_PLAN_PATH = (
     "docs/plans/2026-07-26-workflow-lisp-language-server-l1-implementation-plan.md"
 )
+LANGUAGE_SERVER_L2_PLAN_PATH = (
+    "docs/plans/2026-07-27-workflow-lisp-language-server-l2-implementation-plan.md"
+)
 EVOLUTION_FOLLOW_ON_ROADMAP_PATH = (
     "docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md"
 )
@@ -1105,6 +1108,9 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     l1_plan = (REPO_ROOT / LANGUAGE_SERVER_L1_PLAN_PATH).read_text(
         encoding="utf-8"
     )
+    l2_plan = (REPO_ROOT / LANGUAGE_SERVER_L2_PLAN_PATH).read_text(
+        encoding="utf-8"
+    )
     evolution = (REPO_ROOT / EVOLUTION_FOLLOW_ON_ROADMAP_PATH).read_text(
         encoding="utf-8"
     )
@@ -1189,8 +1195,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     normalized_l2_row = _normalized_routing_text(l2_row)
     assert "active" in normalized_l2_row
-    assert "design accepted" in normalized_l2_row
-    assert "implementation plan" in normalized_l2_row
+    assert "component plan accepted" in normalized_l2_row
+    assert "implementation authorized" in normalized_l2_row
     assert "no l2 design is accepted" not in normalized_l2_row
     for stage, blocker in (
         ("L3", "blocked by l2"),
@@ -1225,13 +1231,15 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "l1 authored symbols/signatures are implemented" in (
         normalized_language_server_router_row
     )
-    assert "l2 recovery safe static completion design is accepted" in (
+    assert "l2 recovery safe static completion design" in (
         normalized_language_server_router_row
     )
     assert "implementation plan" in normalized_language_server_router_row
     normalized_index = _normalized_routing_text(index)
     assert "l1 authored symbols/signatures are complete" in normalized_index
-    assert "l2 recovery safe static completion design is accepted" in normalized_index
+    assert "l2 recovery safe static completion design and component plan are accepted" in (
+        normalized_index
+    )
     assert "implementation plan" in normalized_index
     assert "p1 diagnostic accumulation" in normalized_successor
     assert "p5 compile caching/incrementality" in normalized_successor
@@ -1286,8 +1294,15 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "status: accepted for execution" in normalized_l1_plan
     assert "l1_plan_spec_approved" in normalized_l1_plan
     assert "l1_plan_quality_approved" in normalized_l1_plan
+    normalized_l2_plan = _normalized_routing_text(
+        "\n".join(l2_plan.splitlines()[:90])
+    )
+    assert "status: accepted for execution" in normalized_l2_plan
+    assert "l2_plan_spec_approved" in normalized_l2_plan
+    assert "l2_plan_quality_approved" in normalized_l2_plan
     assert PROMPT_OUTPUT_POSITIONS_PLAN_PATH in successor
     assert LANGUAGE_SERVER_L1_PLAN_PATH in successor
+    assert LANGUAGE_SERVER_L2_PLAN_PATH in successor
 
     normalized_sequence = _normalized_routing_text(sequence)
     assert "stage 8 is the active numbered stage" not in normalized_sequence
@@ -1354,10 +1369,11 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "l1 authored symbols/signatures are complete" in (
         normalized_successor_index
     )
-    assert "l2 recovery safe static completion design is accepted" in (
+    assert "l2 recovery safe static completion design and component plan are accepted" in (
         normalized_successor_index
     )
-    assert "implementation plan" in normalized_successor_index
+    assert "reviewed l2 implementation execute" in normalized_successor_index
+    assert "### [Workflow Lisp Language Server L2 Implementation Plan]" in index
     assert "do not select e0" in normalized_successor_index
 
     prompt_design_row = _markdown_table_row(
@@ -1562,10 +1578,10 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     assert "l1 authored symbols/signatures are complete" in (
         active_roadmap_index
     )
-    assert "l2 recovery safe static completion design is accepted" in (
+    assert "l2 recovery safe static completion design and component plan are accepted" in (
         active_roadmap_index
     )
-    assert "implementation plan" in active_roadmap_index
+    assert "reviewed l2 implementation execute" in active_roadmap_index
 
 
 def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> None:
@@ -2794,8 +2810,19 @@ def test_language_server_l2_design_is_accepted_and_routed_to_planning() -> None:
         for line in roadmap.splitlines()
         if line.startswith("| L2 |")
     )
-    assert "design accepted" in _normalized_routing_text(l2_row)
-    assert "implementation plan" in _normalized_routing_text(l2_row)
+    normalized_l2_row = _normalized_routing_text(l2_row)
+    assert "component plan accepted" in normalized_l2_row
+    assert "implementation authorized" in normalized_l2_row
+    l2_plan = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "2026-07-27-workflow-lisp-language-server-l2-implementation-plan.md"
+    ).read_text(encoding="utf-8")
+    normalized_l2_plan = _normalized_routing_text(l2_plan)
+    assert "status: accepted for execution" in normalized_l2_plan
+    assert "l2_plan_spec_approved" in normalized_l2_plan
+    assert "l2_plan_quality_approved" in normalized_l2_plan
     for label, surface in {
         "language-server design": design,
         "frontend specification": frontend,

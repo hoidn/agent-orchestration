@@ -84,15 +84,15 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | --- | --- | --- | --- | --- |
 | L0 | Reliability and diagnostic actionability | Gate S8 complete; current v1 behavior characterized | no-watcher `didSave` reverse invalidation, intentional structured initialization failures, visible compiler-owned notes/expansion provenance, and a content-keyed pure-projection source cache pass focused state/driver/stdio/diagnostic/cache tests plus one real stdio E2E without changing diagnostic identity | complete — reviewed implementation closes the four bounded corrections and watcher-disabled real-stdio gate |
 | L1 | Authored symbols and callable signatures | L0 complete; closed navigation/completion amendment accepted | authored type/resource/transition symbols and namespace-preserving procedure/workflow signature completion use existing compiler spans/catalogs, exclude generated shapes, and retain fail-closed freshness | complete — implemented, reviewed, and repository-real stdio closure gate passed |
-| L2 | Recovery-safe static completion | L1 complete; two-tier completion design accepted | dirty/pending/invalidated/failed open entries receive only the process-frozen form registry as an incomplete list; stale callables remain closed and stale/closed/unassociated entries remain empty | active — design accepted; reviewed implementation plan is next |
+| L2 | Recovery-safe static completion | L1 complete; two-tier completion design and component plan accepted | dirty/pending/invalidated/failed open entries receive only the process-frozen form registry as an incomplete list; stale callables remain closed and stale/closed/unassociated entries remain empty | active — implementation authorized under the reviewed L2 plan |
 | L3 | Per-source entry selection | L2 complete; immutable initialization-schema amendment accepted; compile-path reentrancy proven (substrate MR-4 complete, or an equivalent accepted reentrancy fixture) | one canonical workspace process can select an exported workflow for a named application source while compiling library entries with no selection, with exact CLI request parity and restart semantics | blocked by L2 |
 | L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and a diagnostic-currentness policy are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | blocked by L3 |
 
 The Q-series stages execute in Q-table order. Q0, Q1, and Q2 are complete.
 Q3's separate design-and-ordered-review gate is next; no Q3 design or
 implementation plan is accepted.
-L0 and L1 are complete. L2's design is accepted after ordered independent
-reviews; its implementation-plan gate is next.
+L0 and L1 are complete. L2's design and component implementation plan are
+accepted after ordered independent reviews; Task 1 is next.
 The L-series is an owner-selected
 priority queue rather than a
 claim that every adjacent stage has a compiler dependency on its predecessor;
@@ -324,10 +324,12 @@ details from compiler catalogs rather than LSP-owned copies.
 Authority target: the accepted two-tier completion amendment in the language
 server design, frontend specification §76.1, setup guide, and drafting guide.
 
-**Status:** active at the implementation-plan gate. The design passed
-independent specification review `L2_DESIGN_SPEC_APPROVED` followed by
-independent quality review `L2_DESIGN_QUALITY_APPROVED`; no implementation
-plan is accepted yet.
+**Status:** active for implementation under
+`docs/plans/2026-07-27-workflow-lisp-language-server-l2-implementation-plan.md`.
+The design passed independent specification review
+`L2_DESIGN_SPEC_APPROVED` followed by independent quality review
+`L2_DESIGN_QUALITY_APPROVED`; the component plan passed
+`L2_PLAN_SPEC_APPROVED` followed by `L2_PLAN_QUALITY_APPROVED`.
 
 For an open associated `.orc` entry under live initialization, the
 process-frozen, target-neutral compiler-registry form heads remain available
