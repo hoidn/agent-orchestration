@@ -624,9 +624,17 @@ def _file_uri_path(uri: str) -> Path:
 def _lsp_diagnostic(
     contribution: DiagnosticContribution,
 ) -> types.Diagnostic:
+    notes = contribution.data["notes"]
+    if not isinstance(notes, tuple) or not all(
+        isinstance(note, str) for note in notes
+    ):
+        raise TypeError("diagnostic notes must be an ordered tuple of strings")
+    visible_message = contribution.message + "".join(
+        f"\n\nNote: {note}" for note in notes
+    )
     return types.Diagnostic(
         range=_lsp_range(contribution.range),
-        message=contribution.message,
+        message=visible_message,
         severity=types.DiagnosticSeverity(contribution.severity),
         code=contribution.code,
         source=contribution.source,
@@ -636,7 +644,15 @@ def _lsp_diagnostic(
                     uri=item["location"]["uri"],
                     range=_lsp_range(item["location"]["range"]),
                 ),
-                message=f"{item['kind']}: {item['name']}",
+                message=(
+                    f"{item['frame_role']} {item['location_role']}: "
+                    f"{item['name']}"
+                    + (
+                        f" [{item['expansion_id']}]"
+                        if item["expansion_id"] is not None
+                        else ""
+                    )
+                ),
             )
             for item in contribution.related_information
         ),

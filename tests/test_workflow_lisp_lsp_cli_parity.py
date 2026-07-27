@@ -708,3 +708,32 @@ def test_diagnostic_capture_excludes_message_and_note_wording(
     assert _diagnostic_identities((diagnostic,)) == _diagnostic_identities(
         (wording_only,)
     )
+
+
+def test_lsp_translation_retains_exact_cli_diagnostic_identity(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.lsp.diagnostics import translate_frontend_diagnostics
+
+    diagnostic = _classified_diagnostic(tmp_path)
+    accepted_text = {
+        Path(diagnostic.span.start.path).resolve(): (
+            "xxxx\n"
+            + ("x" * 15)
+            + "\n"
+            + ("x" * 15)
+            + "\n"
+            + ("x" * 10)
+        )
+    }
+
+    contribution = translate_frontend_diagnostics(
+        (diagnostic,),
+        compile_entry_uri=(tmp_path / "entry.orc").resolve().as_uri(),
+        accepted_generation=3,
+        accepted_text_by_path=accepted_text,
+    )[0]
+
+    assert contribution.parity_identity == _diagnostic_identities(
+        (diagnostic,)
+    )[0]

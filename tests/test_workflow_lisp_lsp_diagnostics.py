@@ -203,10 +203,41 @@ def test_related_information_uses_only_readable_structured_frame_spans(
     )[0]
 
     related = contribution.related_information
-    assert tuple(item["kind"] for item in related) == (
-        "call",
-        "call",
-        "definition",
+    assert tuple(tuple(item) for item in related) == (
+        (
+            "frame_role",
+            "location_role",
+            "name",
+            "expansion_id",
+            "location",
+        ),
+        (
+            "frame_role",
+            "location_role",
+            "name",
+            "expansion_id",
+            "location",
+        ),
+        (
+            "frame_role",
+            "location_role",
+            "name",
+            "expansion_id",
+            "location",
+        ),
+    )
+    assert tuple(
+        (
+            item["frame_role"],
+            item["location_role"],
+            item["name"],
+            item["expansion_id"],
+        )
+        for item in related
+    ) == (
+        ("macro", "call", "expand", "exp-1"),
+        ("helper", "call", "normalize", None),
+        ("helper", "definition", "normalize", None),
     )
     assert tuple(item["location"]["uri"] for item in related) == (
         call_path.as_uri(),
@@ -312,7 +343,10 @@ def test_direct_contribution_construction_copies_and_deep_freezes_payloads(
         "nested": {"values": [1]},
     }
     related_payload = {
-        "kind": "call",
+        "frame_role": "macro",
+        "location_role": "call",
+        "name": "expand",
+        "expansion_id": "exp-1",
         "location": {
             "uri": entry_uri,
             "range": range_payload,
@@ -336,17 +370,17 @@ def test_direct_contribution_construction_copies_and_deep_freezes_payloads(
     identity_tail.append("mutated")
     data_payload["notes"].append("mutated")
     data_payload["nested"]["values"].append(2)
-    related_payload["kind"] = "mutated"
+    related_payload["frame_role"] = "mutated"
 
     assert contribution.range["start"]["line"] == 0
     assert contribution.parity_identity == ("code", ("identity",))
     assert contribution.data["notes"] == ("note",)
     assert contribution.data["nested"]["values"] == (1,)
-    assert contribution.related_information[0]["kind"] == "call"
+    assert contribution.related_information[0]["frame_role"] == "macro"
     with pytest.raises(TypeError):
         contribution.data["nested"]["values"] += (2,)
     with pytest.raises(TypeError):
-        contribution.related_information[0]["kind"] = "mutated"
+        contribution.related_information[0]["frame_role"] = "mutated"
 
 
 def test_aggregation_rejects_duplicate_canonical_owner_keys(

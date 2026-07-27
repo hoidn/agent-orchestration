@@ -329,8 +329,10 @@ def _translate_expansion_frames(
             related.append(
                 _freeze_mapping(
                     {
-                        "kind": location_kind,
+                        "frame_role": kind,
+                        "location_role": location_kind,
                         "name": name,
+                        "expansion_id": expansion_id,
                         "location": location,
                     }
                 )

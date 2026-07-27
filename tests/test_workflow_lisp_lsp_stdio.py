@@ -745,6 +745,75 @@ def test_client_without_dynamic_watch_support_receives_no_registration(
         process.close()
 
 
+def test_lsp_diagnostic_appends_ordered_notes_and_structural_frame_labels(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.lsp.diagnostics import DiagnosticContribution
+    from orchestrator.lsp.server import _lsp_diagnostic
+
+    entry_uri = (tmp_path / "entry.orc").resolve().as_uri()
+    location = {
+        "uri": entry_uri,
+        "range": {
+            "start": {"line": 0, "character": 0},
+            "end": {"line": 0, "character": 1},
+        },
+    }
+    structured_data = {
+        "notes": ("NOTE_SENTINEL_FIRST", "NOTE_SENTINEL_SECOND"),
+        "retained": {"identity": "unchanged"},
+    }
+    contribution = DiagnosticContribution(
+        target_uri=entry_uri,
+        compile_entry_uri=entry_uri,
+        accepted_generation=1,
+        parity_identity=("unchanged-parity",),
+        range=location["range"],
+        code="test_code",
+        severity=1,
+        source="orc",
+        message="RAW_MESSAGE_SENTINEL",
+        data=structured_data,
+        related_information=(
+            {
+                "frame_role": "macro",
+                "location_role": "call",
+                "name": "expand",
+                "expansion_id": "exp-7",
+                "location": location,
+            },
+            {
+                "frame_role": "helper",
+                "location_role": "definition",
+                "name": "normalize",
+                "expansion_id": None,
+                "location": location,
+            },
+        ),
+    )
+
+    diagnostic = _lsp_diagnostic(contribution)
+
+    assert diagnostic.message.startswith("RAW_MESSAGE_SENTINEL")
+    assert diagnostic.message.index("RAW_MESSAGE_SENTINEL") < (
+        diagnostic.message.index("NOTE_SENTINEL_FIRST")
+    )
+    assert diagnostic.message.index("NOTE_SENTINEL_FIRST") < (
+        diagnostic.message.index("NOTE_SENTINEL_SECOND")
+    )
+    assert tuple(
+        information.message
+        for information in diagnostic.related_information
+    ) == (
+        "macro call: expand [exp-7]",
+        "helper definition: normalize",
+    )
+    assert diagnostic.data == {
+        "notes": ["NOTE_SENTINEL_FIRST", "NOTE_SENTINEL_SECOND"],
+        "retained": {"identity": "unchanged"},
+    }
+
+
 def test_workspace_folder_change_latches_one_restart_notice_and_clears(
     tmp_path: Path,
 ) -> None:
