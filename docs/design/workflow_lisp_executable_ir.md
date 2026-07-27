@@ -63,7 +63,12 @@ The current executable contract is anchored in
 This surface contains executable nodes, resolved command/provider boundaries,
 state-projection linkage, materialization actions, routing structure, and the
 other runtime-facing data needed for downstream derivations. It no longer
-contains macros, unresolved procedures, or frontend-only type forms.
+contains macros, unresolved procedures, or frontend-only type forms. It also
+carries a typed `provenance` field (`ExecutableWorkflow.provenance`, serialized
+via `_provenance_json_value`) holding workflow-path, source-root, and
+frontend-origin metadata such as `form_path`/`line`/`path`/`workflow_name`;
+this is deliberate first-class data consumed by runtime origin logging
+(`orchestrator/workflow/frontend_origins.py`), not a frontend-internal leak.
 
 Provider execution configuration may contain an optional typed
 `CompilerPromptDependencyContract` alongside ordinary `depends_on` data. The

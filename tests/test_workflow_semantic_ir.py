@@ -1393,7 +1393,13 @@ def test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload
         entry_workflow="orchestrate",
     )
     executable_ir_payload = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
-    serialized = json.dumps(executable_ir_payload, sort_keys=True)
+    # provenance records carry deliberate first-class form_path/line/path/workflow_name
+    # fields (executable_ir.py's _provenance_json_value); the substring scan below
+    # targets everything else in the payload.
+    payload_without_provenance = {
+        key: value for key, value in executable_ir_payload.items() if key != "provenance"
+    }
+    serialized = json.dumps(payload_without_provenance, sort_keys=True)
 
     assert executable_ir_payload["schema_version"] == "workflow_executable_ir.v1"
     assert "_surface_step" not in serialized
