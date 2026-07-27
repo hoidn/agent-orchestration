@@ -250,6 +250,7 @@ class ModuleDirective:
 
     name: str
     span: SourceSpan
+    name_span: SourceSpan
     form_path: tuple[str, ...]
 
 
@@ -691,6 +692,7 @@ def _parse_module_directive(node: SyntaxNode, datum: SyntaxDatum) -> ModuleDirec
     return ModuleDirective(
         name=normalize_module_name(name_identifier.resolved_name, span=name_identifier.span),
         span=node.span,
+        name_span=name_identifier.span,
         form_path=node.form_path,
     )
 

@@ -4,7 +4,7 @@ import copy
 import hashlib
 import importlib
 import json
-from dataclasses import asdict, is_dataclass, replace
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from enum import Enum
 from pathlib import Path
 
@@ -66,6 +66,15 @@ RUNTIME_CLOSURE_MARKERS = (
     "Closure[",
     "runtime_closure",
 )
+
+
+@dataclass(frozen=True)
+class _PreL1ModuleDirective:
+    """Frozen pre-L1 frontend-AST wire shape for one module directive."""
+
+    name: str
+    span: SourceSpan
+    form_path: tuple[str, ...]
 
 
 def _synthetic_surface_bundle(
@@ -2388,6 +2397,111 @@ def test_build_emits_required_artifacts_and_emitted_status_entries(tmp_path: Pat
     _assert_no_runtime_closure_markers(json.dumps(semantic_ir, sort_keys=True))
     _assert_no_runtime_closure_markers(json.dumps(executable_ir, sort_keys=True))
     _assert_no_runtime_closure_markers(json.dumps(runtime_plan, sort_keys=True))
+
+
+def test_frontend_ast_module_name_span_is_the_only_additive_artifact_change(
+    tmp_path: Path,
+) -> None:
+    source_root = FIXTURES / "modules" / "valid" / "lsp_l1_symbols"
+    source_path = source_root / "lsp_l1_symbols" / "entry.orc"
+    compile_result = compile_stage3_entrypoint(
+        source_path,
+        source_roots=(source_root,),
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="legacy",
+    )
+    build_artifacts = importlib.import_module(
+        "orchestrator.workflow_lisp.build_artifacts"
+    )
+    serialize_frontend_ast = getattr(build_artifacts, "_serialize_frontend_ast")
+    current_payload = serialize_frontend_ast(compile_result)
+    current_bytes = (
+        json.dumps(current_payload, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+
+    module_source = compile_result.graph.modules_by_name["lsp_l1_symbols/entry"]
+    module_directive = module_source.syntax_module.module_directive
+    assert module_directive is not None
+    expected_name_span = {
+        "start": {
+            "path": str(source_path),
+            "line": 4,
+            "column": 14,
+            "offset": 71,
+        },
+        "end": {
+            "path": str(source_path),
+            "line": 4,
+            "column": 34,
+            "offset": 91,
+        },
+    }
+    assert current_payload["modules"]["lsp_l1_symbols/entry"][
+        "module_directive"
+    ]["name_span"] == expected_name_span
+
+    pre_l1_directive = _PreL1ModuleDirective(
+        name=module_directive.name,
+        span=module_directive.span,
+        form_path=module_directive.form_path,
+    )
+    pre_l1_source = replace(
+        module_source,
+        syntax_module=replace(
+            module_source.syntax_module,
+            module_directive=pre_l1_directive,
+        ),
+    )
+    pre_l1_compile_result = replace(
+        compile_result,
+        graph=replace(
+            compile_result.graph,
+            modules_by_name={
+                **compile_result.graph.modules_by_name,
+                "lsp_l1_symbols/entry": pre_l1_source,
+            },
+        ),
+    )
+    frozen_pre_l1_bytes = (
+        json.dumps(
+            serialize_frontend_ast(pre_l1_compile_result),
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+    stripped_payload = copy.deepcopy(current_payload)
+    del stripped_payload["modules"]["lsp_l1_symbols/entry"][
+        "module_directive"
+    ]["name_span"]
+    stripped_current_bytes = (
+        json.dumps(stripped_payload, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    assert stripped_current_bytes == frozen_pre_l1_bytes
+    assert hashlib.sha256(current_bytes).digest() != hashlib.sha256(
+        frozen_pre_l1_bytes
+    ).digest()
+
+    # The first, incomplete-fixture raw capture was 137,668 bytes with SHA-256
+    # ece4c4e6f85de0a3f948fe382fe2182e876c93921637be76339a4a4332046c56.
+    # Raw artifact spans contain the absolute checkout path, so the completed
+    # fixture binds a portable legacy projection after replacing only that
+    # exact source-path byte value with a fixed sentinel.
+    source_path_bytes = str(source_path).encode("utf-8")
+    source_path_sentinel = b"<LSP_L1_SYMBOLS_FIXTURE>"
+    assert source_path_sentinel not in frozen_pre_l1_bytes
+    assert frozen_pre_l1_bytes.count(source_path_bytes) == 665
+    normalized_legacy_bytes = frozen_pre_l1_bytes.replace(
+        source_path_bytes,
+        source_path_sentinel,
+    )
+    assert source_path_bytes not in normalized_legacy_bytes
+    assert len(normalized_legacy_bytes) == 198_909
+    assert hashlib.sha256(normalized_legacy_bytes).hexdigest() == (
+        "dc6dd73a5cd4ff0c51bb4341c7e32588c190c031af0096bc8000311a9c4e66cb"
+    )
 
 
 def test_typed_frontend_ast_records_resolved_procedure_lowering(tmp_path: Path) -> None:
