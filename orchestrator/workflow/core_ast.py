@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -1370,6 +1370,33 @@ def _json_data(value: Any) -> Any:
         return [_json_data(item) for item in value]
     if isinstance(value, list):
         return [_json_data(item) for item in value]
+    if is_dataclass(value):
+        payload: dict[str, Any] = {}
+        for field_def in fields(value):
+            if field_def.name.startswith("_"):
+                continue
+            field_value = getattr(value, field_def.name)
+            legacy_metadata_neutral = field_def.name in {
+                "compiler_prompt_dependency_contract",
+                "provider_call_policy",
+            }
+            if (
+                not legacy_metadata_neutral
+                and field_def.metadata.get("json_omit_if_none")
+                and field_value is None
+            ):
+                continue
+            serializer = (
+                None
+                if legacy_metadata_neutral
+                else field_def.metadata.get("json_serializer")
+            )
+            payload[field_def.name] = _json_data(
+                serializer(field_value)
+                if serializer is not None
+                else field_value
+            )
+        return payload
     if hasattr(value, "__dict__"):
         return {
             key: _json_data(item)

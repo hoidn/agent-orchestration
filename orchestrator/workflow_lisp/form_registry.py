@@ -784,8 +784,8 @@ def registered_form_heads(
 
     return tuple(
         sorted(
-            spec.name
-            for spec in _FORM_REGISTRY.values()
+            head
+            for head, spec in _FORM_REGISTRY.items()
             if _available_at_target(spec, target_dsl_version)
         )
     )

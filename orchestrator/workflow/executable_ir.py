@@ -925,12 +925,19 @@ def _validate_node_shape(
                     node.execution_config,
                     required=False,
                 )
+            except (TypeError, ValueError):
+                _raise_executable_ir_invalid(
+                    "executable_ir_invalid: provider prompt dependency contract is invalid",
+                    workflow_name=workflow_name,
+                    node=node,
+                )
+            try:
                 _validate_provider_prompt_fragment_binding(
                     node.execution_config,
                 )
             except (TypeError, ValueError):
                 _raise_executable_ir_invalid(
-                    "executable_ir_invalid: provider prompt compiler contract is invalid",
+                    "executable_ir_invalid: provider prompt fragment contract is invalid",
                     workflow_name=workflow_name,
                     node=node,
                 )

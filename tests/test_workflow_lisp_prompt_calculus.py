@@ -6,13 +6,17 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.exceptions import WorkflowValidationError
 import orchestrator.workflow_lisp as workflow_lisp
 import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
 import orchestrator.workflow_lisp.form_registry as form_registry
 import orchestrator.workflow_lisp.lowering.pure_projection as pure_projection_lowering
 import orchestrator.workflow_lisp.syntax as syntax
 from orchestrator.workflow.core_ast import workflow_core_ast_to_json
-from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
+from orchestrator.workflow.executable_ir import (
+    validate_executable_workflow,
+    workflow_executable_ir_to_json,
+)
 from orchestrator.workflow.prompt_dependency_contract import (
     serialize_compiler_prompt_dependency_contract,
 )
@@ -1748,6 +1752,42 @@ def test_fragment_carriers_fail_closed_on_missing_malformed_and_mismatched_ident
             match="compiled_prompt_fragment_identity_mismatch",
         ):
             replace(carrier, compiler_prompt_fragment_contract=mismatched)
+
+
+def test_executable_fragment_validation_has_its_own_error_category(
+    tmp_path: Path,
+) -> None:
+    result = _compile_fragment_workflow(tmp_path, lowering_route="legacy")
+    bundle = result.validated_bundles["run-review"]
+    provider_node = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if getattr(node, "execution_config", None) is not None
+        and hasattr(node.execution_config, "provider")
+    )
+    invalid_config = replace(provider_node.execution_config)
+    object.__setattr__(
+        invalid_config,
+        "compiled_prompt_fragment_identity",
+        f"sha256:{'0' * 64}",
+    )
+    invalid_node = replace(
+        provider_node,
+        execution_config=invalid_config,
+    )
+    invalid_ir = replace(
+        bundle.ir,
+        nodes={
+            **bundle.ir.nodes,
+            invalid_node.node_id: invalid_node,
+        },
+    )
+
+    with pytest.raises(
+        WorkflowValidationError,
+        match="provider prompt fragment contract is invalid",
+    ):
+        validate_executable_workflow(invalid_ir)
 
 
 def test_fragment_contract_serialization_is_closed_and_route_deterministic(

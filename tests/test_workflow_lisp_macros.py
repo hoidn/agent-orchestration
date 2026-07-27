@@ -101,10 +101,33 @@ def test_form_registry_reserved_macro_names_match_current_policy_exactly() -> No
     assert registry.reserved_macro_names() == _macros_module()._RESERVED_MACRO_NAMES
 
 
-def test_form_registry_admitted_top_level_heads_match_current_policy_exactly() -> None:
+def test_macro_top_level_validation_uses_central_form_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     registry = importlib.import_module("orchestrator.workflow_lisp.form_registry")
+    macros = _macros_module()
+    module = build_syntax_module(read_sexpr_file(HYGIENE_FIXTURE))
+    catalog = macros.collect_macro_catalog_with_imports(module)
+    observed_targets: list[str] = []
 
-    assert registry.admitted_top_level_heads() == _macros_module()._ALLOWED_TOP_LEVEL_HEADS
+    assert macros.admitted_top_level_heads is registry.admitted_top_level_heads
+
+    def admitted_top_level_heads(*, target_dsl_version: str):
+        observed_targets.append(target_dsl_version)
+        return registry.admitted_top_level_heads(
+            target_dsl_version=target_dsl_version,
+        )
+
+    monkeypatch.setattr(
+        macros,
+        "admitted_top_level_heads",
+        admitted_top_level_heads,
+    )
+
+    macros.expand_module_forms(module, catalog=catalog)
+
+    assert observed_targets
+    assert set(observed_targets) == {module.target_dsl_version}
 
 
 def test_form_registry_keeps_current_bindable_compiler_forms_bindable() -> None:
