@@ -73,7 +73,7 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | Stage | Work | Entry condition | Completion gate | Status |
 | --- | --- | --- | --- | --- |
 | Q0 | Transportable `Value` prerequisite | Stage 8 complete; owner prerequisite decision recorded | accepted design; reviewed implementation plan; target-2.19 implementation with direct-root, loader, runtime, resume, classic/WCC, docs, and broad non-security evidence | complete — reviewed target-2.19 implementation and evidence gate closed at `020c6138` |
-| Q1 | Prompt core | Q0 complete; prompt-calculus design corrected and accepted | target-gated `defprompt`, imports, closed slot kinds, fully applied named fills, exact discharge/placeholder diagnostics, prompt-carried result derivation, deterministic flattening through existing prompt composition, one migrated real consumer | active — accepted design; reviewed implementation plan next, with implementation not started |
+| Q1 | Prompt core | Q0 complete; prompt-calculus design corrected and accepted | target-gated `defprompt`, imports, closed slot kinds, fully applied named fills, exact discharge/placeholder diagnostics, prompt-carried result derivation, deterministic flattening through existing prompt composition, one migrated real consumer | active — accepted design and reviewed implementation plan at `53d2786b`; task execution started |
 | Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | blocked by Q1 |
 | Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | blocked by Q2 |
 | Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | blocked by Q3 |
@@ -89,8 +89,9 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and a diagnostic-currentness policy are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | blocked by L3 |
 
 The Q-series stages execute in Q-table order. Q0 is complete. Q1's corrected
-design has passed ordered independent review; implementation planning is
-active and no Q1 implementation is claimed. The L-series is an owner-selected priority queue rather than a
+design and implementation plan have passed ordered independent review; task
+execution is active and no Q1 implementation is yet claimed. The L-series is
+an owner-selected priority queue rather than a
 claim that every adjacent stage has a compiler dependency on its predecessor;
 it executes in L-table order unless the owner explicitly reorders it. At most
 one L stage is active at a time.
@@ -145,8 +146,10 @@ field access on `Value`.
 Authority target:
 `docs/design/workflow_lisp_prompt_calculus.md`.
 
-**Status:** corrected design accepted on 2026-07-26 after ordered independent
-specification and quality review. The implementation-plan gate is active.
+**Status:** corrected design and
+`docs/plans/2026-07-26-workflow-lisp-prompt-core-implementation-plan.md`
+accepted on 2026-07-26 after ordered independent specification and quality
+review. Task execution is active from reviewed plan commit `53d2786b`.
 
 The accepted correction resolves these former review findings:
 

@@ -1120,10 +1120,10 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "| Q1 |",
     )
     q1_status = _normalized_routing_text(q1_row.rsplit("|", 2)[-2])
-    assert "next" in q1_status
+    assert q1_status.startswith("active ")
     assert "accepted design" in q1_status
-    assert "implementation plan" in q1_status
-    assert "implementation not started" in q1_status
+    assert "reviewed implementation plan at 53d2786b" in q1_status
+    assert "task execution started" in q1_status
     assert "implemented" not in q1_status
     assert "blocked by q0" not in q1_status
     assert "design review pending" not in normalized_successor
