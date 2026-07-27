@@ -19,7 +19,9 @@ controller seal is canonical at
 `sha256:ad2570d72a0608173232d53beee7990c0e2afaa198f549bae8769083cc8e7f8f`.
 The retained pre-session configuration failure started no provider session and
 is excluded from the six-review matrix. No pilot lock, apparatus smoke, or live
-A1 attempt exists yet.
+A1 attempt exists yet. The Task 7 provider-free controller implementation and
+focused behavioral suites are green; its focused contract and module-quality
+rereviews plus broad verification remain the active pre-lock gate.
 
 ## Accepted Contract
 
@@ -116,23 +118,66 @@ Each smoke/live label map occupies the immutable deterministic path
 exclusive publication rejects any preexisting node or symlink traversal and
 never replaces an earlier block's map.
 
+After `run_block` commits a `VALID` smoke or live attempt, the controller
+publishes one immutable, lock/attempt/root-bound package-preparation intent
+before any evaluation-copy, evaluator, or package mutation. Successful
+preparation publishes one immutable completion binding the package manifest,
+label map, and each evaluator artifact. On same-lock re-entry, a matching
+intent without a completion forbids re-execution and requires a separately
+locked pilot; a matching valid completion is reloaded without running
+preparation again. Reload revalidates every manifest-declared package
+payload's path, mode, size, and digest, rejects missing, extra, symlinked, or
+other non-regular package nodes, and revalidates the label map and every
+evaluator artifact. A missing, unexpected, mismatched, unreadable, or tampered
+intent, completion, package node, or bound artifact fails closed. These
+intent/completion files are auxiliary controller evidence, not another
+experiment record kind.
+
+Each block also has one auxiliary lock/block-bound process-group ledger. Before
+every treatment-arm and visible-check `Popen`, the runner durably adds an
+in-flight spawn marker. A successful `Popen` atomically replaces that marker
+with the process-group ID; only a proven launch failure clears it without a
+group. For a surviving `STARTED` attempt the ledger can prove quiescence only
+when it is valid, contains no in-flight marker, and every recorded process
+group is absent before the next ordered ID launches. A missing, malformed,
+mismatched, unreadable, or unverifiable ledger halts collection. The ledger
+does not transition, resume, recover, delete, or rerun the surviving attempt.
+The three-arm start-skew calculation uses monotonic timestamps taken
+immediately before the actual `Popen` attempts and after durable marker
+persistence, never barrier-arrival or pre-marker timestamps.
+
 ### Pilot-specific controller boundary
 
 Task 7 adds no public experiment API or reusable framework. The existing
 `scripts/experiments/lean_pilot.py` remains a thin facade and gains only
-`prepare` and `execute` commands. Implementation is divided by existing
-responsibility among four private modules, each at most 500 physical lines:
+`prepare` and `execute` commands. The four planned private surfaces remain
+thin facades or bounded controllers. Boring validation, execution, and binding
+internals are split by the same existing responsibilities so every production
+module remains at most 500 physical lines:
 
-- `_pilot_prepare.py`: closed source-map validation, Git-object reads,
-  external control-root materialization, calibration-seal validation, and
-  `pilot_lock.v1` authoring;
+- `_pilot_prepare.py`, `_pilot_prepare_support.py`, and
+  `_pilot_prepare_validation.py`: closed source-map validation, Git-object
+  reads, external control-root materialization, calibration-seal validation,
+  and `pilot_lock.v1` authoring;
 - `_pilot_evidence.py`: frozen projected-product copies, hidden-evaluator
-  execution, canonical evaluator evidence, and blind-package construction;
-- `_pilot_review.py`: calibrated reviewer command/environment validation,
-  fresh-session launch/finalization, review ingestion, and canonical
-  review/unblinding bindings; and
+  execution, canonical evaluator evidence, and blind-package construction,
+  with `_pilot_evidence_support.py` holding its path/copy validation helpers,
+  `_pilot_evaluator_apparatus.py` owning exact verified-byte closure staging,
+  and `_pilot_evaluator_process.py` owning bounded evaluator process-group
+  cleanup;
+- `_pilot_review.py`, `_pilot_review_support.py`,
+  `_pilot_review_schema.py`, `_pilot_review_assets.py`,
+  `_pilot_review_execution.py`, and `_pilot_review_bindings.py`: exact
+  calibration-supported live-schema validation, calibrated reviewer
+  command/environment validation, content-bound reviewer-runtime asset
+  staging, one-shot launch or provider-free retained-transport finalization,
+  review ingestion, and canonical review/unblinding bindings;
 - `_pilot_controller.py`: exact attempt-prefix loading and the bounded
-  smoke/live/review sequence.
+  smoke/live/review sequence, with `_pilot_controller_state.py` owning
+  immutable package-preparation intent/completion evidence; and
+- `_runner_quiescence.py`: the private lock/block-bound in-flight-spawn and
+  process-group ledger used to prove a surviving `STARTED` attempt quiescent
+  before its successor can launch.
 
 `prepare` requires explicit source-map, repository-root, full-revision,
 fresh-control-root, fresh-evidence-root, calibration-seal, and lock-output
@@ -158,11 +203,13 @@ The same map classifies these controller-only assets:
 - `review/reviewer-command.json` plus
   `review/review-result.schema.json`.
 
-Keeping the evaluator module and fixtures at repository-shaped destinations
-preserves its existing `__file__`-relative lookup without copying logic. The
-live reviewer schema is exact for three candidates, five dimensions per
-candidate, and three pairwise results. The calibrated invocation schema
-remains calibration evidence and is not silently reused as the live schema.
+Staging the exact verified evaluator module and fixture bytes at
+repository-shaped destinations beneath a fresh controller-owned runtime root
+preserves the existing `__file__`-relative lookup without rereading the
+mutable control root. The live reviewer schema is exact for three candidates,
+five dimensions per candidate, and three pairwise results. The calibrated
+invocation schema remains calibration evidence and is not silently reused as
+the live schema.
 
 ### Bounded controller and stop semantics
 
@@ -174,22 +221,38 @@ package mechanics, those outcomes do not block the live prefix.
 
 Every valid smoke/live product is re-frozen, copied under its opaque arm label
 to a fresh controller-owned evaluation root, and re-frozen again before the
-verified hidden evaluator runs. Evaluator `PASS` or `FAIL` is candidate
-evidence. If evaluator execution, its output contract, or blind-package
-construction fails after `run_block` has already committed `VALID`, the
+verified hidden evaluator runs. The controller first stages the complete
+verified evaluator runtime closure at its repository-relative paths beneath
+that fresh root and executes only the staged module and fixtures. Evaluator
+`PASS` or `FAIL` is candidate evidence. The evaluator runs in a new process
+group. After either ordinary process completion or timeout, the controller
+must prove the complete descendant group quiescent within the locked grace
+before accepting evaluator evidence. If group quiescence cannot be proved, or
+evaluator execution, its output contract, or blind-package construction
+otherwise fails after `run_block` has already committed `VALID`, the
 controller must not rewrite that attempt or fabricate
 `STOP_APPARATUS_NOT_VIABLE`. It preserves the incident and all existing
 artifacts, emits no pilot summary, and requires a separately locked pilot.
 
 `INVALID`, `ABORTED`, and surviving `STARTED` live records consume their
-ordered IDs and are never rerun. No next ID launches until process-group
-quiescence is established. Collection stops immediately at the third valid
-live block or after the fifth live ID. If fewer than three valid blocks remain,
-every valid block is still reviewed before the truthful
+ordered IDs and are never rerun. No next ID launches until the auxiliary
+ledger proves process-group quiescence without changing the surviving record.
+Collection stops immediately at the third valid live block or after the fifth
+live ID. If fewer than three valid blocks remain, every valid block is still
+reviewed before the truthful
 `STOP_INSUFFICIENT_VALID_BLOCKS` summary.
 
 Each live reviewer slot gets one immutable launch intent and at most one
-provider start. Pre-intent validation may be corrected without consuming a
+provider start. After the schema and rubric bytes pass their content bindings,
+the live schema must pass exact calibration-supported structural validation;
+unsupported or unproven schema keywords fail before staging, intent, or
+session consumption. The controller then copies those already-verified bytes
+to deterministic controller-runtime paths outside the closed candidate
+package. The reviewer CLI output-schema argument and prompt rubric path name
+only those staged copies. An exact partial staging left before intent
+publication may be completed on re-entry; any mismatched, unreadable,
+non-regular, or wrong-mode staged node fails before intent and consumes no
+session. Pre-intent validation may otherwise be corrected without consuming a
 session. After provider start, a complete retained terminal transport may be
 finalized provider-free, but the slot is never relaunched; an incomplete
 session halts without unblinding or summary. All required initial reviews and
@@ -237,8 +300,9 @@ controller-only leakage, and provider-policy mismatch.
 
 - Add the closed apparatus source map, evaluator configuration, calibrated
   reviewer-command configuration, and exact live output schema.
-- Implement the four private controller modules and thin `prepare`/`execute`
-  CLI wiring described above without adding a public export or framework.
+- Implement the four private controller responsibility surfaces, their
+  listed support modules, and thin `prepare`/`execute` CLI wiring described
+  above without adding a public export or framework.
 - Use the explicit source map to build a fresh external control root.
 - Copy and verify every treatment, task, evaluator, rubric, calibration, and
   reviewer-command asset.
@@ -261,7 +325,10 @@ apparatus defect, session reuse/partial launch, and pre-unblinding ordering.
 Obtain one scoped independent contract/code review. Run the affected broad
 suite in tmux with
 `pytest -q -n 16 --dist=worksteal`. Do not launch the real-provider smoke until
-all gates are green.
+all gates are green. Because accepted contract and module-layout corrections
+changed the initially reviewed Task 7 source, obtain focused contract and
+module-quality rereviews of those deltas before evidence execution; these are
+bounded gate repairs, not new per-step review ceremonies.
 
 ### Task 6: Resume Task 7 continuously
 

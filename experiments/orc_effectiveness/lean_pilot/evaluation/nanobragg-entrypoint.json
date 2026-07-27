@@ -1,0 +1,45 @@
+{
+  "module_path": "orchestrator/demo/evaluators/nanobragg_entrypoint.py",
+  "output_contract": {
+    "format": "canonical-json-object",
+    "required_keys": [
+      "failure_categories",
+      "soft_quality",
+      "summary",
+      "verdict"
+    ],
+    "verdicts": [
+      "PASS",
+      "FAIL"
+    ]
+  },
+  "runtime_asset_paths": [
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/cases.json",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_basic.pt",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_mosaic.pt",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_thickness.pt",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_combo_all.pt",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_distance_pixel.pt",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_lambda_n.pt",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_mosaic_rect.pt",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_mosaic_small.pt",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_oversample2.pt",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_rect_basic.pt",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_rect_large_n.pt",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_thickness_post.pt",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_thickness_rect.pt",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_combo_all.json",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_distance_pixel.json",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_lambda_n.json",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_mosaic_rect.json",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_mosaic_small.json",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_oversample2.json",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_rect_basic.json",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_rect_large_n.json",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_thickness_post.json",
+    "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_thickness_rect.json",
+    "orchestrator/demo/evaluators/nanobragg_entrypoint.py"
+  ],
+  "schema_version": "lean-pilot-hidden-evaluator.v1",
+  "timeout_milliseconds": 300000
+}

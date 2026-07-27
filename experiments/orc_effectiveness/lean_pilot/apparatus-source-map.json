@@ -1,0 +1,484 @@
+{
+  "apparatus": {
+    "command_config_path": "commands.json",
+    "environment": {
+      "allowed_keys": [
+        "CODEX_HOME",
+        "HOME",
+        "PATH",
+        "PYTHONUNBUFFERED",
+        "TMPDIR"
+      ],
+      "credential_keys": [
+        "CODEX_HOME"
+      ],
+      "identity": "sha256:0412722e0436c61866b7f0841f09baf8803853f41f4eb1192561a36437b317ca"
+    },
+    "maximum_start_skew_milliseconds": 2000,
+    "product_projection_exclusions": [
+      ".orchestrate",
+      ".pilot/runtime",
+      "logs"
+    ],
+    "prompt_config_path": "prompts.json",
+    "provider_config_path": "providers.json",
+    "quiescence_grace_milliseconds": 10000,
+    "task_path": "task.md",
+    "treatment_asset_paths": [
+      "treatment_driver.py",
+      "task_loop.orc",
+      "prompts/discover.md",
+      "prompts/plan.md",
+      "prompts/review_plan.md",
+      "prompts/revise_plan.md",
+      "prompts/implement.md",
+      "prompts/review_implementation.md",
+      "prompts/fix_implementation.md",
+      "providers.json",
+      "prompts.json",
+      "commands.json",
+      "runtime-control.json",
+      "task.md",
+      "treatments/direct.json",
+      "treatments/coordinator.json",
+      "treatments/orc.json"
+    ],
+    "visible_check": {
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_smoke_entrypoint.py"
+      ],
+      "timeout_milliseconds": 300000
+    }
+  },
+  "archive": {
+    "archive_digest": "sha256:bc7d1da43e2b97f37f09604365541084189331a6d024384f1edb611dd079dd90",
+    "repository_identity": "git@github.com:hoidn/agent-orchestration.git",
+    "revision_identity": "commit:e6a31691fc407f639d68840b75f64975beed7992",
+    "source_subtree_path": "examples/demo_task_nanobragg_entrypoint_port",
+    "source_tree_identity": "git-tree:ec0b78478d5349b598cefd6b366bfc75aed1521c",
+    "task_source_path": "docs/tasks/port_nanobragg_entrypoint_to_pytorch.md"
+  },
+  "expected_derived_digests": {
+    "evaluator_bundle": "sha256:fd19bbcec07435682da9988f8bd321b6320ec84d5d01ba03249b1579793d9412",
+    "reviewer_command_bundle": "sha256:4392641541a626ee2f78a52806694bb2d826bce4d34340424d28705ea53932d2",
+    "task_profile": "sha256:2a62a2020ad22fd02b1949c66311ebceebcecb72c48c10b46e3da1388be4d953",
+    "treatment_sources": {
+      "COORDINATOR": "sha256:871d0f481954b82e4cbc1b3f98dd9dcaf79900a39a5cd2cad697d75a2af9aec3",
+      "DIRECT": "sha256:d2b084537c898c0c1f2400a70fe6074c14156dc0c10be52e0e111d6758eb6808",
+      "ORC": "sha256:20265f5cba791ec84f8773661e59dc6ce503b454a1a04c6e0d4b80a562890df1"
+    }
+  },
+  "pilot": {
+    "claim_level": "exploratory_controlled_task",
+    "live_attempt_ids": [
+      "b-de346bae12e7fcaa",
+      "b-4e8ad2b5a9394e11",
+      "b-a2e6c6a472f9b866",
+      "b-c559f809d4c111a3",
+      "b-30d84c77dbc98d35"
+    ],
+    "max_live_attempt_count": 5,
+    "pilot_id": "a1-lean-pilot-2026-07-27-r0",
+    "randomization_seed": "e7c416b9bb1bc2ee581c41a029db88d8bdbc74dd4badffd4d617c6dad7b164db",
+    "smoke_id": "b-f8d04fa838232314",
+    "task_id": "A1",
+    "valid_block_count": 3
+  },
+  "provider_policy": {
+    "currency": "USD",
+    "family": "codex-cli",
+    "model": "gpt-5.5",
+    "reasoning_effort": "high",
+    "timeout_milliseconds": 1800000,
+    "tool_policy": "codex_unrestricted_workspace"
+  },
+  "review": {
+    "calibration_evidence_path": "review/calibration-seal.json",
+    "disagreement_policy": "INDETERMINATE_ON_DISAGREEMENT",
+    "evaluator": {
+      "asset_paths": [
+        "evaluation/config.json",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/cases.json",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_basic.pt",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_mosaic.pt",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_thickness.pt",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_combo_all.pt",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_distance_pixel.pt",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_lambda_n.pt",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_mosaic_rect.pt",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_mosaic_small.pt",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_oversample2.pt",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_rect_basic.pt",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_rect_large_n.pt",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_thickness_post.pt",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_thickness_rect.pt",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_combo_all.json",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_distance_pixel.json",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_lambda_n.json",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_mosaic_rect.json",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_mosaic_small.json",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_oversample2.json",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_rect_basic.json",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_rect_large_n.json",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_thickness_post.json",
+        "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_thickness_rect.json",
+        "orchestrator/demo/evaluators/nanobragg_entrypoint.py"
+      ],
+      "config_path": "evaluation/config.json"
+    },
+    "permitted_check_evidence_names": [
+      "check-stderr.txt",
+      "check-stdout.txt",
+      "hidden-evaluator.json"
+    ],
+    "reviewer_command": {
+      "asset_paths": [
+        "review/calibration-lock.json",
+        "review/reviewer-command.json",
+        "review/review-result.schema.json"
+      ],
+      "config_path": "review/reviewer-command.json"
+    },
+    "reviewer_ids": [
+      "calibration-reviewer-01",
+      "calibration-reviewer-02"
+    ],
+    "rubric_path": "review/rubric.md",
+    "selected_final_files": [
+      "torch_port/entrypoint.py"
+    ]
+  },
+  "schema_version": "lean-pilot-apparatus-source-map.v1",
+  "sources": [
+    {
+      "destination_path": "commands.json",
+      "sha256": "sha256:897eb0d92cb428a5d5c9967993ac6e17895c6e56b67613f424feb34914aa22ef",
+      "source_kind": "repository",
+      "source_path": "experiments/orc_effectiveness/lean_pilot/control/commands.json"
+    },
+    {
+      "destination_path": "evaluation/config.json",
+      "sha256": "sha256:45f411d624054f7cbd036c867e83c956ed1f4c249ae7e1f5975e44b6399af1c0",
+      "source_kind": "repository",
+      "source_path": "experiments/orc_effectiveness/lean_pilot/evaluation/nanobragg-entrypoint.json"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/cases.json",
+      "sha256": "sha256:5ac457d99442dfd16be1f532eb4eddf9b13a65ef320b05cb3576266a63899fd5",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/cases.json"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_basic.pt",
+      "sha256": "sha256:342509e13c987add64b67261794157399b6a896726c34a114bfc197c08495079",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_basic.pt"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_mosaic.pt",
+      "sha256": "sha256:564ccfe16c780e492bd65ca8965f55d02b100a1ee862806eff511c00b585ba2a",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_mosaic.pt"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_thickness.pt",
+      "sha256": "sha256:8eebd65f283570068a4334cdea0c514de9e84994bdcb70ecea5735c4fc219536",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_thickness.pt"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_combo_all.pt",
+      "sha256": "sha256:caad54374236da30d18173a6efb41576d4f25240e48876efbf96018aea743927",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_combo_all.pt"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_distance_pixel.pt",
+      "sha256": "sha256:d0d49306b4d88de3c524243805af9d76b15e642002a0f20bc586841ecc741c0f",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_distance_pixel.pt"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_lambda_n.pt",
+      "sha256": "sha256:57e8e146408ccdb8b50d6fd13684f499e10b2b53c76dd02d4ca561aaa56a5405",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_lambda_n.pt"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_mosaic_rect.pt",
+      "sha256": "sha256:52737b633079edf124d97df739e077f2a90d65fa6d2d764a9426a7c6f9f1a2df",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_mosaic_rect.pt"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_mosaic_small.pt",
+      "sha256": "sha256:d4a068b321c576c6bdf907ff85054c6903bfc28dc604c6bbdbe2b2a8df1ffa11",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_mosaic_small.pt"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_oversample2.pt",
+      "sha256": "sha256:6e48b92987c0b71ebe51099ed628d038283284639c35dd64578327c933ebac6f",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_oversample2.pt"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_rect_basic.pt",
+      "sha256": "sha256:a78b6adcfbaa612bf311e43c6e3d28a620fe49abea3a6b0a5aa96518aa643bc4",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_rect_basic.pt"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_rect_large_n.pt",
+      "sha256": "sha256:1d733831ae168c96037e45da9bd9731795fbbf64a4a82ec7884d5952a7e595f4",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_rect_large_n.pt"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_thickness_post.pt",
+      "sha256": "sha256:cec706e10ad44f3a322e146b11065ae3f51360e3e39bc6359b0d1974009468d6",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_thickness_post.pt"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_thickness_rect.pt",
+      "sha256": "sha256:ae7132bfefd21562f895382ef304fee06678ab3a85dfe27dd8ae932d225ca372",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_thickness_rect.pt"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_combo_all.json",
+      "sha256": "sha256:3d7cc9128e880c69b6eb6c45f6f8aefdf9f24823ea3123b57d45a2c479677583",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_combo_all.json"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_distance_pixel.json",
+      "sha256": "sha256:1766ea10ec0124dc5c9a73f8e724ac0234387fa6621d08f820d876dc5cc0176b",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_distance_pixel.json"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_lambda_n.json",
+      "sha256": "sha256:245463ce5b55fcab2d8d0682349e1a46720f9f4e7bce13c288e79ec2d1539727",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_lambda_n.json"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_mosaic_rect.json",
+      "sha256": "sha256:a9e66dd488483a93cf513ee30737e4a10f7fda5b803f4d728a89afabf322345c",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_mosaic_rect.json"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_mosaic_small.json",
+      "sha256": "sha256:85860b3a26e38e6188586742538425f856d2c6672b88b9208f247adcec24744a",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_mosaic_small.json"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_oversample2.json",
+      "sha256": "sha256:d9579414a0ff78f9028b9935b9ecbc6fd6d60a1517f5b51a9290098119e2be2c",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_oversample2.json"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_rect_basic.json",
+      "sha256": "sha256:6685da3f438861981ed10cd2df044c9404233086840888b8dc9da7b116e534a9",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_rect_basic.json"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_rect_large_n.json",
+      "sha256": "sha256:75f7f1c472e11a3f7e36cd8ea4dc3b85109e00b439f829e97da68c60c34b1911",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_rect_large_n.json"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_thickness_post.json",
+      "sha256": "sha256:8bcb6bc67f44e9d8e9726c48d3547fd60f91826050638eea16003577a4a54fbb",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_thickness_post.json"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_thickness_rect.json",
+      "sha256": "sha256:62a56c379930d7c88015567032cb321c4bbbca23fae3cab4078a5a918dbf2404",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/inputs/hidden_thickness_rect.json"
+    },
+    {
+      "destination_path": "orchestrator/demo/evaluators/nanobragg_entrypoint.py",
+      "sha256": "sha256:a614eca3feefdac91242916ed1c3f62aedf6398d40842a70b9e94c749f1ece90",
+      "source_kind": "repository",
+      "source_path": "orchestrator/demo/evaluators/nanobragg_entrypoint.py"
+    },
+    {
+      "destination_path": "prompts.json",
+      "sha256": "sha256:74e573c2ae6bdd718110be87f1a1585290f300030fd0b1fbbf8dfaac6cfc055c",
+      "source_kind": "repository",
+      "source_path": "experiments/orc_effectiveness/lean_pilot/control/prompts.json"
+    },
+    {
+      "destination_path": "prompts/discover.md",
+      "sha256": "sha256:f186e5865641e41ff7239d144da5c19086245a9cad3b9b77f1fb785c81522957",
+      "source_kind": "repository",
+      "source_path": "workflows/experiments/repository_task_pilot/prompts/discover.md"
+    },
+    {
+      "destination_path": "prompts/fix_implementation.md",
+      "sha256": "sha256:a01dbb263d61883a6f31008422b6ea713bc3de859d039ebdb20829b24c09811b",
+      "source_kind": "repository",
+      "source_path": "workflows/experiments/repository_task_pilot/prompts/fix_implementation.md"
+    },
+    {
+      "destination_path": "prompts/implement.md",
+      "sha256": "sha256:d1300be062339bd417c90748bb322ecd29dcd237c3a414d2ade2114dd20ce24e",
+      "source_kind": "repository",
+      "source_path": "workflows/experiments/repository_task_pilot/prompts/implement.md"
+    },
+    {
+      "destination_path": "prompts/plan.md",
+      "sha256": "sha256:5f4ac5d714c41ee85ebc411f951bfcc3f533b4af061fe9f4678b1948e7e7ea82",
+      "source_kind": "repository",
+      "source_path": "workflows/experiments/repository_task_pilot/prompts/plan.md"
+    },
+    {
+      "destination_path": "prompts/review_implementation.md",
+      "sha256": "sha256:82a5084bd99711399b0042940d8f4c4254dd9d4aa439cfc2c8a0604b4ab324de",
+      "source_kind": "repository",
+      "source_path": "workflows/experiments/repository_task_pilot/prompts/review_implementation.md"
+    },
+    {
+      "destination_path": "prompts/review_plan.md",
+      "sha256": "sha256:b162920f4efd0a763a4228b1cc23659ceae7b69ffe9cff883a9a5d21710b1191",
+      "source_kind": "repository",
+      "source_path": "workflows/experiments/repository_task_pilot/prompts/review_plan.md"
+    },
+    {
+      "destination_path": "prompts/revise_plan.md",
+      "sha256": "sha256:dcaf20697a5cf2a9db664722ddbb546d89508d92e33e73082363bb06a354f6c2",
+      "source_kind": "repository",
+      "source_path": "workflows/experiments/repository_task_pilot/prompts/revise_plan.md"
+    },
+    {
+      "destination_path": "providers.json",
+      "sha256": "sha256:6e1cf9fe2ffccc51c73f3bccc9c91047022ce02e8e91ef8cc0d8ccf69db9bc63",
+      "source_kind": "repository",
+      "source_path": "experiments/orc_effectiveness/lean_pilot/control/providers.json"
+    },
+    {
+      "destination_path": "review/calibration-lock.json",
+      "sha256": "sha256:0fc285214f93d3d0c892090bd2ee0f0317c097775ee5562629980f5503a2a7d3",
+      "source_kind": "repository",
+      "source_path": "experiments/orc_effectiveness/lean_pilot/calibration/calibration-lock.json"
+    },
+    {
+      "destination_path": "review/calibration-seal.json",
+      "sha256": "sha256:ad2570d72a0608173232d53beee7990c0e2afaa198f549bae8769083cc8e7f8f",
+      "source_kind": "external_calibration_seal"
+    },
+    {
+      "destination_path": "review/review-result.schema.json",
+      "sha256": "sha256:da4eb861cd404a5e7e54fa4ea1aa14b3a8a9d63316472b0de38d9bf649e3cf64",
+      "source_kind": "repository",
+      "source_path": "experiments/orc_effectiveness/lean_pilot/reviewers/live-review-output.schema.json"
+    },
+    {
+      "destination_path": "review/reviewer-command.json",
+      "sha256": "sha256:4bcd8386eddafdb597d30b0034768a094f6d9ed3a93fcc76e6f9f5aba9103d1c",
+      "source_kind": "repository",
+      "source_path": "experiments/orc_effectiveness/lean_pilot/reviewers/live-review-command.json"
+    },
+    {
+      "destination_path": "review/rubric.md",
+      "sha256": "sha256:49b4bf65ac79649f83cca04eb9770a53c1bf9cd53b51fbbd1e0feb7cfc23203a",
+      "source_kind": "repository",
+      "source_path": "experiments/orc_effectiveness/lean_pilot/reviewers/rubric.md"
+    },
+    {
+      "destination_path": "runtime-control.json",
+      "sha256": "sha256:192beff270393fd25244300a2e8aadb76664292be47fc2cc38c159b32af20e61",
+      "source_kind": "repository",
+      "source_path": "experiments/orc_effectiveness/lean_pilot/control/runtime-control.json"
+    },
+    {
+      "destination_path": "task.md",
+      "sha256": "sha256:ae0c6755a1c84be54413615b91c88016e83de87dc5337e356903c49aedc3665b",
+      "source_kind": "repository",
+      "source_path": "experiments/orc_effectiveness/lean_pilot/tasks/a1.md"
+    },
+    {
+      "destination_path": "task_loop.orc",
+      "sha256": "sha256:40b391716fbfa407c9db9899f1ae61c7ed48088661fdb0043185f12eb6433d5c",
+      "source_kind": "repository",
+      "source_path": "workflows/experiments/repository_task_pilot/task_loop.orc"
+    },
+    {
+      "destination_path": "treatment_driver.py",
+      "sha256": "sha256:03710612a072dc0d331b8909f1b5b95ef8031302bba4d98d6e3f2c02b09b87c2",
+      "source_kind": "repository",
+      "source_path": "scripts/experiments/conventional_coordinator.py"
+    },
+    {
+      "destination_path": "treatments/coordinator.json",
+      "sha256": "sha256:276edad3ddf4be30682c33f6c89aa12c732cf54bd5b33da5c4a6629eaf55350f",
+      "source_kind": "repository",
+      "source_path": "experiments/orc_effectiveness/lean_pilot/treatments/coordinator.json"
+    },
+    {
+      "destination_path": "treatments/direct.json",
+      "sha256": "sha256:42a22e43f1352d9a4f7ca3f7ad2b31d250f836affab5886130705c4a6aa5b459",
+      "source_kind": "repository",
+      "source_path": "experiments/orc_effectiveness/lean_pilot/treatments/direct.json"
+    },
+    {
+      "destination_path": "treatments/orc.json",
+      "sha256": "sha256:f67c409a12c8278e417a9ef967f42f077fda8c26750aae017c6cc8257d25cc4b",
+      "source_kind": "repository",
+      "source_path": "experiments/orc_effectiveness/lean_pilot/treatments/orc.json"
+    }
+  ],
+  "treatments": [
+    {
+      "command_config_path": "treatments/direct.json",
+      "provider_call_bounds": {
+        "maximum": 1,
+        "minimum": 1
+      },
+      "source_asset_paths": [
+        "treatment_driver.py",
+        "treatments/direct.json"
+      ],
+      "treatment_id": "DIRECT"
+    },
+    {
+      "command_config_path": "treatments/coordinator.json",
+      "provider_call_bounds": {
+        "maximum": 9,
+        "minimum": 3
+      },
+      "source_asset_paths": [
+        "treatment_driver.py",
+        "treatments/coordinator.json"
+      ],
+      "treatment_id": "COORDINATOR"
+    },
+    {
+      "command_config_path": "treatments/orc.json",
+      "provider_call_bounds": {
+        "maximum": 9,
+        "minimum": 3
+      },
+      "source_asset_paths": [
+        "task_loop.orc",
+        "treatment_driver.py",
+        "treatments/orc.json"
+      ],
+      "treatment_id": "ORC"
+    }
+  ]
+}

@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "candidates": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "dimension_assessments": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "assessment": {
+                  "enum": [
+                    "PASS",
+                    "CONCERN",
+                    "FAIL",
+                    "INDETERMINATE"
+                  ],
+                  "type": "string"
+                },
+                "dimension": {
+                  "enum": [
+                    "TASK_COMPLETENESS",
+                    "BEHAVIORAL_CORRECTNESS",
+                    "MAINTAINABILITY",
+                    "SCOPE_CONTROL",
+                    "EVIDENCE_QUALITY"
+                  ],
+                  "type": "string"
+                },
+                "evidence_citations": {
+                  "items": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "rationale": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "dimension",
+                "assessment",
+                "rationale",
+                "evidence_citations"
+              ],
+              "type": "object"
+            },
+            "maxItems": 5,
+            "minItems": 5,
+            "type": "array"
+          },
+          "evidence_citations": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "opaque_label": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "sealed_treatment_guess": {
+            "enum": [
+              "DIRECT",
+              "COORDINATOR",
+              "ORC",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "opaque_label",
+          "evidence_citations",
+          "dimension_assessments",
+          "sealed_treatment_guess"
+        ],
+        "type": "object"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "type": "array"
+    },
+    "pairwise_results": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_a_label": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "candidate_b_label": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "evidence_citations": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "outcome": {
+            "enum": [
+              "A",
+              "B",
+              "TIE",
+              "INDETERMINATE"
+            ],
+            "type": "string"
+          },
+          "rationale": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_a_label",
+          "candidate_b_label",
+          "outcome",
+          "rationale",
+          "evidence_citations"
+        ],
+        "type": "object"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "type": "array"
+    }
+  },
+  "required": [
+    "candidates",
+    "pairwise_results"
+  ],
+  "type": "object"
+}

@@ -230,7 +230,11 @@ def run_block(
     )
     started = _started_record(lock, block_id, preflight)
     _atomic_record(preflight.record_path, started)
-    groups = execution._ProcessGroups()
+    groups = execution._ProcessGroups(
+        ledger_path=preflight.record_path.parent / "process-groups.json",
+        pilot_lock_digest=started["pilot_lock_digest"],
+        block_id=block_id,
+    )
 
     try:
         _allocate_workspaces(preflight, block_id)

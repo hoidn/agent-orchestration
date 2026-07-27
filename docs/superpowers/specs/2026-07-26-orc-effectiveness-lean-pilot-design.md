@@ -6,7 +6,7 @@
 - **Kind:** experiment design and architecture decision
 - **Owner:** agent-orchestration maintainers
 - **Domain owner for a prospective PtychoPINN benchmark:** PtychoPINN maintainers
-- **Reviewers:** owner-directed program revision on 2026-07-26; implementation reviews occur only at the three named evidence gates
+- **Reviewers:** owner-directed program revision on 2026-07-26; the three original evidence gates plus owner-approved focused contract and module-quality rereviews after accepted contract or source-layout changes
 - **Created:** 2026-07-26
 - **Last material update:** 2026-07-27
 - **Supersedes:** [the 2026-07-23 evidence-platform experiment design](2026-07-23-orc-vs-one-shot-experiment-design.md)
@@ -25,8 +25,11 @@ parity, evaluation, and reporting slices and the module-size gate are focused
 green. Locked A0 calibration round 1 passed with six unique sessions; its
 external controller seal is
 `sha256:ad2570d72a0608173232d53beee7990c0e2afaa198f549bae8769083cc8e7f8f`.
-The Task 7 readiness amendment is the active source-edit gate. No pilot lock,
-real-provider smoke, or live A1 block has run.
+The Task 7 provider-free controller and its focused contract/module-quality
+gate are active under the accepted readiness amendment. The controller
+implementation and focused behavioral suites are green; the focused
+rereviews and broad verification must close before lock creation. No pilot
+lock, real-provider smoke, or live A1 block has run.
 
 ## Summary
 
@@ -411,7 +414,8 @@ For each arm, the controller stages exactly the locked
 `apparatus.treatment_asset_paths` subset beneath one private controller-owned
 apparatus root while preserving normalized relative paths. Controller-only
 evaluator, rubric, calibration, and reviewer-command assets remain verified
-beneath the control root but are never staged. Launcher substitution binds
+beneath the control root but are never staged into candidate-visible apparatus
+roots. Launcher substitution binds
 `{task_path}`, `{provider_config}`, `{prompt_config}`, and `{command_config}` to
 the corresponding staged role assets and binds `{apparatus_root}` to that
 private root. `HOME` and `TMPDIR` come only from the controller; credential
@@ -448,6 +452,19 @@ the controller atomically writes a validated `block_attempt.v1` with status
 controller attempt and is never resumed or silently deleted. Thus summaries
 regenerate invalid/aborted references from structured records rather than
 inferring them from directories or logs.
+
+Before each treatment-arm or visible-check `Popen`, the controller durably
+adds a lock/block-bound in-flight spawn marker to the auxiliary process-group
+ledger. A successful `Popen` atomically replaces that marker with the spawned
+process-group ID; only a proven launch failure may clear it without a process
+group. Therefore a surviving `STARTED` attempt is quiescent only when the
+ledger is valid, contains no in-flight marker, and every recorded process
+group is absent. The marker makes an interrupted spawn unprovable and cannot
+resume, recover, delete, or rerun an attempt.
+The three-arm maximum-start-skew calculation uses monotonic timestamps taken
+immediately before the actual `Popen` attempts and after each in-flight marker
+is durably persisted. Barrier-arrival or pre-marker timestamps are not
+admissible.
 
 Live attempts execute only as a contiguous prefix of the lock's ordered opaque
 IDs. The runner refuses an out-of-order or reused ID. Synthesis loads those
@@ -497,7 +514,14 @@ disjoint; IDs used in path joins are safe single components.
 
 ### Hard evidence
 
-Frozen visible and held-out evaluators run on copies of frozen products. Their outputs are findings, not automatic total-order truth. A hard failure must cite the violated task contract or be labeled an evaluator defect/ambiguity.
+Frozen visible and held-out evaluators run on copies of frozen products. Before
+hidden evaluation, the controller stages the exact manifest-verified evaluator
+module and fixture closure beneath a fresh controller-owned runtime root,
+preserving repository-relative paths. Execution uses only that staged closure
+and never rereads evaluator bytes from the mutable control root after
+verification. Evaluator outputs are findings, not automatic total-order truth.
+A hard failure must cite the violated task contract or be labeled an evaluator
+defect/ambiguity.
 
 ### Blinded review
 
@@ -525,7 +549,14 @@ blinding diagnostic, not a reason to rewrite a judgment.
 Controller-only evaluator, rubric, calibration, and reviewer-command assets
 are present in the closed control manifest but excluded from the explicit
 treatment-staging subset. The runner never stages them into candidate-visible
-apparatus roots.
+apparatus roots. Before a live reviewer intent is published, the controller
+requires the live schema to pass exact calibration-supported structural
+validation and rejects unsupported or unproven schema keywords. It then copies
+the already-verified live schema and rubric bytes to deterministic
+controller-runtime paths outside the closed candidate package. Only these
+staged paths enter the reviewer CLI and prompt. An exact partial staging may be
+completed before intent on re-entry; staged content or node drift fails closed
+without consuming a reviewer session.
 
 Selected final-file snapshots and check evidence are explicit allowlists; they
 do not narrow the complete product diff. Each reviewer package has a closed,

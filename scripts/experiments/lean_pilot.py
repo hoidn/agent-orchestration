@@ -13,6 +13,8 @@ from fractions import Fraction
 from pathlib import Path, PurePosixPath
 from typing import Sequence
 
+from orchestrator.experiments._pilot_controller import execute_pilot
+from orchestrator.experiments._pilot_prepare import prepare_pilot
 from orchestrator.experiments.contracts import (
     PilotContractError,
     canonical_json_bytes,
@@ -39,6 +41,22 @@ def _parser() -> argparse.ArgumentParser:
 
     validate = commands.add_parser("validate-lock")
     validate.add_argument("--lock", type=Path, required=True)
+
+    prepare = commands.add_parser("prepare")
+    prepare.add_argument("--source-map", type=Path, required=True)
+    prepare.add_argument("--repository-root", type=Path, required=True)
+    prepare.add_argument("--full-revision", required=True)
+    prepare.add_argument("--fresh-control-root", type=Path, required=True)
+    prepare.add_argument("--fresh-evidence-root", type=Path, required=True)
+    prepare.add_argument("--calibration-seal", type=Path, required=True)
+    prepare.add_argument("--lock-output", type=Path, required=True)
+
+    execute = commands.add_parser("execute")
+    execute.add_argument("--lock", type=Path, required=True)
+    execute.add_argument("--work-root", type=Path, required=True)
+    execute.add_argument("--evaluation-copy-root", type=Path, required=True)
+    execute.add_argument("--package-root", type=Path, required=True)
+    execute.add_argument("--reviewer-environment", type=Path, required=True)
 
     run = commands.add_parser("run-block")
     run.add_argument("--lock", type=Path, required=True)
@@ -281,6 +299,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "validate-lock":
         lock = load_record(args.lock, expected_kind="pilot_lock.v1")
         print(canonical_sha256(lock))
+        return 0
+    if args.command == "prepare":
+        lock = prepare_pilot(
+            source_map_path=args.source_map,
+            repository_root=args.repository_root,
+            apparatus_revision=args.full_revision,
+            control_root=args.fresh_control_root,
+            evidence_root=args.fresh_evidence_root,
+            calibration_seal_path=args.calibration_seal,
+            lock_output_path=args.lock_output,
+        )
+        print(canonical_sha256(lock))
+        return 0
+    if args.command == "execute":
+        lock = load_record(args.lock, expected_kind="pilot_lock.v1")
+        result = execute_pilot(
+            lock=lock,
+            work_root=args.work_root,
+            evaluation_root=args.evaluation_copy_root,
+            package_root=args.package_root,
+            reviewer_environment_path=args.reviewer_environment,
+        )
+        print(canonical_json_bytes(result).decode("utf-8"))
         return 0
     if args.command == "run-block":
         lock = load_record(args.lock, expected_kind="pilot_lock.v1")

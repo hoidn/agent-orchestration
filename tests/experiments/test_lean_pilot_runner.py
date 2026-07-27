@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path, PurePosixPath
 from types import ModuleType
 from typing import Any, Callable
@@ -21,6 +22,7 @@ from orchestrator.experiments import (
     _runner_block as runner_block,
     _runner_execution as runner_execution,
     _runner_preflight as runner_preflight,
+    _runner_quiescence as runner_quiescence,
     _runner_types as runner_types,
     contracts,
     workspace,
@@ -615,6 +617,18 @@ def test_run_smoke_block_needs_no_fixture_identity(
 
     assert record["attempt_class"] == "SMOKE"
     assert record["status"] == "VALID"
+    ledger_path = (
+        evidence_root / lock["smoke_id"] / "process-groups.json"
+    )
+    ledger = json.loads(ledger_path.read_bytes())
+    assert ledger["process_group_ids"] == []
+    assert ledger["in_flight_spawn_ids"] == []
+    assert ledger_path.read_bytes() == contracts.canonical_json_bytes(ledger)
+    assert runner_quiescence.surviving_started_process_groups_are_quiescent(
+        lock=lock,
+        block_id=lock["smoke_id"],
+        evidence_root=evidence_root.resolve(),
+    )
 
 
 @pytest.mark.parametrize(
@@ -1838,6 +1852,23 @@ def test_arm_process_fault_is_an_outcome_and_peers_finish(
         assert (evidence_root / stderr_reference).read_bytes() == b""
     assert _execution(record, "COORDINATOR")["lifecycle_outcome"] == "COMPLETED"
     assert _execution(record, "ORC")["lifecycle_outcome"] == "COMPLETED"
+    if fault == "launch":
+        ledger = json.loads(
+            (
+                evidence_root
+                / lock["smoke_id"]
+                / "process-groups.json"
+            ).read_bytes()
+        )
+        assert ledger["in_flight_spawn_ids"] == []
+        assert (
+            runner_quiescence.surviving_started_process_groups_are_quiescent(
+                lock=lock,
+                block_id=lock["smoke_id"],
+                evidence_root=evidence_root.resolve(),
+            )
+            is True
+        )
 
 
 @pytest.mark.parametrize(
@@ -1907,6 +1938,299 @@ def test_process_group_quiescence_fails_when_disappearance_cannot_be_proven(
         process.wait(timeout=5)
 
     assert process.poll() is not None
+
+
+def test_process_group_ledger_tracks_a_live_group_and_validates_absence(
+    tmp_path: Path,
+) -> None:
+    evidence_root = (tmp_path / "evidence").resolve()
+    lock = _pilot_lock(tmp_path, evidence_root)
+    block_id = lock["smoke_id"]
+    ledger_path = evidence_root / block_id / "process-groups.json"
+    ledger_path.parent.mkdir(parents=True)
+    groups = runner_execution._ProcessGroups(
+        ledger_path=ledger_path,
+        pilot_lock_digest=contracts.canonical_sha256(lock),
+        block_id=block_id,
+    )
+    spawn_id = groups.begin_spawn()
+    assert (
+        runner_quiescence.surviving_started_process_groups_are_quiescent(
+            lock=lock,
+            block_id=block_id,
+            evidence_root=evidence_root,
+        )
+        is False
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+    try:
+        groups.register_spawn(spawn_id, process.pid)
+        assert (
+            runner_quiescence.surviving_started_process_groups_are_quiescent(
+                lock=lock,
+                block_id=block_id,
+                evidence_root=evidence_root,
+            )
+            is False
+        )
+    finally:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=5)
+
+    assert (
+        runner_quiescence.surviving_started_process_groups_are_quiescent(
+            lock=lock,
+            block_id=block_id,
+            evidence_root=evidence_root,
+        )
+        is True
+    )
+    groups.discard(process.pid)
+    value = json.loads(ledger_path.read_bytes())
+    assert value == {
+        "schema_version": "lean-pilot-process-groups.v1",
+        "pilot_lock_digest": contracts.canonical_sha256(lock),
+        "block_id": block_id,
+        "in_flight_spawn_ids": [],
+        "process_group_ids": [],
+    }
+    assert ledger_path.read_bytes() == contracts.canonical_json_bytes(value)
+
+
+@pytest.mark.parametrize("interruption_stage", ["arm", "visible-check"])
+def test_spawn_interruption_before_group_registration_leaves_quiescence_unproven(
+    runner: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    interruption_stage: str,
+) -> None:
+    class InjectedStop(BaseException):
+        pass
+
+    evidence_root = (tmp_path / "evidence").resolve()
+    lock = _pilot_lock(tmp_path, evidence_root)
+    real_popen = runner_execution.subprocess.Popen
+    real_register = getattr(
+        runner_execution._ProcessGroups,
+        "register_spawn",
+        None,
+    )
+    real_begin = runner_execution._ProcessGroups.begin_spawn
+    spawned: dict[int, subprocess.Popen[bytes]] = {}
+    spawn_stages: dict[int, str] = {}
+    thread_spawn_ids: dict[int, str] = {}
+    marker_visible_at_popen: dict[str, list[bool]] = {
+        "arm": [],
+        "visible-check": [],
+    }
+    interruption_lock = threading.Lock()
+    interrupted = False
+
+    def observe_begin(groups: object) -> str:
+        spawn_id = real_begin(groups)
+        with interruption_lock:
+            thread_spawn_ids[threading.get_ident()] = spawn_id
+        return spawn_id
+
+    def observe_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+        raw_argv = args[0] if args else kwargs["args"]
+        argv = (
+            tuple(raw_argv)
+            if isinstance(raw_argv, (list, tuple))
+            else (raw_argv,)
+        )
+        stage = (
+            "arm"
+            if any(
+                str(argument).endswith("/fixture/arm_program.py")
+                for argument in argv
+            )
+            else "visible-check"
+        )
+        if kwargs.get("start_new_session") is True:
+            ledger = json.loads(
+                (
+                    evidence_root
+                    / lock["smoke_id"]
+                    / "process-groups.json"
+                ).read_bytes()
+            )
+            with interruption_lock:
+                spawn_id = thread_spawn_ids.get(threading.get_ident())
+                marker_visible_at_popen[stage].append(
+                    spawn_id in ledger["in_flight_spawn_ids"]
+                )
+        process = real_popen(*args, **kwargs)
+        if kwargs.get("start_new_session") is True:
+            spawned[process.pid] = process
+            spawn_stages[process.pid] = stage
+        return process
+
+    def interrupt_registration(
+        groups: object,
+        spawn_id: str,
+        process_group_id: int,
+    ) -> None:
+        nonlocal interrupted
+        should_interrupt = False
+        with interruption_lock:
+            if (
+                not interrupted
+                and spawn_stages.get(process_group_id) == interruption_stage
+            ):
+                interrupted = True
+                should_interrupt = True
+        if should_interrupt:
+            raise InjectedStop
+        assert real_register is not None
+        real_register(groups, spawn_id, process_group_id)
+
+    monkeypatch.setattr(
+        runner_execution._ProcessGroups,
+        "begin_spawn",
+        observe_begin,
+    )
+    monkeypatch.setattr(runner_execution.subprocess, "Popen", observe_popen)
+    monkeypatch.setattr(
+        runner_execution._ProcessGroups,
+        "register_spawn",
+        interrupt_registration,
+        raising=False,
+    )
+
+    try:
+        with pytest.raises(InjectedStop):
+            runner.run_block(
+                lock=lock,
+                block_id=lock["smoke_id"],
+                work_root=tmp_path / "work",
+                evidence_root=evidence_root,
+            )
+    finally:
+        for process in spawned.values():
+            if process.poll() is not None:
+                continue
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=5)
+
+    assert interrupted is True
+    assert marker_visible_at_popen[interruption_stage]
+    assert all(marker_visible_at_popen[interruption_stage])
+    persisted = contracts.load_record(
+        _block_record_path(evidence_root, lock["smoke_id"]),
+        expected_kind="block_attempt.v1",
+    )
+    assert persisted["status"] == "STARTED"
+    ledger_path = evidence_root / lock["smoke_id"] / "process-groups.json"
+    ledger = json.loads(ledger_path.read_bytes())
+    assert ledger["in_flight_spawn_ids"]
+    assert (
+        runner_quiescence.surviving_started_process_groups_are_quiescent(
+            lock=lock,
+            block_id=lock["smoke_id"],
+            evidence_root=evidence_root,
+        )
+        is False
+    )
+
+
+def test_visible_check_launch_failure_clears_spawn_markers(
+    runner: ModuleType,
+    tmp_path: Path,
+) -> None:
+    evidence_root = (tmp_path / "evidence").resolve()
+    lock = _pilot_lock(tmp_path, evidence_root)
+    lock["apparatus"]["visible_check"]["argv"] = [
+        "/nonexistent/lean-pilot-visible-check"
+    ]
+    _refresh_profile(lock)
+
+    record = runner.run_block(
+        lock=lock,
+        block_id=lock["smoke_id"],
+        work_root=tmp_path / "work",
+        evidence_root=evidence_root,
+    ).record
+
+    assert record["status"] == "VALID"
+    assert all(
+        execution["lifecycle_outcome"] == "CHECK_FAILURE"
+        for execution in record["treatment_executions"]
+    )
+    ledger = json.loads(
+        (
+            evidence_root / lock["smoke_id"] / "process-groups.json"
+        ).read_bytes()
+    )
+    assert ledger["in_flight_spawn_ids"] == []
+    assert (
+        runner_quiescence.surviving_started_process_groups_are_quiescent(
+            lock=lock,
+            block_id=lock["smoke_id"],
+            evidence_root=evidence_root,
+        )
+        is True
+    )
+
+
+@pytest.mark.parametrize("fault", ["missing", "tamper", "symlink", "permission"])
+def test_surviving_started_process_group_ledger_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
+) -> None:
+    evidence_root = (tmp_path / "evidence").resolve()
+    lock = _pilot_lock(tmp_path, evidence_root)
+    block_id = lock["smoke_id"]
+    ledger_path = evidence_root / block_id / "process-groups.json"
+    ledger_path.parent.mkdir(parents=True)
+    value = {
+        "schema_version": "lean-pilot-process-groups.v1",
+        "pilot_lock_digest": contracts.canonical_sha256(lock),
+        "block_id": block_id,
+        "in_flight_spawn_ids": [],
+        "process_group_ids": [12345],
+    }
+    if fault != "missing":
+        data = contracts.canonical_json_bytes(value)
+        if fault == "tamper":
+            data = data + b"\n"
+        if fault == "symlink":
+            target = tmp_path / "outside-ledger.json"
+            target.write_bytes(data)
+            ledger_path.symlink_to(target)
+        else:
+            ledger_path.write_bytes(data)
+    if fault == "permission":
+        monkeypatch.setattr(
+            runner_quiescence.os,
+            "killpg",
+            lambda _process_group_id, _signal: (_ for _ in ()).throw(
+                PermissionError
+            ),
+        )
+
+    assert (
+        runner_quiescence.surviving_started_process_groups_are_quiescent(
+            lock=lock,
+            block_id=block_id,
+            evidence_root=evidence_root,
+        )
+        is False
+    )
 
 
 def test_process_reap_timeout_is_not_ignored(
@@ -2281,6 +2605,77 @@ def test_excessive_start_skew_is_a_shared_invalidity(
     contracts.validate_record(record)
 
 
+def test_start_skew_includes_durable_marker_persistence_delay(
+    runner: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    maximum_skew_milliseconds = 150
+    injected_delay_seconds = 0.45
+    lock["apparatus"]["maximum_start_skew_milliseconds"] = (
+        maximum_skew_milliseconds
+    )
+    _refresh_profile(lock)
+    real_begin = runner_execution._ProcessGroups.begin_spawn
+    real_popen = runner_execution.subprocess.Popen
+    arm_begin_barrier = threading.Barrier(3, timeout=5)
+    call_lock = threading.Lock()
+    popen_lock = threading.Lock()
+    begin_call_count = 0
+    arm_popen_times: list[int] = []
+
+    def delayed_begin(groups: object) -> str:
+        nonlocal begin_call_count
+        with call_lock:
+            call_index = begin_call_count
+            begin_call_count += 1
+        spawn_id = real_begin(groups)
+        if call_index < 3:
+            arm_begin_barrier.wait()
+            if call_index == 0:
+                time.sleep(injected_delay_seconds)
+        return spawn_id
+
+    def observe_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+        raw_argv = args[0] if args else kwargs["args"]
+        argv = (
+            tuple(raw_argv)
+            if isinstance(raw_argv, (list, tuple))
+            else (raw_argv,)
+        )
+        if any(
+            str(argument).endswith("/fixture/arm_program.py")
+            for argument in argv
+        ):
+            with popen_lock:
+                arm_popen_times.append(time.monotonic_ns())
+        return real_popen(*args, **kwargs)
+
+    monkeypatch.setattr(
+        runner_execution._ProcessGroups,
+        "begin_spawn",
+        delayed_begin,
+    )
+    monkeypatch.setattr(runner_execution.subprocess, "Popen", observe_popen)
+
+    record = runner.run_block(
+        lock=lock,
+        block_id=lock["smoke_id"],
+        work_root=tmp_path / "work",
+        evidence_root=evidence_root,
+    ).record
+
+    assert len(arm_popen_times) == 3
+    observed_skew_milliseconds = (
+        max(arm_popen_times) - min(arm_popen_times)
+    ) / 1_000_000
+    assert observed_skew_milliseconds > maximum_skew_milliseconds
+    assert record["status"] == "INVALID"
+    assert record["reason_code"] == "SHARED_START_SKEW_EXCEEDED"
+
+
 def test_controller_exception_after_started_atomically_aborts(
     runner: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -2349,6 +2744,15 @@ def test_base_exception_preserves_complete_started_record(
     )
     assert persisted["status"] == "STARTED"
     assert persisted.get("treatment_executions", []) == []
+    ledger_path = (
+        evidence_root / lock["smoke_id"] / "process-groups.json"
+    )
+    ledger = json.loads(ledger_path.read_bytes())
+    assert ledger["pilot_lock_digest"] == contracts.canonical_sha256(lock)
+    assert ledger["block_id"] == lock["smoke_id"]
+    assert ledger["in_flight_spawn_ids"] == []
+    assert ledger["process_group_ids"] == []
+    assert ledger_path.read_bytes() == contracts.canonical_json_bytes(ledger)
 
 
 def test_worker_interruption_before_barrier_preserves_started_and_releases_peers(
@@ -2519,6 +2923,7 @@ def test_runner_is_a_bounded_public_facade_over_private_modules(
         "_runner_block.py",
         "_runner_execution.py",
         "_runner_preflight.py",
+        "_runner_quiescence.py",
         "_runner_source.py",
         "_runner_types.py",
     }

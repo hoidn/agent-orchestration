@@ -1,6 +1,6 @@
 # `.orc` Effectiveness Lean Pilot Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking. Independent review occurs only at the protocol/runner, treatment-parity, and final-evidence gates named below; do not create per-step review ceremonies.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking. Independent review occurs at the protocol/runner, treatment-parity, and final-evidence gates named below, plus the later owner-approved focused contract and module-quality rereviews after accepted contract or source-layout changes; do not create per-step review ceremonies.
 
 **Goal:** Build and run the smallest three-treatment controlled pilot that can decide whether a separately planned prospective PtychoPINN `.orc` versus one-shot experiment is warranted.
 
@@ -20,10 +20,12 @@ exploratory blocks. The coordinator is frozen and parity-tested against the
 > module-size gate are focused green. Locked A0 calibration round 1 passed with
 > six unique sessions and external seal
 > `sha256:ad2570d72a0608173232d53beee7990c0e2afaa198f549bae8769083cc8e7f8f`.
-> Task 6B, defined by
+> Task 6B is complete. The Task 7 provider-free controller and its focused
+> contract/module-quality gate, governed by
 > `docs/plans/2026-07-27-orc-effectiveness-lean-pilot-task7-readiness-amendment.md`,
-> is the active source-edit gate. No pilot lock, real-provider smoke, or live
-> `A1` attempt has run.
+> are active. The controller implementation and focused behavioral suites are
+> green; the focused rereviews and broad verification must close before lock
+> creation. No pilot lock, real-provider smoke, or live `A1` attempt has run.
 
 ## Global Constraints
 
@@ -38,7 +40,12 @@ exploratory blocks. The coordinator is frozen and parity-tested against the
   attempts. No outcome-dependent extension.
 - Treatment-specific provider, compiler, runtime, timeout, check, and output failures remain outcomes.
 - Unknown usage/cost remains `UNKNOWN`.
-- Do not add a persistent lifecycle engine, resume, retries around whole treatment runs, database, registry, dashboard, or schema per intermediate event.
+- Do not add a persistent lifecycle engine, attempt resume/recovery state
+  machine, retries around whole treatment runs, database, registry, dashboard,
+  or schema per intermediate event. Auxiliary lock/block-bound quiescence
+  evidence may only prove that a surviving `STARTED` attempt's process groups
+  are absent before the next ordered ID launches; it never changes or recovers
+  that attempt.
 - Do not implement `F1`, `F2`, `E2`, `E4`, `E5`, or `E6` in this plan.
 - Use TDD for reusable code. If a task adds a test module, run `pytest --collect-only` before its tests.
 - Tests assert contracts and behavior, never literal prompt wording.
@@ -48,12 +55,17 @@ exploratory blocks. The coordinator is frozen and parity-tested against the
 
 ---
 
-## Planned File Layout
+## Current Planned And Implemented File Layout
+
+This catalog includes the accepted Task 6B/Task 7 amendments. Private support
+modules preserve the original responsibility boundaries; they do not add a
+public surface or a fifth record kind.
 
 ```text
 orchestrator/experiments/
   __init__.py
   contracts.py       # one packaged schema, canonical JSON, four record validators
+  _contracts_pilot_lock.py
   workspace.py       # git-archive materialization and deterministic product freeze
   runner.py          # thin public block-runner facade
   _runner_types.py
@@ -61,6 +73,8 @@ orchestrator/experiments/
   _runner_preflight.py
   _runner_execution.py
   _runner_block.py
+  _runner_source.py
+  _runner_quiescence.py
   evaluation.py      # thin public blinded-evaluation facade
   _evaluation_support.py
   _evaluation_live.py
@@ -77,6 +91,21 @@ orchestrator/experiments/
   _reporting_metrics.py
   _reporting_synthesis.py
   _reporting_render.py
+  _pilot_prepare.py
+  _pilot_prepare_support.py
+  _pilot_prepare_validation.py
+  _pilot_evidence.py
+  _pilot_evidence_support.py
+  _pilot_evaluator_apparatus.py
+  _pilot_evaluator_process.py
+  _pilot_review.py
+  _pilot_review_support.py
+  _pilot_review_schema.py
+  _pilot_review_assets.py
+  _pilot_review_execution.py
+  _pilot_review_bindings.py
+  _pilot_controller.py
+  _pilot_controller_state.py
   schemas/
     __init__.py
     lean-pilot-records-v1.schema.json
@@ -641,6 +670,15 @@ constructing all three commands from the verified configurations—and before
 archive allocation—write the validated `STARTED` attempt to a temporary file in
 the block evidence directory, `fsync` it, install it with `os.replace`, and
 `fsync` the parent directory.
+Before every treatment-arm and visible-check `Popen`, durably add an in-flight
+spawn marker to the auxiliary lock/block-bound process-group ledger. After a
+successful `Popen`, atomically replace that marker with its process-group ID;
+clear it without a group only when launch failure is proven. A surviving
+marker makes quiescence unprovable and halts collection. It does not authorize
+attempt recovery, resume, deletion, or rerun.
+Measure the three-arm start skew from monotonic timestamps taken immediately
+before the actual `Popen` attempts and after durable marker persistence; do not
+use barrier-arrival or pre-marker timestamps.
 On timeout, send `SIGTERM` to the process group, wait the frozen
 `apparatus.quiescence_grace_milliseconds`, then `SIGKILL`. Enforce the locked
 maximum start skew and run exactly the locked visible-check argv with its
@@ -680,8 +718,10 @@ Obtain one independent review covering only:
 - the four-record boundary;
 - symmetric block invalidation versus treatment outcomes;
 - no shell invocation;
-- no resume/recovery lifecycle machinery beyond the single atomic
-  `STARTED`-to-terminal attempt record;
+- no attempt resume/recovery state machine beyond the single atomic
+  `STARTED`-to-terminal attempt record; auxiliary process-group evidence may
+  only prove quiescence before the next ordered ID and may not transition,
+  recover, or rerun the surviving attempt;
 - no dependency on paused provider-isolation work.
 
 Fix supported findings, rerun the selector, and bind the reviewed source digest before continuing.
@@ -1379,17 +1419,35 @@ implementation.
 - Create:
   `experiments/orc_effectiveness/lean_pilot/reviewers/live-review-output.schema.json`
 - Create: `orchestrator/experiments/_pilot_prepare.py`
+- Create: `orchestrator/experiments/_pilot_prepare_support.py`
+- Create: `orchestrator/experiments/_pilot_prepare_validation.py`
 - Create: `orchestrator/experiments/_pilot_evidence.py`
+- Create: `orchestrator/experiments/_pilot_evidence_support.py`
+- Create: `orchestrator/experiments/_pilot_evaluator_apparatus.py`
+- Create: `orchestrator/experiments/_pilot_evaluator_process.py`
 - Create: `orchestrator/experiments/_pilot_review.py`
+- Create: `orchestrator/experiments/_pilot_review_support.py`
+- Create: `orchestrator/experiments/_pilot_review_schema.py`
+- Create: `orchestrator/experiments/_pilot_review_assets.py`
+- Create: `orchestrator/experiments/_pilot_review_execution.py`
+- Create: `orchestrator/experiments/_pilot_review_bindings.py`
 - Create: `orchestrator/experiments/_pilot_controller.py`
+- Create: `orchestrator/experiments/_pilot_controller_state.py`
+- Create: `orchestrator/experiments/_runner_quiescence.py`
+- Modify: `orchestrator/experiments/_runner_execution.py`
+- Modify: `orchestrator/experiments/_runner_block.py`
 - Modify: `scripts/experiments/lean_pilot.py`
-- Test:
-  `tests/experiments/test_lean_pilot_controller_materialization.py`
-- Test: `tests/experiments/test_lean_pilot_hidden_evaluation.py`
-- Test: `tests/experiments/test_lean_pilot_review_execution.py`
+- Test: `tests/experiments/test_lean_pilot_prepare.py`
+- Test: `tests/experiments/test_lean_pilot_evidence.py`
+- Test: `tests/experiments/test_lean_pilot_review.py`
 - Test: `tests/experiments/test_lean_pilot_controller.py`
+- Test: `tests/experiments/test_lean_pilot_controller_state.py`
+- Test: `tests/experiments/test_lean_pilot_cli.py`
+- Test: `tests/experiments/test_lean_pilot_runner.py`
 - Test fixture:
   `tests/experiments/fixtures/lean_pilot/fake_reviewer_cli.py`
+- Test fixture:
+  `tests/experiments/fixtures/lean_pilot/spawning_evaluator.py`
 - Create: `experiments/orc_effectiveness/lean_pilot/pilot-lock.json`
 - Create: `docs/reports/2026-07-26-orc-effectiveness-lean-pilot.md`
 - Modify only if status/routing changed: `docs/index.md`
@@ -1412,7 +1470,9 @@ Keep `scripts/experiments/lean_pilot.py` as the thin command facade and add only
 `prepare` and `execute`. Put source/control-root/lock preparation, copied-product
 evaluation/package preparation, calibrated review/binding publication, and
 bounded sequencing respectively in `_pilot_prepare.py`, `_pilot_evidence.py`,
-`_pilot_review.py`, and `_pilot_controller.py`. Keep each private production
+`_pilot_review.py`, and `_pilot_controller.py`. Keep those planned surfaces
+thin and place their boring validation, execution, and binding helpers in the
+Task 7 private support modules listed above. Keep every private production
 module at or below 500 physical lines and add no export from
 `orchestrator.experiments`.
 
@@ -1565,11 +1625,22 @@ not a second smoke or mutation of this denominator.
 
 Run the verified hidden evaluator only on a fresh projected copy whose source
 and copied manifests both equal the committed product digest. Evaluator
-`PASS`/`FAIL` is candidate evidence. If evaluator execution/output validation
-or blind-package construction fails after `run_block` has already committed a
-`VALID` smoke, preserve the attempt and incident artifacts, emit no fabricated
-summary, and require a separately locked pilot. Do not rewrite the committed
-attempt or add a fifth record to force `STOP_APPARATUS_NOT_VIABLE`.
+runtime uses a fresh controller-owned tree containing the exact verified
+module/fixture closure at its repository-relative paths; after verification it
+does not execute or read those bytes from the locked control root.
+Publish the immutable package-preparation intent before any evaluation-copy,
+evaluator, or package mutation. A matching intent without completion requires
+a separately locked pilot. A matching completion may reload without
+re-execution only after the complete manifest-declared package tree is
+revalidated by path, mode, size, and digest with no missing, extra, symlinked,
+or other non-regular nodes, and the label map and evaluator artifacts also
+revalidate.
+Evaluator `PASS`/`FAIL` is candidate evidence. If evaluator
+execution/output validation or blind-package construction fails after
+`run_block` has already committed a `VALID` smoke, preserve the attempt and
+incident artifacts, emit no fabricated summary, and require a separately
+locked pilot. Do not rewrite the committed attempt or add a fifth record to
+force `STOP_APPARATUS_NOT_VIABLE`.
 
 - [ ] **Step 3: Run up to five live attempts to obtain three valid A1 blocks**
 
@@ -1602,13 +1673,19 @@ each, and all three unordered candidate pairs exactly once. Missing,
 duplicate, reversed-duplicate, or foreign-label pairs fail closed.
 
 Publish one immutable launch intent per reviewer slot. Validation failure
-before that intent consumes no session. Once the provider starts, never
-relaunch the slot; a retained complete terminal transport may be finalized
-provider-free, while an incomplete slot halts without unblinding or summary.
-Publish canonical review bindings for all required reviews before reading any
-label-map content and publishing canonical unblinding bindings. If five
-attempts yield fewer than three valid blocks, still review every valid block
-before generating the truthful shortfall summary.
+before that intent consumes no session. Require the content-bound live schema
+to pass the exact calibration-supported structural contract and reject
+unsupported or unproven schema keywords before staging or intent. Stage the
+already-verified live schema and rubric bytes at deterministic
+controller-runtime paths outside the closed candidate package, and use only
+those staged paths in the CLI and prompt. Exact partial staging may complete on
+pre-intent re-entry; staged drift fails closed before intent. Once the provider
+starts, never relaunch the slot; a retained complete terminal transport may be
+finalized provider-free, while an incomplete slot halts without unblinding or
+summary. Publish canonical review bindings for all required reviews before
+reading any label-map content and publishing canonical unblinding bindings. If
+five attempts yield fewer than three valid blocks, still review every valid
+block before generating the truthful shortfall summary.
 
 - [ ] **Step 5: Generate the authoritative pilot summary**
 

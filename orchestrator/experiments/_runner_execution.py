@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Mapping
 
 from . import _runner_apparatus as apparatus
+from . import _runner_quiescence as quiescence
 from . import workspace
 from ._runner_types import (
     ArmCommand,
@@ -39,17 +40,72 @@ _RAW_TERMINAL_OUTCOMES = {
 
 
 class _ProcessGroups:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        ledger_path: Path,
+        pilot_lock_digest: str,
+        block_id: str,
+    ) -> None:
         self._lock = threading.Lock()
         self._groups: set[int] = set()
+        self._in_flight_spawns: set[str] = set()
+        self._persisted_groups: set[int] = set()
+        self._persisted_spawns: set[str] = set()
+        self._next_spawn_index = 0
+        self._ledger_path = ledger_path
+        self._pilot_lock_digest = pilot_lock_digest
+        self._block_id = block_id
+        quiescence.initialize_process_group_ledger(
+            path=ledger_path,
+            pilot_lock_digest=pilot_lock_digest,
+            block_id=block_id,
+        )
 
-    def add(self, process_group_id: int) -> None:
+    def _persist(self) -> None:
+        quiescence.replace_process_group_ledger(
+            path=self._ledger_path,
+            pilot_lock_digest=self._pilot_lock_digest,
+            block_id=self._block_id,
+            expected_process_group_ids=tuple(self._persisted_groups),
+            expected_in_flight_spawn_ids=tuple(self._persisted_spawns),
+            process_group_ids=tuple(self._groups),
+            in_flight_spawn_ids=tuple(self._in_flight_spawns),
+        )
+        self._persisted_groups = set(self._groups)
+        self._persisted_spawns = set(self._in_flight_spawns)
+
+    def begin_spawn(self) -> str:
         with self._lock:
+            self._next_spawn_index += 1
+            spawn_id = f"spawn-{self._next_spawn_index:08d}"
+            self._in_flight_spawns.add(spawn_id)
+            self._persist()
+            return spawn_id
+
+    def register_spawn(
+        self,
+        spawn_id: str,
+        process_group_id: int,
+    ) -> None:
+        with self._lock:
+            if spawn_id not in self._in_flight_spawns:
+                raise QuiescenceError("process spawn marker is not active")
             self._groups.add(process_group_id)
+            self._in_flight_spawns.remove(spawn_id)
+            self._persist()
+
+    def cancel_spawn(self, spawn_id: str) -> None:
+        with self._lock:
+            if spawn_id not in self._in_flight_spawns:
+                raise QuiescenceError("process spawn marker is not active")
+            self._in_flight_spawns.remove(spawn_id)
+            self._persist()
 
     def discard(self, process_group_id: int) -> None:
         with self._lock:
             self._groups.discard(process_group_id)
+            self._persist()
 
     def terminate_all(self, grace_milliseconds: int) -> bool:
         with self._lock:
@@ -201,6 +257,7 @@ def _run_check(
     groups: _ProcessGroups,
 ) -> bool:
     with stdout_path.open("wb") as stdout_file, stderr_path.open("wb") as stderr_file:
+        spawn_id = groups.begin_spawn()
         try:
             process = subprocess.Popen(
                 argv,
@@ -212,8 +269,9 @@ def _run_check(
                 start_new_session=True,
             )
         except OSError:
+            groups.cancel_spawn(spawn_id)
             return False
-        groups.add(process.pid)
+        groups.register_spawn(spawn_id, process.pid)
         quiescent = False
         try:
             try:
@@ -265,9 +323,9 @@ def _run_arm(
     timed_out = False
     with stdout_path.open("wb") as stdout_file, stderr_path.open("wb") as stderr_file:
         barrier.wait()
-        launch_time = time.monotonic_ns()
+        spawn_id = groups.begin_spawn()
         with launch_lock:
-            launch_times[command.opaque_arm_label] = launch_time
+            launch_times[command.opaque_arm_label] = time.monotonic_ns()
         try:
             process = subprocess.Popen(
                 command.argv,
@@ -279,9 +337,10 @@ def _run_arm(
                 start_new_session=True,
             )
         except OSError:
+            groups.cancel_spawn(spawn_id)
             lifecycle = "LAUNCH_FAILURE"
         if process is not None:
-            groups.add(process.pid)
+            groups.register_spawn(spawn_id, process.pid)
             quiescent = False
             try:
                 try:
