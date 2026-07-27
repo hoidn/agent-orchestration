@@ -1,0 +1,215 @@
+--- a/rust/src/lib.rs
++++ b/rust/src/lib.rs
+@@ -64,58 +64,149 @@
+-pub fn new_linear_classifier(
+-    _weights: Vec<Vec<f64>>,
+-    _bias: Vec<f64>,
+-) -> Result<LinearClassifier, ClassifierError> {
+-    unimplemented!("port the Python reference implementation")
+-}
+-
+-pub fn predict_proba_batch(
+-    _model: &LinearClassifier,
+-    _features: &[Vec<f64>],
+-) -> Result<Vec<Vec<f64>>, ClassifierError> {
+-    unimplemented!("port the Python reference implementation")
+-}
+-
+-pub fn predict_batch(
+-    _probabilities: &[Vec<f64>],
+-) -> Result<Vec<usize>, ClassifierError> {
+-    unimplemented!("port the Python reference implementation")
+-}
+-
+-pub fn predict_top_k(
+-    _probabilities: &[Vec<f64>],
+-    _k: usize,
+-) -> Result<Vec<Vec<usize>>, ClassifierError> {
+-    unimplemented!("port the Python reference implementation")
+-}
+-
+-pub fn cross_entropy_loss(
+-    _probabilities: &[Vec<f64>],
+-    _targets: &[usize],
+-) -> Result<f64, ClassifierError> {
+-    unimplemented!("port the Python reference implementation")
+-}
+-
+-pub fn confusion_matrix(
+-    _probabilities: &[Vec<f64>],
+-    _targets: &[usize],
+-) -> Result<Vec<Vec<usize>>, ClassifierError> {
+-    unimplemented!("port the Python reference implementation")
+-}
+-
+-pub fn per_class_metrics(
+-    _confusion: &[Vec<usize>],
+-) -> Result<Vec<ClassMetrics>, ClassifierError> {
+-    unimplemented!("port the Python reference implementation")
+-}
+-
+-pub fn macro_f1(_report: &[ClassMetrics]) -> Result<f64, ClassifierError> {
+-    unimplemented!("port the Python reference implementation")
+-}
+-
+-pub fn expected_calibration_error(
+-    _probabilities: &[Vec<f64>],
+-    _targets: &[usize],
+-    _num_bins: usize,
+-) -> Result<f64, ClassifierError> {
+-    unimplemented!("port the Python reference implementation")
+-}
++pub fn new_linear_classifier(weights: Vec<Vec<f64>>, bias: Vec<f64>) -> Result<LinearClassifier, ClassifierError> {
++    if weights.is_empty() { return Err(ClassifierError::EmptyWeights); }
++    let num_classes = weights.len();
++    let num_features = weights[0].len();
++    if num_features == 0 { return Err(ClassifierError::EmptyWeightRow); }
++    if weights.iter().any(|row| row.len() != num_features) { return Err(ClassifierError::RaggedWeights); }
++    if bias.len() != num_classes { return Err(ClassifierError::BiasLengthMismatch); }
++    Ok(LinearClassifier { weights, bias })
++}
++
++fn validate_features(model: &LinearClassifier, features: &[Vec<f64>]) -> Result<(), ClassifierError> {
++    if features.is_empty() { return Err(ClassifierError::EmptyFeatures); }
++    if features.iter().any(|row| row.len() != model.weights[0].len()) { return Err(ClassifierError::FeatureWidthMismatch); }
++    Ok(())
++}
++
++fn validate_probabilities(probabilities: &[Vec<f64>]) -> Result<usize, ClassifierError> {
++    if probabilities.is_empty() { return Err(ClassifierError::EmptyProbabilities); }
++    let width = probabilities[0].len();
++    if width == 0 { return Err(ClassifierError::EmptyProbabilityRow); }
++    if probabilities.iter().any(|row| row.len() != width) { return Err(ClassifierError::RaggedProbabilities); }
++    Ok(width)
++}
++
++fn validate_targets(targets: &[usize], expected_len: usize, num_classes: usize) -> Result<(), ClassifierError> {
++    if targets.len() != expected_len { return Err(ClassifierError::TargetLengthMismatch); }
++    if targets.iter().any(|target| *target >= num_classes) { return Err(ClassifierError::TargetOutOfRange); }
++    Ok(())
++}
++
++fn argmax_tie_break(values: &[f64]) -> usize {
++    let mut best_index = 0usize;
++    let mut best_value = values[0];
++    for (index, value) in values.iter().enumerate().skip(1) {
++        if *value > best_value {
++            best_index = index;
++            best_value = *value;
++        }
++    }
++    best_index
++}
++
++fn logits_for_row(model: &LinearClassifier, row: &[f64]) -> Result<Vec<f64>, ClassifierError> {
++    if row.len() != model.weights[0].len() { return Err(ClassifierError::FeatureWidthMismatch); }
++    Ok(model.weights.iter().zip(model.bias.iter()).map(|(weights, bias)| {
++        weights.iter().zip(row.iter()).map(|(weight, feature)| weight * feature).sum::<f64>() + bias
++    }).collect())
++}
++
++fn softmax(logits: &[f64]) -> Vec<f64> {
++    let shift = logits.iter().copied().fold(f64::NEG_INFINITY, f64::max);
++    let exps: Vec<f64> = logits.iter().map(|value| (value - shift).exp()).collect();
++    let total: f64 = exps.iter().sum();
++    exps.iter().map(|value| value / total).collect()
++}
++
++pub fn predict_proba_batch(model: &LinearClassifier, features: &[Vec<f64>]) -> Result<Vec<Vec<f64>>, ClassifierError> {
++    validate_features(model, features)?;
++    features.iter().map(|row| logits_for_row(model, row).map(|logits| softmax(&logits))).collect()
++}
++
++pub fn predict_batch(probabilities: &[Vec<f64>]) -> Result<Vec<usize>, ClassifierError> {
++    validate_probabilities(probabilities)?;
++    Ok(probabilities.iter().map(|row| argmax_tie_break(row)).collect())
++}
++
++pub fn predict_top_k(probabilities: &[Vec<f64>], k: usize) -> Result<Vec<Vec<usize>>, ClassifierError> {
++    let width = validate_probabilities(probabilities)?;
++    if k == 0 || k > width { return Err(ClassifierError::InvalidK); }
++    Ok(probabilities.iter().map(|row| {
++        let mut ranked: Vec<usize> = (0..width).collect();
++        ranked.sort_by(|a, b| row[*b].partial_cmp(&row[*a]).unwrap().then_with(|| a.cmp(b)));
++        ranked.truncate(k);
++        ranked
++    }).collect())
++}
++
++pub fn cross_entropy_loss(probabilities: &[Vec<f64>], targets: &[usize]) -> Result<f64, ClassifierError> {
++    let width = validate_probabilities(probabilities)?;
++    validate_targets(targets, probabilities.len(), width)?;
++    let mut total = 0.0;
++    for (row, target) in probabilities.iter().zip(targets.iter()) {
++        let probability = row[*target];
++        if probability <= 0.0 { return Err(ClassifierError::NonPositiveTrueClassProbability); }
++        total += -probability.ln();
++    }
++    Ok(total / targets.len() as f64)
++}
++
++pub fn confusion_matrix(probabilities: &[Vec<f64>], targets: &[usize]) -> Result<Vec<Vec<usize>>, ClassifierError> {
++    let width = validate_probabilities(probabilities)?;
++    validate_targets(targets, probabilities.len(), width)?;
++    let predictions = predict_batch(probabilities)?;
++    let mut matrix = vec![vec![0usize; width]; width];
++    for (prediction, target) in predictions.iter().zip(targets.iter()) {
++        matrix[*target][*prediction] += 1;
++    }
++    Ok(matrix)
++}
++
++pub fn per_class_metrics(confusion: &[Vec<usize>]) -> Result<Vec<ClassMetrics>, ClassifierError> {
++    if confusion.is_empty() || confusion[0].is_empty() { return Err(ClassifierError::EmptyConfusion); }
++    let num_classes = confusion.len();
++    if confusion.iter().any(|row| row.len() != num_classes) { return Err(ClassifierError::NonSquareConfusion); }
++    let mut report = Vec::with_capacity(num_classes);
++    for class_index in 0..num_classes {
++        let tp = confusion[class_index][class_index] as f64;
++        let support: usize = confusion[class_index].iter().sum();
++        let predicted_total: usize = confusion.iter().map(|row| row[class_index]).sum();
++        let precision = if predicted_total == 0 { 0.0 } else { tp / predicted_total as f64 };
++        let recall = if support == 0 { 0.0 } else { tp / support as f64 };
++        let f1 = if precision + recall == 0.0 { 0.0 } else { 2.0 * precision * recall / (precision + recall) };
++        report.push(ClassMetrics { precision, recall, f1, support });
++    }
++    Ok(report)
++}
++
++pub fn macro_f1(report: &[ClassMetrics]) -> Result<f64, ClassifierError> {
++    if report.is_empty() { return Err(ClassifierError::EmptyConfusion); }
++    Ok(report.iter().map(|item| item.f1).sum::<f64>() / report.len() as f64)
++}
++
++pub fn expected_calibration_error(probabilities: &[Vec<f64>], targets: &[usize], num_bins: usize) -> Result<f64, ClassifierError> {
++    let width = validate_probabilities(probabilities)?;
++    validate_targets(targets, probabilities.len(), width)?;
++    if num_bins == 0 { return Err(ClassifierError::InvalidBinCount); }
++    let mut bin_totals = vec![0usize; num_bins];
++    let mut bin_confidence = vec![0.0f64; num_bins];
++    let mut bin_accuracy = vec![0.0f64; num_bins];
++    for (row, target) in probabilities.iter().zip(targets.iter()) {
++        let predicted = argmax_tie_break(row);
++        let confidence = row[predicted];
++        let raw_index = (confidence * num_bins as f64) as usize;
++        let bin_index = raw_index.min(num_bins - 1);
++        bin_totals[bin_index] += 1;
++        bin_confidence[bin_index] += confidence;
++        bin_accuracy[bin_index] += if predicted == *target { 1.0 } else { 0.0 };
++    }
++    let total_examples = targets.len() as f64;
++    let mut ece = 0.0f64;
++    for index in 0..num_bins {
++        let total = bin_totals[index];
++        if total == 0 { continue; }
++        let avg_confidence = bin_confidence[index] / total as f64;
++        let avg_accuracy = bin_accuracy[index] / total as f64;
++        ece += (total as f64 / total_examples) * (avg_accuracy - avg_confidence).abs();
++    }
++    Ok(ece)
++}
+--- a/rust/tests/smoke_linear_classifier.rs
++++ b/rust/tests/smoke_linear_classifier.rs
+@@ -24 +24 @@
+-    assert_eq!(top_k, vec![vec![0, 2], vec![1, 2], vec![0, 1]]);
++    assert_eq!(top_k, vec![vec![0, 2], vec![1, 2], vec![0, 2]]);

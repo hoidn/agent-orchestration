@@ -108,7 +108,7 @@ def _pilot_lock() -> dict[str, Any]:
         },
         "apparatus": _apparatus(),
         "randomization_seed": "seed-2026-07-26",
-        "evidence_root": "evidence/lean-pilot-001",
+        "evidence_root": "/evidence/lean-pilot-001",
         "valid_block_count": 3,
         "max_live_attempt_count": 5,
         "smoke_id": "smoke-001",
@@ -199,6 +199,34 @@ def _block_attempt(
 
 
 def _review_result() -> dict[str, Any]:
+    dimensions = (
+        "TASK_COMPLETENESS",
+        "BEHAVIORAL_CORRECTNESS",
+        "MAINTAINABILITY",
+        "SCOPE_CONTROL",
+        "EVIDENCE_QUALITY",
+    )
+
+    def candidate(
+        label: str,
+        citation: str,
+        guess: str,
+    ) -> dict[str, Any]:
+        return {
+            "opaque_label": label,
+            "evidence_citations": [citation],
+            "dimension_assessments": [
+                {
+                    "dimension": dimension,
+                    "assessment": "PASS",
+                    "rationale": f"{dimension} is supported by the cited artifact.",
+                    "evidence_citations": [citation],
+                }
+                for dimension in dimensions
+            ],
+            "sealed_treatment_guess": guess,
+        }
+
     return {
         "record_kind": "review_result.v1",
         "review_id": "review-live-001-r1",
@@ -208,26 +236,23 @@ def _review_result() -> dict[str, Any]:
         "review_class": "LIVE",
         "rubric_digest": _digest("rubric"),
         "candidates": [
-            {
-                "opaque_label": "candidate-alpha",
-                "evidence_citations": [
-                    "packages/live-001/candidate-alpha/diff.patch"
-                ],
-                "sealed_treatment_guess": "UNKNOWN",
-            },
-            {
-                "opaque_label": "candidate-beta",
-                "evidence_citations": [
-                    "packages/live-001/candidate-beta/checks.json"
-                ],
-                "sealed_treatment_guess": "DIRECT",
-            },
+            candidate(
+                "candidate-alpha",
+                "packages/live-001/candidate-alpha/diff.patch",
+                "UNKNOWN",
+            ),
+            candidate(
+                "candidate-beta",
+                "packages/live-001/candidate-beta/checks.json",
+                "DIRECT",
+            ),
         ],
         "pairwise_results": [
             {
                 "candidate_a_label": "candidate-alpha",
                 "candidate_b_label": "candidate-beta",
                 "outcome": "A",
+                "rationale": "The cited evidence supports candidate alpha.",
                 "evidence_citations": [
                     "packages/live-001/candidate-alpha/diff.patch",
                     "packages/live-001/candidate-beta/checks.json",
@@ -258,6 +283,31 @@ def _valid_block_summary(block_id: str) -> dict[str, Any]:
 
 
 def _pilot_summary() -> dict[str, Any]:
+    lifecycle_counts = {
+        "COMPLETED": 3,
+        "BLOCKED": 0,
+        "EXHAUSTED": 0,
+        "PROTOCOL_FAILURE": 0,
+        "LAUNCH_FAILURE": 0,
+        "TIMEOUT": 0,
+        "NONZERO_EXIT": 0,
+        "CHECK_FAILURE": 0,
+    }
+    failure_counts = {
+        key: value
+        for key, value in lifecycle_counts.items()
+        if key != "COMPLETED"
+    }
+
+    def review_reference(block_id: str, reviewer_id: str) -> dict[str, Any]:
+        review_id = f"review-{block_id}-{reviewer_id}"
+        return {
+            "review_id": review_id,
+            "reviewer_id": reviewer_id,
+            "review_result_digest": _digest(review_id),
+            "review_path": f"reviews/{review_id}.json",
+        }
+
     return {
         "record_kind": "pilot_summary.v1",
         "summary_id": "summary-001",
@@ -280,31 +330,112 @@ def _pilot_summary() -> dict[str, Any]:
                 "status": "ABORTED",
             },
         ],
+        "comparison_counts": [
+            {
+                "comparison": "DIRECT_VS_ORC",
+                "a_win_count": 3,
+                "b_win_count": 0,
+                "tie_count": 0,
+                "indeterminate_count": 0,
+                "tie_nonviable_count": 0,
+            },
+            {
+                "comparison": "COORDINATOR_VS_ORC",
+                "a_win_count": 3,
+                "b_win_count": 0,
+                "tie_count": 0,
+                "indeterminate_count": 0,
+                "tie_nonviable_count": 0,
+            },
+        ],
+        "treatment_statistics": [
+            {
+                "treatment_id": treatment_id,
+                "viable_count": 3,
+                "nonviable_count": 0,
+                "lifecycle_outcome_counts": dict(lifecycle_counts),
+                "failure_class_counts": dict(failure_counts),
+                "provider_call_counts": [call_count, call_count, call_count],
+            }
+            for treatment_id, call_count in (
+                ("DIRECT", 1),
+                ("COORDINATOR", 5),
+                ("ORC", 7),
+            )
+        ],
+        "review_diagnostics": {
+            "agreement_count": 6,
+            "disagreement_count": 0,
+            "adjudication_count": 0,
+            "blocks": [
+                {
+                    "block_id": block_id,
+                    "package_id": block_id,
+                    "package_manifest_digest": _digest(f"package-{block_id}"),
+                    "initial_reviews_agree": True,
+                    "disagreement_disposition": "NOT_APPLICABLE",
+                    "initial_review_references": [
+                        review_reference(block_id, "reviewer-1"),
+                        review_reference(block_id, "reviewer-2"),
+                    ],
+                }
+                for block_id in ("live-001", "live-002", "live-003")
+            ],
+            "guess_accuracy": {"numerator": 1, "denominator": 2},
+            "guess_confusion": [
+                {
+                    "actual_treatment_id": actual,
+                    "guessed_treatment_id": guessed,
+                    "count": int(guessed in {actual, "UNKNOWN"}),
+                }
+                for actual in ("DIRECT", "COORDINATOR", "ORC")
+                for guessed in ("DIRECT", "COORDINATOR", "ORC", "UNKNOWN")
+            ],
+        },
+        "hard_contract_findings": [],
         "medians": [
             {
-                "metric": "elapsed_milliseconds",
-                "treatment_id": "ORC",
-                "value": {"numerator": 24_691, "denominator": 2},
-            },
-            {
-                "metric": "cost_microunits",
-                "treatment_id": "DIRECT",
-                "value": "UNKNOWN",
-            },
+                "metric": metric,
+                "treatment_id": treatment,
+                "value": (
+                    "UNKNOWN"
+                    if metric == "cost_microunits"
+                    else {"numerator": value, "denominator": 1}
+                ),
+            }
+            for metric, values in (
+                ("elapsed_milliseconds", (10, 20, 30)),
+                ("cost_microunits", (0, 0, 0)),
+                ("input_tokens", (100, 200, 300)),
+                ("output_tokens", (50, 100, 150)),
+            )
+            for treatment, value in zip(
+                ("DIRECT", "COORDINATOR", "ORC"),
+                values,
+                strict=True,
+            )
         ],
         "ratios": [
             {
-                "metric": "elapsed_milliseconds",
+                "metric": metric,
                 "numerator_treatment_id": "ORC",
-                "denominator_treatment_id": "DIRECT",
-                "value": {"numerator": 3, "denominator": 2},
-            },
-            {
-                "metric": "cost_microunits",
-                "numerator_treatment_id": "ORC",
-                "denominator_treatment_id": "DIRECT",
-                "value": "UNKNOWN",
-            },
+                "denominator_treatment_id": denominator,
+                "value": (
+                    "UNKNOWN"
+                    if metric == "cost_microunits"
+                    else {
+                        "numerator": 3,
+                        "denominator": 1 if denominator == "DIRECT" else 2,
+                    }
+                ),
+            }
+            for metric in (
+                "elapsed_milliseconds",
+                "cost_microunits",
+                "input_tokens",
+                "output_tokens",
+            )
+            for denominator in ("DIRECT", "COORDINATOR")
         ],
     }
 
@@ -457,6 +588,16 @@ def test_pilot_lock_requires_five_ordered_unique_live_attempt_ids(
         contracts.validate_record(record)
 
     record["live_attempt_ids"] = ["live-001", "live-002", "live-003", "live-004"]
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
+def test_pilot_lock_rejects_smoke_live_path_collision(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_lock()
+    record["smoke_id"] = record["live_attempt_ids"][0]
+
     with pytest.raises(contracts.PilotContractError):
         contracts.validate_record(record)
 
@@ -1170,6 +1311,71 @@ def test_review_has_one_sealed_treatment_guess_per_candidate(
         contracts.validate_record(record)
 
 
+def test_review_requires_exactly_five_evidence_cited_dimension_assessments(
+    contracts: ModuleType,
+) -> None:
+    record = _review_result()
+    assessments = record["candidates"][0]["dimension_assessments"]
+
+    assert {item["dimension"] for item in assessments} == {
+        "TASK_COMPLETENESS",
+        "BEHAVIORAL_CORRECTNESS",
+        "MAINTAINABILITY",
+        "SCOPE_CONTROL",
+        "EVIDENCE_QUALITY",
+    }
+    contracts.validate_record(record)
+
+    record["candidates"][0]["dimension_assessments"].pop()
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
+def test_review_rejects_duplicate_or_unknown_dimension_assessments(
+    contracts: ModuleType,
+) -> None:
+    duplicate = _review_result()
+    duplicate["candidates"][0]["dimension_assessments"][4]["dimension"] = (
+        "TASK_COMPLETENESS"
+    )
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(duplicate)
+
+    unknown = _review_result()
+    unknown["candidates"][0]["dimension_assessments"][0]["dimension"] = "NOVELTY"
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(unknown)
+
+
+@pytest.mark.parametrize(
+    ("target", "field", "bad_value"),
+    [
+        ("dimension", "assessment", "MAYBE"),
+        ("dimension", "rationale", "   "),
+        ("dimension", "rationale", "x" * 4_097),
+        ("dimension", "evidence_citations", []),
+        ("pairwise", "rationale", " \n "),
+        ("pairwise", "rationale", "x" * 4_097),
+    ],
+)
+def test_review_assessments_and_pairwise_results_require_bounded_explanations(
+    contracts: ModuleType,
+    target: str,
+    field: str,
+    bad_value: object,
+) -> None:
+    record = _review_result()
+    item = (
+        record["candidates"][0]["dimension_assessments"][0]
+        if target == "dimension"
+        else record["pairwise_results"][0]
+    )
+    item[field] = bad_value
+
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
 def test_review_rejects_unsealed_or_uncited_results(contracts: ModuleType) -> None:
     record = _review_result()
     record["reviewer_id"] = ""
@@ -1192,6 +1398,86 @@ def test_complete_summary_requires_exactly_three_valid_blocks(
 
 
 @pytest.mark.parametrize(
+    "field",
+    ["comparison_counts", "treatment_statistics", "review_diagnostics"],
+)
+def test_summary_requires_closed_reporting_sections(
+    contracts: ModuleType,
+    field: str,
+) -> None:
+    record = _pilot_summary()
+    del record[field]
+
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+    record = _pilot_summary()
+    target = record[field]
+    if isinstance(target, dict):
+        target["unexpected"] = True
+    else:
+        target[0]["unexpected"] = True
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
+def test_summary_requires_exact_comparison_and_treatment_rows(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_summary()
+    record["comparison_counts"][1]["comparison"] = "DIRECT_VS_ORC"
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+    record = _pilot_summary()
+    record["treatment_statistics"][2]["treatment_id"] = "DIRECT"
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
+def test_summary_review_diagnostics_retain_originals_and_bind_adjudication(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_summary()
+    block = record["review_diagnostics"]["blocks"][0]
+    block["initial_reviews_agree"] = False
+
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+    block["adjudicator_review_reference"] = {
+        "review_id": "review-live-001-reviewer-3",
+        "reviewer_id": "reviewer-3",
+        "review_result_digest": _digest("review-live-001-reviewer-3"),
+        "review_path": "reviews/review-live-001-reviewer-3.json",
+    }
+    block["disagreement_disposition"] = "LOCKED_ADJUDICATOR"
+    record["review_diagnostics"]["agreement_count"] = 5
+    record["review_diagnostics"]["disagreement_count"] = 1
+    record["review_diagnostics"]["adjudication_count"] = 1
+    contracts.validate_record(record)
+
+    block["initial_reviews_agree"] = True
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
+def test_summary_guess_confusion_is_an_exact_closed_matrix(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_summary()
+    record["review_diagnostics"]["guess_confusion"].pop()
+
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+    record = _pilot_summary()
+    record["review_diagnostics"]["guess_confusion"][0]["unexpected"] = 1
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
     "status",
     ["STOP_APPARATUS_NOT_VIABLE", "STOP_INSUFFICIENT_VALID_BLOCKS"],
 )
@@ -1201,8 +1487,27 @@ def test_terminal_stop_summary_preserves_reason_and_partial_denominator(
 ) -> None:
     record = _pilot_summary()
     record["status"] = status
-    record["valid_blocks"] = record["valid_blocks"][:2]
-    record["terminal_reason_code"] = "LOCKED_TERMINAL_STOP"
+    valid_count = 0 if status == "STOP_APPARATUS_NOT_VIABLE" else 2
+    record["valid_blocks"] = record["valid_blocks"][:valid_count]
+    for row in record["comparison_counts"]:
+        row["a_win_count"] = valid_count
+    for statistic in record["treatment_statistics"]:
+        statistic["viable_count"] = valid_count
+        statistic["lifecycle_outcome_counts"]["COMPLETED"] = valid_count
+        statistic["provider_call_counts"] = statistic["provider_call_counts"][
+            :valid_count
+        ]
+    record["review_diagnostics"]["agreement_count"] = valid_count * 2
+    record["review_diagnostics"]["blocks"] = record["review_diagnostics"][
+        "blocks"
+    ][:valid_count]
+    if valid_count == 0:
+        record["review_diagnostics"]["guess_accuracy"] = "UNKNOWN"
+        for cell in record["review_diagnostics"]["guess_confusion"]:
+            cell["count"] = 0
+        for item in (*record["medians"], *record["ratios"]):
+            item["value"] = "UNKNOWN"
+    record["terminal_reason_code"] = status
 
     contracts.validate_record(record)
 
@@ -1246,6 +1551,16 @@ def test_summary_method_outcomes_enforce_sole_viable_precedence(
     outcome["viability_case"] = viability_case
     outcome["method_outcome"] = method_outcome
     outcome["product_quality_review"] = product_quality_review
+    counts = record["comparison_counts"][0]
+    counts["a_win_count"] = 2
+    counts[
+        {
+            "B_WIN": "b_win_count",
+            "TIE": "tie_count",
+            "TIE_NONVIABLE": "tie_nonviable_count",
+            "A_WIN": "a_win_count",
+        }[method_outcome]
+    ] += 1
 
     contracts.validate_record(record)
 
@@ -1315,9 +1630,124 @@ def test_load_record_checks_expected_kind_and_validates(
     path.write_bytes(contracts.canonical_json_bytes(_pilot_lock()))
 
     assert contracts.load_record(path, expected_kind="pilot_lock.v1") == _pilot_lock()
-
     with pytest.raises(contracts.PilotContractError, match="expected"):
         contracts.load_record(path, expected_kind="block_attempt.v1")
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value"),
+    [
+        ("evidence_root", "relative/evidence"),
+        ("evidence_root", "/"),
+        ("smoke_id", "../smoke"),
+        ("smoke_id", "nested/smoke"),
+        ("smoke_id", "."),
+    ],
+)
+def test_pilot_lock_requires_absolute_evidence_root_and_safe_attempt_ids(
+    contracts: ModuleType,
+    field: str,
+    bad_value: str,
+) -> None:
+    record = _pilot_lock()
+    record[field] = bad_value
+
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+    record = _pilot_lock()
+    record["live_attempt_ids"][0] = bad_value
+    if field == "evidence_root":
+        return
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
+def test_summary_requires_exact_metric_and_ratio_row_sets(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_summary()
+    record["medians"].pop()
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+    record = _pilot_summary()
+    record["ratios"][0]["metric"] = "arbitrary_metric"
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "comparison_total",
+        "viability_total",
+        "lifecycle_total",
+        "failure_projection",
+        "provider_call_coverage",
+        "review_block_coverage",
+        "guess_accuracy",
+    ],
+)
+def test_summary_rejects_cross_count_inconsistency(
+    contracts: ModuleType,
+    mutation: str,
+) -> None:
+    record = _pilot_summary()
+    if mutation == "comparison_total":
+        record["comparison_counts"][0]["a_win_count"] += 1
+    elif mutation == "viability_total":
+        record["treatment_statistics"][0]["viable_count"] -= 1
+    elif mutation == "lifecycle_total":
+        record["treatment_statistics"][0]["lifecycle_outcome_counts"][
+            "COMPLETED"
+        ] -= 1
+    elif mutation == "failure_projection":
+        record["treatment_statistics"][0]["failure_class_counts"]["TIMEOUT"] = 1
+    elif mutation == "provider_call_coverage":
+        record["treatment_statistics"][0]["provider_call_counts"].pop()
+    elif mutation == "review_block_coverage":
+        record["review_diagnostics"]["blocks"][0]["block_id"] = "other-block"
+    else:
+        record["review_diagnostics"]["guess_accuracy"] = {
+            "numerator": 2,
+            "denominator": 3,
+        }
+
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
+def test_terminal_reason_must_equal_terminal_status(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_summary()
+    record["status"] = "STOP_INSUFFICIENT_VALID_BLOCKS"
+    record["valid_blocks"] = record["valid_blocks"][:2]
+    record["terminal_reason_code"] = "STOP_APPARATUS_NOT_VIABLE"
+
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
+def test_hard_contract_findings_are_closed_observed_dispositions(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_summary()
+    record["hard_contract_findings"] = [
+        {
+            "block_id": "live-001",
+            "treatment_id": "ORC",
+            "finding_class": "CHECK_FAILURE",
+            "disposition": "TREATMENT_OUTCOME_RETAINED",
+            "evidence_references": ["blocks/live-001/orc/checks.json"],
+        }
+    ]
+    contracts.validate_record(record)
+
+    record["hard_contract_findings"][0]["finding_class"] = "INFERRED_FAILURE"
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
 
 
 def test_load_record_applies_apparatus_semantic_validation(

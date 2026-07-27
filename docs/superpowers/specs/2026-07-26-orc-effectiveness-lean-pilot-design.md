@@ -8,7 +8,7 @@
 - **Domain owner for a prospective PtychoPINN benchmark:** PtychoPINN maintainers
 - **Reviewers:** owner-directed program revision on 2026-07-26; implementation reviews occur only at the three named evidence gates
 - **Created:** 2026-07-26
-- **Last material update:** 2026-07-26
+- **Last material update:** 2026-07-27
 - **Supersedes:** [the 2026-07-23 evidence-platform experiment design](2026-07-23-orc-vs-one-shot-experiment-design.md)
 - **Implementation plan:** [`.orc` Effectiveness Lean Pilot Implementation Plan](../plans/2026-07-26-orc-effectiveness-lean-pilot.md)
 - **Related evidence:** [effectiveness doubts report](../../reports/2026-07-22-compelling-example-search-and-effectiveness-doubts.md) and [historical control-plane feasibility report](../../reports/2026-07-23-experiment-control-plane-feasibility.md)
@@ -19,6 +19,13 @@ Purpose: determine whether further investment in a realistic `.orc` versus one-s
 Authority: this document owns the current experiment design and claim boundaries. Normative Workflow Lisp and provider behavior remains owned by `specs/`, accepted component designs, and current tests. This design does not change runtime behavior, authorize a PtychoPINN product change, or promote a benchmark output.
 
 Copy safety: this is a target experiment design. It is not evidence that the pilot has run or that `.orc` is effective.
+
+Implementation status: the reusable contracts, workspace, runner, treatment
+parity, evaluation, and reporting slices are implemented and focused green.
+The oversized runner, evaluation, and reporting modules have been split into
+thin public facades over private responsibility owners, and their scoped
+quality re-review approved. Calibration is the active next step. No
+calibration provider session, pilot lock, smoke, or live block has run.
 
 ## Summary
 
@@ -36,6 +43,14 @@ The first live tranche is a three-treatment, three-block pilot on the controlled
 `DIRECT` versus `ORC` estimates end-to-end method effectiveness, including additional inference, decomposition, review, and correction. `COORDINATOR` versus `ORC` estimates the marginal representation/runtime effect only when parity checks pass. No first-tranche comparison isolates additional inference from orchestration topology.
 
 The pilot is exploratory. It produces no confirmatory, general-domain, or prospective PtychoPINN claim. A prospective `F1`/`F2` plan is written only after the pilot reports reviewer discrimination, treatment viability, discordance, elapsed time, provider usage, and observed cost. There is no default ten-pair confirmatory series.
+
+The implementation retains five public responsibility surfaces under
+`orchestrator.experiments`: contracts, workspace, runner, evaluation, and
+reporting. Runner, evaluation, and reporting are thin facades over private
+modules split by the already-defined responsibilities. Every production
+module in that package is capped at 500 physical lines. This is code
+ownership, not a broader experiment API or an expansion of the four-record
+evidence model.
 
 Provider-phase information isolation is an independent runtime capability. Its public run/resume completion is not a prerequisite for deterministic apparatus work, evaluator calibration, treatment parity, or this exploratory controlled-task pilot. Any visibility limitation of the actual pilot environment is recorded and narrows the claim; it does not silently become a claim of strict causal isolation.
 
@@ -131,6 +146,40 @@ or relax the criterion.
 
 No reviewer sees an `A1` reference implementation or prior `A1` candidate
 during calibration.
+
+Calibration is governed by a prospective, strict
+`calibration-lock.v1` controller artifact. It is control apparatus, not a
+fifth cross-process evidence-record kind. Before package creation, the
+controller verifies its exact schema and identity; round/revision and failed
+predecessor semantics; task and reference-patch bytes; rubric, selected-file,
+evaluator-module, dynamically loaded oracle, environment, visible-check,
+hidden-evaluator, expected-contrast, reviewer, package, and mapping-seed
+bindings. Its closed `base_identity` contains exactly the repository identity,
+revision identity, digest of the complete unexcluded base archive, and digest
+of the projected product manifest. Package construction receives that identity
+explicitly, requires exact equality with the lock, and freshly freezes both the
+complete and projected base trees before accepting either digest.
+
+Round 1 is revision 0 and accepts no predecessor. The only optional retry is
+round 2/revision 1. It requires the explicit retained round-1/revision-0 lock,
+its canonical on-disk controller mapping and explicit controller root, and all
+six prior review records. The predecessor digest and declared failed status
+must match the retained lock, the complete prior round must still validate, and
+its result must be a substantive reference-preference, label-order, or
+identity-control failure. A missing, fabricated, passing, malformed, or merely
+session-reuse predecessor fails closed.
+
+The lock also owns one closed `reviewer_execution` object because calibration
+precedes `pilot_lock.v1`: provider family, model, reasoning effort, tool policy,
+positive timeout, a canonical absolute resolved regular CLI entry path with
+exact file digest and version identity, a closed environment identity with
+nonempty unique allowed-key names and a credential-key subset, and the
+invocation-payload-schema digest. Calibration package construction receives
+that execution object explicitly from its caller, verifies its complete shape
+and CLI bytes, and requires exact equality with the prospective lock. No
+provider, model, CLI, environment, credential, tool, or timeout value is
+inferred from ambient state. This contract binds later execution but does not
+itself launch a reviewer or add another evidence-record kind.
 
 ### 4. Run only an exploratory controlled-task pilot first
 
@@ -402,6 +451,16 @@ comparison, not a weighted quality score.
 
 After a treatment process exits or times out and its process group is quiescent, the controller records a sorted product-relative manifest with file type, mode, size, and SHA-256. Controller records and transient runtime paths are excluded by an explicit projection rule applied identically to all treatments.
 
+Live package construction accepts only a complete valid `pilot_lock.v1` and a
+`VALID` `LIVE` `block_attempt.v1` whose canonical lock digest, exact locked
+treatment set, and frozen product-manifest digests match freshly re-frozen
+explicit product roots under those locked exclusions. The block ID must equal
+the lock's live-attempt ID at the block sequence index, each execution command
+digest must equal its locked treatment command digest, and a fresh complete
+freeze of the base with no exclusions must equal the lock's archive digest.
+Base, product, package, and controller roots are explicit and pairwise
+disjoint; IDs used in path joins are safe single components.
+
 ### Hard evidence
 
 Frozen visible and held-out evaluators run on copies of frozen products. Their outputs are findings, not automatic total-order truth. A hard failure must cite the violated task contract or be labeled an evaluator defect/ambiguity.
@@ -411,7 +470,9 @@ Frozen visible and held-out evaluators run on copies of frozen products. Their o
 At least two fresh independent reviewers receive:
 
 - the shared task and public acceptance contract;
-- the base-to-final diff;
+- a deterministic diff over the complete projected frozen base and final
+  trees, including unselected changes, additions, deletions, and mode, type, or
+  symlink deltas;
 - relevant final files and candidate-authored documentation;
 - visible and held-out check evidence only at the stage defined by the lock; and
 - opaque candidate labels.
@@ -425,7 +486,45 @@ blinded adjudicator or yields `INDETERMINATE`; original reviews remain
 unchanged. Guess accuracy is a blinding diagnostic, not a reason to rewrite a
 judgment.
 
+Selected final-file snapshots and check evidence are explicit allowlists; they
+do not narrow the complete product diff. Each reviewer package has a closed,
+canonical manifest binding its package ID and every payload path, mode, size,
+and digest. Ingestion binds the expected package ID and digest of the raw
+canonical manifest, rejects noncanonical or coherently rewritten manifests,
+duplicate/extra/unsafe paths, NUL-bearing paths, and undeclared regular or
+non-regular filesystem nodes, and verifies every payload row before evaluating
+top-level or per-dimension citations. Calibration review records additionally
+bind the canonical calibration-lock digest, rubric digest, exact
+package-manifest digest, and exact distinct two-label order. The closed,
+canonical controller mapping is itself re-read from an explicit controller
+root. Its package and six review-binding sets must be exact, and every evaluator,
+oracle, patch, rubric, reviewer-CLI, environment-identity, raw-evidence,
+package, and review binding is revalidated against the named file under that
+root. The three package mappings use the same two opaque labels and bind,
+respectively, `REFERENCE/BASE`, `BASE/REFERENCE`, and
+`REFERENCE/REFERENCE`; role values or orientations cannot be supplied by a
+retained failed result. The label map and evaluator/controller evidence never
+enter reviewer packages.
+
 ### Pilot report
+
+Summary synthesis consumes only the exact locked smoke/live attempt prefix,
+validated `review_result.v1` objects, explicit closed review-to-package/path
+bindings, and explicit controller-owned opaque-label-to-treatment bindings.
+The bindings must cover each valid block exactly, preserve the original review
+digests and paths, and on material disagreement either use the one locked
+adjudicator or preserve both initial reviews and emit `INDETERMINATE`.
+Opaque-label bindings are authenticated by recomputing the exact mapping from
+the locked randomization seed, block ID, and treatment set; a complete but
+repermuted mapping fails closed. Synthesis never discovers reviews, label maps,
+or paths from a directory scan.
+
+The direct synthesis interface enforces the same contiguous-prefix and
+post-third-valid rules as the filesystem loader. A failed smoke admits no live
+attempt. The loader accepts only a canonical absolute evidence root equal to
+the lock and regular, non-symlink attempt records beneath safe single-component
+locked IDs. Summary outputs are distinct new canonical paths outside the
+evidence and input paths and are published atomically without overwrite.
 
 For each block and across the three blocks, report:
 
@@ -438,6 +537,20 @@ For each block and across the three blocks, report:
 - elapsed-time ratios;
 - available usage/cost ratios, or `UNKNOWN`; and
 - all invalid or aborted blocks outside, but adjacent to, the valid denominator.
+
+`pilot_summary.v1` carries these as closed typed comparison counts, per-treatment
+viability/lifecycle/failure/call statistics, exact elapsed/cost/input-token/
+output-token medians and ratios with `UNKNOWN` propagation, observed
+`CHECK_FAILURE`/`PROTOCOL_FAILURE` hard-contract finding rows, and review
+agreement, adjudication, and post-unblinding guess diagnostics. A hard-contract
+row preserves the execution evidence references and disposition
+`TREATMENT_OUTCOME_RETAINED`; it does not infer a violated clause or parse
+free-form evidence. Other lifecycle failures remain in the lifecycle and
+failure-class statistics. Cross-count arithmetic and the exact diagnostic and
+metric row sets validate as part of the record contract. Review guesses cannot
+alter the sealed product-quality or method outcomes. Markdown is regenerated
+solely from that validated summary and renders every substantive typed summary
+surface.
 
 No weighted scalar score is required.
 
@@ -563,6 +676,8 @@ Provider-phase information isolation remains `Partial` in the capability matrix.
 - Coordinator/ORC parity tests for all bounded routes.
 - Report regeneration tests from structured records.
 - Sample-size tests with known exact-binomial vectors and rejection of unspecified decision thresholds.
+- A structural gate keeping every `orchestrator.experiments` production module
+  at or below 500 physical lines while preserving the exact public facades.
 
 ### Integration checks
 
@@ -614,6 +729,8 @@ The reusable first-tranche implementation is accepted when:
 - DIRECT is structurally limited to one provider invocation;
 - COORDINATOR and ORC pass every deterministic parity route;
 - archive, runner, evaluation, reporting, and sample-size checks pass;
+- every `orchestrator.experiments` production module is at or below 500 lines
+  with no duplicated facade logic;
 - no prospective/general claim or unrelated runtime capability is added; and
 - focused, integration, and affected broad checks pass.
 
@@ -633,7 +750,10 @@ evidence review is required for routes that create a pilot summary.
 
 Revise this design rather than expanding implementation when:
 
-- the minimal package grows beyond the four records or five focused implementation modules without an observed cross-boundary need;
+- the minimal package grows beyond the four records or five public
+  responsibility surfaces without an observed cross-boundary need; private
+  owner modules required by the 500-line quality limit do not create new
+  surfaces;
 - a provider-isolation feature becomes mandatory merely because it exists or was previously planned;
 - evaluator calibration cannot distinguish the known cases;
 - the selected evaluator execution environment cannot run provider-authored

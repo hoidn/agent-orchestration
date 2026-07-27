@@ -16,7 +16,15 @@ from typing import Any, Callable
 
 import pytest
 
-from orchestrator.experiments import contracts, workspace
+from orchestrator.experiments import (
+    _runner_apparatus as runner_apparatus,
+    _runner_block as runner_block,
+    _runner_execution as runner_execution,
+    _runner_preflight as runner_preflight,
+    _runner_types as runner_types,
+    contracts,
+    workspace,
+)
 
 
 ARM_PROGRAM = (
@@ -754,7 +762,7 @@ def test_preflight_assigns_distinct_controller_owned_runtime_roots(
     evidence_root = (tmp_path / "evidence").resolve()
     lock = _pilot_lock(tmp_path, evidence_root)
 
-    preflight = runner._preflight(
+    preflight = runner_preflight._preflight(
         lock=lock,
         block_id=lock["smoke_id"],
         work_root=work_root,
@@ -870,7 +878,7 @@ def test_candidate_visible_controller_data_rejects_before_started(
     evidence_root = (tmp_path / "evidence").resolve()
     lock = _pilot_lock(tmp_path, evidence_root)
     block_id = lock["smoke_id"]
-    peer_label = runner._opaque_label(
+    peer_label = runner_apparatus.opaque_label(
         lock["randomization_seed"],
         block_id,
         "COORDINATOR",
@@ -1152,7 +1160,7 @@ def test_standard_externs_compile_from_staged_private_apparatus_only(
         entry["path"]: entry["sha256"]
         for entry in lock["apparatus"]["asset_manifest"]
     }
-    real_atomic_record = runner._atomic_record
+    real_atomic_record = runner_block._atomic_record
     removed_after_started = False
 
     def remove_original_after_started(
@@ -1166,7 +1174,11 @@ def test_standard_externs_compile_from_staged_private_apparatus_only(
             removed_after_started = True
 
     monkeypatch.chdir(unrelated_cwd)
-    monkeypatch.setattr(runner, "_atomic_record", remove_original_after_started)
+    monkeypatch.setattr(
+        runner_block,
+        "_atomic_record",
+        remove_original_after_started,
+    )
 
     record = runner.run_block(
         lock=lock,
@@ -1508,13 +1520,13 @@ def test_process_group_quiescence_fails_when_disappearance_cannot_be_proven(
         start_new_session=True,
     )
     monkeypatch.setattr(
-        runner,
+        runner_execution,
         "_process_group_exists",
         lambda process_group_id: process_group_id == process.pid,
     )
 
     try:
-        assert runner._terminate_process_group(process.pid, 10) is False
+        assert runner_execution._terminate_process_group(process.pid, 10) is False
     finally:
         try:
             os.killpg(process.pid, signal.SIGKILL)
@@ -1548,11 +1560,15 @@ def test_process_reap_timeout_is_not_ignored(
     def unprovable_wait(*, timeout: int) -> int:
         raise subprocess.TimeoutExpired(process.args, timeout)
 
-    monkeypatch.setattr(runner, "_terminate_process_group", clean_process_group)
+    monkeypatch.setattr(
+        runner_execution,
+        "_terminate_process_group",
+        clean_process_group,
+    )
     monkeypatch.setattr(process, "wait", unprovable_wait)
 
     with pytest.raises(runner.RunnerError, match="reap"):
-        runner._quiesce_process(process, 10)
+        runner_execution._quiesce_process(process, 10)
 
     assert process.poll() is not None
 
@@ -1568,7 +1584,7 @@ def test_unproven_quiescence_preserves_started_before_product_freeze(
 ) -> None:
     evidence_root = tmp_path / "evidence"
     lock = _pilot_lock(tmp_path, evidence_root)
-    real_quiesce = runner._quiesce_process
+    real_quiesce = runner_execution._quiesce_process
     real_freeze = workspace.freeze_product
     product_freezes: list[Path] = []
 
@@ -1584,7 +1600,7 @@ def test_unproven_quiescence_preserves_started_before_product_freeze(
         if (stage == "provider" and is_provider) or (
             stage == "check" and not is_provider
         ):
-            raise runner.QuiescenceError(
+            raise runner_types.QuiescenceError(
                 f"{stage} process group remains visible"
             )
 
@@ -1596,9 +1612,13 @@ def test_unproven_quiescence_preserves_started_before_product_freeze(
             product_freezes.append(root)
         return real_freeze(root, exclusions)
 
-    monkeypatch.setattr(runner, "_quiesce_process", fail_selected_stage)
     monkeypatch.setattr(
-        runner,
+        runner_execution,
+        "_quiesce_process",
+        fail_selected_stage,
+    )
+    monkeypatch.setattr(
+        runner_execution,
         "_terminate_process_group",
         lambda _process_group_id, _grace_milliseconds: cleanup_reported,
     )
@@ -1814,7 +1834,7 @@ def test_broken_launch_barrier_is_a_shared_invalidity(
         barrier.abort()
         return barrier
 
-    monkeypatch.setattr(runner.threading, "Barrier", broken_barrier)
+    monkeypatch.setattr(runner_block.threading, "Barrier", broken_barrier)
 
     record = runner.run_block(
         lock=lock,
@@ -1838,7 +1858,7 @@ def test_excessive_start_skew_is_a_shared_invalidity(
 ) -> None:
     evidence_root = tmp_path / "evidence"
     lock = _pilot_lock(tmp_path, evidence_root)
-    real_run_arm = runner._run_arm
+    real_run_arm = runner_execution._run_arm
     observed = _observe_atomic_records(monkeypatch)
     forced_launch_times = {
         "DIRECT": 0,
@@ -1861,7 +1881,7 @@ def test_excessive_start_skew_is_a_shared_invalidity(
             )
         return execution
 
-    monkeypatch.setattr(runner, "_run_arm", run_with_forced_skew)
+    monkeypatch.setattr(runner_execution, "_run_arm", run_with_forced_skew)
 
     record = runner.run_block(
         lock=lock,
@@ -1958,7 +1978,7 @@ def test_worker_interruption_before_barrier_preserves_started_and_releases_peers
     evidence_root = tmp_path / "evidence"
     lock = _pilot_lock(tmp_path, evidence_root)
     real_barrier = threading.Barrier
-    real_write_evidence = runner._write_evidence
+    real_write_evidence = runner_execution._write_evidence
     interrupted = False
 
     def bounded_barrier(parties: int) -> threading.Barrier:
@@ -1971,8 +1991,12 @@ def test_worker_interruption_before_barrier_preserves_started_and_releases_peers
             raise InjectedStop
         real_write_evidence(path, value)
 
-    monkeypatch.setattr(runner.threading, "Barrier", bounded_barrier)
-    monkeypatch.setattr(runner, "_write_evidence", interrupt_one_worker)
+    monkeypatch.setattr(runner_block.threading, "Barrier", bounded_barrier)
+    monkeypatch.setattr(
+        runner_execution,
+        "_write_evidence",
+        interrupt_one_worker,
+    )
 
     with pytest.raises(InjectedStop):
         runner.run_block(
@@ -2096,34 +2120,69 @@ def test_source_and_evidence_identity_mismatch_rejects_before_allocation(
     assert not supplied_evidence_root.exists()
 
 
-def test_runner_has_no_provider_isolation_import_or_shell_invocation(
-    runner: ModuleType,
-) -> None:
-    source_path = Path(runner.__file__)
-    tree = ast.parse(source_path.read_text(encoding="utf-8"))
-    imported_modules = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imported_modules.extend(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            imported_modules.append(node.module or "")
-    assert all(
-        "provider_isolation" not in module
-        and not module.startswith("orchestrator.providers.isolation")
-        for module in imported_modules
+def _runner_source_paths(runner: ModuleType) -> tuple[Path, ...]:
+    package = Path(runner.__file__).parent
+    return (
+        Path(runner.__file__),
+        *tuple(sorted(package.glob("_runner_*.py"))),
     )
 
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        if (
-            isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "os"
-            and node.func.attr == "system"
-        ):
-            pytest.fail("runner must not invoke os.system")
-        for keyword in node.keywords:
-            if keyword.arg == "shell":
-                assert isinstance(keyword.value, ast.Constant)
-                assert keyword.value.value is False
+
+def test_runner_is_a_bounded_public_facade_over_private_modules(
+    runner: ModuleType,
+) -> None:
+    expected_private_modules = {
+        "_runner_apparatus.py",
+        "_runner_block.py",
+        "_runner_execution.py",
+        "_runner_preflight.py",
+        "_runner_types.py",
+    }
+    source_paths = _runner_source_paths(runner)
+
+    assert {path.name for path in source_paths[1:]} == expected_private_modules
+    assert len(source_paths[0].read_text(encoding="utf-8").splitlines()) <= 50
+    assert all(
+        len(path.read_text(encoding="utf-8").splitlines()) <= 475
+        for path in source_paths[1:]
+    )
+    assert runner.__all__ == [
+        "ArmCommand",
+        "ArmExecution",
+        "BlockAttempt",
+        "RunnerError",
+        "run_block",
+    ]
+
+
+def test_runner_modules_have_no_provider_isolation_import_or_shell_invocation(
+    runner: ModuleType,
+) -> None:
+    for source_path in _runner_source_paths(runner):
+        tree = ast.parse(source_path.read_text(encoding="utf-8"))
+        imported_modules = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported_modules.extend(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                imported_modules.append(node.module or "")
+        assert all(
+            "provider_isolation" not in module
+            and not module.startswith("orchestrator.providers.isolation")
+            for module in imported_modules
+        )
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if (
+                isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "os"
+                and node.func.attr == "system"
+            ):
+                pytest.fail(f"{source_path.name} must not invoke os.system")
+            for keyword in node.keywords:
+                if keyword.arg == "shell":
+                    assert isinstance(keyword.value, ast.Constant)
+                    assert keyword.value.value is False

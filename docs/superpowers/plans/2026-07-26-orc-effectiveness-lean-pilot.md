@@ -4,9 +4,23 @@
 
 **Goal:** Build and run the smallest three-treatment controlled pilot that can decide whether a separately planned prospective PtychoPINN `.orc` versus one-shot experiment is warranted.
 
-**Architecture:** Add five focused `orchestrator.experiments` modules and one thin CLI. Freeze four record contracts, materialize three byte-identical archive-backed workspaces, launch `DIRECT`, `COORDINATOR`, and `ORC` concurrently, freeze products, calibrate blinded reviewers, and run at most five live `A1` attempts to obtain three valid exploratory blocks. The coordinator is frozen and parity-tested against the `.orc` topology before any live outcome.
+**Architecture:** Add five public `orchestrator.experiments` responsibility
+surfaces and one thin CLI. Oversized runner, evaluation, and reporting
+surfaces are thin facades over private responsibility owners, with every
+production module capped at 500 physical lines. Freeze four record contracts,
+materialize three byte-identical archive-backed workspaces, launch `DIRECT`,
+`COORDINATOR`, and `ORC` concurrently, freeze products, calibrate blinded
+reviewers, and run at most five live `A1` attempts to obtain three valid
+exploratory blocks. The coordinator is frozen and parity-tested against the
+`.orc` topology before any live outcome.
 
 **Tech Stack:** Python 3, `pytest`, `jsonschema`, `tarfile`, `subprocess`, SHA-256 canonical JSON, Workflow Lisp, existing provider CLIs, and JSON evidence.
+
+> **Execution status (2026-07-27):** Tasks 1–4 are committed. Task 5 and Task
+> 6 reusable code and their contract corrections are implemented and focused
+> green. The pre-calibration module-size split and scoped quality re-review
+> passed. Calibration is the active next step. No calibration reviewer
+> session, pilot lock, smoke, or live `A1` attempt has run.
 
 ## Global Constraints
 
@@ -25,6 +39,9 @@
 - Do not implement `F1`, `F2`, `E2`, `E4`, `E5`, or `E6` in this plan.
 - Use TDD for reusable code. If a task adds a test module, run `pytest --collect-only` before its tests.
 - Tests assert contracts and behavior, never literal prompt wording.
+- Every production Python module under `orchestrator/experiments/` remains at
+  or below 500 physical lines. Public facades may not duplicate private-owner
+  logic.
 
 ---
 
@@ -35,9 +52,28 @@ orchestrator/experiments/
   __init__.py
   contracts.py       # one packaged schema, canonical JSON, four record validators
   workspace.py       # git-archive materialization and deterministic product freeze
-  runner.py          # one in-memory three-treatment block; no persistent lifecycle
-  evaluation.py      # blind packages, calibration gate, result ingestion
-  reporting.py       # deterministic pilot summary and exact sample-size planning
+  runner.py          # thin public block-runner facade
+  _runner_types.py
+  _runner_apparatus.py
+  _runner_preflight.py
+  _runner_execution.py
+  _runner_block.py
+  evaluation.py      # thin public blinded-evaluation facade
+  _evaluation_support.py
+  _evaluation_live.py
+  _evaluation_calibration_support.py
+  _evaluation_calibration_build.py
+  _evaluation_calibration_mapping.py
+  _evaluation_calibration_validation.py
+  _evaluation_ingest.py
+  reporting.py       # thin public synthesis/planning facade
+  _reporting_types.py
+  _reporting_sample_size.py
+  _reporting_validation.py
+  _reporting_reviews.py
+  _reporting_metrics.py
+  _reporting_synthesis.py
+  _reporting_render.py
   schemas/
     __init__.py
     lean-pilot-records-v1.schema.json
@@ -81,6 +117,7 @@ tests/experiments/
   test_lean_pilot_treatment_parity.py
   test_lean_pilot_evaluation.py
   test_lean_pilot_reporting.py
+  test_lean_pilot_module_layout.py
   fixtures/lean_pilot/
     arm_program.py
     scripted_provider.py
@@ -121,14 +158,21 @@ class BlockAttempt: ...
 def run_block(*, lock: Mapping[str, object], block_id: str, work_root: Path, evidence_root: Path) -> BlockAttempt: ...
 
 # orchestrator/experiments/evaluation.py
-def build_blind_packages(*, lock: Mapping[str, object], block: Mapping[str, object], output_root: Path) -> dict[str, Path]: ...
-def validate_calibration(reviews: Sequence[Mapping[str, object]]) -> None: ...
-def ingest_review(path: Path, expected_lock_digest: str) -> dict[str, object]: ...
+def build_blind_packages(*, lock: Mapping[str, object], block: Mapping[str, object], product_roots: Mapping[str, Path], base_root: Path, task_path: str, selected_final_files: Mapping[str, Sequence[str]], permitted_check_evidence: Mapping[str, Sequence[str]], output_root: Path, controller_root: Path) -> dict[str, Path]: ...
+def build_calibration_packages(*, calibration_lock: Mapping[str, object], base_identity: Mapping[str, object], predecessor_lock: Mapping[str, object] | None, predecessor_controller_mapping: Mapping[str, object] | None, predecessor_controller_root: Path | None, predecessor_reviews: Sequence[Mapping[str, object]] | None, base_root: Path, task_path: str, reference_patch: Path, rubric_path: Path, selected_final_files: Sequence[str], visible_check_argv: Sequence[str], visible_check_timeout_milliseconds: int, visible_check_class: str, hidden_evaluator_class: str, evaluator_module: ModuleType, oracle_path: Path, environment: Mapping[str, str], reviewer_execution: Mapping[str, object], output_root: Path, controller_root: Path) -> dict[str, Path]: ...
+def validate_calibration(*, calibration_lock: Mapping[str, object], controller_mapping: Mapping[str, object], controller_root: Path, reviews: Sequence[Mapping[str, object]], predecessor_lock: Mapping[str, object] | None, predecessor_controller_mapping: Mapping[str, object] | None, predecessor_controller_root: Path | None, predecessor_reviews: Sequence[Mapping[str, object]] | None) -> None: ...
+def ingest_review(path: Path, *, package_root: Path, expected_bindings: Mapping[str, object], used_session_ids: Collection[str], prior_records: Sequence[Mapping[str, object]]) -> dict[str, object]: ...
 
 # orchestrator/experiments/reporting.py
 @dataclass(frozen=True)
 class ExactSampleSizePlan: ...
-def build_pilot_summary(*, lock: Mapping[str, object], block_attempts: Sequence[Mapping[str, object]], reviews: Sequence[Mapping[str, object]]) -> dict[str, object]: ...
+@dataclass(frozen=True)
+class ReviewBinding: ...
+@dataclass(frozen=True)
+class UnblindingBinding: ...
+def load_attempt_records(*, lock: Mapping[str, object], evidence_root: Path) -> tuple[dict[str, object], ...]: ...
+def build_pilot_summary(*, lock: Mapping[str, object], block_attempts: Sequence[Mapping[str, object]], reviews: Sequence[Mapping[str, object]], sealed_review_bindings: Sequence[ReviewBinding], unblinding: Sequence[UnblindingBinding]) -> dict[str, object]: ...
+def render_pilot_markdown(summary: Mapping[str, object]) -> str: ...
 def exact_binomial_tail(*, n: int, successes_at_least: int, rate: Fraction) -> Fraction: ...
 def plan_exact_sample_size(*, null_rate: Fraction, target_rate: Fraction, alpha: Fraction, power: Fraction, max_tie_rate: Fraction, accrual_probability: Fraction, max_invalid_attempts: int, max_cost_ratio: Fraction, min_calls_per_block: int, max_calls_per_block: int, search_limit: int) -> ExactSampleSizePlan: ...
 ```
@@ -864,9 +908,41 @@ git commit -m "feat(experiments): freeze lean pilot treatments"
 
 Cover:
 
-- opaque label assignment is deterministic from the lock seed but absent from reviewer packages;
-- review packages include task, base-to-final diff, selected final files, and allowed check evidence;
+- live packages require a complete valid `pilot_lock.v1`, one `VALID` `LIVE`
+  `block_attempt.v1` bound to its canonical lock digest, exactly the three
+  locked treatments, exact block-index/live-ID and execution-command-digest
+  lineage, explicit disjoint roots, a freshly re-frozen complete base matching
+  the archive digest, and freshly re-frozen product manifests under the locked
+  projection exclusions;
+- block, package, calibration, and reviewer IDs used in joins are safe single
+  path components;
+- opaque label assignment is deterministic from the lock seed; labels appear
+  in reviewer packages, while the label-to-treatment map remains controller-only;
+- review packages include the task, a deterministic complete projected-tree
+  base-to-final diff, selected final-file snapshots, and allowlisted check
+  evidence. The diff includes unselected modifications, additions, deletions,
+  and file type, mode, or symlink changes;
 - packages exclude treatment IDs, treatment source, prompts, transcripts, call counts, elapsed time, cost, and label map;
+- each raw canonical package manifest has a closed schema, unique normalized
+  paths, package identity, and path/mode/size/digest rows verified in full
+  before any top-level or per-dimension citation is accepted; package
+  traversal rejects NUL paths and undeclared regular or non-regular nodes;
+- the prospective calibration control lock binds its exact schema/version,
+  round/revision and predecessor semantics, a closed four-field base identity
+  (repository identity, revision identity, complete unexcluded archive digest,
+  and projected product-manifest digest),
+  task, reference patch, rubric, selected files, evaluator/oracle bytes,
+  environment identity, check/evaluator classes, expected contrast, reviewers,
+  package IDs, and mapping seed before package generation;
+- the same lock contains one closed `reviewer_execution` object binding
+  provider family, model, reasoning effort, tool policy, positive timeout,
+  canonical resolved regular CLI entry path plus its exact digest/version,
+  closed environment identity with a nonempty unique allowed-key list and
+  credential-key subset, and the invocation-payload-schema digest;
+- calibration construction requires an explicit caller-supplied
+  `reviewer_execution` object, validates its CLI bytes and full closed shape,
+  and rejects any difference from the prospective lock rather than supplying
+  an ambient path, environment, provider, model, or timeout default;
 - calibration package 1 is the separate `A0` evaluator-passing reference
   versus the unsolved `A0` base;
 - package 2 reverses those labels while preserving candidate bytes;
@@ -881,6 +957,17 @@ Cover:
 - a third reviewer cannot override failed calibration;
 - at most one rubric/package revision is allowed; a second failed locked round
   yields `CALIBRATION_FAILED`;
+- round 2 requires an explicit retained round-1/revision-0 lock, canonical
+  controller mapping and explicit controller root, and exactly six prior
+  reviews; the retained digest must match and full predecessor validation must
+  produce a substantive reference-preference, label-order, or identity-control
+  failure, never a passing, fabricated, malformed, or session-reuse result;
+- the closed canonical controller mapping is read from its explicit root,
+  contains the exact package and review-binding sets, and revalidates every
+  evaluator, oracle, patch, rubric, reviewer-CLI, environment-identity,
+  raw-evidence, package, and review file binding; the same two opaque labels
+  have exact `REFERENCE/BASE`, `BASE/REFERENCE`, and
+  `REFERENCE/REFERENCE` roles across the three ordered packages;
 - live review ingestion rejects a reviewer/session reused from calibration or another live review;
 - live review ingestion requires a treatment guess for each opaque candidate
   while keeping the label map unavailable until sealing;
@@ -893,16 +980,40 @@ pytest --collect-only -q tests/experiments/test_lean_pilot_evaluation.py
 pytest -q tests/experiments/test_lean_pilot_evaluation.py
 ```
 
-Expected: missing evaluation module/rubric/lock.
+Expected: missing evaluation module/rubric/reference patch and failing
+lineage, full-tree-diff, calibration-lock, package-manifest, and reuse checks.
 
 - [ ] **Step 3: Implement blind packages and calibration validation**
 
-Use archive-relative paths only. Materialize the `A0` reference by applying the
-frozen `a0-reference.patch` to
-`examples/demo_task_linear_classifier_port`; verify it passes the existing
-linear-classifier evaluator while the unmodified base fails. Write a package
-manifest binding every included file digest. Keep the label map in the
-controller evidence root and never copy it into reviewer roots.
+Use explicit, pairwise-disjoint roots and canonical archive-relative allowlists
+only. Validate the full live lock/block pair before writing output, re-freeze
+each product with the locked exclusions, and compute the blinded diff from the
+complete projected base and final manifests. Selected final files remain an
+allowlisted snapshot surface, not the diff boundary.
+
+Treat the calibration lock as prospective controller apparatus, not as a fifth
+cross-process record. Validate every lock field and bound byte/environment
+identity before writing reviewer packages. Require the caller's exact closed
+four-field base identity and freshly verify both the complete unexcluded base
+archive and projected base manifest. Validate the separately caller-supplied
+reviewer-execution object and its resolved CLI entry bytes against that lock
+before writing output; Task 5 does not launch the reviewer.
+Materialize the `A0` reference by
+applying the frozen `a0-reference.patch` to
+`examples/demo_task_linear_classifier_port`; dynamically load the bound oracle
+and verify visible and hidden base `FAIL` / reference `PASS` before packaging.
+Write a closed canonical package manifest binding every included payload and
+store evaluator, oracle, patch, rubric, raw evaluator evidence, label mappings,
+and review bindings only under the controller root.
+
+For validation, re-read the canonical closed controller mapping from its
+explicit controller root, require the exact package and six-review binding
+sets, the common opaque-label pair with exact directional and identity roles,
+and verify every named controller file. Round 1 must receive no predecessor.
+Round 2 must receive the retained round-1/revision-0 lock, mapping, root, and
+all six reviews explicitly; revalidate that complete round and accept only a
+substantive calibration failure whose canonical digest and failed status match
+the round-2 lock. These are controller inputs, not a fifth record.
 
 `validate_calibration` must fail with one of:
 
@@ -933,12 +1044,21 @@ Expected: PASS.
 Generate all three packages from the frozen `A0` base/reference products. For
 each of two reviewer identities, run each package in a distinct fresh session:
 six sessions and six review records per round. Validate them against the
-calibration lock. The live `A1` products and any `A1` reference remain
+canonical calibration-lock digest, controller mapping, rubric digest, raw
+package-manifest digest, exact two-label order, and prospective session ledger.
+The controller mapping must preserve the exact locked reviewer-execution object
+and the controller-only CLI-entry file binding; the later launcher receives no
+unlocked execution defaults.
+The live `A1` products and any `A1` reference remain
 unavailable to those sessions until calibration is sealed.
 
 If the first calibration fails, preserve its lock, rubric, packages, and
-records; revise the rubric/package once under a new digest; and run six new
-reviewer/package sessions. If the second round fails, record
+records; revise the rubric/package once under a new digest; and pass its exact
+lock, on-disk controller mapping/root, and six reviews to the six new
+reviewer/package sessions under round 2/revision 1. The retained predecessor
+must revalidate to a substantive reference-preference, label-order, or
+identity-control failure and its canonical digest/status must match the retry
+lock. Any second locked-round failure records
 `CALIBRATION_FAILED`. The live evidence route stops before creating the pilot
 lock. Continue Task 6's
 provider-free reporting implementation, but do not enter Task 7. Never add
@@ -988,12 +1108,23 @@ Cover:
 - blinded product-quality review determines the method outcome only when both
   treatments are viable;
 - reviewer agreement without deleting disagreements;
+- material disagreement resolved by the one locked adjudicator when supplied,
+  or retained as `INDETERMINATE` with both original reviews otherwise;
 - treatment-guess accuracy/confusion is computed only after unblinding and
   cannot alter sealed judgments;
+- unblinding rows exactly match the label mapping recomputed from the locked
+  randomization seed, block ID, and treatment set, rejecting repermutation;
 - exact reduced-fraction median elapsed/cost ratios with `UNKNOWN` propagation;
+- exact input/output-token medians and ratios with `UNKNOWN` propagation;
+- observed `CHECK_FAILURE`/`PROTOCOL_FAILURE` hard-contract rows preserve their
+  execution evidence and `TREATMENT_OUTCOME_RETAINED` disposition without
+  inferring a violated clause;
 - treatment-specific failures remaining in the denominator;
 - invalid/aborted blocks adjacent to, not inside, the valid denominator;
 - deterministic JSON and Markdown regeneration;
+- Markdown renders valid/excluded blocks, comparison counts, treatment
+  statistics, review diagnostics, hard-contract findings, and every exact
+  metric row from the validated summary;
 - readiness is derived only as `STOP_APPARATUS_NOT_VIABLE`,
   `STOP_INSUFFICIENT_VALID_BLOCKS`, or
   `EVIDENCE_COMPLETE_OWNER_DECISION_REQUIRED`, independent of which treatment
@@ -1033,10 +1164,29 @@ Do not infer missing outcomes. Load the exact smoke and ordered live
 `block_attempt.v1` paths declared by the lock. Require one smoke record, live
 records to form a contiguous prefix, exactly three nested executions for each
 `VALID` attempt, and a missing live suffix only after three valid attempts have
-accrued. Preserve every `INVALID`, `ABORTED`, or surviving `STARTED` attempt
+accrued. A failed smoke admits no live attempt, and the direct
+`build_pilot_summary` interface enforces the same prefix and no-post-third-valid
+rules as the loader. The evidence root is canonical absolute and equal to the
+lock; attempt IDs are safe single components; attempt records are regular
+non-symlink files beneath that root. Preserve every `INVALID`, `ABORTED`, or
+surviving `STARTED` attempt
 adjacent to the denominator, reject a missing interior record, and require all
-sealed review records named by the lock. Render Markdown solely from the
-summary object.
+sealed review records through caller-supplied closed `ReviewBinding` rows and
+all opaque-label mappings through caller-supplied closed
+`UnblindingBinding` rows. Require exact coverage of each valid block, canonical
+record digests, locked reviewer/rubric identity, one package manifest per
+block, two initial reviewers, and at most one locked adjudicator on material
+disagreement; without it, retain the initial reviews and emit
+`INDETERMINATE`. Authenticate every unblinding row by recomputing the exact
+locked seed/block/treatment label map. Reject extra, missing, duplicate,
+repermuted, unsafe-path, or mismatched rows. Verify execution cost currency
+against the lock and permit neither-viable product-quality review only when
+both products were frozen. These controller inputs are explicit evidence
+bindings, not a fifth record kind or a discovered registry. The four-record
+schema fixes the exact metric/diagnostic row sets and the record validator
+enforces their arithmetic/set invariants. Render every substantive typed
+surface solely from the summary object. CLI outputs are distinct new canonical
+paths outside evidence/input overlap and use atomic no-overwrite publication.
 
 - [ ] **Step 4: Implement exact fixed-N and accrual-cap planning**
 
@@ -1083,6 +1233,57 @@ git add orchestrator/experiments/reporting.py \
   tests/experiments/test_lean_pilot_reporting.py
 git commit -m "feat(experiments): synthesize lean pilot evidence"
 ```
+
+---
+
+## Task 6A: Enforce The Pre-Calibration Module-Size Gate
+
+**Status:** complete; focused verification and scoped independent quality
+re-review approved.
+
+**Files:**
+
+- Keep as thin facades: `orchestrator/experiments/runner.py`,
+  `orchestrator/experiments/evaluation.py`,
+  `orchestrator/experiments/reporting.py`
+- Create: the private `_runner_*`, `_evaluation_*`, and `_reporting_*` modules
+  listed in the planned layout
+- Modify: the three corresponding focused test modules only where internal
+  monkeypatch ownership moved
+- Create: `tests/experiments/test_lean_pilot_module_layout.py`
+
+This quality gate was added before calibration after the original three
+facades reached 1,447, 2,117, and 868 physical lines. It changes code
+ownership only: the planned public interfaces, four record kinds, run-block
+signature, behavior, and evidence contract remain unchanged.
+
+- [x] **Step 1: Establish the failing structural gates**
+
+Require exact public-facade compatibility, scan the complete runner private
+module set for prohibited provider-isolation imports or shell invocation, and
+require every production module in `orchestrator/experiments/` to contain at
+most 500 physical lines.
+
+- [x] **Step 2: Extract existing responsibilities without duplication**
+
+Split runner apparatus/preflight/execution/block ownership, evaluation
+live/calibration/ingestion ownership, and reporting
+planning/loading/review/metrics/synthesis/rendering ownership into private
+modules. Do not add a framework, hidden registry, record kind, or public API.
+
+- [x] **Step 3: Run focused and adjacent verification**
+
+Collect the new layout test, run the runner, evaluation, reporting, contracts,
+workspace, and parity/integration selectors, compile every production module,
+and record fresh line counts. No calibration or live evidence may run during
+this step.
+
+- [x] **Step 4: Obtain the scoped independent quality re-review**
+
+The reviewer checks responsibility cohesion, absence of duplicate logic and
+cycles, exact facade/API preservation, complete runner static scanning, the
+500-line gate, and focused behavior preservation. Calibration and Task 7 stay
+blocked until this review approves.
 
 ---
 
@@ -1224,9 +1425,14 @@ Generate JSON first, then Markdown:
 python scripts/experiments/lean_pilot.py summarize \
   --lock experiments/orc_effectiveness/lean_pilot/pilot-lock.json \
   --evidence-root <external-evidence-root> \
-  --json-output <external-evidence-root>/pilot-summary.json \
+  --review-bindings <external-evidence-root>/review-bindings.json \
+  --unblinding-bindings <external-evidence-root>/unblinding-bindings.json \
+  --json-output <fresh-external-summary-root>/pilot-summary.json \
   --markdown-output docs/reports/2026-07-26-orc-effectiveness-lean-pilot.md
 ```
+
+The summary root is a fresh canonical location outside the evidence root and
+all inputs. Both output paths must be absent before publication.
 
 The report must state one of:
 

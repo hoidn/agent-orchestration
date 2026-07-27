@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 from functools import lru_cache
+from fractions import Fraction
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -115,7 +116,190 @@ def _validate_reduced_summary_fractions(record: dict[str, Any]) -> None:
                 raise PilotContractError(f"{path}: fraction must be reduced")
 
 
+def _validate_summary_semantics(record: dict[str, Any]) -> None:
+    valid_blocks = record["valid_blocks"]
+    valid_ids = [block["block_id"] for block in valid_blocks]
+    valid_id_set = set(valid_ids)
+    if len(valid_id_set) != len(valid_ids):
+        raise PilotContractError("$.valid_blocks: block_id values must be unique")
+    excluded_ids = [
+        block["block_id"] for block in record["excluded_block_references"]
+    ]
+    if (
+        len(set(excluded_ids)) != len(excluded_ids)
+        or valid_id_set.intersection(excluded_ids)
+    ):
+        raise PilotContractError(
+            "$.excluded_block_references: block_id coverage is inconsistent"
+        )
+
+    outcome_keys = {
+        "A_WIN": "a_win_count",
+        "B_WIN": "b_win_count",
+        "TIE": "tie_count",
+        "INDETERMINATE": "indeterminate_count",
+        "TIE_NONVIABLE": "tie_nonviable_count",
+    }
+    observed_comparisons: dict[str, dict[str, int]] = {}
+    for block in valid_blocks:
+        for outcome in block["method_outcomes"]:
+            counts = observed_comparisons.setdefault(
+                outcome["comparison"],
+                {key: 0 for key in outcome_keys.values()},
+            )
+            counts[outcome_keys[outcome["method_outcome"]]] += 1
+    for row in record["comparison_counts"]:
+        observed = observed_comparisons.get(
+            row["comparison"],
+            {key: 0 for key in outcome_keys.values()},
+        )
+        if any(row[key] != observed[key] for key in outcome_keys.values()):
+            raise PilotContractError(
+                "$.comparison_counts: counts must match valid block outcomes"
+            )
+
+    valid_count = len(valid_blocks)
+    failure_classes = (
+        "BLOCKED",
+        "EXHAUSTED",
+        "PROTOCOL_FAILURE",
+        "LAUNCH_FAILURE",
+        "TIMEOUT",
+        "NONZERO_EXIT",
+        "CHECK_FAILURE",
+    )
+    for statistic in record["treatment_statistics"]:
+        lifecycle = statistic["lifecycle_outcome_counts"]
+        failures = statistic["failure_class_counts"]
+        if (
+            statistic["viable_count"] + statistic["nonviable_count"]
+            != valid_count
+            or sum(lifecycle.values()) != valid_count
+            or statistic["viable_count"] != lifecycle["COMPLETED"]
+            or statistic["nonviable_count"]
+            != sum(lifecycle[key] for key in failure_classes)
+            or any(failures[key] != lifecycle[key] for key in failure_classes)
+            or len(statistic["provider_call_counts"]) != valid_count
+        ):
+            raise PilotContractError(
+                "$.treatment_statistics: aggregate counts are inconsistent"
+            )
+
+    diagnostics = record["review_diagnostics"]
+    diagnostic_ids = [block["block_id"] for block in diagnostics["blocks"]]
+    if len(set(diagnostic_ids)) != len(diagnostic_ids) or set(
+        diagnostic_ids
+    ) != valid_id_set:
+        raise PilotContractError(
+            "$.review_diagnostics.blocks: coverage must match valid blocks"
+        )
+    comparison_capacity = valid_count * 2
+    if (
+        diagnostics["agreement_count"] + diagnostics["disagreement_count"]
+        > comparison_capacity
+        or diagnostics["adjudication_count"]
+        > diagnostics["disagreement_count"]
+    ):
+        raise PilotContractError(
+            "$.review_diagnostics: comparison counts are inconsistent"
+        )
+    adjudicator_blocks = sum(
+        "adjudicator_review_reference" in block
+        for block in diagnostics["blocks"]
+    )
+    if (
+        (adjudicator_blocks == 0 and diagnostics["adjudication_count"] != 0)
+        or diagnostics["adjudication_count"] < adjudicator_blocks
+        or diagnostics["adjudication_count"] > adjudicator_blocks * 2
+    ):
+        raise PilotContractError(
+            "$.review_diagnostics: adjudication count is inconsistent"
+        )
+
+    guess_cells = diagnostics["guess_confusion"]
+    expected_guess_cells = {
+        (actual, guessed)
+        for actual in ("DIRECT", "COORDINATOR", "ORC")
+        for guessed in ("DIRECT", "COORDINATOR", "ORC", "UNKNOWN")
+    }
+    observed_guess_cells = {
+        (cell["actual_treatment_id"], cell["guessed_treatment_id"])
+        for cell in guess_cells
+    }
+    if observed_guess_cells != expected_guess_cells:
+        raise PilotContractError(
+            "$.review_diagnostics.guess_confusion: cells must be exact"
+        )
+    total_guesses = sum(cell["count"] for cell in guess_cells)
+    correct_guesses = sum(
+        cell["count"]
+        for cell in guess_cells
+        if cell["actual_treatment_id"] == cell["guessed_treatment_id"]
+    )
+    accuracy = diagnostics["guess_accuracy"]
+    if total_guesses == 0:
+        if accuracy != "UNKNOWN":
+            raise PilotContractError(
+                "$.review_diagnostics.guess_accuracy: must be UNKNOWN"
+            )
+    else:
+        expected_accuracy = {
+            "numerator": Fraction(correct_guesses, total_guesses).numerator,
+            "denominator": Fraction(correct_guesses, total_guesses).denominator,
+        }
+        if accuracy != expected_accuracy:
+            raise PilotContractError(
+                "$.review_diagnostics.guess_accuracy: fraction is inconsistent"
+            )
+
+    metrics = {
+        "elapsed_milliseconds",
+        "cost_microunits",
+        "input_tokens",
+        "output_tokens",
+    }
+    treatments = {"DIRECT", "COORDINATOR", "ORC"}
+    median_rows = {
+        (row["metric"], row["treatment_id"]) for row in record["medians"]
+    }
+    if median_rows != {
+        (metric, treatment)
+        for metric in metrics
+        for treatment in treatments
+    }:
+        raise PilotContractError("$.medians: metric rows must be exact")
+    ratio_rows = {
+        (
+            row["metric"],
+            row["numerator_treatment_id"],
+            row["denominator_treatment_id"],
+        )
+        for row in record["ratios"]
+    }
+    if ratio_rows != {
+        (metric, "ORC", denominator)
+        for metric in metrics
+        for denominator in ("DIRECT", "COORDINATOR")
+    }:
+        raise PilotContractError("$.ratios: metric rows must be exact")
+
+    finding_keys = [
+        (finding["block_id"], finding["treatment_id"])
+        for finding in record["hard_contract_findings"]
+    ]
+    if len(set(finding_keys)) != len(finding_keys) or any(
+        block_id not in valid_id_set for block_id, _treatment in finding_keys
+    ):
+        raise PilotContractError(
+            "$.hard_contract_findings: finding coverage is inconsistent"
+        )
+
+
 def _validate_pilot_lock_apparatus(record: dict[str, Any]) -> None:
+    if record["smoke_id"] in record["live_attempt_ids"]:
+        raise PilotContractError(
+            "$.smoke_id: must not collide with a live attempt ID"
+        )
     apparatus = record["apparatus"]
     manifest_by_path: dict[str, str] = {}
     for index, asset in enumerate(apparatus["asset_manifest"]):
@@ -211,6 +395,7 @@ def validate_record(record: object) -> None:
         _validate_pilot_lock_apparatus(record)
     elif record_kind == "pilot_summary.v1":
         _validate_reduced_summary_fractions(record)
+        _validate_summary_semantics(record)
 
 
 def load_record(
