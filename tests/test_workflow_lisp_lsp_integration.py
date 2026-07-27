@@ -549,13 +549,81 @@ def test_real_stdio_fixture_diagnostics_navigation_and_cleanup_write_nothing(
                 "position": {"line": 0, "character": 0},
             },
         )
-        labels = {item["label"] for item in completion["result"]["items"]}
-        assert {
-            "orchestrate",
-            "proc.build-checks",
-            "helper.provider-attempt",
-            "defworkflow",
-        }.issubset(labels)
+        assert completion["result"]["isIncomplete"] is False
+        assert tuple(
+            (item["label"], item["detail"])
+            for item in completion["result"]["items"]
+            if item["kind"] == 3
+        ) == (
+            (
+                "build-checks",
+                "procedure "
+                "(report_path: neurips/types::WorkReport) "
+                "-> neurips/types::ChecksResult "
+                "effects (uses-command(run_checks))",
+            ),
+            (
+                "helper.provider-attempt",
+                "workflow "
+                "(input: neurips/types::ChecksResult, "
+                "report_path: neurips/types::WorkReport) "
+                "-> neurips/types::ImplementationSummary",
+            ),
+            (
+                "helper.secondary",
+                "workflow "
+                "(input: neurips/types::ChecksResult, "
+                "report_path: neurips/types::WorkReport) "
+                "-> neurips/types::ImplementationSummary",
+            ),
+            (
+                "neurips/helper/provider-attempt",
+                "workflow "
+                "(input: neurips/types::ChecksResult, "
+                "report_path: neurips/types::WorkReport) "
+                "-> neurips/types::ImplementationSummary",
+            ),
+            (
+                "neurips/helper/secondary",
+                "workflow "
+                "(input: neurips/types::ChecksResult, "
+                "report_path: neurips/types::WorkReport) "
+                "-> neurips/types::ImplementationSummary",
+            ),
+            (
+                "neurips/procedures/build-checks",
+                "procedure "
+                "(report_path: neurips/types::WorkReport) "
+                "-> neurips/types::ChecksResult "
+                "effects (uses-command(run_checks))",
+            ),
+            (
+                "orchestrate",
+                "workflow (report_path: neurips/types::WorkReport) "
+                "-> neurips/types::ImplementationSummary",
+            ),
+            (
+                "proc.build-checks",
+                "procedure "
+                "(report_path: neurips/types::WorkReport) "
+                "-> neurips/types::ChecksResult "
+                "effects (uses-command(run_checks))",
+            ),
+            (
+                "provider-attempt",
+                "workflow "
+                "(input: neurips/types::ChecksResult, "
+                "report_path: neurips/types::WorkReport) "
+                "-> neurips/types::ImplementationSummary",
+            ),
+            (
+                "secondary",
+                "workflow "
+                "(input: neurips/types::ChecksResult, "
+                "report_path: neurips/types::WorkReport) "
+                "-> neurips/types::ImplementationSummary",
+            ),
+        )
 
         broken_text = original_text.replace(
             "(proc.build-checks report_path)",
@@ -577,6 +645,26 @@ def test_real_stdio_fixture_diagnostics_navigation_and_cleanup_write_nothing(
             },
         )
         assert dirty_definition["result"] is None
+        dirty_symbols, _ = _request(
+            process,
+            request_id=7,
+            method="textDocument/documentSymbol",
+            params={"textDocument": {"uri": entry_path.as_uri()}},
+        )
+        assert dirty_symbols["result"] is None
+        dirty_completion, _ = _request(
+            process,
+            request_id=8,
+            method="textDocument/completion",
+            params={
+                "textDocument": {"uri": entry_path.as_uri()},
+                "position": {"line": 0, "character": 0},
+            },
+        )
+        assert dirty_completion["result"] == {
+            "isIncomplete": False,
+            "items": [],
+        }
 
         entry_path.write_text(broken_text, encoding="utf-8")
         broken = _save_and_wait_for_diagnostics(
@@ -612,7 +700,7 @@ def test_real_stdio_fixture_diagnostics_navigation_and_cleanup_write_nothing(
         )
         closed_definition, _ = _request(
             process,
-            request_id=7,
+            request_id=9,
             method="textDocument/definition",
             params={
                 "textDocument": {"uri": entry_path.as_uri()},

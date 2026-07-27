@@ -704,6 +704,64 @@ def test_document_symbol_protocol_exposes_ten_kinds_and_selection_ranges(
             ),
             ("defproc", 14, "form"),
         }
+
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "method": "textDocument/didChange",
+                "params": {
+                    "textDocument": {
+                        "uri": entry_path.as_uri(),
+                        "version": 3,
+                    },
+                    "contentChanges": [{"text": source_text + "\n"}],
+                },
+            }
+        )
+        for request_id, method, params in (
+            (
+                4,
+                "textDocument/definition",
+                {
+                    "textDocument": {"uri": entry_path.as_uri()},
+                    "position": {"line": 75, "character": 5},
+                },
+            ),
+            (
+                5,
+                "textDocument/documentSymbol",
+                {"textDocument": {"uri": entry_path.as_uri()}},
+            ),
+            (
+                6,
+                "textDocument/completion",
+                {
+                    "textDocument": {"uri": entry_path.as_uri()},
+                    "position": {"line": 0, "character": 0},
+                },
+            ),
+        ):
+            process.send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "method": method,
+                    "params": params,
+                }
+            )
+            dirty_response, _ = process.read_until(
+                lambda item, expected_id=request_id: (
+                    item.get("id") == expected_id
+                )
+            )
+            assert "error" not in dirty_response
+            if method == "textDocument/completion":
+                assert dirty_response["result"] == {
+                    "isIncomplete": False,
+                    "items": [],
+                }
+            else:
+                assert dirty_response["result"] is None
         process.shutdown()
     finally:
         process.close()

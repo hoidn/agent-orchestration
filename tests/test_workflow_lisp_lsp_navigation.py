@@ -1320,9 +1320,14 @@ def test_server_returns_null_if_either_symbol_range_cannot_be_translated(
     ) is None
 
 
-def test_projection_crosscheck_failure_is_one_internal_error_and_null(
+@pytest.mark.parametrize(
+    "request_kind",
+    ("definition", "document_symbols", "completion"),
+)
+def test_projection_crosscheck_failure_is_one_internal_error_and_null_or_empty(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    request_kind: str,
 ) -> None:
     navigation = _navigation_surface()
     projection_module = import_module(
@@ -1342,6 +1347,11 @@ def test_projection_crosscheck_failure_is_one_internal_error_and_null(
         published.append,
     )
     state_before = driver.state
+    workspace_before = tuple(
+        (path.relative_to(root).as_posix(), path.read_bytes())
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    )
 
     def fail_projection(*args: object, **kwargs: object) -> object:
         raise projection_module.AuthoredSymbolProjectionError(
@@ -1355,14 +1365,26 @@ def test_projection_crosscheck_failure_is_one_internal_error_and_null(
         raising=False,
     )
 
-    assert server.document_symbols(
-        _document_symbol_params(entry_path)
-    ) is None
+    if request_kind == "definition":
+        assert server.definition(_definition_params(entry_path)) is None
+    elif request_kind == "document_symbols":
+        assert server.document_symbols(
+            _document_symbol_params(entry_path)
+        ) is None
+    else:
+        completion = server.completion(_completion_params(entry_path))
+        assert completion.is_incomplete is False
+        assert tuple(completion.items) == ()
     assert len(logged) == 1
     assert logged[0].type == types.MessageType.Error
     assert "AuthoredSymbolProjectionError" in logged[0].message
     assert published == []
     assert driver.state is state_before
+    assert tuple(
+        (path.relative_to(root).as_posix(), path.read_bytes())
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    ) == workspace_before
 
 
 @pytest.mark.parametrize(
@@ -1370,12 +1392,14 @@ def test_projection_crosscheck_failure_is_one_internal_error_and_null(
     (
         "dirty",
         "pending",
-        "invalidated",
-        "configuration_stale",
+        "dependency_invalidated",
         "language_failed",
         "server_failed",
         "superseded",
         "closed",
+        "configuration_stale",
+        "source_stale",
+        "source_configuration_stale",
         "unassociated",
     ),
 )
@@ -1383,10 +1407,60 @@ def test_server_navigation_never_serves_a_non_current_snapshot(
     tmp_path: Path,
     status: str,
 ) -> None:
-    root = tmp_path / "callables"
-    shutil.copytree(CALLABLE_ROOT, root)
-    driver, entry_path, _calls = _compile_driver_for_callable_root(root)
+    root = tmp_path / "lsp_l1_symbols"
+    shutil.copytree(L1_SYMBOLS_ROOT, root)
+    driver, entry_path = _compile_driver_for_l1_symbols_root(root)
     entry = driver.state.entries[0]
+    retained_snapshot = entry.accepted_snapshot
+    assert retained_snapshot is not None
+    server = WorkflowLispLanguageServer()
+    server.driver = driver
+
+    current_definition = server.definition(
+        _definition_params(entry_path, line=75, character=5)
+    )
+    current_symbols = server.document_symbols(
+        _document_symbol_params(entry_path)
+    )
+    current_completion = server.completion(_completion_params(entry_path))
+    current_index = _build_index(
+        retained_snapshot.build_value.compile_result
+    )
+
+    assert current_definition is not None
+    assert tuple(symbol.name for symbol in current_symbols or ()) == (
+        "lsp_l1_symbols/entry",
+        "ReviewDecision",
+        "ReportPath",
+        "CommonFields",
+        "ReviewState",
+        "ReviewOutcome",
+        "review-state",
+        "record-review",
+        "default-status",
+        "normalize-status",
+        "render-and-preserve",
+        "default-review",
+        "review",
+        "review-many",
+    )
+    assert current_completion.is_incomplete is False
+    assert tuple(
+        (item.label, item.kind, item.detail)
+        for item in current_completion.items
+    ) == tuple(
+        (
+            item.label,
+            (
+                types.CompletionItemKind.Function
+                if item.kind in {"procedure", "workflow"}
+                else types.CompletionItemKind.Keyword
+            ),
+            item.detail,
+        )
+        for item in _completions(current_index, entry_path)
+    )
+
     requested_path = entry_path
     if status == "dirty":
         driver.state = replace(
@@ -1396,11 +1470,10 @@ def test_server_navigation_never_serves_a_non_current_snapshot(
                     entry,
                     buffer_status="dirty",
                     compile_status="idle",
-                    accepted_snapshot=None,
                 ),
             ),
         )
-    elif status in {"pending", "invalidated", "superseded"}:
+    elif status in {"pending", "dependency_invalidated", "superseded"}:
         driver.state = replace(
             driver.state,
             entries=(
@@ -1409,12 +1482,9 @@ def test_server_navigation_never_serves_a_non_current_snapshot(
                     generation=entry.generation + 1,
                     pending_generation=entry.generation + 1,
                     compile_status="pending",
-                    accepted_snapshot=None,
                 ),
             ),
         )
-    elif status == "configuration_stale":
-        driver.state = lsp_state.latch_configuration_stale(driver.state).state
     elif status == "language_failed":
         driver.state = replace(
             driver.state,
@@ -1422,7 +1492,6 @@ def test_server_navigation_never_serves_a_non_current_snapshot(
                 replace(
                     entry,
                     compile_status="language_error",
-                    accepted_snapshot=None,
                 ),
             ),
         )
@@ -1433,7 +1502,6 @@ def test_server_navigation_never_serves_a_non_current_snapshot(
                 replace(
                     entry,
                     compile_status="server_error",
-                    accepted_snapshot=None,
                 ),
             ),
         )
@@ -1442,18 +1510,32 @@ def test_server_navigation_never_serves_a_non_current_snapshot(
             driver.state,
             document_uri=entry_path.as_uri(),
         ).state
+    elif status == "configuration_stale":
+        driver.state = replace(driver.state, configuration_stale=True)
+    elif status in {"source_stale", "source_configuration_stale"}:
+        driver.state = replace(
+            driver.state,
+            entries=(
+                replace(
+                    entry,
+                    buffer_status="unavailable",
+                    compile_status="idle",
+                ),
+            ),
+            configuration_stale=status == "source_configuration_stale",
+        )
     elif status == "unassociated":
         requested_path = root / "not-open.orc"
 
-    server = WorkflowLispLanguageServer()
-    server.driver = driver
-
-    assert server.definition(_definition_params(requested_path)) is None
+    assert server.definition(
+        _definition_params(requested_path, line=75, character=5)
+    ) is None
     assert server.document_symbols(
         _document_symbol_params(requested_path)
     ) is None
     completion = server.completion(_completion_params(requested_path))
     assert completion is not None
+    assert completion.is_incomplete is False
     assert tuple(completion.items) == ()
 
 
