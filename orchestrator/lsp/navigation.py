@@ -12,10 +12,24 @@ from orchestrator.workflow_lisp.authored_symbols import (
 from orchestrator.workflow_lisp.compiler import LinkedStage3CompileResult
 from orchestrator.workflow_lisp.effects import render_effect_set
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
-from orchestrator.workflow_lisp.expressions import CallExpr, ProcedureCallExpr
+from orchestrator.workflow_lisp.expressions import (
+    CallExpr,
+    ProcedureCallExpr,
+    ProviderResultExpr,
+)
 from orchestrator.workflow_lisp.modules import build_import_scope
 from orchestrator.workflow_lisp.procedures import ProcedureSignature
+from orchestrator.workflow_lisp.prompts import (
+    PromptApplicationExpr,
+    PromptCatalog,
+)
 from orchestrator.workflow_lisp.spans import SourceSpan
+from orchestrator.workflow_lisp.syntax import (
+    SyntaxIdentifier,
+    SyntaxList,
+    WorkflowLispSyntaxModule,
+    ensure_syntax_datum,
+)
 from orchestrator.workflow_lisp.type_env import TypeRef, render_type_ref
 from orchestrator.workflow_lisp.workflows import WorkflowSignature
 
@@ -150,6 +164,10 @@ def build_navigation_index(
             )
         )
         symbols.extend(projected_symbols)
+        syntax_lists = _original_syntax_lists(
+            resolved_source.syntax_module
+        )
+        prompt_catalog = compiled.prompt_catalog
 
         for typed_procedure in compiled.typed_procedures:
             definition = typed_procedure.definition
@@ -159,9 +177,11 @@ def build_navigation_index(
                 or definition.expansion_stack
             ):
                 continue
-            for link in _definition_links_for_expr(
+            for link in _reference_links_for_authored_owner(
                 typed_procedure.typed_body.expr,
                 definition_spans=definition_spans,
+                syntax_lists=syntax_lists,
+                prompt_catalog=prompt_catalog,
             ):
                 _insert_unique_reference_link(
                     definition_links,
@@ -172,9 +192,11 @@ def build_navigation_index(
             definition = typed_workflow.definition
             if typed_workflow.specialization is not None or definition.expansion_stack:
                 continue
-            for link in _definition_links_for_expr(
+            for link in _reference_links_for_authored_owner(
                 typed_workflow.typed_body.expr,
                 definition_spans=definition_spans,
+                syntax_lists=syntax_lists,
+                prompt_catalog=prompt_catalog,
             ):
                 _insert_unique_reference_link(
                     definition_links,
@@ -425,6 +447,18 @@ def _definition_spans(
                 canonical_target=name,
                 definition_span=definition.span,
             )
+        prompt_catalog = compiled.prompt_catalog
+        if isinstance(prompt_catalog, PromptCatalog):
+            for definition in prompt_catalog.definitions_by_name.values():
+                declaration = definition.declaration
+                if declaration.expansion_stack:
+                    continue
+                _insert_unique_definition_target(
+                    spans,
+                    target_kind="prompt",
+                    canonical_target=definition.qualified_name,
+                    definition_span=declaration.span,
+                )
     return spans
 
 
@@ -510,10 +544,50 @@ def _validate_frozen_form_completions(
         )
 
 
-def _definition_links_for_expr(
+def _original_syntax_lists(
+    syntax_module: WorkflowLispSyntaxModule,
+) -> tuple[SyntaxList, ...]:
+    """Return original retained lists in deterministic source-tree order."""
+
+    rows: list[SyntaxList] = []
+
+    def visit(datum: object) -> None:
+        if not isinstance(datum, SyntaxList):
+            return
+        rows.append(datum)
+        for item in datum.items:
+            visit(item)
+
+    for form in syntax_module.forms:
+        visit(
+            ensure_syntax_datum(
+                form.datum,
+                module_path=form.module_path,
+                form_path=form.form_path,
+            )
+        )
+    return tuple(rows)
+
+
+def _prompt_application_assertions(
+    expr: object,
+) -> tuple[PromptApplicationExpr, ...]:
+    """Return only final direct prompt applications retained by Stage 3."""
+
+    return tuple(
+        node.prompt
+        for node in walk_expr(expr)
+        if type(node) is ProviderResultExpr
+        and type(node.prompt) is PromptApplicationExpr
+    )
+
+
+def _reference_links_for_authored_owner(
     expr: object,
     *,
     definition_spans: Mapping[tuple[str, str], SourceSpan],
+    syntax_lists: tuple[SyntaxList, ...],
+    prompt_catalog: object,
 ) -> tuple[DefinitionLink, ...]:
     links: list[DefinitionLink] = []
     for node in walk_expr(expr):
@@ -543,7 +617,132 @@ def _definition_links_for_expr(
                 definition_span=definition_span,
             )
         )
+    for application in _prompt_application_assertions(expr):
+        links.append(
+            _project_prompt_application_link(
+                application,
+                syntax_lists=syntax_lists,
+                prompt_catalog=prompt_catalog,
+                definition_spans=definition_spans,
+            )
+        )
     return tuple(links)
+
+
+def _project_prompt_application_link(
+    application: PromptApplicationExpr,
+    *,
+    syntax_lists: tuple[SyntaxList, ...],
+    prompt_catalog: object,
+    definition_spans: Mapping[tuple[str, str], SourceSpan],
+) -> DefinitionLink:
+    """Join one retained prompt assertion to one exact authored head."""
+
+    if application.expansion_stack:
+        raise ValueError(
+            "prompt application navigation requires an unexpanded occurrence"
+        )
+    matching_lists = tuple(
+        syntax_list
+        for syntax_list in syntax_lists
+        if syntax_list.span == application.span
+    )
+    if len(matching_lists) != 1:
+        raise ValueError(
+            "prompt application navigation requires one original syntax match"
+        )
+    syntax_list = matching_lists[0]
+    if syntax_list.expansion_stack:
+        raise ValueError(
+            "prompt application navigation requires unexpanded original syntax"
+        )
+    if not syntax_list.items or type(syntax_list.items[0]) is not SyntaxIdentifier:
+        raise ValueError(
+            "prompt application navigation requires an identifier head"
+        )
+    head = syntax_list.items[0]
+    _validate_authored_token_span(
+        head.span,
+        whole_form_span=application.span,
+    )
+    if not isinstance(prompt_catalog, PromptCatalog):
+        raise ValueError(
+            "prompt application navigation requires a compiler prompt catalog"
+        )
+    resolved = prompt_catalog.resolve(head.resolved_name)
+    if resolved is None:
+        raise ValueError(
+            "prompt application navigation target is absent from the prompt catalog"
+        )
+    if resolved.qualified_name != application.prompt.qualified_name:
+        raise ValueError(
+            "prompt application navigation canonical identity mismatch"
+        )
+    if resolved.declaration.span != application.prompt.declaration.span:
+        raise ValueError(
+            "prompt application navigation declaration span mismatch"
+        )
+    if (
+        resolved.declaration.expansion_stack
+        or application.prompt.declaration.expansion_stack
+    ):
+        raise ValueError(
+            "prompt application navigation requires an authored prompt target"
+        )
+    definition_span = definition_spans.get(
+        ("prompt", application.prompt.qualified_name)
+    )
+    if definition_span is None:
+        raise ValueError(
+            "prompt application navigation is missing its authored target"
+        )
+    if definition_span != resolved.declaration.span:
+        raise ValueError(
+            "prompt application navigation target span mismatch"
+        )
+    _validate_target_definition_span(definition_span)
+    return DefinitionLink(
+        reference_kind="prompt-application",
+        reference_span=head.span,
+        canonical_target=application.prompt.qualified_name,
+        target_kind="prompt",
+        definition_span=definition_span,
+    )
+
+
+def _validate_target_definition_span(
+    definition_span: SourceSpan,
+) -> None:
+    """Require one same-path, non-empty, positive target offset range."""
+
+    if (
+        definition_span.start.path != definition_span.end.path
+        or definition_span.start.offset < 0
+        or definition_span.end.offset <= definition_span.start.offset
+    ):
+        raise ValueError(
+            "definition target span must be a non-empty same-path range"
+        )
+
+
+def _validate_authored_token_span(
+    token_span: SourceSpan,
+    *,
+    whole_form_span: SourceSpan,
+) -> None:
+    """Require one non-empty same-path token strictly inside its form."""
+
+    if (
+        token_span.start.path != token_span.end.path
+        or whole_form_span.start.path != whole_form_span.end.path
+        or token_span.start.path != whole_form_span.start.path
+        or token_span.start.offset >= token_span.end.offset
+        or token_span.start.offset <= whole_form_span.start.offset
+        or token_span.end.offset >= whole_form_span.end.offset
+    ):
+        raise ValueError(
+            "definition reference token is not strictly contained in its form"
+        )
 
 
 def _module_path(

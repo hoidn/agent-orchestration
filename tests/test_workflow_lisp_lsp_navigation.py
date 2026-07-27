@@ -27,8 +27,17 @@ from orchestrator.workflow_lisp.expressions import (
     CallExpr,
     LetStarExpr,
     ProcedureCallExpr,
+    ProviderResultExpr,
+)
+from orchestrator.workflow_lisp.prompts import (
+    PromptApplicationExpr,
+    PromptCatalog,
 )
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+from orchestrator.workflow_lisp.syntax import (
+    SyntaxIdentifier,
+    SyntaxList,
+)
 from orchestrator.workflow_lisp.reader import SourceReadTrace
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
@@ -48,6 +57,15 @@ L1_SYMBOLS_ROOT = (
 )
 L1_SYMBOLS_ENTRY = (
     L1_SYMBOLS_ROOT / "lsp_l1_symbols" / "entry.orc"
+)
+L5_AUTHORED_REFS_ROOT = (
+    FIXTURES / "modules" / "valid" / "lsp_l5_authored_refs"
+)
+L5_AUTHORED_REFS_ENTRY = (
+    L5_AUTHORED_REFS_ROOT / "lsp_l5" / "entry.orc"
+)
+L5_AUTHORED_REFS_DEFINITIONS = (
+    L5_AUTHORED_REFS_ROOT / "lsp_l5" / "definitions.orc"
 )
 STDLIB_CALLER = FIXTURES / "valid" / "minimal_caller_finalize_selected_item.orc"
 
@@ -251,6 +269,20 @@ def l1_symbols_result() -> LinkedStage3CompileResult:
     )
 
 
+@pytest.fixture(scope="module")
+def l5_authored_refs_result() -> LinkedStage3CompileResult:
+    return compile_stage3_entrypoint(
+        L5_AUTHORED_REFS_ENTRY.resolve(),
+        source_roots=(L5_AUTHORED_REFS_ROOT.resolve(),),
+        provider_externs={"providers.review": "test-provider"},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=False,
+        workspace_root=L5_AUTHORED_REFS_ROOT.resolve(),
+        lowering_route="legacy",
+    )
+
+
 def _accepted_texts(
     result: LinkedStage3CompileResult,
 ) -> dict[Path, str]:
@@ -276,6 +308,469 @@ def _definition_span(
         if definition is not None:
             return definition.span
     raise AssertionError(f"missing {kind} definition {callable_name}")
+
+
+def _l5_prompt_applications(
+    result: LinkedStage3CompileResult,
+) -> tuple[PromptApplicationExpr, ...]:
+    return tuple(
+        node.prompt
+        for compiled in result.compiled_results_by_name.values()
+        for owner in (*compiled.typed_procedures, *compiled.typed_workflows)
+        for node in walk_expr(owner.typed_body.expr)
+        if type(node) is ProviderResultExpr
+        and type(node.prompt) is PromptApplicationExpr
+    )
+
+
+def _l5_original_syntax_lists(
+    result: LinkedStage3CompileResult,
+) -> tuple[SyntaxList, ...]:
+    navigation = _navigation_surface()
+    project = getattr(navigation, "_original_syntax_lists", None)
+    assert callable(project), "_original_syntax_lists is missing"
+    return tuple(
+        syntax_list
+        for module_name in result.graph.topological_order
+        for syntax_list in project(
+            result.graph.modules_by_name[module_name].syntax_module
+        )
+    )
+
+
+def _l5_prompt_links(index: object) -> tuple[object, ...]:
+    return tuple(
+        link
+        for link in index.definition_links
+        if link.reference_kind == "prompt-application"
+    )
+
+
+def _span_start_position(
+    span: SourceSpan,
+    accepted_text: str,
+) -> tuple[int, int]:
+    start = source_span_to_lsp_range(span, accepted_text)["start"]
+    return start["line"], start["character"]
+
+
+def test_prompt_application_heads_project_exact_semantic_rows(
+    l5_authored_refs_result: LinkedStage3CompileResult,
+) -> None:
+    result = l5_authored_refs_result
+    index = _build_index(result)
+    applications = _l5_prompt_applications(result)
+    links = _l5_prompt_links(index)
+    syntax_lists = _l5_original_syntax_lists(result)
+    expected = {
+        (
+            "prompt-application",
+            syntax_list.items[0].span,
+            application.prompt.qualified_name,
+            "prompt",
+            application.prompt.declaration.span,
+        )
+        for application in applications
+        for syntax_list in syntax_lists
+        if syntax_list.span == application.span
+        and not syntax_list.expansion_stack
+        and syntax_list.items
+        and type(syntax_list.items[0]) is SyntaxIdentifier
+    }
+
+    assert len(applications) == 4
+    assert len(expected) == 4
+    assert {
+        (
+            link.reference_kind,
+            link.reference_span,
+            link.canonical_target,
+            link.target_kind,
+            link.definition_span,
+        )
+        for link in links
+    } == expected
+    assert {
+        link.canonical_target for link in links
+    } == {
+        "lsp_l5/entry::local-review",
+        "lsp_l5/definitions::shared",
+    }
+    assert {
+        Path(link.definition_span.start.path).resolve()
+        for link in links
+    } == {
+        L5_AUTHORED_REFS_ENTRY.resolve(),
+        L5_AUTHORED_REFS_DEFINITIONS.resolve(),
+    }
+    assert all(
+        link.definition_span
+        in {
+            result.compiled_results_by_name[
+                "lsp_l5/entry"
+            ].prompt_catalog.resolve(
+                "local-review"
+            ).declaration.span,
+            result.compiled_results_by_name[
+                "lsp_l5/definitions"
+            ].prompt_catalog.resolve(
+                "shared"
+            ).declaration.span,
+        }
+        for link in links
+    )
+
+
+def test_prompt_application_navigation_supports_local_alias_canonical_and_only_spellings(
+    l5_authored_refs_result: LinkedStage3CompileResult,
+) -> None:
+    result = l5_authored_refs_result
+    index = _build_index(result)
+    accepted_texts = _accepted_texts(result)
+    entry_path = L5_AUTHORED_REFS_ENTRY.resolve()
+    entry_text = accepted_texts[entry_path]
+    expected_targets = {
+        "local-review": "lsp_l5/entry::local-review",
+        "shared": "lsp_l5/definitions::shared",
+        "defs.shared": "lsp_l5/definitions::shared",
+        "lsp_l5/definitions/shared": "lsp_l5/definitions::shared",
+    }
+    links_by_text = {
+        entry_text[
+            link.reference_span.start.offset : link.reference_span.end.offset
+        ]: link
+        for link in _l5_prompt_links(index)
+    }
+
+    assert set(links_by_text) == set(expected_targets)
+    for spelling, canonical_target in expected_targets.items():
+        link = links_by_text[spelling]
+        line, character = _span_start_position(
+            link.reference_span,
+            entry_text,
+        )
+        assert link.canonical_target == canonical_target
+        assert _definition_at(
+            index,
+            source_path=entry_path,
+            line=line,
+            character=character,
+            accepted_text_by_path=accepted_texts,
+        ) == link.definition_span
+    direct_controls = tuple(
+        link
+        for link in index.definition_links
+        if (
+            link.canonical_target == "lsp_l5/entry::local-review"
+            and link.reference_kind
+            in {"procedure-call", "workflow-call"}
+        )
+    )
+    assert {
+        (link.reference_kind, link.target_kind)
+        for link in direct_controls
+    } == {
+        ("procedure-call", "procedure"),
+        ("workflow-call", "workflow"),
+    }
+    assert all(link not in direct_controls for link in links_by_text.values())
+
+
+def test_prompt_application_navigation_is_exactly_head_token_bounded(
+    l5_authored_refs_result: LinkedStage3CompileResult,
+) -> None:
+    result = l5_authored_refs_result
+    index = _build_index(result)
+    accepted_texts = _accepted_texts(result)
+    entry_path = L5_AUTHORED_REFS_ENTRY.resolve()
+    entry_text = accepted_texts[entry_path]
+    link = next(
+        row
+        for row in _l5_prompt_links(index)
+        if row.canonical_target == "lsp_l5/entry::local-review"
+    )
+    application = next(
+        row
+        for row in _l5_prompt_applications(result)
+        if row.prompt.qualified_name == "lsp_l5/entry::local-review"
+    )
+    reference_range = source_span_to_lsp_range(
+        link.reference_span,
+        entry_text,
+    )
+
+    def lookup_offset(offset: int) -> SourceSpan | None:
+        prefix = entry_text[:offset]
+        line = prefix.count("\n")
+        character = len(
+            prefix.rsplit("\n", maxsplit=1)[-1].encode("utf-16-le")
+        ) // 2
+        return _definition_at(
+            index,
+            source_path=entry_path,
+            line=line,
+            character=character,
+            accepted_text_by_path=accepted_texts,
+        )
+
+    assert lookup_offset(link.reference_span.start.offset) == link.definition_span
+    assert lookup_offset(link.reference_span.end.offset - 1) == link.definition_span
+    assert lookup_offset(link.reference_span.start.offset - 1) is None
+    assert _definition_at(
+        index,
+        source_path=entry_path,
+        line=reference_range["end"]["line"],
+        character=reference_range["end"]["character"],
+        accepted_text_by_path=accepted_texts,
+    ) is None
+    assert lookup_offset(link.reference_span.end.offset) is None
+    assert lookup_offset(
+        entry_text.index(":message", application.span.start.offset)
+    ) is None
+    assert lookup_offset(
+        entry_text.index(
+            "message",
+            entry_text.index(":message", application.span.start.offset)
+            + len(":message"),
+        )
+    ) is None
+    assert lookup_offset(application.span.end.offset - 1) is None
+
+
+@pytest.mark.parametrize(
+    "drift",
+    (
+        "missing-syntax-match",
+        "duplicate-syntax-match",
+        "wrong-syntax-kind",
+        "whole-span-mismatch",
+        "canonical-identity-mismatch",
+        "absent-prompt-catalog-target",
+        "differing-definition-span",
+        "expanded-occurrence",
+        "generated-expanded-definition",
+    ),
+)
+def test_prompt_application_projection_fails_closed_on_join_drift(
+    l5_authored_refs_result: LinkedStage3CompileResult,
+    drift: str,
+) -> None:
+    result = l5_authored_refs_result
+    navigation = _navigation_surface()
+    project = getattr(
+        navigation,
+        "_project_prompt_application_link",
+        None,
+    )
+    assert callable(project), "_project_prompt_application_link is missing"
+    application = next(
+        row
+        for row in _l5_prompt_applications(result)
+        if row.prompt.qualified_name == "lsp_l5/entry::local-review"
+    )
+    matching_syntax = next(
+        row
+        for row in _l5_original_syntax_lists(result)
+        if row.span == application.span
+    )
+    compiled = result.compiled_results_by_name["lsp_l5/entry"]
+    prompt_catalog = compiled.prompt_catalog
+    assert isinstance(prompt_catalog, PromptCatalog)
+    definition_spans = {
+        ("prompt", application.prompt.qualified_name): (
+            application.prompt.declaration.span
+        )
+    }
+    syntax_lists = (matching_syntax,)
+
+    if drift == "missing-syntax-match":
+        syntax_lists = ()
+    elif drift == "duplicate-syntax-match":
+        syntax_lists = (matching_syntax, matching_syntax)
+    elif drift == "wrong-syntax-kind":
+        syntax_lists = (
+            replace(
+                matching_syntax,
+                items=(matching_syntax.items[1], *matching_syntax.items[1:]),
+            ),
+        )
+    elif drift == "whole-span-mismatch":
+        syntax_lists = (
+            replace(
+                matching_syntax,
+                span=replace(
+                    matching_syntax.span,
+                    end=replace(
+                        matching_syntax.span.end,
+                        offset=matching_syntax.span.end.offset - 1,
+                        column=matching_syntax.span.end.column - 1,
+                    ),
+                ),
+            ),
+        )
+    elif drift == "canonical-identity-mismatch":
+        application = replace(
+            application,
+            prompt=replace(
+                application.prompt,
+                qualified_name="lsp_l5/entry::other",
+            ),
+        )
+    elif drift == "absent-prompt-catalog-target":
+        prompt_catalog = PromptCatalog(definitions_by_name={})
+    elif drift == "differing-definition-span":
+        definition_spans[
+            ("prompt", application.prompt.qualified_name)
+        ] = _l5_test_span(
+            L5_AUTHORED_REFS_ENTRY.resolve(),
+            1,
+            2,
+        )
+    elif drift == "expanded-occurrence":
+        application = replace(application, expansion_stack=(object(),))
+    else:
+        expanded_definition = replace(
+            application.prompt.declaration,
+            expansion_stack=(object(),),
+        )
+        expanded_prompt = replace(
+            application.prompt,
+            declaration=expanded_definition,
+        )
+        application = replace(application, prompt=expanded_prompt)
+        prompt_catalog = PromptCatalog(
+            definitions_by_name={
+                "local-review": expanded_prompt,
+                expanded_prompt.qualified_name: expanded_prompt,
+            }
+        )
+
+    with pytest.raises(ValueError):
+        project(
+            application,
+            syntax_lists=syntax_lists,
+            prompt_catalog=prompt_catalog,
+            definition_spans=definition_spans,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalidity",
+    ("zero-width", "cross-path"),
+)
+def test_prompt_application_projection_rejects_invalid_target_definition_spans(
+    l5_authored_refs_result: LinkedStage3CompileResult,
+    invalidity: str,
+) -> None:
+    result = l5_authored_refs_result
+    navigation = _navigation_surface()
+    project = getattr(
+        navigation,
+        "_project_prompt_application_link",
+        None,
+    )
+    assert callable(project), "_project_prompt_application_link is missing"
+    application = next(
+        row
+        for row in _l5_prompt_applications(result)
+        if row.prompt.qualified_name == "lsp_l5/entry::local-review"
+    )
+    matching_syntax = next(
+        row
+        for row in _l5_original_syntax_lists(result)
+        if row.span == application.span
+    )
+    target_span = application.prompt.declaration.span
+    if invalidity == "zero-width":
+        target_span = replace(
+            target_span,
+            end=target_span.start,
+        )
+    else:
+        target_span = replace(
+            target_span,
+            end=replace(
+                target_span.end,
+                path=str(L5_AUTHORED_REFS_DEFINITIONS.resolve()),
+            ),
+        )
+    tampered_prompt = replace(
+        application.prompt,
+        declaration=replace(
+            application.prompt.declaration,
+            span=target_span,
+        ),
+    )
+    tampered_application = replace(
+        application,
+        prompt=tampered_prompt,
+    )
+    prompt_catalog = PromptCatalog(
+        definitions_by_name={
+            "local-review": tampered_prompt,
+            tampered_prompt.qualified_name: tampered_prompt,
+        }
+    )
+
+    with pytest.raises(ValueError):
+        project(
+            tampered_application,
+            syntax_lists=(matching_syntax,),
+            prompt_catalog=prompt_catalog,
+            definition_spans={
+                ("prompt", tampered_prompt.qualified_name): target_span,
+            },
+        )
+
+
+def test_original_prompt_syntax_without_final_application_is_not_discovered(
+    l5_authored_refs_result: LinkedStage3CompileResult,
+) -> None:
+    result = l5_authored_refs_result
+    navigation = _navigation_surface()
+    project = getattr(
+        navigation,
+        "_reference_links_for_authored_owner",
+        None,
+    )
+    assert callable(project), "_reference_links_for_authored_owner is missing"
+    compiled = result.compiled_results_by_name["lsp_l5/entry"]
+    prompt_catalog = compiled.prompt_catalog
+    assert isinstance(prompt_catalog, PromptCatalog)
+    direct_call_owner = next(
+        workflow
+        for workflow in compiled.typed_workflows
+        if workflow.definition.name.endswith("::procedure-control")
+    )
+    syntax_lists = _l5_original_syntax_lists(result)
+    assert any(
+        row.items
+        and type(row.items[0]) is SyntaxIdentifier
+        and row.items[0].resolved_name == "local-review"
+        for row in syntax_lists
+    )
+
+    links = project(
+        direct_call_owner.typed_body.expr,
+        definition_spans={
+            ("procedure", "lsp_l5/entry::local-review"): (
+                _definition_span(
+                    result,
+                    callable_name="lsp_l5/entry::local-review",
+                    kind="procedure",
+                )
+            ),
+            ("prompt", "lsp_l5/entry::local-review"): (
+                prompt_catalog.resolve(
+                    "local-review"
+                ).declaration.span
+            ),
+        },
+        syntax_lists=syntax_lists,
+        prompt_catalog=prompt_catalog,
+    )
+
+    assert all(link.reference_kind != "prompt-application" for link in links)
 
 
 def _l5_test_span(
