@@ -1,14 +1,41 @@
 """Focused acceptance tests for the target-2.20 prompt declaration core."""
 
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 
 import pytest
 
 import orchestrator.workflow_lisp as workflow_lisp
 import orchestrator.workflow_lisp.form_registry as form_registry
 import orchestrator.workflow_lisp.syntax as syntax
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+from orchestrator.workflow_lisp.definitions import (
+    PathDef,
+    RecordField,
+    WorkflowLispModule,
+)
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.expressions import ProviderResultExpr, elaborate_expression
+from orchestrator.workflow_lisp.modules import (
+    build_import_scope,
+    derive_export_surface,
+)
+from orchestrator.workflow_lisp.prompts import (
+    PromptApplicationExpr,
+    build_prompt_catalog,
+    validate_compiled_prompt_fragment_identity,
+)
 from orchestrator.workflow_lisp.reader import read_sexpr_text
+from orchestrator.workflow_lisp.type_env import (
+    FrontendTypeEnvironment,
+    ListTypeRef,
+    MapTypeRef,
+    OptionalTypeRef,
+    PathTypeRef,
+    PrimitiveTypeRef,
+)
+from orchestrator.workflow_lisp.typecheck import typecheck_expression
+from orchestrator.workflow_lisp.workflows import ExternEnvironment, ProviderExtern
 
 
 def _module_source(target_dsl: str, *forms: str) -> str:
@@ -215,6 +242,7 @@ def test_defprompt_structural_errors_are_frontend_diagnostics(
     (
         ("(message :blob)", "prompt_slot_kind_unknown"),
         ("(message :text String)", "prompt_slot_refinement_invalid"),
+        ("(message :value :out)", "prompt_slot_refinement_invalid"),
     ),
 )
 def test_defprompt_rejects_invalid_slot_kind_or_refinement(
@@ -305,3 +333,895 @@ def test_defprompt_allows_document_only_template_without_placeholders() -> None:
 
     assert prompt.template.placeholder_names == ()
     assert prompt.return_spec.type_name == "Value"
+
+
+def _empty_type_env(*, target_dsl: str = "2.20") -> FrontendTypeEnvironment:
+    parsed = syntax.build_syntax_module(
+        read_sexpr_text(
+            _module_source(target_dsl),
+            source_path="inline_prompt_types.orc",
+        )
+    )
+    module = WorkflowLispModule(
+        language_version=parsed.language_version,
+        target_dsl_version=parsed.target_dsl_version,
+        module_name="demo/prompts",
+        imports=(),
+        exports=(),
+        definitions=(),
+        schemas=(),
+        span=parsed.span,
+    )
+    return FrontendTypeEnvironment.from_module(module)
+
+
+def _catalog(*declarations: str):
+    parsed = syntax.build_syntax_module(
+        read_sexpr_text(
+            _module_source("2.20", *declarations),
+            source_path="inline_prompt_catalog.orc",
+        )
+    )
+    definitions = workflow_lisp.elaborate_prompt_definitions(parsed)
+    return build_prompt_catalog(
+        "demo/prompts",
+        definitions,
+        type_env=_empty_type_env(),
+    )
+
+
+def _elaborate_provider(
+    source: str,
+    *,
+    catalog,
+    bound_names=frozenset(),
+    target_dsl: str = "2.20",
+):
+    parsed = syntax.build_syntax_module(
+        read_sexpr_text(
+            _module_source(
+                target_dsl,
+                f"(defworkflow ignored () -> Value {source})",
+            ),
+            source_path="inline_prompt_wrapper.orc",
+        )
+    )
+    form = parsed.forms[-1]
+    body_datum = syntax.syntax_node_datum(form).items[-1]
+    return elaborate_expression(
+        syntax.SyntaxNode(
+            datum=body_datum,
+            span=body_datum.span,
+            module_path=form.module_path,
+            form_path=form.form_path,
+        ),
+        bound_names=bound_names,
+        prompt_catalog=catalog,
+        target_dsl_version=target_dsl,
+    )
+
+
+def test_prompt_namespace_exports_and_imports_without_becoming_a_procedure() -> None:
+    helper_syntax = syntax.build_syntax_module(
+        read_sexpr_text(
+            _module_source(
+                "2.20",
+                "(defmodule demo/helper)",
+                "(export review)",
+                '(defprompt review (:fills (message :text)) "Review {message}")',
+                "(defproc review ((message String)) -> String message)",
+            ),
+            source_path="demo/helper.orc",
+        )
+    )
+    surface = derive_export_surface(
+        helper_syntax,
+        procedure_names=("review",),
+        prompt_names=("review",),
+    )
+    assert surface.prompts_by_name["review"].kind == "prompt"
+    assert surface.procedures_by_name["review"].kind == "procedure"
+
+    entry_syntax = syntax.build_syntax_module(
+        read_sexpr_text(
+            _module_source(
+                "2.20",
+                "(defmodule demo/entry)",
+                "(import demo/helper :as helper :only (review))",
+            ),
+            source_path="demo/entry.orc",
+        )
+    )
+    entry_module = WorkflowLispModule(
+        language_version=entry_syntax.language_version,
+        target_dsl_version=entry_syntax.target_dsl_version,
+        module_name=entry_syntax.module_name,
+        imports=entry_syntax.imports,
+        exports=(),
+        definitions=(),
+        schemas=(),
+        span=entry_syntax.span,
+    )
+    scope = build_import_scope(
+        entry_module,
+        export_surfaces_by_name={"demo/helper": surface},
+    )
+    assert scope.resolve_prompt_name(
+        "review",
+        span=entry_syntax.span,
+        form_path=("workflow-lisp",),
+    ) == "demo/helper::review"
+    assert scope.resolve_prompt_name(
+        "helper.review",
+        span=entry_syntax.span,
+        form_path=("workflow-lisp",),
+    ) == "demo/helper::review"
+    assert scope.resolve_procedure_name(
+        "review",
+        span=entry_syntax.span,
+        form_path=("workflow-lisp",),
+    ) == "demo/helper::review"
+
+
+def test_duplicate_prompt_declarations_use_module_ownership_while_slots_precede() -> None:
+    parsed = syntax.build_syntax_module(
+        read_sexpr_text(
+            _module_source(
+                "2.20",
+                '(defprompt review (:fills (message :text)) "Review {message}")',
+                '(defprompt review (:fills (payload :value)) "Review {payload}")',
+            ),
+            source_path="duplicate_prompt_declarations.orc",
+        )
+    )
+    definitions = workflow_lisp.elaborate_prompt_definitions(parsed)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_prompt_catalog(
+            "demo/prompts",
+            definitions,
+            type_env=_empty_type_env(),
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "definition_duplicate"
+    assert diagnostic.span == definitions[1].span
+    assert diagnostic.form_path == definitions[1].form_path
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _catalog(
+            """
+            (defprompt review
+              (:fills (message :text) (message :value))
+              "Review {message}")
+            """,
+            '(defprompt review (:fills (payload :value)) "Review {payload}")',
+        )
+    assert _diagnostic_code(excinfo) == "prompt_slot_duplicate"
+
+
+def test_prompt_imports_reject_ambiguous_and_missing_exports() -> None:
+    surfaces = {}
+    for module_name in ("demo/left", "demo/right"):
+        module_syntax = syntax.build_syntax_module(
+            read_sexpr_text(
+                _module_source(
+                    "2.20",
+                    f"(defmodule {module_name})",
+                    "(export review)",
+                    '(defprompt review (:fills (message :text)) "Review {message}")',
+                ),
+                source_path=f"{module_name}.orc",
+            )
+        )
+        surfaces[module_name] = derive_export_surface(
+            module_syntax,
+            prompt_names=("review",),
+        )
+
+    ambiguous_syntax = syntax.build_syntax_module(
+        read_sexpr_text(
+            _module_source(
+                "2.20",
+                "(defmodule demo/entry)",
+                "(import demo/left :as left :only (review))",
+                "(import demo/right :as right :only (review))",
+            ),
+            source_path="demo/entry.orc",
+        )
+    )
+    ambiguous_module = WorkflowLispModule(
+        language_version=ambiguous_syntax.language_version,
+        target_dsl_version=ambiguous_syntax.target_dsl_version,
+        module_name=ambiguous_syntax.module_name,
+        imports=ambiguous_syntax.imports,
+        exports=(),
+        definitions=(),
+        schemas=(),
+        span=ambiguous_syntax.span,
+    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_import_scope(
+            ambiguous_module,
+            export_surfaces_by_name=surfaces,
+        )
+    assert _diagnostic_code(excinfo) == "module_import_ambiguous"
+
+    missing_syntax = syntax.build_syntax_module(
+        read_sexpr_text(
+            _module_source(
+                "2.20",
+                "(defmodule demo/missing)",
+                "(import demo/left :as left :only (absent))",
+            ),
+            source_path="demo/missing.orc",
+        )
+    )
+    missing_module = WorkflowLispModule(
+        language_version=missing_syntax.language_version,
+        target_dsl_version=missing_syntax.target_dsl_version,
+        module_name=missing_syntax.module_name,
+        imports=missing_syntax.imports,
+        exports=(),
+        definitions=(),
+        schemas=(),
+        span=missing_syntax.span,
+    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_import_scope(
+            missing_module,
+            export_surfaces_by_name=surfaces,
+        )
+    assert _diagnostic_code(excinfo) == "module_export_missing"
+
+
+def test_stage3_catalog_resolves_exported_prompt_imports(tmp_path: Path) -> None:
+    source_root = tmp_path / "src"
+    helper_path = source_root / "demo" / "helper.orc"
+    helper_path.parent.mkdir(parents=True)
+    helper_path.write_text(
+        _module_source(
+            "2.20",
+            "(defmodule demo/helper)",
+            "(export review)",
+            '(defprompt review (:fills (message :text)) "Review {message}")',
+        ),
+        encoding="utf-8",
+    )
+    entry_path = source_root / "demo" / "entry.orc"
+    entry_path.write_text(
+        _module_source(
+            "2.20",
+            "(defmodule demo/entry)",
+            "(import demo/helper :as helper :only (review))",
+        ),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_entrypoint(
+        entry_path,
+        source_roots=(source_root,),
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="legacy",
+    )
+
+    prompt_catalog = result.entry_result.prompt_catalog
+    assert prompt_catalog is not None
+    assert prompt_catalog.resolve("review").qualified_name == "demo/helper::review"
+    assert prompt_catalog.resolve("helper.review").qualified_name == "demo/helper::review"
+
+
+def test_provider_prompt_application_is_fully_applied_and_prompt_owned() -> None:
+    catalog = _catalog(
+        """
+        (defprompt review
+          (:fills (message :text) (payload :value))
+          -> (result Bool :description "Approve only complete work.")
+          "Review {message}: {payload}")
+        """
+    )
+    expr = _elaborate_provider(
+        """
+        (provider-result providers.review
+          :prompt (review :payload payload :message message))
+        """,
+        catalog=catalog,
+        bound_names=frozenset({"providers.review", "message", "payload"}),
+    )
+    assert isinstance(expr, ProviderResultExpr)
+    assert isinstance(expr.prompt, PromptApplicationExpr)
+    assert tuple(fill.name for fill in expr.prompt.fills) == ("message", "payload")
+    assert expr.return_spec.type_name == "Bool"
+    assert expr.inputs == ()
+    assert expr.prompt_dependencies is None
+
+    typed = typecheck_expression(
+        expr,
+        type_env=_empty_type_env(),
+        value_env={
+            "providers.review": PrimitiveTypeRef(name="Provider"),
+            "message": PrimitiveTypeRef(name="String"),
+            "payload": PrimitiveTypeRef(name="Json"),
+        },
+        extern_environment=ExternEnvironment(
+            bindings_by_name={
+                "providers.review": ProviderExtern(
+                    name="providers.review",
+                    provider_id="test-provider",
+                )
+            }
+        ),
+        prompt_catalog=catalog,
+    )
+    assert typed.type_ref == PrimitiveTypeRef(name="Bool")
+    typed_prompt = typed.expr.prompt
+    assert isinstance(typed_prompt, PromptApplicationExpr)
+    assert typed_prompt.compiled_prompt_fragment_identity.startswith("sha256:")
+    validate_compiled_prompt_fragment_identity(
+        typed_prompt.compiled_prompt_fragment_identity,
+        canonical_projection=typed_prompt.canonical_identity_projection,
+    )
+
+
+def test_prompt_application_requires_target_dsl_2_20() -> None:
+    catalog = _catalog(
+        '(defprompt review (:fills (message :text)) "Review {message}")'
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _elaborate_provider(
+            "(provider-result providers.review :prompt (review :message message))",
+            catalog=catalog,
+            bound_names=frozenset({"providers.review", "message"}),
+            target_dsl="2.19",
+        )
+
+    assert _diagnostic_code(excinfo) == "prompt_calculus_requires_dsl_2_20"
+
+
+def test_fragment_provider_result_uses_exact_default_value_type() -> None:
+    catalog = _catalog(
+        '(defprompt review (:fills (message :text)) "Review {message}")'
+    )
+    expr = _elaborate_provider(
+        "(provider-result providers.review :prompt (review :message message))",
+        catalog=catalog,
+        bound_names=frozenset({"providers.review", "message"}),
+    )
+
+    typed = typecheck_expression(
+        expr,
+        type_env=_empty_type_env(),
+        value_env={
+            "providers.review": PrimitiveTypeRef(name="Provider"),
+            "message": PrimitiveTypeRef(name="String"),
+        },
+        extern_environment=ExternEnvironment(
+            bindings_by_name={
+                "providers.review": ProviderExtern(
+                    name="providers.review",
+                    provider_id="test-provider",
+                )
+            }
+        ),
+        prompt_catalog=catalog,
+    )
+
+    assert typed.type_ref == PrimitiveTypeRef(name="Value")
+
+
+@pytest.mark.parametrize(
+    ("application", "code"),
+    (
+        (
+            "(provider-result providers.review :prompt (review :message m :message m))",
+            "prompt_fill_duplicate",
+        ),
+        (
+            "(provider-result providers.review :prompt (review :unknown m :message m))",
+            "prompt_fill_unknown",
+        ),
+        (
+            "(provider-result providers.review :prompt (review))",
+            "prompt_slot_undischarged",
+        ),
+        (
+            "(provider-result providers.review :prompt (review :message m) :inputs (m))",
+            "prompt_inputs_redeclaration_forbidden",
+        ),
+        (
+            "(provider-result providers.review :prompt (review :message m) :prompt-dependencies (:required (m)))",
+            "prompt_dependency_redeclaration_forbidden",
+        ),
+    ),
+)
+def test_prompt_application_closed_fill_and_redeclaration_refusals(
+    application: str,
+    code: str,
+) -> None:
+    catalog = _catalog(
+        '(defprompt review (:fills (message :text)) "Review {message}")'
+    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _elaborate_provider(
+            application,
+            catalog=catalog,
+            bound_names=frozenset({"providers.review", "m"}),
+        )
+    assert _diagnostic_code(excinfo) == code
+
+
+def test_prompt_application_fill_name_errors_precede_redeclaration_errors() -> None:
+    catalog = _catalog(
+        '(defprompt review (:fills (message :text)) "Review {message}")'
+    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _elaborate_provider(
+            """
+            (provider-result providers.review
+              :prompt (review :unknown m)
+              :returns Bool)
+            """,
+            catalog=catalog,
+            bound_names=frozenset({"providers.review", "m"}),
+        )
+    assert _diagnostic_code(excinfo) == "prompt_fill_unknown"
+
+
+def test_prompt_fill_type_errors_precede_return_redeclaration() -> None:
+    catalog = _catalog(
+        '(defprompt review (:fills (message :text)) "Review {message}")'
+    )
+    expr = _elaborate_provider(
+        """
+        (provider-result providers.review
+          :prompt (review :message m)
+          :returns Bool)
+        """,
+        catalog=catalog,
+        bound_names=frozenset({"providers.review", "m"}),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_empty_type_env(),
+            value_env={
+                "providers.review": PrimitiveTypeRef(name="Provider"),
+                "m": PrimitiveTypeRef(name="Int"),
+            },
+            extern_environment=ExternEnvironment(
+                bindings_by_name={
+                    "providers.review": ProviderExtern(
+                        name="providers.review",
+                        provider_id="test-provider",
+                    )
+                }
+            ),
+            prompt_catalog=catalog,
+        )
+
+    assert _diagnostic_code(excinfo) == "prompt_slot_type_mismatch"
+
+
+def test_prompt_return_redeclaration_is_rejected_after_valid_fills() -> None:
+    catalog = _catalog(
+        '(defprompt review (:fills (message :text)) "Review {message}")'
+    )
+    expr = _elaborate_provider(
+        """
+        (provider-result providers.review
+          :prompt (review :message m)
+          :returns Bool)
+        """,
+        catalog=catalog,
+        bound_names=frozenset({"providers.review", "m"}),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_empty_type_env(),
+            value_env={
+                "providers.review": PrimitiveTypeRef(name="Provider"),
+                "m": PrimitiveTypeRef(name="String"),
+            },
+            extern_environment=ExternEnvironment(
+                bindings_by_name={
+                    "providers.review": ProviderExtern(
+                        name="providers.review",
+                        provider_id="test-provider",
+                    )
+                }
+            ),
+            prompt_catalog=catalog,
+        )
+
+    assert _diagnostic_code(excinfo) == "prompt_return_redeclaration_forbidden"
+
+
+def test_prompt_name_coexists_with_lexical_procedure_and_proc_ref(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    entry_path = source_root / "demo" / "coexist.orc"
+    entry_path.parent.mkdir(parents=True)
+    entry_path.write_text(
+        _module_source(
+            "2.20",
+            "(defmodule demo/coexist)",
+            '(defprompt review (:fills (message :text)) "Review {message}")',
+            """
+            (defproc apply-runner
+              ((runner ProcRef[String -> String]) (value String))
+              -> String
+              :effects ()
+              :lowering inline
+              (runner value))
+            """,
+            """
+            (defproc review
+              ((value String))
+              -> String
+              :effects ()
+              :lowering inline
+              value)
+            """,
+            """
+            (defproc coexist
+              ((review String))
+              -> String
+              :effects ()
+              :lowering inline
+              (let* ((from-call (review review))
+                     (from-ref
+                       (apply-runner (proc-ref review) from-call)))
+                from-ref))
+            """,
+        ),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_entrypoint(
+        entry_path,
+        source_roots=(source_root,),
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="legacy",
+    )
+
+    assert {
+        "demo/coexist::apply-runner",
+        "demo/coexist::review",
+        "demo/coexist::coexist",
+    }.issubset({
+        procedure.definition.name
+        for procedure in result.entry_result.typed_procedures
+    })
+
+
+@pytest.mark.parametrize("prompt_operand", ("review", "(proc-ref review)"))
+def test_prompt_value_or_proc_ref_attempt_is_rejected_in_prompt_position(
+    prompt_operand: str,
+) -> None:
+    catalog = _catalog(
+        '(defprompt review (:fills (message :text)) "Review {message}")'
+    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _elaborate_provider(
+            f"""
+            (provider-result providers.review
+              :prompt {prompt_operand}
+              :inputs ()
+              :returns Value)
+            """,
+            catalog=catalog,
+            bound_names=frozenset({"providers.review"}),
+        )
+    assert _diagnostic_code(excinfo) == "prompt_partial_application_unsupported"
+
+
+def test_nested_prompt_application_is_not_an_admitted_fill_identity() -> None:
+    catalog = _catalog(
+        '(defprompt inner (:fills (message :text)) "Inner {message}")',
+        '(defprompt outer (:fills (payload :value)) "Outer {payload}")',
+    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _elaborate_provider(
+            """
+            (provider-result providers.review
+              :prompt (outer :payload (inner :message m)))
+            """,
+            catalog=catalog,
+            bound_names=frozenset({"providers.review", "m"}),
+        )
+    assert _diagnostic_code(excinfo) == "prompt_fill_identity_unsupported"
+
+
+@pytest.mark.parametrize(
+    ("slot_kind", "value_type", "code"),
+    (
+        ("text", PrimitiveTypeRef(name="Int"), "prompt_slot_type_mismatch"),
+        (
+            "value",
+            OptionalTypeRef(name="Optional[String]", item_type_ref=PrimitiveTypeRef(name="String")),
+            "prompt_fill_renderer_unsupported",
+        ),
+        (
+            "value",
+            MapTypeRef(
+                name="Map[String, String]",
+                key_type_ref=PrimitiveTypeRef(name="String"),
+                value_type_ref=PrimitiveTypeRef(name="String"),
+            ),
+            "prompt_fill_renderer_unsupported",
+        ),
+    ),
+)
+def test_prompt_fill_type_and_renderer_refusals(
+    slot_kind: str,
+    value_type,
+    code: str,
+) -> None:
+    catalog = _catalog(
+        f'(defprompt review (:fills (message :{slot_kind})) "Review {{message}}")'
+    )
+    expr = _elaborate_provider(
+        "(provider-result providers.review :prompt (review :message m))",
+        catalog=catalog,
+        bound_names=frozenset({"providers.review", "m"}),
+    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_empty_type_env(),
+            value_env={
+                "providers.review": PrimitiveTypeRef(name="Provider"),
+                "m": value_type,
+            },
+            extern_environment=ExternEnvironment(
+                bindings_by_name={
+                    "providers.review": ProviderExtern(
+                        name="providers.review",
+                        provider_id="test-provider",
+                    )
+                }
+            ),
+            prompt_catalog=catalog,
+        )
+    assert _diagnostic_code(excinfo) == code
+
+
+def test_prompt_slot_refinements_only_narrow_admitted_renderer_types() -> None:
+    catalog = _catalog(
+        '(defprompt review (:fills (payload :value String)) "Review {payload}")'
+    )
+    expr = _elaborate_provider(
+        "(provider-result providers.review :prompt (review :payload payload))",
+        catalog=catalog,
+        bound_names=frozenset({"providers.review", "payload"}),
+    )
+    externs = ExternEnvironment(
+        bindings_by_name={
+            "providers.review": ProviderExtern(
+                name="providers.review",
+                provider_id="test-provider",
+            )
+        }
+    )
+    typed = typecheck_expression(
+        expr,
+        type_env=_empty_type_env(),
+        value_env={
+            "providers.review": PrimitiveTypeRef(name="Provider"),
+            "payload": PrimitiveTypeRef(name="String"),
+        },
+        extern_environment=externs,
+        prompt_catalog=catalog,
+    )
+    assert typed.expr.prompt.fills[0].renderer_id == "canonical-json"
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_empty_type_env(),
+            value_env={
+                "providers.review": PrimitiveTypeRef(name="Provider"),
+                "payload": PrimitiveTypeRef(name="Int"),
+            },
+            extern_environment=externs,
+            prompt_catalog=catalog,
+        )
+    assert _diagnostic_code(excinfo) == "prompt_slot_type_mismatch"
+
+
+def test_prompt_doc_and_path_kinds_use_their_closed_path_contracts() -> None:
+    catalog = _catalog(
+        """
+        (defprompt review
+          (:fills (document :doc) (report :path))
+          "Write the review to {report}")
+        """
+    )
+    expr = _elaborate_provider(
+        """
+        (provider-result providers.review
+          :prompt (review :document document :report report))
+        """,
+        catalog=catalog,
+        bound_names=frozenset(
+            {"providers.review", "document", "report"}
+        ),
+    )
+    existing_relpath = PathTypeRef(
+        name="ExistingDocPath",
+        definition=PathDef(
+            name="ExistingDocPath",
+            kind="relpath",
+            under=".",
+            must_exist=True,
+            span=expr.span,
+        ),
+    )
+    output_path = PathTypeRef(
+        name="ReportPath",
+        definition=PathDef(
+            name="ReportPath",
+            kind="relpath",
+            under="artifacts",
+            must_exist=False,
+            span=expr.span,
+        ),
+    )
+    externs = ExternEnvironment(
+        bindings_by_name={
+            "providers.review": ProviderExtern(
+                name="providers.review",
+                provider_id="test-provider",
+            )
+        }
+    )
+    typed = typecheck_expression(
+        expr,
+        type_env=_empty_type_env(),
+        value_env={
+            "providers.review": PrimitiveTypeRef(name="Provider"),
+            "document": existing_relpath,
+            "report": output_path,
+        },
+        extern_environment=externs,
+        prompt_catalog=catalog,
+    )
+    assert tuple(
+        fill.renderer_id for fill in typed.expr.prompt.fills
+    ) == ("required-document", "posix-path-line")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_empty_type_env(),
+            value_env={
+                "providers.review": PrimitiveTypeRef(name="Provider"),
+                "document": output_path,
+                "report": output_path,
+            },
+            extern_environment=externs,
+            prompt_catalog=catalog,
+        )
+    assert _diagnostic_code(excinfo) == "prompt_slot_type_mismatch"
+
+
+def test_closed_fill_identity_accepts_literal_name_and_field_path_but_not_call() -> None:
+    catalog = _catalog(
+        '(defprompt review (:fills (message :text)) "Review {message}")'
+    )
+    for fill in ('"literal"', "message", "request.message"):
+        expr = _elaborate_provider(
+            f"(provider-result providers.review :prompt (review :message {fill}))",
+            catalog=catalog,
+            bound_names=frozenset({"providers.review", "message", "request"}),
+        )
+        value_env = {
+            "providers.review": PrimitiveTypeRef(name="Provider"),
+            "message": PrimitiveTypeRef(name="String"),
+        }
+        if fill == "request.message":
+            request_type = workflow_lisp.RecordTypeRef(
+                name="Request",
+                    definition=workflow_lisp.RecordDef(
+                        name="Request",
+                        fields=(
+                            RecordField(
+                                name="message",
+                                type_name="String",
+                                span=expr.span,
+                            ),
+                        ),
+                    span=expr.span,
+                ),
+                field_types={"message": PrimitiveTypeRef(name="String")},
+            )
+            value_env["request"] = request_type
+        typed = typecheck_expression(
+            expr,
+            type_env=_empty_type_env(),
+            value_env=value_env,
+            extern_environment=ExternEnvironment(
+                bindings_by_name={
+                    "providers.review": ProviderExtern(
+                        name="providers.review",
+                        provider_id="test-provider",
+                    )
+                }
+            ),
+            prompt_catalog=catalog,
+        )
+        assert typed.expr.prompt.compiled_prompt_fragment_identity.startswith("sha256:")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            _elaborate_provider(
+                """
+                (provider-result providers.review
+                  :prompt (review :message (if true "a" "b")))
+                """,
+                catalog=catalog,
+                bound_names=frozenset({"providers.review"}),
+            ),
+            type_env=_empty_type_env(),
+            value_env={"providers.review": PrimitiveTypeRef(name="Provider")},
+            extern_environment=ExternEnvironment(
+                bindings_by_name={
+                    "providers.review": ProviderExtern(
+                        name="providers.review",
+                        provider_id="test-provider",
+                    )
+                }
+            ),
+            prompt_catalog=catalog,
+        )
+    assert _diagnostic_code(excinfo) == "prompt_fill_identity_unsupported"
+
+
+def test_compiled_prompt_identity_is_order_stable_and_change_sensitive() -> None:
+    catalog = _catalog(
+        '(defprompt review (:fills (left :text) (right :value)) "{left} {right}")'
+    )
+
+    def compile_identity(prompt_use: str) -> str:
+        expr = _elaborate_provider(
+            f"(provider-result providers.review :prompt {prompt_use})",
+            catalog=catalog,
+            bound_names=frozenset({"providers.review", "left", "right", "other"}),
+        )
+        typed = typecheck_expression(
+            expr,
+            type_env=_empty_type_env(),
+            value_env={
+                "providers.review": PrimitiveTypeRef(name="Provider"),
+                "left": PrimitiveTypeRef(name="String"),
+                "right": PrimitiveTypeRef(name="Int"),
+                "other": PrimitiveTypeRef(name="Int"),
+            },
+            extern_environment=ExternEnvironment(
+                bindings_by_name={
+                    "providers.review": ProviderExtern(
+                        name="providers.review",
+                        provider_id="test-provider",
+                    )
+                }
+            ),
+            prompt_catalog=catalog,
+        )
+        return typed.expr.prompt.compiled_prompt_fragment_identity
+
+    ordered = compile_identity("(review :left left :right right)")
+    reordered = compile_identity("(review :right right :left left)")
+    changed = compile_identity("(review :left left :right other)")
+    assert ordered == reordered
+    assert ordered != changed
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        validate_compiled_prompt_fragment_identity("sha256:ABC")
+    assert _diagnostic_code(excinfo) == "compiled_prompt_fragment_identity_invalid"

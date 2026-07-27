@@ -38,8 +38,6 @@ from .syntax import (
 
 _RESERVED_MACRO_NAMES = reserved_macro_names()
 
-_ALLOWED_TOP_LEVEL_HEADS = admitted_top_level_heads()
-
 _PEER_FORM_IS_CORE_DURING_HYGIENE: ContextVar[bool] = ContextVar(
     "workflow_lisp_peer_form_is_core_during_hygiene",
     default=True,
@@ -219,7 +217,10 @@ def expand_module_forms(
         if syntax_head_name(datum) == "defmacro":
             continue
         expanded = _expand_datum(datum, catalog=catalog, allocator=allocator, active_stack=())
-        _validate_top_level_form(expanded)
+        _validate_top_level_form(
+            expanded,
+            target_dsl_version=module_syntax.target_dsl_version,
+        )
         expanded_forms.append(
             SyntaxNode(
                 datum=expanded,
@@ -1089,7 +1090,11 @@ def _replace_list_item_range(datum: SyntaxList, replacements: Mapping[int, Synta
     return replace(datum, items=tuple(items))
 
 
-def _validate_top_level_form(datum: SyntaxDatum) -> None:
+def _validate_top_level_form(
+    datum: SyntaxDatum,
+    *,
+    target_dsl_version: str,
+) -> None:
     if not isinstance(datum, SyntaxList) or not datum.items:
         _raise_macro_error(
             code="macro_emits_invalid_ast",
@@ -1115,7 +1120,9 @@ def _validate_top_level_form(datum: SyntaxDatum) -> None:
             form_path=top_level_form_path(datum),
             expansion_stack=syntax_expansion_stack(datum),
         )
-    if head.resolved_name not in _ALLOWED_TOP_LEVEL_HEADS:
+    if head.resolved_name not in admitted_top_level_heads(
+        target_dsl_version=target_dsl_version,
+    ):
         _raise_macro_error(
             code="macro_emits_invalid_ast",
             message=(

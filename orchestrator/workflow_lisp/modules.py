@@ -68,6 +68,7 @@ class ModuleExportSurface:
     macros_by_name: Mapping[str, ModuleMemberBinding]
     functions_by_name: Mapping[str, ModuleMemberBinding]
     procedures_by_name: Mapping[str, ModuleMemberBinding]
+    prompts_by_name: Mapping[str, ModuleMemberBinding]
     workflows_by_name: Mapping[str, ModuleMemberBinding]
 
     def binding_for(self, name: str) -> ModuleMemberBinding | None:
@@ -81,6 +82,7 @@ class ModuleExportSurface:
             self.macros_by_name,
             self.functions_by_name,
             self.procedures_by_name,
+            self.prompts_by_name,
             self.workflows_by_name,
         ):
             binding = bindings.get(name)
@@ -108,6 +110,7 @@ class ModuleImportScope:
     macro_bindings: Mapping[str, ModuleMemberBinding]
     function_bindings: Mapping[str, ModuleMemberBinding]
     procedure_bindings: Mapping[str, ModuleMemberBinding]
+    prompt_bindings: Mapping[str, ModuleMemberBinding]
     workflow_bindings: Mapping[str, ModuleMemberBinding]
     unqualified_type_bindings: Mapping[str, ModuleMemberBinding]
     unqualified_schema_bindings: Mapping[str, ModuleMemberBinding]
@@ -168,6 +171,31 @@ class ModuleImportScope:
             explicitly_imported_modules=self.explicitly_imported_modules,
             imported_bindings=self.procedure_bindings,
             kind_label="procedure",
+            span=span,
+            form_path=form_path,
+        )
+        if qualified is not None:
+            return qualified.canonical_name
+        return name
+
+    def resolve_prompt_name(
+        self,
+        name: str,
+        *,
+        span: SourceSpan,
+        form_path: tuple[str, ...],
+    ) -> str:
+        """Resolve a prompt application in the distinct prompt namespace."""
+
+        binding = self.prompt_bindings.get(name)
+        if binding is not None:
+            return binding.canonical_name
+        qualified = _resolve_qualified_binding(
+            name,
+            alias_to_module=self.alias_to_module,
+            explicitly_imported_modules=self.explicitly_imported_modules,
+            imported_bindings=self.prompt_bindings,
+            kind_label="prompt",
             span=span,
             form_path=form_path,
         )
@@ -390,6 +418,7 @@ def derive_export_surface(
     local_macros: MacroCatalog | None = None,
     local_module: WorkflowLispModule | None = None,
     procedure_names: tuple[str, ...] = (),
+    prompt_names: tuple[str, ...] = (),
     function_names: tuple[str, ...] = (),
     workflow_names: tuple[str, ...] = (),
     allow_unknown_exports: bool = False,
@@ -424,9 +453,15 @@ def derive_export_surface(
     local_form_names = {
         "defun": set(function_names),
         "defproc": set(procedure_names),
+        "defprompt": set(prompt_names),
         "defworkflow": set(workflow_names),
     }
-    if not function_names or not procedure_names or not workflow_names:
+    if (
+        not function_names
+        or not procedure_names
+        or not prompt_names
+        or not workflow_names
+    ):
         for form in syntax_module.forms:
             items = form.items
             if len(items) < 2:
@@ -444,6 +479,7 @@ def derive_export_surface(
                 transition_names.add(name)
             if head in local_form_names and name is not None:
                 local_form_names[head].add(name)
+    prompt_names = tuple(local_form_names["defprompt"])
     exported_types: dict[str, ModuleMemberBinding] = {}
     exported_schemas: dict[str, ModuleMemberBinding] = {}
     exported_resources: dict[str, ModuleMemberBinding] = {}
@@ -451,6 +487,7 @@ def derive_export_surface(
     exported_macros: dict[str, ModuleMemberBinding] = {}
     exported_functions: dict[str, ModuleMemberBinding] = {}
     exported_procedures: dict[str, ModuleMemberBinding] = {}
+    exported_prompts: dict[str, ModuleMemberBinding] = {}
     exported_workflows: dict[str, ModuleMemberBinding] = {}
     seen_exports: set[str] = set()
     for exported_name in syntax_module.exports:
@@ -466,6 +503,16 @@ def derive_export_surface(
                 )
             )
         seen_exports.add(exported_name)
+        if exported_name in prompt_names:
+            exported_prompts[exported_name] = ModuleMemberBinding(
+                kind="prompt",
+                module_name=module_name,
+                member_name=exported_name,
+                canonical_name=canonical_callable_key(
+                    module_name,
+                    exported_name,
+                ),
+            )
         if exported_name in type_names:
             exported_types[exported_name] = ModuleMemberBinding(
                 kind="type",
@@ -530,12 +577,18 @@ def derive_export_surface(
                 canonical_name=canonical_callable_key(module_name, exported_name),
             )
             continue
+        if exported_name in prompt_names:
+            continue
         if not allow_unknown_exports:
             raise LispFrontendCompileError(
                 (
                     LispFrontendDiagnostic(
                         code="module_export_missing",
-                        message=f"export `{exported_name}` is not a locally defined type, schema, resource, transition, macro, function, procedure, or workflow",
+                        message=(
+                            f"export `{exported_name}` is not a locally defined "
+                            "type, schema, resource, transition, macro, "
+                            "function, procedure, prompt, or workflow"
+                        ),
                         span=syntax_module.export_directive.span if syntax_module.export_directive else syntax_module.span,
                         form_path=syntax_module.export_directive.form_path if syntax_module.export_directive else ("workflow-lisp",),
                     ),
@@ -550,6 +603,7 @@ def derive_export_surface(
         macros_by_name=exported_macros,
         functions_by_name=exported_functions,
         procedures_by_name=exported_procedures,
+        prompts_by_name=exported_prompts,
         workflows_by_name=exported_workflows,
     )
 
@@ -563,7 +617,7 @@ def build_import_scope(
 
     This is where aliases, `:only` names, qualified module paths, and ambiguous
     unqualified imports become explicit bindings used by definitions, macros,
-    procedure calls, and workflow calls.
+    procedure calls, prompt applications, and workflow calls.
     """
 
     alias_to_module: dict[str, str] = {}
@@ -574,6 +628,7 @@ def build_import_scope(
     macro_bindings: dict[str, ModuleMemberBinding] = {}
     function_bindings: dict[str, ModuleMemberBinding] = {}
     procedure_bindings: dict[str, ModuleMemberBinding] = {}
+    prompt_bindings: dict[str, ModuleMemberBinding] = {}
     workflow_bindings: dict[str, ModuleMemberBinding] = {}
     unqualified_type_bindings: dict[str, ModuleMemberBinding] = {}
     unqualified_schema_bindings: dict[str, ModuleMemberBinding] = {}
@@ -633,6 +688,7 @@ def build_import_scope(
             macro_bindings,
             function_bindings,
             procedure_bindings,
+            prompt_bindings,
             workflow_bindings,
         )
         if not import_directive.only:
@@ -650,6 +706,28 @@ def build_import_scope(
                         ),
                     )
                 )
+            prompt_binding = surface.prompts_by_name.get(member_name)
+            if prompt_binding is not None:
+                existing_prompt = prompt_bindings.get(member_name)
+                if (
+                    existing_prompt is not None
+                    and existing_prompt.canonical_name
+                    != prompt_binding.canonical_name
+                ):
+                    raise LispFrontendCompileError(
+                        (
+                            LispFrontendDiagnostic(
+                                code="module_import_ambiguous",
+                                message=(
+                                    f"ambiguous imported prompt "
+                                    f"`{member_name}`"
+                                ),
+                                span=import_directive.span,
+                                form_path=import_directive.form_path,
+                            ),
+                        )
+                    )
+                prompt_bindings[member_name] = prompt_binding
             if (
                 member_name in reserved_prelude_type_names
                 and binding.kind in {"type", "schema"}
@@ -703,6 +781,7 @@ def build_import_scope(
                 "macro": macro_bindings,
                 "function": function_bindings,
                 "procedure": procedure_bindings,
+                "prompt": prompt_bindings,
                 "workflow": workflow_bindings,
             }[binding.kind]
             if binding.kind in {"function", "procedure"}:
@@ -751,6 +830,7 @@ def build_import_scope(
         macro_bindings=macro_bindings,
         function_bindings=function_bindings,
         procedure_bindings=procedure_bindings,
+        prompt_bindings=prompt_bindings,
         workflow_bindings=workflow_bindings,
         unqualified_type_bindings=unqualified_type_bindings,
         unqualified_schema_bindings=unqualified_schema_bindings,
@@ -783,6 +863,7 @@ def _register_alias_bindings(
     macro_bindings: dict[str, ModuleMemberBinding],
     function_bindings: dict[str, ModuleMemberBinding],
     procedure_bindings: dict[str, ModuleMemberBinding],
+    prompt_bindings: dict[str, ModuleMemberBinding],
     workflow_bindings: dict[str, ModuleMemberBinding],
 ) -> None:
     for member_name, binding in surface.types_by_name.items():
@@ -806,6 +887,9 @@ def _register_alias_bindings(
     for member_name, binding in surface.procedures_by_name.items():
         procedure_bindings[f"{alias}.{member_name}"] = binding
         procedure_bindings[f"{surface.module_name}/{member_name}"] = binding
+    for member_name, binding in surface.prompts_by_name.items():
+        prompt_bindings[f"{alias}.{member_name}"] = binding
+        prompt_bindings[f"{surface.module_name}/{member_name}"] = binding
     for member_name, binding in surface.workflows_by_name.items():
         workflow_bindings[f"{alias}.{member_name}"] = binding
         workflow_bindings[f"{surface.module_name}/{member_name}"] = binding

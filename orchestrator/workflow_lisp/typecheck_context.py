@@ -80,6 +80,7 @@ class TypecheckContext:
     procedure_effects_by_name: Mapping[str, EffectSummary]
     workflow_effects_by_name: Mapping[str, EffectSummary]
     proc_ref_resolution_context: object | None
+    prompt_catalog: object | None
     shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...]
     session_state: TypecheckSessionState
 

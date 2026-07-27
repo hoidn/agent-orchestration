@@ -29,6 +29,44 @@ TYPED_PROMPT_INPUT_REPORT_SCHEMA_VERSION = "workflow_lisp_typed_prompt_input_rep
 _MISSING_SAMPLE_VALUE = object()
 
 
+def select_prompt_fragment_renderer(
+    type_ref: object,
+    *,
+    kind: str,
+) -> str | None:
+    """Select the closed Q1 fragment renderer without widening authored inputs."""
+
+    from .type_env import (
+        ListTypeRef,
+        PathTypeRef,
+        PrimitiveTypeRef,
+        RecordTypeRef,
+    )
+
+    if kind == "path":
+        return "posix-path-line" if isinstance(type_ref, PathTypeRef) else None
+    if kind != "value":
+        return None
+
+    def canonical_json_admissible(candidate: object) -> bool:
+        if isinstance(candidate, PrimitiveTypeRef):
+            return candidate.name in {
+                "String",
+                "Int",
+                "Float",
+                "Bool",
+                "Json",
+                "Value",
+            } or bool(candidate.allowed_values)
+        if isinstance(candidate, (PathTypeRef, RecordTypeRef)):
+            return True
+        if isinstance(candidate, ListTypeRef):
+            return canonical_json_admissible(candidate.item_type_ref)
+        return False
+
+    return "canonical-json" if canonical_json_admissible(type_ref) else None
+
+
 def normalize_typed_prompt_input_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
     """Validate and normalize one lowered typed prompt-input entry."""
 

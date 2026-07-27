@@ -24,6 +24,11 @@ from .phase_stdlib import (
     ProduceOneOfProducerSpec,
 )
 from .procedures import ProcedureParam
+from .prompts import (
+    PromptApplicationExpr,
+    PromptCatalog,
+    elaborate_prompt_application,
+)
 from .resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
 from .result_guidance import ReturnSpec, parse_return_spec
 from .spans import SourceSpan
@@ -43,6 +48,7 @@ from .syntax import (
     syntax_identifier,
     syntax_node_datum,
     target_dsl_supports_list_traversal,
+    target_dsl_supports_prompt_calculus,
     target_dsl_supports_provider_peer_messaging,
 )
 
@@ -488,7 +494,7 @@ class ProviderResultExpr:
     """One provider result with a typed structured return contract."""
 
     provider: "ExprNode"
-    prompt: "ExprNode"
+    prompt: "ExprNode | PromptApplicationExpr"
     inputs: tuple["ExprNode", ...]
     span: SourceSpan
     form_path: tuple[str, ...]
@@ -768,6 +774,7 @@ _ACTIVE_LOOP_BODY_DEPTH = 0
 _ACTIVE_LET_PROC_DEPTH = 0
 _ACTIVE_GUIDANCE_EXAMPLE = False
 _ACTIVE_TARGET_DSL_VERSION: str | None = None
+_ACTIVE_PROMPT_CATALOG: PromptCatalog | None = None
 
 _ElaborationRouteHandler = Callable[
     [SyntaxList, tuple[str, ...], frozenset[str], frozenset[str]],
@@ -786,11 +793,12 @@ def elaborate_expression(
     workflow_name_resolver=None,
     guidance_example: bool = False,
     target_dsl_version: str | None = None,
+    prompt_catalog: PromptCatalog | None = None,
 ) -> ExprNode:
     """Elaborate one syntax node into a supported Workflow Lisp expression."""
 
     global _ACTIVE_FUNCTION_NAME_RESOLVER, _ACTIVE_FUNCTION_NAMES, _ACTIVE_PROCEDURE_NAME_RESOLVER, _ACTIVE_WORKFLOW_NAME_RESOLVER
-    global _ACTIVE_LOCAL_PROC_NAMES, _ACTIVE_LET_PROC_DEPTH, _ACTIVE_GUIDANCE_EXAMPLE, _ACTIVE_TARGET_DSL_VERSION
+    global _ACTIVE_LOCAL_PROC_NAMES, _ACTIVE_LET_PROC_DEPTH, _ACTIVE_GUIDANCE_EXAMPLE, _ACTIVE_TARGET_DSL_VERSION, _ACTIVE_PROMPT_CATALOG
 
     previous_function_resolver = _ACTIVE_FUNCTION_NAME_RESOLVER
     previous_function_names = _ACTIVE_FUNCTION_NAMES
@@ -800,6 +808,7 @@ def elaborate_expression(
     previous_let_proc_depth = _ACTIVE_LET_PROC_DEPTH
     previous_guidance_example = _ACTIVE_GUIDANCE_EXAMPLE
     previous_target_dsl_version = _ACTIVE_TARGET_DSL_VERSION
+    previous_prompt_catalog = _ACTIVE_PROMPT_CATALOG
     _ACTIVE_FUNCTION_NAME_RESOLVER = function_name_resolver
     _ACTIVE_FUNCTION_NAMES = function_names
     _ACTIVE_PROCEDURE_NAME_RESOLVER = procedure_name_resolver
@@ -808,6 +817,7 @@ def elaborate_expression(
     _ACTIVE_LET_PROC_DEPTH = 0
     _ACTIVE_GUIDANCE_EXAMPLE = guidance_example
     _ACTIVE_TARGET_DSL_VERSION = target_dsl_version
+    _ACTIVE_PROMPT_CATALOG = prompt_catalog
     try:
         return _elaborate(
             syntax_node_datum(node),
@@ -824,6 +834,7 @@ def elaborate_expression(
         _ACTIVE_LET_PROC_DEPTH = previous_let_proc_depth
         _ACTIVE_GUIDANCE_EXAMPLE = previous_guidance_example
         _ACTIVE_TARGET_DSL_VERSION = previous_target_dsl_version
+        _ACTIVE_PROMPT_CATALOG = previous_prompt_catalog
 
 
 def _elaborate(
@@ -3173,9 +3184,9 @@ def _elaborate_provider_result(
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
 ) -> ProviderResultExpr:
-    if len(datum.items) < 6:
+    if len(datum.items) < 4:
         _raise_error(
-            "`provider-result` requires provider, :prompt, :inputs, and :returns",
+            "`provider-result` requires provider and :prompt",
             span=datum.span,
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
@@ -3213,34 +3224,131 @@ def _elaborate_provider_result(
     prompt_node = sections.get(":prompt")
     inputs_node = sections.get(":inputs")
     returns_node = sections.get(":returns")
-    if prompt_node is None or inputs_node is None or returns_node is None:
+    if prompt_node is None:
         _raise_error(
-            "`provider-result` requires :prompt, :inputs, and :returns",
+            "`provider-result` requires :prompt",
             span=datum.span,
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
         )
-    if not isinstance(inputs_node, SyntaxList):
-        _raise_error(
-            "`provider-result :inputs` must be a list",
-            span=inputs_node.span,
-            form_path=form_path,
-            expansion_stack=inputs_node.expansion_stack,
+    prompt_identifier = syntax_identifier(prompt_node)
+    if (
+        prompt_identifier is not None
+        and prompt_identifier.resolved_name not in bound_names
+        and _ACTIVE_PROMPT_CATALOG is not None
+        and _ACTIVE_PROMPT_CATALOG.resolve(
+            prompt_identifier.resolved_name
         )
-    return_spec = parse_return_spec(
-        returns_node,
-        form_path=form_path,
-        label="`provider-result :returns`",
+        is not None
+    ):
+        _require_prompt_calculus_target(
+            prompt_identifier,
+            form_path=form_path,
+        )
+        _raise_error(
+            "a prompt declaration must be fully applied in `provider-result :prompt`",
+            code="prompt_partial_application_unsupported",
+            span=prompt_identifier.span,
+            form_path=form_path,
+            expansion_stack=prompt_identifier.expansion_stack,
+        )
+    prompt_proc_ref_target = (
+        syntax_identifier(prompt_node.items[1])
+        if (
+            isinstance(prompt_node, SyntaxList)
+            and len(prompt_node.items) == 2
+            and syntax_head(prompt_node) is not None
+            and syntax_head(prompt_node).resolved_name == "proc-ref"
+        )
+        else None
     )
-    return ProviderResultExpr(
-        provider=provider,
-        prompt=_elaborate(
+    if (
+        prompt_proc_ref_target is not None
+        and _ACTIVE_PROMPT_CATALOG is not None
+        and _ACTIVE_PROMPT_CATALOG.resolve(
+            prompt_proc_ref_target.resolved_name
+        )
+        is not None
+    ):
+        _require_prompt_calculus_target(
+            prompt_proc_ref_target,
+            form_path=form_path,
+        )
+        _raise_error(
+            "a prompt declaration cannot be used through `proc-ref`",
+            code="prompt_partial_application_unsupported",
+            span=prompt_proc_ref_target.span,
+            form_path=form_path,
+            expansion_stack=prompt_proc_ref_target.expansion_stack,
+        )
+    prompt_head = (
+        syntax_head(prompt_node)
+        if isinstance(prompt_node, SyntaxList)
+        else None
+    )
+    resolved_prompt = (
+        _ACTIVE_PROMPT_CATALOG.resolve(prompt_head.resolved_name)
+        if _ACTIVE_PROMPT_CATALOG is not None and prompt_head is not None
+        else None
+    )
+    prompt_application: PromptApplicationExpr | None = None
+    if resolved_prompt is not None:
+        _require_prompt_calculus_target(
             prompt_node,
             form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        ),
-        inputs=tuple(
+        )
+        prompt_application = elaborate_prompt_application(
+            prompt_node,
+            catalog=_ACTIVE_PROMPT_CATALOG,
+            elaborate_fill=lambda item: _elaborate(
+                item,
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            ),
+            form_path=form_path,
+            return_redeclaration_node=returns_node,
+        )
+        if inputs_node is not None:
+            _raise_error(
+                "fragment-backed provider calls cannot redeclare `:inputs`",
+                code="prompt_inputs_redeclaration_forbidden",
+                span=inputs_node.span,
+                form_path=form_path,
+                expansion_stack=inputs_node.expansion_stack,
+            )
+        if ":prompt-dependencies" in sections:
+            dependency_node = sections[":prompt-dependencies"]
+            _raise_error(
+                "fragment-backed provider calls cannot redeclare `:prompt-dependencies`",
+                code="prompt_dependency_redeclaration_forbidden",
+                span=dependency_node.span,
+                form_path=form_path,
+                expansion_stack=dependency_node.expansion_stack,
+            )
+        return_spec = resolved_prompt.declaration.return_spec
+        inputs: tuple[ExprNode, ...] = ()
+    else:
+        if inputs_node is None or returns_node is None:
+            _raise_error(
+                "`provider-result` requires :inputs and :returns for an extern prompt",
+                span=datum.span,
+                form_path=form_path,
+                expansion_stack=datum.expansion_stack,
+            )
+        if not isinstance(inputs_node, SyntaxList):
+            _raise_error(
+                "`provider-result :inputs` must be a list",
+                span=inputs_node.span,
+                form_path=form_path,
+                expansion_stack=inputs_node.expansion_stack,
+            )
+        return_spec = parse_return_spec(
+            returns_node,
+            form_path=form_path,
+            label="`provider-result :returns`",
+        )
+        inputs = tuple(
             _elaborate(
                 item,
                 form_path=form_path,
@@ -3248,7 +3356,20 @@ def _elaborate_provider_result(
                 procedure_names=procedure_names,
             )
             for item in inputs_node.items
+        )
+    return ProviderResultExpr(
+        provider=provider,
+        prompt=(
+            prompt_application
+            if prompt_application is not None
+            else _elaborate(
+                prompt_node,
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            )
         ),
+        inputs=inputs,
         returns_type_name=return_spec.type_name,
         span=datum.span,
         form_path=form_path,
@@ -3299,6 +3420,7 @@ def _elaborate_provider_result(
                 procedure_names=procedure_names,
             )
             if ":prompt-dependencies" in sections
+            and prompt_application is None
             else None
         ),
         return_spec=return_spec,
@@ -4295,6 +4417,27 @@ def _keyword_sections(
             )
         sections[keyword_node.value] = value_node
     return sections
+
+
+def _require_prompt_calculus_target(
+    node: object,
+    *,
+    form_path: tuple[str, ...],
+) -> None:
+    if (
+        isinstance(_ACTIVE_TARGET_DSL_VERSION, str)
+        and target_dsl_supports_prompt_calculus(
+            _ACTIVE_TARGET_DSL_VERSION
+        )
+    ):
+        return
+    _raise_error(
+        "prompt calculus forms require target DSL 2.20 or later",
+        code="prompt_calculus_requires_dsl_2_20",
+        span=node.span,
+        form_path=form_path,
+        expansion_stack=node.expansion_stack,
+    )
 
 
 def _raise_error(

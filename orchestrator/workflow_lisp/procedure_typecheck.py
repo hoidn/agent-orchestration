@@ -86,6 +86,7 @@ class ProcedureTypecheckContext:
     procedure_effects_by_name: Mapping[str, EffectSummary]
     workflow_effects_by_name: Mapping[str, EffectSummary]
     proc_ref_resolution_context: object | None
+    prompt_catalog: object | None
     active_proc_ref_value_env: Mapping[str, ResolvedProcRefValue]
     generated_local_procedure_state: object | None = None
     session_state: object | None = None
@@ -136,6 +137,7 @@ def typecheck_procedure_definitions(
     function_name_resolver=None,
     procedure_name_resolver=None,
     workflow_name_resolver=None,
+    prompt_catalog: object | None = None,
     proc_ref_resolution_context=None,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> tuple[TypedProcedureDef, ...]:
@@ -233,6 +235,7 @@ def typecheck_procedure_definitions(
                 target_dsl_version=(
                     current_type_env.target_dsl_version
                 ),
+                prompt_catalog=prompt_catalog,
             )
         else:
             body_expr = procedure_def.body
@@ -264,6 +267,7 @@ def typecheck_procedure_definitions(
                 workflow_effects_by_name=workflow_effects_by_name,
                 proc_ref_resolution_context=proc_ref_resolution_context,
                 proc_ref_value_env=proc_ref_value_env,
+                prompt_catalog=prompt_catalog,
                 shared_union_field_capabilities=shared_union_field_capabilities,
                 expected_type=signature.return_type_ref,
             )
@@ -953,6 +957,7 @@ def typecheck_generated_procedure(
         procedure_effects_by_name=context.procedure_effects_by_name,
         workflow_effects_by_name=context.workflow_effects_by_name,
         proc_ref_resolution_context=context.proc_ref_resolution_context,
+        prompt_catalog=context.prompt_catalog,
         expected_type=signature.return_type_ref,
     )
     return TypedProcedureDef(
@@ -1020,6 +1025,7 @@ def typecheck_let_proc_expr(
         procedure_effects_by_name=context.procedure_effects_by_name,
         workflow_effects_by_name=context.workflow_effects_by_name,
         proc_ref_resolution_context=context.proc_ref_resolution_context,
+        prompt_catalog=context.prompt_catalog,
     )
 
 
@@ -1037,6 +1043,7 @@ def _typecheck_let_proc_expr_impl(
     procedure_effects_by_name: Mapping[str, EffectSummary],
     workflow_effects_by_name: Mapping[str, EffectSummary],
     proc_ref_resolution_context: ProcRefResolutionContext | None,
+    prompt_catalog: object | None,
 ) -> TypedExpr:
     session_state = get_session_state()
 
@@ -1255,6 +1262,7 @@ def _typecheck_let_proc_expr_impl(
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
             proc_ref_resolution_context=proc_ref_resolution_context,
+            prompt_catalog=prompt_catalog,
         )
     finally:
         session_state.proc_ref_value_env = previous_proc_ref_env
@@ -1305,6 +1313,7 @@ def _typecheck_let_proc_expr_impl(
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
             proc_ref_resolution_context=proc_ref_resolution_context,
+            prompt_catalog=prompt_catalog,
         )
     finally:
         session_state.proc_ref_value_env = previous_proc_ref_env

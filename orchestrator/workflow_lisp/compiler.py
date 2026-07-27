@@ -127,6 +127,12 @@ from .procedures import (
     validate_procedure_effects,
     with_call_graph,
 )
+from .prompts import (
+    PromptCatalog,
+    ResolvedPromptDef,
+    build_prompt_catalog,
+    elaborate_prompt_definitions,
+)
 from .procedure_refs import ProcRefResolutionContext, ResolvedProcRefValue, resolve_proc_ref_value
 from .procedure_specialization import (
     bound_proc_ref_request as _bound_proc_ref_request_owner,
@@ -2244,6 +2250,7 @@ def _compile_stage3_graph(
     exported_macro_defs_by_module: dict[str, dict[str, object]] = {}
     exported_function_signatures_by_module: dict[str, dict[str, FunctionSignature]] = {}
     exported_procedure_signatures_by_module: dict[str, dict[str, ProcedureSignature]] = {}
+    exported_prompt_defs_by_module: dict[str, dict[str, ResolvedPromptDef]] = {}
     exported_workflow_signatures_by_module: dict[str, dict[str, WorkflowSignature]] = {}
     visible_procedure_names_by_module: dict[str, frozenset[str]] = {}
     typed_functions_by_name: dict[str, TypedFunctionDef] = {}
@@ -2297,6 +2304,7 @@ def _compile_stage3_graph(
 
         raw_function_defs = elaborate_function_definitions(expanded_syntax)
         raw_procedure_defs = elaborate_procedure_definitions(expanded_syntax)
+        raw_prompt_defs = elaborate_prompt_definitions(expanded_syntax)
         raw_workflow_defs = elaborate_workflow_definitions(expanded_syntax)
         export_surfaces[module_name] = derive_export_surface(
             expanded_syntax,
@@ -2304,6 +2312,7 @@ def _compile_stage3_graph(
             local_module=definition_module,
             function_names=tuple(function.name for function in raw_function_defs),
             procedure_names=tuple(procedure.name for procedure in raw_procedure_defs),
+            prompt_names=tuple(prompt.name for prompt in raw_prompt_defs),
             workflow_names=tuple(workflow.name for workflow in raw_workflow_defs),
         )
         exported_schema_defs_by_module[module_name] = _exported_schema_defs(
@@ -2340,6 +2349,24 @@ def _compile_stage3_graph(
             imported_resource_defs=imported_resource_defs,
             imported_transition_defs=imported_transition_defs,
         )
+        imported_prompt_defs = _imported_prompt_definitions(
+            import_scope,
+            exported_prompt_defs_by_module,
+        )
+        prompt_catalog = build_prompt_catalog(
+            module_name,
+            raw_prompt_defs,
+            type_env=type_env,
+            imported_definitions=imported_prompt_defs,
+        )
+        exported_prompt_defs_by_module[module_name] = {
+            name: prompt_catalog.definitions_by_name[
+                binding.canonical_name
+            ]
+            for name, binding in export_surfaces[
+                module_name
+            ].prompts_by_name.items()
+        }
         function_defs = _canonicalize_function_defs(module_name, raw_function_defs)
         procedure_defs = _canonicalize_procedure_defs(module_name, raw_procedure_defs)
         workflow_defs = _canonicalize_workflow_defs(module_name, raw_workflow_defs)
@@ -2483,6 +2510,7 @@ def _compile_stage3_graph(
             function_name_resolver=local_function_resolver,
             procedure_name_resolver=local_procedure_resolver,
             workflow_name_resolver=local_workflow_resolver,
+            prompt_catalog=prompt_catalog,
         )
         function_catalog = validate_function_cycles(
             typed_functions,
@@ -2521,6 +2549,7 @@ def _compile_stage3_graph(
             function_name_resolver=local_function_resolver,
             procedure_name_resolver=local_procedure_resolver,
             workflow_name_resolver=local_workflow_resolver,
+            prompt_catalog=prompt_catalog,
             visible_typed_procedures_by_name=typed_procedures_by_name,
             visible_procedure_type_envs_by_name=procedure_type_envs_by_name,
             proc_ref_resolution_context=ProcRefResolutionContext(
@@ -2661,6 +2690,7 @@ def _compile_stage3_graph(
                 if normalized_validation_profile is Stage3ValidationProfile.SHARED_CALLABLE
                 else {}
             ),
+            prompt_catalog=prompt_catalog,
             diagnostics=diagnostics,
             validation_profile=normalized_validation_profile,
             retained_non_promotable_diagnostics=_retained_non_promotable_diagnostics(diagnostics),
@@ -2735,7 +2765,13 @@ def _definition_only_from_expanded_syntax_module(
     definition_forms = []
     for form in module_syntax.forms:
         head_name = syntax_head_name(syntax_node_datum(form))
-        if head_name in {"defworkflow", "defun", "defproc", "defmacro"}:
+        if head_name in {
+            "defworkflow",
+            "defun",
+            "defproc",
+            "defprompt",
+            "defmacro",
+        }:
             continue
         definition_forms.append(form)
     return WorkflowLispSyntaxModule(
@@ -3187,6 +3223,23 @@ def _imported_function_signatures(
         signature = exported_by_module.get(binding.module_name, {}).get(binding.member_name)
         if signature is not None:
             imported[binding.canonical_name] = signature
+    return imported
+
+
+def _imported_prompt_definitions(
+    import_scope: ModuleImportScope,
+    exported_by_module: Mapping[str, Mapping[str, ResolvedPromptDef]],
+) -> dict[str, ResolvedPromptDef]:
+    """Collect visible imported prompts under their namespace bindings."""
+
+    imported: dict[str, ResolvedPromptDef] = {}
+    for accessible_name, binding in import_scope.prompt_bindings.items():
+        definition = exported_by_module.get(binding.module_name, {}).get(
+            binding.member_name
+        )
+        if definition is not None:
+            imported[accessible_name] = definition
+            imported[binding.canonical_name] = definition
     return imported
 
 
@@ -4152,7 +4205,13 @@ def _definition_only_syntax_module(module_syntax: WorkflowLispSyntaxModule) -> W
     definition_forms = []
     for form in expanded_module.forms:
         head_name = syntax_head_name(syntax_node_datum(form))
-        if head_name in {"defworkflow", "defun", "defproc", "defmacro"}:
+        if head_name in {
+            "defworkflow",
+            "defun",
+            "defproc",
+            "defprompt",
+            "defmacro",
+        }:
             continue
         definition_forms.append(form)
     return WorkflowLispSyntaxModule(
@@ -4181,6 +4240,7 @@ def _typecheck_procedure_definitions(
     function_name_resolver=None,
     procedure_name_resolver=None,
     workflow_name_resolver=None,
+    prompt_catalog: PromptCatalog | None = None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> tuple[TypedProcedureDef, ...]:
@@ -4199,6 +4259,7 @@ def _typecheck_procedure_definitions(
         function_name_resolver=function_name_resolver,
         procedure_name_resolver=procedure_name_resolver,
         workflow_name_resolver=workflow_name_resolver,
+        prompt_catalog=prompt_catalog,
         proc_ref_resolution_context=proc_ref_resolution_context,
         procedure_type_envs=procedure_type_envs,
     )
@@ -4289,6 +4350,7 @@ def _infer_stage3_effect_summaries(
     function_name_resolver=None,
     procedure_name_resolver=None,
     workflow_name_resolver=None,
+    prompt_catalog: PromptCatalog | None = None,
     visible_typed_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
     visible_procedure_type_envs_by_name: Mapping[str, FrontendTypeEnvironment] | None = None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
@@ -4331,6 +4393,7 @@ def _infer_stage3_effect_summaries(
                 function_name_resolver=function_name_resolver,
                 procedure_name_resolver=procedure_name_resolver,
                 workflow_name_resolver=workflow_name_resolver,
+                prompt_catalog=prompt_catalog,
                 proc_ref_resolution_context=proc_ref_resolution_context,
                 procedure_type_envs=procedure_type_envs_by_name,
             )
@@ -4446,6 +4509,7 @@ def _infer_stage3_effect_summaries(
                 function_name_resolver=function_name_resolver,
                 procedure_name_resolver=procedure_name_resolver,
                 workflow_name_resolver=workflow_name_resolver,
+                prompt_catalog=prompt_catalog,
                 proc_ref_resolution_context=proc_ref_resolution_context,
                 reusable_state_producer_context=reusable_state_producer_context,
                 selected_entry_workflow_name=selected_entry_workflow_name,
@@ -4569,6 +4633,7 @@ def _infer_stage3_effect_summaries(
             function_name_resolver=function_name_resolver,
             procedure_name_resolver=procedure_name_resolver,
             workflow_name_resolver=workflow_name_resolver,
+            prompt_catalog=prompt_catalog,
             proc_ref_resolution_context=proc_ref_resolution_context,
             reusable_state_producer_context=reusable_state_producer_context,
             selected_entry_workflow_name=selected_entry_workflow_name,

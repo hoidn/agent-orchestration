@@ -50,6 +50,7 @@ from .expressions import (
     WorkflowRefLiteralExpr,
 )
 from .phase_stdlib import ProduceOneOfCandidateSpec, ProduceOneOfProducerSpec
+from .prompts import PromptApplicationExpr
 from .resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
 
 
@@ -163,7 +164,12 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
     if isinstance(expr, LetProcExpr):
         return (expr.binding.local_body, expr.body)
     if isinstance(expr, ProviderResultExpr):
-        children = [expr.provider, expr.prompt, *expr.inputs]
+        prompt_children = (
+            [fill.value_expr for fill in expr.prompt.fills]
+            if isinstance(expr.prompt, PromptApplicationExpr)
+            else [expr.prompt]
+        )
+        children = [expr.provider, *prompt_children, *expr.inputs]
         if expr.prompt_dependencies is not None:
             children.extend(expr.prompt_dependencies.required)
             children.extend(expr.prompt_dependencies.optional)

@@ -423,6 +423,7 @@ class Stage3CompileResult:
     typed_workflows: tuple[TypedWorkflowDef, ...]
     lowered_workflows: tuple["LoweredWorkflow", ...]
     validated_bundles: Mapping[str, "LoadedWorkflowBundle"]
+    prompt_catalog: object | None = None
     diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
     validation_profile: object | None = None
     retained_non_promotable_diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
@@ -2418,6 +2419,7 @@ def typecheck_workflow_definitions(
     function_name_resolver=None,
     procedure_name_resolver=None,
     workflow_name_resolver=None,
+    prompt_catalog: object | None = None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     reusable_state_producer_context: Mapping[str, object] | None = None,
     selected_entry_workflow_name: str | None = None,
@@ -2466,6 +2468,7 @@ def typecheck_workflow_definitions(
                 procedure_name_resolver=procedure_name_resolver,
                 workflow_name_resolver=workflow_name_resolver,
                 target_dsl_version=type_env.target_dsl_version,
+                prompt_catalog=prompt_catalog,
             )
         else:
             body_expr = workflow_def.body
@@ -2543,6 +2546,7 @@ def typecheck_workflow_definitions(
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
                 proc_ref_resolution_context=proc_ref_resolution_context,
+                prompt_catalog=prompt_catalog,
                 expected_type=signature.return_type_ref,
             )
         finally:

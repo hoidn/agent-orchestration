@@ -92,6 +92,79 @@ def _typed_prompt_input_bound_inputs(bundle) -> dict[str, str]:
     return bound_inputs
 
 
+def test_prompt_fragment_renderer_selection_recurses_only_through_admitted_lists() -> None:
+    from orchestrator.workflow_lisp.definitions import PathDef, UnionDef
+    from orchestrator.workflow_lisp.reader import read_sexpr_text
+    from orchestrator.workflow_lisp.type_env import (
+        ListTypeRef,
+        MapTypeRef,
+        OptionalTypeRef,
+        PathTypeRef,
+        PrimitiveTypeRef,
+        UnionTypeRef,
+    )
+
+    module = _typed_prompt_inputs_module()
+    span = read_sexpr_text(
+        '"x"',
+        source_path="typed_prompt_fragment_renderer.orc",
+    ).span
+    design_doc = PathTypeRef(
+        name="DesignDocPath",
+        definition=PathDef(
+            name="DesignDocPath",
+            kind="relpath",
+            under="docs/design",
+            must_exist=True,
+            span=span,
+        ),
+    )
+    nested = ListTypeRef(
+        name="List[List[DesignDocPath]]",
+        item_type_ref=ListTypeRef(
+            name="List[DesignDocPath]",
+            item_type_ref=design_doc,
+        ),
+    )
+    assert module.select_prompt_fragment_renderer(
+        nested,
+        kind="value",
+    ) == "canonical-json"
+    assert module.select_prompt_fragment_renderer(
+        design_doc,
+        kind="path",
+    ) == "posix-path-line"
+
+    unsupported = (
+        OptionalTypeRef(
+            name="Optional[String]",
+            item_type_ref=PrimitiveTypeRef(name="String"),
+        ),
+        MapTypeRef(
+            name="Map[String, String]",
+            key_type_ref=PrimitiveTypeRef(name="String"),
+            value_type_ref=PrimitiveTypeRef(name="String"),
+        ),
+        UnionTypeRef(
+            name="Outcome",
+            definition=UnionDef(
+                name="Outcome",
+                variants=(),
+                span=span,
+            ),
+            variant_field_types={},
+        ),
+    )
+    assert all(
+        module.select_prompt_fragment_renderer(
+            type_ref,
+            kind="value",
+        )
+        is None
+        for type_ref in unsupported
+    )
+
+
 def _provider_step(bundle):
     return next(step for step in bundle.surface.steps if step.kind is SurfaceStepKind.PROVIDER)
 

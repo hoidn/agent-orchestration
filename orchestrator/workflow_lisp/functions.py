@@ -53,6 +53,7 @@ from .expressions import (
     elaborate_expression,
 )
 from .result_guidance import ReturnSpec, parse_return_spec
+from .prompts import PromptApplicationExpr
 from .spans import SourceSpan
 from .syntax import (
     ExpansionStack,
@@ -234,6 +235,7 @@ def typecheck_function_definitions(
     function_name_resolver=None,
     procedure_name_resolver=None,
     workflow_name_resolver=None,
+    prompt_catalog: object | None = None,
 ) -> tuple[TypedFunctionDef, ...]:
     """Typecheck helper bodies against the pure expression subset."""
 
@@ -256,6 +258,7 @@ def typecheck_function_definitions(
             procedure_name_resolver=procedure_name_resolver,
             workflow_name_resolver=workflow_name_resolver,
             target_dsl_version=type_env.target_dsl_version,
+            prompt_catalog=prompt_catalog,
         )
         _validate_pure_function_expr(body_expr, function_def=function_def)
         typed_body = typecheck_expression(
@@ -265,6 +268,7 @@ def typecheck_function_definitions(
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,
             function_catalog=function_catalog,
+            prompt_catalog=prompt_catalog,
             expected_type=signature.return_type_ref,
         )
         if not type_refs_compatible(signature.return_type_ref, typed_body.type_ref):
@@ -564,10 +568,30 @@ def _normalize_expr(
             ),
         )
     if isinstance(expr, ProviderResultExpr):
+        normalized_prompt = (
+            replace(
+                expr.prompt,
+                fills=tuple(
+                    replace(
+                        fill,
+                        value_expr=_normalize_expr(
+                            fill.value_expr,
+                            typed_functions_by_name=typed_functions_by_name,
+                        ),
+                    )
+                    for fill in expr.prompt.fills
+                ),
+            )
+            if isinstance(expr.prompt, PromptApplicationExpr)
+            else _normalize_expr(
+                expr.prompt,
+                typed_functions_by_name=typed_functions_by_name,
+            )
+        )
         return replace(
             expr,
             provider=_normalize_expr(expr.provider, typed_functions_by_name=typed_functions_by_name),
-            prompt=_normalize_expr(expr.prompt, typed_functions_by_name=typed_functions_by_name),
+            prompt=normalized_prompt,
             inputs=tuple(
                 _normalize_expr(arg, typed_functions_by_name=typed_functions_by_name)
                 for arg in expr.inputs

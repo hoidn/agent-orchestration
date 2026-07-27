@@ -34,6 +34,7 @@ from .syntax import (
     target_dsl_supports_provider_supervision,
 )
 from .phase import is_implementation_attempt_result_type
+from .prompts import PromptApplicationExpr, typecheck_prompt_application
 from .type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, UnionTypeRef, type_refs_compatible
 from .typecheck_context import raise_error, raise_required_lint
 
@@ -556,11 +557,34 @@ def typecheck_provider_result_expr(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
         )
-    return_type = context.type_env.resolve_type(
-        expr.returns_type_name,
-        span=expr.span,
-        form_path=expr.form_path,
+    return_type = (
+        expr.prompt.prompt.return_type_ref
+        if isinstance(expr.prompt, PromptApplicationExpr)
+        else context.type_env.resolve_type(
+            expr.returns_type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
     )
+    typed_prompt_application = None
+    prompt_fill_summaries = ()
+    if isinstance(expr.prompt, PromptApplicationExpr):
+        (
+            typed_prompt_application,
+            prompt_fill_summaries,
+        ) = typecheck_prompt_application(
+            expr.prompt,
+            recurse=recurse,
+            type_env=context.type_env,
+        )
+        if expr.prompt.return_redeclaration_span is not None:
+            raise_error(
+                "fragment-backed provider calls cannot redeclare `:returns`",
+                code="prompt_return_redeclaration_forbidden",
+                span=expr.prompt.return_redeclaration_span,
+                form_path=expr.form_path,
+                expansion_stack=expr.prompt.return_redeclaration_expansion_stack,
+            )
     from .result_guidance import validate_result_guidance_example
 
     validate_result_guidance_example(
@@ -595,13 +619,20 @@ def typecheck_provider_result_expr(
         recurse=recurse,
         typed_factory=typed_factory,
     )
-    typed_prompt = typecheck_expected_extern_operand(
-        expr.prompt,
-        expected_primitive="Prompt",
-        context=context,
-        recurse=recurse,
-        typed_factory=typed_factory,
-    )
+    if typed_prompt_application is not None:
+        typed_prompt = typed_factory(
+            expr=typed_prompt_application,
+            type_ref=PrimitiveTypeRef(name="Prompt"),
+            effect=merge_effect_summaries(*prompt_fill_summaries),
+        )
+    else:
+        typed_prompt = typecheck_expected_extern_operand(
+            expr.prompt,
+            expected_primitive="Prompt",
+            context=context,
+            recurse=recurse,
+            typed_factory=typed_factory,
+        )
     if typed_provider.type_ref != PrimitiveTypeRef(name="Provider"):
         raise_error(
             "`provider-result` provider operand must resolve to `Provider`",
@@ -636,24 +667,25 @@ def typecheck_provider_result_expr(
             form_path=expr.provider.form_path,
             expansion_stack=expr.provider.expansion_stack,
         )
-    prompt_extern_name = _extern_operand_name(expr.prompt)
-    if prompt_extern_name is None or context.extern_environment is None:
-        raise_error(
-            "`provider-result` requires a compiler-known prompt extern",
-            code="provider_result_prompt_invalid",
-            span=expr.prompt.span,
-            form_path=expr.prompt.form_path,
-            expansion_stack=expr.prompt.expansion_stack,
-        )
-    prompt_binding = context.extern_environment.bindings_by_name.get(prompt_extern_name)
-    if not isinstance(prompt_binding, PromptExtern):
-        raise_error(
-            f"`provider-result` prompt `{prompt_extern_name}` is not a declared prompt extern",
-            code="provider_result_prompt_invalid",
-            span=expr.prompt.span,
-            form_path=expr.prompt.form_path,
-            expansion_stack=expr.prompt.expansion_stack,
-        )
+    if typed_prompt_application is None:
+        prompt_extern_name = _extern_operand_name(expr.prompt)
+        if prompt_extern_name is None or context.extern_environment is None:
+            raise_error(
+                "`provider-result` requires a compiler-known prompt extern",
+                code="provider_result_prompt_invalid",
+                span=expr.prompt.span,
+                form_path=expr.prompt.form_path,
+                expansion_stack=expr.prompt.expansion_stack,
+            )
+        prompt_binding = context.extern_environment.bindings_by_name.get(prompt_extern_name)
+        if not isinstance(prompt_binding, PromptExtern):
+            raise_error(
+                f"`provider-result` prompt `{prompt_extern_name}` is not a declared prompt extern",
+                code="provider_result_prompt_invalid",
+                span=expr.prompt.span,
+                form_path=expr.prompt.form_path,
+                expansion_stack=expr.prompt.expansion_stack,
+            )
     policy_summaries = []
     for field_name, policy_expr in (("model", expr.model), ("effort", expr.effort)):
         if policy_expr is None:
@@ -774,7 +806,11 @@ def typecheck_provider_result_expr(
         direct_effects=(UsesProviderEffect(subject=tuple(provider_name.split("."))),)
     )
     return typed_factory(
-        expr=expr,
+        expr=(
+            replace(expr, prompt=typed_prompt_application)
+            if typed_prompt_application is not None
+            else expr
+        ),
         type_ref=return_type,
         effect=merge_effect_summaries(
             typed_provider.effect_summary,

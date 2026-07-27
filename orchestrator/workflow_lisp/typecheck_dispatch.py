@@ -153,6 +153,7 @@ def typecheck_expression(
     workflow_effects_by_name: Mapping[str, EffectSummary] | None = None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     proc_ref_value_env: Mapping[str, ResolvedProcRefValue] | None = None,
+    prompt_catalog: object | None = None,
     shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...] = (),
     expected_type: TypeRef | None = None,
 ) -> TypedExpr:
@@ -182,6 +183,7 @@ def typecheck_expression(
             procedure_effects_by_name=procedure_effects_by_name or {},
             workflow_effects_by_name=workflow_effects_by_name or {},
             proc_ref_resolution_context=proc_ref_resolution_context,
+            prompt_catalog=prompt_catalog,
             expected_type=expected_type,
         )
         from .procedure_typecheck import _replace_eliminated_let_procs as _replace_eliminated_let_procs_owner
@@ -216,6 +218,7 @@ def _typecheck(
     procedure_effects_by_name: Mapping[str, EffectSummary],
     workflow_effects_by_name: Mapping[str, EffectSummary],
     proc_ref_resolution_context: ProcRefResolutionContext | None,
+    prompt_catalog: object | None,
     expected_type: TypeRef | None = None,
 ) -> TypedExpr:
     session_state = get_session_state()
@@ -231,6 +234,7 @@ def _typecheck(
         procedure_effects_by_name=procedure_effects_by_name,
         workflow_effects_by_name=workflow_effects_by_name,
         proc_ref_resolution_context=proc_ref_resolution_context,
+        prompt_catalog=prompt_catalog,
         shared_union_field_capabilities=session_state.shared_union_field_capabilities,
         session_state=session_state,
     )
@@ -286,6 +290,7 @@ def _typecheck(
                 procedure_effects_by_name=recurse_procedure_effects,
                 workflow_effects_by_name=recurse_workflow_effects,
                 proc_ref_resolution_context=recurse_proc_ref_resolution_context,
+                prompt_catalog=prompt_catalog,
                 expected_type=recurse_expected_type,
             )
         finally:
@@ -572,6 +577,7 @@ def _typecheck(
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
                 proc_ref_resolution_context=proc_ref_resolution_context,
+                prompt_catalog=prompt_catalog,
                 expected_type=field_expected_type,
             )
             if typed_field.effect_summary != EMPTY_EFFECT_SUMMARY:
@@ -666,6 +672,7 @@ def _typecheck(
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
                 proc_ref_resolution_context=proc_ref_resolution_context,
+                prompt_catalog=prompt_catalog,
                 expected_type=field_expected_type,
             )
             if typed_field.effect_summary != EMPTY_EFFECT_SUMMARY:
@@ -867,6 +874,7 @@ def _typecheck(
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
             proc_ref_resolution_context=proc_ref_resolution_context,
+            prompt_catalog=prompt_catalog,
         )
         if typed_condition.type_ref != PrimitiveTypeRef(name="Bool"):
             _raise_error(
@@ -899,6 +907,7 @@ def _typecheck(
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
             proc_ref_resolution_context=proc_ref_resolution_context,
+            prompt_catalog=prompt_catalog,
             expected_type=expected_type,
         )
         typed_else = _typecheck(
@@ -914,6 +923,7 @@ def _typecheck(
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
             proc_ref_resolution_context=proc_ref_resolution_context,
+            prompt_catalog=prompt_catalog,
             expected_type=expected_type,
         )
         result_type = _unify_loop_control_types(typed_then.type_ref, typed_else.type_ref)
@@ -1018,6 +1028,7 @@ def _typecheck(
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
                 proc_ref_resolution_context=proc_ref_resolution_context,
+                prompt_catalog=prompt_catalog,
             )
             if typed_exhausted.type_ref != typed_body.type_ref.result_type_ref:
                 _raise_error(
@@ -1074,6 +1085,7 @@ def _typecheck(
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
                 proc_ref_resolution_context=proc_ref_resolution_context,
+                prompt_catalog=prompt_catalog,
                 active_proc_ref_value_env=session_state.proc_ref_value_env,
                 generated_local_procedure_state=session_state.let_proc_rewrite_results,
                 session_state=session_state,
@@ -1127,6 +1139,7 @@ def _typecheck(
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
             proc_ref_resolution_context=proc_ref_resolution_context,
+            prompt_catalog=prompt_catalog,
         )
         phase_scope = build_phase_scope(
             typed_context.type_ref,
@@ -1148,6 +1161,7 @@ def _typecheck(
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
             proc_ref_resolution_context=proc_ref_resolution_context,
+            prompt_catalog=prompt_catalog,
         )
         return _typed(
             expr=WithPhaseExpr(
