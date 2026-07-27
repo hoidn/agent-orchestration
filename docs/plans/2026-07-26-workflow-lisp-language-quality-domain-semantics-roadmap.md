@@ -417,9 +417,9 @@ session reporting.
 - Tolerant-but-loud boundary normalization — accepting a provider value
   whose type derives exactly one canonical reading, normalized with a named
   diagnostic instead of instructed-and-rejected (today's consumers: the
-  relpath-spelling and schema-version guidance lines) — remains shelved
-  until recurring near-miss rejections demonstrate the cost, and enters
-  only via its own design act.
+  relpath-spelling and schema-version guidance lines) — is eligible under
+  design principle 30 (provider-attention conservation) and enters only
+  via its own design act.
 - Runtime prompt values, fragment-reference collections, type-parameterized
   fragments, semantic prompt checking, same-turn steering, and optimization
   remain outside this roadmap.

@@ -43,6 +43,8 @@ Use these labels:
   identifier spelling.
 - Types are opt-in constraints: structure over names, loose-then-narrow
   over mandatory taxonomies.
+- Provider attention is conserved: obligations the deterministic side can
+  carry never become prompt instructions.
 
 ## Design Review Practices To Retain
 
@@ -571,6 +573,40 @@ as a taxonomy tax on every boundary. Four rules:
 This principle governs design direction; it does not weaken any existing
 boundary's declared contract or the fail-closed validation of whatever
 contract is declared.
+
+## 30. Provider Attention Is A Bounded Resource The Language Conserves
+
+Status: `language direction` (owner-directed 2026-07-27)
+
+An instruction token that exists because the deterministic side declined an
+obligation it could structurally carry — spelling conventions, token
+exactness, format rules, bookkeeping reminders — is a standing tax on every
+attempt and a boundary defect risk. Where the compiler, renderer, or
+validator can render, derive, check, or normalize an obligation, the prompt
+must not instruct it; prose is reserved for the judgment the provider is
+actually engaged for.
+
+- **Misplaced load, not prompt length.** The output contract is load the
+  provider genuinely must carry; shrinking necessary contract information
+  is self-harm, not conservation. This principle targets obligations whose
+  correct owner is deterministic.
+- **Ambiguity keeps its instructions.** Where a value's reading is
+  genuinely ambiguous, instructing the provider remains the correct
+  assignment of responsibility; mechanisms absorb only what they can
+  discharge unambiguously, and fail-closed validation of the residue is
+  unchanged.
+- **Guidance prose is tracked debt.** Each guidance line in a rendered
+  contract block compensates for a missing mechanism and should name it.
+  Shipped examples: the relpath-spelling line and the schema-version
+  exactness paragraph, both compensating for absent tolerant-but-loud
+  boundary normalization. Extending guidance prose where a mechanism could
+  exist is a defect under this principle.
+- **Precedent.** Output-contract rendering, slot discharge, `:out` path
+  unification, and document injection are this principle acting before it
+  was named: each moved an instruction out of prose into machinery.
+
+This principle governs design direction; it does not require removing any
+instruction before its absorbing mechanism exists and is accepted.
 
 ## Relationship To Normative Specs
 
