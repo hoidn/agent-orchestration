@@ -124,9 +124,18 @@ The current contract is implemented in
   semantic inspection. When Workflow Lisp `provider-result` declares typed
   prompt dependencies, this surface carries the validated
   `CompilerPromptDependencyContract`; the contract contains required/optional
-  binding refs, position, instruction digest, and its source-origin key. The
-  adjacent source map owns authored clause/operand lineage. The semantic surface
-  does not carry dependency bodies, rendered prompt bytes, or attempt evidence.
+  binding refs, position, instruction digest, and its source-origin key. A
+  target-2.20 fragment-backed call additionally carries the paired
+  `CompilerPromptFragmentContract` and
+  `compiled_prompt_fragment_identity`. Its document fills use the
+  `workflow_lisp_prompt_fragment` dependency origin, while its exact template,
+  declaration-ordered rendered slots, selected renderers, and closed value
+  sources remain in the fragment contract. Semantic validation rejects an
+  absent, malformed, or mismatched contract/identity pair and rejects
+  disagreement with the corresponding executable provider configuration. The
+  adjacent source map owns authored declaration/application/fill lineage. The
+  semantic surface does not carry dependency bodies, resolved runtime values,
+  final rendered prompt bytes, or attempt evidence.
 - `SemanticCommandBoundary` records typed command-boundary metadata rather than
   leaving command meaning embedded in shell text.
 - `SemanticExecutableBridge` records the semantic-to-executable linkage for
@@ -166,10 +175,11 @@ Current linkage rules:
   executable contract itself.
 - `runtime_plan` remains a derived runtime-facing summary used for ordering,
   presentation, and checkpoint linkage.
-- Provider prompt-dependency configuration remains in validated executable and
-  semantic ownership. `runtime_plan` stays topology-only and does not acquire
-  path operands, injection policy, compiler-contract metadata, content digests,
-  or evidence locations.
+- Provider prompt-dependency and fragment configuration remain in validated
+  executable and semantic ownership. `runtime_plan` stays topology-only and
+  does not acquire path operands, injection policy, compiler-contract
+  metadata, compiled fragment identity, content digests, rendered prompt
+  bytes, or evidence locations.
 - build summaries, dashboards, and debug YAML may summarize these surfaces,
   but they do not become semantic or executable authority.
 
@@ -222,6 +232,11 @@ build path.
   `semantic_ir.json` emission, schema-version locking, build-manifest lineage,
   and generated-path visibility for pure projection and resource-transition
   bundles.
+- `tests/test_workflow_lisp_prompt_calculus.py` and
+  `tests/test_workflow_lisp_prompt_calculus_e2e.py` provide current evidence
+  that the target-2.20 prompt fragment contract and identity reach
+  `SemanticPromptSurface`, remain equal to executable carriage, and survive
+  clean build and compatible resume.
 
 Those artifacts are durable evidence for the implemented surface. They do not
 change the rule that Semantic IR is derived from shared validated structures

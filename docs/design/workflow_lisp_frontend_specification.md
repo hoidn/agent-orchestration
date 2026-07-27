@@ -1224,6 +1224,37 @@ helper-result locals introduced by that AST are typed and lowered as ordinary
 lexical bindings after hygiene rewriting; direct macro-owned variant proof
 remains deferred to ordinary helper bodies and `match`.
 
+### 8.7.1 `defprompt` (Target 2.20)
+
+`defprompt` declares compile-time provider-prompt structure in a distinct
+module namespace:
+
+```lisp
+(defprompt review-design-doc
+  (:fills
+    (target_doc :doc DesignDocPath)
+    (context_docs :value List[DesignDocPath])
+    (review_focus :text)
+    (checks_report :path WorkReportPath))
+  -> ReviewDecision
+  "Review the injected target with {review_focus}.
+   Context paths: {context_docs}
+   Checks report: {checks_report}")
+```
+
+The closed slot kinds are `:doc`, `:text`, `:value`, and `:path`. A slot may
+carry only the kind-compatible optional refinement; refinements narrow the
+existing renderer contract and never create conversions or new renderers. A
+declaration owns one optional `ReturnSpec`, defaulting to exact `Value`, and
+one deterministic brace-placeholder template.
+
+A prompt declaration is importable and exportable, but is not a runtime value,
+procedure, `ProcRef`, provider, or general callable. Its only use is one fully
+applied named application in `provider-result :prompt`. Target 2.19 and earlier
+do not reserve `defprompt` as a general expression; a Q1 declaration,
+application, or slot keyword there fails with
+`prompt_calculus_requires_dsl_2_20`.
+
 ### 8.8 `defproc`
 
 Defines reusable effectful workflow procedure.
@@ -2306,6 +2337,99 @@ adjudicated paths without that ordinary typed carrier emit no Workflow Lisp
 prompt-dependency evidence; their existing debug/state output is separate.
 They still share the per-attempt snapshot/render owner and fresh-per-retry
 behavior. YAML content injection remains a legacy authoring surface.
+
+### 22.6 Workflow Lisp Prompt Fragments (Target 2.20)
+
+A fragment-backed provider call applies one resolved `defprompt` directly and
+fully:
+
+```lisp
+(provider-result providers.review
+  :prompt
+    (review-design-doc
+      :target_doc completed.target_doc
+      :context_docs completed.context_docs
+      :review_focus inputs.review_focus
+      :checks_report inputs.checks_report)
+  :model inputs.review_model
+  :effort inputs.review_effort
+  :timeout-sec 3600)
+```
+
+Every declared slot appears exactly once as a named fill. Fill spelling order
+is not semantic; compilation normalizes bindings into declaration order.
+Unknown, duplicate, missing, partial, nested, or value-position applications
+fail closed. Fragment-backed calls do not admit parallel `:inputs`,
+`:prompt-dependencies`, or `:returns`: the declaration owns all
+provider-visible fills and the sole result contract. Extern-backed calls keep
+those existing forms unchanged.
+
+Delivery is kind-driven:
+
+- `:doc` accepts a workspace `relpath` contract with `must_exist=true`, forbids
+  an inline placeholder, and lowers to the existing required/prepend immutable
+  prompt-dependency lane;
+- `:text` accepts exact `String` and renders raw UTF-8;
+- `:value` selects the unique canonical-JSON renderer by resolved static type;
+  target 2.20 adds recursive `List[T]` selection only when `T` is already a
+  supported scalar, enum, path, record, exact `Value`, or recursively supported
+  list type; and
+- `:path` selects the existing POSIX path-line renderer for a declared path
+  type.
+
+`Optional`, `Map`, union, reference, resource, schema, and other unsupported or
+ambiguous fragment renderer shapes remain unavailable. Rendering happens in
+the existing composition owner: render the base template, prepend the one
+canonical document dependency block, apply consumed artifacts, append the one
+generated output contract, and deliver through the existing provider
+transport. The validated output bundle remains result authority.
+
+Compilation produces one
+`compiled_prompt_fragment_identity.v1` canonical SHA-256 identity from the
+resolved declaration, exact template UTF-8, declaration-ordered slot contract,
+normalized prompt-owned `ReturnSpec`, and declaration-ordered closed
+literal/name/field-path fill identities. It excludes runtime values, file
+contents, provider policy, ambient state, source spans, host representations,
+and runtime-owned prompt contributions. The compiler also carries a closed
+`CompilerPromptFragmentContract` containing the exact template and selected
+renderers. Contract and identity remain paired through Core, Semantic IR,
+Executable IR, persisted provider configuration, and lexical checkpoints.
+
+Before provider preparation, the Semantic IR identity, Executable IR identity,
+compiler fragment-contract identity, and receiving-attempt identity must be
+present, well formed, and byte-equal. The attempt publishes the closed
+`workflow_prompt_fragment_snapshot.functional.v1` sibling under the existing
+schema-2.1 `record_kind=prompt_snapshot` allocator and terminal validator. Its
+dependency origin is `workflow_lisp_prompt_fragment`; zero-document fragments
+publish explicit empty dependency/injection rows. Prompt snapshot evidence is
+an audit view and is never execution, checkpoint, or resume authority.
+Compatible completed-result reuse follows the existing lexical-checkpoint and
+program-identity guards without provider re-execution; a changed fragment
+identity is program drift.
+
+The Q1-specific refusal codes are:
+
+- `prompt_slot_kind_unknown`, `prompt_slot_duplicate`,
+  `prompt_slot_refinement_invalid`;
+- `prompt_placeholder_syntax_invalid`, `prompt_placeholder_undeclared`,
+  `prompt_placeholder_missing`, `prompt_doc_placeholder_forbidden`;
+- `prompt_fill_duplicate`, `prompt_fill_unknown`,
+  `prompt_slot_undischarged`, `prompt_slot_type_mismatch`,
+  `prompt_fill_renderer_unsupported`, `prompt_fill_identity_unsupported`,
+  `prompt_partial_application_unsupported`;
+- `prompt_return_redeclaration_forbidden`,
+  `prompt_inputs_redeclaration_forbidden`,
+  `prompt_dependency_redeclaration_forbidden`;
+- `prompt_calculus_requires_dsl_2_20`; and
+- `compiled_prompt_fragment_identity_missing`,
+  `compiled_prompt_fragment_identity_invalid`,
+  `compiled_prompt_fragment_identity_mismatch`.
+
+Q1 does not implement output-position slots (Q2), role-separated
+fragment/dependency/runtime/provider-policy identity or comparison diagnostics
+(Q3), or judgment views (Q4). It does not add residual prompt values, nested
+fragments, procedure/provider substitution, schema 2.2, or a second result,
+snapshot, or resume channel.
 
 ## 23. Command Result
 
@@ -3416,6 +3540,13 @@ SemanticProviderResult
   CompilerPromptDependencyContract(...)
   AtomicBundleValidation(...)
 ```
+
+For a target-2.20 fragment application, the same provider step additionally
+carries the validated `CompilerPromptFragmentContract` and exact
+`compiled_prompt_fragment_identity`. Document fills lower through the
+`workflow_lisp_prompt_fragment` dependency origin; rendered fills remain in the
+compiler fragment contract. Classic and WCC/schema-2 lowering must produce the
+same normalized contract, result contract, and identity.
 
 ## 54.1 `with-live-providers` Elaboration (Target 2.16)
 
@@ -5016,6 +5147,20 @@ cancel, resume, replace, or separately settle a member. Same-turn or
 unrecorded raw-pane steering, dynamic membership, mixed peer-plus-STEER, and
 cross-run messaging remain outside the language contract. Target `2.16` and
 its `provider_supervision.v1` artifacts and behavior are unchanged.
+
+## 105.6 Prompt Core
+
+Target 2.20 implements the bounded Q1 prompt core described in Sections 8.7.1,
+22.6, and 54. It includes import/export resolution for `defprompt`, fully
+applied named fills, closed kind/refinement checking, deterministic renderer
+selection, prompt-owned returns, classic/WCC parity, exact compiled-fragment
+identity carriage, runtime rendering through the existing prompt composer,
+schema-2.1 fragment snapshots, and compatible completed-boundary resume.
+
+The migrated `review-design-docs` review call is the current real consumer.
+Its fix call remains extern-backed. Q2 output positions, Q3 role-separated
+identity/comparison, and Q4 judgment views remain separate successor tranches;
+their design text is not evidence of shipped syntax.
 
 ## Part XIX. Resolved Design Decisions
 

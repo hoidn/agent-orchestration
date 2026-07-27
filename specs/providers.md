@@ -344,6 +344,39 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
   - The exact UTF-8 dependency block is limited to `262144` bytes as specified by `dependencies.md`; truncation is deterministic and explicit.
   - Prompt-dependency evidence is narrower than snapshot/render reuse: only an ordinary typed Workflow Lisp attempt carrying the validated compiler contract derives Workflow Lisp prompt-dependency evidence. Adjudicated paths without that ordinary typed carrier emit no such evidence; their existing debug/state output is separate. Historical YAML content-injection behavior remains comparison evidence only and is not reachable through fresh workflow execution.
 
+- Workflow Lisp prompt fragments (target 2.20)
+  - `defprompt` is a compile-time module declaration, not a runtime value,
+    `ProcRef`, provider, or general callable. It may be used only as one direct,
+    fully applied named application in `provider-result :prompt`.
+  - The declaration owns one closed set of `doc`, `text`, `value`, and `path`
+    fills plus the provider result `ReturnSpec`. A fragment-backed call must not
+    also declare `:inputs`, `:prompt-dependencies`, or `:returns`. Existing
+    extern-backed provider calls are unchanged.
+  - The runtime renders `text` as raw UTF-8, selects the unique registered
+    canonical-JSON renderer for supported `value` slots, and selects the
+    existing POSIX path-line renderer for `path` slots. Target 2.20 admits
+    recursive `List[T]` canonical JSON only when `T` is already in the closed
+    supported fragment renderer set. Missing, incompatible, unsupported, or
+    ambiguous renderer selection fails before provider launch.
+  - `doc` fills lower to one required, fixed-`prepend` dependency contract with
+    origin `workflow_lisp_prompt_fragment`; they do not render through template
+    placeholders. The fragment base then reuses the ordinary dependency,
+    consumed-artifact, output-contract, and provider-transport composition
+    owners. The output contract is appended exactly once and the validated
+    bundle remains result authority.
+  - The compiler carries one closed `CompilerPromptFragmentContract` and one
+    `compiled_prompt_fragment_identity.v1` SHA-256 identity through Semantic
+    and Executable IR. The attempt publishes
+    `workflow_prompt_fragment_snapshot.functional.v1` as
+    `record_kind: prompt_snapshot` through the schema-2.1 attempt allocator.
+    The fragment-contract, Semantic, Executable, and attempt identities must be
+    present, well formed, and byte-equal before provider preparation.
+  - Prompt snapshot records and indexes are non-authoritative evidence.
+    Compatible completed-result reuse follows the existing program,
+    checkpoint, bound-input, and completed-boundary guards and does not read
+    evidence or execute the provider again. A changed fragment identity is
+    ordinary program drift.
+
 - Workflow Lisp live-provider supervision (v2.16)
   - `with-live-providers` is a `.orc`-only form with exactly two bindings and
     exactly one `:observes` edge. The observer is the supervisor and its peer

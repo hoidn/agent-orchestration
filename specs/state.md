@@ -184,6 +184,36 @@
   resume never read it. A later authoritative state change makes an older
   index stale rather than changing runtime behavior.
 
+## Workflow Lisp Prompt Fragment Attempt State And Resume
+
+- A target-2.20 fragment-backed provider boundary uses the same root-owned,
+  crash-durable provider-attempt allocation as typed prompt dependencies. Its
+  compiler dependency contract has origin `workflow_lisp_prompt_fragment`;
+  even a fragment with no document slots allocates and publishes an explicit
+  prompt snapshot for the receiving attempt.
+- The provider lexical checkpoint and executable provider configuration retain
+  the paired `CompilerPromptFragmentContract` and
+  `compiled_prompt_fragment_identity`. Construction, bundle validation, and
+  pre-provider preparation reject an absent, malformed, or mismatched pair and
+  reject disagreement with the Semantic IR carrier.
+- The receiving attempt publishes one closed
+  `workflow_prompt_fragment_snapshot.functional.v1` record with
+  `record_kind: prompt_snapshot`. It extends the established functional
+  prompt-dependency record with the required fragment identity while retaining
+  the schema-2.1 allocator projection, immutable publication, and terminal
+  validation owners. Extern-backed dependency records remain byte-compatible
+  and do not acquire a fragment identity.
+- Compatible completed-result reuse validates the ordinary source, program,
+  call-frame, bound-input, lexical-checkpoint, and completed-boundary guards,
+  then returns the committed structured result without reopening document
+  fills or re-executing the provider. Missing or changed fragment carriage is
+  incompatible program state, not a reason to reuse or reconstruct evidence.
+- Runtime and resume do not read prompt snapshot evidence or its offline index.
+  The record contains digests and closed attempt/compiler metadata, not
+  semantic result authority. Schema 2.1 state remains authoritative; the
+  fragment snapshot adds no state field, alternate checkpoint, or recovery
+  channel.
+
 ## Workflow Lisp Typed Prompt-Input Evidence
 
 - Each provider invocation's prompt composition returns one closed, validated

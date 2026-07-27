@@ -74,6 +74,17 @@ persisted, and lexical-checkpoint surfaces then retain their owned typed field.
 Executable validation rejects an untyped mapping as an alternative
 representation.
 
+A target-2.20 fragment-backed provider configuration additionally contains a
+paired `CompilerPromptFragmentContract` and
+`compiled_prompt_fragment_identity`. The contract contains the exact template,
+declaration-ordered rendered-slot rows, selected renderer ids, normalized
+static types, closed binding value sources, and placeholder ordinals. Its
+document slots remain in the adjacent prompt-dependency contract under origin
+`workflow_lisp_prompt_fragment`; runtime values, document bodies, and rendered
+prompt bytes are not executable-IR fields. Construction and executable
+validation reject a missing, malformed, or mismatched fragment contract and
+identity. Extern-backed calls preserve absence of both fields.
+
 The current executable-node inventory also includes
 `ExecutableNodeKind.PURE_PROJECTION` with `PureProjectionStepConfig`. That node
 kind executes one validated pure-expression payload against resolved binding
@@ -155,12 +166,14 @@ than competing authorities:
   boundary understanding.
 - debug YAML is an optional view, not executable authority.
 
-For provider prompt dependencies, `runtime_plan` remains topology/checkpoint
-planning only. It intentionally omits exact relpath operands, required/optional
-roles, injection position/instruction, snapshot metadata, evidence records,
-and the compiler contract itself. Semantic IR and source maps may explain the
-validated executable contract, while per-attempt state/evidence may describe
-an invocation; none replaces executable authority.
+For provider prompt dependencies and target-2.20 prompt fragments,
+`runtime_plan` remains topology/checkpoint planning only. It intentionally
+omits exact relpath operands, required/optional roles, injection
+position/instruction, fragment templates, rendered-slot programs, compiled
+fragment identity, snapshot metadata, evidence records, and the compiler
+contracts themselves. Semantic IR and source maps may explain the validated
+executable contract, while per-attempt state/evidence may describe an
+invocation; none replaces executable authority.
 
 For provider supervision, runtime-plan and Semantic-IR derivation expose one
 composite node with two initial member invocations, one observation edge, an
@@ -229,6 +242,13 @@ Workflow Lisp build path:
   evidence that generated `resource_transition` nodes serialize into executable
   IR, execute through the runtime, and expose the expected runtime-view debug
   metadata.
+- `tests/test_workflow_lisp_prompt_calculus.py`,
+  `tests/test_workflow_lisp_prompt_calculus_runtime.py`, and
+  `tests/test_workflow_lisp_prompt_calculus_e2e.py` provide current evidence
+  for fragment contract/identity carriage through provider executable
+  configuration, fail-closed identity validation before provider preparation,
+  schema-2.1 prompt snapshots, and compatible completed-boundary resume without
+  duplicate execution.
 - `tests/test_provider_supervision_ir.py`,
   `tests/test_provider_supervision_runtime.py`,
   `tests/test_provider_supervision_resume.py`,

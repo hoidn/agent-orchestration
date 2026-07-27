@@ -28,6 +28,7 @@ Design references:
 - [Workflow Lisp Runtime Closures Boundary](design/workflow_lisp_runtime_closures_boundary.md)
 - [Workflow Lisp Unified Frontend Design](design/workflow_lisp_unified_frontend_design.md)
 - [Workflow Lisp Native Transportable Returns And Typed Result Guidance](design/workflow_lisp_native_transportable_returns.md)
+- [Workflow Lisp Prompt Calculus](design/workflow_lisp_prompt_calculus.md)
 - [Workflow Lisp Provider Live Binding](design/workflow_lisp_provider_live_binding.md)
 - [Workflow Lisp Provider Peer Messaging](design/workflow_lisp_provider_peer_messaging.md)
 - [Workflow Lisp Language Server](design/workflow_lisp_language_server.md)
@@ -80,9 +81,12 @@ workflow call definition, module/procedure/workflow symbols, and visible
 callable/form-head completion. Save the buffer before expecting refreshed
 results. Dirty, pending, failed, invalidated, or configuration-stale documents
 have no navigation answer, and configuration or root drift requires a server
-restart. The server writes no workspace files. Unsaved-buffer analysis,
-multi-diagnostic recovery, hover, caching, richer completion, and the other
-P1–P5 prerequisites remain deferred rather than approximated.
+restart. L0 additionally provides content-keyed reuse of pure-projection
+exports, one-probe saves with reverse-dependency invalidation, structured
+compiler-initialization failures, and visible ordered note/expansion roles.
+The server writes no workspace files. Unsaved-buffer analysis,
+multi-diagnostic recovery, hover, broader incrementality, richer completion,
+and the other P1–P5 prerequisites remain deferred rather than approximated.
 
 Before copying a checked-in `.orc` example or fixture, check
 `docs/workflow_lisp_route_readiness_registry.json`. Registry labels provide
@@ -358,6 +362,8 @@ The currently implemented authoring surface includes:
 - `defproc`
 - `defun`
 - `defmacro`
+- target-2.20 `defprompt` declarations and fully applied fragment-backed
+  `provider-result :prompt` applications
 - modules, imports, and exports
 - `let*`
 - `if`, including computed pure `Bool` conditions
@@ -1261,6 +1267,71 @@ Prompts should usually avoid:
 - snapshot selection mechanics;
 - variant proof mechanics;
 - workflow routing internals.
+
+### Authoring Prompt Fragments - Target 2.20
+
+Use `defprompt` when one provider prompt should own its complete visible input
+contract and result contract:
+
+```lisp
+(defprompt review-design-doc
+  (:fills
+    (target_doc :doc DesignDocPath)
+    (context_docs :value List[DesignDocPath])
+    (review_focus :text)
+    (checks_report :path WorkReportPath))
+  -> ReviewDecision
+  "Review the injected target using this focus:
+   {review_focus}
+   Context document paths: {context_docs}
+   Checks report path: {checks_report}")
+
+(provider-result providers.review
+  :prompt
+    (review-design-doc
+      :target_doc completed.target_doc
+      :context_docs completed.context_docs
+      :review_focus inputs.review_focus
+      :checks_report inputs.checks_report)
+  :model inputs.review_model
+  :effort inputs.review_effort
+  :timeout-sec 3600)
+```
+
+The application is named and fully applied. Each declared slot appears once;
+the compiler normalizes fill order to declaration order. The prompt-owned
+return replaces call-site `:returns`, and the declared fills replace call-site
+`:inputs` and `:prompt-dependencies`. Do not author both representations.
+
+Choose slot kinds by delivery:
+
+| Kind | Use |
+| --- | --- |
+| `:doc PathType` | Inject one required existing workspace file through the fixed prepend dependency lane. Do not put `{slot}` in the template. |
+| `:text` | Insert exact `String` bytes inline. |
+| `:value T` | Insert canonical JSON for a uniquely supported static type. Target 2.20 includes recursively supported `List[T]`, such as `List[DesignDocPath]`. |
+| `:path PathType` | Insert one POSIX path reference line, not file content. |
+
+Every `:text`, `:value`, and `:path` slot needs at least one `{slot-name}`
+placeholder. `{{` and `}}` produce literal braces. Placeholders do not support
+format operators, indexing, attribute access, whitespace, or expressions.
+
+Refinements are optional constraints, not nominal prompt brands. They may only
+narrow an already supported kind/renderer pairing. In particular, `:value`
+does not convert `T` to the Workflow Lisp `Value` type. Optional, map, union,
+reference, resource, and schema fragment rendering is not implemented.
+
+Do not partially apply a prompt, store it in a record, return it, pass it as a
+procedure reference, nest it in another fragment, or use it outside
+`provider-result :prompt`. Keep an existing extern-backed call when it needs
+independent `:inputs`, authored `:prompt-dependencies`, or an authored
+`:returns`.
+
+The compiler and runtime bind the fragment program with
+`compiled_prompt_fragment_identity`; authors do not construct or persist that
+field. A changed declaration, result contract, or fill expression changes
+program identity and is ordinary resume drift. Runtime prompt snapshots are
+evidence views, not an authoring or recovery surface.
 
 ## 8A. Bounded Live Provider Supervision
 
@@ -2722,7 +2793,7 @@ Before running a new `.orc` workflow, confirm:
 | Effects | Provider, command, write, move, ledger, state, and call effects are visible. |
 | Reuse | Durable public run/resume/invocation/publication identity is a `defworkflow`; repeated internal effectful behavior is a `defproc`; pure behavior is a `defun`. |
 | Gates | Gates have been replaced by typed outcomes or transitions where possible. |
-| Prompts | Prompts describe domain work, not runtime mechanics. |
+| Prompts | Prompts describe domain work, not runtime mechanics. At target 2.20, use `defprompt` only for a complete prompt-owned fill/result contract: fully discharge every named slot and do not duplicate `:inputs`, `:prompt-dependencies`, or `:returns` at the call. |
 | Lowering | Generated Core AST uses real shared statement families; Semantic IR derives from validated shared bundle data; Executable IR validates before runtime-facing use; source maps preserve authored/generated provenance. |
 | Diagnostics | Errors map back to useful `.orc` source forms. |
 | Metrics | Authored size and brittle-pattern count improve over the YAML baseline. |
@@ -2822,6 +2893,7 @@ writing a compatibility fixture, runtime test, or standard-library lowering.
 | "I need to select/run/gap/repeat." | "This is `backlog-drain`." |
 | "I need a tiny Python helper to compare, count, or format." | "This is pure computation; use the operator surface and typed projection." |
 | "I need to write a lot of target paths." | "These should derive from context or typed target schemas." |
+| "I need an external prompt plus separately repeated inputs, dependencies, and return guidance." | "Can one target-2.20 `defprompt` own the complete fill and result contract?" |
 | "`expanded.debug.yaml` looks unusual." | "Inspect the Core AST, executable IR, Semantic IR, and source map; the historical filename contains only a JSON-rendered projection." |
 
 ## 32. Minimal Safe Subset

@@ -1250,8 +1250,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "active post stage 8 selector" in normalized_successor_index
     assert "q series work with q1" in normalized_successor_index
-    assert "tasks 1 3 are implemented" in normalized_successor_index
-    assert "task 4" in normalized_successor_index
+    assert "tasks 1 6 are implemented" in normalized_successor_index
+    assert "task 7" in normalized_successor_index
     assert "do not select e0" in normalized_successor_index
 
     prompt_design_row = _markdown_table_row(
@@ -1259,8 +1259,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "workflow_lisp_prompt_calculus.md",
     )
     normalized_prompt_design_row = _normalized_routing_text(prompt_design_row)
-    assert "accepted q1 design" in normalized_prompt_design_row
-    assert "implementation plan next" in normalized_prompt_design_row
+    assert "| Implemented |" in prompt_design_row
+    assert "bounded q1 surface" in normalized_prompt_design_row
     assert "target 2.20" in normalized_prompt_design_row
     normalized_prompt_index = _normalized_routing_text(
         _markdown_heading_section(
@@ -1268,7 +1268,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
             "### [Workflow Lisp Prompt Calculus]",
         )
     )
-    assert "accepted target 2.20 q1 prompt core design" in normalized_prompt_index
+    assert "implemented target 2.20 q1 prompt core" in normalized_prompt_index
+    assert "available for authoring" in normalized_prompt_index
     assert "partial application" in normalized_prompt_index
     assert "excludes" in normalized_prompt_index
 
@@ -1359,6 +1360,97 @@ def test_transportable_value_normative_owners_close_the_public_contract() -> Non
     assert "type: value" in normalized_version_row
     assert "kind: value" in normalized_version_row
     assert "strict json" in normalized_version_row
+
+
+def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
+    frontend = (
+        REPO_ROOT / "docs/design/workflow_lisp_frontend_specification.md"
+    ).read_text(encoding="utf-8")
+    semantic_ir = (
+        REPO_ROOT / "docs/design/workflow_lisp_semantic_workflow_ir.md"
+    ).read_text(encoding="utf-8")
+    executable_ir = (
+        REPO_ROOT / "docs/design/workflow_lisp_executable_ir.md"
+    ).read_text(encoding="utf-8")
+    providers = (REPO_ROOT / "specs/providers.md").read_text(encoding="utf-8")
+    state = (REPO_ROOT / "specs/state.md").read_text(encoding="utf-8")
+    guide = (REPO_ROOT / "docs/lisp_workflow_drafting_guide.md").read_text(
+        encoding="utf-8"
+    )
+    design_router_path = REPO_ROOT / "docs/design/README.md"
+    capability_matrix_path = REPO_ROOT / "docs/capability_status_matrix.md"
+    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
+
+    normalized_frontend = _normalized_routing_text(frontend)
+    for required in (
+        "target 2.20",
+        "defprompt",
+        "compiled_prompt_fragment_identity",
+        "workflow_prompt_fragment_snapshot.functional.v1",
+        "prompt_calculus_requires_dsl_2_20",
+        "prompt_fill_renderer_unsupported",
+        "prompt_return_redeclaration_forbidden",
+    ):
+        assert required in normalized_frontend
+    assert "q2" in normalized_frontend
+    assert "q3" in normalized_frontend
+    assert "q4" in normalized_frontend
+
+    for ir_contract in (semantic_ir, executable_ir):
+        assert "CompilerPromptFragmentContract" in ir_contract
+        assert "compiled_prompt_fragment_identity" in ir_contract
+        assert "workflow_lisp_prompt_fragment" in ir_contract
+        assert "runtime_plan" in ir_contract
+
+    normalized_providers = _normalized_routing_text(providers)
+    assert "workflow lisp prompt fragments" in normalized_providers
+    assert "target 2.20" in normalized_providers
+    assert "workflow_prompt_fragment_snapshot.functional.v1" in providers
+    assert "before provider launch" in normalized_providers
+
+    normalized_state = _normalized_routing_text(state)
+    assert "workflow lisp prompt fragment attempt state and resume" in normalized_state
+    assert "schema 2.1" in normalized_state
+    assert "compatible completed result reuse" in normalized_state
+    assert "do not read prompt snapshot evidence" in normalized_state
+
+    normalized_guide = _normalized_routing_text(guide)
+    assert "authoring prompt fragments target 2.20" in normalized_guide
+    assert "fully applied" in normalized_guide
+    assert "prompt owned" in normalized_guide
+    assert "List[DesignDocPath]" in guide
+    assert "partial application" in normalized_guide
+    assert "prompt dependencies" in normalized_guide
+
+    prompt_design_row = _markdown_table_row(
+        design_router_path,
+        "workflow_lisp_prompt_calculus.md",
+    )
+    assert "| Implemented |" in prompt_design_row
+    prompt_capability_row = _markdown_table_row(
+        capability_matrix_path,
+        "Workflow Lisp prompt calculus Q1",
+    )
+    assert "| Implemented |" in prompt_capability_row
+
+    prompt_index = _normalized_routing_text(
+        _markdown_heading_section(
+            index,
+            "### [Workflow Lisp Prompt Calculus]",
+        )
+    )
+    assert "implemented target 2.20" in prompt_index
+    assert "available for authoring" in prompt_index
+    assert "implementation plan next" not in prompt_index
+
+    active_roadmap_index = _normalized_routing_text(
+        _markdown_heading_section(
+            index,
+            "### [Workflow Lisp Language Quality And Domain Semantics Roadmap]",
+        )
+    )
+    assert "tasks 1 6 are implemented" in active_roadmap_index
+    assert "task 7" in active_roadmap_index
 
 
 def test_stage_6_numbered_sequence_closes_task_7_after_completed_queues() -> None:
