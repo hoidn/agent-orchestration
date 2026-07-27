@@ -33,7 +33,10 @@ pytest/pytest-xdist, real JSON-RPC over stdio.
   `L1_DESIGN_QUALITY_APPROVED`.
 
 **Status:** accepted for execution after ordered independent
-`L1_PLAN_SPEC_APPROVED` then `L1_PLAN_QUALITY_APPROVED`.
+`L1_PLAN_SPEC_APPROVED` then `L1_PLAN_QUALITY_APPROVED`; now complete. The plan
+gate landed at `d35722c6`, and implementation plus the final
+repository-real/status closure landed through `68c8e635`. The exact execution
+record is below.
 
 ---
 
@@ -263,25 +266,25 @@ Documentation/status:
 
 Before Task 1:
 
-- [ ] Obtain independent `L1_PLAN_SPEC_APPROVED` against this exact plan and
+- [x] Obtain independent `L1_PLAN_SPEC_APPROVED` against this exact plan and
       accepted design.
-- [ ] Resolve every specification finding in this plan and repeat review.
-- [ ] Obtain a distinct `L1_PLAN_QUALITY_APPROVED`.
-- [ ] Record accepted-for-execution status and both ordered tokens without
+- [x] Resolve every specification finding in this plan and repeat review.
+- [x] Obtain a distinct `L1_PLAN_QUALITY_APPROVED`.
+- [x] Record accepted-for-execution status and both ordered tokens without
       changing task scope.
-- [ ] Patch-stage only this new plan and exact L1 routing hunks selected by the
+- [x] Patch-stage only this new plan and exact L1 routing hunks selected by the
       parent roadmap executor.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py \
     -k 'language_quality or language_server or post_stage_8'
   ```
 
-- [ ] Obtain final ordered specification then quality reaffirmation against
+- [x] Obtain final ordered specification then quality reaffirmation against
       the exact staged plan/status/routing bytes. Commit those exact reviewed
       bytes without post-review edits before any production change.
-- [ ] At that landed plan-gate commit and before any L1 or Q2 production edit,
+- [x] At that landed plan-gate commit and before any L1 or Q2 production edit,
       run the active roadmap's exact broad non-security command in tmux.
       Record `HEAD`, `HEAD^{tree}`, the dirty-tree inventory, collection/pass/
       failure/skip totals, the exact collected-node identity set, and exact
@@ -305,7 +308,7 @@ expanded-syntax provenance, or LSP classification.
 - Modify exact L1 artifact-contract hunk:
   `tests/test_workflow_lisp_build_artifacts.py`
 
-- [ ] Write a RED compiled-fixture test named
+- [x] Write a RED compiled-fixture test named
       `test_projection_emits_all_ten_direct_kinds_with_exact_name_spans` that
       expects, in cross-kind source order:
 
@@ -319,13 +322,13 @@ expanded-syntax provenance, or LSP classification.
   offsets must yield the full authored form and exact authored name token
   respectively.
 
-- [ ] Run that test and confirm RED because
+- [x] Run that test and confirm RED because
       `orchestrator.workflow_lisp.authored_symbols` does not exist.
-- [ ] Add `ModuleDirective.name_span: SourceSpan`, populated only from
+- [x] Add `ModuleDirective.name_span: SourceSpan`, populated only from
       `_parse_module_directive`'s already validated `SyntaxIdentifier.span`.
       Do not add name-span copies to semantic definitions or make a second
       source read.
-- [ ] Before production edits, freeze the current canonical
+- [x] Before production edits, freeze the current canonical
       `frontend_ast.json` bytes and artifact digest for the fixture. Write a RED
       test that expects the exact additive nested `SourceSpan` at
       `module_directive.name_span`. After implementation, remove only that
@@ -334,10 +337,10 @@ expanded-syntax provenance, or LSP classification.
       digest to differ from the frozen digest. This artifact evolution is
       intentional; do not add a runtime schema, compatibility decoder, or
       non-persisted side channel.
-- [ ] Before editing `syntax.py`, confirm no Q2 implementer owns it. Patch-stage
+- [x] Before editing `syntax.py`, confirm no Q2 implementer owns it. Patch-stage
       only the `ModuleDirective.name_span` carrier hunk, and commit Task 1
       before Q2 Task 1 begins.
-- [ ] Add immutable `AuthoredSymbolProjectionRow` and
+- [x] Add immutable `AuthoredSymbolProjectionRow` and
       `AuthoredSymbolProjectionError(ValueError)` plus:
 
   ```python
@@ -355,7 +358,7 @@ expanded-syntax provenance, or LSP classification.
   from the already retained second `SyntaxIdentifier`. Assign ordinals from
   the original module declaration/form sequence.
 
-- [ ] Build same-kind compiled candidates from:
+- [x] Build same-kind compiled candidates from:
 
   - `compiled_result.procedure_catalog.definitions_by_name`;
   - `compiled_result.workflow_catalog.definitions_by_name`;
@@ -373,25 +376,25 @@ expanded-syntax provenance, or LSP classification.
   same-kind/name/full-span match. Never accept a same-spelled row of another
   kind or a whole-form/name-span fallback.
 
-- [ ] Write RED parameterized tests named
+- [x] Write RED parameterized tests named
       `test_projection_fails_closed_on_compiled_crosscheck_mismatch` for
       missing, duplicate, kind mismatch, name mismatch, and exact full-span
       mismatch, plus a separate module-identity mismatch, using immutable
       replacements or a narrow candidate helper. Assert one projection error
       and no partial rows.
-- [ ] Write RED selection-span validation tests for wrong source path,
+- [x] Write RED selection-span validation tests for wrong source path,
       zero/negative or reversed range, and a name-token span outside its
       definition span. Require same-path, non-empty ordered containment inside
       the definition span before emitting any row; one invalid selection span
       fails the entire projection.
-- [ ] Write RED tests proving expansion-only definitions, specialized
+- [x] Write RED tests proving expansion-only definitions, specialized
       procedures/workflows, and generated local procedures do not create rows
       or make an otherwise valid direct projection fail. The original syntax
       module is positive authority: compiled-only generated shapes are not
       reverse-projected.
-- [ ] Implement only those crosschecks and exclusions. Sort final rows by
+- [x] Implement only those crosschecks and exclusions. Sort final rows by
       `(definition_span.start.offset, source_ordinal)`.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest --collect-only -q tests/test_workflow_lisp_authored_symbols.py
@@ -403,7 +406,7 @@ expanded-syntax provenance, or LSP classification.
     -k 'frontend_ast_module_name_span'
   ```
 
-- [ ] Obtain ordered independent Task-1 specification then quality approval,
+- [x] Obtain ordered independent Task-1 specification then quality approval,
       stage the three wholly owned paths plus only the reviewed
       `ModuleDirective.name_span` hunk in shared `syntax.py` and the reviewed
       artifact-contract hunk in shared `test_workflow_lisp_build_artifacts.py`,
@@ -422,11 +425,11 @@ selection ranges.
 - Modify: `tests/test_workflow_lisp_lsp_navigation.py`
 - Modify: `tests/test_workflow_lisp_lsp_stdio.py`
 
-- [ ] Replace the existing v1 symbol test with RED assertions for the complete
+- [x] Replace the existing v1 symbol test with RED assertions for the complete
       ten-kind fixture, cross-kind source order, and distinct full/selection
       spans. Keep a negative test proving the LSP performs no file read or
       text parsing while constructing the index.
-- [ ] Add RED server/protocol tests for this exact presentation:
+- [x] Add RED server/protocol tests for this exact presentation:
 
   | Internal kind | LSP `SymbolKind` |
   | --- | --- |
@@ -441,20 +444,20 @@ selection ranges.
   | `resource` | `Object` |
   | `transition` | `Event` |
 
-- [ ] Change `NavigationSymbol` to retain `definition_span`,
+- [x] Change `NavigationSymbol` to retain `definition_span`,
       `selection_span`, and `source_ordinal`. In `build_navigation_index`, call
       `project_authored_symbols` once per compiled graph module and delete the
       old typed-procedure/workflow symbol reconstruction.
-- [ ] Keep the existing definition-link traversal unchanged. Do not broaden
+- [x] Keep the existing definition-link traversal unchanged. Do not broaden
       go-to-definition beyond exact direct procedure/workflow call heads.
-- [ ] Map document-symbol `range` from `definition_span` and
+- [x] Map document-symbol `range` from `definition_span` and
       `selectionRange` from `selection_span`, using only the accepted frozen
       text already supplied by the snapshot. Coordinate translation failure
       for either range returns null for the whole request.
-- [ ] Add a RED negative test that a projection crosscheck failure is logged as
+- [x] Add a RED negative test that a projection crosscheck failure is logged as
       one internal error and yields document-symbol null rather than a partial
       list or a language diagnostic.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_authored_symbols.py \
@@ -462,7 +465,7 @@ selection ranges.
     tests/test_workflow_lisp_lsp_stdio.py
   ```
 
-- [ ] Obtain ordered independent Task-2 specification then quality approval,
+- [x] Obtain ordered independent Task-2 specification then quality approval,
       stage the four exact paths, and commit.
 
 ## Task 3: Namespace-Preserving Callable Signature Completion
@@ -480,25 +483,25 @@ compiler signatures.
 - Modify:
   `tests/fixtures/workflow_lisp/modules/valid/lsp_l1_symbols/lsp_l1_symbols/entry.orc`
 
-- [ ] Write RED tests that one procedure, workflow, and monkeypatched
+- [x] Write RED tests that one procedure, workflow, and monkeypatched
       registered form with the same label produce three rows in kind order,
       never one `callable` row. Assert the internal kinds are exactly
       `procedure`, `workflow`, and `form`.
-- [ ] Write RED imported-callable tests against the existing `callables`
+- [x] Write RED imported-callable tests against the existing `callables`
       fixture for every exact key already admitted by
       `ModuleImportScope.procedure_bindings` and `.workflow_bindings`:
       `alias.member`, `module/member`, and `:only` unqualified spellings.
       Assert no label is obtained by stripping a catalog key or inventing an
       alias.
-- [ ] Extend `NavigationCompletion` with `kind`, `canonical_target`, and
+- [x] Extend `NavigationCompletion` with `kind`, `canonical_target`, and
       `detail`. Produce local callable rows only from direct authored projection
       rows; produce imported rows from the exact import-scope mapping keys; use
       each `ModuleMemberBinding.canonical_name` only for catalog signature
       lookup and sorting. Keep form label/canonical target equal to the exact
       registered head.
-- [ ] Sort rows by `(label, kind_rank, canonical_target)`, with ranks
+- [x] Sort rows by `(label, kind_rank, canonical_target)`, with ranks
       procedure, workflow, form. Do not deduplicate across namespaces.
-- [ ] Add RED detail tests for zero, one, and multiple parameters; nested
+- [x] Add RED detail tests for zero, one, and multiple parameters; nested
       resolved `Optional`/`List`/`Map` or ref types; empty and nonempty declared
       procedure effects; and workflow returns. Render exactly:
 
@@ -512,15 +515,15 @@ compiler signatures.
   `.declared_effects`, plus `WorkflowSignature.params` and `.return_type_ref`.
   Form detail is exactly `form`.
 
-- [ ] Add a negative control where direct/transitive inferred procedure effects
+- [x] Add a negative control where direct/transitive inferred procedure effects
       differ from declared effects. Assert only
       `ProcedureSignature.declared_effects` appears. Never infer or display
       workflow effects.
-- [ ] Map procedure/workflow rows to
+- [x] Map procedure/workflow rows to
       `CompletionItemKind.Function`, form rows to
       `CompletionItemKind.Keyword`, include the compiler-rendered `detail`, and
       retain `isIncomplete=false`.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_lsp_navigation.py \
@@ -529,7 +532,7 @@ compiler signatures.
     tests/test_workflow_lisp_effects.py
   ```
 
-- [ ] Obtain ordered independent Task-3 specification then quality approval,
+- [x] Obtain ordered independent Task-3 specification then quality approval,
       stage the five exact paths, and commit.
 
 ## Task 4: Preserve Snapshot Freshness And Fail-Closed Availability
@@ -547,7 +550,7 @@ remains byte-for-byte compatible.
   missing presentation requirement, return it to Task 2 or 3 and complete a
   fresh RED/GREEN/review cycle there; do not edit state or compile-driver code.
 
-- [ ] Extend the existing parameterized non-current snapshot test to assert all
+- [x] Extend the existing parameterized non-current snapshot test to assert all
       three responses together:
 
   - definition is null;
@@ -558,19 +561,19 @@ remains byte-for-byte compatible.
   superseded, closed, configuration-stale, source/configuration-stale, and
   unassociated documents.
 
-- [ ] Add both-direction currentness tests: a current successful snapshot
+- [x] Add both-direction currentness tests: a current successful snapshot
       returns the full L1 symbol/completion rows, while the same retained build
       under each stale state returns no last-good L1 row.
-- [ ] Add an index-construction-failure test proving one ambiguous/mismatched
+- [x] Add an index-construction-failure test proving one ambiguous/mismatched
       compiler projection crosses the existing internal-error boundary and
       returns null/empty without publishing a language diagnostic, changing
       state, or writing a workspace file.
-- [ ] Add a real stdio integration test with imported procedure/workflow labels
+- [x] Add a real stdio integration test with imported procedure/workflow labels
       and details. Assert exact namespace coexistence and order, then make the
       open document dirty and assert null/empty behavior through JSON-RPC.
-- [ ] Confirm `orchestrator/lsp/state.py` and
+- [x] Confirm `orchestrator/lsp/state.py` and
       `orchestrator/lsp/compile_driver.py` have no L1 diff.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_lsp_navigation.py \
@@ -580,7 +583,7 @@ remains byte-for-byte compatible.
     tests/test_workflow_lisp_lsp_compile_driver.py
   ```
 
-- [ ] Obtain ordered independent Task-4 specification then quality approval,
+- [x] Obtain ordered independent Task-4 specification then quality approval,
       stage only the exact changed paths, and commit.
 
 ## Task 5: Repository-Real Stdio Gate And Serialized Closure
@@ -607,7 +610,7 @@ workspace writes, and status/routing truthfully advances from L1 to L2.
 - Modify factually after all gates:
   `docs/plans/2026-07-26-workflow-lisp-language-server-l1-implementation-plan.md`
 
-- [ ] Add a repository-real stdio regression/E2E test using an existing
+- [x] Add a repository-real stdio regression/E2E test using an existing
       checked-in `.orc` workflow/module that has authored type definitions plus
       procedure/workflow callables. Confirm it begins GREEN against the
       reviewed Tasks 1–3 implementation and assert:
@@ -620,14 +623,14 @@ workspace writes, and status/routing truthfully advances from L1 to L2.
   - unchanged source/configuration bytes and unchanged
     `.orchestrate/build` tree digest.
 
-- [ ] Run the real-stdio E2E in tmux if needed:
+- [x] Run the real-stdio E2E in tmux if needed:
 
   ```bash
   pytest -q tests/test_workflow_lisp_lsp_e2e.py \
     tests/test_workflow_lisp_lsp_integration.py
   ```
 
-- [ ] Run the complete focused L1 selector:
+- [x] Run the complete focused L1 selector:
 
   ```bash
   pytest -q tests/test_workflow_lisp_authored_symbols.py \
@@ -645,7 +648,7 @@ workspace writes, and status/routing truthfully advances from L1 to L2.
     -k 'frontend_ast_module_name_span'
   ```
 
-- [ ] Before documentation edits, write RED routing expectations that L1 is
+- [x] Before documentation edits, write RED routing expectations that L1 is
       implemented/complete and L2's design-amendment/review gate is next. No L2
       design is accepted yet. Then update the exact shared status/routing hunks
       and rerun:
@@ -655,16 +658,16 @@ workspace writes, and status/routing truthfully advances from L1 to L2.
     -k 'language_quality or language_server or post_stage_8'
   ```
 
-- [ ] Update the setup guide to describe the shipped ten symbol kinds,
+- [x] Update the setup guide to describe the shipped ten symbol kinds,
       namespace-preserving completion, signature details, and unchanged
       freshness/null behavior. Do not document L2 partial completion as
       shipped.
-- [ ] Update the drafting guide's editor paragraph from its v1-only
+- [x] Update the drafting guide's editor paragraph from its v1-only
       module/procedure/workflow symbol and generic completion description to
       the shipped L1 ten-kind symbols and namespace-preserving callable
       signatures. Keep L2 recovery completion and every later surface
       explicitly deferred.
-- [ ] In tmux, run the one closing broad non-security suite:
+- [x] In tmux, run the one closing broad non-security suite:
 
   ```bash
   pytest -q -n 16 --dist=worksteal \
@@ -700,19 +703,75 @@ workspace writes, and status/routing truthfully advances from L1 to L2.
   than silently folding them into the pre-L1 totals. Classify unrelated deltas
   without repairing excluded or ambient work.
 
-- [ ] Obtain one final ordered specification review of the committed Tasks 1–4
+- [x] Obtain one final ordered specification review of the committed Tasks 1–4
       plus the exact Task-5 E2E/docs/routing diff, then a distinct quality
       review. Resolve findings with TDD and repeat in order.
-- [ ] Refresh the dirty-tree inventory. Patch-stage only L1-owned hunks, run
+- [x] Refresh the dirty-tree inventory. Patch-stage only L1-owned hunks, run
       `git diff --cached --check`, inspect the complete staged diff, and commit
       the reviewed L1-only E2E/docs/routing closure. This post-review commit
       releases the shared routing paths for Q2 Task 7; preserve Q2's accepted
       implementation-plan/execution status exactly, do not mark Q2 complete,
       and do not select Q3.
-- [ ] In a separate plan-only factual commit, record exact task hashes,
+- [x] In a separate plan-only factual commit, record exact task hashes,
       the pre-L1 control binding, focused/routing/broad outcomes,
       like-for-like unrelated-failure classification, and final review tokens.
       Do not combine source/tests/normative docs with this bookkeeping commit.
+
+## Completed Execution Record
+
+The five reviewed task commits are:
+
+1. Task 1, compiler-owned original-syntax projection:
+   `f1eecf651a2595ac7ae038b4537fb1680d1dbd5f`;
+2. Task 2, ten-kind document symbols and exact selection ranges:
+   `ec2328dd160e0f96f685164267dca639b088b737`;
+3. Task 3, namespace-preserving callable signature completion:
+   `d174faf2ffa4070edbe76aababed2a8ae24074d8`;
+4. Task 4, snapshot freshness and fail-closed availability:
+   `66163dc02321d7c264c9c9cb1e9cec1e3e783241`; and
+5. Task 5, repository-real stdio/status/routing closure:
+   `68c8e6353b92f8734865026af985f397d1fe1181`, exact reviewed tree
+   `5620b1cde3fff75f84ac5a1eb889104b19e3a359`.
+
+The fresh pre-L1 control was bound before any L1 or Q2 production edit to
+`HEAD=d35722c6c1b1f902d82a1b8166f23dc5ef2de251` and
+`HEAD^{tree}=4a992c5fb43366b01418feb71691f89a1ed16e82`. Its dirty-tree
+inventory digest was
+`sha256:68142ab610af6f1c96fc409c735cad9f4f7523ebdf4952bbbc894d753d20effb`.
+The exact command collected 8,874 nodes, deselected 18, and selected 8,856;
+8,810 passed, 25 failed, and 21 skipped. The normalized collected-node set
+digest was
+`sha256:0b4a82116f0566506c44332b014ff42880a9af885b695406d27fbc276f653e90`,
+and the complete run-log digest was
+`sha256:75490401f75a163429a04608af9506a4bd80e67c7c1bc982da9a994c6c099a3e`.
+
+The Task-5 gates passed as follows:
+
+- repository-real L1 stdio regression: 1 passed;
+- LSP E2E plus integration: 11 passed;
+- build-artifact selector: 1 passed and 131 deselected;
+- roadmap routing module: 55 passed;
+- complete focused L1 selector: 538 passed; and
+- closing broad non-security suite: 9,352 collected, 18 deselected, 9,334
+  selected, 9,266 passed, 47 failed, and 21 skipped. Its normalized
+  collected-node digest was
+  `sha256:9f1887f4fb20ba8bea24a86c5c2db1237522a718851aa3d1f37449081df453c7`,
+  and its complete run-log digest was
+  `sha256:918d45a3bbda2ac664c8c22764be9b7f017e2dc2fd29a1f588bae7e6d324c7f7`.
+
+Like-for-like comparison retained all 25 precontrol failures, added 22, and
+cleared none. No L1-owned node failed. Eighteen added failures were hard-coded
+`/tmp` consumers encountering the full root temporary filesystem, one was an
+ambient provider-cancellation race, and three were concurrent non-L1 semantic
+changes in loader/output-contract, provider-supervision IR, and list-traversal
+target-version behavior. Per the plan, those unrelated deltas were classified
+without repairing ambient or excluded work.
+
+Every source task received ordered independent specification then quality
+approval before commit. The final exact tree received
+`L1_TASK5_FINAL_SPEC_APPROVED` followed by
+`L1_TASK5_FINAL_QUALITY_APPROVED`, with no findings. Security, safety, secrets,
+and provider-isolation work remained excluded throughout.
 
 ## Completion Contract
 
