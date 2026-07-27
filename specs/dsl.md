@@ -22,7 +22,7 @@ snippets are structural notation for that mapping, not accepted fresh workflow
 source.
 
 - Top-level workflow keys
-  - `version`: string (supported revisions extend through `"2.19"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (supported revisions extend through `"2.21"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -504,6 +504,28 @@ source.
       historical filename for a JSON-rendered projection; it is not authored
       YAML and is never reparsed. The validated executable provider-step
       configuration is execution authority.
+
+  - Workflow Lisp prompt output positions (target 2.21):
+    - The sole output-position grammar is
+      `(slot-name :path :out [PathType])`. `:out` occurs at most once,
+      immediately after `:path`, and is a role modifier rather than a kind,
+      type, caller keyword, or result-field mapping.
+    - The optional refinement and resolved fill type must each be a
+      workspace-relative `relpath` with `must_exist=false`. The ordinary named
+      fill and placeholder rules still apply.
+    - The compiler projects one declaration-ordered `expected_outputs` row
+      named after the slot, with the same binding-ref or literal path source,
+      `type: string`, and `required: true`. No caller-authored output
+      declaration may override that row.
+    - A Q2 application carries
+      `compiled_prompt_fragment_identity.v2` and
+      `compiler_prompt_fragment_contract.v2`. The latter's ordered
+      `output_positions[*].expected_output` objects are pair-validated against
+      the exact provider `expected_outputs` rows before provider preparation.
+    - Targets below 2.21 reject the `:out` token with
+      `prompt_output_positions_require_dsl_2_21`. A prompt application without
+      `:out` retains the exact target-2.20 v1 identity, carrier, diagnostics,
+      and behavior even when compiled at target 2.21.
 
   - reusable-call contract boundary:
     - Task 10 reserves `imports`, `call`, `with`, `asset_file`, and `asset_depends_on` semantics before execution support lands.

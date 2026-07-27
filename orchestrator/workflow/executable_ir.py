@@ -280,6 +280,8 @@ class ProviderStepConfig:
     )
 
     def __post_init__(self) -> None:
+        if not isinstance(self.common, StepCommonConfig):
+            return
         validate_compiler_prompt_fragment_pair(
             self.compiler_prompt_fragment_contract,
             self.compiled_prompt_fragment_identity,

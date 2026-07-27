@@ -214,6 +214,31 @@
   fragment snapshot adds no state field, alternate checkpoint, or recovery
   channel.
 
+## Target 2.21 Prompt Output-Position Attempt State And Resume
+
+- A fragment application containing `:out` retains the paired
+  `compiled_prompt_fragment_identity.v2` and
+  `compiler_prompt_fragment_contract.v2` through Semantic IR, Executable IR,
+  persisted configuration, lexical checkpoint, and runtime preparation.
+- The carrier's declaration-ordered
+  `output_positions[*].expected_output` objects must equal the provider
+  configuration's `expected_outputs` rows exactly. Missing, extra, reordered,
+  malformed, v1/v2-mixed, or unequal carriage is incompatible program state
+  and fails before provider preparation.
+- After a successful provider process, the output-position contract and the
+  one prompt-owned structured-result contract validate into local mappings.
+  The step commits neither mapping until both succeed, then merges the
+  disjoint maps into one ordinary step-artifact update.
+- Compatible completed result reuse applies the existing source, root,
+  call-frame, bound-input, checkpoint, and completed-boundary guards and
+  returns the committed result without a second provider call. Identity or
+  projected-contract drift is ordinary program drift. Runtime does not reopen
+  the output file or reconstruct the v2 carrier from current source.
+- Target-2.20 Q1 applications retain exact v1 identity/carrier bytes,
+  snapshot evidence, runtime behavior, and compatible completed result reuse.
+  This additive contract does not change state schema `2.1` or create another
+  result, artifact, checkpoint, snapshot, or recovery channel.
+
 ## Workflow Lisp Typed Prompt-Input Evidence
 
 - Each provider invocation's prompt composition returns one closed, validated

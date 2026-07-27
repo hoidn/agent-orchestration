@@ -85,6 +85,16 @@ prompt bytes are not executable-IR fields. Construction and executable
 validation reject a missing, malformed, or mismatched fragment contract and
 identity. Extern-backed calls preserve absence of both fields.
 
+Target-2.21 prompt output positions use
+`compiled_prompt_fragment_identity.v2` and
+`compiler_prompt_fragment_contract.v2`. The carrier adds
+declaration-ordered `output_positions` rows derived from output-role slots;
+each row's singular `expected_output` object is pair-validated against the
+corresponding exact executable provider-configuration `expected_outputs` row
+before provider preparation. Missing, extra, reordered, malformed, or unequal
+rows fail closed. Q1-only configurations retain exact v1 identity and carrier
+bytes at targets 2.20 and 2.21.
+
 The current executable-node inventory also includes
 `ExecutableNodeKind.PURE_PROJECTION` with `PureProjectionStepConfig`. That node
 kind executes one validated pure-expression payload against resolved binding
@@ -166,7 +176,8 @@ than competing authorities:
   boundary understanding.
 - debug YAML is an optional view, not executable authority.
 
-For provider prompt dependencies and target-2.20 prompt fragments,
+For provider prompt dependencies, target-2.20 prompt fragments, and
+target-2.21 prompt output positions,
 `runtime_plan` remains topology/checkpoint planning only. It intentionally
 omits exact relpath operands, required/optional roles, injection
 position/instruction, fragment templates, rendered-slot programs, compiled

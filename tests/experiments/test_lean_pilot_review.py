@@ -222,6 +222,24 @@ def _rebind_live_schema(
     )
 
 
+def _rebind_calibration_lock_bytes(
+    *,
+    lock: dict[str, Any],
+    control: Path,
+    data: bytes,
+) -> None:
+    calibration_path = control / "review/calibration-lock.json"
+    calibration_path.write_bytes(data)
+    manifest = {
+        row["path"]: row for row in lock["apparatus"]["asset_manifest"]
+    }
+    manifest["review/calibration-lock.json"]["sha256"] = _digest_bytes(data)
+    lock["review"]["reviewer_command"]["bundle_digest"] = _bundle_digest(
+        lock["apparatus"],
+        lock["review"]["reviewer_command"]["asset_paths"],
+    )
+
+
 def _refresh_profile(lock: dict[str, Any]) -> None:
     lock["task"]["profile_digest"] = canonical_sha256(
         {
@@ -920,6 +938,59 @@ def test_live_reviewer_rejects_coherently_rebound_calibration_shape_drift(
     lock["review"]["reviewer_command"]["bundle_digest"] = _bundle_digest(
         lock["apparatus"],
         lock["review"]["reviewer_command"]["asset_paths"],
+    )
+
+    with pytest.raises(EvaluationError) as caught:
+        validate_live_reviewer_apparatus(
+            lock=lock,
+            control_root=control,
+            reviewer_environment_path=environment,
+        )
+
+    assert caught.value.code == "live_reviewer_execution_invalid"
+
+
+def test_live_reviewer_accepts_canonical_calibration_lock_with_single_lf(
+    tmp_path: Path,
+) -> None:
+    lock, control, environment, _used = _apparatus(tmp_path)
+    calibration_path = control / "review/calibration-lock.json"
+    canonical = calibration_path.read_bytes()
+    _rebind_calibration_lock_bytes(
+        lock=lock,
+        control=control,
+        data=canonical + b"\n",
+    )
+
+    apparatus = validate_live_reviewer_apparatus(
+        lock=lock,
+        control_root=control,
+        reviewer_environment_path=environment,
+    )
+
+    assert apparatus["calibration_lock_path"] == calibration_path
+
+
+@pytest.mark.parametrize(
+    "calibration_bytes",
+    [
+        lambda canonical: canonical + b" ",
+        lambda canonical: canonical + b"\t",
+        lambda canonical: canonical + b"\r\n",
+        lambda canonical: canonical + b"\n\n",
+        lambda canonical: b" " + canonical,
+    ],
+)
+def test_live_reviewer_rejects_other_calibration_lock_whitespace(
+    tmp_path: Path,
+    calibration_bytes: Any,
+) -> None:
+    lock, control, environment, _used = _apparatus(tmp_path)
+    canonical = (control / "review/calibration-lock.json").read_bytes()
+    _rebind_calibration_lock_bytes(
+        lock=lock,
+        control=control,
+        data=calibration_bytes(canonical),
     )
 
     with pytest.raises(EvaluationError) as caught:

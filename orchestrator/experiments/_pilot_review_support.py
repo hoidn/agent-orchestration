@@ -167,7 +167,11 @@ def validate_live_reviewer_apparatus(
         ) from exc
     if (
         not isinstance(calibration, Mapping)
-        or canonical_json_bytes(calibration) != calibration_bytes
+        or calibration_bytes
+        not in {
+            canonical_json_bytes(calibration),
+            canonical_json_bytes(calibration) + b"\n",
+        }
         or execution != calibration.get("reviewer_execution")
         or calibration.get("reviewer_ids") != review.get("reviewer_ids")
         or execution is None
