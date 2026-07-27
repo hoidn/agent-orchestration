@@ -1,74 +1,143 @@
 # Workflow Lisp LSP Authored Reference Navigation
 
-- **Status:** proposed (owner-directed 2026-07-27); independent specification
-  review, then independent quality review, required before implementation
-  planning. Accepted content folds into
-  `docs/design/workflow_lisp_language_server.md` as the owning amendment,
-  per the L-series convention.
+- **Status:** proposed (owner-directed 2026-07-27, revised after independent
+  specification findings); independent specification review, then independent
+  quality review, required before implementation planning. Accepted content
+  folds into `docs/design/workflow_lisp_language_server.md` as the owning
+  amendment, per the L-series convention.
 - **Kind:** L-series language-server amendment — definition-index extension
   over already-retained compiler structure
 - **Owner:** `orchestrator/lsp` navigation index; read-only consumer of
   existing compile results, per the standing L-series bounds
-- **Motivating evidence:** in
-  `workflows/examples/review_revise_design_docs.orc` — the estate's most
-  edited workflow — every callable-reference position returns null today
-  (probed 2026-07-27 over live stdio): the fragment application head, both
-  `proc-ref` arguments, the `(call ...)` callee, and the macro head. The
-  implemented definition surface (exact direct authored call heads) is
-  test-proven but nearly disjoint from production authoring style, which
-  references callables through forms, macros, proc-refs, and fragment
-  applications.
+- **Motivating evidence:** a successful live-stdio probe of
+  `workflows/examples/review_revise_design_docs.orc` on 2026-07-27 returned
+  null for the fragment application head, both macro-consumed `proc-ref`
+  arguments, and the macro head. The direct `(call ...)` callee already
+  resolved to its authored `defworkflow`; L5 preserves that implemented
+  behavior as regression coverage rather than claiming it as new work.
 - **Related authority:**
   - `docs/design/workflow_lisp_language_server.md` (implemented v1 + L0–L2
     amendments; the closed navigation contract this extends)
   - `docs/design/workflow_lisp_prompt_calculus.md` (Q1 prompt catalog and
-    application spans; Q1/Q3 fragment identity)
+    application identity)
+  - `docs/design/workflow_lisp_macro_surface_contract.md` (macro lookup and
+    expansion provenance)
   - `docs/design/workflow_language_design_principles.md` principles 24
-    (source maps are semantic infrastructure), 28, and 30
+    (source maps are semantic infrastructure), 28, 29, and 30
 
 ## Problem
 
-Go-to-definition indexes only bare direct authored calls
-(`(identity report_path)`), while authored workflows reference callables
-almost exclusively through four other shapes. All four are authored tokens
-whose resolutions the compiler already computes; the navigation index simply
-never consumed them. The result: a feature that is implemented, tested, and
-unusable in the files it exists for.
+Go-to-definition already indexes exact direct procedure call heads and exact
+`(call ...)` workflow callee tokens. It does not index authored prompt
+application heads, `proc-ref` name arguments, or macro heads.
 
-## Scope: Four Reference Shapes
+The compiler has enough already-retained structure to project prompt heads,
+but retention is not uniform across the other two shapes. A
+`ProcRefLiteralExpr` retains a canonical target and the whole
+`(proc-ref ...)` span, not the exact name-token span; macro expansion or
+specialization can erase that occurrence entirely. Macro expansion frames
+retain call and definition provenance, but their ability to establish a
+canonical own-definition identity for every local/imported use is not yet
+proven. L5 must therefore distinguish proven retained joins from attractive
+source shapes. It must not fill a gap by parsing text, resolving names in the
+server, or inventing compiler metadata.
 
-| # | Shape | Resolves to | Compiler retention already present | Status in this design |
-| --- | --- | --- | --- | --- |
-| 1 | Fragment application head — `(review-design-doc ...)` in `provider-result :prompt` | the `defprompt` declaration's authored span | Q1 prompt catalog (module-namespaced declarations with source locations); typed applications checked with exact spans | selected |
-| 2 | `proc-ref` name argument — `(proc-ref review-design-docs)` | the `defproc` authored span | proc-refs resolve through typecheck to canonical callable identity (the same identity the existing index keys on) | selected |
-| 3 | `(call X)` callee token | the target workflow/procedure authored span | the `call` form's callee is compiler-resolved against the workflow catalog with an authored token span | selected |
-| 4 | Macro head — `(review-revise-loop ...)` | the `defmacro`'s own authored span — never through the expansion | expansion provenance exists (expansion IDs, stacks); whether the *use-site head token span* survives Stage 3 in an indexable form is unproven | conditional — feasibility probe first |
+## Scope And Retention Gates
 
-Shape 4's rule is categorical: navigation may target the macro's authored
-definition, and must never tunnel into expansion products — the existing
-"generated call provenance is never indexed" prohibition is about expansion
-*outputs* and is unchanged. If the probe shows the use-site head span is not
-retained without new compiler work, shape 4 joins the type-reference
-exclusion (deferred until the compiler retains the spans) rather than
-motivating frontend churn from an L stage.
+| Shape | Existing retained join | L5 disposition |
+| --- | --- | --- |
+| Direct-authored fragment application head, such as `(review-design-doc ...)` in `provider-result :prompt` | the final typed prompt application retains its whole application span and canonical prompt identity; the Q1 prompt catalog retains the authored `defprompt` span; original syntax retains the exact application-head token | selected, through the fail-closed projection below |
+| Direct retained `proc-ref` occurrence whose final Stage-3 result still contains its `ProcRefLiteralExpr` | the typed occurrence retains the whole form span and canonical procedure target; original syntax retains the exact second token; the procedure catalog retains the authored `defproc` span | feasibility-gated; only this narrower subshape may enter L5, and only if the pre-planning proof establishes the complete join across the required import cases |
+| A `proc-ref` occurrence consumed or erased by macro expansion, specialization, or another lowering | no final occurrence-level span-to-canonical-identity join is retained; this includes both `proc-ref` arguments in the motivating review workflow | deferred; it remains null under this design |
+| Direct-authored macro head | expansion provenance may retain the whole call span and own-definition span while original syntax retains the exact head token; canonical local/imported macro identity and unique occurrence joining remain to be proven | feasibility-gated; it enters only if the pre-planning proof establishes the complete join |
+| Direct procedure call head and direct `(call X)` workflow callee | exact `authored_callee_span`, canonical target, and authored definition span are already implemented | existing behavior only; regression coverage, not new L5 scope |
+| WCC-reconstructed, generated, expanded, or ambiguous call | `authored_callee_span=None` by the owning language-server contract | excluded unchanged |
+
+A feasibility gate is shape-wide, not a best-effort permission. If every
+field and cross-check required below is not already available for the named
+subshape, that whole subshape defers. L5 does not add retention fields,
+frontend state, source maps, or compiler projections to legalize it.
+
+## Exact Authored Reference Projection
+
+Every selected hit is an immutable row:
+
+```text
+(reference_kind, reference_span, canonical_target, target_kind, definition_span)
+```
+
+`reference_kind` keeps prompt, procedure, workflow, and macro namespaces
+distinct. `reference_span` is the exact half-open authored token span.
+`canonical_target` and `definition_span` come from compiler semantic
+authority, never from the spelling of that token.
+
+For prompt and admitted macro heads, the navigation projection:
+
+1. consumes the retained typed prompt application or compiler expansion
+   assertion, including its source and exact whole-form/call span;
+2. matches that assertion to exactly one original-syntax list of the expected
+   semantic kind at the identical source and whole span;
+3. takes only that list's exact authored head-token span;
+4. requires one compiler-owned canonical target of the expected target kind
+   and one authored definition span; and
+5. emits the row only after all required facts agree.
+
+Repeated byte-for-byte-identical compiler assertions may collapse to one
+assertion. Conflicting assertions at one source/span are ambiguous and fail
+the projection. A missing original-syntax match, multiple matches, wrong
+syntax or target kind, absent canonical target, absent/invalid definition
+span, or generated target fails navigation-index construction; it never
+produces a partial row or a whole-form fallback.
+
+The conditional direct-retained `proc-ref` projection follows the same rule,
+except that its typed `ProcRefLiteralExpr` supplies the whole form and canonical
+procedure target and the uniquely matching original `(proc-ref NAME)` syntax
+supplies only `NAME`'s exact span. An original `proc-ref` form with no retained
+typed occurrence is outside the admitted subshape and remains null; the server
+must not resolve it from its text. Within the admitted subshape, a missing,
+multiple, kind-mismatched, target-mismatched, or span-mismatched join fails the
+whole navigation index.
+
+For macros, the compiler assertion must identify the macro's own canonical
+target and authored `defmacro` span. Expansion IDs, expansion stacks, generated
+expressions, and same-spelled expansion products are not definition targets.
+If current retained expansion provenance cannot prove that own-definition
+identity for local and imported macros without server resolution, the macro
+shape defers in full.
 
 ## Contract
 
-- **Same closed discipline as the existing index, extended, not relaxed.**
-  Hits require the cursor inside the exact authored reference token span;
-  every current null category (dirty, pending, invalidated, stale,
-  generated, ambiguous, arguments outside the indexed token, unsupported
-  kinds) remains null. Resolution uses canonical compiler identity with the
-  same namespace/visibility/ambiguity rules L1 applies to completion —
-  ambiguity is null, never a guess.
-- **No new server analysis.** The index is built from compiler-retained
-  catalogs and spans exactly as today; the server does not parse source,
-  resolve names itself, or infer from text (standing L-series bound).
+- **One common availability preflight.** Every new hit passes through the
+  existing definition-request current-snapshot/configuration/source preflight
+  before index lookup. There is no shape-specific bypass or last-good
+  fallback.
+- **Exact token only.** A hit requires the cursor inside `reference_span`.
+  The opening delimiter, closing delimiter, adjacent whitespace, arguments,
+  fill names, and any other part of the whole form return null.
+- **No new server analysis.** The index consumes compiler-retained original
+  syntax, semantic identities, catalogs, and provenance. The server does not
+  read or parse source text, resolve a spelling, infer an import, or synthesize
+  a canonical name.
 - **Authored-to-authored only.** Every edge added by this amendment starts
   at an authored token and ends at an authored declaration. No edge crosses
   a generation boundary in either direction.
-- **Freshness unchanged.** The current-snapshot gating, restart latches, and
-  L2 recovery-state classifications apply to the new shapes identically.
+- **Separate namespaces and compiler visibility.** Prompt, procedure,
+  workflow, and macro rows never merge even when their visible labels are
+  equal. Local, import-alias-qualified, canonical-module-qualified, and
+  `:only` spellings navigate only when the successful compiler result already
+  binds that spelling to the retained canonical target in that reference
+  kind. A private or ambiguous import rejected by the compiler has no
+  successful snapshot and therefore returns null. Multiple or conflicting
+  targets inside a nominally successful projection fail index construction;
+  the LSP never guesses.
+- **Freshness and failure behavior unchanged.** Unavailable/unreadable, dirty,
+  compile-pending, dependency-invalidated, language-failed, server-failed,
+  superseded, closed, unassociated, configuration-stale, source-stale,
+  source/configuration-stale, clean-idle, malformed/internally inconsistent,
+  navigation-index-failed, unsupported, generated, ambiguous, and
+  outside-token requests retain the existing silent null result. Compiler
+  diagnostics remain the explanation for compiler-rejected private or
+  ambiguous references; L5 adds no competing diagnostic authority.
 
 ## Non-Goals
 
@@ -76,27 +145,73 @@ motivating frontend churn from an L stage.
   the compiler retains authored occurrence spans for them).
 - No navigation into macro expansions, generated procedures, or specialized
   variants.
-- No compiler/frontend changes; if a shape needs new retention, it defers
-  (shape 4's contingency) rather than expanding this amendment's blast
-  radius.
+- No new navigation behavior for direct procedure calls, direct `(call ...)`
+  workflow calls, or WCC-reconstructed/generated calls.
+- No compiler/frontend changes, no invented metadata, and no source-map
+  extension. A shape needing any of them defers rather than expanding this
+  amendment's blast radius.
 - No completion or symbol changes; this is the definition index only.
 
-## Verification Sketch
+## Feasibility Evidence Required Before Planning
 
-Per-shape hit fixtures plus per-shape null fixtures (ambiguous twin names,
-stale document, cursor adjacent to but outside the token). The review
-workflow itself is the end-to-end gate: over real stdio, the fragment head,
-both proc-ref names, and the call callee resolve to their declarations —
-the exact positions probed null on 2026-07-27 — with shape 4 asserted per
-its feasibility outcome. Existing navigation suites must pass unchanged
-(the direct-call surface and all null categories are regression-locked).
+The selected prompt-head projection must have an executable compiler fixture
+showing the unique whole-span-and-kind original-syntax join, exact head token,
+canonical prompt target, and authored `defprompt` span in the final successful
+Stage-3 result.
+
+Before an implementation plan may include direct retained `proc-ref` or macro
+heads, a read-only executable probe must establish the same five facts without
+modifying the compiler:
+
+- local, import-alias-qualified, canonical-module-qualified, and `:only`
+  successful references;
+- private and ambiguous imports failing through compiler authority;
+- legal same-visible-label rows across callable families remaining distinct;
+- exact-token and adjacent-outside-token behavior; and
+- negative generated, expanded, specialized, erased, missing, duplicate,
+  kind-mismatched, identity-mismatched, and span-mismatched cases.
+
+For proc-refs the proof must separately show that macro-consumed/specialized
+occurrences are not admitted. For macros it must prove canonical own-definition
+identity and a target at the authored `defmacro`, never an expansion product.
+Failure of any required case defers that entire conditional subshape.
+
+## Verification
+
+- Compiler/projection fixtures prove every selected row field, the exact
+  whole-span-and-kind join, deterministic ordering, and fail-closed
+  missing/multiple/kind/identity/span mismatches.
+- Local/imported fixtures prove alias-qualified, canonical-module-qualified,
+  and `:only` visibility; private and ambiguous compiler failures; legal
+  duplicate labels across prompt/procedure/workflow/macro families; and no
+  cross-family target substitution.
+- Boundary fixtures put the cursor at the first and last in-token positions
+  and at the opening delimiter, end boundary, adjacent whitespace, and every
+  non-head argument.
+- Every selected shape is exercised under the common preflight for
+  unavailable/unreadable, dirty, compile-pending, dependency-invalidated,
+  language-failed, server-failed, superseded, closed, unassociated,
+  configuration-stale, source-stale, source/configuration-stale, clean-idle,
+  malformed/internally inconsistent, and navigation-index-failed states.
+  Every case returns null and no retained row bypasses the preflight.
+- Existing direct local/imported procedure-call and direct `(call ...)`
+  workflow-call hits remain exact. WCC reconstruction, generated/expanded
+  calls, null `authored_callee_span`, unsupported kinds, and positions outside
+  existing exact tokens remain null.
+- A real stdio check against
+  `workflows/examples/review_revise_design_docs.orc` resolves the fragment
+  application head and preserves the already-working `(call ...)` result. Its
+  two macro-consumed proc-refs remain null under this design. The macro head is
+  asserted only if the macro feasibility gate passes; otherwise its null is
+  regression-locked.
 
 ## Sequencing
 
 Single L-series stage (L5 in the language-quality roadmap). Entry needs
-only landed structure: Q1 catalog, L1 index infrastructure. No dependency
-on L3 (blocked on substrate MR-4) or L4; under the L-series' standing
-owner-reordering rule it is eligible to execute next while L3 waits.
-Required order per the roadmap standard: this design reviewed
-(specification, then quality), reviewed implementation plan, TDD, real
-stdio E2E, ordered final reviews.
+only landed structure: Q1 catalog and L1 index infrastructure. It has no
+dependency on L3 or L4. Required order is independent specification approval,
+then independent quality approval, then the read-only feasibility gates above,
+then an implementation plan containing only the shapes those gates admit.
+No implementation plan may be written before both design reviews approve.
+Implementation selection remains a separate roadmap action, followed by TDD,
+real stdio E2E, and ordered final reviews.
