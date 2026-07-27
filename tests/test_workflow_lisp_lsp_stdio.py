@@ -304,6 +304,192 @@ def test_invalid_initialization_fails_before_transport_state(
         process.close()
 
 
+@pytest.mark.parametrize(
+    ("manifest_contents", "expected_code"),
+    (
+        (None, "workflow_lisp_manifest_missing"),
+        ("{not-json", "workflow_lisp_manifest_invalid_json"),
+    ),
+)
+def test_structured_manifest_initialization_failure_returns_closed_data(
+    tmp_path: Path,
+    manifest_contents: str | None,
+    expected_code: str,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    manifest_path = workspace / "providers.json"
+    if manifest_contents is not None:
+        manifest_path.write_text(manifest_contents, encoding="utf-8")
+    process = _LspProcess(workspace)
+    try:
+        process.send(
+            _initialize_request(
+                1,
+                root_uri=workspace.as_uri(),
+                initialization_options={
+                    "provider_externs_path": manifest_path.name,
+                },
+            )
+        )
+
+        response, observed = process.read_until(
+            lambda item: item.get("id") == 1
+        )
+
+        assert response == {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32602,
+                "message": (
+                    "Workflow Lisp initialization failed "
+                    "(1 compiler diagnostics); see data"
+                ),
+                "data": {
+                    "diagnostics": [
+                        {
+                            "code": expected_code,
+                            "path": manifest_path.resolve().as_posix(),
+                        }
+                    ]
+                },
+            },
+        }
+        assert not any(
+            item.get("method") == "textDocument/publishDiagnostics"
+            for item in observed
+        )
+        process.exit_without_shutdown()
+    finally:
+        process.close()
+
+
+def test_structured_initialization_failure_preserves_order_and_path_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lsprotocol import types
+    from pygls.exceptions import JsonRpcInvalidParams
+
+    import orchestrator.lsp.server as server_module
+    from orchestrator.lsp.server import WorkflowLispLanguageServer
+    from orchestrator.workflow_lisp.diagnostics import (
+        LispFrontendCompileError,
+        LispFrontendDiagnostic,
+    )
+    from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    canonical_source = workspace / "config" / ".." / "providers.json"
+    retained_raw_source = "\0retained-raw-manifest"
+
+    def diagnostic(code: str, path: str) -> LispFrontendDiagnostic:
+        position = SourcePosition(path=path, line=1, column=1, offset=0)
+        return LispFrontendDiagnostic(
+            code=code,
+            message=f"{code} detail must not enter the closed transport",
+            span=SourceSpan(start=position, end=position),
+            notes=("also excluded",),
+        )
+
+    error = LispFrontendCompileError(
+        (
+            diagnostic("first_code", str(canonical_source)),
+            diagnostic("second_code", retained_raw_source),
+        )
+    )
+
+    def fail_initialization(*args: object, **kwargs: object) -> object:
+        raise error
+
+    monkeypatch.setattr(
+        server_module,
+        "initialize_compile_driver",
+        fail_initialization,
+    )
+    server = WorkflowLispLanguageServer()
+    published: list[types.PublishDiagnosticsParams] = []
+    monkeypatch.setattr(
+        server,
+        "text_document_publish_diagnostics",
+        published.append,
+    )
+
+    with pytest.raises(JsonRpcInvalidParams) as raised:
+        server.initialize_runtime(
+            types.InitializeParams(
+                capabilities=types.ClientCapabilities(),
+                root_uri=workspace.as_uri(),
+            )
+        )
+
+    assert raised.value.message == (
+        "Workflow Lisp initialization failed "
+        "(2 compiler diagnostics); see data"
+    )
+    assert raised.value.data == {
+        "diagnostics": [
+            {
+                "code": "first_code",
+                "path": canonical_source.resolve().as_posix(),
+            },
+            {
+                "code": "second_code",
+                "path": retained_raw_source,
+            },
+        ]
+    }
+    assert published == []
+    assert server.driver is None
+
+
+@pytest.mark.parametrize(
+    "unstructured_error",
+    (
+        OSError("filesystem failure"),
+        PermissionError("permission failure"),
+        RuntimeError("internal failure"),
+        UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid byte"),
+        ValueError("generic failure"),
+    ),
+)
+def test_unstructured_compile_driver_initialization_failure_is_not_reclassified(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unstructured_error: Exception,
+) -> None:
+    from lsprotocol import types
+
+    import orchestrator.lsp.server as server_module
+    from orchestrator.lsp.server import WorkflowLispLanguageServer
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    def fail_initialization(*args: object, **kwargs: object) -> object:
+        raise unstructured_error
+
+    monkeypatch.setattr(
+        server_module,
+        "initialize_compile_driver",
+        fail_initialization,
+    )
+    server = WorkflowLispLanguageServer()
+
+    with pytest.raises(type(unstructured_error)) as raised:
+        server.initialize_runtime(
+            types.InitializeParams(
+                capabilities=types.ClientCapabilities(),
+                root_uri=workspace.as_uri(),
+            )
+        )
+
+    assert raised.value is unstructured_error
+    assert server.driver is None
+
+
 def test_single_root_initialize_and_shutdown_are_frame_clean(
     tmp_path: Path,
 ) -> None:

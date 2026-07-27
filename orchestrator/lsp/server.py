@@ -10,6 +10,8 @@ from lsprotocol import types
 from pygls.exceptions import JsonRpcInvalidParams
 from pygls.lsp.server import LanguageServer
 
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+
 from .compile_driver import (
     BuildInMemory,
     LspCompileDriver,
@@ -75,6 +77,9 @@ class WorkflowLispLanguageServer(LanguageServer):
                 ),
                 initialization_options=params.initialization_options,
             )
+        except LspInitializationError as error:
+            raise JsonRpcInvalidParams(message=str(error)) from error
+        try:
             if self._build_in_memory is None:
                 driver = initialize_compile_driver(
                     state,
@@ -86,8 +91,23 @@ class WorkflowLispLanguageServer(LanguageServer):
                     build_in_memory=self._build_in_memory,
                     log_server_error=self.log_internal_error,
                 )
-        except LspInitializationError as error:
-            raise JsonRpcInvalidParams(message=str(error)) from error
+        except LispFrontendCompileError as error:
+            diagnostic_rows = [
+                {
+                    "code": diagnostic.code,
+                    "path": _initialization_diagnostic_path(
+                        diagnostic.span.start.path
+                    ),
+                }
+                for diagnostic in error.diagnostics
+            ]
+            raise JsonRpcInvalidParams(
+                message=(
+                    "Workflow Lisp initialization failed "
+                    f"({len(diagnostic_rows)} compiler diagnostics); see data"
+                ),
+                data={"diagnostics": diagnostic_rows},
+            ) from error
         self.driver = driver
         watched_files = getattr(
             getattr(params.capabilities, "workspace", None),
@@ -518,6 +538,15 @@ class WorkflowLispLanguageServer(LanguageServer):
                 message=message,
             )
         )
+
+
+def _initialization_diagnostic_path(raw_path: str) -> str:
+    """Prefer one canonical diagnostic path and retain unresolvable text."""
+
+    try:
+        return Path(raw_path).resolve(strict=False).as_posix()
+    except (OSError, RuntimeError, ValueError):
+        return raw_path
 
 
 def create_server(
