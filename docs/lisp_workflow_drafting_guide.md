@@ -75,18 +75,23 @@ The optional Workflow Lisp language server v1 is implemented for practical
 root as described in the
 [setup guide](workflow_lisp_language_server_setup.md).
 
-V1 compiles only clean disk-equal opens and saves through the production
-full-Stage-3 path. It provides compiler diagnostics, exact direct procedure/
-workflow call definition, module/procedure/workflow symbols, and visible
-callable/form-head completion. Save the buffer before expecting refreshed
-results. Dirty, pending, failed, invalidated, or configuration-stale documents
-have no navigation answer, and configuration or root drift requires a server
-restart. L0 additionally provides content-keyed reuse of pure-projection
-exports, one-probe saves with reverse-dependency invalidation, structured
-compiler-initialization failures, and visible ordered note/expansion roles.
-The server writes no workspace files. Unsaved-buffer analysis,
-multi-diagnostic recovery, hover, broader incrementality, richer completion,
-and the other P1–P5 prerequisites remain deferred rather than approximated.
+The server compiles only clean disk-equal opens and saves through the
+production full-Stage-3 path. It provides compiler diagnostics, exact direct
+procedure/workflow call definition, and document symbols for the ten directly
+authored module, procedure, workflow, enum, path, record, union, schema,
+resource, and transition kinds. Completion preserves separate
+procedure/workflow/form namespaces and renders callable parameters, returns,
+and declared procedure effects from compiler signatures. Save the buffer
+before expecting refreshed results. Dirty, pending, failed, invalidated, or
+configuration-stale documents have no navigation answer, and configuration or
+root drift requires a server restart. L0 additionally provides content-keyed
+reuse of pure-projection exports, one-probe saves with reverse-dependency
+invalidation, structured compiler-initialization failures, and visible ordered
+note/expansion roles. The server writes no workspace files. L2 recovery-safe
+incomplete form completion remains at its design-amendment/review gate;
+unsaved-buffer analysis, multi-diagnostic recovery, hover, broader
+incrementality, type-directed completion, and the other P1–P5 prerequisites
+remain deferred rather than approximated.
 
 Before copying a checked-in `.orc` example or fixture, check
 `docs/workflow_lisp_route_readiness_registry.json`. Registry labels provide

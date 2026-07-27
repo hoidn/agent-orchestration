@@ -89,10 +89,15 @@ The implemented v1 surface is:
 - go-to-definition only when the cursor is inside an exact
   compiler-provenanced direct procedure or workflow call head, including
   visible imported and standard-library calls;
-- document symbols for authored `defmodule`, `defproc`, and `defworkflow`
-  definitions; and
-- deterministic completion for compiler-visible local/imported procedure and
-  workflow names plus registered form heads.
+- document symbols for directly authored `defmodule`, `defproc`,
+  `defworkflow`, `defenum`, `defpath`, `defrecord`, `defunion`, `defschema`,
+  `defresource`, and `deftransition` definitions, with full-form ranges and
+  exact name-token selection ranges; and
+- deterministic, namespace-preserving completion for compiler-visible
+  local/imported procedure and workflow names plus registered form heads.
+  Procedure/workflow rows remain distinct even at the same label and show
+  compiler-rendered parameter/return details; procedure details also show
+  declared effects.
 
 Navigation is deliberately closed. It returns null/no items for dirty,
 compile-pending, dependency-invalidated, language-failed, server-failed,
@@ -100,6 +105,8 @@ configuration-stale, superseded, closed, or unassociated documents. It also
 returns null for generated or ambiguous calls, arguments outside the exact
 callee span, and unsupported definition kinds. Completion uses visibility and
 registry membership only; it does not impose or infer a nominal type taxonomy.
+Generated, expanded, specialized, or span-ambiguous definitions do not become
+best-effort symbols.
 
 ## Freshness And Restart Rules
 
@@ -119,13 +126,16 @@ source/configuration closure, the compiler-owned builtin-root identity, or the
 workspace-root set latch a restart-required state. Reverting the bytes does not
 unlatch it; restart the language server.
 
-## V1 Limits
+## Current Limits
 
-V1 intentionally has no unsaved-buffer analysis, multi-diagnostic recovery,
+The implemented v1/L0/L1 surface intentionally has no unsaved-buffer analysis,
+recovery-safe incomplete completion,
+multi-diagnostic recovery,
 hover/type sidecar, compile cache or incrementality, rename, formatting, code
 actions, semantic tokens, multi-root workspace support, or non-default compile
-policy. These are not partial server features. The frontend prerequisites
-P1–P5 and any other successor work remain separately designed and scheduled.
+policy. These are not partial server features. L2's design-amendment/review
+gate is next; no L2 design is accepted. The frontend prerequisites P1–P5 and
+any other successor work remain separately designed and scheduled.
 
 For the owning contract and rationale, see
 [Workflow Lisp Language Server](design/workflow_lisp_language_server.md) and

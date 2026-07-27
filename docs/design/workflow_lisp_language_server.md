@@ -42,10 +42,11 @@
   lives in `docs/workflow_lisp_language_server_setup.md`. The bounded L0
   reliability/actionability successor is also implemented under
   `docs/plans/2026-07-26-workflow-lisp-language-server-l0-implementation-plan.md`;
-  L1 has an accepted design amendment and reviewed implementation plan under
-  `docs/plans/2026-07-26-workflow-lisp-language-server-l1-implementation-plan.md`;
-  Task 1 is next after `L1_PLAN_SPEC_APPROVED` then
-  `L1_PLAN_QUALITY_APPROVED`.
+  L1 authored symbols and callable signatures are implemented under
+  `docs/plans/2026-07-26-workflow-lisp-language-server-l1-implementation-plan.md`
+  through `f1eecf65`, `ec2328dd`, `d174faf2`, and `66163dc0` plus its reviewed
+  repository-real stdio/status closure. L2's design-amendment/review gate is
+  next; no L2 design is accepted.
 
 ## Summary
 
@@ -56,9 +57,11 @@ of the existing compile entry points, exactly as the frontend specification's
 §76.1 mandates ("must not implement a parallel parser, type checker, linter,
 or workflow validator"). Version 1 performs one serialized, full Stage-3
 compile when an opened document exactly matches disk text and after each save.
-It delivers diagnostics, go-to-definition, document symbols, and
-name completion from that compile's structured diagnostics and closed symbol
-surfaces. It never imports Stage 1, falls back to Stage 1, performs a
+It delivers diagnostics, go-to-definition, ten-kind direct-authored document
+symbols, and namespace-preserving procedure/workflow/form completion with
+compiler-rendered callable signatures from that compile's structured
+diagnostics and closed symbol surfaces. It never imports Stage 1, falls back to
+Stage 1, performs a
 two-phase compile, or analyzes a dirty buffer. Imported workflow bundles
 remain supported through one shared read-only in-memory extraction of the
 production build pipeline. Successful snapshots are current only while exact
@@ -1207,16 +1210,16 @@ observation, unsaved-buffer analysis, multi-diagnostic recovery, full
 `form_path` rendering, and runtime debugging remain excluded.
 
 The accepted boundary is implemented. L1 authored symbols and callable
-signatures have an accepted design and reviewed implementation plan, with Task
-1 next; this closure does not pre-implement that surface.
+signatures are also implemented and retain this L0 reliability boundary. L2's
+separate design-amendment/review gate is next.
 
 ## Accepted L1 Authored Symbols And Callable Signatures Amendment
 
-**Amendment status:** accepted after independent specification review
-`L1_DESIGN_SPEC_APPROVED` and independent quality review
-`L1_DESIGN_QUALITY_APPROVED`; not implemented. Nothing in this section is
-implemented by its presence in the design. The implemented v1 and L0 status
-above remains unchanged.
+**Amendment status:** implemented after independent specification review
+`L1_DESIGN_SPEC_APPROVED`, independent quality review
+`L1_DESIGN_QUALITY_APPROVED`, the reviewed five-task implementation plan, and
+its repository-real stdio/status closure. The implementation does not change
+the v1/L0 freshness or compiler-authority bounds above.
 
 L1 extends only the successful-snapshot navigation index. It does not add a
 parser, source-text classifier, partial AST, hover surface, reference graph,
@@ -1377,9 +1380,9 @@ evidence belongs in compiler definition/projection tests,
 `tests/test_workflow_lisp_lsp_navigation.py`,
 `tests/test_workflow_lisp_lsp_integration.py`,
 `tests/test_workflow_lisp_lsp_stdio.py`, and
-`tests/test_workflow_lisp_lsp_e2e.py`. The accepted amendment routes next to a
-separately reviewed implementation plan that must select exact files before
-any production change.
+`tests/test_workflow_lisp_lsp_e2e.py`. That evidence is implemented under the
+reviewed L1 plan. The next route is L2's separate design-amendment/review gate;
+no L2 behavior or accepted design is implied here.
 
 ## Verification Strategy
 

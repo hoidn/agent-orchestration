@@ -83,15 +83,15 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | Stage | Work | Entry condition | Completion gate | Status |
 | --- | --- | --- | --- | --- |
 | L0 | Reliability and diagnostic actionability | Gate S8 complete; current v1 behavior characterized | no-watcher `didSave` reverse invalidation, intentional structured initialization failures, visible compiler-owned notes/expansion provenance, and a content-keyed pure-projection source cache pass focused state/driver/stdio/diagnostic/cache tests plus one real stdio E2E without changing diagnostic identity | complete — reviewed implementation closes the four bounded corrections and watcher-disabled real-stdio gate |
-| L1 | Authored symbols and callable signatures | L0 complete; closed navigation/completion amendment accepted | authored type/resource/transition symbols and namespace-preserving procedure/workflow signature completion use existing compiler spans/catalogs, exclude generated shapes, and retain fail-closed freshness | active — accepted design and reviewed implementation plan; Task 1 next |
-| L2 | Recovery-safe static completion | L1 complete; two-tier completion amendment accepted | dirty/pending/invalidated/failed open entries receive only deterministic compiler-registry form heads as an incomplete list; stale callables remain closed and stale/closed/unassociated entries remain empty | blocked by L1 |
+| L1 | Authored symbols and callable signatures | L0 complete; closed navigation/completion amendment accepted | authored type/resource/transition symbols and namespace-preserving procedure/workflow signature completion use existing compiler spans/catalogs, exclude generated shapes, and retain fail-closed freshness | complete — implemented, reviewed, and repository-real stdio closure gate passed |
+| L2 | Recovery-safe static completion | L1 complete; two-tier completion amendment/review pending | dirty/pending/invalidated/failed open entries receive only deterministic compiler-registry form heads as an incomplete list; stale callables remain closed and stale/closed/unassociated entries remain empty | next — design amendment/review required; no L2 design is accepted |
 | L3 | Per-source entry selection | L2 complete; immutable initialization-schema amendment accepted; compile-path reentrancy proven (substrate MR-4 complete, or an equivalent accepted reentrancy fixture) | one canonical workspace process can select an exported workflow for a named application source while compiling library entries with no selection, with exact CLI request parity and restart semantics | blocked by L2 |
 | L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and a diagnostic-currentness policy are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | blocked by L3 |
 
 The Q-series stages execute in Q-table order. Q0 and Q1 are complete; Q2's
 design and implementation plan are accepted and Q2 implementation is active.
-L0 is complete; L1's design and implementation plan are accepted and L1
-implementation is active.
+L0 and L1 are complete. L2's design-amendment/review gate is next; no L2
+design or implementation plan is accepted.
 The L-series is an owner-selected
 priority queue rather than a
 claim that every adjacent stage has a compiler dependency on its predecessor;
@@ -288,9 +288,11 @@ Authority target: an accepted closed-matrix amendment to
 `docs/design/workflow_lisp_language_server.md`, reflected in the frontend
 specification before the implementation plan.
 
-**Status:** accepted after ordered independent `L1_DESIGN_SPEC_APPROVED` then
-`L1_DESIGN_QUALITY_APPROVED`. The reviewed implementation plan is accepted
-after `L1_PLAN_SPEC_APPROVED` then `L1_PLAN_QUALITY_APPROVED`; Task 1 is next:
+**Status:** complete. The design was accepted after ordered independent
+`L1_DESIGN_SPEC_APPROVED` then `L1_DESIGN_QUALITY_APPROVED`; the implementation
+plan followed `L1_PLAN_SPEC_APPROVED` then `L1_PLAN_QUALITY_APPROVED`.
+Implementation landed through `f1eecf65`, `ec2328dd`, `d174faf2`, and
+`66163dc0`, followed by the repository-real stdio/status closure in Task 5 of
 `docs/plans/2026-07-26-workflow-lisp-language-server-l1-implementation-plan.md`.
 
 L1 may expose only compiler-retained authored structure:
@@ -315,6 +317,9 @@ details from compiler catalogs rather than LSP-owned copies.
 
 Authority target: an accepted two-tier completion amendment to the language
 server design, frontend specification §76.1, setup guide, and drafting guide.
+
+**Status:** next at the design-amendment/review gate. No L2 design or
+implementation plan is accepted.
 
 For an open associated `.orc` entry under live initialization, deterministic
 compiler-registry form heads may remain available while the entry is dirty,

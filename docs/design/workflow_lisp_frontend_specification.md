@@ -4422,15 +4422,17 @@ Compiler outputs should support:
   effects, report parsing, pointer-as-authority, manual state paths, unproved
   variant references, and command adapters without typed contracts.
 
-The implemented Workflow Lisp language-server v1 consumes those shared
-surfaces for:
+The implemented Workflow Lisp language-server v1 plus L0 and L1 consumes those
+shared surfaces for:
 
 - compiler diagnostics on clean disk-equal open/save through one serialized
   full Stage-3 compile;
 - go-to-definition for exact compiler-provenanced direct procedure/workflow
   call heads;
-- document symbols for authored modules, procedures, and workflows; and
-- completion from compiler-visible callable names and the form registry.
+- document symbols for authored modules, procedures, workflows, enums, paths,
+  records, unions, schemas, resources, and transitions; and
+- namespace-preserving procedure/workflow completion with compiler-rendered
+  signatures plus completion from the form registry.
 
 It owns exactly one canonical workspace root, treats the compiler-owned builtin
 stdlib root as its sole additional source allowance, binds results to exact
@@ -4474,14 +4476,16 @@ changing compiler authority:
 
 This amendment remains save-driven full compilation. It does not select source
 overlays, diagnostic recovery, type sidecars, general compile caching, or
-incremental compilation. L1 authored symbols and callable signatures are the
-next language-server roadmap gate; they are not part of L0.
+incremental compilation. L1 authored symbols and callable signatures are now
+implemented without changing the L0 boundary. L2's design-amendment/review
+gate is next.
 
 ### Accepted L1 Authored Symbol And Completion Compatibility
 
-This L1 contract is accepted after `L1_DESIGN_SPEC_APPROVED` then
-`L1_DESIGN_QUALITY_APPROVED`. It is not implemented by this specification text,
-and it does not change the implemented v1 or L0 status.
+This L1 contract is implemented after `L1_DESIGN_SPEC_APPROVED` then
+`L1_DESIGN_QUALITY_APPROVED`, the reviewed L1 implementation plan, and its
+repository-real stdio/status closure. It does not change the implemented v1 or
+L0 freshness and compiler-authority bounds.
 
 The compiler, not the language server, must derive one closed original-syntax
 symbol projection from each `ResolvedModuleSource.syntax_module`. Each row is:

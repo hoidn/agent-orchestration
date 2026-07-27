@@ -1158,8 +1158,16 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "accepted design" in normalized_q2_row
     assert "implementation plan" in normalized_q2_row
     assert "next" in normalized_q2_row
+    l2_row = _markdown_table_row(
+        REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
+        "| L2 |",
+    )
+    normalized_l2_row = _normalized_routing_text(l2_row)
+    assert "next" in normalized_l2_row
+    assert "design amendment" in normalized_l2_row
+    assert "review" in normalized_l2_row
+    assert "no l2 design is accepted" in normalized_l2_row
     for stage, blocker in (
-        ("L2", "blocked by l1"),
         ("L3", "blocked by l2"),
         ("L4", "blocked by l3"),
     ):
@@ -1173,9 +1181,31 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "| L1 |",
     )
     normalized_l1_row = _normalized_routing_text(l1_row)
-    assert "accepted design" in normalized_l1_row
-    assert "implementation plan" in normalized_l1_row
-    assert "next" in normalized_l1_row
+    assert "complete" in normalized_l1_row
+    assert "implemented" in normalized_l1_row
+    assert "active" not in normalized_l1_row
+    l1_capability_row = _markdown_table_row(
+        capability_matrix_path,
+        "Workflow Lisp language server L1 authored symbols/signatures",
+    )
+    assert "| Implemented |" in l1_capability_row
+    assert "ten symbol kinds" in _normalized_routing_text(l1_capability_row)
+    language_server_router_row = _markdown_table_row(
+        design_router_path,
+        "workflow_lisp_language_server.md",
+    )
+    normalized_language_server_router_row = _normalized_routing_text(
+        language_server_router_row
+    )
+    assert "l1 authored symbols/signatures are implemented" in (
+        normalized_language_server_router_row
+    )
+    assert "l2 design amendment/review gate is next" in (
+        normalized_language_server_router_row
+    )
+    normalized_index = _normalized_routing_text(index)
+    assert "l1 authored symbols/signatures are complete" in normalized_index
+    assert "l2 design amendment/review gate is next" in normalized_index
     assert "p1 diagnostic accumulation" in normalized_successor
     assert "p5 compile caching/incrementality" in normalized_successor
     assert "runtime debugging surface" in normalized_successor
@@ -1287,7 +1317,13 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "active post stage 8 selector" in normalized_successor_index
     assert "q0 and q1 are complete" in normalized_successor_index
-    assert "q2 and l1 reviewed implementation plans are active" in (
+    assert "q2 implementation remains active" in (
+        normalized_successor_index
+    )
+    assert "l1 authored symbols/signatures are complete" in (
+        normalized_successor_index
+    )
+    assert "l2 design amendment/review gate is next" in (
         normalized_successor_index
     )
     assert "do not select e0" in normalized_successor_index
@@ -1488,7 +1524,13 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
         )
     )
     assert "q0 and q1 are complete" in active_roadmap_index
-    assert "q2 and l1 reviewed implementation plans are active" in (
+    assert "q2 implementation remains active" in (
+        active_roadmap_index
+    )
+    assert "l1 authored symbols/signatures are complete" in (
+        active_roadmap_index
+    )
+    assert "l2 design amendment/review gate is next" in (
         active_roadmap_index
     )
 
