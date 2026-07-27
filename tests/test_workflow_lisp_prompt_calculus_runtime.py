@@ -518,6 +518,8 @@ def _compile_runtime_fragment(
     *,
     lowering_route: str = "legacy",
     with_downstream_command: bool = False,
+    target_dsl: str = "2.20",
+    with_output_position: bool = False,
 ):
     source_path = workspace / "prompt_runtime.orc"
     provider_form = """
@@ -559,7 +561,7 @@ def _compile_runtime_fragment(
         """
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.20")
+  (:target-dsl "__TARGET_DSL__")
   (defmodule demo/prompt-runtime)
   (export run-review)
   (defpath DesignDocPath
@@ -575,7 +577,7 @@ def _compile_runtime_fragment(
       (target_doc :doc DesignDocPath)
       (message :text)
       (score :value Int)
-      (report_path :path WorkReportPath))
+      (report_path :path__OUTPUT_POSITION__ WorkReportPath))
     -> Bool
     "Message={message}; score={score}; report={report_path}; again={message}")
   (defworkflow run-review
@@ -585,7 +587,16 @@ def _compile_runtime_fragment(
      (report_path WorkReportPath))
     -> Bool
     __WORKFLOW_BODY__))
-""".replace("__WORKFLOW_BODY__", workflow_body).lstrip(),
+""".replace(
+            "__TARGET_DSL__",
+            target_dsl,
+        ).replace(
+            "__OUTPUT_POSITION__",
+            " :out" if with_output_position else "",
+        ).replace(
+            "__WORKFLOW_BODY__",
+            workflow_body,
+        ).lstrip(),
         encoding="utf-8",
     )
     result = workflow_lisp.compile_stage3_module(
@@ -1255,6 +1266,289 @@ def test_q2_compatible_completed_boundary_is_reused_without_provider_reexecution
     assert resumed["status"] == "completed"
     assert captured["preparations"] == 1
     assert captured["executions"] == 1
+
+
+def test_q3_compatible_completed_boundary_reuses_without_preparation_or_evidence(
+    tmp_path: Path,
+) -> None:
+    class Q3BoundaryInterruption(BaseException):
+        pass
+
+    source_path, compiled_bundle = _compile_runtime_fragment(
+        tmp_path,
+        lowering_route="wcc_m4",
+        with_downstream_command=True,
+        target_dsl="2.22",
+        with_output_position=True,
+    )
+    bundle = compiled_bundle
+    provider_node = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if node.kind is ExecutableNodeKind.PROVIDER
+    )
+    manager = _runtime_fragment_manager(
+        tmp_path,
+        source_path,
+        bundle,
+        run_id="prompt-fragment-q3-completed-resume",
+    )
+    captured: dict[str, object] = {
+        "preparations": 0,
+        "executions": 0,
+    }
+    prepare, base_execute = _provider_success(tmp_path, captured)
+
+    def execute_with_required_file(provider, invocation, **kwargs):
+        report = tmp_path / "artifacts" / "work" / "review.md"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("reviewed\n", encoding="utf-8")
+        return base_execute(provider, invocation, **kwargs)
+
+    original_emit = (
+        WorkflowExecutor
+        ._emit_lexical_checkpoint_shadow_after_step_commit
+    )
+
+    def interrupt_after_committed_boundary(
+        executor,
+        state,
+        step_name,
+        step,
+        finalized,
+    ):
+        original_emit(executor, state, step_name, step, finalized)
+        if finalized.get("status") == "completed":
+            raise Q3BoundaryInterruption
+
+    with patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        prepare,
+    ), patch.object(
+        ProviderExecutor,
+        "execute",
+        execute_with_required_file,
+    ), patch.object(
+        WorkflowExecutor,
+        "_emit_lexical_checkpoint_shadow_after_step_commit",
+        interrupt_after_committed_boundary,
+    ):
+        with pytest.raises(Q3BoundaryInterruption):
+            WorkflowExecutor(
+                bundle,
+                tmp_path,
+                manager,
+                retry_delay_ms=0,
+            ).execute(on_error="stop")
+
+    committed = json.loads(manager.state_file.read_text(encoding="utf-8"))
+    provider_state = next(
+        step
+        for step in committed["steps"].values()
+        if step["step_id"] == provider_node.step_id
+    )
+    assert provider_state["status"] == "completed"
+    for allocation in committed["provider_attempt_allocations"].values():
+        for event in allocation["events"]:
+            relative_path = event.get("relative_path")
+            if isinstance(relative_path, str):
+                evidence_path = manager.run_root / relative_path
+                if evidence_path.is_file():
+                    evidence_path.unlink()
+
+    resume_manager = StateManager(tmp_path, run_id=manager.run_id)
+    resume_manager.load()
+    with patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        side_effect=AssertionError(
+            "compatible completed result must not prepare an invocation"
+        ),
+    ), patch.object(
+        ProviderExecutor,
+        "execute",
+        side_effect=AssertionError(
+            "compatible completed result must not launch a provider"
+        ),
+    ):
+        resumed = WorkflowExecutor(
+            bundle,
+            tmp_path,
+            resume_manager,
+            retry_delay_ms=0,
+        ).execute(resume=True, on_error="stop")
+
+    assert resumed["status"] == "completed"
+    assert captured["preparations"] == 1
+    assert captured["executions"] == 1
+
+
+def test_q3_pending_and_failed_boundaries_carry_pair_into_fresh_attempt(
+    tmp_path: Path,
+) -> None:
+    source_path, compiled_bundle = _compile_runtime_fragment(
+        tmp_path,
+        lowering_route="wcc_m4",
+        target_dsl="2.22",
+        with_output_position=True,
+    )
+    bundle = compiled_bundle
+    provider_node = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if node.kind is ExecutableNodeKind.PROVIDER
+    )
+    config = provider_node.execution_config
+    manager = _runtime_fragment_manager(
+        tmp_path,
+        source_path,
+        bundle,
+        run_id="prompt-fragment-q3-failed-resume",
+    )
+    captured: dict[str, object] = {
+        "preparations": 0,
+        "executions": 0,
+    }
+    observed_pairs: list[tuple[object, object]] = []
+    prepare, base_execute = _provider_success(tmp_path, captured)
+    original_provider = WorkflowExecutor._execute_provider_with_context
+
+    def capture_pair(executor, step, *args, **kwargs):
+        observed_pairs.append(
+            (
+                step.prompt_attempt_identity_version,
+                step.compiler_prompt_attempt_binding_plan,
+            )
+        )
+        return original_provider(executor, step, *args, **kwargs)
+
+    def fail_then_succeed(provider, invocation, **kwargs):
+        if captured["executions"] == 0:
+            captured["executions"] = 1
+            return SimpleNamespace(
+                exit_code=1,
+                stdout=b"",
+                stderr=b"failed",
+                duration_ms=1,
+                error=None,
+                missing_placeholders=None,
+                invalid_prompt_placeholder=False,
+                raw_stdout=None,
+                normalized_stdout=None,
+                provider_session=None,
+            )
+        report = tmp_path / "artifacts" / "work" / "review.md"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("reviewed\n", encoding="utf-8")
+        return base_execute(provider, invocation, **kwargs)
+
+    with patch.object(
+        WorkflowExecutor,
+        "_execute_provider_with_context",
+        capture_pair,
+    ), patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        prepare,
+    ), patch.object(
+        ProviderExecutor,
+        "execute",
+        fail_then_succeed,
+    ):
+        completed = WorkflowExecutor(
+            bundle,
+            tmp_path,
+            manager,
+            max_retries=1,
+            retry_delay_ms=0,
+        ).execute(on_error="stop")
+
+    assert completed["status"] == "completed"
+    assert observed_pairs == [
+        (
+            config.prompt_attempt_identity_version,
+            config.compiler_prompt_attempt_binding_plan,
+        ),
+    ]
+    assert captured["preparations"] == 2
+    assert captured["executions"] == 2
+    allocation = next(
+        iter(completed["provider_attempt_allocations"].values())
+    )
+    assert allocation["last_allocated_ordinal"] == 2
+    assert [
+        event["ordinal"]
+        for event in allocation["events"]
+        if event["event"] == "allocated"
+    ] == [1, 2]
+
+
+def test_q3_complete_pair_loss_refuses_before_provider_launch(
+    tmp_path: Path,
+) -> None:
+    source_path, bundle = _compile_runtime_fragment(
+        tmp_path,
+        target_dsl="2.22",
+        with_output_position=True,
+    )
+    provider_node = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if node.kind is ExecutableNodeKind.PROVIDER
+    )
+    config = provider_node.execution_config
+    version = config.prompt_attempt_identity_version
+    plan = config.compiler_prompt_attempt_binding_plan
+    object.__setattr__(config, "prompt_attempt_identity_version", None)
+    object.__setattr__(
+        config,
+        "compiler_prompt_attempt_binding_plan",
+        None,
+    )
+    manager = _runtime_fragment_manager(
+        tmp_path,
+        source_path,
+        bundle,
+        run_id="prompt-fragment-q3-complete-pair-loss",
+    )
+    try:
+        with patch.object(
+            ProviderExecutor,
+            "prepare_invocation",
+            side_effect=AssertionError(
+                "complete Q3 pair loss must precede provider preparation"
+            ),
+        ), patch.object(
+            ProviderExecutor,
+            "execute",
+            side_effect=AssertionError(
+                "complete Q3 pair loss must precede provider launch"
+            ),
+        ), pytest.raises(
+            ValueError,
+            match="prompt_attempt_identity_version_missing",
+        ):
+            WorkflowExecutor(
+                bundle,
+                tmp_path,
+                manager,
+                retry_delay_ms=0,
+            ).execute(on_error="stop")
+    finally:
+        object.__setattr__(
+            config,
+            "prompt_attempt_identity_version",
+            version,
+        )
+        object.__setattr__(
+            config,
+            "compiler_prompt_attempt_binding_plan",
+            plan,
+        )
+
+    assert manager.state is not None
+    assert manager.state.provider_attempt_allocations == {}
 
 
 def test_q2_receiving_mismatch_has_no_attempt_or_provider_side_effects(

@@ -298,6 +298,7 @@ def test_build_anchors_q2_persisted_surface_with_emitted_v2_schema(
             bundle,
             surface=replace(
                 bundle.surface,
+                version="2.21",
                 steps=(
                     SurfaceStep(
                         name="Q2",
@@ -338,6 +339,66 @@ def test_build_anchors_q2_persisted_surface_with_emitted_v2_schema(
     )
     assert result.manifest.persisted_workflow_surface["schema_version"] == (
         emitted["schema_version"]
+    )
+
+
+def test_build_anchors_q3_persisted_surface_with_emitted_v3_schema(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.test_workflow_lisp_prompt_identity_carriage import (
+        _compile as _compile_prompt_identity,
+        _provider_carriers,
+    )
+
+    build = _build_module()
+    original_serialize = build.serialize_persisted_workflow_surface_graph
+    q3_result = _compile_prompt_identity(
+        tmp_path,
+        target_dsl="2.22",
+        lowering_route="legacy",
+        with_output=True,
+    )
+    _, q3_step, _, _, _, _, _ = _provider_carriers(q3_result)
+
+    def serialize_q3_surface(bundle):
+        q3_bundle = replace(
+            bundle,
+            surface=replace(
+                bundle.surface,
+                version="2.22",
+                steps=(q3_step,),
+                finalization=None,
+            ),
+            imports={},
+        )
+        return original_serialize(q3_bundle)
+
+    monkeypatch.setattr(
+        build,
+        "serialize_persisted_workflow_surface_graph",
+        serialize_q3_surface,
+    )
+
+    result = build.build_frontend_bundle(_build_request(tmp_path))
+    emitted = json.loads(
+        result.artifact_paths["persisted_workflow_surface"].read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert emitted["schema_version"] == (
+        "persisted_workflow_surface_graph.v3"
+    )
+    assert (
+        result.manifest.persisted_workflow_surface["schema_version"]
+        == emitted["schema_version"]
+    )
+    assert result.manifest.persisted_workflow_surface["sha256"] == (
+        "sha256:"
+        + hashlib.sha256(
+            result.artifact_paths["persisted_workflow_surface"].read_bytes()
+        ).hexdigest()
     )
 
 
@@ -482,6 +543,10 @@ def test_persisted_surface_v2_mixed_graph_has_exact_per_step_carriage(
         template,
         "synthetic::mixed-fragments",
         steps=(q2_step, q1_step, plain_step),
+    )
+    root = replace(
+        root,
+        surface=replace(root.surface, version="2.21"),
     )
 
     payload = serialize_persisted_workflow_surface_graph(root)

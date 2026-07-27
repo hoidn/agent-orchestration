@@ -1205,6 +1205,7 @@ def select_restore_candidate(
         state_manager=state_manager,
         runtime_plan=runtime_plan,
         workflow_path=_workflow_path_from_state(state_manager, state),
+        executable_ir=executable_workflow,
     )
     all_points = tuple(getattr(runtime_plan, "lexical_checkpoint_points", ()))
 

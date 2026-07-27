@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -18,6 +19,10 @@ from orchestrator.workflow_lisp.source_map import (
     build_source_map_document,
 )
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from tests.test_workflow_lisp_prompt_identity_carriage import (
+    _compile as _compile_prompt_identity,
+    _provider_carriers,
+)
 
 
 FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_shadow_points.orc")
@@ -81,6 +86,96 @@ def test_checkpoint_identity_stable_across_recompiles(tmp_path: Path) -> None:
     second = _executor_for_fixture(tmp_path / "b")
 
     assert checkpoint_identity_map(first) == checkpoint_identity_map(second)
+
+
+def test_q3_checkpoint_program_identity_reuses_equal_pair_and_changes_on_plan_drift(
+    tmp_path: Path,
+) -> None:
+    checkpoints = importlib.import_module(
+        "orchestrator.workflow_lisp.lexical_checkpoints"
+    )
+    result = _compile_prompt_identity(
+        tmp_path,
+        target_dsl="2.22",
+        lowering_route="legacy",
+        with_output=True,
+    )
+    _, _, _, _, config, _, bundle = _provider_carriers(result)
+    state_manager = StateManager(tmp_path, run_id="q3-program-identity")
+    original_plan = config.compiler_prompt_attempt_binding_plan
+
+    first = checkpoints.checkpoint_runtime_program_identity(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        workflow_path=bundle.provenance.workflow_path,
+        executable_ir=bundle.ir,
+    )
+    equal = checkpoints.checkpoint_runtime_program_identity(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        workflow_path=bundle.provenance.workflow_path,
+        executable_ir=bundle.ir,
+    )
+    changed_rows = list(original_plan.rows)
+    changed_rows[2] = replace(
+        changed_rows[2],
+        refinement={"kind": "primitive", "name": "String"},
+    )
+    changed_plan = replace(
+        original_plan,
+        rows=tuple(changed_rows),
+        plan_sha256=None,
+    ).with_canonical_sha256()
+    object.__setattr__(
+        config,
+        "compiler_prompt_attempt_binding_plan",
+        changed_plan,
+    )
+    try:
+        changed = checkpoints.checkpoint_runtime_program_identity(
+            state_manager=state_manager,
+            runtime_plan=bundle.runtime_plan,
+            workflow_path=bundle.provenance.workflow_path,
+            executable_ir=bundle.ir,
+        )
+    finally:
+        object.__setattr__(
+            config,
+            "compiler_prompt_attempt_binding_plan",
+            original_plan,
+        )
+
+    assert equal == first
+    assert changed["provider_configurations"] != (
+        first["provider_configurations"]
+    )
+    assert changed["executable_ir_digest"] != (
+        first["executable_ir_digest"]
+    )
+    assert changed["semantic_ir_digest"] != (
+        first["semantic_ir_digest"]
+    )
+    compatible_record = {
+        "schema_version": "workflow_lisp_lexical_checkpoint.v1",
+        "validity_envelope": {
+            "binding_schema_digest": "sha256:binding",
+            "storage_allocation_id": "allocation",
+            "source_map_origin_key": "origin",
+        },
+        "program_identity": first,
+    }
+    checkpoints.validate_checkpoint_record(
+        compatible_record,
+        expected_program_identity=equal,
+    )
+    with pytest.raises(
+        ValueError,
+        match="lexical_checkpoint_program_identity_mismatch",
+    ):
+        checkpoints.validate_checkpoint_record(
+            compatible_record,
+            expected_program_identity=changed,
+        )
 
 
 def test_result_guidance_is_excluded_from_reusable_contract_identity() -> None:

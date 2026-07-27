@@ -92,6 +92,10 @@ def test_in_memory_q2_persisted_surface_payload_round_trips_v2(
             ),
         ),
     )
+    root = replace(
+        root,
+        surface=replace(root.surface, version="2.21"),
+    )
 
     payload = serialize_persisted_workflow_surface_graph(root)
     decoded = decode_persisted_workflow_surface_graph(
@@ -100,6 +104,42 @@ def test_in_memory_q2_persisted_surface_payload_round_trips_v2(
     assert payload["schema_version"] == "persisted_workflow_surface_graph.v2"
     assert decoded.entry_node.steps[0].compiler_prompt_fragment_contract == (
         contract
+    )
+
+
+def test_in_memory_q3_persisted_surface_payload_round_trips_exact_pair(
+    tmp_path: Path,
+) -> None:
+    from tests.test_workflow_lisp_prompt_identity_carriage import (
+        _compile as _compile_prompt_identity,
+        _provider_carriers,
+    )
+
+    result = _compile_prompt_identity(
+        tmp_path,
+        target_dsl="2.22",
+        lowering_route="legacy",
+        with_output=True,
+    )
+    _, surface, _, _, _, _, bundle = _provider_carriers(result)
+
+    payload = serialize_persisted_workflow_surface_graph(bundle)
+    decoded = decode_persisted_workflow_surface_graph(
+        canonical_persisted_surface_bytes(payload)
+    )
+    decoded_step = decoded.entry_node.steps[0]
+
+    assert payload["schema_version"] == (
+        "persisted_workflow_surface_graph.v3"
+    )
+    assert decoded_step.prompt_attempt_identity_version == (
+        surface.prompt_attempt_identity_version
+    )
+    assert decoded_step.compiler_prompt_attempt_binding_plan == (
+        surface.compiler_prompt_attempt_binding_plan
+    )
+    assert decoded_step.compiler_prompt_fragment_contract == (
+        surface.compiler_prompt_fragment_contract
     )
 
 

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .prompt_dependency_contract import CompilerPromptDependencyContract
 from .prompt_fragment_contract import (
+    CompilerPromptAttemptBindingPlan,
     CompilerPromptFragmentContractV2,
+    validate_compiler_prompt_attempt_pair,
     validate_compiler_prompt_fragment_pair,
 )
 from .executable_ir import (
@@ -147,18 +149,33 @@ class RuntimeStep(Mapping[str, Any]):
     node: ExecutableNode
     name: str
     step_id: str
+    target_dsl_version: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         config = self._config()
-        if (
-            isinstance(config, ProviderStepConfig)
-            and type(config.compiler_prompt_fragment_contract)
-            is CompilerPromptFragmentContractV2
-        ):
-            validate_compiler_prompt_fragment_pair(
-                config.compiler_prompt_fragment_contract,
-                config.compiled_prompt_fragment_identity,
-                config.common.expected_outputs,
+        if isinstance(config, ProviderStepConfig):
+            if (
+                type(config.compiler_prompt_fragment_contract)
+                is CompilerPromptFragmentContractV2
+                or config.prompt_attempt_identity_version is not None
+                or config.compiler_prompt_attempt_binding_plan is not None
+            ):
+                validate_compiler_prompt_fragment_pair(
+                    config.compiler_prompt_fragment_contract,
+                    config.compiled_prompt_fragment_identity,
+                    config.common.expected_outputs,
+                )
+            validate_compiler_prompt_attempt_pair(
+                config.prompt_attempt_identity_version,
+                config.compiler_prompt_attempt_binding_plan,
+                fragment_contract=config.compiler_prompt_fragment_contract,
+                dependency_contract=config.compiler_prompt_dependency_contract,
+                typed_prompt_inputs=config.typed_prompt_inputs,
+                target_dsl_version=self.target_dsl_version,
             )
 
     @property
@@ -198,6 +215,26 @@ class RuntimeStep(Mapping[str, Any]):
         config = self._config()
         if isinstance(config, ProviderStepConfig):
             return config.compiled_prompt_fragment_identity
+        return None
+
+    @property
+    def prompt_attempt_identity_version(self) -> str | None:
+        """Q3 identity carrier, intentionally outside the mapping view."""
+
+        config = self._config()
+        if isinstance(config, ProviderStepConfig):
+            return config.prompt_attempt_identity_version
+        return None
+
+    @property
+    def compiler_prompt_attempt_binding_plan(
+        self,
+    ) -> CompilerPromptAttemptBindingPlan | None:
+        """Immutable Q3 binding plan, outside the mapping view."""
+
+        config = self._config()
+        if isinstance(config, ProviderStepConfig):
+            return config.compiler_prompt_attempt_binding_plan
         return None
 
     def _config(self) -> Any:

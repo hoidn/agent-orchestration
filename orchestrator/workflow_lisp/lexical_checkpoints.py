@@ -1091,7 +1091,12 @@ def validate_completed_effect_refs_against_authoritative_state(
     node = nodes.get(node_id) if isinstance(nodes, Mapping) else None
     if node is None:
         raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
-    runtime_step = RuntimeStep(node=node, name=str(expected_point.get("presentation_key") or ""), step_id=str(expected_point.get("step_id") or ""))
+    runtime_step = RuntimeStep(
+        node=node,
+        name=str(expected_point.get("presentation_key") or ""),
+        step_id=str(expected_point.get("step_id") or ""),
+        target_dsl_version=getattr(executable_workflow, "version", None),
+    )
     qualified_checkpoints = tuple(
         checkpoint
         for checkpoint in getattr(runtime_plan, "resume_checkpoints", ())
@@ -1382,7 +1387,66 @@ def _program_identity(executor: Any, point: Any) -> Mapping[str, Any]:
         state_manager=executor.state_manager,
         runtime_plan=executor.runtime_plan,
         workflow_path=workflow_path if isinstance(workflow_path, Path) else None,
+        executable_ir=getattr(executor, "executable_ir", None),
     )
+
+
+def _q3_provider_configurations(
+    executable_ir: Any,
+) -> tuple[dict[str, Any], ...]:
+    if executable_ir is None:
+        return ()
+    from orchestrator.workflow.executable_ir import ProviderStepConfig
+    from orchestrator.workflow.prompt_fragment_contract import (
+        serialize_compiler_prompt_attempt_binding_plan,
+        validate_compiler_prompt_attempt_pair,
+    )
+
+    target_dsl_version = getattr(executable_ir, "version", None)
+    nodes = _mapping(getattr(executable_ir, "nodes", {}))
+    configurations: list[dict[str, Any]] = []
+    for node_id in sorted(nodes):
+        node = nodes[node_id]
+        config = getattr(node, "execution_config", None)
+        if not isinstance(config, ProviderStepConfig):
+            continue
+        validate_compiler_prompt_attempt_pair(
+            config.prompt_attempt_identity_version,
+            config.compiler_prompt_attempt_binding_plan,
+            fragment_contract=config.compiler_prompt_fragment_contract,
+            dependency_contract=config.compiler_prompt_dependency_contract,
+            typed_prompt_inputs=config.typed_prompt_inputs,
+            target_dsl_version=(
+                target_dsl_version
+                if isinstance(target_dsl_version, str)
+                else None
+            ),
+        )
+        if config.prompt_attempt_identity_version is None:
+            continue
+        if config.compiler_prompt_attempt_binding_plan is None:
+            raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
+        configurations.append(
+            {
+                "node_id": _require_non_empty_string(
+                    getattr(node, "node_id", None),
+                    DIAGNOSTIC_CODES.program_identity_mismatch,
+                ),
+                "step_id": _require_non_empty_string(
+                    getattr(node, "step_id", None),
+                    DIAGNOSTIC_CODES.program_identity_mismatch,
+                ),
+                "prompt_attempt_identity_version": (
+                    config.prompt_attempt_identity_version
+                ),
+                "compiler_prompt_attempt_binding_plan": (
+                    serialize_compiler_prompt_attempt_binding_plan(
+                        config.compiler_prompt_attempt_binding_plan
+                    )
+                ),
+            }
+        )
+    return tuple(configurations)
 
 
 def checkpoint_runtime_program_identity(
@@ -1390,6 +1454,7 @@ def checkpoint_runtime_program_identity(
     state_manager: Any,
     runtime_plan: Any,
     workflow_path: Path | None = None,
+    executable_ir: Any = None,
 ) -> Mapping[str, Any]:
     workflow_name = str(getattr(runtime_plan, "workflow_name", "") or "")
     source_module_digest = (
@@ -1442,26 +1507,38 @@ def checkpoint_runtime_program_identity(
         )
         for point in runtime_points
     ]
-    executable_ir_digest = _sha256_json(
-        {
-            "ordered_node_ids": list(getattr(runtime_plan, "ordered_node_ids", ())),
-            "lexical_checkpoint_points": lexical_points,
-        }
-    )
-    semantic_ir_digest = _sha256_json(
-        {
-            "workflow_name": workflow_name,
-            "resume_checkpoints": [
-                {
-                    "checkpoint_kind": checkpoint.checkpoint_kind,
-                    "node_id": checkpoint.node_id,
-                    "step_id": checkpoint.step_id,
-                }
-                for checkpoint in getattr(runtime_plan, "resume_checkpoints", ())
-            ],
-            "lexical_checkpoint_points": lexical_points,
-        }
-    )
+    provider_configurations = _q3_provider_configurations(executable_ir)
+    executable_projection = {
+        "ordered_node_ids": list(
+            getattr(runtime_plan, "ordered_node_ids", ())
+        ),
+        "lexical_checkpoint_points": lexical_points,
+    }
+    semantic_projection = {
+        "workflow_name": workflow_name,
+        "resume_checkpoints": [
+            {
+                "checkpoint_kind": checkpoint.checkpoint_kind,
+                "node_id": checkpoint.node_id,
+                "step_id": checkpoint.step_id,
+            }
+            for checkpoint in getattr(runtime_plan, "resume_checkpoints", ())
+        ],
+        "lexical_checkpoint_points": lexical_points,
+    }
+    if provider_configurations:
+        serialized_configurations = [
+            dict(configuration)
+            for configuration in provider_configurations
+        ]
+        executable_projection["provider_configurations"] = (
+            serialized_configurations
+        )
+        semantic_projection["provider_configurations"] = (
+            serialized_configurations
+        )
+    executable_ir_digest = _sha256_json(executable_projection)
+    semantic_ir_digest = _sha256_json(semantic_projection)
     lowering_schema_version = "wcc_m4"
     lexical_checkpoint_points = getattr(runtime_plan, "lexical_checkpoint_points", ())
     if lexical_checkpoint_points:
@@ -1469,7 +1546,7 @@ def checkpoint_runtime_program_identity(
         lowering_schema_version = str(
             _mapping(_point_details(first_point).get("runtime_program_identity")).get("lowering_schema_version", "wcc_m4")
         )
-    return {
+    identity = {
         "workflow_name": workflow_name,
         "lowering_schema_version": lowering_schema_version,
         "source_module_digest": source_module_digest,
@@ -1477,6 +1554,12 @@ def checkpoint_runtime_program_identity(
         "semantic_ir_digest": semantic_ir_digest,
         "checkpoint_schema_version": CHECKPOINT_RECORD_SCHEMA_VERSION,
     }
+    if provider_configurations:
+        identity["provider_configurations"] = [
+            dict(configuration)
+            for configuration in provider_configurations
+        ]
+    return identity
 
 
 def _binding_schema_digest(point: Any) -> str:

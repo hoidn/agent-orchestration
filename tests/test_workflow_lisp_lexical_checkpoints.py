@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 from dataclasses import replace
@@ -13,8 +14,15 @@ from orchestrator.state import StateManager
 from orchestrator.workflow.executable_ir import ExecutableNodeKind
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.runtime_step import RuntimeStep
+from orchestrator.workflow.prompt_fragment_contract import (
+    serialize_compiler_prompt_attempt_binding_plan,
+)
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from tests.test_workflow_lisp_prompt_identity_carriage import (
+    _compile as _compile_prompt_identity,
+    _provider_carriers,
+)
 
 
 FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_shadow_points.orc")
@@ -27,6 +35,144 @@ PROCEDURE_FIXTURE = Path(
 
 def _module():
     return importlib.import_module("orchestrator.workflow_lisp.lexical_checkpoints")
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "ordered_node_ids", "expected_sha256"),
+    (
+        (
+            "golden-q1",
+            ("node.q1",),
+            "b274246f085712d71bcd201e8f66581a6f40e20377887619a6b221c409311764",
+        ),
+        (
+            "golden-q2",
+            ("node.q2", "node.done"),
+            "dd687d41788a301e6e3b6cd4a59f382fee3383e62c06c8ae00f461cae356dfd6",
+        ),
+    ),
+)
+def test_checkpoint_program_identity_q1_q2_bytes_are_frozen(
+    tmp_path: Path,
+    workflow_name: str,
+    ordered_node_ids: tuple[str, ...],
+    expected_sha256: str,
+) -> None:
+    checkpoints = _module()
+    state_manager = StateManager(tmp_path, run_id="golden")
+    runtime_plan = SimpleNamespace(
+        workflow_name=workflow_name,
+        ordered_node_ids=ordered_node_ids,
+        lexical_checkpoint_points=(),
+        resume_checkpoints=(),
+        nodes={},
+    )
+
+    payload = checkpoints.checkpoint_runtime_program_identity(
+        state_manager=state_manager,
+        runtime_plan=runtime_plan,
+    )
+    canonical = (
+        checkpoints.canonical_json_dumps(payload) + "\n"
+    ).encode("utf-8")
+
+    assert hashlib.sha256(canonical).hexdigest() == expected_sha256
+    assert payload["checkpoint_schema_version"] == (
+        "workflow_lisp_lexical_checkpoint.v1"
+    )
+    assert "provider_configurations" not in payload
+
+
+def test_checkpoint_program_identity_carries_exact_q3_pair_without_evidence(
+    tmp_path: Path,
+) -> None:
+    checkpoints = _module()
+    result = _compile_prompt_identity(
+        tmp_path,
+        target_dsl="2.22",
+        lowering_route="legacy",
+        with_output=True,
+    )
+    _, _, _, _, config, _, bundle = _provider_carriers(result)
+    state_manager = StateManager(tmp_path, run_id="q3-checkpoint")
+
+    identity = checkpoints.checkpoint_runtime_program_identity(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        workflow_path=bundle.provenance.workflow_path,
+        executable_ir=bundle.ir,
+    )
+
+    assert identity["checkpoint_schema_version"] == (
+        "workflow_lisp_lexical_checkpoint.v1"
+    )
+    assert identity["provider_configurations"] == [
+        {
+            "node_id": next(
+                node.node_id
+                for node in bundle.ir.nodes.values()
+                if node.execution_config is config
+            ),
+            "step_id": next(
+                node.step_id
+                for node in bundle.ir.nodes.values()
+                if node.execution_config is config
+            ),
+            "prompt_attempt_identity_version": (
+                config.prompt_attempt_identity_version
+            ),
+            "compiler_prompt_attempt_binding_plan": (
+                serialize_compiler_prompt_attempt_binding_plan(
+                    config.compiler_prompt_attempt_binding_plan
+                )
+            ),
+        }
+    ]
+    serialized = json.dumps(identity, sort_keys=True)
+    assert "attempt_ordinal" not in serialized
+    assert "final_prompt" not in serialized
+    assert "composition_sha256" not in serialized
+    assert "roles" not in serialized
+
+
+def test_checkpoint_program_identity_mismatch_refuses_before_evidence_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkpoints = _module()
+    record = {
+        "schema_version": "workflow_lisp_lexical_checkpoint.v1",
+        "validity_envelope": {
+            "binding_schema_digest": "sha256:binding",
+            "storage_allocation_id": "allocation",
+            "source_map_origin_key": "origin",
+        },
+        "program_identity": {"executable_ir_digest": "sha256:old"},
+    }
+    monkeypatch.setattr(
+        checkpoints,
+        "_json_object_from_workspace",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("prompt evidence must not be read")
+        ),
+    )
+    monkeypatch.setattr(
+        checkpoints,
+        "_file_digest_from_workspace",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("prompt evidence must not be read")
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="lexical_checkpoint_program_identity_mismatch",
+    ):
+        checkpoints.validate_checkpoint_record(
+            record,
+            expected_program_identity={
+                "executable_ir_digest": "sha256:new"
+            },
+        )
 
 
 def _policy_module():

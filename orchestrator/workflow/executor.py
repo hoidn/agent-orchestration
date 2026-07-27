@@ -678,7 +678,12 @@ class WorkflowExecutor:
             else node.presentation_name
         )
         resolved_step_id = step_id if isinstance(step_id, str) else node.step_id
-        return RuntimeStep(node=node, name=resolved_name, step_id=resolved_step_id)
+        return RuntimeStep(
+            node=node,
+            name=resolved_name,
+            step_id=resolved_step_id,
+            target_dsl_version=self.executable_ir.version,
+        )
 
     def _runtime_step_for_node_id(
         self,

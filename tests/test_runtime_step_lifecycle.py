@@ -5,7 +5,7 @@ import hashlib
 import json
 import threading
 import time
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,17 +14,235 @@ import pytest
 from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.runtime_step import RuntimeStep
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from tests.workflow_bundle_helpers import historical_workflow_lisp_bundle_context
 from tests.test_workflow_lisp_prompt_calculus_runtime import (
     _compile_runtime_fragment,
     _upgrade_runtime_fragment_bundle_to_q2,
 )
+from tests.test_workflow_lisp_prompt_identity_carriage import (
+    _compile as _compile_prompt_identity,
+    _provider_carriers,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VALID_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "valid"
 PURE_EXPR_SELECTOR_PROJECTION = VALID_FIXTURES / "pure_expr_selector_action_projection.orc"
+
+
+@pytest.mark.parametrize(
+    ("target_dsl", "with_output", "expected_sha256"),
+    (
+        (
+            "2.20",
+            False,
+            "2a91167aa5c0bd3b3bee6cc944ffcf871489f27d39d478f2ca7093859db8fac4",
+        ),
+        (
+            "2.21",
+            False,
+            "2a91167aa5c0bd3b3bee6cc944ffcf871489f27d39d478f2ca7093859db8fac4",
+        ),
+        (
+            "2.21",
+            True,
+            "faf7833ba17445abe0849fb574eeab889e0da692e04032dc6697e19ef6afd3b9",
+        ),
+    ),
+)
+def test_runtime_step_q1_q2_compatibility_mapping_bytes_are_frozen(
+    tmp_path: Path,
+    target_dsl: str,
+    with_output: bool,
+    expected_sha256: str,
+) -> None:
+    result = _compile_prompt_identity(
+        tmp_path,
+        target_dsl=target_dsl,
+        lowering_route="legacy",
+        with_output=with_output,
+    )
+    bundle = _provider_carriers(result)[-1]
+    node = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if hasattr(node.execution_config, "provider")
+    )
+    step = RuntimeStep(
+        node=node,
+        name=node.presentation_name,
+        step_id=node.step_id,
+    )
+    canonical = (
+        json.dumps(
+            step.to_compat_dict(),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+    assert hashlib.sha256(canonical).hexdigest() == expected_sha256
+    assert "prompt_attempt_identity_version" not in step
+    assert "compiler_prompt_attempt_binding_plan" not in step
+
+
+def test_runtime_step_exposes_immutable_q3_pair_accessors(
+    tmp_path: Path,
+) -> None:
+    result = _compile_prompt_identity(
+        tmp_path,
+        target_dsl="2.22",
+        lowering_route="legacy",
+        with_output=True,
+    )
+    _, _, _, _, config, _, bundle = _provider_carriers(result)
+    node = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if node.execution_config is config
+    )
+
+    step = RuntimeStep(
+        node=node,
+        name=node.presentation_name,
+        step_id=node.step_id,
+    )
+
+    assert step.prompt_attempt_identity_version == (
+        config.prompt_attempt_identity_version
+    )
+    assert step.compiler_prompt_attempt_binding_plan is (
+        config.compiler_prompt_attempt_binding_plan
+    )
+    assert "prompt_attempt_identity_version" not in step.to_compat_dict()
+    assert "compiler_prompt_attempt_binding_plan" not in step.to_compat_dict()
+    with pytest.raises(FrozenInstanceError):
+        step.prompt_attempt_identity_version = "changed"
+
+
+@pytest.mark.parametrize(
+    ("mutation", "diagnostic"),
+    (
+        ("drop_version", "prompt_attempt_identity_version_missing"),
+        ("drop_plan", "prompt_attempt_binding_plan_missing"),
+        ("mutate_version", "prompt_attempt_identity_version_invalid"),
+        ("mutate_digest", "prompt_attempt_binding_plan_invalid"),
+    ),
+)
+def test_runtime_step_rejects_dropped_or_mutated_q3_pair(
+    tmp_path: Path,
+    mutation: str,
+    diagnostic: str,
+) -> None:
+    result = _compile_prompt_identity(
+        tmp_path,
+        target_dsl="2.22",
+        lowering_route="legacy",
+        with_output=True,
+    )
+    _, _, _, _, config, _, bundle = _provider_carriers(result)
+    node = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if node.execution_config is config
+    )
+    version = config.prompt_attempt_identity_version
+    plan = config.compiler_prompt_attempt_binding_plan
+    plan_digest = plan.plan_sha256
+    try:
+        if mutation == "drop_version":
+            object.__setattr__(
+                config,
+                "prompt_attempt_identity_version",
+                None,
+            )
+        elif mutation == "drop_plan":
+            object.__setattr__(
+                config,
+                "compiler_prompt_attempt_binding_plan",
+                None,
+            )
+        elif mutation == "mutate_version":
+            object.__setattr__(
+                config,
+                "prompt_attempt_identity_version",
+                "workflow_prompt_attempt_identity.v999",
+            )
+        elif mutation == "mutate_digest":
+            object.__setattr__(plan, "plan_sha256", "sha256:" + "0" * 64)
+        else:
+            raise AssertionError(mutation)
+
+        with pytest.raises(ValueError, match=diagnostic):
+            RuntimeStep(
+                node=node,
+                name=node.presentation_name,
+                step_id=node.step_id,
+            )
+    finally:
+        object.__setattr__(
+            config,
+            "prompt_attempt_identity_version",
+            version,
+        )
+        object.__setattr__(
+            config,
+            "compiler_prompt_attempt_binding_plan",
+            plan,
+        )
+        object.__setattr__(plan, "plan_sha256", plan_digest)
+
+
+def test_runtime_step_rejects_complete_q3_pair_loss_with_target_authority(
+    tmp_path: Path,
+) -> None:
+    result = _compile_prompt_identity(
+        tmp_path,
+        target_dsl="2.22",
+        lowering_route="legacy",
+        with_output=True,
+    )
+    _, _, _, _, config, _, bundle = _provider_carriers(result)
+    node = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if node.execution_config is config
+    )
+    version = config.prompt_attempt_identity_version
+    plan = config.compiler_prompt_attempt_binding_plan
+    object.__setattr__(config, "prompt_attempt_identity_version", None)
+    object.__setattr__(
+        config,
+        "compiler_prompt_attempt_binding_plan",
+        None,
+    )
+    try:
+        with pytest.raises(
+            ValueError,
+            match="prompt_attempt_identity_version_missing",
+        ):
+            RuntimeStep(
+                node=node,
+                name=node.presentation_name,
+                step_id=node.step_id,
+                target_dsl_version=bundle.ir.version,
+            )
+    finally:
+        object.__setattr__(
+            config,
+            "prompt_attempt_identity_version",
+            version,
+        )
+        object.__setattr__(
+            config,
+            "compiler_prompt_attempt_binding_plan",
+            plan,
+        )
 
 
 def test_runtime_step_q2_boundary_validates_common_expected_outputs(
