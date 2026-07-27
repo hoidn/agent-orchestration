@@ -24,9 +24,102 @@ from ..contracts.prompt_contract import (
 )
 from .assets import AssetResolutionError, WorkflowAssetResolver
 from .executor_runtime import RuntimeStepInput
+from .prompt_fragment_contract import (
+    CompilerPromptFragmentContract,
+    validate_compiler_prompt_fragment_contract,
+)
+from .view_renderer import ViewRendererError, render_view
 
 
 _RenderOwner = TypeVar("_RenderOwner")
+
+
+def render_prompt_fragment_base(
+    contract: CompilerPromptFragmentContract,
+    *,
+    resolved_slot_values: Dict[str, Any],
+) -> str:
+    """Render one closed fragment contract into its in-memory base prompt."""
+
+    validate_compiler_prompt_fragment_contract(contract)
+    if not isinstance(resolved_slot_values, dict):
+        raise TypeError("resolved prompt fragment slot values must be a mapping")
+    slot_names = tuple(slot.name for slot in contract.rendered_slots)
+    if set(resolved_slot_values) != set(slot_names):
+        raise ValueError(
+            "resolved prompt fragment slot values must contain exactly "
+            "the declared rendered slots"
+        )
+
+    rendered_by_name: dict[str, str] = {}
+    for slot in contract.rendered_slots:
+        value = resolved_slot_values[slot.name]
+        if slot.renderer_id == "raw-utf8-string":
+            if not isinstance(value, str):
+                raise TypeError(
+                    "raw-utf8-string prompt fragment values must be strings"
+                )
+            try:
+                value.encode("utf-8", errors="strict")
+            except UnicodeEncodeError as exc:
+                raise ValueError(
+                    "raw-utf8-string prompt fragment value is not valid UTF-8"
+                ) from exc
+            rendered_by_name[slot.name] = value
+            continue
+        try:
+            rendered = render_view(slot.renderer_id, 1, value)
+        except ViewRendererError as exc:
+            raise ValueError(
+                f"{slot.renderer_id} prompt fragment rendering failed: {exc}"
+            ) from exc
+        try:
+            rendered_by_name[slot.name] = (
+                rendered.decode("utf-8", errors="strict").removesuffix("\n")
+            )
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                f"{slot.renderer_id} prompt fragment renderer returned invalid UTF-8"
+            ) from exc
+
+    output: list[str] = []
+    template = contract.template_utf8
+    index = 0
+    while index < len(template):
+        character = template[index]
+        if character == "{":
+            if index + 1 < len(template) and template[index + 1] == "{":
+                output.append("{")
+                index += 2
+                continue
+            closing = template.find("}", index + 1)
+            if closing < 0:
+                raise ValueError(
+                    "compiler_prompt_fragment_contract_invalid: "
+                    "malformed template placeholder"
+                )
+            name = template[index + 1 : closing]
+            try:
+                output.append(rendered_by_name[name])
+            except KeyError as exc:
+                raise ValueError(
+                    "compiler_prompt_fragment_contract_invalid: "
+                    "template placeholder has no rendered slot"
+                ) from exc
+            index = closing + 1
+            continue
+        if character == "}":
+            if index + 1 < len(template) and template[index + 1] == "}":
+                output.append("}")
+                index += 2
+                continue
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                "malformed template placeholder"
+            )
+        output.append(character)
+        index += 1
+    return "".join(output)
 
 
 class PromptCompletionError(Exception):

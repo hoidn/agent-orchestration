@@ -115,13 +115,20 @@ from .predicates import (
     ScorePredicateNode,
     is_numeric_predicate_value,
 )
-from .prompting import PromptCompletionError, PromptComposer
+from .prompting import (
+    PromptCompletionError,
+    PromptComposer,
+    render_prompt_fragment_base,
+)
+from .prompt_dependency_contract import PromptDependencyOriginKind
 from .prompt_dependency_evidence import (
     authored_row_id,
+    build_fragment_success_evidence,
     build_failure_evidence,
     build_success_evidence,
     publish_evidence_file,
 )
+from .prompt_fragment_contract import validate_compiler_prompt_fragment_pair
 from .provider_attempts import (
     ProviderAttemptScope,
     resolve_aggregate_run_owner,
@@ -5653,6 +5660,64 @@ class WorkflowExecutor:
             return step.compiler_prompt_dependency_contract
         return None
 
+    @staticmethod
+    def _compiler_prompt_fragment_pair(
+        step: RuntimeStepInput,
+    ) -> tuple[Any, str | None]:
+        if isinstance(step, RuntimeStep):
+            return (
+                step.compiler_prompt_fragment_contract,
+                step.compiled_prompt_fragment_identity,
+            )
+        return None, None
+
+    def _validated_runtime_prompt_fragment_pair(
+        self,
+        step: RuntimeStepInput,
+    ) -> tuple[Any, str | None, Optional[Dict[str, Any]]]:
+        """Validate fragment carriage before prompt or provider preparation."""
+
+        contract, identity = self._compiler_prompt_fragment_pair(step)
+        dependency_contract = self._compiler_prompt_dependency_contract(step)
+        fragment_dependency_origin = (
+            dependency_contract is not None
+            and dependency_contract.origin_kind
+            is PromptDependencyOriginKind.WORKFLOW_LISP_PROMPT_FRAGMENT
+        )
+        try:
+            validate_compiler_prompt_fragment_pair(contract, identity)
+        except (TypeError, ValueError) as exc:
+            reason = str(exc).split(":", 1)[0]
+            if reason not in {
+                "compiled_prompt_fragment_identity_missing",
+                "compiled_prompt_fragment_identity_invalid",
+                "compiled_prompt_fragment_identity_mismatch",
+                "compiler_prompt_fragment_contract_invalid",
+            }:
+                reason = "compiler_prompt_fragment_contract_invalid"
+            return (
+                None,
+                None,
+                self._contract_violation_result(
+                    "Provider prompt fragment validation failed",
+                    {"reason": reason, "error": str(exc)},
+                ),
+            )
+        if (contract is not None) != fragment_dependency_origin:
+            return (
+                None,
+                None,
+                self._contract_violation_result(
+                    "Provider prompt fragment validation failed",
+                    {
+                        "reason": (
+                            "prompt_fragment_dependency_origin_invalid"
+                        )
+                    },
+                ),
+            )
+        return contract, identity, None
+
     def _provider_attempt_scope(
         self,
         *,
@@ -5839,6 +5904,13 @@ class WorkflowExecutor:
         # Initialize debug info dict for injection metadata
         debug_info = {}
         step_name = step.get('name', f'step_{self.current_step}')
+        (
+            _fragment_contract,
+            _fragment_identity,
+            fragment_error,
+        ) = self._validated_runtime_prompt_fragment_pair(step)
+        if fragment_error is not None:
+            return fragment_error
         managed_jobs_config = _managed_jobs_config_from_step(step)
         current_step_state = state.get('current_step')
         current_managed_state = (
@@ -5928,6 +6000,9 @@ class WorkflowExecutor:
         # Content dependencies are composed from a fresh immutable snapshot in
         # the provider retry loop. List/none modes preserve their legacy path.
         compiler_prompt_dependency_contract = self._compiler_prompt_dependency_contract(step)
+        fragment_contract, _fragment_identity = (
+            self._compiler_prompt_fragment_pair(step)
+        )
         content_dependencies: Dict[str, Any] | None = None
         if compiler_prompt_dependency_contract is not None:
             # Contract presence selects the typed branch even when the mapping
@@ -5963,6 +6038,44 @@ class WorkflowExecutor:
                     prompt = injection_result.modified_prompt
                     if injection_result.was_truncated and injection_result.truncation_details:
                         debug_info['injection'] = injection_result.truncation_details
+
+        resolved_fragment_values: dict[str, Any] = {}
+        if fragment_contract is not None:
+            for slot in fragment_contract.rendered_slots:
+                binding = slot.value_source.get("binding")
+                if isinstance(binding, Mapping):
+                    binding = dict(binding)
+                resolved_value, resolve_error = (
+                    self._resolve_typed_prompt_input_value(
+                        binding,
+                        state,
+                        scope=runtime_context.scope(),
+                    )
+                )
+                if resolve_error is not None:
+                    return self._contract_violation_result(
+                        "Provider prompt fragment rendering failed",
+                        {
+                            "reason": (
+                                "prompt_fragment_slot_value_unavailable"
+                            ),
+                            "slot": slot.name,
+                        },
+                    )
+                resolved_fragment_values[slot.name] = resolved_value
+            try:
+                prompt = render_prompt_fragment_base(
+                    fragment_contract,
+                    resolved_slot_values=resolved_fragment_values,
+                )
+            except (TypeError, ValueError) as exc:
+                return self._contract_violation_result(
+                    "Provider prompt fragment rendering failed",
+                    {
+                        "reason": "prompt_fragment_render_invalid",
+                        "error": str(exc),
+                    },
+                )
 
         # Resolve typed prompt values once; insertion remains a deterministic
         # later stage that can be applied to each fresh content attempt.
@@ -6016,16 +6129,31 @@ class WorkflowExecutor:
         def finish_prompt_composition(candidate_prompt: str) -> str:
             typed_prompt_input_evidence: list[dict[str, Any]] = []
             if isinstance(typed_prompt_inputs, list) and typed_prompt_inputs:
-                candidate_prompt, typed_prompt_input_evidence = (
-                    self.prompt_composer.apply_typed_prompt_input_injection(
-                        step,
-                        candidate_prompt,
-                        typed_prompt_inputs=typed_prompt_inputs,
+                if fragment_contract is not None:
+                    from ..workflow_lisp.typed_prompt_inputs import (
+                        render_typed_prompt_inputs,
+                    )
+
+                    (
+                        _unused_rendered_block,
+                        typed_prompt_input_evidence,
+                    ) = render_typed_prompt_inputs(
+                        typed_prompt_inputs,
                         resolved_typed_values=resolved_typed_values,
                         workflow_name=self.workflow_name or "",
                         step_id=runtime_step_id or self._step_id(step),
                     )
-                )
+                else:
+                    candidate_prompt, typed_prompt_input_evidence = (
+                        self.prompt_composer.apply_typed_prompt_input_injection(
+                            step,
+                            candidate_prompt,
+                            typed_prompt_inputs=typed_prompt_inputs,
+                            resolved_typed_values=resolved_typed_values,
+                            workflow_name=self.workflow_name or "",
+                            step_id=runtime_step_id or self._step_id(step),
+                        )
+                    )
                 from ..workflow_lisp.typed_prompt_inputs import (
                     validate_typed_prompt_input_composition,
                 )
@@ -6202,6 +6330,8 @@ class WorkflowExecutor:
                             has_required,
                         ),
                     )
+                    if fragment_contract is not None and not has_required:
+                        instruction = ""
                     render_owner = None
                     if scope is not None and ordinal is not None:
                         instruction_source = (
@@ -6211,12 +6341,32 @@ class WorkflowExecutor:
                             else (
                                 "default_required"
                                 if compiler_prompt_dependency_contract.required_binding_refs
-                                else "default_optional"
+                                else (
+                                    "default_optional"
+                                    if compiler_prompt_dependency_contract.optional_binding_refs
+                                    else "none"
+                                )
                             )
                         )
 
                         def render_owner(compose_final_prompt):
                             owner = resolve_aggregate_run_owner(self.state_manager)
+                            fragment_contract, fragment_identity = (
+                                self._compiler_prompt_fragment_pair(step)
+                            )
+                            if fragment_contract is not None:
+                                assert fragment_identity is not None
+                                return build_fragment_success_evidence(
+                                    run_state=owner.root_manager.state,
+                                    scope=scope,
+                                    ordinal=ordinal,
+                                    compiler_contract=compiler_prompt_dependency_contract,
+                                    compiled_prompt_fragment_identity=fragment_identity,
+                                    snapshot=snapshot,
+                                    instruction=instruction,
+                                    instruction_source=instruction_source,
+                                    compose_final_prompt=compose_final_prompt,
+                                )
                             return build_success_evidence(
                                 run_state=owner.root_manager.state,
                                 scope=scope,

@@ -38,6 +38,7 @@ from orchestrator.workflow.provider_attempts import (
 
 
 SUCCESS_SCHEMA = "workflow_prompt_dependency_evidence.functional.v1"
+FRAGMENT_SUCCESS_SCHEMA = "workflow_prompt_fragment_snapshot.functional.v1"
 FAILURE_SCHEMA = "workflow_prompt_dependency_failure_evidence.functional.v1"
 INDEX_SCHEMA = "workflow_prompt_dependency_validated_index.functional.v1"
 ALLOCATION_PROJECTION_SCHEMA = "workflow_provider_attempt_allocation_projection.v1"
@@ -46,6 +47,9 @@ _SUCCESS_KEYS = {
     "schema", "record_kind", "run", "compiler_contract", "attempt",
     "authored_rows", "canonical_groups", "instruction", "injection",
     "final_prompt", "record_sha256",
+}
+_FRAGMENT_SUCCESS_KEYS = _SUCCESS_KEYS | {
+    "compiled_prompt_fragment_identity",
 }
 _FAILURE_KEYS = {
     "schema", "record_kind", "run", "compiler_contract", "attempt",
@@ -342,11 +346,19 @@ def _validate_contract(value: Any) -> Mapping[str, Any]:
     implicit_empty = is_implicit_empty_prompt_dependency_origin_kind(
         origin_kind
     )
+    prompt_fragment = (
+        origin_kind
+        is PromptDependencyOriginKind.WORKFLOW_LISP_PROMPT_FRAGMENT
+    )
     if implicit_empty and has_dependency_rows:
         raise ValueError(
             "implicit-empty compiler contract has dependency rows"
         )
-    if not implicit_empty and not has_dependency_rows:
+    if (
+        not implicit_empty
+        and not prompt_fragment
+        and not has_dependency_rows
+    ):
         raise ValueError("compiler contract has no dependency rows")
     try:
         position = PromptDependencyPosition(contract["position"])
@@ -359,6 +371,19 @@ def _validate_contract(value: Any) -> Mapping[str, Any]:
         raise ValueError(
             "implicit-empty compiler contract has an instruction"
         )
+    if prompt_fragment and instruction_digest is not None:
+        raise ValueError(
+            "prompt fragment compiler contract has an instruction"
+        )
+    if prompt_fragment:
+        if contract["optional_binding_refs"]:
+            raise ValueError(
+                "prompt fragment compiler contract has optional rows"
+            )
+        if position is not PromptDependencyPosition.PREPEND:
+            raise ValueError(
+                "prompt fragment compiler contract is not prepend"
+            )
     expected = _normalized_contract_sha256(
         required_binding_refs=tuple(contract["required_binding_refs"]),
         optional_binding_refs=tuple(contract["optional_binding_refs"]),
@@ -544,6 +569,82 @@ def validate_success_evidence(value: Any) -> dict[str, Any]:
     return dict(record)
 
 
+def validate_fragment_success_evidence(value: Any) -> dict[str, Any]:
+    """Validate the closed prompt-fragment sibling of success evidence."""
+
+    record = _closed(
+        value,
+        _FRAGMENT_SUCCESS_KEYS,
+        "prompt fragment success evidence",
+    )
+    if (
+        record["schema"] != FRAGMENT_SUCCESS_SCHEMA
+        or record["record_kind"] != "prompt_snapshot"
+    ):
+        raise ValueError(
+            "prompt fragment success schema or record kind is invalid"
+        )
+    identity = record["compiled_prompt_fragment_identity"]
+    if not _is_sha(identity):
+        raise ValueError(
+            "compiled_prompt_fragment_identity is invalid"
+        )
+
+    projected = dict(record)
+    projected.pop("compiled_prompt_fragment_identity")
+    projected["schema"] = SUCCESS_SCHEMA
+    validate_success_evidence(_seal(projected))
+    if (
+        record["compiler_contract"]["origin_kind"]
+        != PromptDependencyOriginKind.WORKFLOW_LISP_PROMPT_FRAGMENT.value
+    ):
+        raise ValueError(
+            "prompt fragment success evidence has a non-fragment origin"
+        )
+    _validate_seal(record)
+    return dict(record)
+
+
+def build_fragment_success_evidence(
+    *,
+    run_state: RunState,
+    scope: ProviderAttemptScope,
+    ordinal: int,
+    compiler_contract: CompilerPromptDependencyContract,
+    compiled_prompt_fragment_identity: str,
+    snapshot: DependencyContentSnapshot,
+    instruction: str,
+    instruction_source: str,
+    compose_final_prompt: Callable[[RenderedContentSnapshot], bytes],
+) -> SuccessEvidenceBuild:
+    """Build one fragment snapshot through the existing single-render owner."""
+
+    if not _is_sha(compiled_prompt_fragment_identity):
+        raise ValueError(
+            "compiled_prompt_fragment_identity is invalid"
+        )
+    base = build_success_evidence(
+        run_state=run_state,
+        scope=scope,
+        ordinal=ordinal,
+        compiler_contract=compiler_contract,
+        snapshot=snapshot,
+        instruction=instruction,
+        instruction_source=instruction_source,
+        compose_final_prompt=compose_final_prompt,
+    )
+    record = dict(base.evidence)
+    record["schema"] = FRAGMENT_SUCCESS_SCHEMA
+    record["compiled_prompt_fragment_identity"] = (
+        compiled_prompt_fragment_identity
+    )
+    return SuccessEvidenceBuild(
+        rendered=base.rendered,
+        final_prompt=base.final_prompt,
+        evidence=validate_fragment_success_evidence(_seal(record)),
+    )
+
+
 def build_failure_evidence(
     *,
     run_state: RunState,
@@ -617,6 +718,8 @@ def validate_failure_evidence(value: Any) -> dict[str, Any]:
 def canonical_record_bytes(record: Mapping[str, Any]) -> bytes:
     if record.get("schema") == SUCCESS_SCHEMA:
         normalized = validate_success_evidence(record)
+    elif record.get("schema") == FRAGMENT_SUCCESS_SCHEMA:
+        normalized = validate_fragment_success_evidence(record)
     elif record.get("schema") == FAILURE_SCHEMA:
         normalized = validate_failure_evidence(record)
     else:
@@ -1099,6 +1202,7 @@ def validate_terminal_evidence(
 __all__ = [
     "SUCCESS_SCHEMA", "FAILURE_SCHEMA", "INDEX_SCHEMA", "ALLOCATION_PROJECTION_SCHEMA",
     "PublicationResult", "SuccessEvidenceBuild", "authored_row_id", "build_success_evidence", "validate_success_evidence",
+    "build_fragment_success_evidence", "validate_fragment_success_evidence",
     "build_failure_evidence", "validate_failure_evidence", "canonical_record_bytes",
     "evidence_relative_path", "publish_evidence_file",
     "build_allocator_projection", "validate_allocator_projection",
