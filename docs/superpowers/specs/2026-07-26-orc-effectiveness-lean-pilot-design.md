@@ -325,6 +325,18 @@ captures stdout/stderr, validates the raw result, measures lifecycle data,
 freezes the product, and authors `block_attempt.v1`. This reduces accidental
 evidence coupling but is not an OS confidentiality claim.
 
+The raw result is one strict object with exactly `terminal_outcome`,
+`provider_call_count`, `token_counts`, and `cost`. `terminal_outcome` is required
+and is exactly one of `COMPLETED | BLOCKED | EXHAUSTED | PROTOCOL_FAILURE`.
+After a successful process exit and valid raw result, the controller preserves
+that semantic terminal as the arm lifecycle outcome. Launch failure, timeout,
+nonzero exit, and an invalid or missing raw result take precedence over any
+claimed semantic terminal. Provider-call bounds apply to every valid semantic
+terminal, including `BLOCKED`, `EXHAUSTED`, and `PROTOCOL_FAILURE`; a bound
+violation yields `PROTOCOL_FAILURE`. The final controller-owned visible check
+changes only semantic `COMPLETED` to `CHECK_FAILURE`, leaving every other
+semantic or transport outcome intact.
+
 A block is invalid only when a shared controller or allocation fault prevents the intended three-treatment contrast before treatment execution. Treatment-specific timeouts, provider failures, compiler/runtime failures, bad patches, and failed checks remain outcomes.
 
 After the pre-START apparatus byte verification and before archive allocation,

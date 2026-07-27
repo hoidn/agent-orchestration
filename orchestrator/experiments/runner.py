@@ -53,7 +53,18 @@ _TREATMENT_CONFIG_FIELDS = {
     "environment_identity",
     "timeout_milliseconds",
 }
-_RAW_RESULT_FIELDS = {"provider_call_count", "token_counts", "cost"}
+_RAW_RESULT_FIELDS = {
+    "terminal_outcome",
+    "provider_call_count",
+    "token_counts",
+    "cost",
+}
+_RAW_TERMINAL_OUTCOMES = {
+    "COMPLETED",
+    "BLOCKED",
+    "EXHAUSTED",
+    "PROTOCOL_FAILURE",
+}
 
 
 class RunnerError(ValueError):
@@ -148,6 +159,7 @@ class _Preflight:
 
 @dataclass(frozen=True)
 class _RawResult:
+    terminal_outcome: str
     provider_call_count: int
     token_counts: object
     cost: object
@@ -987,6 +999,12 @@ def _raw_result(
     value = _strict_json_bytes(data, label="arm raw result")
     if not isinstance(value, dict) or set(value) != _RAW_RESULT_FIELDS:
         raise RunnerError("arm raw result has unknown or missing fields")
+    terminal_outcome = value["terminal_outcome"]
+    if (
+        not isinstance(terminal_outcome, str)
+        or terminal_outcome not in _RAW_TERMINAL_OUTCOMES
+    ):
+        raise RunnerError("arm raw result terminal_outcome is invalid")
     count = value["provider_call_count"]
     if isinstance(count, bool) or not isinstance(count, int) or count < 0:
         raise RunnerError("arm raw result provider_call_count is invalid")
@@ -1015,6 +1033,7 @@ def _raw_result(
         ):
             raise RunnerError("arm raw result cost is invalid")
     return _RawResult(
+        terminal_outcome=terminal_outcome,
         provider_call_count=count,
         token_counts=token_counts,
         cost=cost,
@@ -1157,6 +1176,7 @@ def _run_arm(
     _write_evidence(raw_evidence_path, raw_bytes)
 
     raw = _RawResult(
+        terminal_outcome="PROTOCOL_FAILURE",
         provider_call_count=0,
         token_counts="UNKNOWN",
         cost="UNKNOWN",
@@ -1181,6 +1201,8 @@ def _run_arm(
         lifecycle = "NONZERO_EXIT"
     elif lifecycle == "COMPLETED" and not raw_valid:
         lifecycle = "PROTOCOL_FAILURE"
+    elif lifecycle == "COMPLETED":
+        lifecycle = raw.terminal_outcome
 
     treatment = next(
         item
@@ -1189,7 +1211,9 @@ def _run_arm(
     )
     bounds = treatment["provider_call_bounds"]
     if (
-        lifecycle == "COMPLETED"
+        raw_valid
+        and not timed_out
+        and return_code == 0
         and isinstance(bounds, Mapping)
         and (
             raw.provider_call_count < bounds["minimum"]

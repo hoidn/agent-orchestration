@@ -25,6 +25,7 @@ def main() -> int:
     )
     parser.add_argument("--result-file", type=Path, required=True)
     parser.add_argument("--provider-call-count", type=int, required=True)
+    parser.add_argument("--terminal-outcome", default="COMPLETED")
     parser.add_argument("--apparatus-root", type=Path, required=True)
     parser.add_argument("--task-path", type=Path, required=True)
     parser.add_argument("--provider-config", type=Path, required=True)
@@ -32,7 +33,14 @@ def main() -> int:
     parser.add_argument("--command-config", type=Path, required=True)
     parser.add_argument(
         "--result-fault",
-        choices=("none", "unknown", "duplicate", "missing", "wrong-type"),
+        choices=(
+            "none",
+            "unknown",
+            "duplicate",
+            "missing",
+            "missing-terminal",
+            "wrong-type",
+        ),
         default="none",
     )
     parser.add_argument("--wait-seconds", type=int, default=300)
@@ -91,6 +99,7 @@ def main() -> int:
     )
     args.result_file.parent.mkdir(parents=True, exist_ok=True)
     result = {
+        "terminal_outcome": args.terminal_outcome,
         "provider_call_count": args.provider_call_count,
         "token_counts": {"input": 0, "output": 0},
         "cost": {"cost_microunits": 0, "currency": "USD"},
@@ -99,6 +108,8 @@ def main() -> int:
         result["unexpected"] = True
     elif args.result_fault == "missing":
         del result["provider_call_count"]
+    elif args.result_fault == "missing-terminal":
+        del result["terminal_outcome"]
     elif args.result_fault == "wrong-type":
         result["provider_call_count"] = str(args.provider_call_count)
 
@@ -107,6 +118,7 @@ def main() -> int:
             '{"cost":{"cost_microunits":0,"currency":"USD"},'
             f'"provider_call_count":{args.provider_call_count},'
             '"provider_call_count":999,'
+            f'"terminal_outcome":"{args.terminal_outcome}",'
             '"token_counts":{"input":0,"output":0}}'
         )
     else:

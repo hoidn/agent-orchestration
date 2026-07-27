@@ -395,6 +395,7 @@ def _configure_arm(
     timeout_milliseconds: int | None = None,
     wait_seconds: int | None = None,
     result_fault: str | None = None,
+    terminal_outcome: str | None = None,
 ) -> None:
     def mutate(config: dict[str, Any]) -> None:
         argv = config["argv"]
@@ -412,6 +413,8 @@ def _configure_arm(
             argv.extend(["--wait-seconds", str(wait_seconds)])
         if result_fault is not None:
             argv.extend(["--result-fault", result_fault])
+        if terminal_outcome is not None:
+            argv.extend(["--terminal-outcome", terminal_outcome])
 
     _rewrite_treatment_config(lock, treatment_id, mutate)
 
@@ -1247,6 +1250,112 @@ def test_provider_call_bound_mismatch_is_a_protocol_outcome(
 
 
 @pytest.mark.parametrize(
+    "terminal_outcome",
+    ["BLOCKED", "EXHAUSTED", "PROTOCOL_FAILURE"],
+)
+def test_valid_raw_result_semantic_terminal_is_preserved(
+    runner: ModuleType,
+    tmp_path: Path,
+    terminal_outcome: str,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    _configure_arm(
+        lock,
+        "DIRECT",
+        terminal_outcome=terminal_outcome,
+    )
+
+    record = runner.run_block(
+        lock=lock,
+        block_id=lock["fixture_id"],
+        work_root=tmp_path / "work",
+        evidence_root=evidence_root,
+    ).record
+
+    assert _execution(record, "DIRECT")["lifecycle_outcome"] == terminal_outcome
+
+
+@pytest.mark.parametrize("fault", ["missing", "invalid"])
+def test_raw_result_requires_valid_terminal_outcome(
+    runner: ModuleType,
+    tmp_path: Path,
+    fault: str,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    if fault == "missing":
+        _configure_arm(lock, "DIRECT", result_fault="missing-terminal")
+    else:
+        _configure_arm(
+            lock,
+            "DIRECT",
+            terminal_outcome="NOT_A_TERMINAL",
+        )
+
+    record = runner.run_block(
+        lock=lock,
+        block_id=lock["fixture_id"],
+        work_root=tmp_path / "work",
+        evidence_root=evidence_root,
+    ).record
+
+    assert _execution(record, "DIRECT")["lifecycle_outcome"] == (
+        "PROTOCOL_FAILURE"
+    )
+
+
+def test_transport_nonzero_precedes_raw_semantic_terminal(
+    runner: ModuleType,
+    tmp_path: Path,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    _configure_arm(
+        lock,
+        "DIRECT",
+        mode="nonzero",
+        terminal_outcome="BLOCKED",
+    )
+
+    record = runner.run_block(
+        lock=lock,
+        block_id=lock["fixture_id"],
+        work_root=tmp_path / "work",
+        evidence_root=evidence_root,
+    ).record
+
+    assert _execution(record, "DIRECT")["lifecycle_outcome"] == "NONZERO_EXIT"
+
+
+@pytest.mark.parametrize("provider_call_count", [0, 2])
+def test_provider_call_bounds_apply_to_noncompleted_terminal(
+    runner: ModuleType,
+    tmp_path: Path,
+    provider_call_count: int,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    _configure_arm(
+        lock,
+        "DIRECT",
+        provider_call_count=provider_call_count,
+        terminal_outcome="BLOCKED",
+    )
+
+    record = runner.run_block(
+        lock=lock,
+        block_id=lock["fixture_id"],
+        work_root=tmp_path / "work",
+        evidence_root=evidence_root,
+    ).record
+
+    assert _execution(record, "DIRECT")["lifecycle_outcome"] == (
+        "PROTOCOL_FAILURE"
+    )
+
+
+@pytest.mark.parametrize(
     ("fault", "expected_outcome"),
     [
         ("nonzero", "NONZERO_EXIT"),
@@ -1513,6 +1622,33 @@ def test_locked_visible_check_failure_is_an_outcome_and_runtime_is_excluded(
             for execution in record["treatment_executions"]
         }
     ) == 1
+
+
+def test_visible_check_failure_only_overrides_completed_semantic_terminal(
+    runner: ModuleType,
+    tmp_path: Path,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    _configure_arm(lock, "DIRECT", terminal_outcome="BLOCKED")
+    lock["apparatus"]["visible_check"]["argv"] = [
+        sys.executable,
+        "-c",
+        "raise SystemExit(9)",
+    ]
+
+    record = runner.run_block(
+        lock=lock,
+        block_id=lock["fixture_id"],
+        work_root=tmp_path / "work",
+        evidence_root=evidence_root,
+    ).record
+
+    assert _execution(record, "DIRECT")["lifecycle_outcome"] == "BLOCKED"
+    assert _execution(record, "COORDINATOR")["lifecycle_outcome"] == (
+        "CHECK_FAILURE"
+    )
+    assert _execution(record, "ORC")["lifecycle_outcome"] == "CHECK_FAILURE"
 
 
 def test_unused_manifest_asset_is_still_verified_before_started(
