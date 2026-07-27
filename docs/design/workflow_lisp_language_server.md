@@ -7,9 +7,11 @@
   `STAGE8_DESIGN_SPEC_APPROVED`, then independent quality rereview
   `STAGE8_DESIGN_QUALITY_APPROVED` (2026-07-25); L1 independent specification
   review `L1_DESIGN_SPEC_APPROVED`, then independent quality review
-  `L1_DESIGN_QUALITY_APPROVED` (2026-07-26)
+  `L1_DESIGN_QUALITY_APPROVED` (2026-07-26); L2 final specification review
+  `L2_FINAL_SPEC_APPROVED`, then independent final quality review
+  `L2_FINAL_QUALITY_APPROVED` (2026-07-27)
 - **Created:** 2026-07-13
-- **Last material update:** 2026-07-26
+- **Last material update:** 2026-07-27
 - **Review history:** earlier design and quality changes-required rounds,
   including the F2 source-root, payload-based read-only build, and optional
   authored-call-provenance corrections, are incorporated. The latest quality
@@ -45,9 +47,10 @@
   L1 authored symbols and callable signatures are implemented under
   `docs/plans/2026-07-26-workflow-lisp-language-server-l1-implementation-plan.md`
   through `f1eecf65`, `ec2328dd`, `d174faf2`, and `66163dc0` plus its reviewed
-  repository-real stdio/status closure. L2's design-amendment/review gate is
-  complete under the accepted recovery-safe static completion amendment below;
-  its implementation-plan gate is next.
+  repository-real stdio/status closure. L2 recovery-safe static completion is
+  implemented through `70b83f32`, `b399c041`, `ee213a43`, and `10e3ccc3`
+  under its reviewed five-task implementation plan, then closed by ordered
+  `L2_FINAL_SPEC_APPROVED` and `L2_FINAL_QUALITY_APPROVED`.
 
 ## Summary
 
@@ -1211,9 +1214,8 @@ observation, unsaved-buffer analysis, multi-diagnostic recovery, full
 `form_path` rendering, and runtime debugging remain excluded.
 
 The accepted boundary is implemented. L1 authored symbols and callable
-signatures are also implemented and retain this L0 reliability boundary. L2's
-recovery-safe static completion design is accepted below; implementation
-remains separately plan-gated.
+signatures and L2 recovery-safe static completion are also implemented and
+retain this L0 reliability boundary.
 
 ## Accepted L1 Authored Symbols And Callable Signatures Amendment
 
@@ -1385,13 +1387,14 @@ evidence belongs in compiler definition/projection tests,
 `tests/test_workflow_lisp_lsp_e2e.py`. That evidence is implemented under the
 reviewed L1 plan.
 
-## Accepted L2 Recovery-Safe Static Completion Amendment
+## Implemented L2 Recovery-Safe Static Completion Amendment
 
-**Amendment status:** accepted after independent specification review
+**Amendment status:** implemented after independent specification review
 `L2_DESIGN_SPEC_APPROVED` and independent quality review
-`L2_DESIGN_QUALITY_APPROVED`. Implementation remains gated on a separately
-reviewed L2 plan. Until that implementation lands, the implemented L1
-null/empty behavior remains authoritative for every non-success state.
+`L2_DESIGN_QUALITY_APPROVED`, the ordered
+`L2_PLAN_SPEC_APPROVED` / `L2_PLAN_QUALITY_APPROVED` plan gate, four reviewed
+implementation commits through `10e3ccc3`, and ordered final reviews
+`L2_FINAL_SPEC_APPROVED` then `L2_FINAL_QUALITY_APPROVED`.
 
 L2 adds one recovery-only completion source without weakening compiler,
 snapshot, or freshness authority. The server captures a **process-frozen form
@@ -1460,7 +1463,7 @@ the one-root model.
 
 ### L2 Acceptance Boundary
 
-Implementation evidence must prove both directions:
+Implementation evidence proves both directions:
 
 - the frozen tuple is captured only after successful initialization, is used
   by both full and recovery rows, and is unaffected by later registry mutation;

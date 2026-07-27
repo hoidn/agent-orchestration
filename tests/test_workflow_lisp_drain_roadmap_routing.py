@@ -1194,19 +1194,26 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "| L2 |",
     )
     normalized_l2_row = _normalized_routing_text(l2_row)
-    assert "active" in normalized_l2_row
-    assert "component plan accepted" in normalized_l2_row
-    assert "implementation authorized" in normalized_l2_row
+    assert "complete" in normalized_l2_row
+    assert "implementation through 10e3ccc3" in normalized_l2_row
+    assert "l2_final_spec_approved" in normalized_l2_row
+    assert "l2_final_quality_approved" in normalized_l2_row
+    assert "active" not in normalized_l2_row
     assert "no l2 design is accepted" not in normalized_l2_row
-    for stage, blocker in (
-        ("L3", "blocked by l2"),
-        ("L4", "blocked by l3"),
-    ):
-        row = _markdown_table_row(
-            REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
-            f"| {stage} |",
-        )
-        assert blocker in _normalized_routing_text(row)
+    l3_row = _markdown_table_row(
+        REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
+        "| L3 |",
+    )
+    normalized_l3_row = _normalized_routing_text(l3_row)
+    assert "next" in normalized_l3_row
+    assert "design" in normalized_l3_row
+    assert "compile path reentrancy" in normalized_l3_row
+    assert "blocked by l2" not in normalized_l3_row
+    l4_row = _markdown_table_row(
+        REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
+        "| L4 |",
+    )
+    assert "blocked by l3" in _normalized_routing_text(l4_row)
     l1_row = _markdown_table_row(
         REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
         "| L1 |",
@@ -1231,16 +1238,16 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "l1 authored symbols/signatures are implemented" in (
         normalized_language_server_router_row
     )
-    assert "l2 recovery safe static completion design" in (
+    assert "l2 recovery safe static completion is implemented" in (
         normalized_language_server_router_row
     )
-    assert "implementation plan" in normalized_language_server_router_row
+    assert "l2_final_spec_approved" in normalized_language_server_router_row
+    assert "l2_final_quality_approved" in normalized_language_server_router_row
     normalized_index = _normalized_routing_text(index)
-    assert "l1 authored symbols/signatures are complete" in normalized_index
-    assert "l2 recovery safe static completion design and component plan are accepted" in (
+    assert "l1 authored symbols/signatures, and l2 recovery safe static completion are complete" in (
         normalized_index
     )
-    assert "implementation plan" in normalized_index
+    assert "l3 per source entry selection design gate is next" in normalized_index
     assert "p1 diagnostic accumulation" in normalized_successor
     assert "p5 compile caching/incrementality" in normalized_successor
     assert "runtime debugging surface" in normalized_successor
@@ -1295,11 +1302,15 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "l1_plan_spec_approved" in normalized_l1_plan
     assert "l1_plan_quality_approved" in normalized_l1_plan
     normalized_l2_plan = _normalized_routing_text(
-        "\n".join(l2_plan.splitlines()[:90])
+        "\n".join(l2_plan.splitlines()[:120])
     )
-    assert "status: accepted for execution" in normalized_l2_plan
+    assert "execution status: complete" in normalized_l2_plan
     assert "l2_plan_spec_approved" in normalized_l2_plan
     assert "l2_plan_quality_approved" in normalized_l2_plan
+    assert "l2_final_spec_approved" in normalized_l2_plan
+    assert "l2_final_quality_approved" in normalized_l2_plan
+    for commit in ("70b83f32", "b399c041", "ee213a43", "10e3ccc3"):
+        assert commit in normalized_l2_plan
     assert PROMPT_OUTPUT_POSITIONS_PLAN_PATH in successor
     assert LANGUAGE_SERVER_L1_PLAN_PATH in successor
     assert LANGUAGE_SERVER_L2_PLAN_PATH in successor
@@ -1366,13 +1377,12 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "active post stage 8 selector" in normalized_successor_index
     assert "q0, q1, and q2 are complete" in normalized_successor_index
     assert "q3 design review gate is next" in normalized_successor_index
-    assert "l1 authored symbols/signatures are complete" in (
+    assert "l1 authored symbols/signatures, and l2 recovery safe static completion are complete" in (
         normalized_successor_index
     )
-    assert "l2 recovery safe static completion design and component plan are accepted" in (
+    assert "l3 per source entry selection design gate is next" in (
         normalized_successor_index
     )
-    assert "reviewed l2 implementation execute" in normalized_successor_index
     assert "### [Workflow Lisp Language Server L2 Implementation Plan]" in index
     assert "do not select e0" in normalized_successor_index
 
@@ -1575,13 +1585,12 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     )
     assert "q0, q1, and q2 are complete" in active_roadmap_index
     assert "q3 design review gate is next" in active_roadmap_index
-    assert "l1 authored symbols/signatures are complete" in (
+    assert "l1 authored symbols/signatures, and l2 recovery safe static completion are complete" in (
         active_roadmap_index
     )
-    assert "l2 recovery safe static completion design and component plan are accepted" in (
+    assert "l3 per source entry selection design gate is next" in (
         active_roadmap_index
     )
-    assert "reviewed l2 implementation execute" in active_roadmap_index
 
 
 def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> None:
@@ -2782,7 +2791,7 @@ def test_final_yaml_holdout_is_retired_and_authored_workflow_estate_is_empty() -
     ) == []
 
 
-def test_language_server_l2_design_is_accepted_and_routed_to_planning() -> None:
+def test_language_server_l2_is_implemented_and_routes_to_l3_design() -> None:
     roadmap = (
         REPO_ROOT
         / "docs"
@@ -2811,8 +2820,19 @@ def test_language_server_l2_design_is_accepted_and_routed_to_planning() -> None:
         if line.startswith("| L2 |")
     )
     normalized_l2_row = _normalized_routing_text(l2_row)
-    assert "component plan accepted" in normalized_l2_row
-    assert "implementation authorized" in normalized_l2_row
+    assert "complete" in normalized_l2_row
+    assert "implementation through 10e3ccc3" in normalized_l2_row
+    assert "l2_final_spec_approved" in normalized_l2_row
+    assert "l2_final_quality_approved" in normalized_l2_row
+    l3_row = next(
+        line
+        for line in roadmap.splitlines()
+        if line.startswith("| L3 |")
+    )
+    normalized_l3_row = _normalized_routing_text(l3_row)
+    assert "next" in normalized_l3_row
+    assert "design" in normalized_l3_row
+    assert "compile path reentrancy" in normalized_l3_row
     l2_plan = (
         REPO_ROOT
         / "docs"
@@ -2820,9 +2840,11 @@ def test_language_server_l2_design_is_accepted_and_routed_to_planning() -> None:
         / "2026-07-27-workflow-lisp-language-server-l2-implementation-plan.md"
     ).read_text(encoding="utf-8")
     normalized_l2_plan = _normalized_routing_text(l2_plan)
-    assert "status: accepted for execution" in normalized_l2_plan
+    assert "execution status: complete" in normalized_l2_plan
     assert "l2_plan_spec_approved" in normalized_l2_plan
     assert "l2_plan_quality_approved" in normalized_l2_plan
+    assert "l2_final_spec_approved" in normalized_l2_plan
+    assert "l2_final_quality_approved" in normalized_l2_plan
     for label, surface in {
         "language-server design": design,
         "frontend specification": frontend,
@@ -2834,11 +2856,16 @@ def test_language_server_l2_design_is_accepted_and_routed_to_planning() -> None:
         assert "isincomplete=true" in normalized, label
         assert "configuration stale" in normalized, label
         assert "no stale callable" in normalized, label
+        assert "implemented" in normalized, label
+        assert "definition" in normalized, label
+        assert "document symbol" in normalized, label
 
     stale_routing = (
         "l2's design amendment/review gate is next",
         "l2 begins only with its separate design amendment and review gate",
         "must not be read back into this setup guide",
+        "runtime remains l1 until the plan closes",
+        "l2 is not yet implemented",
     )
     for stale in stale_routing:
         assert stale not in _normalized_routing_text(frontend)

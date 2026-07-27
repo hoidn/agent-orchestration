@@ -4477,9 +4477,9 @@ changing compiler authority:
 This amendment remains save-driven full compilation. It does not select source
 overlays, diagnostic recovery, type sidecars, general compile caching, or
 incremental compilation. L1 authored symbols and callable signatures are now
-implemented without changing the L0 boundary. L2's recovery-safe static
-completion design is accepted; its reviewed implementation-plan gate is next,
-and current runtime behavior remains L1 until that implementation lands.
+implemented without changing the L0 boundary. L2 recovery-safe static
+completion is also implemented without changing definition/document-symbol
+freshness or any P1–P5 boundary.
 
 ### Accepted L1 Authored Symbol And Completion Compatibility
 
@@ -4547,8 +4547,9 @@ protocol kinds remain `CompletionItemKind.Function`, and form remains
 L1 changes only the complete index of a current successful snapshot. Current
 success remains `isIncomplete=false`; dirty, pending, invalidated, failed,
 superseded, closed, configuration-stale, source/configuration-stale, and
-unassociated documents retain the implemented null/empty behavior until the
-accepted L2 amendment below is implemented. Definition freshness, P1-P5,
+unassociated documents use the L2 behavior below for completion while
+definition and document-symbol requests retain the implemented null behavior.
+P1-P5,
 nominal/type-directed filtering, hover, type-token definition, references,
 rename, signature inference, snippets, and insertion rewriting remain
 unchanged or deferred.
@@ -4558,9 +4559,9 @@ generated/specialized exclusion, mismatch, alias/namespace, signature/effect,
 ordering, freshness/null, and repository-real stdio LSP evidence before an
 implementation status change.
 
-### Accepted L2 Recovery-Safe Static Completion Compatibility
+### Implemented L2 Recovery-Safe Static Completion Compatibility
 
-L2 is an accepted editor-consumer amendment, not a compiler-language feature.
+L2 is an implemented editor-consumer amendment, not a compiler-language feature.
 After successful production initialization, the server captures one
 **process-frozen form registry** from
 `registered_form_heads(target_dsl_version=None)`. The tuple must be unique and
@@ -4595,12 +4596,14 @@ formatting, or P1–P5 prerequisite. Compile scheduling, single-writer generatio
 acceptance, diagnostic ownership, restart-on-configuration-drift, and the
 single canonical workspace root remain unchanged.
 
-Acceptance requires both-direction state/driver/navigation/server evidence for
+The reviewed implementation supplies both-direction
+state/driver/navigation/server evidence for
 all three branches, frozen-snapshot stability, no stale callable leakage,
 malformed-state and index-failure closure, plus one repository-real stdio
-transition from recovery-static completion to current full completion. The
-design is accepted; implementation remains gated on its reviewed component
-plan.
+transition from recovery-static completion to current full completion.
+Implementation landed through `70b83f32`, `b399c041`, `ee213a43`, and
+`10e3ccc3`, followed by ordered `L2_FINAL_SPEC_APPROVED` then
+`L2_FINAL_QUALITY_APPROVED`.
 
 ## Part XIII. CLI
 

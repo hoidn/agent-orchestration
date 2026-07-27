@@ -99,25 +99,23 @@ The implemented v1 surface is:
   compiler-rendered parameter/return details; procedure details also show
   declared effects.
 
-Navigation is deliberately closed. It returns null/no items for dirty,
-compile-pending, dependency-invalidated, language-failed, server-failed,
-configuration-stale, superseded, closed, or unassociated documents. It also
-returns null for generated or ambiguous calls, arguments outside the exact
+Definition and document symbols are deliberately closed: they return null for
+dirty, compile-pending, dependency-invalidated, language-failed, server-failed,
+configuration-stale, superseded, closed, or unassociated documents. They also
+return null for generated or ambiguous calls, arguments outside the exact
 callee span, and unsupported definition kinds. Completion uses visibility and
 registry membership only; it does not impose or infer a nominal type taxonomy.
 Generated, expanded, specialized, or span-ambiguous definitions do not become
 best-effort symbols.
 
-The accepted, not-yet-implemented L2 amendment narrows that completion rule to
-a three-way surface. A current successful snapshot keeps the full callable and
-form list with `isIncomplete=false`. Valid dirty, current-pending,
+Implemented L2 completion has a three-way surface. A current successful
+snapshot keeps the full callable and form list with `isIncomplete=false`.
+Valid dirty, current-pending,
 language-failed, or server-failed open entries receive only the
 **process-frozen form registry** with `isIncomplete=true` and **no stale
 callable** rows. Configuration-stale, unavailable, closed, unassociated,
 malformed, and index-failed entries remain empty. Definition and document
-symbols stay closed outside current success. Until the reviewed L2
-implementation lands, the current L1 null/empty behavior above remains the
-runtime truth.
+symbols stay closed outside current success.
 
 ## Freshness And Restart Rules
 
@@ -139,15 +137,13 @@ unlatch it; restart the language server.
 
 ## Current Limits
 
-The implemented v1/L0/L1 surface intentionally has no unsaved-buffer analysis,
-and the accepted L2 process-frozen recovery completion remains implementation
-pending. The combined surface has no
-multi-diagnostic recovery,
+The implemented v1/L0/L1/L2 surface intentionally has no unsaved-buffer
+analysis. It has no multi-diagnostic recovery,
 hover/type sidecar, compile cache or incrementality, rename, formatting, code
 actions, semantic tokens, multi-root workspace support, or non-default compile
-policy. These are not partial server features. L2's reviewed implementation
-plan is the next gate. The frontend prerequisites P1–P5 and any other successor
-work remain separately designed and scheduled.
+policy. These are not partial server features. L3 per-source entry selection
+is the next L-series design gate; the frontend prerequisites P1–P5 and any
+other successor work remain separately designed and scheduled.
 
 For the owning contract and rationale, see
 [Workflow Lisp Language Server](design/workflow_lisp_language_server.md) and

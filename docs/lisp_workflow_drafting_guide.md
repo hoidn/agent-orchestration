@@ -82,17 +82,18 @@ authored module, procedure, workflow, enum, path, record, union, schema,
 resource, and transition kinds. Completion preserves separate
 procedure/workflow/form namespaces and renders callable parameters, returns,
 and declared procedure effects from compiler signatures. Save the buffer
-before expecting refreshed results. Dirty, pending, failed, invalidated, or
-configuration-stale documents have no navigation answer, and configuration or
-root drift requires a server restart. L0 additionally provides content-keyed
+before expecting refreshed results. Definition and document symbols remain
+unavailable for dirty, pending, failed, invalidated, or configuration-stale
+documents, and configuration or root drift requires a server restart. L0
+additionally provides content-keyed
 reuse of pure-projection exports, one-probe saves with reverse-dependency
 invalidation, structured compiler-initialization failures, and visible ordered
 note/expansion roles. The server writes no workspace files.
 
-The accepted L2 design adds a recovery-only, **process-frozen form registry**
-after its reviewed implementation lands. A valid dirty, current-pending,
-language-failed, or server-failed open entry will then receive those form
-heads with `isIncomplete=true` and **no stale callable** names or signatures.
+Implemented L2 adds a recovery-only, **process-frozen form registry**. A valid
+dirty, current-pending, language-failed, or server-failed open entry receives
+those form heads with `isIncomplete=true` and **no stale callable** names or
+signatures.
 Configuration-stale, unavailable, closed, unassociated, malformed, and
 index-failed entries remain empty, while definition and document symbols
 remain available only from current success. This does not validate a form at

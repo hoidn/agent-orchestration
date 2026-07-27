@@ -29,9 +29,24 @@ layers, pygls/lsprotocol, pytest/pytest-xdist, real JSON-RPC over stdio.
 `417526b6a1481539bd941341a60f463030f9a830`, after ordered independent
 `L2_DESIGN_SPEC_APPROVED` then `L2_DESIGN_QUALITY_APPROVED`.
 
-**Status:** accepted for execution after independent `L2_PLAN_SPEC_APPROVED`
-followed by independent `L2_PLAN_QUALITY_APPROVED`. Production implementation
-begins only after this exact accepted plan and its routing gate are committed.
+**Execution status:** complete. The plan was accepted after independent
+`L2_PLAN_SPEC_APPROVED` followed by independent
+`L2_PLAN_QUALITY_APPROVED`. Tasks 1–4 landed in order through `10e3ccc3`;
+Task 5 completed the normative, authoring, routing, focused, and broad
+non-security gates. Ordered `L2_FINAL_SPEC_APPROVED` then
+`L2_FINAL_QUALITY_APPROVED` close this exact reviewed record. L3's separate
+design-review gate is next, subject to its compile-path reentrancy entry
+condition; Q3 remains independently at design review.
+
+**Landed task record:**
+
+| Task | Commit | Ordered task reviews |
+| --- | --- | --- |
+| 1 — frozen shared form catalog | `70b83f32` | `L2_TASK1_SPEC_APPROVED`, then `L2_TASK1_QUALITY_APPROVED` |
+| 2 — closed recovery-state classifier | `b399c041` | `L2_TASK2_SPEC_APPROVED`, then `L2_TASK2_QUALITY_APPROVED` |
+| 3 — full/static/empty protocol path | `ee213a43` | `L2_TASK3_SPEC_APPROVED`, then `L2_TASK3_QUALITY_APPROVED` |
+| 4 — real stdio recovery-to-full gate | `10e3ccc3` | `L2_TASK4_SPEC_APPROVED`, then `L2_TASK4_QUALITY_APPROVED` |
+| 5 — docs, routing, and closure | exact reviewed closure containing this record | `L2_FINAL_SPEC_APPROVED`, then `L2_FINAL_QUALITY_APPROVED` |
 
 ---
 
@@ -216,19 +231,19 @@ Before Task 1:
 - [x] Obtain distinct `L2_PLAN_QUALITY_APPROVED`.
 - [x] Record accepted-for-execution status and both ordered tokens without
       changing scope.
-- [ ] Add the exact plan route to the active roadmap, docs index, design router,
+- [x] Add the exact plan route to the active roadmap, docs index, design router,
       capability matrix, and routing test while preserving current L1 runtime
       status.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py
   ```
 
-- [ ] Obtain final ordered specification then quality reaffirmation against
+- [x] Obtain final ordered specification then quality reaffirmation against
       the exact plan/status/routing snapshot.
-- [ ] Commit those exact reviewed bytes before production changes.
-- [ ] Capture a fresh pre-L2 focused control:
+- [x] Commit those exact reviewed bytes before production changes.
+- [x] Capture a fresh pre-L2 focused control:
 
   ```bash
   pytest -q \
@@ -273,7 +288,7 @@ calling the registry.
 - Modify: `tests/test_workflow_lisp_lsp_navigation.py`
 - Modify: `tests/test_workflow_lisp_lsp_compile_driver.py`
 
-- [ ] Write RED navigation tests for a pure helper that accepts only a tuple of
+- [x] Write RED navigation tests for a pure helper that accepts only a tuple of
       unique lexicographically sorted non-empty heads and returns exact
       immutable rows:
 
@@ -285,24 +300,24 @@ calling the registry.
   ```
 
   Duplicate, unsorted, empty, non-string, or non-tuple input fails closed.
-- [ ] Write RED tests that `build_navigation_index` requires the frozen tuple,
+- [x] Write RED tests that `build_navigation_index` requires the frozen tuple,
       uses it for every module, and never calls `registered_form_heads`.
-- [ ] Write RED driver tests proving the registry is read exactly once after
+- [x] Write RED driver tests proving the registry is read exactly once after
       normal production initialization succeeds, is not read when
       initialization fails, and later registry mutation cannot change the
       retained tuple.
-- [ ] Add an immutable driver field for the tuple. In
+- [x] Add an immutable driver field for the tuple. In
       `initialize_compile_driver`, load and validate production configuration
       first, then call `registered_form_heads(target_dsl_version=None)` once
       and project it through the pure navigation helper.
-- [ ] Remove the registry import/call from `build_navigation_index`; require
+- [x] Remove the registry import/call from `build_navigation_index`; require
       the exact frozen rows as an explicit keyword-only input.
-- [ ] Update all direct navigation-index callers and fixtures to pass one
+- [x] Update all direct navigation-index callers and fixtures to pass one
       explicit frozen tuple. In the production server's existing full
       navigation path, pass the tuple retained by its initialized driver.
       Do not otherwise change request selection in Task 1 and do not add a
       compatibility default that rereads the registry.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q \
@@ -311,7 +326,7 @@ calling the registry.
     tests/test_workflow_lisp_lsp_stdio.py
   ```
 
-- [ ] Obtain ordered Task-1 specification then quality approval and commit only
+- [x] Obtain ordered Task-1 specification then quality approval and commit only
       the five exact changed paths. Task-1 `HEAD` must keep the existing full
       completion request green before Task 2 begins.
 
@@ -325,7 +340,7 @@ fails every contradictory or unavailable state to empty.
 - Modify: `orchestrator/lsp/state.py`
 - Modify: `tests/test_workflow_lisp_lsp_state.py`
 
-- [ ] Write a RED parameterized positive matrix for:
+- [x] Write a RED parameterized positive matrix for:
 
   - dirty + idle + no pending + no accepted snapshot;
   - clean + pending + `pending_generation == generation` + no accepted
@@ -335,27 +350,27 @@ fails every contradictory or unavailable state to empty.
 
   Each entry must be associated, open, have a coherent readable disk/editor
   shape, and live under non-stale configuration.
-- [ ] Include dependency-invalidated and superseded fixtures through their
+- [x] Include dependency-invalidated and superseded fixtures through their
       normal dirty-idle or current-pending shapes rather than inventing new
       status values.
-- [ ] Write RED negative tests for configuration stale, unavailable,
+- [x] Write RED negative tests for configuration stale, unavailable,
       unassociated, closed, clean-idle, success, unknown status, missing or
       non-current pending generation, pending with an accepted snapshot,
       recovery status with an accepted snapshot, contradictory disk/editor
       state, and malformed field values.
-- [ ] Implement one filesystem-free helper returning only
+- [x] Implement one filesystem-free helper returning only
       `static-incomplete` or `empty`. It must not inspect a compile result,
       navigation index, registry, source text, or last-good snapshot.
-- [ ] Preserve every existing state transition and
+- [x] Preserve every existing state transition and
       `current_navigation_snapshot`; no compile scheduling, generation,
       contribution, or diagnostic behavior changes in Task 2.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_lsp_state.py
   ```
 
-- [ ] Obtain ordered Task-2 specification then quality approval and commit only
+- [x] Obtain ordered Task-2 specification then quality approval and commit only
       the two exact paths.
 
 ## Task 3: Wire The Full / Static-Incomplete / Empty Protocol Path
@@ -371,7 +386,7 @@ currentness checks, while definition and document symbols remain unchanged.
 - Modify: `tests/test_workflow_lisp_lsp_navigation.py`
 - Modify: `tests/test_workflow_lisp_lsp_stdio.py`
 
-- [ ] Write RED server tests that:
+- [x] Write RED server tests that:
 
   - current validated success returns the full L1 procedure/workflow/form union
     with `isIncomplete=false`;
@@ -385,22 +400,22 @@ currentness checks, while definition and document symbols remain unchanged.
   - a current successful snapshot whose navigation index raises returns empty
     and never falls back to static rows.
 
-- [ ] Add a RED frozen-snapshot test: mutate the live form registry after
+- [x] Add a RED frozen-snapshot test: mutate the live form registry after
       initialization and prove both full and recovery responses retain the
       original rows.
-- [ ] Refactor completion only. Reuse the driver's existing configuration and
+- [x] Refactor completion only. Reuse the driver's existing configuration and
       source-currentness preflight and transition-effect handling. Capture the
       recovery classification at the single-writer request boundary before a
       synchronous test drain may accept a later generation.
-- [ ] If the preflight yields a current snapshot, build the index with the
+- [x] If the preflight yields a current snapshot, build the index with the
       driver's frozen rows. Catch the existing index-construction errors, log
       once, and return the exact empty response.
-- [ ] If no current snapshot exists, use only Task 2's classifier. Return the
+- [x] If no current snapshot exists, use only Task 2's classifier. Return the
       driver's frozen rows for `static-incomplete`; otherwise return empty.
-- [ ] Keep `_current_navigation`, definition, and document-symbol handlers on
+- [x] Keep `_current_navigation`, definition, and document-symbol handlers on
       their existing successful-snapshot-only path. Do not share recovery
       behavior with them.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q \
@@ -410,7 +425,7 @@ currentness checks, while definition and document symbols remain unchanged.
     tests/test_workflow_lisp_lsp_compile_driver.py
   ```
 
-- [ ] Obtain ordered Task-3 specification then quality approval and commit the
+- [x] Obtain ordered Task-3 specification then quality approval and commit the
       exact reviewed paths.
 
 ## Task 4: Real Stdio Recovery-To-Full Transition Gate
@@ -425,20 +440,20 @@ replaced by the full compiler-owned list after a current successful compile.
 - Modify only if a genuine Task-3 defect is found: the owning Task-3 production
   file and focused test, followed by a fresh Task-3 TDD/review cycle.
 
-- [ ] Add a real stdio integration case that opens a checked-in `.orc` source,
+- [x] Add a real stdio integration case that opens a checked-in `.orc` source,
       makes it dirty, requests completion, and observes only the exact frozen
       form rows with `isIncomplete=true`.
-- [ ] In the same session, save coherent source, wait for the current compile,
+- [x] In the same session, save coherent source, wait for the current compile,
       request completion again, and observe the full L1 callable-plus-form
       union with `isIncomplete=false`.
-- [ ] Assert definition and document symbols remain null during recovery and
+- [x] Assert definition and document symbols remain null during recovery and
       become available only after current success.
-- [ ] Add a language-error or server-error stdio direction proving static
+- [x] Add a language-error or server-error stdio direction proving static
       recovery contains no callable retained from the earlier success.
-- [ ] Assert the workspace byte snapshot is unchanged except for the
+- [x] Assert the workspace byte snapshot is unchanged except for the
       deliberately authored test save and the server creates no artifacts or
       run state.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q \
@@ -447,7 +462,7 @@ replaced by the full compiler-owned list after a current successful compile.
     tests/test_workflow_lisp_lsp_stdio.py
   ```
 
-- [ ] Obtain ordered Task-4 specification then quality approval and commit only
+- [x] Obtain ordered Task-4 specification then quality approval and commit only
       the exact reviewed test paths unless a defect was routed back through
       Task 3.
 
@@ -474,14 +489,14 @@ fresh control, and ordered final reviews close L2 before Q3 routing proceeds.
   `tests/test_workflow_lisp_drain_roadmap_routing.py`
 - Modify factually after all gates: this plan
 
-- [ ] First make routing tests RED for L2 implemented/complete status, exact
+- [x] First make routing tests RED for L2 implemented/complete status, exact
       shipped three-way behavior, accepted final review tokens, and L3 as the
       next L-series design gate.
-- [ ] Update every owning design/status/setup/drafting surface from
+- [x] Update every owning design/status/setup/drafting surface from
       accepted-but-unimplemented to shipped behavior. Preserve the statement
       that definition/document symbols remain success-only and P1–P5 remain
       deferred.
-- [ ] Run the complete focused LSP surface:
+- [x] Run the complete focused LSP surface:
 
   ```bash
   pytest -q \
@@ -494,18 +509,51 @@ fresh control, and ordered final reviews close L2 before Q3 routing proceeds.
     tests/test_workflow_lisp_drain_roadmap_routing.py
   ```
 
-- [ ] Run the active roadmap's exact broad non-security command in tmux with
+- [x] Run the active roadmap's exact broad non-security command in tmux with
       `pytest -q -n 16 --dist=worksteal`, all listed ignore paths, and
       `-k 'not security and not secret and not isolation and not safety'`.
-- [ ] Record collection/pass/failure/error/skip totals and classify every
+- [x] Record collection/pass/failure/error/skip totals and classify every
       retained failure against the fresh pre-L2 control. Do not repair an
       excluded or unrelated failure under L2.
-- [ ] Obtain `L2_FINAL_SPEC_APPROVED` against the exact candidate snapshot.
-- [ ] Obtain distinct `L2_FINAL_QUALITY_APPROVED`.
-- [ ] Commit the exact reviewed production, evidence, docs, routing, and plan
-      bytes without post-review edits.
-- [ ] Verify the commit tree and rerun the focused routing plus exact L2
-      behavioral nodes from committed `HEAD`.
+
+  Closing evidence on the exact candidate:
+
+  - routing RED was observed on the two intended stale L2-selection tests;
+    after the routing projection, the complete routing module passed
+    **57 tests in 2.92 seconds**, and the final integrity rerun passed the
+    same 57 tests in 2.61 seconds;
+  - the complete seven-module LSP selector passed **404 tests in 81.81
+    seconds**, with zero failures, errors, or skips;
+  - the roadmap's exact broad non-security command collected and executed
+    **9,461 selected tests**: **9,416 passed, 24 failed, 0 errors, and 21
+    skipped**, with 35 warnings, in 303.43 seconds;
+  - against Q2's immediately preceding like-for-like broad control (9,329
+    passed, 24 failed, 21 skipped), **23 failure node identities are exact
+    stable matches**: two output-contract/Semantic-IR controls, one
+    content-addressed identity-retirement FIFO control, two provider
+    supervision controls, fourteen peer-group protocol controls, three
+    retirement-evidence fixture controls, and one lean-pilot special-file
+    control;
+  - the sole failure-identity delta is unrelated provider-execution-control
+    work: the earlier
+    `test_large_unread_controlled_stdin_cannot_block_cancellation[prebind]`
+    row is absent and
+    `test_persistent_group_signal_failure_uses_bounded_leader_fallback` is
+    newly non-passing. No L2-owned production, test, documentation, or routing
+    path owns either node; and
+  - no retained failure touches `orchestrator/lsp/`, an LSP test module, or
+    this stage's shipped completion contract. L2 did not repair, waive, or
+    rebaseline any retained failure.
+
+- [x] Obtain `L2_FINAL_SPEC_APPROVED` against the exact candidate snapshot.
+- [x] Obtain distinct `L2_FINAL_QUALITY_APPROVED`.
+- [x] Commit the exact reviewed production, evidence, docs, routing, and plan
+      bytes without post-review edits. This checkbox becomes true atomically
+      when this exact reviewed tree enters history; no post-review plan edit
+      is required.
+- [x] Verify the commit tree and rerun the focused routing plus exact L2
+      behavioral nodes from committed `HEAD`; the parent records that
+      post-commit confirmation outside the immutable reviewed tree.
 
 ## Completion Gate
 
