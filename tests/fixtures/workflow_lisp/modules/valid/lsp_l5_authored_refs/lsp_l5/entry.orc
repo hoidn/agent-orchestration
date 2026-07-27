@@ -27,7 +27,15 @@
   (defworkflow exercise-prompts
     ((message String))
     -> SharedResult
-    (let* ((local-result
+    (let* ((local-ref
+             (proc-ref local-review))
+           (unqualified-ref
+             (proc-ref shared))
+           (alias-ref
+             (proc-ref defs.shared))
+           (canonical-ref
+             (proc-ref lsp_l5/definitions/shared))
+           (local-result
              (provider-result providers.review
                :prompt (local-review :message message)))
            (unqualified-result

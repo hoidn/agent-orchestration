@@ -15,10 +15,14 @@ from orchestrator.workflow_lisp.expression_traversal import walk_expr
 from orchestrator.workflow_lisp.expressions import (
     CallExpr,
     ProcedureCallExpr,
+    ProcRefLiteralExpr,
     ProviderResultExpr,
 )
 from orchestrator.workflow_lisp.modules import build_import_scope
-from orchestrator.workflow_lisp.procedures import ProcedureSignature
+from orchestrator.workflow_lisp.procedures import (
+    ProcedureDef,
+    ProcedureSignature,
+)
 from orchestrator.workflow_lisp.prompts import (
     PromptApplicationExpr,
     PromptCatalog,
@@ -128,6 +132,7 @@ def build_navigation_index(
     _validate_frozen_form_completions(frozen_form_completions)
 
     definition_spans = _definition_spans(compile_result)
+    procedure_definitions = _procedure_definitions(compile_result)
     definition_links: dict[
         tuple[str, str, int, int],
         DefinitionLink,
@@ -182,6 +187,7 @@ def build_navigation_index(
                 definition_spans=definition_spans,
                 syntax_lists=syntax_lists,
                 prompt_catalog=prompt_catalog,
+                procedure_definitions=procedure_definitions,
             ):
                 _insert_unique_reference_link(
                     definition_links,
@@ -197,6 +203,7 @@ def build_navigation_index(
                 definition_spans=definition_spans,
                 syntax_lists=syntax_lists,
                 prompt_catalog=prompt_catalog,
+                procedure_definitions=procedure_definitions,
             ):
                 _insert_unique_reference_link(
                     definition_links,
@@ -462,6 +469,30 @@ def _definition_spans(
     return spans
 
 
+def _procedure_definitions(
+    compile_result: LinkedStage3CompileResult,
+) -> dict[str, ProcedureDef]:
+    """Return the unique canonical definitions from compiler catalogs."""
+
+    definitions: dict[str, ProcedureDef] = {}
+    for compiled in compile_result.compiled_results_by_name.values():
+        for name, definition in (
+            compiled.procedure_catalog.definitions_by_name.items()
+        ):
+            if definition.name != name:
+                raise ValueError(
+                    "procedure catalog definition canonical identity mismatch"
+                )
+            existing = definitions.get(name)
+            if existing is not None and existing != definition:
+                raise ValueError(
+                    "procedure catalog has conflicting canonical definitions: "
+                    f"{name}"
+                )
+            definitions[name] = definition
+    return definitions
+
+
 def _insert_unique_definition_target(
     targets: dict[tuple[str, str], SourceSpan],
     *,
@@ -588,6 +619,7 @@ def _reference_links_for_authored_owner(
     definition_spans: Mapping[tuple[str, str], SourceSpan],
     syntax_lists: tuple[SyntaxList, ...],
     prompt_catalog: object,
+    procedure_definitions: Mapping[str, ProcedureDef],
 ) -> tuple[DefinitionLink, ...]:
     links: list[DefinitionLink] = []
     for node in walk_expr(expr):
@@ -617,6 +649,19 @@ def _reference_links_for_authored_owner(
                 definition_span=definition_span,
             )
         )
+    for occurrence in walk_expr(expr):
+        if type(occurrence) is not ProcRefLiteralExpr:
+            continue
+        if occurrence.expansion_stack:
+            continue
+        links.append(
+            _project_proc_ref_link(
+                occurrence,
+                syntax_lists=syntax_lists,
+                procedure_definitions=procedure_definitions,
+                definition_spans=definition_spans,
+            )
+        )
     for application in _prompt_application_assertions(expr):
         links.append(
             _project_prompt_application_link(
@@ -627,6 +672,88 @@ def _reference_links_for_authored_owner(
             )
         )
     return tuple(links)
+
+
+def _project_proc_ref_link(
+    occurrence: ProcRefLiteralExpr,
+    *,
+    syntax_lists: tuple[SyntaxList, ...],
+    procedure_definitions: Mapping[str, ProcedureDef],
+    definition_spans: Mapping[tuple[str, str], SourceSpan],
+) -> DefinitionLink:
+    """Join one retained proc-ref assertion to its exact authored name."""
+
+    if occurrence.expansion_stack:
+        raise ValueError(
+            "proc-ref navigation requires an unexpanded occurrence"
+        )
+    matching_lists = tuple(
+        syntax_list
+        for syntax_list in syntax_lists
+        if syntax_list.span == occurrence.span
+    )
+    if len(matching_lists) != 1:
+        raise ValueError(
+            "proc-ref navigation requires one original syntax match"
+        )
+    syntax_list = matching_lists[0]
+    if syntax_list.expansion_stack:
+        raise ValueError(
+            "proc-ref navigation requires unexpanded original syntax"
+        )
+    if (
+        len(syntax_list.items) != 2
+        or type(syntax_list.items[0]) is not SyntaxIdentifier
+        or syntax_list.items[0].resolved_name != "proc-ref"
+        or type(syntax_list.items[1]) is not SyntaxIdentifier
+    ):
+        raise ValueError(
+            "proc-ref navigation requires an exact proc-ref name form"
+        )
+    name = syntax_list.items[1]
+    if name.resolved_name != occurrence.authored_name:
+        raise ValueError(
+            "proc-ref navigation authored identity mismatch"
+        )
+    _validate_authored_token_span(
+        name.span,
+        whole_form_span=occurrence.span,
+    )
+    definition = procedure_definitions.get(occurrence.target_name)
+    if definition is None:
+        raise ValueError(
+            "proc-ref navigation target is absent from procedure catalogs"
+        )
+    if definition.name != occurrence.target_name:
+        raise ValueError(
+            "proc-ref navigation canonical identity mismatch"
+        )
+    if (
+        definition.generated_local_procedure is not None
+        or definition.expansion_stack
+    ):
+        raise ValueError(
+            "proc-ref navigation requires an authored procedure target"
+        )
+    definition_span = definition_spans.get(
+        ("procedure", occurrence.target_name)
+    )
+    if definition_span is None:
+        raise ValueError(
+            "proc-ref navigation is missing its authored target"
+        )
+    if definition_span != definition.span:
+        raise ValueError(
+            "proc-ref navigation target span mismatch"
+        )
+    _validate_target_definition_span(definition_span)
+    return DefinitionLink(
+        reference_kind="proc-ref",
+        reference_span=name.span,
+        canonical_target=occurrence.target_name,
+        target_kind="procedure",
+        definition_span=definition_span,
+    )
 
 
 def _project_prompt_application_link(

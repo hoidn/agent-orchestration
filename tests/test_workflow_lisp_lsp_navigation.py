@@ -27,6 +27,7 @@ from orchestrator.workflow_lisp.expressions import (
     CallExpr,
     LetStarExpr,
     ProcedureCallExpr,
+    ProcRefLiteralExpr,
     ProviderResultExpr,
 )
 from orchestrator.workflow_lisp.prompts import (
@@ -66,6 +67,12 @@ L5_AUTHORED_REFS_ENTRY = (
 )
 L5_AUTHORED_REFS_DEFINITIONS = (
     L5_AUTHORED_REFS_ROOT / "lsp_l5" / "definitions.orc"
+)
+REVIEW_REVISE_DESIGN_DOCS = (
+    Path(__file__).resolve().parents[1]
+    / "workflows"
+    / "examples"
+    / "review_revise_design_docs.orc"
 )
 STDLIB_CALLER = FIXTURES / "valid" / "minimal_caller_finalize_selected_item.orc"
 
@@ -343,6 +350,53 @@ def _l5_prompt_links(index: object) -> tuple[object, ...]:
         link
         for link in index.definition_links
         if link.reference_kind == "prompt-application"
+    )
+
+
+def _l5_proc_ref_occurrences(
+    result: LinkedStage3CompileResult,
+) -> tuple[ProcRefLiteralExpr, ...]:
+    return tuple(
+        node
+        for compiled in result.compiled_results_by_name.values()
+        for owner in (*compiled.typed_procedures, *compiled.typed_workflows)
+        for node in walk_expr(owner.typed_body.expr)
+        if type(node) is ProcRefLiteralExpr
+    )
+
+
+def _l5_proc_ref_links(index: object) -> tuple[object, ...]:
+    return tuple(
+        link
+        for link in index.definition_links
+        if link.reference_kind == "proc-ref"
+    )
+
+
+def _l5_procedure_definitions(
+    result: LinkedStage3CompileResult,
+) -> dict[str, object]:
+    return {
+        name: definition
+        for compiled in result.compiled_results_by_name.values()
+        for name, definition in (
+            compiled.procedure_catalog.definitions_by_name.items()
+        )
+    }
+
+
+def _replace_l5_entry_result(
+    result: LinkedStage3CompileResult,
+    entry_result: object,
+) -> LinkedStage3CompileResult:
+    module_name = result.graph.entry_module_name
+    return replace(
+        result,
+        entry_result=entry_result,
+        compiled_results_by_name={
+            **result.compiled_results_by_name,
+            module_name: entry_result,
+        },
     )
 
 
@@ -768,9 +822,546 @@ def test_original_prompt_syntax_without_final_application_is_not_discovered(
         },
         syntax_lists=syntax_lists,
         prompt_catalog=prompt_catalog,
+        procedure_definitions=_l5_procedure_definitions(result),
     )
 
     assert all(link.reference_kind != "prompt-application" for link in links)
+
+
+def test_retained_proc_ref_names_project_exact_semantic_rows(
+    l5_authored_refs_result: LinkedStage3CompileResult,
+) -> None:
+    result = l5_authored_refs_result
+    occurrences = _l5_proc_ref_occurrences(result)
+    syntax_lists = _l5_original_syntax_lists(result)
+    definitions = _l5_procedure_definitions(result)
+    links = _l5_proc_ref_links(_build_index(result))
+    expected = {
+        (
+            "proc-ref",
+            syntax_list.items[1].span,
+            occurrence.target_name,
+            "procedure",
+            definitions[occurrence.target_name].span,
+        )
+        for occurrence in occurrences
+        for syntax_list in syntax_lists
+        if syntax_list.span == occurrence.span
+        and not syntax_list.expansion_stack
+        and len(syntax_list.items) == 2
+        and type(syntax_list.items[0]) is SyntaxIdentifier
+        and syntax_list.items[0].resolved_name == "proc-ref"
+        and type(syntax_list.items[1]) is SyntaxIdentifier
+    }
+
+    assert len(occurrences) == 4
+    assert len(expected) == 4
+    assert {
+        (
+            link.reference_kind,
+            link.reference_span,
+            link.canonical_target,
+            link.target_kind,
+            link.definition_span,
+        )
+        for link in links
+    } == expected
+    assert {
+        link.canonical_target for link in links
+    } == {
+        "lsp_l5/entry::local-review",
+        "lsp_l5/definitions::shared",
+    }
+    assert {
+        Path(link.definition_span.start.path).resolve()
+        for link in links
+    } == {
+        L5_AUTHORED_REFS_ENTRY.resolve(),
+        L5_AUTHORED_REFS_DEFINITIONS.resolve(),
+    }
+
+
+def test_retained_proc_ref_navigation_supports_local_alias_canonical_and_only_spellings(
+    l5_authored_refs_result: LinkedStage3CompileResult,
+) -> None:
+    result = l5_authored_refs_result
+    index = _build_index(result)
+    accepted_texts = _accepted_texts(result)
+    entry_path = L5_AUTHORED_REFS_ENTRY.resolve()
+    entry_text = accepted_texts[entry_path]
+    expected_targets = {
+        "local-review": "lsp_l5/entry::local-review",
+        "shared": "lsp_l5/definitions::shared",
+        "defs.shared": "lsp_l5/definitions::shared",
+        "lsp_l5/definitions/shared": "lsp_l5/definitions::shared",
+    }
+    links_by_text = {
+        entry_text[
+            link.reference_span.start.offset : link.reference_span.end.offset
+        ]: link
+        for link in _l5_proc_ref_links(index)
+    }
+
+    assert set(links_by_text) == set(expected_targets)
+    for spelling, canonical_target in expected_targets.items():
+        link = links_by_text[spelling]
+        line, character = _span_start_position(
+            link.reference_span,
+            entry_text,
+        )
+        assert link.canonical_target == canonical_target
+        assert _definition_at(
+            index,
+            source_path=entry_path,
+            line=line,
+            character=character,
+            accepted_text_by_path=accepted_texts,
+        ) == link.definition_span
+
+
+def test_retained_proc_ref_navigation_is_exactly_name_token_bounded(
+    l5_authored_refs_result: LinkedStage3CompileResult,
+) -> None:
+    result = l5_authored_refs_result
+    index = _build_index(result)
+    accepted_texts = _accepted_texts(result)
+    entry_path = L5_AUTHORED_REFS_ENTRY.resolve()
+    entry_text = accepted_texts[entry_path]
+    link = next(
+        row
+        for row in _l5_proc_ref_links(index)
+        if row.canonical_target == "lsp_l5/entry::local-review"
+    )
+    occurrence = next(
+        row
+        for row in _l5_proc_ref_occurrences(result)
+        if row.target_name == "lsp_l5/entry::local-review"
+    )
+    matching_syntax = next(
+        row
+        for row in _l5_original_syntax_lists(result)
+        if row.span == occurrence.span
+    )
+
+    def lookup_offset(offset: int) -> SourceSpan | None:
+        prefix = entry_text[:offset]
+        line = prefix.count("\n")
+        character = len(
+            prefix.rsplit("\n", maxsplit=1)[-1].encode("utf-16-le")
+        ) // 2
+        return _definition_at(
+            index,
+            source_path=entry_path,
+            line=line,
+            character=character,
+            accepted_text_by_path=accepted_texts,
+        )
+
+    assert lookup_offset(link.reference_span.start.offset) == link.definition_span
+    assert lookup_offset(link.reference_span.end.offset - 1) == link.definition_span
+    assert lookup_offset(occurrence.span.start.offset) is None
+    assert lookup_offset(matching_syntax.items[0].span.start.offset) is None
+    assert lookup_offset(link.reference_span.start.offset - 1) is None
+    assert lookup_offset(link.reference_span.end.offset) is None
+    assert lookup_offset(occurrence.span.end.offset - 1) is None
+
+
+@pytest.mark.parametrize(
+    "drift",
+    (
+        "missing-original-list",
+        "duplicate-original-list",
+        "non-proc-ref-head",
+        "missing-name",
+        "non-identifier-name",
+        "extra-item",
+        "authored-name-mismatch",
+        "canonical-target-mismatch",
+        "missing-procedure-definition",
+        "differing-definition-span",
+        "invalid-token-containment",
+    ),
+)
+def test_proc_ref_projection_rejects_missing_multiple_kind_identity_and_span_mismatch(
+    l5_authored_refs_result: LinkedStage3CompileResult,
+    drift: str,
+) -> None:
+    result = l5_authored_refs_result
+    project = getattr(
+        _navigation_surface(),
+        "_project_proc_ref_link",
+        None,
+    )
+    assert callable(project), "_project_proc_ref_link is missing"
+    occurrence = next(
+        row
+        for row in _l5_proc_ref_occurrences(result)
+        if row.target_name == "lsp_l5/entry::local-review"
+    )
+    matching_syntax = next(
+        row
+        for row in _l5_original_syntax_lists(result)
+        if row.span == occurrence.span
+    )
+    definitions = _l5_procedure_definitions(result)
+    definition_spans = {
+        ("procedure", name): definition.span
+        for name, definition in definitions.items()
+    }
+    syntax_lists = (matching_syntax,)
+
+    if drift == "missing-original-list":
+        syntax_lists = ()
+    elif drift == "duplicate-original-list":
+        syntax_lists = (matching_syntax, matching_syntax)
+    elif drift == "non-proc-ref-head":
+        syntax_lists = (
+            replace(
+                matching_syntax,
+                items=(
+                    replace(
+                        matching_syntax.items[0],
+                        resolved_name="call",
+                    ),
+                    matching_syntax.items[1],
+                ),
+            ),
+        )
+    elif drift == "missing-name":
+        syntax_lists = (
+            replace(
+                matching_syntax,
+                items=(matching_syntax.items[0],),
+            ),
+        )
+    elif drift == "non-identifier-name":
+        syntax_lists = (
+            replace(
+                matching_syntax,
+                items=(matching_syntax.items[0], matching_syntax),
+            ),
+        )
+    elif drift == "extra-item":
+        syntax_lists = (
+            replace(
+                matching_syntax,
+                items=(*matching_syntax.items, matching_syntax.items[1]),
+            ),
+        )
+    elif drift == "authored-name-mismatch":
+        occurrence = replace(occurrence, authored_name="other")
+    elif drift == "canonical-target-mismatch":
+        definitions[occurrence.target_name] = replace(
+            definitions[occurrence.target_name],
+            name="lsp_l5/entry::other",
+        )
+    elif drift == "missing-procedure-definition":
+        definitions.pop(occurrence.target_name)
+    elif drift == "differing-definition-span":
+        definition_spans[
+            ("procedure", occurrence.target_name)
+        ] = _l5_test_span(L5_AUTHORED_REFS_ENTRY.resolve(), 1, 2)
+    else:
+        invalid_name = replace(
+            matching_syntax.items[1],
+            span=replace(
+                matching_syntax.items[1].span,
+                end=matching_syntax.span.end,
+            ),
+        )
+        syntax_lists = (
+            replace(
+                matching_syntax,
+                items=(matching_syntax.items[0], invalid_name),
+            ),
+        )
+
+    with pytest.raises(ValueError):
+        project(
+            occurrence,
+            syntax_lists=syntax_lists,
+            procedure_definitions=definitions,
+            definition_spans=definition_spans,
+        )
+
+
+def test_proc_ref_projection_rejects_expanded_matching_original_syntax(
+    l5_authored_refs_result: LinkedStage3CompileResult,
+) -> None:
+    result = l5_authored_refs_result
+    project = getattr(
+        _navigation_surface(),
+        "_project_proc_ref_link",
+        None,
+    )
+    assert callable(project), "_project_proc_ref_link is missing"
+    occurrence = next(
+        row
+        for row in _l5_proc_ref_occurrences(result)
+        if row.target_name == "lsp_l5/entry::local-review"
+    )
+    matching_syntax = next(
+        row
+        for row in _l5_original_syntax_lists(result)
+        if row.span == occurrence.span
+    )
+    definitions = _l5_procedure_definitions(result)
+
+    with pytest.raises(ValueError):
+        project(
+            occurrence,
+            syntax_lists=(
+                replace(matching_syntax, expansion_stack=(object(),)),
+            ),
+            procedure_definitions=definitions,
+            definition_spans={
+                ("procedure", name): definition.span
+                for name, definition in definitions.items()
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "target_provenance",
+    ("generated", "expanded"),
+)
+def test_proc_ref_projection_rejects_generated_or_expanded_catalog_definition(
+    l5_authored_refs_result: LinkedStage3CompileResult,
+    target_provenance: str,
+) -> None:
+    result = l5_authored_refs_result
+    project = getattr(
+        _navigation_surface(),
+        "_project_proc_ref_link",
+        None,
+    )
+    assert callable(project), "_project_proc_ref_link is missing"
+    occurrence = next(
+        row
+        for row in _l5_proc_ref_occurrences(result)
+        if row.target_name == "lsp_l5/entry::local-review"
+    )
+    matching_syntax = next(
+        row
+        for row in _l5_original_syntax_lists(result)
+        if row.span == occurrence.span
+    )
+    definitions = _l5_procedure_definitions(result)
+    definition = definitions[occurrence.target_name]
+    definitions[occurrence.target_name] = replace(
+        definition,
+        **(
+            {"generated_local_procedure": object()}
+            if target_provenance == "generated"
+            else {"expansion_stack": (object(),)}
+        ),
+    )
+
+    with pytest.raises(ValueError):
+        project(
+            occurrence,
+            syntax_lists=(matching_syntax,),
+            procedure_definitions=definitions,
+            definition_spans={
+                ("procedure", name): row.span
+                for name, row in definitions.items()
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "excluded_shape",
+    (
+        "erased-final-occurrence",
+        "expanded-occurrence",
+        "generated-procedure-owner",
+        "expanded-owner",
+        "specialized-procedure-owner",
+        "specialized-workflow-owner",
+    ),
+)
+def test_proc_ref_projection_excludes_erased_expanded_generated_and_specialized_occurrences(
+    l5_authored_refs_result: LinkedStage3CompileResult,
+    excluded_shape: str,
+) -> None:
+    result = l5_authored_refs_result
+    compiled = result.entry_result
+    workflow = next(
+        row
+        for row in compiled.typed_workflows
+        if row.definition.name.endswith("::exercise-prompts")
+    )
+    body = workflow.typed_body
+    assert isinstance(body.expr, LetStarExpr)
+    proc_ref_bindings = body.expr.bindings[:4]
+    assert all(
+        type(value) is ProcRefLiteralExpr
+        for _name, value in proc_ref_bindings
+    )
+    syntax_lists = _l5_original_syntax_lists(result)
+    excluded_spans = tuple(
+        next(
+            syntax_list.items[1].span
+            for syntax_list in syntax_lists
+            if syntax_list.span == value.span
+        )
+        for _name, value in proc_ref_bindings
+    )
+
+    if excluded_shape == "erased-final-occurrence":
+        changed_workflow = replace(
+            workflow,
+            typed_body=replace(
+                body,
+                expr=replace(
+                    body.expr,
+                    bindings=body.expr.bindings[4:],
+                ),
+            ),
+        )
+        changed_entry = replace(
+            compiled,
+            typed_workflows=(changed_workflow,),
+        )
+    elif excluded_shape == "expanded-occurrence":
+        name, occurrence = proc_ref_bindings[0]
+        changed_workflow = replace(
+            workflow,
+            typed_body=replace(
+                body,
+                expr=replace(
+                    body.expr,
+                    bindings=(
+                        (name, replace(occurrence, expansion_stack=(object(),))),
+                        *body.expr.bindings[1:],
+                    ),
+                ),
+            ),
+        )
+        changed_entry = replace(
+            compiled,
+            typed_workflows=(changed_workflow,),
+        )
+        excluded_spans = (
+            next(
+                syntax_list.items[1].span
+                for syntax_list in syntax_lists
+                if syntax_list.span == occurrence.span
+            ),
+        )
+    elif excluded_shape in {
+        "generated-procedure-owner",
+        "specialized-procedure-owner",
+    }:
+        procedure = next(
+            row
+            for row in compiled.typed_procedures
+            if row.definition.name.endswith("::local-review")
+        )
+        changed_procedure = replace(
+            procedure,
+            typed_body=body,
+            definition=replace(
+                procedure.definition,
+                generated_local_procedure=(
+                    object()
+                    if excluded_shape == "generated-procedure-owner"
+                    else None
+                ),
+            ),
+            specialization=(
+                object()
+                if excluded_shape == "specialized-procedure-owner"
+                else None
+            ),
+        )
+        changed_entry = replace(
+            compiled,
+            typed_procedures=(changed_procedure,),
+            typed_workflows=(),
+        )
+    else:
+        changed_workflow = replace(
+            workflow,
+            definition=replace(
+                workflow.definition,
+                expansion_stack=(
+                    (object(),)
+                    if excluded_shape == "expanded-owner"
+                    else ()
+                ),
+            ),
+            specialization=(
+                object()
+                if excluded_shape == "specialized-workflow-owner"
+                else None
+            ),
+        )
+        changed_entry = replace(
+            compiled,
+            typed_workflows=(changed_workflow,),
+        )
+
+    changed_result = _replace_l5_entry_result(result, changed_entry)
+    links = _l5_proc_ref_links(_build_index(changed_result))
+
+    assert all(
+        link.reference_span not in excluded_spans
+        for link in links
+    )
+
+
+def test_macro_consumed_proc_refs_and_macro_heads_have_no_l5_rows() -> None:
+    source_path = REVIEW_REVISE_DESIGN_DOCS.resolve()
+    result = compile_stage3_entrypoint(
+        source_path,
+        source_roots=(source_path.parent,),
+        provider_externs={
+            "providers.design-docs.review": "codex",
+            "providers.design-docs.fix": "codex",
+        },
+        prompt_externs={
+            "prompts.design-docs.fix": (
+                "prompts/workflows/review_revise_design_docs/fix.md"
+            ),
+        },
+        command_boundaries={},
+        validate_shared=False,
+        workspace_root=Path.cwd().resolve(),
+        lowering_route="legacy",
+    )
+    source = source_path.read_text(encoding="utf-8")
+    index = _build_index(result)
+    excluded_offsets = {
+        source.index("review-revise-loop", source.index("(review-revise-loop")),
+        source.index(
+            "review-design-docs",
+            source.index("(proc-ref review-design-docs"),
+        ),
+        source.index(
+            "fix-design-doc",
+            source.index("(proc-ref fix-design-doc"),
+        ),
+    }
+
+    assert not _l5_proc_ref_occurrences(result)
+    assert all(
+        link.reference_span.start.offset not in excluded_offsets
+        for link in index.definition_links
+    )
+    direct_call = next(
+        link
+        for link in index.definition_links
+        if (
+            link.reference_kind == "workflow-call"
+            and link.canonical_target
+            == "review_revise_design_docs::build-review-runtime-owned"
+        )
+    )
+    assert source[
+        direct_call.reference_span.start.offset :
+        direct_call.reference_span.end.offset
+    ] == "build-review-runtime-owned"
 
 
 def _l5_test_span(
