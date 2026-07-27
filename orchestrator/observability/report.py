@@ -9,6 +9,9 @@ from typing import Any, Dict, Iterable, Mapping, Optional
 
 from orchestrator.runtime_observability import compute_active_runtime
 from orchestrator.workflow.loaded_bundle import workflow_bundle
+from orchestrator.workflow.prompt_context_report import (
+    project_prompt_context,
+)
 
 
 _PREVIEW_LIMIT = 200
@@ -467,6 +470,7 @@ def build_status_snapshot(
         },
         "progress": progress,
         "steps": step_entries,
+        "prompt_context": project_prompt_context(state, run_root),
     }
 
 
@@ -625,5 +629,67 @@ def render_status_markdown(snapshot: Dict[str, Any]) -> str:
                     lines.append(f"    - {snapshot_name}: `{snapshot_payload}`")
 
         lines.append("")
+
+    lines.append("## Prompt context")
+    prompt_context = snapshot.get("prompt_context", {})
+    attempts = (
+        prompt_context.get("attempts")
+        if isinstance(prompt_context, Mapping)
+        else None
+    )
+    if not isinstance(attempts, list) or not attempts:
+        lines.extend(["- attempts: `0`", ""])
+    else:
+        for attempt in attempts:
+            if not isinstance(attempt, Mapping):
+                continue
+            lines.append(
+                "### "
+                f"{attempt.get('runtime_step_id')} "
+                f"(attempt {attempt.get('attempt_ordinal')})"
+            )
+            lines.append(f"- visit_key: `{attempt.get('visit_key')}`")
+            lines.append(
+                f"- record_status: `{attempt.get('record_status')}`"
+            )
+            record_sha256 = attempt.get("record_sha256")
+            if record_sha256 is not None:
+                lines.append(f"- record_sha256: `{record_sha256}`")
+            identity = attempt.get("identity")
+            if isinstance(identity, Mapping):
+                lines.append(
+                    "- composition_sha256: "
+                    f"`{identity.get('composition_sha256')}`"
+                )
+                lines.append(
+                    "- final_prompt_sha256: "
+                    f"`{identity.get('final_prompt_sha256')}`"
+                )
+                roles = identity.get("role_sha256")
+                if isinstance(roles, Mapping):
+                    lines.append("- role_sha256:")
+                    for role, digest in roles.items():
+                        lines.append(f"  - {role}: `{digest}`")
+            comparison = attempt.get("comparison")
+            if isinstance(comparison, Mapping):
+                lines.append(
+                    f"- comparison_status: `{comparison.get('status')}`"
+                )
+                if comparison.get("previous_attempt_ordinal") is not None:
+                    lines.append(
+                        "- previous_attempt_ordinal: "
+                        f"`{comparison.get('previous_attempt_ordinal')}`"
+                    )
+                classifications = comparison.get("classifications")
+                if isinstance(classifications, list):
+                    lines.append(
+                        "- classifications: "
+                        f"`{classifications}`"
+                    )
+                if comparison.get("reason") is not None:
+                    lines.append(
+                        f"- reason: `{comparison.get('reason')}`"
+                    )
+            lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"

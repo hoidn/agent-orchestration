@@ -85,6 +85,53 @@ def test_snapshot_counts_and_infers_running_from_prompt_audit(tmp_path: Path):
     assert "Resolved prompt content" in steps["DraftPlan"]["input"]["prompt"]
 
 
+@pytest.mark.parametrize(
+    "target_label",
+    ("2.20", "2.21", "2.22", "mixed", "no-qualified-attempt"),
+)
+def test_prompt_context_loaded_report_has_exact_additive_empty_projection(
+    tmp_path: Path,
+    target_label: str,
+) -> None:
+    run_root = tmp_path / ".orchestrate" / "runs" / target_label
+    run_root.mkdir(parents=True)
+    state = {
+        "run_id": f"run-{target_label}",
+        "status": "completed",
+        "started_at": "2026-07-27T00:00:00+00:00",
+        "updated_at": "2026-07-27T00:00:01+00:00",
+        "workflow_file": "workflows/test.yaml",
+        "context": {"target_label": target_label},
+        "steps": {},
+    }
+    workflow = _load_bundle(tmp_path, _sample_workflow_payload())
+    if target_label in {"2.20", "2.21", "2.22"}:
+        from tests.test_workflow_lisp_prompt_calculus_runtime import (
+            _compile_runtime_fragment,
+        )
+
+        _source_path, workflow = _compile_runtime_fragment(
+            tmp_path,
+            lowering_route=(
+                "wcc_m4" if target_label == "2.22" else "legacy"
+            ),
+            target_dsl=target_label,
+            with_output_position=target_label == "2.22",
+        )
+
+    snapshot = build_status_snapshot(
+        workflow,
+        state,
+        run_root,
+    )
+
+    assert tuple(snapshot) == ("run", "progress", "steps", "prompt_context")
+    assert snapshot["prompt_context"] == {
+        "schema_version": "workflow_prompt_context_report.v1",
+        "attempts": [],
+    }
+
+
 def test_snapshot_contains_command_input_and_output_summary(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "run2"
     (run_root / "logs").mkdir(parents=True)
@@ -218,6 +265,31 @@ def test_markdown_renderer_emits_human_readable_status(tmp_path: Path):
     assert "run3" in md
     assert "DraftPlan" in md
     assert "Prompt body" in md
+
+
+def test_prompt_context_markdown_section_follows_ordinary_steps(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-prompt-context"
+    run_root.mkdir(parents=True)
+    state = {
+        "run_id": "run-prompt-context",
+        "status": "completed",
+        "started_at": "2026-07-27T00:00:00+00:00",
+        "updated_at": "2026-07-27T00:00:01+00:00",
+        "workflow_file": "workflows/test.yaml",
+        "steps": {},
+    }
+
+    markdown = render_status_markdown(
+        build_status_snapshot(
+            _load_bundle(tmp_path, _sample_workflow_payload()),
+            state,
+            run_root,
+        )
+    )
+
+    assert markdown.index("## Prompt context") > markdown.index("## Steps")
 
 
 def test_status_snapshot_surfaces_typed_terminal_observability_summary(tmp_path: Path):

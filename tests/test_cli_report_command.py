@@ -103,6 +103,31 @@ def test_report_supports_json_format(tmp_path, capsys, monkeypatch):
     assert payload["steps"][0]["kind"] == "unknown"
 
 
+def test_prompt_context_state_only_report_has_exact_additive_empty_projection(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    run_id = "20260727T000000Z-prompt-context"
+    _write_run(runs_root, run_id)
+
+    result = report_workflow(
+        run_id=run_id,
+        runs_root=str(runs_root),
+        format="json",
+    )
+
+    assert result == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert tuple(payload) == ("run", "progress", "steps", "prompt_context")
+    assert payload["prompt_context"] == {
+        "schema_version": "workflow_prompt_context_report.v1",
+        "attempts": [],
+    }
+
+
 def test_report_reads_persisted_legacy_state_without_reopening_source(
     tmp_path,
     capsys,

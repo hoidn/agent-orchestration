@@ -15,6 +15,9 @@ from orchestrator.observability.report import (
     render_status_markdown,
 )
 from orchestrator.runtime_observability import compute_active_runtime
+from orchestrator.workflow.prompt_context_report import (
+    project_prompt_context,
+)
 
 
 _STATE_ONLY_DEBUG_KIND_DISCRIMINATORS = frozenset(
@@ -215,7 +218,12 @@ def _state_only_snapshot(
         }
     run_payload.update(compute_active_runtime(state))
 
-    return {"run": run_payload, "progress": progress, "steps": steps}
+    return {
+        "run": run_payload,
+        "progress": progress,
+        "steps": steps,
+        "prompt_context": project_prompt_context(state, run_dir),
+    }
 
 
 def report_workflow(
