@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 
 from orchestrator.contracts.output_contract import validate_output_bundle
 from orchestrator.contracts.prompt_contract import (
@@ -729,6 +730,97 @@ def test_provider_prompt_retains_both_runtime_resolved_output_contracts(
         f"{render_output_contract_block(resolved_expected)}\n\n"
         f"{render_output_bundle_contract_block(resolved_bundle)}"
     )
+
+
+@pytest.mark.parametrize(
+    ("write_expected", "bundle_payload", "expected_status"),
+    [
+        (True, {"approved": True}, "completed"),
+        (False, {"approved": True}, "failed"),
+        (True, None, "failed"),
+        (True, {"approved": "yes"}, "failed"),
+    ],
+)
+def test_provider_dual_output_contract_validation_is_state_atomic(
+    tmp_path: Path,
+    write_expected: bool,
+    bundle_payload: object,
+    expected_status: str,
+) -> None:
+    workflow = {
+        "version": "2.21",
+        "name": "provider-dual-contract-atomicity",
+        "steps": [
+            {
+                "name": "Review",
+                "provider": "codex",
+                "expected_outputs": [
+                    {
+                        "name": "review_note",
+                        "path": "state/review_note.txt",
+                        "type": "string",
+                    }
+                ],
+                "output_bundle": {
+                    "path": "state/result.json",
+                    "fields": [
+                        {
+                            "name": "approved",
+                            "json_pointer": "/approved",
+                            "type": "bool",
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+    loaded = WorkflowLoader(tmp_path).load(_write_workflow(tmp_path, workflow))
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    executor.provider_executor.prepare_invocation = (
+        lambda *_args, **_kwargs: (SimpleNamespace(), None)
+    )
+
+    def _execute(*_args, **_kwargs):
+        state_root = tmp_path / "state"
+        state_root.mkdir(exist_ok=True)
+        if write_expected:
+            (state_root / "review_note.txt").write_text(
+                "reviewed\n",
+                encoding="utf-8",
+            )
+        if bundle_payload is not None:
+            (state_root / "result.json").write_text(
+                json.dumps(bundle_payload) + "\n",
+                encoding="utf-8",
+            )
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.execute = _execute
+
+    result = executor.execute(on_error="continue")["steps"]["Review"]
+
+    assert result["status"] == expected_status
+    if expected_status == "completed":
+        assert result["artifacts"] == {
+            "review_note": "reviewed\n",
+            "approved": True,
+        }
+    else:
+        assert "artifacts" not in result
+    if write_expected:
+        assert (tmp_path / "state" / "review_note.txt").is_file()
+    if bundle_payload is not None:
+        assert (tmp_path / "state" / "result.json").is_file()
 
 
 def test_provider_failure_preserves_original_error_and_skips_contract(tmp_path: Path):

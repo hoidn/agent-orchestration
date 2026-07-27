@@ -10,7 +10,10 @@ from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
+from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
+from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 def _write_json(path: Path, payload: object) -> Path:
@@ -242,6 +245,144 @@ def test_malformed_optional_source_map_preserves_contract_failure(
     assert violation["type"] == "variant_required_field_missing"
     assert violation["subject_refs"][0]["subject_kind"] == "variant_output_field"
     assert "source_origins" not in violation
+
+
+def test_q2_missing_expected_output_resolves_to_fill_origin(
+    tmp_path: Path,
+) -> None:
+    source_lines = [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.21")',
+        "  (defmodule runtime_q2_lineage)",
+        "  (export review)",
+        "  (defpath WorkReportPath",
+        "    :kind relpath",
+        '    :under "artifacts/work"',
+        "    :must-exist false)",
+        "  (defprompt review-prompt",
+        "    (:fills",
+        "      (report_path :path :out WorkReportPath))",
+        "    -> Bool",
+        '    "Write report to {report_path}")',
+        "  (defworkflow review",
+        "    ((report_path WorkReportPath))",
+        "    -> Bool",
+        "    (provider-result providers.review",
+        "      :prompt",
+        "        (review-prompt",
+        "          :report_path report_path)))",
+        ")",
+    ]
+    source_path = tmp_path / "runtime_q2_lineage.orc"
+    source_path.write_text("\n".join(source_lines) + "\n", encoding="utf-8")
+    providers_path = _write_json(
+        tmp_path / "q2-providers.json",
+        {"providers.review": "fake-review-provider"},
+    )
+    prompt_externs_path = _write_json(
+        tmp_path / "q2-prompts.json",
+        {},
+    )
+    result = build_frontend_bundle(
+        FrontendBuildRequest(
+            source_path=source_path,
+            source_roots=(tmp_path,),
+            entry_workflow="review",
+            provider_externs_path=providers_path,
+            prompt_externs_path=prompt_externs_path,
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=None,
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+    bundle = result.validated_bundle
+    expected_bridge = next(
+        bridge
+        for bridge in bundle.semantic_ir.source_map.values()
+        if bridge.subject_ref is not None
+        and bridge.subject_ref.subject_kind == "expected_output"
+    )
+    contracts = {
+        name: contract
+        for name, contract in workflow_runtime_input_contracts(bundle).items()
+        if not name.startswith("__write_root__")
+    }
+    bound_inputs = bind_workflow_inputs(
+        contracts,
+        {"report_path": "artifacts/work/report.md"},
+        tmp_path,
+    )
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="runtime-q2-fill-lineage",
+    )
+    state_manager.initialize(
+        str(source_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs=bound_inputs,
+    )
+
+    def _prepare_invocation(_self, *args, **kwargs):
+        return (
+            SimpleNamespace(
+                input_mode="stdin",
+                prompt=kwargs.get("prompt_content", ""),
+                env=kwargs.get("env") or {},
+            ),
+            None,
+        )
+
+    def _execute(_self, invocation, **_kwargs):
+        bundle_path = tmp_path / invocation.env[
+            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"
+        ]
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text("true\n", encoding="utf-8")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+            raw_stdout=None,
+            normalized_stdout=None,
+            provider_session=None,
+        )
+
+    with patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        _prepare_invocation,
+    ), patch.object(ProviderExecutor, "execute", _execute):
+        state = WorkflowExecutor(
+            bundle,
+            tmp_path,
+            state_manager,
+        ).execute(on_error="continue")
+
+    failed = next(
+        step
+        for step in state["steps"].values()
+        if step.get("error", {}).get("type") == "contract_violation"
+    )
+    violation = failed["error"]["context"]["violations"][0]
+    assert violation["type"] == "missing_output_file"
+    assert violation["subject_refs"] == [
+        {
+            "subject_kind": "expected_output",
+            "subject_name": expected_bridge.subject_ref.subject_name,
+            "workflow_name": expected_bridge.subject_ref.workflow_name,
+        }
+    ]
+    assert len(violation["source_origins"]) == 1
+    assert violation["source_origins"][0]["entity_kind"] == "expected_output"
+    assert violation["source_origins"][0]["line"] == (
+        source_lines.index("          :report_path report_path)))") + 1
+    )
 
 
 def _build_runtime_root_result(tmp_path: Path):

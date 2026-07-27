@@ -146,6 +146,7 @@ def validate_expected_outputs(expected_outputs: List[Dict[str, Any]], workspace:
                 type="invalid_output_path",
                 message="Output contract path escapes workspace",
                 context={"path": spec_path},
+                subject_refs=_field_subject_refs(spec),
             ))
             continue
 
@@ -155,6 +156,7 @@ def validate_expected_outputs(expected_outputs: List[Dict[str, Any]], workspace:
                     type="missing_output_file",
                     message="Expected output file was not created",
                     context={"path": spec_path},
+                    subject_refs=_field_subject_refs(spec),
                 ))
             continue
 
@@ -170,6 +172,7 @@ def validate_expected_outputs(expected_outputs: List[Dict[str, Any]], workspace:
         )
         if violation is not None:
             violation.context["path"] = spec_path
+            violation.subject_refs = _field_subject_refs(spec)
             violations.append(violation)
             continue
 
@@ -179,6 +182,134 @@ def validate_expected_outputs(expected_outputs: List[Dict[str, Any]], workspace:
         raise OutputContractError(violations)
 
     return artifacts
+
+
+def _canonical_output_destination(
+    workspace: Path,
+    value: object,
+) -> Path | None:
+    if not isinstance(value, str) or not value:
+        return None
+    path = Path(value)
+    if path.is_absolute() or ".." in path.parts:
+        return None
+    candidate = (workspace.resolve() / path).resolve()
+    try:
+        candidate.relative_to(workspace.resolve())
+    except ValueError:
+        return None
+    return candidate
+
+
+def validate_prompt_output_position_destinations(
+    *,
+    rendered_paths: Mapping[str, str],
+    expected_outputs: List[Dict[str, Any]],
+    structured_output: Mapping[str, Any] | None,
+    workspace: Path,
+    provider_subject: ValidationSubjectRef | None,
+) -> None:
+    """Validate resolved Q2 path equality and destination disjointness."""
+
+    expected_by_name = {
+        str(spec.get("name", "")): spec
+        for spec in expected_outputs
+        if isinstance(spec, Mapping) and isinstance(spec.get("name"), str)
+    }
+    for name, spec in expected_by_name.items():
+        rendered_path = rendered_paths.get(name)
+        expected_path = spec.get("path")
+        rendered_destination = _canonical_output_destination(
+            workspace,
+            rendered_path,
+        )
+        expected_destination = _canonical_output_destination(
+            workspace,
+            expected_path,
+        )
+        if (
+            rendered_destination is None
+            or expected_destination is None
+            or rendered_destination != expected_destination
+        ):
+            raise OutputContractError(
+                [
+                    ContractViolation(
+                        type="prompt_output_position_contract_mismatch",
+                        message=(
+                            "Rendered prompt output path does not match its "
+                            "resolved expected-output destination"
+                        ),
+                        context={
+                            "name": name,
+                            "rendered_path": rendered_path,
+                            "expected_path": expected_path,
+                        },
+                        subject_refs=(
+                            (provider_subject,)
+                            if provider_subject is not None
+                            else ()
+                        ),
+                    )
+                ]
+            )
+
+    destinations: list[
+        tuple[str, Path, tuple[ValidationSubjectRef, ...]]
+    ] = []
+    for name, spec in expected_by_name.items():
+        destination = _canonical_output_destination(
+            workspace,
+            spec.get("path"),
+        )
+        if destination is None:
+            continue
+        destinations.append((name, destination, _field_subject_refs(spec)))
+
+    if isinstance(structured_output, Mapping):
+        structured_path = structured_output.get("path")
+        structured_destination = _canonical_output_destination(
+            workspace,
+            structured_path,
+        )
+        structured_name = structured_output.get("contract_name")
+        if (
+            structured_destination is not None
+            and isinstance(structured_name, str)
+            and structured_name
+        ):
+            destinations.append(
+                (
+                    structured_name,
+                    structured_destination,
+                    (
+                        (provider_subject,)
+                        if provider_subject is not None
+                        else ()
+                    ),
+                )
+            )
+
+    for index, (left_name, left_path, left_subjects) in enumerate(destinations):
+        for right_name, right_path, right_subjects in destinations[index + 1 :]:
+            if left_path != right_path:
+                continue
+            raise OutputContractError(
+                [
+                    ContractViolation(
+                        type="prompt_output_position_destination_collision",
+                        message=(
+                            "Prompt output destinations must be pairwise "
+                            "disjoint"
+                        ),
+                        context={
+                            "names": [left_name, right_name],
+                            "path": left_path.relative_to(workspace.resolve()).as_posix(),
+                        },
+                        subject_refs=(*left_subjects, *right_subjects),
+                    )
+                ]
+            )
 
 
 def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Dict[str, Any]:

@@ -32,11 +32,17 @@ from ..deps.content_snapshot import (
     snapshot_content_dependencies,
 )
 from ..contracts.output_contract import (
+    ContractViolation,
     OutputContractError,
     validate_contract_value,
     validate_expected_outputs,
     validate_output_bundle,
+    validate_prompt_output_position_destinations,
     validate_variant_output_bundle,
+)
+from ..exceptions import (
+    ValidationSubjectRef,
+    serialize_validation_subject_ref,
 )
 from .view_renderer import (
     render_view,
@@ -128,7 +134,10 @@ from .prompt_dependency_evidence import (
     build_success_evidence,
     publish_evidence_file,
 )
-from .prompt_fragment_contract import validate_compiler_prompt_fragment_pair
+from .prompt_fragment_contract import (
+    CompilerPromptFragmentContractV2,
+    validate_compiler_prompt_fragment_pair,
+)
 from .provider_attempts import (
     ProviderAttemptScope,
     resolve_aggregate_run_owner,
@@ -5910,7 +5919,7 @@ class WorkflowExecutor:
         debug_info = {}
         step_name = step.get('name', f'step_{self.current_step}')
         (
-            _fragment_contract,
+            fragment_contract,
             _fragment_identity,
             fragment_error,
         ) = self._validated_runtime_prompt_fragment_pair(step)
@@ -5970,6 +5979,18 @@ class WorkflowExecutor:
         )
         if path_error is not None:
             return path_error
+        output_position_error = (
+            self._prompt_output_position_prelaunch_result(
+                step=step,
+                fragment_contract=fragment_contract,
+                resolved_expected_outputs=resolved_expected_outputs,
+                resolved_output_bundle=resolved_output_bundle,
+                state=state,
+                runtime_context=runtime_context,
+            )
+        )
+        if output_position_error is not None:
+            return output_position_error
         bundle_path_error = self._prepare_runtime_output_bundle_parent(resolved_output_bundle)
         if bundle_path_error is not None:
             return bundle_path_error
@@ -7110,6 +7131,174 @@ class WorkflowExecutor:
 
         return resolved_expected_outputs, resolved_output_bundle, None
 
+    def _q2_expected_output_subject(
+        self,
+        step: RuntimeStepInput,
+        artifact_name: str,
+    ) -> ValidationSubjectRef:
+        owner_step_id = self._step_id(step)
+        if owner_step_id.startswith("root."):
+            owner_step_id = owner_step_id[len("root."):]
+        return ValidationSubjectRef(
+            subject_kind="expected_output",
+            subject_name=(
+                f"{owner_step_id}::expected-output::{artifact_name}"
+            ),
+            workflow_name=self.workflow_name,
+        )
+
+    def _q2_expected_outputs_with_subjects(
+        self,
+        step: RuntimeStepInput,
+        expected_outputs: Optional[List[Dict[str, Any]]],
+    ) -> Optional[List[Dict[str, Any]]]:
+        contract, _identity = self._compiler_prompt_fragment_pair(step)
+        if (
+            type(contract) is not CompilerPromptFragmentContractV2
+            or expected_outputs is None
+        ):
+            return expected_outputs
+
+        enriched: List[Dict[str, Any]] = []
+        for spec in expected_outputs:
+            if not isinstance(spec, dict):
+                enriched.append(spec)
+                continue
+            spec_copy = dict(spec)
+            artifact_name = spec_copy.get("name")
+            if isinstance(artifact_name, str) and artifact_name:
+                spec_copy["source_map_subject"] = (
+                    serialize_validation_subject_ref(
+                        self._q2_expected_output_subject(
+                            step,
+                            artifact_name,
+                        )
+                    )
+                )
+            enriched.append(spec_copy)
+        return enriched
+
+    def _prompt_output_position_prelaunch_result(
+        self,
+        *,
+        step: RuntimeStepInput,
+        fragment_contract: Any,
+        resolved_expected_outputs: Optional[List[Dict[str, Any]]],
+        resolved_output_bundle: Optional[Dict[str, Any]],
+        state: Dict[str, Any],
+        runtime_context: RuntimeContext,
+    ) -> Optional[Dict[str, Any]]:
+        if type(fragment_contract) is not CompilerPromptFragmentContractV2:
+            return None
+        if resolved_expected_outputs is None:
+            return self._contract_violation_result(
+                "Provider prompt output-position preparation failed",
+                {"reason": "prompt_output_position_contract_mismatch"},
+            )
+
+        rendered_paths: dict[str, str] = {}
+        slots_by_name = {
+            slot.name: slot
+            for slot in fragment_contract.rendered_slots
+        }
+        for output_position in fragment_contract.output_positions:
+            slot = slots_by_name.get(output_position.slot_name)
+            if slot is None:
+                return self._contract_violation_result(
+                    "Provider prompt output-position preparation failed",
+                    {"reason": "prompt_output_position_contract_mismatch"},
+                )
+            binding = slot.value_source.get("binding")
+            if isinstance(binding, Mapping):
+                binding = dict(binding)
+            resolved_value, resolution_error = (
+                self._resolve_typed_prompt_input_value(
+                    binding,
+                    state,
+                    scope=runtime_context.scope(),
+                )
+            )
+            if resolution_error is not None:
+                return resolution_error
+            try:
+                rendered_path = render_view(
+                    slot.renderer_id,
+                    1,
+                    resolved_value,
+                ).decode("utf-8").removesuffix("\n")
+            except (TypeError, ValueError, UnicodeDecodeError) as exc:
+                return self._contract_violation_result(
+                    "Provider prompt output-position preparation failed",
+                    {
+                        "reason": "prompt_output_position_contract_mismatch",
+                        "error": str(exc),
+                    },
+                )
+            rendered_paths[output_position.slot_name] = rendered_path
+
+        expected_outputs_with_subjects = (
+            self._q2_expected_outputs_with_subjects(
+                step,
+                resolved_expected_outputs,
+            )
+            or []
+        )
+        structured_output = None
+        if isinstance(resolved_output_bundle, dict):
+            structured_output = {
+                **resolved_output_bundle,
+                "contract_name": (
+                    "variant_output"
+                    if isinstance(step.get("variant_output"), dict)
+                    else "output_bundle"
+                ),
+            }
+        provider_subject = ValidationSubjectRef(
+            subject_kind="step_id",
+            subject_name=self._step_id(step),
+            workflow_name=self.workflow_name,
+        )
+        try:
+            validate_prompt_output_position_destinations(
+                rendered_paths=rendered_paths,
+                expected_outputs=expected_outputs_with_subjects,
+                structured_output=structured_output,
+                workspace=self.workspace,
+                provider_subject=provider_subject,
+            )
+        except OutputContractError as contract_error:
+            violations = list(contract_error.violations)
+            reason = (
+                violations[0].get("type")
+                if violations
+                and isinstance(violations[0], Mapping)
+                else "prompt_output_position_contract_mismatch"
+            )
+            source_origins = self._frontend_index.origins_for_subject_refs(
+                (
+                    violations[0].get("subject_refs", ())
+                    if violations and isinstance(violations[0], Mapping)
+                    else ()
+                ),
+                fallback_step=(
+                    str(step.get("name", "")),
+                    self._step_id(step),
+                ),
+            )
+            context: Dict[str, Any] = {
+                "reason": reason,
+                "violations": violations,
+            }
+            if source_origins:
+                context["source_origins"] = [
+                    dict(origin) for origin in source_origins
+                ]
+            return self._contract_violation_result(
+                "Provider prompt output-position preparation failed",
+                context,
+            )
+        return None
+
     def _env_with_runtime_output_bundle_path(
         self,
         authored_env: Any,
@@ -7165,15 +7354,44 @@ class WorkflowExecutor:
             return path_error
 
         try:
+            expected_artifacts: Dict[str, Any] = {}
+            if resolved_expected_outputs is not None:
+                expected_artifacts = validate_expected_outputs(
+                    self._q2_expected_outputs_with_subjects(
+                        step,
+                        resolved_expected_outputs,
+                    )
+                    or [],
+                    workspace=self.workspace,
+                )
+            structured_artifacts: Dict[str, Any] = {}
             if isinstance(variant_output, dict):
-                artifacts = validate_variant_output_bundle(
+                structured_artifacts = validate_variant_output_bundle(
                     resolved_output_bundle or {},
                     workspace=self.workspace,
                 )
             elif resolved_output_bundle:
-                artifacts = validate_output_bundle(resolved_output_bundle, workspace=self.workspace)
-            else:
-                artifacts = validate_expected_outputs(resolved_expected_outputs or [], workspace=self.workspace)
+                structured_artifacts = validate_output_bundle(
+                    resolved_output_bundle,
+                    workspace=self.workspace,
+                )
+            overlapping_names = sorted(
+                set(expected_artifacts) & set(structured_artifacts)
+            )
+            if overlapping_names:
+                raise OutputContractError(
+                    [
+                        ContractViolation(
+                            type="duplicate_artifact_name",
+                            message=(
+                                "Expected and structured output contracts "
+                                "must publish disjoint artifact names"
+                            ),
+                            context={"names": overlapping_names},
+                        )
+                    ]
+                )
+            artifacts = {**expected_artifacts, **structured_artifacts}
         except OutputContractError as contract_error:
             step_name = step.get('name', f'step_{self.current_step}')
             step_id = self._step_id(step)

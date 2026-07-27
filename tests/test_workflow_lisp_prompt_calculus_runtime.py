@@ -672,6 +672,7 @@ def _upgrade_runtime_fragment_bundle_to_q2(
     bundle,
     *,
     identity: str = "sha256:" + "4" * 64,
+    literal_report_path: str | None = None,
 ):
     provider_node = next(
         node
@@ -680,16 +681,34 @@ def _upgrade_runtime_fragment_bundle_to_q2(
     )
     config = provider_node.execution_config
     q1_contract = config.compiler_prompt_fragment_contract
+    rendered_slots = q1_contract.rendered_slots
+    if literal_report_path is not None:
+        rendered_slots = tuple(
+            replace(
+                slot,
+                value_source={
+                    "kind": "typed_binding_ref",
+                    "binding": literal_report_path,
+                },
+            )
+            if slot.name == "report_path"
+            else slot
+            for slot in rendered_slots
+        )
     expected_output = {
         "name": "report_path",
-        "path": "${inputs.report_path}",
+        "path": (
+            literal_report_path
+            if literal_report_path is not None
+            else "${inputs.report_path}"
+        ),
         "type": "string",
         "required": True,
     }
     q2_contract = CompilerPromptFragmentContractV2(
         schema_version=COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
         template_utf8=q1_contract.template_utf8,
-        rendered_slots=q1_contract.rendered_slots,
+        rendered_slots=rendered_slots,
         output_positions=(
             CompilerPromptFragmentOutputPosition(
                 slot_name="report_path",
@@ -960,6 +979,187 @@ def test_q2_receiving_attempt_keeps_functional_v1_evidence_identity(
     )
 
 
+def test_q2_literal_output_path_matches_before_provider_launch(
+    tmp_path: Path,
+) -> None:
+    source_path, compiled_bundle = _compile_runtime_fragment(tmp_path)
+    literal_path = "artifacts/work/literal-review.md"
+    bundle, _, _, _ = _upgrade_runtime_fragment_bundle_to_q2(
+        compiled_bundle,
+        literal_report_path=literal_path,
+    )
+    manager = _runtime_fragment_manager(
+        tmp_path,
+        source_path,
+        bundle,
+        run_id="prompt-fragment-q2-literal",
+    )
+    captured: dict[str, object] = {
+        "preparations": 0,
+        "executions": 0,
+    }
+    prepare, base_execute = _provider_success(tmp_path, captured)
+
+    def execute_with_required_file(provider, invocation, **kwargs):
+        report = tmp_path / literal_path
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("reviewed\n", encoding="utf-8")
+        return base_execute(provider, invocation, **kwargs)
+
+    with patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        prepare,
+    ), patch.object(
+        ProviderExecutor,
+        "execute",
+        execute_with_required_file,
+    ):
+        completed = WorkflowExecutor(
+            bundle,
+            tmp_path,
+            manager,
+            retry_delay_ms=0,
+        ).execute(on_error="stop")
+
+    assert completed["status"] == "completed"
+    assert captured["preparations"] == 1
+    assert captured["executions"] == 1
+
+
+def test_q2_rendered_path_mismatch_precedes_provider_launch(
+    tmp_path: Path,
+) -> None:
+    source_path, compiled_bundle = _compile_runtime_fragment(tmp_path)
+    bundle, _, _, _ = _upgrade_runtime_fragment_bundle_to_q2(compiled_bundle)
+    manager = _runtime_fragment_manager(
+        tmp_path,
+        source_path,
+        bundle,
+        run_id="prompt-fragment-q2-path-mismatch",
+    )
+    executor = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        manager,
+        retry_delay_ms=0,
+    )
+    captured: dict[str, object] = {
+        "preparations": 0,
+        "executions": 0,
+    }
+    prepare, execute = _provider_success(tmp_path, captured)
+    original_resolve = executor._resolve_typed_prompt_input_value
+
+    def resolve_with_mismatch(value, state, *, scope=None):
+        if value == {"ref": "inputs.report_path"}:
+            return "artifacts/work/other.md", None
+        return original_resolve(value, state, scope=scope)
+
+    with patch.object(
+        executor,
+        "_resolve_typed_prompt_input_value",
+        resolve_with_mismatch,
+    ), patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        prepare,
+    ), patch.object(ProviderExecutor, "execute", execute):
+        state = executor.execute(on_error="continue")
+
+    failed = next(
+        value
+        for value in state["steps"].values()
+        if value.get("status") == "failed"
+    )
+    assert failed["error"]["context"]["reason"] == (
+        "prompt_output_position_contract_mismatch"
+    )
+    assert captured == {"preparations": 0, "executions": 0}
+    assert manager.state is not None
+    assert manager.state.provider_attempt_allocations == {}
+
+
+def test_q2_structured_destination_alias_precedes_provider_launch(
+    tmp_path: Path,
+) -> None:
+    source_path, compiled_bundle = _compile_runtime_fragment(tmp_path)
+    bundle, _, _, _ = _upgrade_runtime_fragment_bundle_to_q2(compiled_bundle)
+    manager = _runtime_fragment_manager(
+        tmp_path,
+        source_path,
+        bundle,
+        run_id="prompt-fragment-q2-destination-alias",
+    )
+    executor = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        manager,
+        retry_delay_ms=0,
+    )
+    captured: dict[str, object] = {
+        "preparations": 0,
+        "executions": 0,
+    }
+    prepare, execute = _provider_success(tmp_path, captured)
+    original_paths = executor._resolve_output_contract_paths
+    original_value = executor._resolve_typed_prompt_input_value
+    aliased_path: dict[str, str] = {}
+
+    def resolve_aliased_paths(step, state, context=None):
+        expected, structured, error = original_paths(
+            step,
+            state,
+            context=context,
+        )
+        if error is None and expected and structured:
+            destination = structured["path"]
+            aliased_path["value"] = destination
+            expected = [{**expected[0], "path": destination}]
+        return expected, structured, error
+
+    def resolve_aliased_value(value, state, *, scope=None):
+        if value == {"ref": "inputs.report_path"}:
+            return aliased_path["value"], None
+        return original_value(value, state, scope=scope)
+
+    with patch.object(
+        executor,
+        "_resolve_output_contract_paths",
+        resolve_aliased_paths,
+    ), patch.object(
+        executor,
+        "_resolve_typed_prompt_input_value",
+        resolve_aliased_value,
+    ), patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        prepare,
+    ), patch.object(ProviderExecutor, "execute", execute):
+        state = executor.execute(on_error="continue")
+
+    failed = next(
+        value
+        for value in state["steps"].values()
+        if value.get("status") == "failed"
+    )
+    assert failed["error"]["context"]["reason"] == (
+        "prompt_output_position_destination_collision"
+    )
+    violation = failed["error"]["context"]["violations"][0]
+    assert violation["context"]["names"] == [
+        "report_path",
+        "output_bundle",
+    ]
+    assert [subject["subject_kind"] for subject in violation["subject_refs"]] == [
+        "expected_output",
+        "step_id",
+    ]
+    assert captured == {"preparations": 0, "executions": 0}
+    assert manager.state is not None
+    assert manager.state.provider_attempt_allocations == {}
+
+
 def test_q2_compatible_completed_boundary_is_reused_without_provider_reexecution(
     tmp_path: Path,
 ) -> None:
@@ -1086,7 +1286,17 @@ def test_q2_receiving_mismatch_has_no_attempt_or_provider_side_effects(
         ProviderExecutor,
         "prepare_invocation",
         prepare,
-    ), patch.object(ProviderExecutor, "execute", execute), pytest.raises(
+    ), patch.object(
+        ProviderExecutor,
+        "execute",
+        execute,
+    ), patch.object(
+        WorkflowExecutor,
+        "_resolve_typed_prompt_input_value",
+        side_effect=AssertionError(
+            "carrier mismatch must precede resolved-path validation"
+        ),
+    ), pytest.raises(
         ValueError,
         match="prompt_output_position_contract_mismatch",
     ):

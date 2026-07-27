@@ -10,11 +10,15 @@ import orchestrator.contracts.output_contract as output_contract_module
 from orchestrator.contracts.output_contract import (
     ContractViolation,
     OutputContractError,
+    validate_prompt_output_position_destinations,
     validate_variant_output_bundle,
     validate_output_bundle,
     validate_expected_outputs,
 )
-from orchestrator.exceptions import ValidationSubjectRef
+from orchestrator.exceptions import (
+    ValidationSubjectRef,
+    serialize_validation_subject_ref,
+)
 
 
 def _variant_field_subject(variant: str, field_name: str) -> dict[str, str]:
@@ -867,6 +871,189 @@ def test_validate_output_bundle_invalid_json_raises_violation(tmp_path: Path):
         validate_output_bundle(bundle, workspace=tmp_path)
 
     assert any(v["type"] == "invalid_json_document" for v in exc_info.value.violations)
+
+
+def test_expected_output_violation_retains_optional_q2_fill_subject(
+    tmp_path: Path,
+) -> None:
+    subject = {
+        "subject_kind": "expected_output",
+        "subject_name": "review::expected-output::report_path",
+        "workflow_name": "review",
+    }
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_expected_outputs(
+            [
+                {
+                    "name": "report_path",
+                    "path": "artifacts/work/report.md",
+                    "type": "string",
+                    "source_map_subject": subject,
+                }
+            ],
+            workspace=tmp_path,
+        )
+
+    assert exc_info.value.violations == [
+        {
+            "type": "missing_output_file",
+            "message": "Expected output file was not created",
+            "context": {"path": "artifacts/work/report.md"},
+            "subject_refs": [subject],
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("rendered_path", "expected_path"),
+    [
+        ("artifacts/work/report.md", "artifacts/work/report.md"),
+        ("artifacts/work/./report.md", "artifacts/work/report.md"),
+    ],
+)
+def test_prompt_output_position_destination_accepts_canonical_path_equality(
+    tmp_path: Path,
+    rendered_path: str,
+    expected_path: str,
+) -> None:
+    validate_prompt_output_position_destinations(
+        rendered_paths={"report_path": rendered_path},
+        expected_outputs=[
+            {
+                "name": "report_path",
+                "path": expected_path,
+                "type": "string",
+            }
+        ],
+        structured_output=None,
+        workspace=tmp_path,
+        provider_subject=None,
+    )
+
+
+def test_prompt_output_position_destination_rejects_rendered_path_mismatch(
+    tmp_path: Path,
+) -> None:
+    provider_subject = ValidationSubjectRef(
+        subject_kind="step_id",
+        subject_name="review",
+        workflow_name="review",
+    )
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_prompt_output_position_destinations(
+            rendered_paths={"report_path": "artifacts/work/other.md"},
+            expected_outputs=[
+                {
+                    "name": "report_path",
+                    "path": "artifacts/work/report.md",
+                    "type": "string",
+                }
+            ],
+            structured_output=None,
+            workspace=tmp_path,
+            provider_subject=provider_subject,
+        )
+
+    assert exc_info.value.violations[0]["type"] == (
+        "prompt_output_position_contract_mismatch"
+    )
+    assert exc_info.value.violations[0]["subject_refs"] == [
+        serialize_validation_subject_ref(provider_subject)
+    ]
+
+
+def test_prompt_output_position_destination_rejects_pairwise_aliases(
+    tmp_path: Path,
+) -> None:
+    subjects = [
+        {
+            "subject_kind": "expected_output",
+            "subject_name": f"review::expected-output::{name}",
+            "workflow_name": "review",
+        }
+        for name in ("first", "second")
+    ]
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_prompt_output_position_destinations(
+            rendered_paths={
+                "first": "artifacts/work/result.txt",
+                "second": "artifacts/work/./result.txt",
+            },
+            expected_outputs=[
+                {
+                    "name": name,
+                    "path": path,
+                    "type": "string",
+                    "source_map_subject": subject,
+                }
+                for name, path, subject in zip(
+                    ("first", "second"),
+                    (
+                        "artifacts/work/result.txt",
+                        "artifacts/work/./result.txt",
+                    ),
+                    subjects,
+                )
+            ],
+            structured_output=None,
+            workspace=tmp_path,
+            provider_subject=None,
+        )
+
+    violation = exc_info.value.violations[0]
+    assert violation["type"] == "prompt_output_position_destination_collision"
+    assert violation["context"]["names"] == ["first", "second"]
+    assert violation["subject_refs"] == subjects
+
+
+@pytest.mark.parametrize("structured_contract_name", ("output_bundle", "variant_output"))
+def test_prompt_output_position_destination_rejects_structured_bundle_alias(
+    tmp_path: Path,
+    structured_contract_name: str,
+) -> None:
+    fill_subject = {
+        "subject_kind": "expected_output",
+        "subject_name": "review::expected-output::report_path",
+        "workflow_name": "review",
+    }
+    provider_subject = ValidationSubjectRef(
+        subject_kind="step_id",
+        subject_name="review",
+        workflow_name="review",
+    )
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_prompt_output_position_destinations(
+            rendered_paths={"report_path": "state/result.json"},
+            expected_outputs=[
+                {
+                    "name": "report_path",
+                    "path": "state/./result.json",
+                    "type": "string",
+                    "source_map_subject": fill_subject,
+                }
+            ],
+            structured_output={
+                "contract_name": structured_contract_name,
+                "path": "state/result.json",
+            },
+            workspace=tmp_path,
+            provider_subject=provider_subject,
+        )
+
+    violation = exc_info.value.violations[0]
+    assert violation["type"] == "prompt_output_position_destination_collision"
+    assert violation["context"]["names"] == [
+        "report_path",
+        structured_contract_name,
+    ]
+    assert violation["subject_refs"] == [
+        fill_subject,
+        serialize_validation_subject_ref(provider_subject),
+    ]
 
 
 def _root_result_field_subject() -> dict[str, str]:

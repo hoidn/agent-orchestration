@@ -1835,6 +1835,52 @@ def test_semantic_ir_source_map_rejects_contract_field_subject_with_missing_orig
     )
 
 
+@pytest.mark.parametrize("contract_field_state", ("missing", "tampered"))
+def test_semantic_ir_source_map_rejects_unbacked_expected_output_subject(
+    contract_field_state: str,
+) -> None:
+    semantic_ir_module = importlib.import_module("orchestrator.workflow.semantic_ir")
+    workflow_name = "expected-output-lineage::review"
+    subject_name = "review::expected-output::report_path"
+    origin_key = "origin:q2-fill"
+    workflow_payload = {
+        "workflow_origin": {"origin_key": origin_key},
+        "validation_subjects": [
+            {
+                "subject_ref": {
+                    "subject_kind": "expected_output",
+                    "subject_name": subject_name,
+                    "workflow_name": workflow_name,
+                },
+                "origin_key": origin_key,
+            }
+        ],
+    }
+    if contract_field_state == "tampered":
+        workflow_payload["contract_fields"] = {
+            subject_name: {
+                "entity_kind": "output_bundle_field",
+                "origin_key": origin_key,
+            }
+        }
+
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        semantic_ir_module._frontend_source_map_bridges_from_payload(
+            workflow_name,
+            workflow_payload,
+        )
+
+    error = excinfo.value.errors[0]
+    assert "references unsupported source-map subject" in error.message
+    assert error.subject_refs == (
+        ValidationSubjectRef(
+            subject_kind="expected_output",
+            subject_name=subject_name,
+            workflow_name=workflow_name,
+        ),
+    )
+
+
 def test_semantic_ir_source_map_old_v1_without_contract_fields_still_derives(
     tmp_path: Path,
 ) -> None:

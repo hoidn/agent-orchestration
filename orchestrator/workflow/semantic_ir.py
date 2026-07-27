@@ -3594,7 +3594,11 @@ def _supported_source_map_subject_keys(
             if not isinstance(name, str):
                 continue
             entity_kind = entry.get("entity_kind") if isinstance(entry, Mapping) else None
-            if entity_kind not in ("variant_output_field", "output_bundle_field"):
+            if entity_kind not in (
+                "expected_output",
+                "variant_output_field",
+                "output_bundle_field",
+            ):
                 entity_kind = "variant_output_field"
             supported.add((entity_kind, name, workflow_name))
     return supported
