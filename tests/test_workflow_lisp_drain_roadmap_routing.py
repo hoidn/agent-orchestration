@@ -52,6 +52,9 @@ TRANSPORTABLE_VALUE_PLAN_PATH = (
 PROMPT_OUTPUT_POSITIONS_PLAN_PATH = (
     "docs/plans/2026-07-26-workflow-lisp-prompt-output-positions-implementation-plan.md"
 )
+PROMPT_IDENTITY_DESIGN_PATH = (
+    "docs/design/workflow_lisp_prompt_identity_diagnostics.md"
+)
 LANGUAGE_SERVER_L1_PLAN_PATH = (
     "docs/plans/2026-07-26-workflow-lisp-language-server-l1-implementation-plan.md"
 )
@@ -1105,6 +1108,9 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     q2_plan = (REPO_ROOT / PROMPT_OUTPUT_POSITIONS_PLAN_PATH).read_text(
         encoding="utf-8"
     )
+    q3_design = (REPO_ROOT / PROMPT_IDENTITY_DESIGN_PATH).read_text(
+        encoding="utf-8"
+    )
     l1_plan = (REPO_ROOT / LANGUAGE_SERVER_L1_PLAN_PATH).read_text(
         encoding="utf-8"
     )
@@ -1172,10 +1178,61 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     normalized_q3_row = _normalized_routing_text(q3_row)
     assert "next" in normalized_q3_row
-    assert "design" in normalized_q3_row
-    assert "review" in normalized_q3_row
-    assert "no q3 design is accepted" in normalized_q3_row
+    assert "accepted design" in normalized_q3_row
+    assert "implementation plan" in normalized_q3_row
+    assert "implementation not started" in normalized_q3_row
+    assert "no q3 design is accepted" not in normalized_q3_row
     assert "blocked by q2" not in normalized_q3_row
+    q4_row = _markdown_table_row(
+        REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
+        "| Q4 |",
+    )
+    assert "blocked by q3 completion" in _normalized_routing_text(q4_row)
+    normalized_q3_design_status = _normalized_routing_text(
+        "\n".join(q3_design.splitlines()[:24])
+    )
+    assert "status: accepted" in normalized_q3_design_status
+    assert "target: dsl 2.22" in normalized_q3_design_status
+    assert "q3_design_spec_approved" in normalized_q3_design_status
+    assert "q3_design_quality_approved" in normalized_q3_design_status
+    assert "fdf16f362f93eae89c05600e6954a118270fe7b7" in q3_design
+    q3_design_router_row = _markdown_table_row(
+        design_router_path,
+        "workflow_lisp_prompt_identity_diagnostics.md",
+    )
+    normalized_q3_design_router_row = _normalized_routing_text(
+        q3_design_router_row
+    )
+    assert "| Accepted design |" in q3_design_router_row
+    assert "implementation plan gate is next" in normalized_q3_design_router_row
+    q3_capability_row = _markdown_table_row(
+        capability_matrix_path,
+        "Workflow Lisp prompt identity diagnostics Q3",
+    )
+    normalized_q3_capability_row = _normalized_routing_text(q3_capability_row)
+    assert "| Designed |" in q3_capability_row
+    assert "not implemented" in normalized_q3_capability_row
+    assert "implementation plan" in normalized_q3_capability_row
+    normalized_index = _normalized_routing_text(index)
+    assert "workflow lisp prompt identity diagnostics" in normalized_index
+    assert "q3 design is accepted" in normalized_index
+    assert "implementation plan gate is next" in normalized_index
+    assert "q3 remains unimplemented" in normalized_index
+    prompt_calculus = (
+        REPO_ROOT / "docs" / "design" / "workflow_lisp_prompt_calculus.md"
+    ).read_text(encoding="utf-8")
+    normalized_prompt_calculus = _normalized_routing_text(prompt_calculus)
+    assert "q3 design is accepted" in normalized_prompt_calculus
+    assert "implementation plan gate is next" in normalized_prompt_calculus
+    frontend = (
+        REPO_ROOT
+        / "docs"
+        / "design"
+        / "workflow_lisp_frontend_specification.md"
+    ).read_text(encoding="utf-8")
+    normalized_frontend = _normalized_routing_text(frontend)
+    assert "accepted q3 target design" in normalized_frontend
+    assert "q3 remains unimplemented" in normalized_frontend
     q2_capability_row = _markdown_table_row(
         capability_matrix_path,
         "Workflow Lisp prompt calculus Q2 output positions",
@@ -1243,7 +1300,6 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "l2_final_spec_approved" in normalized_language_server_router_row
     assert "l2_final_quality_approved" in normalized_language_server_router_row
-    normalized_index = _normalized_routing_text(index)
     assert "l1 authored symbols/signatures, and l2 recovery safe static completion are complete" in (
         normalized_index
     )
@@ -1376,7 +1432,9 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "active post stage 8 selector" in normalized_successor_index
     assert "q0, q1, and q2 are complete" in normalized_successor_index
-    assert "q3 design review gate is next" in normalized_successor_index
+    assert "q3 design is accepted" in normalized_successor_index
+    assert "implementation plan gate is next" in normalized_successor_index
+    assert "q3 remains unimplemented" in normalized_successor_index
     assert "l1 authored symbols/signatures, and l2 recovery safe static completion are complete" in (
         normalized_successor_index
     )
@@ -1584,7 +1642,9 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
         )
     )
     assert "q0, q1, and q2 are complete" in active_roadmap_index
-    assert "q3 design review gate is next" in active_roadmap_index
+    assert "q3 design is accepted" in active_roadmap_index
+    assert "implementation plan gate is next" in active_roadmap_index
+    assert "q3 remains unimplemented" in active_roadmap_index
     assert "l1 authored symbols/signatures, and l2 recovery safe static completion are complete" in (
         active_roadmap_index
     )

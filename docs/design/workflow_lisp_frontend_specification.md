@@ -5474,9 +5474,11 @@ identity carriage, runtime rendering through the existing prompt composer,
 schema-2.1 fragment snapshots, and compatible completed-boundary resume.
 
 The migrated `review-design-docs` review call is the current real consumer.
-Its fix call remains extern-backed. Q2 output positions are implemented; Q3
-role-separated identity/comparison and Q4 judgment views remain separate
-successor tranches whose design text is not evidence of shipped syntax.
+Its fix call remains extern-backed. Q2 output positions are implemented. The
+accepted Q3 target design covers role-separated identity/comparison, but Q3
+remains unimplemented pending its reviewed implementation-plan gate. Q4
+judgment views remain a separate successor tranche. Accepted target-design
+text is not evidence of shipped syntax.
 
 ## 105.7 Implemented Prompt Output Positions
 

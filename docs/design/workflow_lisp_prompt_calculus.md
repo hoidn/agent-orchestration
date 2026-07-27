@@ -4,7 +4,7 @@
 - **Kind:** language design — typed, compositional provider prompts
 - **Owner:** Workflow Lisp frontend plus the existing provider prompt pipeline
 - **Selected tranches:** Q1 prompt core and Q2 output positions are implemented;
-  Q3 role-separated identity/diagnostics is next at its design-review gate
+  the Q3 design is accepted and its implementation-plan gate is next
 - **Minimum targets:** Q1 `(:target-dsl "2.20")`; Q2 additive syntax
   `(:target-dsl "2.21")`
 - **Q2 design reviews:** independent specification rereview
@@ -13,6 +13,9 @@
 - **Q2 implementation plan:** accepted after independent
   `Q2_PLAN_SPEC_APPROVED` then `Q2_PLAN_QUALITY_APPROVED`;
   `docs/plans/2026-07-26-workflow-lisp-prompt-output-positions-implementation-plan.md`
+- **Q3 design reviews:** `Q3_DESIGN_SPEC_APPROVED`, then
+  `Q3_DESIGN_QUALITY_APPROVED`, over immutable snapshot
+  `fdf16f362f93eae89c05600e6954a118270fe7b7`
 - **Related docs:**
   - `docs/design/workflow_lisp_frontend_specification.md`
   - `docs/design/workflow_lisp_transportable_value_type.md`
@@ -840,6 +843,6 @@ Q2 adds no:
 - change to Q1-only rendering, identity bytes, evidence schema, or resume; or
 - security/provider-isolation behavior.
 
-The implemented amendment routes next to Q3's separate role-separated
-identity/diagnostics design-review gate. It does not pre-accept or expose Q3 or
-Q4 behavior.
+The accepted Q3 role-separated identity/diagnostics target design now routes
+next to its reviewed implementation-plan gate. Its acceptance does not expose
+Q3 runtime behavior or pre-accept Q4.
