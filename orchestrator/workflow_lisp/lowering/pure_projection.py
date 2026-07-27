@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -42,7 +43,7 @@ from ..expressions import (
     UnionVariantExpr,
 )
 from ..expression_traversal import walk_expr
-from ..reader import SourceReadTrace, read_sexpr_file
+from ..reader import SourceReadTrace, read_sexpr_file, read_sexpr_text
 from ..syntax import build_syntax_module
 from ..type_env import (
     FrontendTypeEnvironment,
@@ -482,9 +483,31 @@ def _load_module_export_info(
     return syntax_module.module_name, frozenset(syntax_module.exports)
 
 
+@dataclass(frozen=True)
+class _ModuleExportCacheInput:
+    canonical_source_path: str
+    source_sha256: str
+    raw_bytes: bytes = field(compare=False, hash=False, repr=False)
+
+
 @lru_cache(maxsize=None)
-def _cached_module_export_info(source_path: str) -> tuple[str, frozenset[str]] | None:
-    return _load_module_export_info(source_path)
+def _cached_module_export_info(
+    cache_input: _ModuleExportCacheInput,
+) -> tuple[str, frozenset[str]] | None:
+    parser_text = (
+        cache_input.raw_bytes.decode("utf-8", errors="strict")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+    )
+    syntax_module = build_syntax_module(
+        read_sexpr_text(
+            parser_text,
+            source_path=cache_input.canonical_source_path,
+        )
+    )
+    if syntax_module.module_name is None:
+        return None
+    return syntax_module.module_name, frozenset(syntax_module.exports)
 
 
 def _module_export_info(
@@ -493,7 +516,17 @@ def _module_export_info(
     source_read_trace: SourceReadTrace | None = None,
 ) -> tuple[str, frozenset[str]] | None:
     if source_read_trace is None:
-        return _cached_module_export_info(source_path)
+        if source_path.startswith("<prelude:"):
+            return None
+        canonical_source_path = Path(source_path).resolve()
+        raw_bytes = canonical_source_path.read_bytes()
+        return _cached_module_export_info(
+            _ModuleExportCacheInput(
+                canonical_source_path=str(canonical_source_path),
+                source_sha256=hashlib.sha256(raw_bytes).hexdigest(),
+                raw_bytes=raw_bytes,
+            )
+        )
     return _load_module_export_info(
         source_path,
         source_read_trace=source_read_trace,
