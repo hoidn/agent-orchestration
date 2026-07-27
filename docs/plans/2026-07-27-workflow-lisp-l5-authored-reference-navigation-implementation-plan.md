@@ -678,7 +678,11 @@ writes no source, build, run, or artifact state.
 - [ ] Add
       `test_real_repository_l5_authored_reference_navigation_is_read_only`.
       Launch the real stdio server with the workflow's actual source root,
-      provider externs, prompt externs, and entry selection.
+      provider externs, and prompt externs in the server's supported null-entry
+      library compilation mode. Do not select the runnable workflow entry:
+      that activates the independent whole-callable-closure bootstrap policy,
+      which is outside L5's authored-navigation contract and rejects this
+      repository example before navigation becomes observable.
 - [ ] Request definition inside `review-design-doc` at its fragment
       application head and assert the returned location range is the full
       authored `defprompt` declaration `definition_span`, exactly as stored in
