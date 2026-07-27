@@ -265,6 +265,84 @@ def _register_generated_contract_field_bindings(
         bindings_by_subject[subject_identity] = binding
 
 
+def _register_compiler_expected_output_binding(
+    context: Any,
+    *,
+    subject_name: str,
+    fill_source: object,
+    slot_source: object,
+    output_role_span: SourceSpan,
+) -> None:
+    """Register one compiler-projected output with fill-primary provenance."""
+
+    subject_ref = ValidationSubjectRef(
+        subject_kind="expected_output",
+        subject_name=subject_name,
+        workflow_name=context.workflow_name,
+    )
+    slot_span = getattr(slot_source, "span")
+    related_notes = (
+        (
+            "related prompt slot declaration: "
+            f"{slot_span.start.path}:{slot_span.start.line}:{slot_span.start.column}"
+        ),
+        (
+            "related prompt output role: "
+            f"{output_role_span.start.path}:"
+            f"{output_role_span.start.line}:{output_role_span.start.column}"
+        ),
+    )
+    primary = _origin_from_context_source(context, fill_source)
+    binding = ValidationSubjectBinding(
+        subject_ref=subject_ref,
+        origin=_with_origin_key(
+            replace(primary, notes=(*primary.notes, *related_notes)),
+            workflow_name=context.workflow_name,
+            entity_kind=subject_ref.subject_kind,
+            subject_name=subject_name,
+        ),
+    )
+    existing = next(
+        (
+            candidate
+            for candidate in context.generated_contract_field_bindings
+            if (
+                candidate.subject_ref.subject_kind,
+                candidate.subject_ref.subject_name,
+                candidate.subject_ref.workflow_name,
+            )
+            == (
+                subject_ref.subject_kind,
+                subject_ref.subject_name,
+                subject_ref.workflow_name,
+            )
+        ),
+        None,
+    )
+    if existing is not None and existing.origin == binding.origin:
+        return
+    if existing is not None:
+        raise LispFrontendCompileError(
+            (
+                with_diagnostic_metadata(
+                    LispFrontendDiagnostic(
+                        code="source_map_duplicate_key",
+                        message=(
+                            "expected-output subject "
+                            f"`{subject_name}` has conflicting authored origins"
+                        ),
+                        span=binding.origin.span,
+                        form_path=binding.origin.form_path,
+                        expansion_stack=binding.origin.expansion_stack,
+                        phase="lowering",
+                    ),
+                    validation_pass="source_map",
+                ),
+            )
+        )
+    context.generated_contract_field_bindings.append(binding)
+
+
 def _lowering_origin_key(
     *,
     workflow_name: str,

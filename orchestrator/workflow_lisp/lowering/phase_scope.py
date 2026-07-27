@@ -5,14 +5,17 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from orchestrator.workflow.references import StructuredStepReference
 from orchestrator.workflow.prompt_fragment_contract import (
     COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA,
+    COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
     CompilerPromptFragmentContract,
+    CompilerPromptFragmentContractV2,
+    CompilerPromptFragmentOutputPosition,
     CompilerPromptFragmentRenderedSlot,
     freeze_prompt_fragment_json,
 )
@@ -62,7 +65,7 @@ from ..phase import (
     PHASE_TARGET_SPECS,
     PhaseScope,
 )
-from ..prompts import PromptApplicationExpr, PromptSlotKind
+from ..prompts import PromptApplicationExpr, PromptOutputRole, PromptSlotKind
 from ..procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
 from ..procedures import ProcedureCatalog
 from ..spans import SourcePosition, SourceSpan
@@ -93,6 +96,7 @@ from .origins import (
     _origin_from_context_source,
     _record_missing_step_origins,
     _record_step_origin,
+    _register_compiler_expected_output_binding,
     _rekey_origin_map,
 )
 from .values import (
@@ -128,6 +132,116 @@ def _template_for_ref(ref: str) -> str:
     if ref.startswith("${"):
         return ref
     return "${" + ref + "}"
+
+
+@dataclass(frozen=True)
+class _NormalizedPromptSlotRole:
+    """One declaration row proven against the compiled identity projection."""
+
+    slot_name: str
+    slot_kind: str
+    output_role: str
+    rendered_slot: CompilerPromptFragmentRenderedSlot
+    expected_output: Mapping[str, Any] | None
+
+
+def _prompt_identity_slot_projection(
+    application: PromptApplicationExpr,
+) -> tuple[Mapping[str, Any], ...]:
+    projection = application.canonical_identity_projection
+    declarations = (
+        projection.get("referenced_declarations")
+        if isinstance(projection, Mapping)
+        else None
+    )
+    if (
+        not isinstance(declarations, list)
+        or len(declarations) != 1
+        or not isinstance(declarations[0], Mapping)
+        or not isinstance(declarations[0].get("slots"), list)
+    ):
+        raise _compile_error(
+            code="compiled_prompt_fragment_identity_invalid",
+            message="prompt fragment identity lacks normalized slot rows",
+            span=application.span,
+            form_path=application.form_path,
+        )
+    return tuple(declarations[0]["slots"])
+
+
+def _expected_output_path_from_normalized_binding(
+    binding: Any,
+    *,
+    application: PromptApplicationExpr,
+) -> str:
+    if (
+        isinstance(binding, Mapping)
+        and set(binding) == {"ref"}
+        and isinstance(binding["ref"], str)
+        and binding["ref"]
+    ):
+        return _template_for_ref(binding["ref"])
+    if isinstance(binding, str):
+        return binding
+    raise _compile_error(
+        code="compiled_prompt_fragment_identity_invalid",
+        message=(
+            "output-position path must lower from the normalized Q1 "
+            "binding ref or string literal"
+        ),
+        span=application.span,
+        form_path=application.form_path,
+    )
+
+
+def _normalize_prompt_slot_role(
+    *,
+    application: PromptApplicationExpr,
+    identity_slot: Mapping[str, Any],
+    slot: Any,
+    fill: Any,
+    rendered_slot: CompilerPromptFragmentRenderedSlot,
+    binding: Any,
+) -> _NormalizedPromptSlotRole:
+    output_role = slot.declaration.output_role.value
+    expected_identity = {
+        "name": slot.declaration.name,
+        "kind": slot.declaration.kind.value,
+        "output_role": output_role,
+    }
+    if any(
+        identity_slot.get(key) != value
+        for key, value in expected_identity.items()
+    ):
+        raise _compile_error(
+            code="compiled_prompt_fragment_identity_invalid",
+            message="prompt slot role differs from its compiled identity input",
+            span=slot.declaration.span,
+            form_path=slot.declaration.form_path,
+        )
+    normalized_slot_name = str(identity_slot["name"])
+    normalized_slot_kind = str(identity_slot["kind"])
+    normalized_output_role = str(identity_slot["output_role"])
+    expected_output = None
+    if normalized_output_role == PromptOutputRole.REQUIRED_STRING_FILE.value:
+        expected_output = freeze_prompt_fragment_json(
+            {
+                "name": normalized_slot_name,
+                "path": _expected_output_path_from_normalized_binding(
+                    binding,
+                    application=application,
+                ),
+                "type": "string",
+                "required": True,
+            }
+        )
+    return _NormalizedPromptSlotRole(
+        slot_name=normalized_slot_name,
+        slot_kind=normalized_slot_kind,
+        output_role=normalized_output_role,
+        rendered_slot=rendered_slot,
+        expected_output=expected_output,
+    )
 
 
 def _lower_with_phase(*args, **kwargs):
@@ -1702,13 +1816,15 @@ def _build_typed_prompt_inputs_for_prompt_specs(
 def _build_compiler_prompt_fragment_contract(
     application: PromptApplicationExpr,
     *,
+    provider_step_id: str,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[
-    CompilerPromptFragmentContract,
+    CompilerPromptFragmentContract | CompilerPromptFragmentContractV2,
     tuple[tuple[int, str, Any], ...],
     tuple[dict[str, Any], ...],
     dict[str, LoweringOrigin],
+    tuple[Mapping[str, Any], ...],
 ]:
     """Lower one typed fragment into its frozen renderer program and doc rows."""
 
@@ -1721,7 +1837,37 @@ def _build_compiler_prompt_fragment_contract(
             form_path=application.form_path,
         )
     placeholder_names = application.prompt.declaration.template.placeholder_names
+    identity_slots = _prompt_identity_slot_projection(application)
+    if len(identity_slots) != len(application.prompt.slots):
+        raise _compile_error(
+            code="compiled_prompt_fragment_identity_invalid",
+            message="prompt fragment identity slot rows are incomplete",
+            span=application.span,
+            form_path=application.form_path,
+        )
+    uses_v2_carrier = any(
+        slot.declaration.output_role is not PromptOutputRole.NONE
+        for slot in application.prompt.slots
+    )
+    identity_projection = application.canonical_identity_projection
+    expected_identity_schema = (
+        "compiled_prompt_fragment_identity.v2"
+        if uses_v2_carrier
+        else "compiled_prompt_fragment_identity.v1"
+    )
+    if (
+        not isinstance(identity_projection, Mapping)
+        or identity_projection.get("schema_version") != expected_identity_schema
+    ):
+        raise _compile_error(
+            code="compiled_prompt_fragment_identity_invalid",
+            message="prompt fragment identity schema disagrees with its slot roles",
+            span=application.span,
+            form_path=application.form_path,
+        )
     rendered_slots: list[CompilerPromptFragmentRenderedSlot] = []
+    normalized_slot_roles: list[_NormalizedPromptSlotRole] = []
+    output_origins: list[tuple[str, object, object, SourceSpan]] = []
     document_rows: list[tuple[int, str, Any]] = []
     typed_prompt_inputs: list[dict[str, Any]] = []
     hidden_inputs: dict[str, LoweringOrigin] = {}
@@ -1792,20 +1938,46 @@ def _build_compiler_prompt_fragment_contract(
             "binding": binding,
         }
         value_source = freeze_prompt_fragment_json(typed_value_source)
-        rendered_slots.append(
-            CompilerPromptFragmentRenderedSlot(
-                name=fill.name,
-                kind=slot.declaration.kind.value,
-                static_type=freeze_prompt_fragment_json(static_type),
-                renderer_id=fill.renderer_id,
-                value_source=value_source,
-                placeholder_ordinals=tuple(
-                    ordinal
-                    for ordinal, placeholder_name in enumerate(placeholder_names)
-                    if placeholder_name == fill.name
-                ),
-            )
+        rendered_slot = CompilerPromptFragmentRenderedSlot(
+            name=fill.name,
+            kind=slot.declaration.kind.value,
+            static_type=freeze_prompt_fragment_json(static_type),
+            renderer_id=fill.renderer_id,
+            value_source=value_source,
+            placeholder_ordinals=tuple(
+                ordinal
+                for ordinal, placeholder_name in enumerate(placeholder_names)
+                if placeholder_name == fill.name
+            ),
         )
+        rendered_slots.append(rendered_slot)
+        if uses_v2_carrier:
+            normalized = _normalize_prompt_slot_role(
+                application=application,
+                identity_slot=identity_slots[declaration_index],
+                slot=slot,
+                fill=fill,
+                rendered_slot=rendered_slot,
+                binding=binding,
+            )
+            normalized_slot_roles.append(normalized)
+            if normalized.expected_output is not None:
+                output_role_span = slot.declaration.output_role_span
+                if output_role_span is None:
+                    raise _compile_error(
+                        code="compiled_prompt_fragment_identity_invalid",
+                        message="output-position slot lacks its role source owner",
+                        span=slot.declaration.span,
+                        form_path=slot.declaration.form_path,
+                    )
+                output_origins.append(
+                    (
+                        normalized.slot_name,
+                        fill.value_expr,
+                        slot.declaration,
+                        output_role_span,
+                    )
+                )
         if slot.declaration.kind in {
             PromptSlotKind.VALUE,
             PromptSlotKind.PATH,
@@ -1831,12 +2003,31 @@ def _build_compiler_prompt_fragment_contract(
                 )
             )
     try:
-        contract = CompilerPromptFragmentContract(
-            schema_version=COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA,
-            template_utf8=application.prompt.declaration.template.text,
-            rendered_slots=tuple(rendered_slots),
-            compiled_prompt_fragment_identity=identity,
-        )
+        if uses_v2_carrier:
+            contract = CompilerPromptFragmentContractV2(
+                schema_version=COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
+                template_utf8=application.prompt.declaration.template.text,
+                rendered_slots=tuple(
+                    row.rendered_slot for row in normalized_slot_roles
+                ),
+                output_positions=tuple(
+                    CompilerPromptFragmentOutputPosition(
+                        slot_name=row.slot_name,
+                        output_role=row.output_role,
+                        expected_output=row.expected_output,
+                    )
+                    for row in normalized_slot_roles
+                    if row.expected_output is not None
+                ),
+                compiled_prompt_fragment_identity=identity,
+            )
+        else:
+            contract = CompilerPromptFragmentContract(
+                schema_version=COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA,
+                template_utf8=application.prompt.declaration.template.text,
+                rendered_slots=tuple(rendered_slots),
+                compiled_prompt_fragment_identity=identity,
+            )
     except (TypeError, ValueError) as exc:
         raise _compile_error(
             code="compiled_prompt_fragment_identity_invalid",
@@ -1844,11 +2035,31 @@ def _build_compiler_prompt_fragment_contract(
             span=application.span,
             form_path=application.form_path,
         ) from exc
+    for subject_name, fill_source, slot_source, output_role_span in output_origins:
+        _register_compiler_expected_output_binding(
+            context,
+            subject_name=(
+                f"{provider_step_id}::expected-output::{subject_name}"
+            ),
+            fill_source=fill_source,
+            slot_source=slot_source,
+            output_role_span=output_role_span,
+        )
+    expected_outputs = (
+        tuple(
+            row.expected_output
+            for row in normalized_slot_roles
+            if row.expected_output is not None
+        )
+        if uses_v2_carrier
+        else ()
+    )
     return (
         contract,
         tuple(document_rows),
         tuple(typed_prompt_inputs),
         hidden_inputs,
+        expected_outputs,
     )
 
 

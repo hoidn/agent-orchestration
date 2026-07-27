@@ -23,9 +23,13 @@ from orchestrator.workflow.prompt_dependency_contract import (
 )
 from orchestrator.workflow.prompt_fragment_contract import (
     COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA,
+    COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
     CompilerPromptFragmentContract,
+    CompilerPromptFragmentContractV2,
+    CompilerPromptFragmentOutputPosition,
     CompilerPromptFragmentRenderedSlot,
     canonical_compiler_prompt_fragment_contract_json,
+    serialize_compiler_prompt_fragment_contract,
     serialize_compiler_prompt_fragment_rendered_slot,
 )
 from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
@@ -116,6 +120,61 @@ def _compile_fragment_workflow(
         provider_externs={"providers.review": "test-provider"},
         prompt_externs={},
         validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route=lowering_route,
+    )
+
+
+def _compile_output_position_fragment_workflow(
+    tmp_path: Path,
+    *,
+    lowering_route: str,
+):
+    source_path = tmp_path / "prompt_output_positions.orc"
+    source_path.write_text(
+        _module_source(
+            "2.21",
+            "(defmodule demo/prompt-output-positions)",
+            """
+            (defpath WorkReportPath
+              :kind relpath
+              :under "artifacts/work"
+              :must-exist false)
+            """,
+            """
+            (defprompt review
+              (:fills
+                (message :text)
+                (primary :path :out WorkReportPath)
+                (reference :path WorkReportPath)
+                (secondary :path :out WorkReportPath))
+              -> Bool
+              "{message}; primary={primary}; reference={reference}; secondary={secondary}")
+            """,
+            """
+            (defworkflow run-review
+              ((message String)
+               (primary WorkReportPath)
+               (reference WorkReportPath)
+               (secondary WorkReportPath))
+              -> Bool
+              (provider-result providers.review
+                :prompt
+                  (review
+                    :secondary secondary
+                    :reference reference
+                    :primary primary
+                    :message message)))
+            """,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return workflow_lisp.compile_stage3_module(
+        source_path,
+        provider_externs={"providers.review": "test-provider"},
+        prompt_externs={},
+        validate_shared=False,
         workspace_root=tmp_path,
         lowering_route=lowering_route,
     )
@@ -2543,6 +2602,288 @@ def test_q2_prompt_fragment_identity_adds_output_role_to_every_declaration_slot_
     for slot in normalized_v2["referenced_declarations"][0]["slots"]:
         del slot["output_role"]
     assert normalized_v2 == v1
+
+
+def test_q2_fragment_carrier_has_closed_ordered_output_position_rows() -> None:
+    rendered_slots = (
+        CompilerPromptFragmentRenderedSlot(
+            name="message",
+            kind="text",
+            static_type={"kind": "primitive", "name": "String"},
+            renderer_id="raw-utf8-string",
+            value_source={
+                "kind": "typed_binding_ref",
+                "binding": {"ref": "inputs.message"},
+            },
+            placeholder_ordinals=(0,),
+        ),
+        CompilerPromptFragmentRenderedSlot(
+            name="primary",
+            kind="path",
+            static_type={
+                "kind": "path",
+                "must_exist_target": False,
+                "name": "WorkReportPath",
+                "under": "artifacts/work",
+            },
+            renderer_id="posix-path-line",
+            value_source={
+                "kind": "typed_binding_ref",
+                "binding": {"ref": "inputs.primary"},
+            },
+            placeholder_ordinals=(1,),
+        ),
+        CompilerPromptFragmentRenderedSlot(
+            name="secondary",
+            kind="path",
+            static_type={
+                "kind": "path",
+                "must_exist_target": False,
+                "name": "WorkReportPath",
+                "under": "artifacts/work",
+            },
+            renderer_id="posix-path-line",
+            value_source={
+                "kind": "typed_binding_ref",
+                "binding": "artifacts/work/secondary.md",
+            },
+            placeholder_ordinals=(2,),
+        ),
+    )
+    rows = (
+        CompilerPromptFragmentOutputPosition(
+            slot_name="primary",
+            output_role="required_string_file",
+            expected_output={
+                "name": "primary",
+                "path": "${inputs.primary}",
+                "type": "string",
+                "required": True,
+            },
+        ),
+        CompilerPromptFragmentOutputPosition(
+            slot_name="secondary",
+            output_role="required_string_file",
+            expected_output={
+                "name": "secondary",
+                "path": "artifacts/work/secondary.md",
+                "type": "string",
+                "required": True,
+            },
+        ),
+    )
+    contract = CompilerPromptFragmentContractV2(
+        schema_version=COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
+        template_utf8="{message} {primary} {secondary}",
+        rendered_slots=rendered_slots,
+        output_positions=rows,
+        compiled_prompt_fragment_identity="sha256:" + "a" * 64,
+    )
+
+    assert serialize_compiler_prompt_fragment_contract(contract) == {
+        "schema_version": "compiler_prompt_fragment_contract.v2",
+        "template_utf8": "{message} {primary} {secondary}",
+        "rendered_slots": [
+            serialize_compiler_prompt_fragment_rendered_slot(slot)
+            for slot in rendered_slots
+        ],
+        "output_positions": [
+            {
+                "slot_name": "primary",
+                "output_role": "required_string_file",
+                "expected_output": {
+                    "name": "primary",
+                    "path": "${inputs.primary}",
+                    "type": "string",
+                    "required": True,
+                },
+            },
+            {
+                "slot_name": "secondary",
+                "output_role": "required_string_file",
+                "expected_output": {
+                    "name": "secondary",
+                    "path": "artifacts/work/secondary.md",
+                    "type": "string",
+                    "required": True,
+                },
+            },
+        ],
+        "compiled_prompt_fragment_identity": "sha256:" + "a" * 64,
+    }
+
+    for invalid_rows in (
+        (),
+        (rows[0], rows[0]),
+        tuple(reversed(rows)),
+    ):
+        with pytest.raises(
+            ValueError,
+            match="compiler_prompt_fragment_contract_invalid",
+        ):
+            CompilerPromptFragmentContractV2(
+                schema_version=COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
+                template_utf8="{message} {primary} {secondary}",
+                rendered_slots=rendered_slots,
+                output_positions=invalid_rows,
+                compiled_prompt_fragment_identity="sha256:" + "a" * 64,
+            )
+
+    for invalid_row in (
+        {
+            "slot_name": "primary",
+            "output_role": "required_string_file",
+            "expected_output": {
+                **dict(rows[0].expected_output),
+                "required": False,
+            },
+        },
+        {
+            "slot_name": "message",
+            "output_role": "required_string_file",
+            "expected_output": {
+                **dict(rows[0].expected_output),
+                "name": "message",
+            },
+        },
+        {
+            "slot_name": "primary",
+            "output_role": "none",
+            "expected_output": dict(rows[0].expected_output),
+        },
+        {
+            "slot_name": "primary",
+            "output_role": "required_string_file",
+            "expected_output": {
+                **dict(rows[0].expected_output),
+                "caller_override": True,
+            },
+        },
+        {
+            "slot_name": "primary",
+            "output_role": "required_string_file",
+            "expected_output": {
+                **dict(rows[0].expected_output),
+                "path": "${inputs.secondary}",
+            },
+        },
+    ):
+        with pytest.raises(
+            ValueError,
+            match="compiler_prompt_fragment_contract_invalid",
+        ):
+            row = CompilerPromptFragmentOutputPosition(**invalid_row)
+            CompilerPromptFragmentContractV2(
+                schema_version=COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
+                template_utf8="{message} {primary} {secondary}",
+                rendered_slots=rendered_slots,
+                output_positions=(row, rows[1]),
+                compiled_prompt_fragment_identity="sha256:" + "a" * 64,
+            )
+
+
+@pytest.mark.parametrize("lowering_route", ("legacy", "wcc_m4"))
+def test_q2_output_positions_lower_to_v2_carrier_and_generic_expected_outputs(
+    tmp_path: Path,
+    lowering_route: str,
+) -> None:
+    result = _compile_output_position_fragment_workflow(
+        tmp_path,
+        lowering_route=lowering_route,
+    )
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "run-review"
+    )
+    provider_step = lowered.authored_mapping["steps"][0]
+
+    contract = provider_step["compiler_prompt_fragment_contract"]
+    assert type(contract) is CompilerPromptFragmentContractV2
+    assert tuple(
+        dict(row.expected_output) for row in contract.output_positions
+    ) == (
+        {
+            "name": "primary",
+            "path": "${inputs.primary}",
+            "type": "string",
+            "required": True,
+        },
+        {
+            "name": "secondary",
+            "path": "${inputs.secondary}",
+            "type": "string",
+            "required": True,
+        },
+    )
+    assert tuple(provider_step["expected_outputs"]) == tuple(
+        dict(row.expected_output) for row in contract.output_positions
+    )
+    assert contract.compiled_prompt_fragment_identity == (
+        provider_step["compiled_prompt_fragment_identity"]
+    )
+    assert contract.schema_version == "compiler_prompt_fragment_contract.v2"
+    identity_slots = (
+        lowered.typed_workflow.typed_body.expr.prompt
+        .canonical_identity_projection["referenced_declarations"][0]["slots"]
+    )
+    assert [
+        row["output_role"]
+        for row in identity_slots
+    ] == ["none", "required_string_file", "none", "required_string_file"]
+    assert provider_step["output_bundle"]["fields"][0]["name"] == "__result__"
+    expected_subjects = [
+        binding
+        for binding in lowered.origin_map.validation_subject_bindings
+        if binding.subject_ref.subject_kind == "expected_output"
+    ]
+    assert [
+        binding.subject_ref.subject_name.rsplit("::", 1)[-1]
+        for binding in expected_subjects
+    ] == ["primary", "secondary"]
+    assert all(
+        "related prompt slot declaration:" in binding.origin.notes[0]
+        and "related prompt output role:" in binding.origin.notes[1]
+        for binding in expected_subjects
+    )
+
+
+def test_q2_output_position_lowering_matches_between_classic_and_wcc(
+    tmp_path: Path,
+) -> None:
+    results = {
+        route: _compile_output_position_fragment_workflow(
+            tmp_path,
+            lowering_route=route,
+        )
+        for route in ("legacy", "wcc_m4")
+    }
+
+    def projection(result):
+        lowered = result.lowered_workflows[0]
+        provider_step = lowered.authored_mapping["steps"][0]
+        subjects = tuple(
+            (
+                binding.subject_ref.subject_kind,
+                binding.subject_ref.subject_name,
+                binding.origin.span.start.line,
+                binding.origin.span.start.column,
+                binding.origin.notes,
+            )
+            for binding in lowered.origin_map.validation_subject_bindings
+            if binding.subject_ref.subject_kind == "expected_output"
+        )
+        return (
+            serialize_compiler_prompt_fragment_contract(
+                provider_step["compiler_prompt_fragment_contract"]
+            ),
+            provider_step["compiled_prompt_fragment_identity"],
+            provider_step["expected_outputs"],
+            provider_step["output_bundle"],
+            subjects,
+        )
+
+    assert projection(results["legacy"]) == projection(results["wcc_m4"])
 
 
 @pytest.mark.parametrize("lowering_route", ("legacy", "wcc_m4"))

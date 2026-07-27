@@ -104,6 +104,64 @@ def _build_source_map_document(
     return source_map_module, document, canonical_name
 
 
+def _build_output_position_source_map_document(
+    tmp_path: Path,
+    *,
+    lowering_route: str,
+):
+    path = tmp_path / f"output-position-source-map-{lowering_route}.orc"
+    path.write_text(
+        """(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.21")
+  (defmodule demo/output-position-source-map)
+  (defpath ReportPath
+    :kind relpath
+    :under "artifacts/reports"
+    :must-exist false)
+  (defprompt review
+    (:fills
+      (first :path :out ReportPath)
+      (ordinary :path ReportPath)
+      (second :path :out ReportPath))
+    -> Bool
+    "{first} {ordinary} {second}")
+  (defworkflow entry
+    ((first ReportPath)
+     (ordinary ReportPath)
+     (second ReportPath))
+    -> Bool
+    (provider-result providers.review
+      :prompt
+        (review
+          :second second
+          :ordinary ordinary
+          :first first))))
+""",
+        encoding="utf-8",
+    )
+    compile_result = compile_stage3_module(
+        path,
+        provider_externs={"providers.review": "test-provider"},
+        prompt_externs={},
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route=lowering_route,
+    )
+    source_map_module = importlib.import_module(
+        "orchestrator.workflow_lisp.source_map"
+    )
+    document = source_map_module.build_source_map_document(
+        SimpleNamespace(
+            compiled_results_by_name={"__main__": compile_result},
+            validated_bundles_by_name=compile_result.validated_bundles,
+        ),
+        selected_name="entry",
+        display_name_resolver=lambda workflow_name: workflow_name,
+    )
+    return source_map_module, document
+
+
 def _provider_supervision_source_map_document(
     tmp_path: Path,
     *,
@@ -791,6 +849,54 @@ def test_source_map_contract_field_lineage_matches_legacy_and_wcc_routes(
     wcc_fields = field_identity_and_span(wcc_document, wcc_name)
     assert legacy_fields
     assert wcc_fields == legacy_fields
+
+
+@pytest.mark.parametrize("lowering_route", ("legacy", "wcc_m4"))
+def test_source_map_round_trips_compiler_expected_output_fill_ownership(
+    tmp_path: Path,
+    lowering_route: str,
+) -> None:
+    source_map_module, document = _build_output_position_source_map_document(
+        tmp_path,
+        lowering_route=lowering_route,
+    )
+    workflow = document.workflows["entry"]
+    output_entries = {
+        name.rsplit("::", 1)[-1]: entry
+        for name, entry in workflow.contract_fields.items()
+        if entry.entity_kind == "expected_output"
+    }
+
+    assert list(output_entries) == ["first", "second"]
+    assert {
+        name: (entry.line, entry.column)
+        for name, entry in output_entries.items()
+    } == {
+        "first": (26, 18),
+        "second": (24, 19),
+    }
+    assert all(
+        entry.notes[0].startswith("related prompt slot declaration:")
+        and entry.notes[1].startswith("related prompt output role:")
+        for entry in output_entries.values()
+    )
+    assert {
+        (
+            binding.subject_ref.subject_kind,
+            binding.subject_ref.subject_name,
+            binding.origin_key,
+        )
+        for binding in workflow.validation_subjects
+        if binding.subject_ref.subject_kind == "expected_output"
+    } == {
+        (
+            "expected_output",
+            entry.generated_name_origin,
+            entry.origin_key,
+        )
+        for name, entry in output_entries.items()
+    }
+    source_map_module.validate_source_map_document(document)
 
 
 def test_source_map_persists_root_result_output_bundle_field_lineage(

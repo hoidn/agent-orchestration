@@ -407,8 +407,10 @@ def _lower_provider_result_operation(
             document_rows,
             fragment_typed_prompt_inputs,
             fragment_hidden_inputs,
+            fragment_expected_outputs,
         ) = _build_compiler_prompt_fragment_contract(
             provider_result.prompt_application,
+            provider_step_id=provider_step_id,
             context=context,
             local_values=local_values,
         )
@@ -420,6 +422,10 @@ def _lower_provider_result_operation(
         provider_step["typed_prompt_inputs"] = list(
             fragment_typed_prompt_inputs
         )
+        if fragment_expected_outputs:
+            provider_step["expected_outputs"] = [
+                dict(row) for row in fragment_expected_outputs
+            ]
         _lower_prompt_fragment_dependencies(
             provider_result.prompt_application,
             document_rows=document_rows,

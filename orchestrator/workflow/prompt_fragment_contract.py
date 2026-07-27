@@ -11,6 +11,7 @@ from typing import Any, Mapping
 
 
 COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA = "compiler_prompt_fragment_contract.v1"
+COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2 = "compiler_prompt_fragment_contract.v2"
 _IDENTITY_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _PLACEHOLDER_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\Z")
 _RENDERERS_BY_KIND = {
@@ -241,11 +242,205 @@ class CompilerPromptFragmentContract:
         return self
 
 
+@dataclass(frozen=True)
+class CompilerPromptFragmentOutputPosition:
+    """One compiler-owned output-position row in slot declaration order."""
+
+    slot_name: str
+    output_role: str
+    expected_output: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "expected_output",
+            _freeze_json(self.expected_output),
+        )
+        if not isinstance(
+            self.slot_name, str
+        ) or not _PLACEHOLDER_NAME_RE.fullmatch(self.slot_name):
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                "output-position slot name is invalid"
+            )
+        if self.output_role != "required_string_file":
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                "output-position role must be required_string_file"
+            )
+        if not isinstance(self.expected_output, Mapping):
+            raise TypeError("expected_output must be a mapping")
+        _require_exact_keys(
+            self.expected_output,
+            {"name", "path", "type", "required"},
+            context="output_position.expected_output",
+        )
+        if self.expected_output["name"] != self.slot_name:
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                "output-position name must match its slot"
+            )
+        _require_non_empty_string(
+            self.expected_output["path"],
+            context="output_position.expected_output.path",
+        )
+        if (
+            self.expected_output["type"] != "string"
+            or self.expected_output["required"] is not True
+        ):
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                "output-position must require one string file"
+            )
+
+    def __deepcopy__(
+        self,
+        memo: dict[int, Any],
+    ) -> "CompilerPromptFragmentOutputPosition":
+        return self
+
+
+@dataclass(frozen=True)
+class CompilerPromptFragmentContractV2:
+    """V2 renderer carrier with compiler-owned output-position obligations."""
+
+    schema_version: str
+    template_utf8: str
+    rendered_slots: tuple[CompilerPromptFragmentRenderedSlot, ...]
+    output_positions: tuple[CompilerPromptFragmentOutputPosition, ...]
+    compiled_prompt_fragment_identity: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "rendered_slots", tuple(self.rendered_slots))
+        object.__setattr__(self, "output_positions", tuple(self.output_positions))
+        validate_compiler_prompt_fragment_contract(self)
+
+    def __deepcopy__(
+        self,
+        memo: dict[int, Any],
+    ) -> "CompilerPromptFragmentContractV2":
+        return self
+
+
+def _path_template_from_rendered_slot(
+    slot: CompilerPromptFragmentRenderedSlot,
+) -> str:
+    """Derive one output template solely from the frozen Q1 value source."""
+
+    _validate_value_source(slot.value_source)
+    binding = slot.value_source["binding"]
+    if isinstance(binding, Mapping):
+        return "${" + str(binding["ref"]) + "}"
+    if isinstance(binding, str):
+        return binding
+    raise ValueError(
+        "compiler_prompt_fragment_contract_invalid: "
+        "output-position value source must be a binding ref or string literal"
+    )
+
+
+def _validate_compiler_prompt_fragment_contract_v2(
+    contract: CompilerPromptFragmentContractV2,
+) -> CompilerPromptFragmentContractV2:
+    if contract.schema_version != COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2:
+        raise ValueError(
+            "compiler_prompt_fragment_contract_invalid: unsupported schema"
+        )
+    if not isinstance(contract.template_utf8, str):
+        raise TypeError("template_utf8 must be a string")
+    if not isinstance(contract.rendered_slots, tuple):
+        raise TypeError("rendered_slots must be a tuple")
+    if not isinstance(contract.output_positions, tuple):
+        raise TypeError("output_positions must be a tuple")
+    if not contract.output_positions:
+        raise ValueError(
+            "compiler_prompt_fragment_contract_invalid: "
+            "v2 contract requires at least one output-position row"
+        )
+    if not _IDENTITY_RE.fullmatch(contract.compiled_prompt_fragment_identity):
+        raise ValueError(
+            "compiled_prompt_fragment_identity_invalid: identity is malformed"
+        )
+
+    placeholders = _scan_placeholders(contract.template_utf8)
+    rendered_names: set[str] = set()
+    claimed_ordinals: set[int] = set()
+    path_slots: dict[str, tuple[int, CompilerPromptFragmentRenderedSlot]] = {}
+    for index, slot in enumerate(contract.rendered_slots):
+        if type(slot) is not CompilerPromptFragmentRenderedSlot:
+            raise TypeError(
+                "rendered_slots must contain CompilerPromptFragmentRenderedSlot"
+            )
+        slot.__post_init__()
+        if slot.name in rendered_names:
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                "rendered slot names must be unique"
+            )
+        rendered_names.add(slot.name)
+        if slot.kind == "path":
+            path_slots[slot.name] = (index, slot)
+        for ordinal in slot.placeholder_ordinals:
+            if ordinal >= len(placeholders) or placeholders[ordinal] != slot.name:
+                raise ValueError(
+                    "compiler_prompt_fragment_contract_invalid: "
+                    "placeholder row mismatch"
+                )
+            if ordinal in claimed_ordinals:
+                raise ValueError(
+                    "compiler_prompt_fragment_contract_invalid: "
+                    "placeholder ordinal is duplicated"
+                )
+            claimed_ordinals.add(ordinal)
+    if claimed_ordinals != set(range(len(placeholders))):
+        raise ValueError(
+            "compiler_prompt_fragment_contract_invalid: "
+            "placeholder rows are incomplete"
+        )
+
+    output_names: set[str] = set()
+    declaration_indexes: list[int] = []
+    for row in contract.output_positions:
+        if type(row) is not CompilerPromptFragmentOutputPosition:
+            raise TypeError(
+                "output_positions must contain "
+                "CompilerPromptFragmentOutputPosition"
+            )
+        row.__post_init__()
+        if row.slot_name in output_names:
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                "output-position names must be unique"
+            )
+        output_names.add(row.slot_name)
+        path_slot = path_slots.get(row.slot_name)
+        if path_slot is None:
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                "output-position must name one rendered path slot"
+            )
+        declaration_index, slot = path_slot
+        declaration_indexes.append(declaration_index)
+        if row.expected_output["path"] != _path_template_from_rendered_slot(slot):
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                "output-position path differs from its normalized value source"
+            )
+    if declaration_indexes != sorted(declaration_indexes):
+        raise ValueError(
+            "compiler_prompt_fragment_contract_invalid: "
+            "output positions must follow slot declaration order"
+        )
+    return contract
+
+
 def validate_compiler_prompt_fragment_contract(
-    contract: CompilerPromptFragmentContract,
-) -> CompilerPromptFragmentContract:
+    contract: CompilerPromptFragmentContract | CompilerPromptFragmentContractV2,
+) -> CompilerPromptFragmentContract | CompilerPromptFragmentContractV2:
     """Validate a typed fragment contract without coercing mappings."""
 
+    if type(contract) is CompilerPromptFragmentContractV2:
+        return _validate_compiler_prompt_fragment_contract_v2(contract)
     if type(contract) is not CompilerPromptFragmentContract:
         raise TypeError("expected CompilerPromptFragmentContract")
     if contract.schema_version != COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA:
@@ -292,7 +487,7 @@ def validate_compiler_prompt_fragment_contract(
 
 
 def validate_compiler_prompt_fragment_pair(
-    contract: CompilerPromptFragmentContract | None,
+    contract: CompilerPromptFragmentContract | CompilerPromptFragmentContractV2 | None,
     identity: str | None,
 ) -> None:
     """Reject absent, malformed, or contradictory fragment carriage."""
@@ -331,12 +526,12 @@ def serialize_compiler_prompt_fragment_rendered_slot(
 
 
 def serialize_compiler_prompt_fragment_contract(
-    contract: CompilerPromptFragmentContract,
+    contract: CompilerPromptFragmentContract | CompilerPromptFragmentContractV2,
 ) -> dict[str, Any]:
     """Serialize one validated contract to its closed wire representation."""
 
     validate_compiler_prompt_fragment_contract(contract)
-    return {
+    serialized = {
         "schema_version": contract.schema_version,
         "template_utf8": contract.template_utf8,
         "rendered_slots": [
@@ -347,10 +542,20 @@ def serialize_compiler_prompt_fragment_contract(
             contract.compiled_prompt_fragment_identity
         ),
     }
+    if type(contract) is CompilerPromptFragmentContractV2:
+        serialized["output_positions"] = [
+            {
+                "slot_name": row.slot_name,
+                "output_role": row.output_role,
+                "expected_output": _thaw_json(row.expected_output),
+            }
+            for row in contract.output_positions
+        ]
+    return serialized
 
 
 def canonical_compiler_prompt_fragment_contract_json(
-    contract: CompilerPromptFragmentContract,
+    contract: CompilerPromptFragmentContract | CompilerPromptFragmentContractV2,
 ) -> str:
     """Return compact canonical UTF-8 JSON with no trailing newline."""
 

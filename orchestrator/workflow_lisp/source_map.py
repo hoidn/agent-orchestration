@@ -1158,6 +1158,7 @@ def _contract_field_entry_mapping(
     entries: dict[str, SourceMapEntry] = {}
     for binding in lowered.origin_map.validation_subject_bindings:
         if binding.subject_ref.subject_kind not in (
+            "expected_output",
             "variant_output_field",
             "output_bundle_field",
         ):
