@@ -5,7 +5,9 @@ import os
 import shutil
 import tempfile
 import zipfile
+from argparse import Namespace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch, MagicMock
 
@@ -17,8 +19,15 @@ from orchestrator.cli.commands.run import (
     parse_context,
     run_workflow
 )
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
+
+
+DEFAULT_WORKFLOW_MAPPING = {
+    'version': '1.1',
+    'name': 'test',
+    'steps': [{'name': 'test', 'command': ['echo', 'test']}],
+}
 
 
 def _state_manager_mock(workspace: Path) -> MagicMock:
@@ -30,6 +39,52 @@ def _state_manager_mock(workspace: Path) -> MagicMock:
     assert isinstance(manager, StateManager)
     return manager
 
+
+def _run_args(workflow: Path, **overrides) -> Namespace:
+    """Build a fully populated run_workflow Namespace, current CLI surface."""
+    args = Namespace(
+        workflow=str(workflow),
+        context=None,
+        context_file=None,
+        input=None,
+        input_file=None,
+        clean_processed=False,
+        archive_processed=None,
+        dry_run=False,
+        debug=False,
+        quiet=False,
+        verbose=False,
+        log_level='info',
+        backup_state=False,
+        state_dir=None,
+        on_error='stop',
+        max_retries=0,
+        retry_delay=1000,
+        stream_output=False,
+        step_summaries=False,
+        summary_mode=None,
+        summary_provider='claude_sonnet_summary',
+        summary_timeout_sec=120,
+        summary_max_input_chars=12000,
+        summary_profile=None,
+        live_agent_notes=False,
+        live_agent_note_provider=None,
+        live_agent_note_interval_sec=15.0,
+        live_agent_note_timeout_sec=30,
+        live_agent_note_max_tail_chars=6000,
+        entry_workflow=None,
+        source_root=None,
+        provider_externs_file=None,
+        prompt_externs_file=None,
+        imported_workflow_bundles_file=None,
+        command_boundaries_file=None,
+        emit_debug_yaml=False,
+    )
+    for key, value in overrides.items():
+        setattr(args, key, value)
+    return args
+
+
 class TestCLISafety(TestCase):
     """Test CLI safety features."""
 
@@ -39,15 +94,10 @@ class TestCLISafety(TestCase):
         self.workspace = self.test_dir / 'workspace'
         self.workspace.mkdir()
 
-        # Create workflow file
-        self.workflow_file = self.workspace / 'workflow.yaml'
-        self.workflow_file.write_text("""
-version: "1.1"
-name: test
-steps:
-  - name: test
-    command: ["echo", "test"]
-""")
+        # Fresh runs require an .orc path; run_workflow's frontend build is
+        # mocked in the tests below, so this placeholder is never compiled.
+        self.workflow_file = self.workspace / 'workflow.orc'
+        self.workflow_file.write_text("(workflow-lisp)\n")
 
         # Create processed directory
         self.processed_dir = self.workspace / 'processed'
@@ -66,6 +116,15 @@ steps:
         """Clean up test environment."""
         os.chdir(self.original_cwd)
         shutil.rmtree(self.test_dir)
+
+    def _stub_frontend_build(self, mock_build, mapping=None) -> SimpleNamespace:
+        """Stand in for build_frontend_bundle with a fixture-loaded bundle."""
+        bundle = WorkflowLoader(self.workspace).load_mapping(mapping or DEFAULT_WORKFLOW_MAPPING)
+        mock_build.return_value = SimpleNamespace(
+            validated_bundle=bundle,
+            manifest=SimpleNamespace(lowering_schema_version=1),
+        )
+        return bundle
 
     def test_at11_clean_processed_empties_directory(self):
         """AT-11: Clean processed empties directory."""
@@ -263,12 +322,10 @@ steps:
 
     @patch('orchestrator.cli.commands.run.WorkflowExecutor')
     @patch('orchestrator.cli.commands.run.StateManager')
-    @patch('orchestrator.cli.commands.run.WorkflowLoader')
-    def test_run_workflow_passes_state_dir_override_to_state_manager(self, mock_loader, mock_state, mock_executor):
+    @patch('orchestrator.cli.commands.run.build_frontend_bundle')
+    def test_run_workflow_passes_state_dir_override_to_state_manager(self, mock_build, mock_state, mock_executor):
         """run_workflow should honor the documented --state-dir override."""
-        mock_loader.return_value.load_bundle.return_value = WorkflowLoader(self.workspace).load_bundle(
-            self.workflow_file
-        )
+        self._stub_frontend_build(mock_build)
 
         mock_state_inst = _state_manager_mock(self.workspace)
         mock_state_inst.logs_dir = Path('/tmp/custom-runs') / 'test-run-123' / 'logs'
@@ -279,23 +336,7 @@ steps:
         mock_executor_inst.execute.return_value = True
         mock_executor.return_value = mock_executor_inst
 
-        args = MagicMock()
-        args.workflow = str(self.workflow_file)
-        args.context = None
-        args.context_file = None
-        args.clean_processed = False
-        args.archive_processed = None
-        args.dry_run = False
-        args.debug = False
-        args.quiet = False
-        args.verbose = False
-        args.log_level = 'info'
-        args.backup_state = False
-        args.state_dir = '/tmp/custom-runs'
-        args.on_error = 'stop'
-        args.max_retries = 0
-        args.retry_delay = 1000
-        args.stream_output = False
+        args = _run_args(self.workflow_file, state_dir='/tmp/custom-runs')
 
         result = run_workflow(args)
 
@@ -305,25 +346,18 @@ steps:
 
     @patch('orchestrator.cli.commands.run.WorkflowExecutor')
     @patch('orchestrator.cli.commands.run.StateManager')
-    @patch('orchestrator.cli.commands.run.WorkflowLoader')
-    def test_run_workflow_passes_merged_context_to_state(self, mock_loader, mock_state, mock_executor):
+    @patch('orchestrator.cli.commands.run.build_frontend_bundle')
+    def test_run_workflow_passes_merged_context_to_state(self, mock_build, mock_state, mock_executor):
         """run_workflow should initialize state with workflow context defaults plus CLI overrides."""
-        self.workflow_file.write_text(
-            """
-version: "1.1"
-name: test
-context:
-  max_review_cycles: "3"
-  mode: default
-steps:
-  - name: test
-    command: ["bash", "-lc", "true"]
-""".strip()
-            + "\n"
-        )
-        mock_loader.return_value.load_bundle.return_value = WorkflowLoader(self.workspace).load_bundle(
-            self.workflow_file
-        )
+        self._stub_frontend_build(mock_build, {
+            'version': '1.1',
+            'name': 'test',
+            'context': {
+                'max_review_cycles': '3',
+                'mode': 'default',
+            },
+            'steps': [{'name': 'test', 'command': ['bash', '-lc', 'true']}],
+        })
 
         mock_state_inst = _state_manager_mock(self.workspace)
         mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-123')
@@ -333,23 +367,7 @@ steps:
         mock_executor_inst.execute.return_value = True
         mock_executor.return_value = mock_executor_inst
 
-        args = MagicMock()
-        args.workflow = str(self.workflow_file)
-        args.context = ['mode=cli']
-        args.context_file = None
-        args.clean_processed = False
-        args.archive_processed = None
-        args.dry_run = False
-        args.debug = False
-        args.quiet = False
-        args.verbose = False
-        args.log_level = 'info'
-        args.backup_state = False
-        args.state_dir = None
-        args.on_error = 'stop'
-        args.max_retries = 0
-        args.retry_delay = 1000
-        args.stream_output = False
+        args = _run_args(self.workflow_file, context=['mode=cli'])
 
         result = run_workflow(args)
 
@@ -358,30 +376,22 @@ steps:
         self.assertEqual(call_args[1], {
             'max_review_cycles': '3',
             'mode': 'cli',
+            'workflow_lisp': {'lowering_schema_version': 1},
         })
 
     @patch('orchestrator.cli.commands.run.WorkflowExecutor')
     @patch('orchestrator.cli.commands.run.StateManager')
-    @patch('orchestrator.cli.commands.run.WorkflowLoader')
-    def test_run_workflow_passes_bound_inputs_to_state(self, mock_loader, mock_state, mock_executor):
+    @patch('orchestrator.cli.commands.run.build_frontend_bundle')
+    def test_run_workflow_passes_bound_inputs_to_state(self, mock_build, mock_state, mock_executor):
         """Workflow-signature runs should bind typed CLI inputs before state initialization."""
-        self.workflow_file.write_text(
-            """
-version: "2.1"
-name: signature-test
-inputs:
-  max_cycles:
-    kind: scalar
-    type: integer
-steps:
-  - name: test
-    command: ["bash", "-lc", "true"]
-""".strip()
-            + "\n"
-        )
-        mock_loader.return_value.load_bundle.return_value = WorkflowLoader(self.workspace).load_bundle(
-            self.workflow_file
-        )
+        self._stub_frontend_build(mock_build, {
+            'version': '2.1',
+            'name': 'signature-test',
+            'inputs': {
+                'max_cycles': {'kind': 'scalar', 'type': 'integer'},
+            },
+            'steps': [{'name': 'test', 'command': ['bash', '-lc', 'true']}],
+        })
 
         mock_state_inst = _state_manager_mock(self.workspace)
         mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-123')
@@ -391,30 +401,7 @@ steps:
         mock_executor_inst.execute.return_value = True
         mock_executor.return_value = mock_executor_inst
 
-        args = MagicMock()
-        args.workflow = str(self.workflow_file)
-        args.input = ['max_cycles=5']
-        args.input_file = None
-        args.context = None
-        args.context_file = None
-        args.clean_processed = False
-        args.archive_processed = None
-        args.dry_run = False
-        args.debug = False
-        args.quiet = False
-        args.verbose = False
-        args.log_level = 'info'
-        args.backup_state = False
-        args.state_dir = None
-        args.on_error = 'stop'
-        args.max_retries = 0
-        args.retry_delay = 1000
-        args.stream_output = False
-        args.step_summaries = False
-        args.summary_mode = None
-        args.summary_provider = 'claude_sonnet_summary'
-        args.summary_timeout_sec = 120
-        args.summary_max_input_chars = 12000
+        args = _run_args(self.workflow_file, input=['max_cycles=5'])
 
         result = run_workflow(args)
 
@@ -424,31 +411,22 @@ steps:
 
     @patch('orchestrator.cli.commands.run.WorkflowExecutor')
     @patch('orchestrator.cli.commands.run.StateManager')
-    @patch('orchestrator.cli.commands.run.WorkflowLoader')
+    @patch('orchestrator.cli.commands.run.build_frontend_bundle')
     def test_run_workflow_uses_typed_bundle_context_and_inputs_without_legacy_adapter(
         self,
-        mock_loader,
+        mock_build,
         mock_state,
         mock_executor,
     ):
-        self.workflow_file.write_text(
-            """
-version: "2.1"
-name: typed-bundle-run
-context:
-  max_review_cycles: "3"
-inputs:
-  max_cycles:
-    kind: scalar
-    type: integer
-steps:
-  - name: Noop
-    command: ["bash", "-lc", "true"]
-""".strip()
-            + "\n"
-        )
-        bundle = WorkflowLoader(self.workspace).load_bundle(self.workflow_file)
-        mock_loader.return_value.load_bundle.return_value = bundle
+        self._stub_frontend_build(mock_build, {
+            'version': '2.1',
+            'name': 'typed-bundle-run',
+            'context': {'max_review_cycles': '3'},
+            'inputs': {
+                'max_cycles': {'kind': 'scalar', 'type': 'integer'},
+            },
+            'steps': [{'name': 'Noop', 'command': ['bash', '-lc', 'true']}],
+        })
 
         mock_state_inst = _state_manager_mock(self.workspace)
         mock_state_inst.logs_dir = self.workspace / '.orchestrate' / 'runs' / 'test-run-123' / 'logs'
@@ -459,30 +437,7 @@ steps:
         mock_executor_inst.execute.return_value = True
         mock_executor.return_value = mock_executor_inst
 
-        args = MagicMock()
-        args.workflow = str(self.workflow_file)
-        args.input = ['max_cycles=5']
-        args.input_file = None
-        args.context = ['mode=cli']
-        args.context_file = None
-        args.clean_processed = False
-        args.archive_processed = None
-        args.dry_run = False
-        args.debug = False
-        args.quiet = False
-        args.verbose = False
-        args.log_level = 'info'
-        args.backup_state = False
-        args.state_dir = None
-        args.on_error = 'stop'
-        args.max_retries = 0
-        args.retry_delay = 1000
-        args.stream_output = False
-        args.step_summaries = False
-        args.summary_mode = None
-        args.summary_provider = 'claude_sonnet_summary'
-        args.summary_timeout_sec = 120
-        args.summary_max_input_chars = 12000
+        args = _run_args(self.workflow_file, input=['max_cycles=5'], context=['mode=cli'])
 
         result = run_workflow(args)
 
@@ -490,28 +445,21 @@ steps:
 
     @patch('orchestrator.cli.commands.run.WorkflowExecutor')
     @patch('orchestrator.cli.commands.run.StateManager')
-    @patch('orchestrator.cli.commands.run.WorkflowLoader')
+    @patch('orchestrator.cli.commands.run.build_frontend_bundle')
     def test_run_workflow_uses_surface_processed_dir_without_legacy_adapter(
         self,
-        mock_loader,
+        mock_build,
         mock_state,
         mock_executor,
     ):
-        self.workflow_file.write_text(
-            """
-version: "2.1"
-name: typed-bundle-run
-processed_dir: custom-processed
-steps:
-  - name: Noop
-    command: ["bash", "-lc", "true"]
-""".strip()
-            + "\n"
-        )
-        bundle = WorkflowLoader(self.workspace).load_bundle(self.workflow_file)
-        mock_loader.return_value.load_bundle.return_value = bundle
+        self._stub_frontend_build(mock_build, {
+            'version': '2.1',
+            'name': 'typed-bundle-run',
+            'processed_dir': 'custom-processed',
+            'steps': [{'name': 'Noop', 'command': ['bash', '-lc', 'true']}],
+        })
 
-        mock_state_inst = MagicMock()
+        mock_state_inst = _state_manager_mock(self.workspace)
         mock_state_inst.logs_dir = self.workspace / '.orchestrate' / 'runs' / 'test-run-processed' / 'logs'
         mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-processed')
         mock_state.return_value = mock_state_inst
@@ -520,30 +468,7 @@ steps:
         mock_executor_inst.execute.return_value = True
         mock_executor.return_value = mock_executor_inst
 
-        args = MagicMock()
-        args.workflow = str(self.workflow_file)
-        args.input = None
-        args.input_file = None
-        args.context = None
-        args.context_file = None
-        args.clean_processed = True
-        args.archive_processed = None
-        args.dry_run = True
-        args.debug = False
-        args.quiet = False
-        args.verbose = False
-        args.log_level = 'info'
-        args.backup_state = False
-        args.state_dir = None
-        args.on_error = 'stop'
-        args.max_retries = 0
-        args.retry_delay = 1000
-        args.stream_output = False
-        args.step_summaries = False
-        args.summary_mode = None
-        args.summary_provider = 'claude_sonnet_summary'
-        args.summary_timeout_sec = 120
-        args.summary_max_input_chars = 12000
+        args = _run_args(self.workflow_file, clean_processed=True, dry_run=True)
 
         with patch('orchestrator.cli.commands.run.validate_clean_processed') as mock_validate:
             result = run_workflow(args)
@@ -556,29 +481,22 @@ steps:
 
     @patch('orchestrator.cli.commands.run.WorkflowExecutor')
     @patch('orchestrator.cli.commands.run.StateManager')
-    @patch('orchestrator.cli.commands.run.WorkflowLoader')
+    @patch('orchestrator.cli.commands.run.build_frontend_bundle')
     def test_run_workflow_uses_typed_processed_dir_from_loaded_bundle(
         self,
-        mock_loader,
+        mock_build,
         mock_state,
         mock_executor,
     ):
-        self.workflow_file.write_text(
-            """
-version: "2.1"
-name: typed-bundle-run
-processed_dir: typed-processed
-steps:
-  - name: Noop
-    command: ["bash", "-lc", "true"]
-""".strip()
-            + "\n"
-        )
-        bundle = WorkflowLoader(self.workspace).load_bundle(self.workflow_file)
+        bundle = self._stub_frontend_build(mock_build, {
+            'version': '2.1',
+            'name': 'typed-bundle-run',
+            'processed_dir': 'typed-processed',
+            'steps': [{'name': 'Noop', 'command': ['bash', '-lc', 'true']}],
+        })
         assert not hasattr(bundle.surface, "raw")
-        mock_loader.return_value.load_bundle.return_value = bundle
 
-        mock_state_inst = MagicMock()
+        mock_state_inst = _state_manager_mock(self.workspace)
         mock_state_inst.logs_dir = self.workspace / '.orchestrate' / 'runs' / 'test-run-processed' / 'logs'
         mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-processed')
         mock_state.return_value = mock_state_inst
@@ -587,30 +505,7 @@ steps:
         mock_executor_inst.execute.return_value = True
         mock_executor.return_value = mock_executor_inst
 
-        args = MagicMock()
-        args.workflow = str(self.workflow_file)
-        args.input = None
-        args.input_file = None
-        args.context = None
-        args.context_file = None
-        args.clean_processed = True
-        args.archive_processed = None
-        args.dry_run = True
-        args.debug = False
-        args.quiet = False
-        args.verbose = False
-        args.log_level = 'info'
-        args.backup_state = False
-        args.state_dir = None
-        args.on_error = 'stop'
-        args.max_retries = 0
-        args.retry_delay = 1000
-        args.stream_output = False
-        args.step_summaries = False
-        args.summary_mode = None
-        args.summary_provider = 'claude_sonnet_summary'
-        args.summary_timeout_sec = 120
-        args.summary_max_input_chars = 12000
+        args = _run_args(self.workflow_file, clean_processed=True, dry_run=True)
 
         with patch('orchestrator.cli.commands.run.validate_clean_processed') as mock_validate:
             result = run_workflow(args)
@@ -623,12 +518,10 @@ steps:
 
     @patch('orchestrator.cli.commands.run.WorkflowExecutor')
     @patch('orchestrator.cli.commands.run.StateManager')
-    @patch('orchestrator.cli.commands.run.WorkflowLoader')
-    def test_run_workflow_passes_stream_output_to_executor(self, mock_loader, mock_state, mock_executor):
+    @patch('orchestrator.cli.commands.run.build_frontend_bundle')
+    def test_run_workflow_passes_stream_output_to_executor(self, mock_build, mock_state, mock_executor):
         """run_workflow should pass a dedicated stream-output flag into the executor."""
-        mock_loader.return_value.load_bundle.return_value = WorkflowLoader(self.workspace).load_bundle(
-            self.workflow_file
-        )
+        self._stub_frontend_build(mock_build)
 
         mock_state_inst = _state_manager_mock(self.workspace)
         mock_state_inst.logs_dir = self.workspace / '.orchestrate' / 'runs' / 'test-run-123' / 'logs'
@@ -639,23 +532,7 @@ steps:
         mock_executor_inst.execute.return_value = True
         mock_executor.return_value = mock_executor_inst
 
-        args = MagicMock()
-        args.workflow = str(self.workflow_file)
-        args.context = None
-        args.context_file = None
-        args.clean_processed = False
-        args.archive_processed = None
-        args.dry_run = False
-        args.debug = False
-        args.stream_output = True
-        args.quiet = False
-        args.verbose = False
-        args.log_level = 'info'
-        args.backup_state = False
-        args.state_dir = None
-        args.on_error = 'stop'
-        args.max_retries = 0
-        args.retry_delay = 1000
+        args = _run_args(self.workflow_file, stream_output=True)
 
         result = run_workflow(args)
 
@@ -665,13 +542,11 @@ steps:
 
     @patch('orchestrator.cli.commands.run.WorkflowExecutor')
     @patch('orchestrator.cli.commands.run.StateManager')
-    @patch('orchestrator.cli.commands.run.WorkflowLoader')
-    def test_run_workflow_with_clean_and_archive(self, mock_loader, mock_state, mock_executor):
+    @patch('orchestrator.cli.commands.run.build_frontend_bundle')
+    def test_run_workflow_with_clean_and_archive(self, mock_build, mock_state, mock_executor):
         """Test full run workflow with clean and archive flags."""
         # Set up mocks
-        mock_loader.return_value.load_bundle.return_value = WorkflowLoader(self.workspace).load_bundle(
-            self.workflow_file
-        )
+        self._stub_frontend_build(mock_build)
 
         mock_state_inst = _state_manager_mock(self.workspace)
         mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-123')
@@ -682,23 +557,7 @@ steps:
         mock_executor.return_value = mock_executor_inst
 
         # Set up arguments
-        args = MagicMock()
-        args.workflow = str(self.workflow_file)
-        args.context = None
-        args.context_file = None
-        args.clean_processed = True
-        args.archive_processed = 'archive.zip'
-        args.dry_run = False
-        args.debug = False
-        args.quiet = False
-        args.verbose = False
-        args.log_level = 'info'
-        args.backup_state = False
-        args.state_dir = None
-        args.on_error = 'stop'
-        args.max_retries = 0
-        args.retry_delay = 1000
-        args.stream_output = False
+        args = _run_args(self.workflow_file, clean_processed=True, archive_processed='archive.zip')
 
         # Run workflow
         result = run_workflow(args)
@@ -718,14 +577,12 @@ steps:
 
     @patch('orchestrator.cli.commands.run.WorkflowExecutor')
     @patch('orchestrator.cli.commands.run.StateManager')
-    @patch('orchestrator.cli.commands.run.WorkflowLoader')
-    def test_run_workflow_returns_nonzero_for_failed_status(self, mock_loader, mock_state, mock_executor):
+    @patch('orchestrator.cli.commands.run.build_frontend_bundle')
+    def test_run_workflow_returns_nonzero_for_failed_status(self, mock_build, mock_state, mock_executor):
         """run_workflow should return non-zero when executor reports failed run status."""
-        mock_loader.return_value.load_bundle.return_value = WorkflowLoader(self.workspace).load_bundle(
-            self.workflow_file
-        )
+        self._stub_frontend_build(mock_build)
 
-        mock_state_inst = MagicMock()
+        mock_state_inst = _state_manager_mock(self.workspace)
         mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-123')
         mock_state.return_value = mock_state_inst
 
@@ -733,53 +590,24 @@ steps:
         mock_executor_inst.execute.return_value = {'status': 'failed'}
         mock_executor.return_value = mock_executor_inst
 
-        args = MagicMock()
-        args.workflow = str(self.workflow_file)
-        args.context = None
-        args.context_file = None
-        args.clean_processed = False
-        args.archive_processed = 'archive.zip'
-        args.dry_run = False
-        args.debug = False
-        args.quiet = False
-        args.verbose = False
-        args.log_level = 'info'
-        args.backup_state = False
-        args.state_dir = None
-        args.on_error = 'stop'
-        args.max_retries = 0
-        args.retry_delay = 1000
-        args.stream_output = False
+        args = _run_args(self.workflow_file, archive_processed='archive.zip')
 
         result = run_workflow(args)
 
         self.assertEqual(result, 1)
         self.assertFalse(Path('archive.zip').exists())
 
-    @patch('orchestrator.cli.commands.run.WorkflowLoader')
-    def test_run_workflow_dry_run(self, mock_loader):
+    @patch('orchestrator.cli.commands.run.build_frontend_bundle')
+    def test_run_workflow_dry_run(self, mock_build):
         """Test dry run mode."""
-        mock_loader.return_value.load_bundle.return_value = WorkflowLoader(self.workspace).load_bundle(
-            self.workflow_file
-        )
+        self._stub_frontend_build(mock_build)
 
-        args = MagicMock()
-        args.workflow = str(self.workflow_file)
-        args.context = None
-        args.context_file = None
-        args.clean_processed = True
-        args.archive_processed = 'archive.zip'
-        args.dry_run = True
-        args.debug = False
-        args.quiet = False
-        args.verbose = False
-        args.log_level = 'info'
-        args.backup_state = False
-        args.state_dir = None
-        args.on_error = 'stop'
-        args.max_retries = 0
-        args.retry_delay = 1000
-        args.stream_output = False
+        args = _run_args(
+            self.workflow_file,
+            clean_processed=True,
+            archive_processed='archive.zip',
+            dry_run=True,
+        )
 
         # Create files that shouldn't be cleaned in dry run
         (self.processed_dir / 'should_remain.txt').write_text('test')

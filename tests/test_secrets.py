@@ -3,6 +3,7 @@ Tests for secrets handling system.
 Validates AT-41,42,54,55: Secrets handling, masking, and precedence.
 """
 
+import json
 import os
 import pytest
 from pathlib import Path
@@ -10,7 +11,7 @@ from unittest.mock import Mock, patch
 
 from orchestrator.security.secrets import SecretsManager, SecretsContext, SecretsMaskingFilter
 from orchestrator.exec.step_executor import StepExecutor
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.exceptions import WorkflowValidationError
 from tests.workflow_bundle_helpers import thaw_surface_workflow
 
@@ -248,9 +249,8 @@ class TestWorkflowLoaderSecrets:
 
         # Write workflow
         workflow_path = tmp_path / 'workflow.yaml'
-        import yaml
         with open(workflow_path, 'w') as f:
-            yaml.dump(workflow, f)
+            json.dump(workflow, f)
 
         # Should load without errors
         loaded = loader.load(workflow_path)
@@ -271,9 +271,8 @@ class TestWorkflowLoaderSecrets:
 
         # Write workflow
         workflow_path = tmp_path / 'workflow.yaml'
-        import yaml
         with open(workflow_path, 'w') as f:
-            yaml.dump(workflow, f)
+            json.dump(workflow, f)
 
         # Should fail validation
         with pytest.raises(WorkflowValidationError) as exc_info:
@@ -295,9 +294,8 @@ class TestWorkflowLoaderSecrets:
 
         # Write workflow
         workflow_path = tmp_path / 'workflow.yaml'
-        import yaml
         with open(workflow_path, 'w') as f:
-            yaml.dump(workflow, f)
+            json.dump(workflow, f)
 
         # Should fail validation
         with pytest.raises(WorkflowValidationError) as exc_info:
@@ -308,7 +306,6 @@ class TestWorkflowLoaderSecrets:
 # Integration test demonstrating full flow
 def test_integration_secrets_workflow(tmp_path):
     """Integration test: workflow with secrets through full execution."""
-    import yaml
     from orchestrator.state import StateManager
     from orchestrator.workflow.executor import WorkflowExecutor
 
@@ -331,7 +328,7 @@ def test_integration_secrets_workflow(tmp_path):
         workflow_file = 'test_workflow.yaml'
         workflow_path = tmp_path / workflow_file
         with open(workflow_path, 'w') as f:
-            yaml.dump(workflow, f)
+            json.dump(workflow, f)
 
         # Initialize components
         state_manager = StateManager(tmp_path, backup_enabled=False)

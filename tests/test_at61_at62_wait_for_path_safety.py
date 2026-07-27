@@ -5,7 +5,7 @@ AT-62: matches whose real path escapes WORKSPACE are excluded; returned paths ar
 """
 
 import pytest
-import yaml
+import json
 import tempfile
 import os
 from pathlib import Path
@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.state import StateManager
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.fsq.wait import WaitFor, WaitForConfig
 
 
@@ -47,7 +47,7 @@ class TestAT61WaitForPathSafety:
 
         workflow_file = tmp_path / "workflow.yaml"
         with open(workflow_file, "w") as f:
-            yaml.dump(workflow_content, f)
+            json.dump(workflow_content, f)
 
         # Load workflow
         loader = WorkflowLoader(workspace)
@@ -103,7 +103,7 @@ class TestAT61WaitForPathSafety:
 
         workflow_file = tmp_path / "workflow.yaml"
         with open(workflow_file, "w") as f:
-            yaml.dump(workflow_content, f)
+            json.dump(workflow_content, f)
 
         # Load workflow
         loader = WorkflowLoader(workspace)
@@ -156,7 +156,7 @@ class TestAT61WaitForPathSafety:
 
         workflow_file = tmp_path / "workflow.yaml"
         with open(workflow_file, "w") as f:
-            yaml.dump(workflow_content, f)
+            json.dump(workflow_content, f)
 
         # Load workflow
         loader = WorkflowLoader(workspace)
@@ -226,7 +226,7 @@ class TestAT62WaitForSymlinkEscape:
 
         workflow_file = tmp_path / "workflow.yaml"
         with open(workflow_file, "w") as f:
-            yaml.dump(workflow_content, f)
+            json.dump(workflow_content, f)
 
         # Load workflow
         loader = WorkflowLoader(workspace)
@@ -284,7 +284,7 @@ class TestAT62WaitForSymlinkEscape:
 
         workflow_file = tmp_path / "workflow.yaml"
         with open(workflow_file, "w") as f:
-            yaml.dump(workflow_content, f)
+            json.dump(workflow_content, f)
 
         # Load workflow
         loader = WorkflowLoader(workspace)
@@ -350,7 +350,7 @@ class TestAT62WaitForSymlinkEscape:
 
         workflow_file = tmp_path / "workflow.yaml"
         with open(workflow_file, "w") as f:
-            yaml.dump(workflow_content, f)
+            json.dump(workflow_content, f)
 
         # Load workflow
         loader = WorkflowLoader(workspace)
