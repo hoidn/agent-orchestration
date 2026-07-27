@@ -1255,6 +1255,36 @@ do not reserve `defprompt` as a general expression; a Q1 declaration,
 application, or slot keyword there fails with
 `prompt_calculus_requires_dsl_2_20`.
 
+### 8.7.2 Accepted `:path :out` Slots (Target 2.21)
+
+**Status:** accepted Q2 design after `Q2_DESIGN_SPEC_REAPPROVED` then
+`Q2_DESIGN_QUALITY_APPROVED`; not implemented.
+The additive target-2.21 assumption preserves target-2.20 Q1 source, compiled
+bytes, runtime behavior, and resume semantics unchanged.
+
+Q2 adds exactly one slot spelling:
+
+```lisp
+(report_target :path :out [PathType])
+```
+
+`:out` is an optional role modifier on `:path`, not a kind or type. It occurs at
+most once and immediately after `:path`; any other placement or kind is invalid.
+The optional refinement and the resolved fill type must each be a workspace
+`relpath` with `must_exist=false`. Every output-position slot still requires
+one exact named fill and at least one placeholder. The caller cannot override
+the output name, path, type, requiredness, postcondition, or delivery mode.
+
+The same declaration slot and fill own both POSIX path rendering and the
+required post-attempt file contract described in Section 22.7. A Q1-only
+application continues to use byte-identical
+`compiled_prompt_fragment_identity.v1`, including when compiled at target 2.21.
+An application containing `:out` uses
+`compiled_prompt_fragment_identity.v2`, whose slot projection adds
+`output_role=required_string_file` for `:out` and `output_role=none` otherwise.
+It also uses the closed `compiler_prompt_fragment_contract.v2` carrier defined
+in Section 22.7; Q1-only applications retain the exact v1 carrier bytes.
+
 ### 8.8 `defproc`
 
 Defines reusable effectful workflow procedure.
@@ -2430,6 +2460,164 @@ fragment/dependency/runtime/provider-policy identity or comparison diagnostics
 (Q3), or judgment views (Q4). It does not add residual prompt values, nested
 fragments, procedure/provider substitution, schema 2.2, or a second result,
 snapshot, or resume channel.
+
+### 22.7 Accepted Prompt Output Positions (Target 2.21)
+
+**Status:** accepted Q2 design after `Q2_DESIGN_SPEC_REAPPROVED` then
+`Q2_DESIGN_QUALITY_APPROVED`; not implemented.
+The owning detailed contract is the accepted Q2 amendment in
+`workflow_lisp_prompt_calculus.md`.
+
+For every `(slot :path :out [PathType])`, the compiler projects one ordinary
+required-file row from the same slot and fill used by the prompt renderer:
+
+```json
+{
+  "name": "<slot-name>",
+  "path": "<resolved-fill-template>",
+  "type": "string",
+  "required": true
+}
+```
+
+The row is compiler-owned `expected_outputs` structure. Slot name supplies
+`name`; one compiler helper derives `path` from the typed fill's frozen Q1
+runtime binding source: exact `{"ref": R}` becomes `${R}`, and an admitted
+string literal remains that exact validated literal. Source spelling, host
+representation, and a second reconstruction are forbidden. No caller or
+parallel authoring form may replace either field. The static path contract must
+already be workspace-relative with `must_exist=false`. It owns resolution and
+containment before launch; the row requires one UTF-8 file at that resolved path
+after a successful provider attempt. Before launch, the typed value used by the
+POSIX path-line renderer and resolved `expected_outputs.path` must be the same
+canonical workspace-relative POSIX path. The fill expression is the primary
+source-map owner, with the slot declaration and `:out` token related.
+
+A fragment-backed `provider-result` also has exactly one prompt-owned structured
+result contract, so Q2 requires one generic output-contract composition rule:
+
+- `expected_outputs` may coexist with exactly one of `output_bundle` or
+  `variant_output`;
+- every other multi-contract combination, including any combination with
+  `select_variant_output`, remains invalid;
+- possible artifact names across the file rows and structured contract must be
+  disjoint before provider launch;
+- after path resolution, output-position destinations must be pairwise distinct
+  and disjoint from the resolved structured-result bundle path even when their
+  artifact names differ; aliasing reports both source owners before launch;
+- the provider prompt appends the expected-output block once and then the
+  structured-result block once;
+- post-attempt validation checks both in that same deterministic order and
+  exposes neither artifact mapping unless both pass; and
+- successful disjoint mappings merge into the one existing step-artifact map.
+
+Atomicity here is state atomicity: failure of either contract produces one
+failed step and commits neither mapping, but does not roll back files the
+provider wrote. Q2 creates no second artifact store, result channel, snapshot,
+or checkpoint surface.
+
+This is a generic correction to the existing owners:
+
+- `orchestrator/workflow/validation.py`: declared-output-contract admission,
+  `_validate_expected_outputs`, structured contract validation, and name
+  collision;
+- `orchestrator/workflow/prompting.py`:
+  `PromptComposer.apply_output_contract_prompt_suffix`, changed from selecting
+  one contract to rendering the admitted pair in fixed order;
+- `orchestrator/workflow/executor.py`:
+  `WorkflowExecutor._resolve_output_contract_paths` and
+  `_apply_expected_outputs_contract`, changed from selecting one validation
+  result to validating and atomically merging the admitted pair;
+- `orchestrator/contracts/output_contract.py`:
+  `validate_expected_outputs`, `validate_output_bundle`, and
+  `validate_variant_output_bundle`;
+- the existing Surface/Core/Semantic/Executable/persisted/runtime carriers in
+  `orchestrator/workflow/surface_ast.py`,
+  `orchestrator/workflow/core_ast.py`,
+  `orchestrator/workflow/semantic_ir.py`,
+  `orchestrator/workflow/executable_ir.py`,
+  `orchestrator/workflow/persisted_surface.py`,
+  `orchestrator/workflow/lowering.py`,
+  `orchestrator/workflow/elaboration.py`, and
+  `orchestrator/workflow/runtime_step.py`; and
+- `orchestrator/workflow_lisp/prompts.py`,
+  `orchestrator/workflow_lisp/lowering/phase_scope.py`, and
+  `orchestrator/workflow_lisp/lowering/effects.py` for slot parsing,
+  typechecking, v2 identity, row projection, and provider-step installation.
+
+Classic and WCC must project identical declaration-ordered rows, source-map
+subjects, fragment identity, structured result, and checkpoint inputs.
+Q1-only fragments retain the exact v1 canonical identity projection and digest.
+Q2 fragments use `compiled_prompt_fragment_identity.v2`, adding per-slot
+`output_role` without otherwise changing Q1 ordering or identity fields.
+They also use `compiler_prompt_fragment_contract.v2`, which preserves the v1
+template/rendered-slot fields and adds declaration-ordered
+`output_positions` rows shaped as:
+
+```text
+(slot_name,
+ output_role=required_string_file,
+ expected_output={name, path, type=string, required=true})
+```
+
+The v2 carrier validator requires exact keys, unique names, and unique
+declaration-relative-order correspondence with the subset of rendered path
+slots whose normalized role is `required_string_file`; ordinary
+`output_role=none` path slots have no carrier row. Compiler construction proves
+every normalized output-role slot has exactly one row and feeds both the v2
+identity slot projection and the carrier from one normalized slot-role record
+rather than reconstructing either independently. The v1 carrier serialization remains
+byte-for-byte unchanged and admits no output-position rows. At every compiler,
+IR, persisted, checkpoint, and runtime boundary, the v2 pair validator compares
+the carrier's nested `expected_output` objects exactly and in order with the
+provider configuration's `expected_outputs`. Missing, extra, reordered, or
+contradictory row/identity/carrier carriage fails before provider preparation.
+A completed checkpoint is reusable only if both contracts committed at the
+original boundary; compatible reuse does not execute the provider again, while
+v1/v2 or projected-contract drift is program drift.
+
+The closed Q2 diagnostics are:
+
+- `prompt_output_positions_require_dsl_2_21`;
+- `prompt_output_position_syntax_invalid`;
+- `prompt_output_position_kind_invalid`;
+- `prompt_output_position_refinement_invalid`;
+- `prompt_output_position_fill_invalid`;
+- `prompt_output_position_contract_collision`;
+- `prompt_output_position_destination_collision`; and
+- `prompt_output_position_contract_mismatch`.
+
+Destination collision is a preparation-time, pre-provider diagnostic whenever
+runtime substitution is required; the compiler may emit it earlier only for
+statically proven literal collisions. Contract mismatch is validated at the
+carrier boundary where the mismatch becomes observable.
+
+Slot-tail recognition first detects `:out`. Below target 2.21 its target gate
+precedes legacy Q1 tail/refinement rejection. At target 2.21 or later, modifier
+multiplicity/placement and the `:path` requirement precede ordinary Q1
+duplicate-slot, kind, refinement, and placeholder checks on the normalized
+slot, followed by Q2 output-refinement validation. Module resolution then
+precedes application discharge; Q1 fill type/renderer checks precede Q2
+output-fill compatibility; return compatibility precedes collision and
+identity/carrier validation; runtime checks remain last. Slots without `:out`
+retain exact Q1 precedence and diagnostics.
+Runtime failures reuse existing expected-output violations such as
+`invalid_output_path` and `missing_output_file`, now with the Q2 fill and slot
+source subjects.
+
+The first consumer is
+`workflows/examples/review_revise_design_docs.orc`:
+`review-design-doc.review_report_target_path` becomes
+`:path :out ReviewReportTargetPath` and remains filled by
+`inputs.review_report_target_path`. The existing `ReviewDecision` remains
+structured authority. Consumer E2E must prove the filled path drives rendering
+and required-file validation, the returned review path is the intended same
+path, and clean/resumed execution performs one provider call. Q2 does not infer
+a general correspondence between output slots and arbitrary result fields.
+
+Q2 excludes arbitrary file content schemas, optional files, directories, globs,
+dynamic output names or sets, call-site overrides, implicit result-field
+mapping, new runtime channels, and any change to Q1-only identities or behavior.
 
 ## 23. Command Result
 
@@ -4289,6 +4477,82 @@ overlays, diagnostic recovery, type sidecars, general compile caching, or
 incremental compilation. L1 authored symbols and callable signatures are the
 next language-server roadmap gate; they are not part of L0.
 
+### Accepted L1 Authored Symbol And Completion Compatibility
+
+This L1 contract is accepted after `L1_DESIGN_SPEC_APPROVED` then
+`L1_DESIGN_QUALITY_APPROVED`. It is not implemented by this specification text,
+and it does not change the implemented v1 or L0 status.
+
+The compiler, not the language server, must derive one closed original-syntax
+symbol projection from each `ResolvedModuleSource.syntax_module`. Each row is:
+
+```text
+(kind, name, definition_span, selection_span, source_ordinal)
+```
+
+The admitted kinds are `module`, `procedure`, `workflow`, `enum`, `path`,
+`record`, `union`, `schema`, `resource`, and `transition`. Every directly
+authored row must match exactly one same-kind definition in the successful
+compiled module; missing, duplicate, kind/name-mismatched, or span-ambiguous
+rows fail index construction. Expanded/generated definitions without a direct
+original-syntax row, specialized procedures/workflows, and generated local
+procedures are excluded rather than treated as missing authored rows. The LSP
+must not read or parse source text, classify syntax independently, strip names
+from canonical identities, or fall back to a whole-form span.
+
+For all ten kinds, the document-symbol `range` is the complete authored
+definition span and `selectionRange` is the exact authored name-token span.
+Symbols remain in source order. Protocol presentation is exactly:
+
+| Internal kind | LSP `SymbolKind` |
+| --- | --- |
+| `module` | `Module` |
+| `procedure` | `Function` |
+| `workflow` | `Function` |
+| `enum` | `Enum` |
+| `path` | `Class` |
+| `record` | `Struct` |
+| `union` | `Enum` |
+| `schema` | `Interface` |
+| `resource` | `Object` |
+| `transition` | `Event` |
+
+Completion retains distinct `procedure`, `workflow`, and `form` internal kinds.
+Same-label cross-namespace rows coexist. Local labels come from direct authored
+definitions; imported labels are the exact
+`ModuleImportScope.procedure_bindings` and `.workflow_bindings` keys, preserving
+compiler-admitted `alias.member`, `module/member`, and `:only` unqualified
+spellings. Rows sort by `(label, kind_rank, canonical_target)`, where kind rank
+is procedure, workflow, form and a form head is its own canonical target.
+
+Details use only existing resolved signatures and renderers:
+
+```text
+procedure (<name>: <render_type_ref>, ...) -> <render_type_ref> effects <render_effect_set>
+workflow (<name>: <render_type_ref>, ...) -> <render_type_ref>
+form
+```
+
+Zero parameters render as `()`. Procedure effects are exactly
+`ProcedureSignature.declared_effects`; inferred direct/transitive summaries do
+not enter completion. Workflow effects are not inferred. Procedure and workflow
+protocol kinds remain `CompletionItemKind.Function`, and form remains
+`CompletionItemKind.Keyword`.
+
+L1 changes only the complete index of a current successful snapshot. Current
+success remains `isIncomplete=false`; dirty, pending, invalidated, failed,
+superseded, closed, configuration-stale, source/configuration-stale, and
+unassociated documents retain the implemented null/empty behavior. L2 alone
+owns recovery-safe incomplete completion. Definition freshness, P1-P5,
+nominal/type-directed filtering, hover, type-token definition, references,
+rename, signature inference, snippets, and insertion rewriting remain
+unchanged or deferred.
+
+Acceptance requires both-direction compiler-projection, exact-range,
+generated/specialized exclusion, mismatch, alias/namespace, signature/effect,
+ordering, freshness/null, and repository-real stdio LSP evidence before an
+implementation status change.
+
 ## Part XIII. CLI
 
 ## 77. Compile
@@ -5161,6 +5425,25 @@ The migrated `review-design-docs` review call is the current real consumer.
 Its fix call remains extern-backed. Q2 output positions, Q3 role-separated
 identity/comparison, and Q4 judgment views remain separate successor tranches;
 their design text is not evidence of shipped syntax.
+
+## 105.7 Accepted Prompt Output Positions
+
+Q2's independently reviewed design-amendment gate is accepted. Its minimum
+target is 2.21 and target-2.20 Q1 output remains byte-for-byte unchanged. No Q2
+syntax is available for authoring until a separately reviewed plan is
+implemented, verified, and reflected in capability/routing docs.
+
+Implementation acceptance requires parser/type/diagnostic negatives; classic
+and WCC parity through Semantic and Executable IR; exact Q1 v1 and Q2 v2
+identity tests; exact Q1 v1 carrier serialization plus v2
+carrier/`expected_outputs` pair tests; generic paired-contract admission,
+ordering, name-disjointness, and atomic failure tests; exact binding-ref/literal
+path derivation and rendered/resolved equality; pre-launch pairwise and
+structured-bundle destination-alias rejection; both-direction runtime checks
+for missing file versus invalid bundle; checkpoint/resume reuse and drift
+checks; and a real `review-design-docs` E2E. The E2E must show one authored
+target fill drives both prompt rendering and the required-file postcondition
+without weakening the prompt-owned `ReviewDecision`.
 
 ## Part XIX. Resolved Design Decisions
 

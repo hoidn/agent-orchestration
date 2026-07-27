@@ -74,7 +74,7 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | --- | --- | --- | --- | --- |
 | Q0 | Transportable `Value` prerequisite | Stage 8 complete; owner prerequisite decision recorded | accepted design; reviewed implementation plan; target-2.19 implementation with direct-root, loader, runtime, resume, classic/WCC, docs, and broad non-security evidence | complete — reviewed target-2.19 implementation and evidence gate closed at `020c6138` |
 | Q1 | Prompt core | Q0 complete; prompt-calculus design corrected and accepted | target-gated `defprompt`, imports, closed slot kinds, fully applied named fills, exact discharge/placeholder diagnostics, prompt-carried result derivation, deterministic flattening through existing prompt composition, one migrated real consumer | complete — implementation through `af45c4f1`; exact-tree gates and ordered final reviews accepted |
-| Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | next — independently reviewed design amendment precedes implementation planning |
+| Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | next — accepted design; separately reviewed implementation-plan gate next |
 | Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | blocked by Q2 |
 | Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | blocked by Q3 |
 
@@ -83,13 +83,15 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | Stage | Work | Entry condition | Completion gate | Status |
 | --- | --- | --- | --- | --- |
 | L0 | Reliability and diagnostic actionability | Gate S8 complete; current v1 behavior characterized | no-watcher `didSave` reverse invalidation, intentional structured initialization failures, visible compiler-owned notes/expansion provenance, and a content-keyed pure-projection source cache pass focused state/driver/stdio/diagnostic/cache tests plus one real stdio E2E without changing diagnostic identity | complete — reviewed implementation closes the four bounded corrections and watcher-disabled real-stdio gate |
-| L1 | Authored symbols and callable signatures | L0 complete; closed navigation/completion amendment accepted | authored type/resource/transition symbols and namespace-preserving procedure/workflow signature completion use existing compiler spans/catalogs, exclude generated shapes, and retain fail-closed freshness | next — design-amendment gate precedes implementation planning |
+| L1 | Authored symbols and callable signatures | L0 complete; closed navigation/completion amendment accepted | authored type/resource/transition symbols and namespace-preserving procedure/workflow signature completion use existing compiler spans/catalogs, exclude generated shapes, and retain fail-closed freshness | next — accepted design; separately reviewed implementation-plan gate next |
 | L2 | Recovery-safe static completion | L1 complete; two-tier completion amendment accepted | dirty/pending/invalidated/failed open entries receive only deterministic compiler-registry form heads as an incomplete list; stale callables remain closed and stale/closed/unassociated entries remain empty | blocked by L1 |
 | L3 | Per-source entry selection | L2 complete; immutable initialization-schema amendment accepted; compile-path reentrancy proven (substrate MR-4 complete, or an equivalent accepted reentrancy fixture) | one canonical workspace process can select an exported workflow for a named application source while compiling library entries with no selection, with exact CLI request parity and restart semantics | blocked by L2 |
 | L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and a diagnostic-currentness policy are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | blocked by L3 |
 
 The Q-series stages execute in Q-table order. Q0 and Q1 are complete; Q2's
-design-amendment gate is next. L0 is complete and L1 is the next L-series gate.
+design is accepted and its separately reviewed implementation-plan gate is
+next. L0 is complete; L1's design is accepted and its separately reviewed
+implementation-plan gate is next.
 The L-series is an owner-selected
 priority queue rather than a
 claim that every adjacent stage has a compiler dependency on its predecessor;
@@ -117,8 +119,8 @@ definition, and this roadmap absorbs no substrate work.
 **Status:** complete. The reviewed implementation and its focused,
 classic/WCC, runtime, resume, normative, routing, broad non-security evidence,
 failure classification, and exact staged-tree reviews are recorded in the
-implementation selector below. Q1's accepted design now routes to its
-implementation-plan gate, not directly to implementation.
+implementation selector below. Q1 subsequently completed through its own
+reviewed implementation-plan and implementation gates.
 
 Authority target:
 `docs/design/workflow_lisp_transportable_value_type.md`.
@@ -182,6 +184,10 @@ fragments without changing provider result authority or runtime behavior.
 Authority target: an independently reviewed Q2 amendment to
 `docs/design/workflow_lisp_prompt_calculus.md`, committed before the Q2
 implementation plan.
+
+**Status:** accepted after ordered independent
+`Q2_DESIGN_SPEC_REAPPROVED` then `Q2_DESIGN_QUALITY_APPROVED`; the separately
+reviewed implementation-plan gate is next.
 
 Q2 owns only the `:path :out` delta. The declaration that instructs the
 provider to write a path and the runtime postcondition checking that path must
@@ -279,6 +285,10 @@ analysis, and runtime debugging are not part of L0.
 Authority target: an accepted closed-matrix amendment to
 `docs/design/workflow_lisp_language_server.md`, reflected in the frontend
 specification before the implementation plan.
+
+**Status:** accepted after ordered independent `L1_DESIGN_SPEC_APPROVED` then
+`L1_DESIGN_QUALITY_APPROVED`; the separately reviewed implementation-plan gate
+is next.
 
 L1 may expose only compiler-retained authored structure:
 

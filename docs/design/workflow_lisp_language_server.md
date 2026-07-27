@@ -5,7 +5,9 @@
 - **Owner:** Workflow Lisp frontend (tooling consumer)
 - **Reviewers:** independent specification rereview
   `STAGE8_DESIGN_SPEC_APPROVED`, then independent quality rereview
-  `STAGE8_DESIGN_QUALITY_APPROVED` (2026-07-25)
+  `STAGE8_DESIGN_QUALITY_APPROVED` (2026-07-25); L1 independent specification
+  review `L1_DESIGN_SPEC_APPROVED`, then independent quality review
+  `L1_DESIGN_QUALITY_APPROVED` (2026-07-26)
 - **Created:** 2026-07-13
 - **Last material update:** 2026-07-26
 - **Review history:** earlier design and quality changes-required rounds,
@@ -40,7 +42,8 @@
   lives in `docs/workflow_lisp_language_server_setup.md`. The bounded L0
   reliability/actionability successor is also implemented under
   `docs/plans/2026-07-26-workflow-lisp-language-server-l0-implementation-plan.md`;
-  L1 is the next language-server roadmap gate.
+  L1 has an accepted design amendment and routes next to a separately reviewed
+  implementation-plan gate.
 
 ## Summary
 
@@ -1202,8 +1205,179 @@ observation, unsaved-buffer analysis, multi-diagnostic recovery, full
 `form_path` rendering, and runtime debugging remain excluded.
 
 The accepted boundary is implemented. L1 authored symbols and callable
-signatures are the next routed language-server design gate; this closure does
-not pre-implement that surface.
+signatures have an accepted design and route next to a separately reviewed
+implementation-plan gate; this closure does not pre-implement that surface.
+
+## Accepted L1 Authored Symbols And Callable Signatures Amendment
+
+**Amendment status:** accepted after independent specification review
+`L1_DESIGN_SPEC_APPROVED` and independent quality review
+`L1_DESIGN_QUALITY_APPROVED`; not implemented. Nothing in this section is
+implemented by its presence in the design. The implemented v1 and L0 status
+above remains unchanged.
+
+L1 extends only the successful-snapshot navigation index. It does not add a
+parser, source-text classifier, partial AST, hover surface, reference graph,
+rename operation, type-directed completion, or new freshness authority.
+
+### Compiler-Owned Authored Symbol Projection
+
+The compiler owns one closed original-syntax projection over each
+`ResolvedModuleSource.syntax_module`. The projection emits immutable rows with
+exactly:
+
+```text
+(kind, name, definition_span, selection_span, source_ordinal)
+```
+
+The admitted `kind` values are `module`, `procedure`, `workflow`, `enum`,
+`path`, `record`, `union`, `schema`, `resource`, and `transition`. The
+projection uses only compiler-retained original syntax and compiler-owned
+syntax/definition helpers. It does not read source text, ask the LSP to parse
+or classify a form, or inspect expanded syntax as authored provenance.
+
+For every directly authored original-syntax row, the compiler must find exactly
+one matching definition in the successful compiled module:
+
+- `module` matches the compiled module identity;
+- `procedure` and `workflow` match their separate compiler catalogs; and
+- `enum`, `path`, `record`, `union`, `schema`, `resource`, and `transition`
+  match their corresponding compiled semantic definition collections.
+
+A missing, multiply matching, kind-mismatched, name-mismatched, or
+span-ambiguous direct row fails index construction. There is no whole-form,
+same-spelled-name, or expanded-node fallback. Conversely, a compiled definition
+introduced only by expansion or generation has no direct original-syntax row
+and is deliberately excluded; its absence is not an index error. Specialized
+procedures/workflows and compiler-generated local procedures remain excluded
+by their existing compiler markers. The compiler projection may add the
+minimal metadata needed to retain an exact authored definition-name token, but
+the LSP may not reconstruct that token from text.
+
+Each document symbol uses:
+
+- `range = definition_span`, the complete authored definition form; and
+- `selectionRange = selection_span`, the exact authored name token.
+
+This applies uniformly to all ten admitted kinds. A missing or invalid
+selection span omits no individual best-effort answer: it fails the index
+closed. Symbols are returned in `(definition_span.start.offset,
+source_ordinal)` order. Their protocol presentation is fixed:
+
+| Internal kind | LSP `SymbolKind` |
+| --- | --- |
+| `module` | `Module` |
+| `procedure` | `Function` |
+| `workflow` | `Function` |
+| `enum` | `Enum` |
+| `path` | `Class` |
+| `record` | `Struct` |
+| `union` | `Enum` |
+| `schema` | `Interface` |
+| `resource` | `Object` |
+| `transition` | `Event` |
+
+This table is presentation, not a nominal subtype hierarchy. L1 still does not
+add go-to-definition for type tokens, schemas, resources, transitions, fields,
+variants, or arbitrary identifiers. Existing exact direct procedure/workflow
+call-head definition behavior is unchanged.
+
+### Namespace-Preserving Completion Rows
+
+Completion rows have three distinct internal kinds: `procedure`, `workflow`,
+and `form`. A procedure and workflow with the same visible label are two
+completion items, not one merged callable. A form with the same label is also a
+separate form item.
+
+Callable labels come only from:
+
+- directly authored local procedure/workflow definitions; and
+- the exact keys in the current module's corresponding
+  `ModuleImportScope.procedure_bindings` or
+  `ModuleImportScope.workflow_bindings`.
+
+Thus compiler-admitted `alias.member`, `module/member`, and `:only`
+unqualified spellings are preserved exactly. The LSP must not derive a visible
+label by stripping a canonical catalog key, invent an alias, or union the two
+callable namespaces. Each callable row retains its compiler canonical target
+solely for signature lookup and deterministic ordering. Form labels remain the
+exact registered form heads, with the form head itself as their canonical
+target. The complete list is sorted by:
+
+```text
+(label, kind_rank, canonical_target)
+```
+
+where `kind_rank` is `procedure`, then `workflow`, then `form`.
+
+Completion detail is a deterministic view of existing compiler signatures:
+
+```text
+procedure (<name>: <render_type_ref>, ...) -> <render_type_ref> effects <render_effect_set>
+workflow (<name>: <render_type_ref>, ...) -> <render_type_ref>
+form
+```
+
+Zero parameters render as `()`. Procedure details use
+`ProcedureSignature.params`, `ProcedureSignature.return_type_ref`, and
+`ProcedureSignature.declared_effects`, rendered only through
+`render_type_ref` and `render_effect_set`. They do not use direct or transitive
+inferred effect summaries. Workflow details use only
+`WorkflowSignature.params` and `WorkflowSignature.return_type_ref`; L1 does not
+infer or display workflow effects. Form rows have no invented signature.
+Procedure and workflow protocol kinds remain `CompletionItemKind.Function`;
+form remains `CompletionItemKind.Keyword`. The distinct internal kind and
+detail preserve same-label namespace identity without assigning a misleading
+protocol category.
+
+### Freshness, Failure, And Deferred Work
+
+The existing successful-snapshot preflight remains the sole availability
+authority. A current successful snapshot returns the complete L1 list with
+`isIncomplete=false`. Dirty, pending, dependency-invalidated,
+language-failed, server-failed, superseded, closed, configuration-stale,
+source/configuration-stale, or unassociated documents retain the implemented
+v1 null/empty behavior; no last-good symbol or callable row is served as
+current. Index-construction failure also returns null/empty through the
+existing internal-failure boundary.
+
+L2 alone owns recovery-safe incomplete completion. L1 does not expose form-head
+completion for failed or dirty documents and does not change definition or
+document-symbol freshness. P1-P5, nominal filtering, arbitrary-expression
+hover, type-token definition, references, rename, signature inference,
+snippets, and callable insertion rewriting remain deferred.
+
+### L1 Design Verification And Implementation Surface
+
+Acceptance requires both-direction evidence for:
+
+- all ten directly authored document-symbol kinds, exact full/selection spans,
+  protocol mappings, and cross-kind source order;
+- exclusion of expansion-only/generated definitions, specialized callables,
+  generated local procedures, and ambiguous or mismatched projection rows;
+- a failing cross-check for every missing, duplicate, kind, name, and exact-span
+  mismatch, with no LSP text-parsing fallback;
+- distinct same-label procedure/workflow/form rows;
+- local labels and every compiler-admitted qualified, canonical-module, and
+  `:only` import-scope key, with exact deterministic ordering;
+- zero-, one-, and multiple-parameter procedure/workflow details, nested
+  resolved types, empty/nonempty declared procedure effects, and proof that
+  inferred/transitive effects do not enter detail;
+- unchanged current-success, dirty, pending, invalidated, failed, stale,
+  closed, and unassociated response behavior; and
+- one repository-real stdio LSP check in addition to compiler-projection,
+  navigation, server, and integration tests.
+
+The likely carrier and implementation owners are the compiler definition or a
+small compiler-owned authored-symbol projection module,
+`orchestrator/lsp/navigation.py`, and `orchestrator/lsp/server.py`. Owning
+evidence belongs in compiler definition/projection tests,
+`tests/test_workflow_lisp_lsp_navigation.py`,
+`tests/test_workflow_lisp_lsp_integration.py`,
+`tests/test_workflow_lisp_lsp_stdio.py`, and
+`tests/test_workflow_lisp_lsp_e2e.py`. The accepted amendment routes next to a
+separately reviewed implementation plan that must select exact files before
+any production change.
 
 ## Verification Strategy
 

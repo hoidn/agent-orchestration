@@ -1,11 +1,17 @@
 # Workflow Lisp Prompt Calculus
 
-- **Status:** accepted Q1 design (independent specification and quality review
-  approved 2026-07-26)
+- **Status:** accepted and implemented Q1 design; accepted Q2 design amendment,
+  implementation plan pending
 - **Kind:** language design — typed, compositional provider prompts
 - **Owner:** Workflow Lisp frontend plus the existing provider prompt pipeline
-- **Selected tranche:** Q1 prompt core only
-- **Minimum target:** `(:target-dsl "2.20")`
+- **Selected tranches:** Q1 prompt core is implemented; Q2 output positions
+  have an accepted design and route next to a separately reviewed
+  implementation-plan gate
+- **Minimum targets:** Q1 `(:target-dsl "2.20")`; accepted Q2 additive syntax
+  `(:target-dsl "2.21")`
+- **Q2 design reviews:** independent specification rereview
+  `Q2_DESIGN_SPEC_REAPPROVED`, then independent quality review
+  `Q2_DESIGN_QUALITY_APPROVED` (2026-07-26)
 - **Related docs:**
   - `docs/design/workflow_lisp_frontend_specification.md`
   - `docs/design/workflow_lisp_transportable_value_type.md`
@@ -494,5 +500,344 @@ The implementation plan must include TDD coverage for:
   resume adjacency; and
 - the repository broad non-security comparison.
 
-Q1 design acceptance does not select implementation. A reviewed implementation
-plan remains the next gate.
+Q1 is implemented through the reviewed plan recorded in the active roadmap.
+The accepted Q2 amendment below does not select implementation; a separately
+reviewed Q2 implementation plan remains required.
+
+## Accepted Q2 Amendment: Output-Position Slots
+
+**Status:** accepted after independent specification rereview
+`Q2_DESIGN_SPEC_REAPPROVED` and independent quality review
+`Q2_DESIGN_QUALITY_APPROVED`; not implemented. This section is not authoring
+or implementation evidence. Q2 is an additive target-2.21 surface.
+Target-2.20 parsing, compilation, identity bytes, runtime behavior, and resume
+compatibility remain exactly the implemented Q1 behavior above.
+
+Q2 adds only an output role to a rendered path slot:
+
+```lisp
+(defprompt review-design-doc
+  (:fills
+    (target_doc :doc DesignDocPath)
+    (review_report_target_path :path :out ReviewReportTargetPath))
+  -> ReviewDecision
+  "Review the injected document.
+   Write the review to {review_report_target_path}.")
+```
+
+The closed slot grammar becomes:
+
+```text
+(slot-name :doc [PathType])
+(slot-name :text)
+(slot-name :value [Type])
+(slot-name :path [PathType])
+(slot-name :path :out [PathType])  ; target 2.21+
+```
+
+`:out` is a role modifier, not a fifth kind, a type, a renderer, or a
+caller-side keyword. It may occur exactly once, immediately after `:path`, and
+nowhere else. A target-2.20 module or application using it fails with
+`prompt_output_positions_require_dsl_2_21`. The modifier does not make a fill
+optional: every output-position slot remains subject to the ordinary exact
+named-fill discharge rule and placeholder rule.
+
+An output-position refinement, when present, and the resolved static type of
+its fill must each be a workspace-relative `relpath` contract with
+`must_exist=false`. This is the existing target-path shape: the file need not
+exist before provider launch, but the runtime can resolve its path inside the
+workspace before launch and require it after the attempt. Refinements continue
+to narrow only. `:out` does not create a nominal path type, convert `String` to
+a path, weaken an existing-path contract, or install a renderer. An unrefined
+`:path :out` admits only a fill already carrying that same workspace-relative,
+non-existing-target path structure.
+
+### One Authored Path Contract
+
+The declaration slot and its one fill are the sole authoring authority for all
+of these:
+
+1. the placeholder name and POSIX path-line rendering in the fragment;
+2. the runtime path template resolved from the fill;
+3. one compiler-projected required file postcondition; and
+4. source ownership for compile-time and runtime diagnostics.
+
+Neither `provider-result` nor the caller may redeclare or override the output
+name, path, type, requiredness, delivery mode, or postcondition. A fragment
+application with an output-position slot projects exactly this ordinary
+`expected_outputs` row onto the provider step:
+
+```json
+{
+  "name": "<slot-name>",
+  "path": "<resolved-fill-template>",
+  "type": "string",
+  "required": true
+}
+```
+
+The row is compiler-owned. Its `name` comes from the slot, and its `path` comes
+from the same normalized Q1 runtime binding source that supplies the
+placeholder. One compiler helper derives both consumers: an exact frozen
+`{"ref": R}` binding becomes the runtime template `${R}`, while an admitted
+string-literal binding becomes that exact validated literal value. No source
+spelling, AST `repr`, or second path reconstruction is permitted. Before
+provider launch, the typed value resolved for POSIX path-line rendering and the
+resolved `expected_outputs.path` must be the same canonical workspace-relative
+POSIX path; disagreement is contract mismatch. The implementation may carry
+source-map metadata beside or within the internal row, but no second authored
+path or output declaration exists. The primary runtime source owner is the fill
+expression that selected the concrete path; the slot declaration and its
+`:out` token are related origins.
+
+`type: string` means Q2 verifies one required UTF-8 file at that exact path and
+records its content under the slot name. The path slot's static contract owns
+workspace-relative resolution and containment; the generated expected-output
+row owns post-attempt existence and string-file validation. Q2 does not infer a
+content schema from prose or from the prompt result type.
+
+The first consumer is the implemented review half of
+`workflows/examples/review_revise_design_docs.orc`.
+`review-design-doc.review_report_target_path` changes from
+`:path ReviewReportTargetPath` to
+`:path :out ReviewReportTargetPath`. Its fill remains
+`inputs.review_report_target_path`; the generated output name is
+`review_report_target_path`; and the existing `ReviewDecision` remains the sole
+structured result contract. The consumer E2E must prove that the provider
+writes the required report at the filled path and returns the intended same
+path in `ReviewDecision.review_report`. Q2 does not infer a general mapping
+between output slots and arbitrary path-valued result fields.
+
+### Required Generic Output-Contract Composition
+
+The current generic owners assume one output-contract surface:
+
+- `orchestrator/workflow/validation.py`, in the declared-output-contract
+  exclusivity check and `_validate_expected_outputs`, validates authored step
+  combinations and expected-output rows;
+- `orchestrator/workflow/prompting.py`,
+  `PromptComposer.apply_output_contract_prompt_suffix`, currently selects only
+  one of `expected_outputs`, `output_bundle`, or `variant_output`;
+- `orchestrator/workflow/executor.py`,
+  `WorkflowExecutor._resolve_output_contract_paths` and
+  `_apply_expected_outputs_contract`, resolves and validates only one selected
+  contract and then attaches its artifacts;
+- `orchestrator/contracts/output_contract.py`,
+  `validate_expected_outputs`, `validate_output_bundle`, and
+  `validate_variant_output_bundle`, owns the actual file and structured-bundle
+  checks; and
+- `orchestrator/workflow/surface_ast.py`,
+  `orchestrator/workflow/semantic_ir.py`,
+  `orchestrator/workflow/executable_ir.py`,
+  `orchestrator/workflow/lowering.py`,
+  `orchestrator/workflow/elaboration.py`, and
+  `orchestrator/workflow/runtime_step.py` carry the existing
+  `expected_outputs` and structured-result contracts into runtime.
+
+Q2 requires a generic correction in those owners. It is not a
+review-consumer special case:
+
+1. shared validation admits `expected_outputs` together with exactly one of
+   `output_bundle` or `variant_output`;
+2. `output_bundle` plus `variant_output`, either structured contract plus
+   `select_variant_output`, `expected_outputs` plus `select_variant_output`, or
+   any other multi-contract combination remains rejected;
+3. provider prompt completion renders both generated contract blocks exactly
+   once, in fixed output-position-then-structured-result order;
+4. after a successful provider process, the runtime resolves the paths and
+   validates both contracts in that same deterministic order before exposing
+   either artifact mapping;
+5. failure of either contract produces one failed step and commits no artifacts
+   from either contract to state; this atomicity does not roll back files the
+   provider already wrote;
+6. on joint success, the runtime merges the two artifact mappings only when
+   their names are disjoint; and
+7. a collision between an expected-output name and any possible structured
+   bundle field name fails before provider launch, with both source owners; and
+8. after path resolution but before provider launch, output-position
+   destinations must be pairwise distinct and disjoint from the resolved
+   structured-result bundle path. Aliasing fails with the colliding fill
+   origins and the structured-result/provider-application origin as
+   appropriate, even when artifact names differ.
+
+The compiler projects output-position rows through
+`orchestrator/workflow_lisp/prompts.py` (`PromptSlot`, `_parse_slots`, prompt
+typechecking, and `_compiled_identity_projection`) and
+`orchestrator/workflow_lisp/lowering/phase_scope.py`
+(`_build_compiler_prompt_fragment_contract`), then installs them on the provider
+step in
+`orchestrator/workflow_lisp/lowering/effects.py`
+(`_lower_provider_result_operation`). Classic and WCC lowering must produce the
+same declaration-ordered rows, identities, source-map subjects, and executable
+contracts. Generic IR validators must reject missing, extra, reordered,
+unpaired, or caller-authored substitutes.
+
+### Identity, Checkpoint, And Resume
+
+A fragment application with no output-position slot continues to use
+`compiled_prompt_fragment_identity.v1` with byte-identical canonical input and
+digest at targets 2.20 and 2.21. Merely compiling Q1 source under target 2.21
+does not upgrade its identity.
+
+An application containing one or more output-position slots uses
+`compiled_prompt_fragment_identity.v2`. Its canonical projection is the Q1
+projection with:
+
+- `schema_version` set to `compiled_prompt_fragment_identity.v2`; and
+- an `output_role` on every declaration slot, exactly `required_string_file`
+  for `:path :out` and `none` otherwise.
+
+The existing slot name, kind, refinement, placeholder policy, fill-expression
+identity, return contract, and array ordering remain unchanged. The v2 digest
+therefore distinguishes a render-only `:path` from the same slot with a
+post-attempt obligation without perturbing Q1-only identities.
+
+Q2 also introduces `compiler_prompt_fragment_contract.v2` as the inspectable
+runtime carrier for a v2 identity. The v1 carrier type and canonical
+serialization remain byte-for-byte unchanged and admit no output-position
+rows. The v2 carrier retains the v1 template and rendered-slot fields and adds
+one closed, declaration-ordered `output_positions` array. Each row is the exact
+slot-role binding plus its exact compiler-projected `expected_outputs` object:
+
+```json
+{
+  "slot_name": "<slot-name>",
+  "output_role": "required_string_file",
+  "expected_output": {
+    "name": "<slot-name>",
+    "path": "<resolved-fill-template>",
+    "type": "string",
+    "required": true
+  }
+}
+```
+
+The v2 carrier validator requires at least one row, unique names, exact keys,
+the sole `required_string_file` role, nested `type=string`,
+nested `required=true`, and a unique declaration-relative-order correspondence
+with the subset of rendered `kind=path` slots whose normalized role is
+`required_string_file`. Ordinary rendered path slots with `output_role=none`
+have no row. Compiler construction must feed both the v2 identity slot
+projection and the carrier row from one normalized slot-role record, prove
+every normalized output-role slot has exactly one row, and never reconstruct
+either copy independently. A v2 contract is invalid if a projected row names no
+rendered path slot or if an output-role slot has no row. At every Core,
+Semantic IR, Executable IR, persisted configuration, checkpoint, and runtime
+boundary, a dedicated pair validator compares the carrier's nested
+`expected_output` objects exactly, in order, with the provider configuration's
+`expected_outputs`; missing, extra, reordered, or unequal rows fail before
+provider preparation. Runtime therefore reads an explicit validated role
+carrier and does not infer output role from the opaque digest.
+
+The v1-or-v2 identity, its matching v1-or-v2 compiler contract,
+compiler-projected expected-output rows, and their source-map subjects must
+agree through Core, Semantic IR, Executable IR, persisted provider
+configuration, checkpoint program identity, and the receiving attempt. Missing
+or mismatched Q2 carriage fails before provider preparation. A compatible
+completed checkpoint may be reused only after the original boundary committed
+both the required file postcondition and the structured result. Resume must
+not re-execute that boundary; incompatible output-role identity, carrier, or
+contract drift is ordinary program drift.
+
+### Closed Q2 Diagnostics And Precedence
+
+Q2 adds this closed diagnostic set:
+
+| Code | Refusal | Primary source owner |
+| --- | --- | --- |
+| `prompt_output_positions_require_dsl_2_21` | `:out` appears below target 2.21 | `:out` token |
+| `prompt_output_position_syntax_invalid` | `:out` is duplicated, misplaced, or followed by an invalid slot tail | offending token or slot declaration |
+| `prompt_output_position_kind_invalid` | `:out` is used with a kind other than `:path` | `:out` token; kind token is related |
+| `prompt_output_position_refinement_invalid` | an explicit refinement is not a workspace `relpath` with `must_exist=false` | refinement; `:out` token is related |
+| `prompt_output_position_fill_invalid` | the resolved fill type is not a workspace `relpath` with `must_exist=false` | fill expression; slot declaration is related |
+| `prompt_output_position_contract_collision` | projected output name collides with a structured-result artifact name | output slot; result field origin is related |
+| `prompt_output_position_destination_collision` | two resolved output destinations alias, or one aliases the structured-result bundle path | colliding fills, or fill plus structured-result/provider-application origin |
+| `prompt_output_position_contract_mismatch` | IR/runtime carriage is missing, extra, reordered, or disagrees with the fragment identity | provider application/source-map owner |
+
+`prompt_output_position_destination_collision` is a preparation-time,
+pre-provider diagnostic when any destination depends on runtime substitution.
+The compiler may emit the same code earlier only for a collision proven from
+static literal destinations. Contract mismatch remains a boundary-validation
+diagnostic rather than a promise that every carrier defect is visible during
+source typechecking.
+
+At runtime, existing expected-output violation types remain authoritative,
+including `invalid_output_path`, `missing_output_file`, and string-file
+validation failures. Their subject references must resolve to the Q2 fill and
+slot origins; Q2 does not mint duplicate runtime error names.
+
+Precedence extends Q1's order without making Q2 diagnostics unreachable:
+
+1. slot-tail token recognition identifies the presence of `:out`; when it is
+   present below target 2.21, the Q2 target gate wins over legacy Q1
+   tail/refinement rejection;
+2. at target 2.21 or later, Q2 validates modifier multiplicity and placement,
+   then the `:path` kind requirement;
+3. ordinary Q1 duplicate-slot, kind, refinement, and placeholder checks run on
+   the normalized slot, followed by Q2 output-refinement validation;
+4. module/import/export resolution;
+5. Q1 application fill names and completeness;
+6. Q1 fill type/renderer compatibility, then Q2 output-fill compatibility;
+7. return ownership and enclosing result compatibility;
+8. projected-output/structured-result name collision;
+9. v1/v2 identity, compiler-contract, and expected-output pair validation;
+10. resolved rendered-path equality and destination-alias validation before
+    launch; and
+11. existing runtime path, expected-output, structured-output, and provider
+   failures.
+
+Slots whose tails contain no `:out` retain byte-for-byte Q1 precedence and
+diagnostics.
+
+### Q2 Verification Boundary
+
+The implementation plan must require:
+
+- target-2.20 rejection and target-2.21 positive parsing for the exact grammar,
+  plus duplicate, misplaced, non-path, existing-path refinement, wrong-fill,
+  missing-fill, and caller-override negatives;
+- exact Q1 v1 identity bytes at both targets and v2 identity sensitivity to
+  `output_role`, plus byte-identical v1 compiler-contract serialization and
+  both-direction v2 carrier/`expected_outputs` pair validation;
+- classic/WCC parity for the projected expected-output row, source-map subjects,
+  prompt fragment contract, result contract, Semantic IR, Executable IR,
+  persisted configuration, and checkpoint identity;
+- generic validation tests that admit only
+  `expected_outputs + output_bundle` and
+  `expected_outputs + variant_output`, reject every other multi-contract
+  combination, and reject artifact-name overlap;
+- exact derivation tests for binding refs and path literals, plus both-direction
+  proof that the path rendered into the prompt equals the resolved
+  `expected_outputs.path`;
+- pre-launch rejection of pairwise output-position destination aliasing and of
+  aliasing with either structured-result bundle shape, even under distinct
+  artifact names;
+- prompt-composition tests proving one output-position block followed by one
+  structured-result block;
+- both-direction runtime tests: required file plus valid bundle succeeds;
+  missing required file plus valid bundle fails; required file plus invalid or
+  missing bundle fails; and neither failure publishes a partial artifact map;
+- first-consumer E2E proving the one authored report-target fill drives prompt
+  rendering and the required-file postcondition, the `ReviewDecision` remains
+  authoritative, and the clean/resumed provider boundary executes once;
+- checkpoint/resume tests proving compatible reuse and rejecting Q1/Q2 identity
+  or projected-contract drift;
+- genericity scans excluding consumer/module/provider names from compiler and
+  runtime machinery; and
+- the repository's broad non-security comparison followed by ordered
+  specification and quality review.
+
+### Explicit Q2 Non-Goals
+
+Q2 adds no:
+
+- arbitrary file content type or content schema beyond required UTF-8 string;
+- optional output, directory output, glob, dynamic output name, or output set;
+- call-site output declaration, override, weakening, or delivery-mode switch;
+- implicit mapping from output slots to result fields;
+- new result, artifact, snapshot, checkpoint, or runtime channel;
+- change to Q1-only rendering, identity bytes, evidence schema, or resume; or
+- security/provider-isolation behavior.
+
+The accepted amendment routes next to a separately reviewed Q2 implementation
+plan; production changes remain forbidden until that plan gate closes.
