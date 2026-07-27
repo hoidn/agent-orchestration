@@ -38,6 +38,22 @@ def _fail(code: str) -> None:
     raise PilotControllerError(code)
 
 
+def _calibration_session_ledger(
+    review_apparatus: Mapping[str, object],
+) -> set[str]:
+    calibration_session_ids = review_apparatus.get("calibration_session_ids")
+    if (
+        not isinstance(calibration_session_ids, frozenset)
+        or not calibration_session_ids
+        or any(
+            not isinstance(item, str) or not item
+            for item in calibration_session_ids
+        )
+    ):
+        _fail("live_reviewer_session_ledger_invalid")
+    return set(calibration_session_ids)
+
+
 def _locked_ids(lock: Mapping[str, object]) -> tuple[str, tuple[str, ...]]:
     smoke_id = lock.get("smoke_id")
     live_ids = lock.get("live_attempt_ids")
@@ -404,14 +420,7 @@ def execute_pilot(
             packages[live_ids[index]] = prepared
             valid_count += 1
 
-    used_session_ids = set()
-    if isinstance(review_apparatus, Mapping):
-        locked_used = review_apparatus.get(
-            "calibration_session_ids",
-            review_apparatus.get("used_session_ids", ()),
-        )
-        if isinstance(locked_used, (set, list, tuple)):
-            used_session_ids.update(str(item) for item in locked_used)
+    used_session_ids = _calibration_session_ledger(review_apparatus)
     reviews: list[dict[str, object]] = []
     reviews_by_block: dict[str, list[dict[str, object]]] = {}
     reviewer_ids = lock.get("review", {}).get("reviewer_ids")

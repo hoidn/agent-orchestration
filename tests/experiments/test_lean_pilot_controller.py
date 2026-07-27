@@ -57,6 +57,30 @@ def _attempt(
     }
 
 
+def _terminal_denominator(
+    lock: dict[str, Any],
+) -> tuple[dict[str, Any], ...]:
+    return (
+        _attempt(
+            lock,
+            "smoke",
+            status="VALID",
+            attempt_class="SMOKE",
+            sequence_index=0,
+        ),
+        *(
+            _attempt(
+                lock,
+                f"live-{index}",
+                status="VALID",
+                attempt_class="LIVE",
+                sequence_index=index - 1,
+            )
+            for index in range(1, 4)
+        ),
+    )
+
+
 def _write_attempt(
     evidence_root: Path,
     attempt: dict[str, Any],
@@ -183,7 +207,9 @@ def test_execute_runs_smoke_then_minimal_live_prefix_and_reviews_after_collectio
     monkeypatch.setattr(
         controller,
         "validate_live_reviewer_apparatus",
-        lambda **_kwargs: {"used_session_ids": set()},
+        lambda **_kwargs: {
+            "calibration_session_ids": frozenset({"calibration-session"})
+        },
     )
     monkeypatch.setattr(controller, "run_live_review_slot", fake_review)
     monkeypatch.setattr(
@@ -228,6 +254,206 @@ def test_execute_runs_smoke_then_minimal_live_prefix_and_reviews_after_collectio
     assert len(
         [event for event in events if event.startswith("review:")]
     ) == 6
+
+
+def test_terminal_denominator_reuses_blocks_and_accumulates_strict_session_ledger(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence_root = (tmp_path / "evidence").resolve()
+    evidence_root.mkdir()
+    lock = _lock(evidence_root)
+    attempts = _terminal_denominator(lock)
+    calibration_sessions = frozenset(
+        {"calibration-session-1", "calibration-session-2"}
+    )
+    run_calls = 0
+    review_order: list[tuple[str, str]] = []
+    observed_ledgers: list[frozenset[str]] = []
+    live_sessions: list[str] = []
+
+    monkeypatch.setattr(controller, "validate_record", lambda value: None)
+    monkeypatch.setattr(
+        controller,
+        "load_attempt_prefix",
+        lambda **_kwargs: attempts,
+    )
+
+    def fail_if_run(**_kwargs: Any) -> object:
+        nonlocal run_calls
+        run_calls += 1
+        pytest.fail("terminal denominator must not launch another block")
+
+    def fake_package(**kwargs: Any) -> dict[str, object]:
+        block_id = kwargs["attempt"]["block_id"]
+        return {
+            "package_id": block_id,
+            "package_root": tmp_path / "packages" / block_id,
+        }
+
+    def fake_review(**kwargs: Any) -> dict[str, object]:
+        expected_ledger = set(calibration_sessions) | set(live_sessions)
+        assert kwargs["used_session_ids"] == expected_ledger
+        observed_ledgers.append(frozenset(kwargs["used_session_ids"]))
+        review_order.append((kwargs["block_id"], kwargs["reviewer_id"]))
+        session_id = f"live-session-{len(live_sessions) + 1}"
+        live_sessions.append(session_id)
+        return {
+            "block_id": kwargs["block_id"],
+            "reviewer_id": kwargs["reviewer_id"],
+            "session_id": session_id,
+        }
+
+    monkeypatch.setattr(controller, "run_block", fail_if_run)
+    monkeypatch.setattr(
+        controller,
+        "prepare_or_load_block_package",
+        fake_package,
+    )
+    monkeypatch.setattr(
+        controller,
+        "validate_live_reviewer_apparatus",
+        lambda **_kwargs: {
+            "calibration_session_ids": calibration_sessions
+        },
+    )
+    monkeypatch.setattr(controller, "run_live_review_slot", fake_review)
+    monkeypatch.setattr(
+        controller,
+        "publish_review_bindings",
+        lambda **_kwargs: tmp_path / "review-bindings.json",
+    )
+    monkeypatch.setattr(
+        controller,
+        "publish_unblinding_bindings",
+        lambda **_kwargs: tmp_path / "unblinding-bindings.json",
+    )
+
+    result = controller.execute_pilot(
+        lock=lock,
+        work_root=(tmp_path / "work").resolve(),
+        evaluation_root=(tmp_path / "evaluation").resolve(),
+        package_root=(tmp_path / "packages").resolve(),
+        reviewer_environment_path=_reviewer_environment(tmp_path),
+    )
+
+    assert run_calls == 0
+    assert review_order == [
+        (f"live-{block_index}", f"reviewer-{reviewer_index}")
+        for block_index in range(1, 4)
+        for reviewer_index in range(1, 3)
+    ]
+    assert observed_ledgers == [
+        calibration_sessions | frozenset(live_sessions[:index])
+        for index in range(6)
+    ]
+    assert result["attempt_ids"] == [
+        "smoke",
+        "live-1",
+        "live-2",
+        "live-3",
+    ]
+    assert result["valid_live_block_ids"] == [
+        "live-1",
+        "live-2",
+        "live-3",
+    ]
+
+
+@pytest.mark.parametrize(
+    "review_apparatus",
+    [
+        pytest.param({}, id="missing"),
+        pytest.param(
+            {"calibration_session_ids": {"calibration-session"}},
+            id="mutable-set",
+        ),
+        pytest.param(
+            {"calibration_session_ids": ["calibration-session"]},
+            id="mutable-list",
+        ),
+        pytest.param(
+            {"calibration_session_ids": ("calibration-session",)},
+            id="tuple",
+        ),
+        pytest.param(
+            {"calibration_session_ids": frozenset()},
+            id="empty",
+        ),
+        pytest.param(
+            {
+                "calibration_session_ids": frozenset(
+                    {"calibration-session", 1}
+                )
+            },
+            id="non-string",
+        ),
+        pytest.param(
+            {"calibration_session_ids": frozenset({""})},
+            id="empty-string",
+        ),
+    ],
+)
+def test_invalid_calibration_session_collection_fails_before_review(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    review_apparatus: dict[str, object],
+) -> None:
+    evidence_root = (tmp_path / "evidence").resolve()
+    evidence_root.mkdir()
+    lock = _lock(evidence_root)
+    attempts = _terminal_denominator(lock)
+    review_calls = 0
+
+    monkeypatch.setattr(controller, "validate_record", lambda value: None)
+    monkeypatch.setattr(
+        controller,
+        "load_attempt_prefix",
+        lambda **_kwargs: attempts,
+    )
+    monkeypatch.setattr(
+        controller,
+        "run_block",
+        lambda **_kwargs: pytest.fail(
+            "terminal denominator must not launch another block"
+        ),
+    )
+    monkeypatch.setattr(
+        controller,
+        "prepare_or_load_block_package",
+        lambda **kwargs: {
+            "package_id": kwargs["attempt"]["block_id"],
+            "package_root": (
+                tmp_path / "packages" / kwargs["attempt"]["block_id"]
+            ),
+        },
+    )
+    monkeypatch.setattr(
+        controller,
+        "validate_live_reviewer_apparatus",
+        lambda **_kwargs: review_apparatus,
+    )
+
+    def fail_if_reviewed(**_kwargs: Any) -> object:
+        nonlocal review_calls
+        review_calls += 1
+        pytest.fail("invalid calibration ledger reached a reviewer")
+
+    monkeypatch.setattr(controller, "run_live_review_slot", fail_if_reviewed)
+
+    with pytest.raises(
+        controller.PilotControllerError,
+        match="live_reviewer_session_ledger_invalid",
+    ):
+        controller.execute_pilot(
+            lock=lock,
+            work_root=(tmp_path / "work").resolve(),
+            evaluation_root=(tmp_path / "evaluation").resolve(),
+            package_root=(tmp_path / "packages").resolve(),
+            reviewer_environment_path=_reviewer_environment(tmp_path),
+        )
+
+    assert review_calls == 0
 
 
 def test_failed_smoke_stops_without_live_launch_or_review(
