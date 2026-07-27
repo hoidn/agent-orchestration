@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from hashlib import sha256
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, TypeVar
+from types import MappingProxyType
+from typing import Any, Callable, Dict, Mapping, Optional, TypeVar
 
 from ..deps.content_snapshot import (
     DependencyContentSnapshot,
@@ -25,23 +27,334 @@ from ..contracts.prompt_contract import (
 from .assets import AssetResolutionError, WorkflowAssetResolver
 from .executor_runtime import RuntimeStepInput
 from .prompt_fragment_contract import (
+    CompilerPromptAttemptBindingPlan,
     CompilerPromptFragmentContract,
+    validate_compiler_prompt_attempt_binding_plan,
     validate_compiler_prompt_fragment_contract,
 )
-from .view_renderer import ViewRendererError, render_view
+from .pure_expr import canonical_json_for_pure_value
+from .view_renderer import (
+    ViewRendererError,
+    render_view,
+    view_bytes_digest,
+)
 
 
 _RenderOwner = TypeVar("_RenderOwner")
+
+
+@dataclass(frozen=True)
+class PromptFragmentRenderTraceRow:
+    """Content-free metadata for one target-2.22 rendered fragment slot."""
+
+    rendered_slot_ordinal: int
+    slot_name: str
+    renderer: Mapping[str, Any]
+    value_sha256: str
+    raw_renderer_bytes_sha256: str
+    substitution_bytes: int
+    substitution_bytes_sha256: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.rendered_slot_ordinal) is not int
+            or self.rendered_slot_ordinal < 0
+            or not isinstance(self.slot_name, str)
+            or not self.slot_name
+        ):
+            raise ValueError(
+                "prompt_attempt_binding_plan_invalid: "
+                "fragment render trace slot identity is invalid"
+            )
+        renderer = self.renderer
+        if (
+            not isinstance(renderer, Mapping)
+            or set(renderer) != {"renderer_id", "renderer_version"}
+            or not isinstance(renderer.get("renderer_id"), str)
+            or not renderer["renderer_id"]
+            or type(renderer.get("renderer_version")) is not int
+            or renderer["renderer_version"] != 1
+        ):
+            raise ValueError(
+                "prompt_attempt_binding_plan_invalid: "
+                "fragment render trace renderer is invalid"
+            )
+        object.__setattr__(
+            self,
+            "renderer",
+            MappingProxyType(dict(renderer)),
+        )
+        for field_name in (
+            "value_sha256",
+            "raw_renderer_bytes_sha256",
+            "substitution_bytes_sha256",
+        ):
+            if not _is_sha256(getattr(self, field_name)):
+                raise ValueError(
+                    "prompt_attempt_binding_plan_invalid: "
+                    f"fragment render trace {field_name} is invalid"
+                )
+        if (
+            type(self.substitution_bytes) is not int
+            or self.substitution_bytes < 0
+        ):
+            raise ValueError(
+                "prompt_attempt_binding_plan_invalid: "
+                "fragment render trace substitution length is invalid"
+            )
+
+
+@dataclass(frozen=True)
+class PromptFragmentRenderResult:
+    """One target-2.22 base prompt and its immutable one-render trace."""
+
+    rendered_base: str
+    trace: tuple[PromptFragmentRenderTraceRow, ...]
+    _trace_sha256: str = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.rendered_base, str):
+            raise TypeError(
+                "prompt fragment rendered base must be a string"
+            )
+        if not isinstance(self.trace, tuple) or any(
+            type(row) is not PromptFragmentRenderTraceRow
+            for row in self.trace
+        ):
+            raise ValueError(
+                "prompt_attempt_binding_plan_invalid: "
+                "fragment render trace must be an immutable row tuple"
+            )
+        if not _is_sha256(self._trace_sha256):
+            raise ValueError(
+                "prompt_attempt_binding_plan_invalid: "
+                "fragment render trace seal is invalid"
+            )
+
+
+def _is_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 71
+        and value.startswith("sha256:")
+        and all(character in "0123456789abcdef" for character in value[7:])
+    )
+
+
+def _trace_projection(
+    trace: tuple[PromptFragmentRenderTraceRow, ...],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "rendered_slot_ordinal": row.rendered_slot_ordinal,
+            "slot_name": row.slot_name,
+            "renderer": dict(row.renderer),
+            "value_sha256": row.value_sha256,
+            "raw_renderer_bytes_sha256": (
+                row.raw_renderer_bytes_sha256
+            ),
+            "substitution_bytes": row.substitution_bytes,
+            "substitution_bytes_sha256": (
+                row.substitution_bytes_sha256
+            ),
+        }
+        for row in trace
+    ]
+
+
+def _trace_sha256(
+    trace: tuple[PromptFragmentRenderTraceRow, ...],
+) -> str:
+    payload = json.dumps(
+        _trace_projection(trace),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return view_bytes_digest(payload)
+
+
+def prompt_fragment_transport_value_sha256(value: Any) -> str:
+    """Return the canonical transport-value digest for one fragment slot."""
+
+    if isinstance(value, str):
+        try:
+            payload = value.encode("utf-8", errors="strict")
+        except UnicodeEncodeError as exc:
+            raise ValueError(
+                "prompt fragment value is not valid UTF-8"
+            ) from exc
+    else:
+        try:
+            payload = canonical_json_for_pure_value(value).encode(
+                "utf-8",
+                errors="strict",
+            )
+        except Exception as exc:
+            raise ValueError(
+                "prompt fragment value is not transportable"
+            ) from exc
+    return f"sha256:{sha256(payload).hexdigest()}"
+
+
+def _target_supports_fragment_trace(
+    target_dsl_version: str | None,
+) -> bool:
+    if target_dsl_version is None:
+        return False
+    try:
+        parts = tuple(
+            int(part) for part in target_dsl_version.split(".")
+        )
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "target DSL version is invalid"
+        ) from exc
+    if not parts:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "target DSL version is invalid"
+        )
+    return parts >= (2, 22)
+
+
+def _validated_trace_plan_rows(
+    contract: CompilerPromptFragmentContract,
+    plan: CompilerPromptAttemptBindingPlan,
+) -> tuple[Any, ...]:
+    try:
+        validate_compiler_prompt_attempt_binding_plan(plan)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "fragment render binding plan is invalid"
+        ) from exc
+    rendered_plan_rows = tuple(
+        row for row in plan.rows if row.slot_kind != "doc"
+    )
+    if len(rendered_plan_rows) != len(contract.rendered_slots):
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "fragment render trace coverage is invalid"
+        )
+    for rendered_slot_ordinal, (plan_row, slot) in enumerate(
+        zip(
+            rendered_plan_rows,
+            contract.rendered_slots,
+            strict=True,
+        )
+    ):
+        if (
+            plan_row.slot_name != slot.name
+            or plan_row.slot_kind != slot.kind
+            or plan_row.runtime_source
+            != {
+                "kind": "rendered_slot",
+                "ordinal": rendered_slot_ordinal,
+            }
+            or plan_row.renderer
+            != {
+                "renderer_id": slot.renderer_id,
+                "renderer_version": 1,
+            }
+        ):
+            raise ValueError(
+                "prompt_attempt_binding_plan_invalid: "
+                "fragment render trace disagrees with binding plan"
+            )
+    return rendered_plan_rows
+
+
+def validate_prompt_fragment_render_trace(
+    result: PromptFragmentRenderResult,
+    *,
+    compiler_prompt_attempt_binding_plan: CompilerPromptAttemptBindingPlan,
+) -> tuple[PromptFragmentRenderTraceRow, ...]:
+    """Validate one sealed trace against its compiler-owned binding plan."""
+
+    if type(result) is not PromptFragmentRenderResult:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "target-2.22 fragment render result is missing"
+        )
+    try:
+        validate_compiler_prompt_attempt_binding_plan(
+            compiler_prompt_attempt_binding_plan
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "fragment render binding plan is invalid"
+        ) from exc
+    trace = result.trace
+    if _trace_sha256(trace) != result._trace_sha256:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "fragment render trace seal mismatch"
+        )
+    rendered_plan_rows = tuple(
+        row
+        for row in compiler_prompt_attempt_binding_plan.rows
+        if row.slot_kind != "doc"
+    )
+    if len(trace) != len(rendered_plan_rows):
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "fragment render trace coverage is invalid"
+        )
+    for rendered_slot_ordinal, (trace_row, plan_row) in enumerate(
+        zip(trace, rendered_plan_rows, strict=True)
+    ):
+        if (
+            trace_row.rendered_slot_ordinal
+            != rendered_slot_ordinal
+            or trace_row.slot_name != plan_row.slot_name
+            or trace_row.renderer != plan_row.renderer
+            or plan_row.runtime_source
+            != {
+                "kind": "rendered_slot",
+                "ordinal": rendered_slot_ordinal,
+            }
+        ):
+            raise ValueError(
+                "prompt_attempt_binding_plan_invalid: "
+                "fragment render trace order or identity is invalid"
+            )
+    return trace
 
 
 def render_prompt_fragment_base(
     contract: CompilerPromptFragmentContract,
     *,
     resolved_slot_values: Dict[str, Any],
-) -> str:
+    target_dsl_version: str | None = None,
+    compiler_prompt_attempt_binding_plan: (
+        CompilerPromptAttemptBindingPlan | None
+    ) = None,
+) -> str | PromptFragmentRenderResult:
     """Render one closed fragment contract into its in-memory base prompt."""
 
     validate_compiler_prompt_fragment_contract(contract)
+    trace_required = _target_supports_fragment_trace(
+        target_dsl_version
+    )
+    if trace_required:
+        if compiler_prompt_attempt_binding_plan is None:
+            raise ValueError(
+                "prompt_attempt_binding_plan_invalid: "
+                "target-2.22 fragment render requires the binding plan"
+            )
+        _validated_trace_plan_rows(
+            contract,
+            compiler_prompt_attempt_binding_plan,
+        )
+    elif compiler_prompt_attempt_binding_plan is not None:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "fragment render binding plan requires target DSL 2.22"
+        )
     if not isinstance(resolved_slot_values, dict):
         raise TypeError("resolved prompt fragment slot values must be a mapping")
     slot_names = tuple(slot.name for slot in contract.rendered_slots)
@@ -52,7 +365,10 @@ def render_prompt_fragment_base(
         )
 
     rendered_by_name: dict[str, str] = {}
-    for slot in contract.rendered_slots:
+    trace_rows: list[PromptFragmentRenderTraceRow] = []
+    for rendered_slot_ordinal, slot in enumerate(
+        contract.rendered_slots
+    ):
         value = resolved_slot_values[slot.name]
         if slot.renderer_id == "raw-utf8-string":
             if not isinstance(value, str):
@@ -66,6 +382,28 @@ def render_prompt_fragment_base(
                     "raw-utf8-string prompt fragment value is not valid UTF-8"
                 ) from exc
             rendered_by_name[slot.name] = value
+            if trace_required:
+                raw_bytes = value.encode("utf-8", errors="strict")
+                trace_rows.append(
+                    PromptFragmentRenderTraceRow(
+                        rendered_slot_ordinal=rendered_slot_ordinal,
+                        slot_name=slot.name,
+                        renderer={
+                            "renderer_id": slot.renderer_id,
+                            "renderer_version": 1,
+                        },
+                        value_sha256=(
+                            prompt_fragment_transport_value_sha256(value)
+                        ),
+                        raw_renderer_bytes_sha256=(
+                            view_bytes_digest(raw_bytes)
+                        ),
+                        substitution_bytes=len(raw_bytes),
+                        substitution_bytes_sha256=(
+                            view_bytes_digest(raw_bytes)
+                        ),
+                    )
+                )
             continue
         try:
             rendered = render_view(slot.renderer_id, 1, value)
@@ -74,13 +412,39 @@ def render_prompt_fragment_base(
                 f"{slot.renderer_id} prompt fragment rendering failed: {exc}"
             ) from exc
         try:
-            rendered_by_name[slot.name] = (
+            substitution_text = (
                 rendered.decode("utf-8", errors="strict").removesuffix("\n")
             )
         except UnicodeDecodeError as exc:
             raise ValueError(
                 f"{slot.renderer_id} prompt fragment renderer returned invalid UTF-8"
             ) from exc
+        rendered_by_name[slot.name] = substitution_text
+        if trace_required:
+            substitution_bytes = substitution_text.encode(
+                "utf-8",
+                errors="strict",
+            )
+            trace_rows.append(
+                PromptFragmentRenderTraceRow(
+                    rendered_slot_ordinal=rendered_slot_ordinal,
+                    slot_name=slot.name,
+                    renderer={
+                        "renderer_id": slot.renderer_id,
+                        "renderer_version": 1,
+                    },
+                    value_sha256=(
+                        prompt_fragment_transport_value_sha256(value)
+                    ),
+                    raw_renderer_bytes_sha256=(
+                        view_bytes_digest(rendered)
+                    ),
+                    substitution_bytes=len(substitution_bytes),
+                    substitution_bytes_sha256=(
+                        view_bytes_digest(substitution_bytes)
+                    ),
+                )
+            )
 
     output: list[str] = []
     template = contract.template_utf8
@@ -119,7 +483,15 @@ def render_prompt_fragment_base(
             )
         output.append(character)
         index += 1
-    return "".join(output)
+    rendered_base = "".join(output)
+    if not trace_required:
+        return rendered_base
+    trace = tuple(trace_rows)
+    return PromptFragmentRenderResult(
+        rendered_base=rendered_base,
+        trace=trace,
+        _trace_sha256=_trace_sha256(trace),
+    )
 
 
 class PromptCompletionError(Exception):

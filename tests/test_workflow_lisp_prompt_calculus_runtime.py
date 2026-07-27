@@ -143,6 +143,29 @@ def test_fragment_base_renders_closed_slots_once_and_reuses_repeated_value(
     ]
 
 
+@pytest.mark.parametrize("target_dsl_version", ("2.20", "2.21"))
+def test_fragment_base_older_targets_keep_string_only_rendering(
+    target_dsl_version: str,
+) -> None:
+    from orchestrator.workflow.prompting import render_prompt_fragment_base
+
+    rendered = render_prompt_fragment_base(
+        _contract(),
+        resolved_slot_values={
+            "message": "Inspect carefully",
+            "payload": {"score": 2, "ready": True},
+            "report_path": "artifacts/review.md",
+        },
+        target_dsl_version=target_dsl_version,
+    )
+
+    assert type(rendered) is str
+    assert rendered == (
+        '{request} Inspect carefully | {"ready":true,"score":2} | '
+        "artifacts/review.md | Inspect carefully"
+    )
+
+
 def test_fragment_base_without_document_lane_or_slots_is_literal_text() -> None:
     from orchestrator.workflow.prompting import render_prompt_fragment_base
 

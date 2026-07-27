@@ -12,6 +12,13 @@ from orchestrator.contracts.prompt_contract import (
     stringify_consumed_value,
 )
 from orchestrator.workflow.pure_expr import canonical_json_for_pure_value
+from orchestrator.workflow.prompt_fragment_contract import (
+    CompilerPromptAttemptBindingPlan,
+)
+from orchestrator.workflow.prompting import (
+    PromptFragmentRenderResult,
+    validate_prompt_fragment_render_trace,
+)
 from orchestrator.workflow.surface_ast import SurfaceStepKind
 from orchestrator.workflow.view_renderer import (
     VIEW_RENDERER_SCHEMA_VERSION,
@@ -158,8 +165,42 @@ def render_typed_prompt_inputs(
     resolved_typed_values: Mapping[str, Any],
     workflow_name: str,
     step_id: str,
+    fragment_render_result: PromptFragmentRenderResult | None = None,
+    compiler_prompt_attempt_binding_plan: (
+        CompilerPromptAttemptBindingPlan | None
+    ) = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """Render typed prompt-input blocks and structured runtime evidence."""
+
+    fragment_owned = _fragment_trace_pair_present(
+        fragment_render_result,
+        compiler_prompt_attempt_binding_plan,
+    )
+    if fragment_owned:
+        assert fragment_render_result is not None
+        assert compiler_prompt_attempt_binding_plan is not None
+        evidence_payloads = _expected_fragment_typed_evidence(
+            entries,
+            resolved_typed_values=resolved_typed_values,
+            workflow_name=workflow_name,
+            step_id=step_id,
+            fragment_render_result=fragment_render_result,
+            compiler_prompt_attempt_binding_plan=(
+                compiler_prompt_attempt_binding_plan
+            ),
+        )
+        validated_evidence = validate_typed_prompt_input_composition(
+            entries,
+            resolved_typed_values=resolved_typed_values,
+            evidence=evidence_payloads,
+            workflow_name=workflow_name,
+            step_id=step_id,
+            fragment_render_result=fragment_render_result,
+            compiler_prompt_attempt_binding_plan=(
+                compiler_prompt_attempt_binding_plan
+            ),
+        )
+        return "", validated_evidence
 
     normalized_entries = _validated_composition_entries(
         entries,
@@ -241,8 +282,34 @@ def validate_typed_prompt_input_composition(
     evidence: Sequence[Mapping[str, Any]],
     workflow_name: str,
     step_id: str,
+    fragment_render_result: PromptFragmentRenderResult | None = None,
+    compiler_prompt_attempt_binding_plan: (
+        CompilerPromptAttemptBindingPlan | None
+    ) = None,
 ) -> list[dict[str, Any]]:
     """Validate the closed lowered/value/rendered-evidence correspondence."""
+
+    fragment_owned = _fragment_trace_pair_present(
+        fragment_render_result,
+        compiler_prompt_attempt_binding_plan,
+    )
+    if fragment_owned:
+        assert fragment_render_result is not None
+        assert compiler_prompt_attempt_binding_plan is not None
+        expected_rows = _expected_fragment_typed_evidence(
+            entries,
+            resolved_typed_values=resolved_typed_values,
+            workflow_name=workflow_name,
+            step_id=step_id,
+            fragment_render_result=fragment_render_result,
+            compiler_prompt_attempt_binding_plan=(
+                compiler_prompt_attempt_binding_plan
+            ),
+        )
+        return _validate_fragment_typed_evidence_rows(
+            evidence,
+            expected_rows=expected_rows,
+        )
 
     normalized_entries = _validated_composition_entries(
         entries,
@@ -328,6 +395,185 @@ def validate_typed_prompt_input_composition(
                 "typed_prompt_input_evidence_set_mismatch: "
                 "evidence row does not match rendered binding "
                 f"`{binding_name}` ({', '.join(sorted(mismatches))})"
+            )
+        validated.append(row)
+    return validated
+
+
+def _fragment_trace_pair_present(
+    fragment_render_result: PromptFragmentRenderResult | None,
+    compiler_prompt_attempt_binding_plan: (
+        CompilerPromptAttemptBindingPlan | None
+    ),
+) -> bool:
+    if (
+        fragment_render_result is None
+        and compiler_prompt_attempt_binding_plan is None
+    ):
+        return False
+    if (
+        fragment_render_result is None
+        or compiler_prompt_attempt_binding_plan is None
+    ):
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "fragment render trace and binding plan must be paired"
+        )
+    return True
+
+
+def _expected_fragment_typed_evidence(
+    entries: Sequence[Mapping[str, Any]],
+    *,
+    resolved_typed_values: Mapping[str, Any],
+    workflow_name: str,
+    step_id: str,
+    fragment_render_result: PromptFragmentRenderResult,
+    compiler_prompt_attempt_binding_plan: CompilerPromptAttemptBindingPlan,
+) -> list[dict[str, Any]]:
+    """Build legacy evidence rows solely from one validated Q3 trace."""
+
+    try:
+        trace = validate_prompt_fragment_render_trace(
+            fragment_render_result,
+            compiler_prompt_attempt_binding_plan=(
+                compiler_prompt_attempt_binding_plan
+            ),
+        )
+        normalized_entries = _validated_composition_entries(
+            entries,
+            resolved_typed_values=resolved_typed_values,
+        )
+        typed_plan_rows = tuple(
+            row
+            for row in compiler_prompt_attempt_binding_plan.rows
+            if row.slot_kind in {"value", "path"}
+        )
+        if tuple(
+            entry["binding_name"] for entry in normalized_entries
+        ) != tuple(row.slot_name for row in typed_plan_rows):
+            raise ValueError(
+                "typed carriers do not match fragment binding plan"
+            )
+
+        expected: list[dict[str, Any]] = []
+        for entry, plan_row in zip(
+            normalized_entries,
+            typed_plan_rows,
+            strict=True,
+        ):
+            renderer = entry["renderer"]
+            if (
+                plan_row.renderer is None
+                or renderer["renderer_id"]
+                != plan_row.renderer["renderer_id"]
+                or renderer["renderer_version"]
+                != plan_row.renderer["renderer_version"]
+            ):
+                raise ValueError(
+                    "typed renderer does not match fragment binding plan"
+                )
+            rendered_slot_ordinal = plan_row.runtime_source["ordinal"]
+            if (
+                type(rendered_slot_ordinal) is not int
+                or rendered_slot_ordinal < 0
+                or rendered_slot_ordinal >= len(trace)
+            ):
+                raise ValueError(
+                    "typed trace locator is outside the fragment trace"
+                )
+            trace_row = trace[rendered_slot_ordinal]
+            binding_name = entry["binding_name"]
+            resolved_value = resolved_typed_values[binding_name]
+            value_digest = typed_prompt_input_value_digest(
+                resolved_value
+            )
+            if (
+                trace_row.slot_name != binding_name
+                or trace_row.renderer
+                != {
+                    "renderer_id": renderer["renderer_id"],
+                    "renderer_version": renderer["renderer_version"],
+                }
+                or trace_row.value_sha256 != value_digest
+            ):
+                raise ValueError(
+                    "typed value does not match fragment render trace"
+                )
+            evidence_payload = {
+                "schema_version": (
+                    TYPED_PROMPT_INPUT_EVIDENCE_SCHEMA_VERSION
+                ),
+                "workflow_name": workflow_name,
+                "step_id": step_id,
+                "binding_name": binding_name,
+                "renderer": dict(renderer),
+                "value_type_name": entry["value_type_name"],
+                "value_digest": trace_row.value_sha256,
+                "rendered_bytes_digest": (
+                    trace_row.raw_renderer_bytes_sha256
+                ),
+                "evidence_key": view_evidence_key(
+                    str(renderer["renderer_id"]),
+                    int(renderer["renderer_version"]),
+                    VIEW_RENDERER_SCHEMA_VERSION,
+                    trace_row.value_sha256,
+                ),
+                "source_map_origin_key": (
+                    entry["source_map_origin_key"]
+                ),
+                "injection_order": entry["injection_order"],
+                "request_field_evidence": (
+                    _request_field_evidence_rows(
+                        entry=entry,
+                        resolved_value=resolved_value,
+                    )
+                ),
+            }
+            for row_field in ("u0_row_id", "c0_row_id"):
+                if row_field in entry:
+                    evidence_payload[row_field] = entry[row_field]
+            expected.append(evidence_payload)
+        return expected
+    except (TypeError, ValueError) as exc:
+        if str(exc).startswith("prompt_attempt_binding_plan_invalid:"):
+            raise
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "fragment trace and typed evidence disagree"
+        ) from exc
+
+
+def _validate_fragment_typed_evidence_rows(
+    evidence: Sequence[Mapping[str, Any]],
+    *,
+    expected_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    if len(evidence) != len(expected_rows):
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "fragment trace and typed evidence cardinality disagree"
+        )
+    validated: list[dict[str, Any]] = []
+    for raw_row, expected_row in zip(
+        evidence,
+        expected_rows,
+        strict=True,
+    ):
+        if not isinstance(raw_row, Mapping):
+            raise ValueError(
+                "prompt_attempt_binding_plan_invalid: "
+                "typed evidence row is not a mapping"
+            )
+        row = dict(raw_row)
+        expected = dict(expected_row)
+        if set(row) != set(expected) or any(
+            row.get(field_name) != expected_value
+            for field_name, expected_value in expected.items()
+        ):
+            raise ValueError(
+                "prompt_attempt_binding_plan_invalid: "
+                "fragment trace and typed evidence row disagree"
             )
         validated.append(row)
     return validated

@@ -333,6 +333,74 @@ def test_render_typed_prompt_inputs_serializes_runtime_evidence() -> None:
     assert evidence[0]["binding_name"] == "prompt_context"
 
 
+def test_target_2_22_fragment_trace_reuse_preserves_typed_evidence_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.workflow_lisp import typed_prompt_inputs
+    from tests.test_workflow_lisp_prompt_identity_render_trace import (
+        _plan,
+        _render_target_2_22,
+        _resolved_values,
+        _typed_entries,
+    )
+
+    result = _render_target_2_22()
+    monkeypatch.setattr(
+        typed_prompt_inputs,
+        "render_view",
+        lambda *_args: pytest.fail(
+            "trace-owned evidence must not call the typed renderer"
+        ),
+    )
+    _block, evidence = typed_prompt_inputs.render_typed_prompt_inputs(
+        _typed_entries(),
+        resolved_typed_values={
+            "payload": _resolved_values()["payload"],
+            "report_path": _resolved_values()["report_path"],
+        },
+        workflow_name="render-trace::run",
+        step_id="root.render-trace",
+        fragment_render_result=result,
+        compiler_prompt_attempt_binding_plan=_plan(),
+    )
+
+    assert [set(row) for row in evidence] == [
+        {
+            "schema_version",
+            "workflow_name",
+            "step_id",
+            "binding_name",
+            "renderer",
+            "value_type_name",
+            "value_digest",
+            "rendered_bytes_digest",
+            "evidence_key",
+            "source_map_origin_key",
+            "injection_order",
+            "request_field_evidence",
+        },
+        {
+            "schema_version",
+            "workflow_name",
+            "step_id",
+            "binding_name",
+            "renderer",
+            "value_type_name",
+            "value_digest",
+            "rendered_bytes_digest",
+            "evidence_key",
+            "source_map_origin_key",
+            "injection_order",
+            "request_field_evidence",
+        },
+    ]
+    assert all(
+        row["schema_version"]
+        == "workflow_lisp_typed_prompt_input_evidence.v1"
+        for row in evidence
+    )
+
+
 def test_render_typed_prompt_inputs_requires_exact_binding_and_evidence_sets() -> None:
     module = _typed_prompt_inputs_module()
     entries = [
