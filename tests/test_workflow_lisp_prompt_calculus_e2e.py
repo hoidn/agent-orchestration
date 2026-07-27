@@ -1,8 +1,10 @@
-"""Real-consumer acceptance coverage for the target-2.20 prompt core."""
+"""Real-consumer Q2 acceptance coverage with frozen target-2.20 Q1 controls."""
 
 from __future__ import annotations
 
+import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -10,6 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from orchestrator.contracts.prompt_contract import (
+    render_output_contract_block,
     render_variant_output_contract_block,
 )
 from orchestrator.providers.executor import ProviderExecutor
@@ -24,6 +27,8 @@ from orchestrator.workflow.prompt_dependency_evidence import (
 )
 from orchestrator.workflow.prompt_fragment_contract import (
     COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA,
+    COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
+    canonical_compiler_prompt_fragment_contract_json,
 )
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
@@ -36,6 +41,13 @@ from tests.workflow_bundle_helpers import bundle_context_dict
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONSUMER = REPO_ROOT / "workflows" / "examples" / "review_revise_design_docs.orc"
+Q1_RESUME_FIXTURE = (
+    Path(__file__).parent
+    / "fixtures"
+    / "workflow_lisp"
+    / "valid"
+    / "prompt_q1_target_2_20_resume.orc"
+)
 CONSUMER_INPUTS = (
     REPO_ROOT
     / "workflows"
@@ -55,6 +67,12 @@ PROVIDERS = {
     "providers.design-docs.review": "codex_gpt55",
     "providers.design-docs.fix": "codex_gpt55",
 }
+FROZEN_Q1_FRAGMENT_IDENTITY = (
+    "sha256:306ceeaa45d96de5f7a90387d8958e9d6348eb79b2cec8f19a6874c1fa78b5e7"
+)
+FROZEN_Q1_CARRIER_SHA256 = (
+    "a8081747d726424be0b6858d2d9cfec47b1dcf123b12aa91c1c8bd656440cf8f"
+)
 
 
 class _ProviderBoundaryInterruption(BaseException):
@@ -263,8 +281,51 @@ def _execute_consumer(
     return result, bundle, manager, captured, completed
 
 
+def test_target_2_20_q1_fixture_clean_run_freezes_v1_carrier_and_artifacts(
+    tmp_path: Path,
+) -> None:
+    result, _, _, captured, completed = _execute_consumer(
+        source_path=Q1_RESUME_FIXTURE,
+        prompt_externs=_manifest(CONSUMER_INPUTS / "prompts.json"),
+        workspace=tmp_path,
+        run_id="prompt-q1-target-2-20-clean",
+    )
+
+    assert result.module.target_dsl_version == "2.20"
+    review = _provider_step(_bundle(result, "::review-design-docs.v1"))
+    contract = review.compiler_prompt_fragment_contract
+    assert contract is not None
+    assert contract.schema_version == COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA
+    assert review.compiled_prompt_fragment_identity == (
+        FROZEN_Q1_FRAGMENT_IDENTITY
+    )
+    carrier_bytes = canonical_compiler_prompt_fragment_contract_json(
+        contract
+    ).encode("utf-8")
+    assert hashlib.sha256(carrier_bytes).hexdigest() == (
+        FROZEN_Q1_CARRIER_SHA256
+    )
+    assert not hasattr(contract, "output_positions")
+    assert review.common.expected_outputs == ()
+
+    assert completed["status"] == "completed"
+    assert captured["preparations"] == captured["executions"] == 1
+    assert completed["workflow_outputs"]["return__variant"] == "APPROVED"
+    assert completed["workflow_outputs"]["return__review_report"] == (
+        "artifacts/review/review.md"
+    )
+    assert (
+        tmp_path / "artifacts" / "review" / "review.md"
+    ).read_text(encoding="utf-8") == "REVIEW_REPORT_SENTINEL\n"
+    assert json.loads(
+        (tmp_path / "artifacts" / "work" / "findings.json").read_text(
+            encoding="utf-8"
+        )
+    ) == {"items": []}
+
+
 @pytest.mark.parametrize("lowering_route", ("legacy", "wcc_m4"))
-def test_real_consumer_migrates_review_to_five_slot_prompt_fragment(
+def test_real_consumer_migrates_review_report_fill_to_q2_output_position(
     tmp_path: Path,
     lowering_route: str,
 ) -> None:
@@ -281,12 +342,60 @@ def test_real_consumer_migrates_review_to_five_slot_prompt_fragment(
         _bundle(result, "::review-design-docs.v1")
     )
 
+    assert result.module.target_dsl_version == "2.21"
+    prompt = result.prompt_catalog.resolve("review-design-doc")
+    assert prompt.declaration.return_spec is not None
+    assert prompt.declaration.return_spec.type_name == "ReviewDecision"
+    assert tuple(
+        (
+            slot.declaration.name,
+            slot.declaration.kind.value,
+            slot.declaration.output_role.value,
+            slot.declaration.refinement_type_name,
+        )
+        for slot in prompt.slots
+    ) == (
+        ("target_doc", "doc", "none", "DesignDocPath"),
+        ("context_docs", "value", "none", "List[DesignDocPath]"),
+        ("review_focus", "text", "none", None),
+        ("checks_report", "path", "none", "WorkReportPath"),
+        (
+            "review_report_target_path",
+            "path",
+            "required_string_file",
+            "ReviewReportTargetPath",
+        ),
+    )
     contract = review.compiler_prompt_fragment_contract
     assert contract is not None
-    assert contract.schema_version == COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA
+    assert contract.schema_version == COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2
     assert contract.compiled_prompt_fragment_identity == (
         review.compiled_prompt_fragment_identity
     )
+    assert tuple(
+        (
+            row.slot_name,
+            row.output_role,
+            dict(row.expected_output),
+        )
+        for row in contract.output_positions
+    ) == (
+        (
+            "review_report_target_path",
+            "required_string_file",
+            {
+                "name": "review_report_target_path",
+                "path": "${inputs.inputs__review_report_target_path}",
+                "type": "string",
+                "required": True,
+            },
+        ),
+    )
+    assert review.common.expected_outputs == tuple(
+        dict(row.expected_output) for row in contract.output_positions
+    )
+    assert review.common.output_bundle is None
+    assert review.common.variant_output is not None
     assert tuple(slot.name for slot in contract.rendered_slots) == (
         "context_docs",
         "review_focus",
@@ -378,6 +487,39 @@ def test_real_consumer_migrates_review_to_five_slot_prompt_fragment(
     )
 
 
+def test_real_consumer_q2_contract_matches_classic_and_wcc(
+    tmp_path: Path,
+) -> None:
+    results = {
+        route: _compile(
+            CONSUMER,
+            prompt_externs=_manifest(CONSUMER_INPUTS / "prompts.json"),
+            lowering_route=route,
+            workspace_root=tmp_path / route,
+        )
+        for route in ("legacy", "wcc_m4")
+    }
+
+    def projection(result):
+        bundle = _bundle(result, "::review-design-docs.v1")
+        review = _provider_step(bundle)
+        contract = review.compiler_prompt_fragment_contract
+        assert contract is not None
+        return {
+            "target_dsl": result.module.target_dsl_version,
+            "fragment_identity": review.compiled_prompt_fragment_identity,
+            "fragment_contract": (
+                canonical_compiler_prompt_fragment_contract_json(contract)
+            ),
+            "expected_outputs": tuple(
+                dict(row) for row in review.common.expected_outputs
+            ),
+            "variant_output": review.common.variant_output,
+        }
+
+    assert projection(results["legacy"]) == projection(results["wcc_m4"])
+
+
 @pytest.mark.parametrize("lowering_route", ("legacy", "wcc_m4"))
 def test_real_consumer_migration_preserves_fix_call_and_provider_policy(
     tmp_path: Path,
@@ -450,10 +592,11 @@ def test_real_consumer_composes_dependency_fragment_and_result_contract_once(
         "FOCUS_SENTINEL",
         '["docs/design/context-a.md","docs/design/context-b.md"]',
         "artifacts/work/checks.md",
-        "artifacts/review/review.md",
     )
     assert all(fragment.count(value) == 1 for value in rendered_insertions)
     assert all(prompt.count(value) == 1 for value in rendered_insertions)
+    assert fragment.count("artifacts/review/review.md") == 1
+    assert prompt.count("artifacts/review/review.md") == 2
     assert [fragment.index(value) for value in rendered_insertions] == sorted(
         fragment.index(value) for value in rendered_insertions
     )
@@ -467,6 +610,16 @@ def test_real_consumer_composes_dependency_fragment_and_result_contract_once(
     assert "TARGET_DOCUMENT_SENTINEL" not in result_contract_lane
     assert prompt.index("TARGET_DOCUMENT_SENTINEL") < prompt.index(fragment)
 
+    rendered_expected_contract = render_output_contract_block(
+        [
+            {
+                "name": "review_report_target_path",
+                "path": "artifacts/review/review.md",
+                "type": "string",
+                "required": True,
+            }
+        ]
+    )
     rendered_result_contract = render_variant_output_contract_block(
         {
             **review.common.variant_output,
@@ -474,9 +627,19 @@ def test_real_consumer_composes_dependency_fragment_and_result_contract_once(
         }
     )
     assert result_contract_lane
-    assert result_contract_lane == "\n" + rendered_result_contract
+    assert result_contract_lane == (
+        "\n"
+        + rendered_expected_contract
+        + "\n\n"
+        + rendered_result_contract
+    )
+    assert prompt.count(rendered_expected_contract) == 1
     assert prompt.count(rendered_result_contract) == 1
     assert prompt.index(fragment) < prompt.index(rendered_result_contract)
+    assert prompt.index(fragment) < prompt.index(rendered_expected_contract)
+    assert prompt.index(rendered_expected_contract) < prompt.index(
+        rendered_result_contract
+    )
     assert result_contract_lane.count(output_bundle_path) == 1
     assert all(
         value not in result_contract_lane for value in rendered_insertions
@@ -544,11 +707,17 @@ def test_real_consumer_runtime_validates_prompt_owned_result_and_snapshot(
     )
 
 
-def test_real_consumer_default_resume_reuses_committed_review_boundary_once(
+@pytest.mark.parametrize(
+    "source_path",
+    (Q1_RESUME_FIXTURE, CONSUMER),
+    ids=("target-2.20-q1-control", "target-2.21-real-consumer"),
+)
+def test_review_consumer_default_resume_reuses_committed_review_boundary_once(
     tmp_path: Path,
+    source_path: Path,
 ) -> None:
     result = _compile(
-        CONSUMER,
+        source_path,
         prompt_externs=_manifest(CONSUMER_INPUTS / "prompts.json"),
         lowering_route="wcc_m4",
         workspace_root=tmp_path,
@@ -556,9 +725,9 @@ def test_real_consumer_default_resume_reuses_committed_review_boundary_once(
     bundle = _bundle(result, "::review-revise-design-docs")
     manager = _runtime_manager(
         tmp_path,
-        source_path=CONSUMER,
+        source_path=source_path,
         bundle=bundle,
-        run_id="prompt-core-resume",
+        run_id=f"prompt-core-resume-{source_path.stem}",
     )
     captured: dict[str, object] = {}
     prepare, execute = _capturing_review_provider(tmp_path, captured)
@@ -604,6 +773,18 @@ def test_real_consumer_default_resume_reuses_committed_review_boundary_once(
             ).execute(on_error="stop")
 
     assert captured["preparations"] == captured["executions"] == 1
+    committed = json.loads(manager.state_file.read_text(encoding="utf-8"))
+    committed_review = next(
+        step
+        for step in committed["steps"].values()
+        if step.get("artifacts", {}).get("return__variant") == "APPROVED"
+    )
+    assert committed_review["artifacts"]["return__review_report"] == (
+        "artifacts/review/review.md"
+    )
+    assert (
+        tmp_path / "artifacts" / "review" / "review.md"
+    ).read_text(encoding="utf-8") == "REVIEW_REPORT_SENTINEL\n"
     resume_manager = StateManager(tmp_path, run_id=manager.run_id)
     resume_manager.load()
     with patch.object(
@@ -632,54 +813,91 @@ def test_real_consumer_default_resume_reuses_committed_review_boundary_once(
     assert resumed["status"] == "completed"
     assert captured["preparations"] == captured["executions"] == 1
     assert resumed["workflow_outputs"]["return__variant"] == "APPROVED"
+    assert resumed["workflow_outputs"]["return__review_report"] == (
+        "artifacts/review/review.md"
+    )
+    if source_path == Q1_RESUME_FIXTURE:
+        review = _provider_step(_bundle(result, "::review-design-docs.v1"))
+        contract = review.compiler_prompt_fragment_contract
+        assert contract is not None
+        assert contract.schema_version == COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA
+        assert not hasattr(contract, "output_positions")
+        assert review.common.expected_outputs == ()
 
 
-def test_real_consumer_legacy_checkpoint_program_identity_is_rejected(
+def test_target_2_20_q1_checkpoint_rejects_q2_projected_contract_drift(
     tmp_path: Path,
 ) -> None:
-    legacy_result, _, legacy_manager, _, legacy_state = _execute_consumer(
-        source_path=LEGACY_FIXTURE / "review_revise_design_docs.orc",
-        prompt_externs=_manifest(LEGACY_FIXTURE / "prompts.json"),
-        workspace=tmp_path,
-        run_id="prompt-core-legacy-identity",
+    workspace = tmp_path / "workspace"
+    q1_result, _, q1_manager, _, q1_state = _execute_consumer(
+        source_path=Q1_RESUME_FIXTURE,
+        prompt_externs=_manifest(CONSUMER_INPUTS / "prompts.json"),
+        workspace=workspace,
+        run_id="prompt-q1-q2-program-drift",
     )
-    assert legacy_state["status"] == "completed"
-    migrated_result = _compile(
-        CONSUMER,
+    assert q1_state["status"] == "completed"
+
+    q2_source = tmp_path / "q2-source" / Q1_RESUME_FIXTURE.name
+    q2_source.parent.mkdir(parents=True)
+    q1_text = Q1_RESUME_FIXTURE.read_text(encoding="utf-8")
+    assert q1_text.count('(:target-dsl "2.20")') == 1
+    assert q1_text.count(
+        "(review_report_target_path :path ReviewReportTargetPath)"
+    ) == 1
+    q2_source.write_text(
+        q1_text.replace('(:target-dsl "2.20")', '(:target-dsl "2.21")').replace(
+            "(review_report_target_path :path ReviewReportTargetPath)",
+            "(review_report_target_path :path :out ReviewReportTargetPath)",
+        ),
+        encoding="utf-8",
+    )
+    q2_result = _compile(
+        q2_source,
         prompt_externs=_manifest(CONSUMER_INPUTS / "prompts.json"),
         lowering_route="wcc_m4",
-        workspace_root=tmp_path,
+        workspace_root=workspace,
     )
-    legacy_review = _bundle(legacy_result, "::review-design-docs.v1")
-    migrated_review = _bundle(migrated_result, "::review-design-docs.v1")
-    [legacy_point] = legacy_review.runtime_plan.lexical_checkpoint_points
-    [migrated_point] = migrated_review.runtime_plan.lexical_checkpoint_points
-    assert migrated_point.checkpoint_id == legacy_point.checkpoint_id
+    q1_review = _bundle(q1_result, "::review-design-docs.v1")
+    q2_review = _bundle(q2_result, "::review-design-docs.v1")
+    q1_step = _provider_step(q1_review)
+    q2_step = _provider_step(q2_review)
+    assert q1_step.compiler_prompt_fragment_contract.schema_version == (
+        COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA
+    )
+    assert q2_step.compiler_prompt_fragment_contract.schema_version == (
+        COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2
+    )
+    assert q1_step.compiled_prompt_fragment_identity != (
+        q2_step.compiled_prompt_fragment_identity
+    )
+    [q1_point] = q1_review.runtime_plan.lexical_checkpoint_points
+    [q2_point] = q2_review.runtime_plan.lexical_checkpoint_points
+    assert q2_point.checkpoint_id == q1_point.checkpoint_id
 
     [record_path] = (
-        legacy_manager.run_root
+        q1_manager.run_root
         / "workflow_lisp"
         / "checkpoints"
         / "records"
-        / legacy_point.checkpoint_id
+        / q1_point.checkpoint_id
     ).glob("*.json")
     record = json.loads(record_path.read_text(encoding="utf-8"))
-    legacy_identity = checkpoint_runtime_program_identity(
-        state_manager=legacy_manager,
-        runtime_plan=legacy_review.runtime_plan,
-        workflow_path=LEGACY_FIXTURE / "review_revise_design_docs.orc",
+    q1_identity = checkpoint_runtime_program_identity(
+        state_manager=q1_manager,
+        runtime_plan=q1_review.runtime_plan,
+        workflow_path=Q1_RESUME_FIXTURE,
     )
-    migrated_identity = checkpoint_runtime_program_identity(
-        state_manager=legacy_manager,
-        runtime_plan=migrated_review.runtime_plan,
-        workflow_path=CONSUMER,
+    q2_identity = checkpoint_runtime_program_identity(
+        state_manager=q1_manager,
+        runtime_plan=q2_review.runtime_plan,
+        workflow_path=q2_source,
     )
     validate_checkpoint_record(
         record,
-        expected_program_identity=legacy_identity,
+        expected_program_identity=q1_identity,
     )
-    assert migrated_identity["source_module_digest"] != (
-        legacy_identity["source_module_digest"]
+    assert q2_identity["source_module_digest"] != (
+        q1_identity["source_module_digest"]
     )
     with pytest.raises(
         ValueError,
@@ -687,8 +905,64 @@ def test_real_consumer_legacy_checkpoint_program_identity_is_rejected(
     ):
         validate_checkpoint_record(
             record,
-            expected_program_identity=migrated_identity,
+            expected_program_identity=q2_identity,
         )
+
+
+def test_real_consumer_live_boundary_rejects_q2_projected_contract_drift(
+    tmp_path: Path,
+) -> None:
+    result = _compile(
+        CONSUMER,
+        prompt_externs=_manifest(CONSUMER_INPUTS / "prompts.json"),
+        lowering_route="wcc_m4",
+        workspace_root=tmp_path,
+    )
+    bundle = _bundle(result, "::review-revise-design-docs")
+    manager = _runtime_manager(
+        tmp_path,
+        source_path=CONSUMER,
+        bundle=bundle,
+        run_id="prompt-q2-live-contract-drift",
+    )
+    executor = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        manager,
+        retry_delay_ms=0,
+    )
+    review_bundle = _bundle(result, "::review-design-docs.v1")
+    provider_node = next(
+        node
+        for node in review_bundle.ir.nodes.values()
+        if node.kind is ExecutableNodeKind.PROVIDER
+    )
+    config = provider_node.execution_config
+    object.__setattr__(
+        config,
+        "common",
+        replace(config.common, expected_outputs=()),
+    )
+    captured: dict[str, object] = {}
+    prepare, execute = _capturing_review_provider(tmp_path, captured)
+
+    with patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        prepare,
+    ), patch.object(
+        ProviderExecutor,
+        "execute",
+        execute,
+    ), pytest.raises(
+        ValueError,
+        match="prompt_output_position_contract_mismatch",
+    ):
+        executor.execute(on_error="stop")
+
+    assert captured == {}
+    assert manager.state is not None
+    assert manager.state.provider_attempt_allocations == {}
 
 
 def test_real_consumer_unchanged_migration_has_stable_fragment_and_checkpoint_identity(
@@ -739,11 +1013,15 @@ def test_prompt_core_generic_machinery_contains_no_consumer_identity() -> None:
     forbidden = (
         "review_revise_design_docs",
         "review-design-docs",
+        "review-design-doc",
         "providers.design-docs.review",
         "prompts.design-docs.review",
         "prompts/workflows/review_revise_design_docs/review.md",
+        "review_report_target_path",
+        "prompt_q1_target_2_20_resume",
     )
     generic_roots = (
+        REPO_ROOT / "orchestrator" / "contracts",
         REPO_ROOT / "orchestrator" / "workflow",
         REPO_ROOT / "orchestrator" / "workflow_lisp",
         REPO_ROOT / "orchestrator" / "providers",

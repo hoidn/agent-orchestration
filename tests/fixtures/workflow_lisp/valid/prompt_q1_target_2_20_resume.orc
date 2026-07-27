@@ -1,7 +1,7 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.21")
-  (defmodule review_revise_design_docs)
+  (:target-dsl "2.20")
+  (defmodule prompt_q1_target_2_20_resume)
   (import std/phase :only
     (BlockerClass ReviewDecision ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop))
   (import std/context :only (RunCtx))
@@ -76,7 +76,7 @@
       (context_docs :value List[DesignDocPath])
       (review_focus :text)
       (checks_report :path WorkReportPath)
-      (review_report_target_path :path :out ReviewReportTargetPath))
+      (review_report_target_path :path ReviewReportTargetPath))
     -> ReviewDecision
     "Take the role of a principal engineer with strong PL, compiler, and agentic\nworkflow architecture judgment.\n\nReview the target design doc from the point of view described by the provided\nreview focus.\n\n{review_focus}\n\nUse the context docs as supporting context and authority.\n\n{context_docs}\n\nThe\ndesign may be considered implementation-ready only if it improves ergonomics\nand the long-term maintainability, extensibility, and internal architecture of\nthe implementation.\n\nRead the target doc from the provided target_doc input path. Read every path in\ncontext_docs when context docs are provided. Also read the provided checks\nreport if present.\n\n{checks_report}\n\nTreat structured inputs and artifact paths as authority; do\nnot infer success from prose summaries alone.\n\nDecide:\n\n- APPROVE when the target doc is consistent with its context docs, technically\n  sound, and ready to guide implementation under the supplied review focus.\n- REVISE when specific doc edits are required before implementation should\n  proceed.\n- BLOCKED only when the review cannot be completed from the available material\n  or a prerequisite decision outside the docs is required.\n\nFor REVISE or BLOCKED, make findings concrete enough for a reviser to act\nwithout another clarification pass.\n\n{review_report_target_path}\n\nThe structured findings carrier must use the exact schema expected by the\nworkflow. Use `schema_version` exactly `ReviewFindings.v1`. The referenced\nfindings JSON artifact must be an object with a top-level `items` array. Do not\nwrite `review_findings.v1`, `review-findings-v1`, or a top-level `findings`\narray.\n")
 

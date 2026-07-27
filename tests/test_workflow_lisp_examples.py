@@ -266,6 +266,23 @@ def test_review_revise_design_docs_example_validates_with_parameterized_context_
         workspace_root=tmp_path,
     )
 
+    assert result.module.target_dsl_version == "2.21"
+    review_prompt = result.prompt_catalog.resolve("review-design-doc")
+    review_output_slot = next(
+        slot
+        for slot in review_prompt.slots
+        if slot.declaration.name == "review_report_target_path"
+    )
+    assert review_output_slot.declaration.kind.value == "path"
+    assert review_output_slot.declaration.output_role.value == (
+        "required_string_file"
+    )
+    assert review_output_slot.declaration.refinement_type_name == (
+        "ReviewReportTargetPath"
+    )
+    assert review_prompt.declaration.return_spec is not None
+    assert review_prompt.declaration.return_spec.type_name == "ReviewDecision"
+
     lowered = next(
         workflow
         for workflow in result.lowered_workflows
@@ -284,6 +301,36 @@ def test_review_revise_design_docs_example_validates_with_parameterized_context_
         },
     }
     assert "artifacts" not in lowered.authored_mapping
+    helper = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith(
+            "::review-design-docs.v1"
+        )
+    )
+    review_step = helper.authored_mapping["steps"][0]
+    contract = review_step["compiler_prompt_fragment_contract"]
+    assert contract.schema_version == "compiler_prompt_fragment_contract.v2"
+    assert tuple(
+        dict(row.expected_output) for row in contract.output_positions
+    ) == (
+        {
+            "name": "review_report_target_path",
+            "path": "${inputs.inputs__review_report_target_path}",
+            "type": "string",
+            "required": True,
+        },
+    )
+    assert review_step["expected_outputs"] == [
+        {
+            "name": "review_report_target_path",
+            "path": "${inputs.inputs__review_report_target_path}",
+            "type": "string",
+            "required": True,
+        }
+    ]
+    assert "variant_output" in review_step
+    assert "output_bundle" not in review_step
 
 
 def test_review_revise_design_docs_runtime_private_collection_lane(tmp_path: Path) -> None:
