@@ -25,6 +25,7 @@ where = ["."]
 include = ["orchestrator*"]
 
 [tool.setuptools.package-data]
+"orchestrator.experiments.schemas" = ["*.json"]
 "orchestrator.providers.schemas" = ["*.json"]
 "orchestrator.workflow_lisp" = ["stdlib_modules/**/*.orc"]
 
