@@ -1,10 +1,14 @@
 # Workflow Lisp LSP Authored Reference Navigation
 
-- **Status:** proposed (owner-directed 2026-07-27, revised after independent
-  specification findings); independent specification review, then independent
-  quality review, required before implementation planning. Accepted content
-  folds into `docs/design/workflow_lisp_language_server.md` as the owning
-  amendment, per the L-series convention.
+- **Status:** accepted for implementation planning after ordered independent
+  specification then quality review at commit `b8a41172`; the 2026-07-27
+  read-only feasibility gate admits prompt heads and only direct-retained,
+  unexpanded `proc-ref` occurrences in authored non-generated,
+  non-specialized owners. Macro heads defer shape-wide. The proposed
+  [implementation plan](../plans/2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md)
+  still requires ordered plan review before execution. Shipped content folds
+  into `docs/design/workflow_lisp_language_server.md` as the owning amendment,
+  per the L-series convention.
 - **Kind:** L-series language-server amendment — definition-index extension
   over already-retained compiler structure
 - **Owner:** `orchestrator/lsp` navigation index; read-only consumer of
@@ -36,9 +40,9 @@ but retention is not uniform across the other two shapes. A
 `ProcRefLiteralExpr` retains a canonical target and the whole
 `(proc-ref ...)` span, not the exact name-token span; macro expansion or
 specialization can erase that occurrence entirely. Macro expansion frames
-retain call and definition provenance, but their ability to establish a
-canonical own-definition identity for every local/imported use is not yet
-proven. L5 must therefore distinguish proven retained joins from attractive
+retain call and definition provenance, but not the canonical/module-qualified
+own-definition identity required for every local/imported use. L5 must
+therefore distinguish proven retained joins from attractive
 source shapes. It must not fill a gap by parsing text, resolving names in the
 server, or inventing compiler metadata.
 
@@ -47,9 +51,9 @@ server, or inventing compiler metadata.
 | Shape | Existing retained join | L5 disposition |
 | --- | --- | --- |
 | Direct-authored fragment application head, such as `(review-design-doc ...)` in `provider-result :prompt` | the final typed prompt application retains its whole application span and canonical prompt identity; the Q1 prompt catalog retains the authored `defprompt` span; original syntax retains the exact application-head token | selected, through the fail-closed projection below |
-| Direct retained `proc-ref` occurrence whose final Stage-3 result still contains its `ProcRefLiteralExpr` | the typed occurrence retains the whole form span and canonical procedure target; original syntax retains the exact second token; the procedure catalog retains the authored `defproc` span | feasibility-gated; only this narrower subshape may enter L5, and only if the pre-planning proof establishes the complete join across the required import cases |
+| Direct retained `proc-ref` occurrence whose final Stage-3 result still contains its unexpanded `ProcRefLiteralExpr` inside a non-generated, non-specialized authored owner | the typed occurrence retains the whole form span and canonical procedure target; original syntax retains the exact second token; the procedure catalog retains the authored `defproc` span | selected after the read-only feasibility proof established the complete join across the required import cases |
 | A `proc-ref` occurrence consumed or erased by macro expansion, specialization, or another lowering | no final occurrence-level span-to-canonical-identity join is retained; this includes both `proc-ref` arguments in the motivating review workflow | deferred; it remains null under this design |
-| Direct-authored macro head | expansion provenance may retain the whole call span and own-definition span while original syntax retains the exact head token; canonical local/imported macro identity and unique occurrence joining remain to be proven | feasibility-gated; it enters only if the pre-planning proof establishes the complete join |
+| Direct-authored macro head | expansion provenance retains the whole call span and own-definition span while original syntax retains the exact head token, but `ExpansionFrame` has no canonical/module-qualified macro identity and export metadata retains only an unqualified raw name | deferred shape-wide; current retained facts cannot prove the required local/imported canonical own-definition join |
 | Direct procedure call head and direct `(call X)` workflow callee | exact `authored_callee_span`, canonical target, and authored definition span are already implemented | existing behavior only; regression coverage, not new L5 scope |
 | WCC-reconstructed, generated, expanded, or ambiguous call | `authored_callee_span=None` by the owning language-server contract | excluded unchanged |
 
@@ -152,16 +156,15 @@ shape defers in full.
   amendment's blast radius.
 - No completion or symbol changes; this is the definition index only.
 
-## Feasibility Evidence Required Before Planning
+## Closed Feasibility Evidence
 
-The selected prompt-head projection must have an executable compiler fixture
-showing the unique whole-span-and-kind original-syntax join, exact head token,
-canonical prompt target, and authored `defprompt` span in the final successful
-Stage-3 result.
-
-Before an implementation plan may include direct retained `proc-ref` or macro
-heads, a read-only executable probe must establish the same five facts without
-modifying the compiler:
+Read-only executable compiler probes closed the gate on 2026-07-27 without
+modifying compiler/frontend code. Prompt heads establish the unique
+whole-span-and-kind original-syntax join, exact head token, canonical
+`PromptCatalog` target, and authored `defprompt` span in the final successful
+Stage-3 result. Direct-retained unexpanded proc-refs establish the analogous
+join through `ProcRefLiteralExpr`, the original exact `(proc-ref NAME)` form,
+and the canonical procedure-catalog definition across:
 
 - local, import-alias-qualified, canonical-module-qualified, and `:only`
   successful references;
@@ -171,10 +174,12 @@ modifying the compiler:
 - negative generated, expanded, specialized, erased, missing, duplicate,
   kind-mismatched, identity-mismatched, and span-mismatched cases.
 
-For proc-refs the proof must separately show that macro-consumed/specialized
-occurrences are not admitted. For macros it must prove canonical own-definition
-identity and a target at the authored `defmacro`, never an expansion product.
-Failure of any required case defers that entire conditional subshape.
+The proof separately showed that macro-consumed, erased, generated-owner, and
+specialized-owner proc-refs have no admitted final occurrence join. They
+remain null. The macro probe found call and definition provenance but no
+canonical/module-qualified own-definition identity that works across local and
+imported macros; the macro shape therefore defers in full rather than shipping
+a best-effort subset.
 
 ## Verification
 
@@ -183,7 +188,7 @@ Failure of any required case defers that entire conditional subshape.
   missing/multiple/kind/identity/span mismatches.
 - Local/imported fixtures prove alias-qualified, canonical-module-qualified,
   and `:only` visibility; private and ambiguous compiler failures; legal
-  duplicate labels across prompt/procedure/workflow/macro families; and no
+  duplicate labels across prompt/procedure/workflow families; and no
   cross-family target substitution.
 - Boundary fixtures put the cursor at the first and last in-token positions
   and at the opening delimiter, end boundary, adjacent whitespace, and every
@@ -201,17 +206,16 @@ Failure of any required case defers that entire conditional subshape.
 - A real stdio check against
   `workflows/examples/review_revise_design_docs.orc` resolves the fragment
   application head and preserves the already-working `(call ...)` result. Its
-  two macro-consumed proc-refs remain null under this design. The macro head is
-  asserted only if the macro feasibility gate passes; otherwise its null is
+  two macro-consumed proc-refs and its macro head remain null and are
   regression-locked.
 
 ## Sequencing
 
 Single L-series stage (L5 in the language-quality roadmap). Entry needs
 only landed structure: Q1 catalog and L1 index infrastructure. It has no
-dependency on L3 or L4. Required order is independent specification approval,
-then independent quality approval, then the read-only feasibility gates above,
-then an implementation plan containing only the shapes those gates admit.
-No implementation plan may be written before both design reviews approve.
-Implementation selection remains a separate roadmap action, followed by TDD,
-real stdio E2E, and ordered final reviews.
+dependency on L3 or L4. Ordered design reviews and read-only feasibility gates
+are complete. The proposed L5 implementation plan contains only prompt heads
+and the narrowly admitted direct-retained proc-ref shape; macro heads remain
+deferred. Implementation selection requires ordered plan specification then
+quality approval, followed by TDD, real stdio E2E, durable baseline
+incorporation, and ordered final reviews.

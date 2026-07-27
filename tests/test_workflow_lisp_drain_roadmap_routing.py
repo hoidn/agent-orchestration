@@ -64,6 +64,9 @@ LANGUAGE_SERVER_L1_PLAN_PATH = (
 LANGUAGE_SERVER_L2_PLAN_PATH = (
     "docs/plans/2026-07-27-workflow-lisp-language-server-l2-implementation-plan.md"
 )
+LANGUAGE_SERVER_L5_PLAN_PATH = (
+    "docs/plans/2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md"
+)
 EVOLUTION_FOLLOW_ON_ROADMAP_PATH = (
     "docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md"
 )
@@ -1281,7 +1284,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "| L3 |",
     )
     normalized_l3_row = _normalized_routing_text(l3_row)
-    assert "next" in normalized_l3_row
+    assert "queued" in normalized_l3_row
+    assert "owner reordered l5 plan gate" in normalized_l3_row
     assert "design" in normalized_l3_row
     assert "compile path reentrancy" in normalized_l3_row
     assert "blocked by l2" not in normalized_l3_row
@@ -1322,7 +1326,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "l1 authored symbols/signatures, and l2 recovery safe static completion are complete" in (
         normalized_index
     )
-    assert "l3 per source entry selection design gate is next" in normalized_index
+    assert "owner reordered l5 has an accepted design" in normalized_index
+    assert "l3 remains queued behind that plan gate" in normalized_index
     assert "p1 diagnostic accumulation" in normalized_successor
     assert "p5 compile caching/incrementality" in normalized_successor
     assert "runtime debugging surface" in normalized_successor
@@ -1460,7 +1465,10 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "l1 authored symbols/signatures, and l2 recovery safe static completion are complete" in (
         normalized_successor_index
     )
-    assert "l3 per source entry selection design gate is next" in (
+    assert "owner reordered l5 has an accepted design" in (
+        normalized_successor_index
+    )
+    assert "l3 remains queued behind that plan gate" in (
         normalized_successor_index
     )
     assert "### [Workflow Lisp Language Server L2 Implementation Plan]" in index
@@ -1672,9 +1680,10 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     assert "l1 authored symbols/signatures, and l2 recovery safe static completion are complete" in (
         active_roadmap_index
     )
-    assert "l3 per source entry selection design gate is next" in (
+    assert "owner reordered l5 has an accepted design" in (
         active_roadmap_index
     )
+    assert "l3 remains queued behind that plan gate" in active_roadmap_index
 
 
 def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> None:
@@ -2875,7 +2884,7 @@ def test_final_yaml_holdout_is_retired_and_authored_workflow_estate_is_empty() -
     ) == []
 
 
-def test_language_server_l2_is_implemented_and_routes_to_l3_design() -> None:
+def test_language_server_l2_is_complete_and_owner_reordered_l5_plan_gate_queues_l3() -> None:
     roadmap = (
         REPO_ROOT
         / "docs"
@@ -2914,7 +2923,8 @@ def test_language_server_l2_is_implemented_and_routes_to_l3_design() -> None:
         if line.startswith("| L3 |")
     )
     normalized_l3_row = _normalized_routing_text(l3_row)
-    assert "next" in normalized_l3_row
+    assert "queued" in normalized_l3_row
+    assert "owner reordered l5 plan gate" in normalized_l3_row
     assert "design" in normalized_l3_row
     assert "compile path reentrancy" in normalized_l3_row
     l2_plan = (
@@ -2956,3 +2966,81 @@ def test_language_server_l2_is_implemented_and_routes_to_l3_design() -> None:
         assert stale not in _normalized_routing_text(
             (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
         )
+
+
+def test_language_server_l5_routes_only_admitted_shapes_to_plan_review() -> None:
+    roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH
+    design_path = (
+        REPO_ROOT
+        / "docs"
+        / "design"
+        / "workflow_lisp_lsp_authored_reference_navigation.md"
+    )
+    design_router_path = REPO_ROOT / "docs" / "design" / "README.md"
+    capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
+    plan_path = REPO_ROOT / LANGUAGE_SERVER_L5_PLAN_PATH
+    index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+
+    l5_row = _markdown_table_row(roadmap_path, "| L5 |")
+    normalized_l5_row = _normalized_routing_text(l5_row)
+    assert "accepted design at b8a41172" in normalized_l5_row
+    assert "prompt heads" in normalized_l5_row
+    assert "final unexpanded direct retained proc ref" in normalized_l5_row
+    assert "non generated, non specialized authored owners" in normalized_l5_row
+    assert "macro heads defer shape wide" in normalized_l5_row
+    assert "plan gate" in normalized_l5_row
+    assert "implementation not authorized" in normalized_l5_row
+    assert Path(LANGUAGE_SERVER_L5_PLAN_PATH).name in l5_row
+
+    design = design_path.read_text(encoding="utf-8")
+    normalized_design_status = _normalized_routing_text(
+        "\n".join(design.splitlines()[:20])
+    )
+    assert "status: accepted for implementation planning" in (
+        normalized_design_status
+    )
+    assert "b8a41172" in normalized_design_status
+    assert "macro heads defer shape wide" in normalized_design_status
+    assert Path(LANGUAGE_SERVER_L5_PLAN_PATH).name in design
+
+    design_router_row = _markdown_table_row(
+        design_router_path,
+        "workflow_lisp_lsp_authored_reference_navigation.md",
+    )
+    assert "| Accepted design (implementation-plan review pending) |" in (
+        design_router_row
+    )
+    assert Path(LANGUAGE_SERVER_L5_PLAN_PATH).name in design_router_row
+
+    capability_row = _markdown_table_row(
+        capability_matrix_path,
+        "Workflow Lisp language server L5 authored reference navigation",
+    )
+    normalized_capability_row = _normalized_routing_text(capability_row)
+    assert "| Designed |" in capability_row
+    assert "accepted extension is not implemented" in normalized_capability_row
+    assert "macro heads defer shape wide" in normalized_capability_row
+    assert Path(LANGUAGE_SERVER_L5_PLAN_PATH).name in capability_row
+
+    plan = plan_path.read_text(encoding="utf-8")
+    normalized_plan = _normalized_routing_text(plan)
+    assert "# Workflow Lisp L5 Authored Reference Navigation Implementation Plan" in (
+        plan
+    )
+    assert "planning status: proposed" in normalized_plan
+    assert "l5_plan_spec_approved" in normalized_plan
+    assert "l5_plan_quality_approved" in normalized_plan
+    assert "no compiler/frontend or non navigation production file changed" in (
+        normalized_plan
+    )
+    assert "macro heads remain null shape wide" in normalized_plan
+
+    assert (
+        "### [Workflow Lisp L5 Authored Reference Navigation Implementation Plan]"
+        in index
+    )
+    assert Path(LANGUAGE_SERVER_L5_PLAN_PATH).name in index
+    normalized_index = _normalized_routing_text(index)
+    assert "implementation awaits l5_plan_spec_approved then l5_plan_quality_approved" in (
+        normalized_index
+    )
