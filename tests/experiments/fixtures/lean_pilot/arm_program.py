@@ -25,6 +25,11 @@ def main() -> int:
     )
     parser.add_argument("--result-file", type=Path, required=True)
     parser.add_argument("--provider-call-count", type=int, required=True)
+    parser.add_argument("--apparatus-root", type=Path, required=True)
+    parser.add_argument("--task-path", type=Path, required=True)
+    parser.add_argument("--provider-config", type=Path, required=True)
+    parser.add_argument("--prompt-config", type=Path, required=True)
+    parser.add_argument("--command-config", type=Path, required=True)
     parser.add_argument(
         "--result-fault",
         choices=("none", "unknown", "duplicate", "missing", "wrong-type"),
@@ -37,6 +42,21 @@ def main() -> int:
         return 23
 
     source = Path("README.md").read_bytes()
+    apparatus_root = args.apparatus_root.resolve(strict=True)
+    apparatus_assets = {}
+    for role, path in (
+        ("task", args.task_path),
+        ("provider_config", args.provider_config),
+        ("prompt_config", args.prompt_config),
+        ("command_config", args.command_config),
+    ):
+        resolved = path.resolve(strict=True)
+        if not resolved.is_relative_to(apparatus_root):
+            raise SystemExit(f"{role} is outside the staged apparatus root")
+        apparatus_assets[role] = {
+            "path": resolved.relative_to(apparatus_root).as_posix(),
+            "sha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
+        }
     launch_environment = {
         item.split(b"=", 1)[0].decode("utf-8")
         for item in Path("/proc/self/environ").read_bytes().split(b"\0")
@@ -51,6 +71,8 @@ def main() -> int:
                 "cwd": str(Path.cwd()),
                 "argv": sys.argv,
                 "source_sha256": hashlib.sha256(source).hexdigest(),
+                "apparatus_root": apparatus_root.as_posix(),
+                "apparatus_assets": apparatus_assets,
                 "environment_key_presence": [
                     {"name": name, "present": True}
                     for name in sorted(launch_environment)

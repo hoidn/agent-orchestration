@@ -10,6 +10,7 @@ import signal
 import stat
 import string
 import subprocess
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -17,6 +18,13 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from orchestrator.security.secrets import SecretsManager
+from orchestrator.workflow_lisp.build import (
+    load_frontend_initialization_configuration,
+)
+from orchestrator.workflow_lisp.command_boundaries import (
+    build_command_boundary_environment,
+)
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 
 from . import workspace
 from .contracts import (
@@ -35,6 +43,7 @@ _ALLOWED_PLACEHOLDERS = {
     "provider_config",
     "prompt_config",
     "command_config",
+    "apparatus_root",
 }
 _ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _COMMIT_IDENTITY = re.compile(r"^commit:([0-9a-f]{40,64})$")
@@ -266,6 +275,10 @@ def _verified_assets(lock: Mapping[str, object]) -> dict[str, bytes]:
         data = _read_manifest_asset(control_root, relative_path)
         if _sha256_bytes(data) != expected_digest:
             raise RunnerError(f"apparatus asset digest mismatch: {relative_path}")
+        if control_root.as_posix().encode("utf-8") in data:
+            raise RunnerError(
+                f"apparatus asset exposes original control_root: {relative_path}"
+            )
         verified[relative_path] = data
     return verified
 
@@ -347,6 +360,7 @@ def _validate_candidate_visibility(
     record_path: Path,
     randomization_seed: str,
     treatment_ids: tuple[str, ...],
+    apparatus_control_root: Path,
 ) -> None:
     for arm in arms:
         command = arm.command
@@ -359,6 +373,7 @@ def _validate_candidate_visibility(
             str(evidence_root),
             str(record_path),
             randomization_seed,
+            str(apparatus_control_root),
             *(
                 fragment
                 for peer in peer_commands
@@ -434,34 +449,101 @@ def _attempt_identity(
     return "LIVE", next_index, evidence_root / block_id / "block-attempt.json"
 
 
-def _provider_credentials(
-    provider_config: dict[str, object],
-    allowed_keys: set[str],
-) -> tuple[tuple[str, ...], dict[str, str]]:
-    if set(provider_config) != {"credential_environment_keys"}:
-        raise RunnerError("provider config has unknown or missing fields")
-    names = _string_list(
-        provider_config["credential_environment_keys"],
-        label="provider credential_environment_keys",
-    )
-    if len(set(names)) != len(names):
-        raise RunnerError("provider credential_environment_keys contains duplicates")
-    if any(
-        _ENVIRONMENT_NAME.fullmatch(name) is None or name not in allowed_keys
-        for name in names
-    ):
-        raise RunnerError("provider credential key is outside the lock allowlist")
-    if {"HOME", "TMPDIR"} & set(names):
-        raise RunnerError(
-            "provider credential key uses a controller-owned environment key"
-        )
+def _resolve_credentials(
+    names: tuple[str, ...],
+) -> dict[str, str]:
     context = SecretsManager().resolve_secrets(declared_secrets=list(names))
     if context.missing_secrets:
         raise RunnerError(
             "missing locked provider credentials: "
             + ", ".join(context.missing_secrets)
         )
-    return names, dict(context.secret_values)
+    return dict(context.secret_values)
+
+
+def _stage_verified_assets(
+    *,
+    root: Path,
+    verified: Mapping[str, bytes],
+) -> tuple[tuple[Path, bytes], ...]:
+    return tuple(
+        (
+            root.joinpath(*PurePosixPath(relative_path).parts),
+            data,
+        )
+        for relative_path, data in sorted(verified.items())
+    )
+
+
+def _write_staged_assets(
+    staged_assets: tuple[tuple[Path, bytes], ...],
+) -> None:
+    for path, data in staged_assets:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+
+def _validate_standard_role_manifests(
+    *,
+    verified: Mapping[str, bytes],
+    provider_path: str,
+    prompt_path: str,
+    command_path: str,
+) -> None:
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix="lean-pilot-manifest-preflight-"
+        ) as directory:
+            root = Path(directory)
+            _write_staged_assets(
+                _stage_verified_assets(root=root, verified=verified)
+            )
+            configuration = load_frontend_initialization_configuration(
+                workspace_root=root,
+                source_roots=(root,),
+                provider_externs_path=root.joinpath(
+                    *PurePosixPath(provider_path).parts
+                ),
+                prompt_externs_path=root.joinpath(
+                    *PurePosixPath(prompt_path).parts
+                ),
+                command_boundaries_path=root.joinpath(
+                    *PurePosixPath(command_path).parts
+                ),
+            )
+            build_command_boundary_environment(configuration.command_boundaries)
+    except (LispFrontendCompileError, OSError, ValueError) as exc:
+        raise RunnerError(
+            "apparatus role configs must be standard Workflow Lisp extern manifests"
+        ) from exc
+
+    for name, binding in configuration.prompt_externs.items():
+        if isinstance(binding, str):
+            source_kind = "asset_file"
+            path = binding
+        elif isinstance(binding, Mapping):
+            if set(binding) == {"asset_file"}:
+                source_kind = "asset_file"
+                path = binding["asset_file"]
+            elif set(binding) == {"input_file"}:
+                source_kind = "input_file"
+                path = binding["input_file"]
+            else:
+                source_kind = None
+                path = None
+        else:
+            raise RunnerError(
+                "apparatus prompt config is not a standard Workflow Lisp "
+                "extern manifest"
+            )
+        if source_kind != "asset_file":
+            raise RunnerError(
+                f"apparatus prompt extern {name} must use asset_file"
+            )
+        if not isinstance(path, str) or path not in verified:
+            raise RunnerError(
+                f"missing apparatus prompt asset for {name}: {path}"
+            )
 
 
 def _parse_treatment_config(
@@ -545,20 +627,11 @@ def _preflight(
     if any(not isinstance(path, str) or path not in verified for path in role_paths):
         raise RunnerError("apparatus role binding is not verified")
     task_path, provider_path, prompt_path, shared_command_path = role_paths
-    provider_config = _strict_object(
-        verified[provider_path],
-        label="provider config",
-    )
-    _strict_object(verified[prompt_path], label="prompt config")
-    shared_config = _strict_object(
-        verified[shared_command_path],
-        label="shared command config",
-    )
-    if set(shared_config) != {"environment"}:
-        raise RunnerError("shared command config has unknown or missing fields")
-    shared_environment = _environment_mapping(
-        shared_config["environment"],
-        label="shared command environment",
+    _validate_standard_role_manifests(
+        verified=verified,
+        provider_path=provider_path,
+        prompt_path=prompt_path,
+        command_path=shared_command_path,
     )
 
     apparatus_environment = apparatus["environment"]
@@ -573,13 +646,30 @@ def _preflight(
         raise RunnerError(
             "apparatus environment allowed_keys must include HOME and TMPDIR"
         )
+    credential_names = _string_list(
+        apparatus_environment["credential_keys"],
+        label="apparatus environment credential_keys",
+    )
+    credential_keys = set(credential_names)
+    if len(credential_names) != len(credential_keys):
+        raise RunnerError("apparatus environment credential_keys has duplicates")
+    if not credential_keys <= allowed_keys:
+        raise RunnerError(
+            "apparatus environment credential_keys must be within allowed_keys"
+        )
+    if {"HOME", "TMPDIR"} & credential_keys:
+        raise RunnerError(
+            "controller-owned environment keys cannot be credentials"
+        )
+    launcher_environment_keys = allowed_keys - {
+        "HOME",
+        "TMPDIR",
+        *credential_keys,
+    }
     environment_identity = apparatus_environment["identity"]
     if not isinstance(environment_identity, str):
         raise RunnerError("apparatus environment identity is malformed")
-    credential_names, secret_values = _provider_credentials(
-        provider_config,
-        allowed_keys,
-    )
+    secret_values: dict[str, str] | None = None
 
     visible_check = apparatus["visible_check"]
     if not isinstance(visible_check, Mapping):
@@ -647,12 +737,20 @@ def _preflight(
         workspace_path = block_work_root / opaque_label / "workspace"
         runtime_root = block_work_root / ".controller" / opaque_label
         result_path = runtime_root / "raw-result.json"
-        asset_root = runtime_root / "assets"
+        asset_root = runtime_root / "apparatus"
         staged_paths = {
-            "task_path": asset_root / "asset-0",
-            "provider_config": asset_root / "asset-1",
-            "prompt_config": asset_root / "asset-2",
-            "command_config": asset_root / "asset-3",
+            "task_path": asset_root.joinpath(
+                *PurePosixPath(task_path).parts
+            ),
+            "provider_config": asset_root.joinpath(
+                *PurePosixPath(provider_path).parts
+            ),
+            "prompt_config": asset_root.joinpath(
+                *PurePosixPath(prompt_path).parts
+            ),
+            "command_config": asset_root.joinpath(
+                *PurePosixPath(shared_command_path).parts
+            ),
         }
         replacements = {
             "workspace": str(workspace_path),
@@ -661,6 +759,7 @@ def _preflight(
             "provider_config": str(staged_paths["provider_config"]),
             "prompt_config": str(staged_paths["prompt_config"]),
             "command_config": str(staged_paths["command_config"]),
+            "apparatus_root": str(asset_root),
         }
         argv = tuple(
             _substitute(
@@ -671,15 +770,19 @@ def _preflight(
             for item in config_argv
         )
 
-        environment = dict(shared_environment)
-        environment.update(config_environment)
-        if "HOME" in environment or "TMPDIR" in environment:
-            raise RunnerError("HOME and TMPDIR are controller-owned environment keys")
+        if {"HOME", "TMPDIR"} & set(config_environment):
+            raise RunnerError(
+                "HOME and TMPDIR are controller-owned environment keys"
+            )
+        if set(config_environment) != launcher_environment_keys:
+            raise RunnerError(
+                f"{treatment_id} environment must provide the exact locked "
+                "non-controller, non-credential keys"
+            )
+        if secret_values is None:
+            secret_values = _resolve_credentials(credential_names)
+        environment = dict(config_environment)
         for key, value in tuple(environment.items()):
-            if key not in allowed_keys:
-                raise RunnerError(
-                    f"{treatment_id} environment key is outside the lock: {key}"
-                )
             environment[key] = _substitute(
                 value,
                 replacements,
@@ -710,11 +813,9 @@ def _preflight(
                     runtime_root=runtime_root,
                     result_path=result_path,
                 ),
-                staged_assets=(
-                    (staged_paths["task_path"], verified[task_path]),
-                    (staged_paths["provider_config"], verified[provider_path]),
-                    (staged_paths["prompt_config"], verified[prompt_path]),
-                    (staged_paths["command_config"], verified[command_path]),
+                staged_assets=_stage_verified_assets(
+                    root=asset_root,
+                    verified=verified,
                 ),
                 credential_names=credential_names,
             )
@@ -728,6 +829,10 @@ def _preflight(
         randomization_seed=seed,
         treatment_ids=tuple(
             arm.command.treatment_id for arm in prepared_arms
+        ),
+        apparatus_control_root=_canonical_absolute_path(
+            apparatus["control_root"],
+            label="apparatus.control_root",
         ),
     )
     return _Preflight(
@@ -810,9 +915,7 @@ def _allocate_workspaces(preflight: _Preflight, block_id: str) -> None:
             )
         manifests.append(manifest)
         arm.command.runtime_root.mkdir(parents=True)
-        for path, data in arm.staged_assets:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(data)
+        _write_staged_assets(arm.staged_assets)
         environment = dict(arm.command.environment)
         for special in ("HOME", "TMPDIR"):
             value = environment.get(special)

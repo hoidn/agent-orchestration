@@ -143,6 +143,24 @@ def _validate_pilot_lock_apparatus(record: dict[str, Any]) -> None:
     if manifest_by_path[task_path] != record["task"]["brief_digest"]:
         raise PilotContractError(f"task_brief_digest_mismatch:{task_path}")
 
+    environment = apparatus["environment"]
+    allowed_keys = set(environment["allowed_keys"])
+    credential_keys = set(environment["credential_keys"])
+    for controller_key in ("HOME", "TMPDIR"):
+        if controller_key not in allowed_keys:
+            raise PilotContractError(
+                f"missing_controller_environment_key:{controller_key}"
+            )
+        if controller_key in credential_keys:
+            raise PilotContractError(
+                "controller_environment_key_cannot_be_credential:"
+                f"{controller_key}"
+            )
+    for credential_key in sorted(credential_keys - allowed_keys):
+        raise PilotContractError(
+            f"credential_key_not_allowed:{credential_key}"
+        )
+
     treatment_paths: set[str] = set()
     for treatment in record["treatments"]:
         treatment_id = treatment["treatment_id"]

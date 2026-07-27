@@ -66,7 +66,8 @@ def _apparatus() -> dict[str, Any]:
         "command_config_path": "config/commands.json",
         "environment": {
             "identity": _digest("environment"),
-            "allowed_keys": ["PATH", "OPENAI_API_KEY"],
+            "allowed_keys": ["HOME", "OPENAI_API_KEY", "PATH", "TMPDIR"],
+            "credential_keys": ["OPENAI_API_KEY"],
         },
         "visible_check": {
             "argv": ["python", "-m", "pytest", "-q"],
@@ -497,6 +498,7 @@ def test_pilot_lock_requires_exact_treatments_and_call_bounds(
         (("apparatus", "environment"), "environment"),
         (("apparatus", "environment", "identity"), "identity"),
         (("apparatus", "environment", "allowed_keys"), "allowed_keys"),
+        (("apparatus", "environment", "credential_keys"), "credential_keys"),
         (("apparatus", "visible_check"), "visible_check"),
         (("apparatus", "visible_check", "argv"), "argv"),
         (
@@ -745,6 +747,73 @@ def test_environment_allowed_keys_are_explicit_unique_names(
         contracts.PilotContractError,
         match=r"\$\.apparatus\.environment\.allowed_keys",
     ):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    "credential_keys",
+    [
+        ["OPENAI_API_KEY", "OPENAI_API_KEY"],
+        [""],
+        ["1INVALID"],
+        ["INVALID-NAME"],
+    ],
+)
+def test_environment_credential_keys_are_unique_environment_names(
+    contracts: ModuleType,
+    credential_keys: list[str],
+) -> None:
+    record = _pilot_lock()
+    record["apparatus"]["environment"]["credential_keys"] = credential_keys
+
+    with pytest.raises(
+        contracts.PilotContractError,
+        match=r"\$\.apparatus\.environment\.credential_keys",
+    ):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    ("allowed_keys", "credential_keys", "expected"),
+    [
+        (
+            ["HOME", "PATH", "TMPDIR"],
+            ["OPENAI_API_KEY"],
+            "credential_key_not_allowed:OPENAI_API_KEY",
+        ),
+        (
+            ["HOME", "PATH", "TMPDIR"],
+            ["HOME"],
+            "controller_environment_key_cannot_be_credential:HOME",
+        ),
+        (
+            ["HOME", "PATH", "TMPDIR"],
+            ["TMPDIR"],
+            "controller_environment_key_cannot_be_credential:TMPDIR",
+        ),
+        (
+            ["PATH", "TMPDIR"],
+            [],
+            "missing_controller_environment_key:HOME",
+        ),
+        (
+            ["HOME", "PATH"],
+            [],
+            "missing_controller_environment_key:TMPDIR",
+        ),
+    ],
+)
+def test_environment_partition_is_closed_in_the_lock(
+    contracts: ModuleType,
+    allowed_keys: list[str],
+    credential_keys: list[str],
+    expected: str,
+) -> None:
+    record = _pilot_lock()
+    record["apparatus"]["environment"]["allowed_keys"] = allowed_keys
+    record["apparatus"]["environment"]["credential_keys"] = credential_keys
+
+    with pytest.raises(contracts.PilotContractError, match=expected):
         contracts.validate_record(record)
 
 

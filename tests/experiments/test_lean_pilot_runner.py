@@ -100,13 +100,62 @@ def _pilot_lock(
         _write_asset(
             control_root,
             "config/provider.json",
-            {"credential_environment_keys": []},
+            {"providers.review": "fixture-provider"},
         ),
-        _write_asset(control_root, "config/prompts.json", {"name": "fixture"}),
+        _write_asset(
+            control_root,
+            "config/prompts.json",
+            {"prompts.review": "prompts/review.md"},
+        ),
         _write_asset(
             control_root,
             "config/commands.json",
-            {"environment": {"PYTHONUNBUFFERED": "1"}},
+            {
+                "record_approved": {
+                    "kind": "external_tool",
+                    "stable_command": ["true"],
+                },
+                "record_revise": {
+                    "kind": "external_tool",
+                    "stable_command": ["true"],
+                },
+            },
+        ),
+        _write_asset(
+            control_root,
+            "prompts/review.md",
+            b"Return whether the fixture is approved.\n",
+        ),
+        _write_asset(
+            control_root,
+            "fixture.orc",
+            (
+                b'(workflow-lisp\n'
+                b'  (:language "0.1")\n'
+                b'  (:target-dsl "2.15")\n'
+                b'  (defmodule fixture)\n'
+                b'  (export decide)\n'
+                b'  (defworkflow decide\n'
+                b'    ()\n'
+                b'    -> Bool\n'
+                b'    (let* ((approved\n'
+                b'             (provider-result providers.review\n'
+                b'               :prompt prompts.review\n'
+                b'               :inputs ()\n'
+                b'               :returns Bool)))\n'
+                b'      (if approved\n'
+                b'        (command-result record_approved\n'
+                b'          :argv ("true")\n'
+                b'          :returns Bool)\n'
+                b'        (command-result record_revise\n'
+                b'          :argv ("true")\n'
+                b'          :returns Bool)))))\n'
+            ),
+        ),
+        _write_asset(
+            control_root,
+            "fixture/arm_program.py",
+            ARM_PROGRAM.read_bytes(),
         ),
     ]
     command_assets: dict[str, dict[str, str]] = {}
@@ -122,15 +171,25 @@ def _pilot_lock(
             {
                 "argv": [
                     sys.executable,
-                    str(ARM_PROGRAM),
+                    "{apparatus_root}/fixture/arm_program.py",
                     "--mode",
                     "success",
                     "--result-file",
                     "{result_path}",
                     "--provider-call-count",
                     str(call_count),
+                    "--apparatus-root",
+                    "{apparatus_root}",
+                    "--task-path",
+                    "{task_path}",
+                    "--provider-config",
+                    "{provider_config}",
+                    "--prompt-config",
+                    "{prompt_config}",
+                    "--command-config",
+                    "{command_config}",
                 ],
-                "environment": {},
+                "environment": {"PYTHONUNBUFFERED": "1"},
                 "environment_identity": environment_identity,
                 "timeout_milliseconds": 10_000,
             },
@@ -195,6 +254,7 @@ def _pilot_lock(
                     "PYTHONUNBUFFERED",
                     "TMPDIR",
                 ],
+                "credential_keys": [],
             },
             "visible_check": {
                 "argv": [sys.executable, "-c", "raise SystemExit(0)"],
@@ -263,6 +323,14 @@ def _rewrite_manifest_json(
     )
     entry["sha256"] = _sha256(data)
     contracts.validate_record(lock)
+
+
+def _rewrite_all_treatment_configs(
+    lock: dict[str, Any],
+    mutate: Callable[[dict[str, Any]], None],
+) -> None:
+    for treatment_id in ("DIRECT", "COORDINATOR", "ORC"):
+        _rewrite_treatment_config(lock, treatment_id, mutate)
 
 
 def _evidence_snapshot(root: Path) -> dict[str, bytes]:
@@ -478,6 +546,138 @@ def test_treatment_config_faults_reject_before_started(
     assert not work_root.exists()
 
 
+@pytest.mark.parametrize(
+    ("role", "legacy_value"),
+    [
+        (
+            "provider_config_path",
+            {"credential_environment_keys": ["OPENAI_API_KEY"]},
+        ),
+        (
+            "command_config_path",
+            {"environment": {"PYTHONUNBUFFERED": "1"}},
+        ),
+    ],
+)
+def test_legacy_custom_role_manifest_shapes_reject_before_started(
+    runner: ModuleType,
+    tmp_path: Path,
+    role: str,
+    legacy_value: dict[str, Any],
+) -> None:
+    work_root = tmp_path / "work"
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    _rewrite_manifest_json(lock, lock["apparatus"][role], legacy_value)
+
+    with pytest.raises(ValueError, match="standard Workflow Lisp"):
+        runner.run_block(
+            lock=lock,
+            block_id=lock["fixture_id"],
+            work_root=work_root,
+            evidence_root=evidence_root,
+        )
+
+    assert not evidence_root.exists()
+    assert not work_root.exists()
+
+
+def test_standard_asset_file_prompt_binding_is_accepted(
+    runner: ModuleType,
+    tmp_path: Path,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    _rewrite_manifest_json(
+        lock,
+        lock["apparatus"]["prompt_config_path"],
+        {"prompts.review": {"asset_file": "prompts/review.md"}},
+    )
+
+    record = runner.run_block(
+        lock=lock,
+        block_id=lock["fixture_id"],
+        work_root=tmp_path / "work",
+        evidence_root=evidence_root,
+    ).record
+
+    assert record["status"] == "VALID"
+
+
+def test_input_file_prompt_binding_rejects_before_started(
+    runner: ModuleType,
+    tmp_path: Path,
+) -> None:
+    work_root = tmp_path / "work"
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    _rewrite_manifest_json(
+        lock,
+        lock["apparatus"]["prompt_config_path"],
+        {"prompts.review": {"input_file": "prompts/review.md"}},
+    )
+
+    with pytest.raises(ValueError, match="asset_file"):
+        runner.run_block(
+            lock=lock,
+            block_id=lock["fixture_id"],
+            work_root=work_root,
+            evidence_root=evidence_root,
+        )
+
+    assert not evidence_root.exists()
+    assert not work_root.exists()
+
+
+@pytest.mark.parametrize(
+    ("fault", "expected"),
+    [
+        ("missing-launcher-key", "exact locked non-controller"),
+        ("credential-overlap", "exact locked non-controller"),
+        ("controller-key", "controller-owned"),
+    ],
+)
+def test_treatment_environment_partition_rejects_before_started(
+    runner: ModuleType,
+    tmp_path: Path,
+    fault: str,
+    expected: str,
+) -> None:
+    work_root = tmp_path / "work"
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    if fault == "credential-overlap":
+        secret_name = "LEAN_PILOT_TEST_SECRET"
+        lock["apparatus"]["environment"]["allowed_keys"].append(secret_name)
+        lock["apparatus"]["environment"]["credential_keys"] = [secret_name]
+
+        def mutate(config: dict[str, Any]) -> None:
+            config["environment"][secret_name] = "must-not-override"
+
+    elif fault == "controller-key":
+
+        def mutate(config: dict[str, Any]) -> None:
+            config["environment"]["HOME"] = "/unlocked/home"
+
+    else:
+
+        def mutate(config: dict[str, Any]) -> None:
+            del config["environment"]["PYTHONUNBUFFERED"]
+
+    _rewrite_treatment_config(lock, "DIRECT", mutate)
+
+    with pytest.raises(ValueError, match=expected):
+        runner.run_block(
+            lock=lock,
+            block_id=lock["fixture_id"],
+            work_root=work_root,
+            evidence_root=evidence_root,
+        )
+
+    assert not evidence_root.exists()
+    assert not work_root.exists()
+
+
 def test_empty_treatment_argv_rejects_before_started(
     runner: ModuleType,
     tmp_path: Path,
@@ -513,9 +713,8 @@ def test_controller_owned_runtime_key_is_required_before_started(
     evidence_root = tmp_path / "evidence"
     lock = _pilot_lock(tmp_path, evidence_root)
     lock["apparatus"]["environment"]["allowed_keys"].remove(required_key)
-    contracts.validate_record(lock)
 
-    with pytest.raises(ValueError, match="HOME and TMPDIR"):
+    with pytest.raises(ValueError, match="missing_controller_environment_key"):
         runner.run_block(
             lock=lock,
             block_id=lock["fixture_id"],
@@ -563,13 +762,9 @@ def test_controller_runtime_keys_cannot_be_provider_credentials(
     work_root = tmp_path / "work"
     evidence_root = tmp_path / "evidence"
     lock = _pilot_lock(tmp_path, evidence_root)
-    _rewrite_manifest_json(
-        lock,
-        lock["apparatus"]["provider_config_path"],
-        {"credential_environment_keys": ["HOME"]},
-    )
+    lock["apparatus"]["environment"]["credential_keys"] = ["HOME"]
 
-    with pytest.raises(ValueError, match="controller-owned"):
+    with pytest.raises(ValueError, match="controller_environment_key"):
         runner.run_block(
             lock=lock,
             block_id=lock["fixture_id"],
@@ -581,7 +776,7 @@ def test_controller_runtime_keys_cannot_be_provider_credentials(
     assert not work_root.exists()
 
 
-def test_empty_provider_credential_list_remains_valid(
+def test_empty_locked_credential_list_remains_valid(
     runner: ModuleType,
     tmp_path: Path,
 ) -> None:
@@ -639,6 +834,7 @@ def test_work_and_evidence_roots_must_be_disjoint_before_started(
         "attempt-path",
         "peer-workspace",
         "peer-runtime",
+        "original-control-root",
         "logical-treatment-id",
         "randomization-seed",
         "peer-opaque-label",
@@ -668,6 +864,7 @@ def test_candidate_visible_controller_data_rejects_before_started(
         "peer-runtime": str(
             work_root / block_id / ".controller" / peer_label
         ),
+        "original-control-root": lock["apparatus"]["control_root"],
         "logical-treatment-id": "COORDINATOR",
         "randomization-seed": lock["randomization_seed"],
         "peer-opaque-label": peer_label,
@@ -689,18 +886,14 @@ def test_candidate_visible_controller_data_rejects_before_started(
     if surface == "argv":
         _rewrite_treatment_config(lock, "DIRECT", expose_controller_data)
     else:
-        _rewrite_manifest_json(
-            lock,
-            lock["apparatus"]["command_config_path"],
-            {
-                "environment": {
-                    "PYTHONUNBUFFERED": "1",
-                    "VISIBILITY_PROBE": f"prefix:{forbidden}:suffix",
-                }
-            },
-        )
+        _rewrite_all_treatment_configs(lock, expose_controller_data)
 
-    with pytest.raises(ValueError, match="candidate-visible"):
+    expected_message = (
+        "control_root"
+        if forbidden_kind == "original-control-root"
+        else "candidate-visible"
+    )
+    with pytest.raises(ValueError, match=expected_message):
         runner.run_block(
             lock=lock,
             block_id=block_id,
@@ -720,16 +913,11 @@ def test_candidate_visible_environment_key_cannot_name_a_treatment(
     evidence_root = tmp_path / "evidence"
     lock = _pilot_lock(tmp_path, evidence_root)
     lock["apparatus"]["environment"]["allowed_keys"].append("DIRECT_SECRET")
-    _rewrite_manifest_json(
-        lock,
-        lock["apparatus"]["command_config_path"],
-        {
-            "environment": {
-                "DIRECT_SECRET": "present",
-                "PYTHONUNBUFFERED": "1",
-            }
-        },
-    )
+
+    def add_treatment_named_key(config: dict[str, Any]) -> None:
+        config["environment"]["DIRECT_SECRET"] = "present"
+
+    _rewrite_all_treatment_configs(lock, add_treatment_named_key)
 
     with pytest.raises(ValueError, match="candidate-visible"):
         runner.run_block(
@@ -755,16 +943,11 @@ def test_treatment_tokens_inside_larger_identifier_components_are_permitted(
         "ORCHESTRATOR_MODE": "orchestrator-runtime",
     }
     lock["apparatus"]["environment"]["allowed_keys"].extend(extra_environment)
-    _rewrite_manifest_json(
-        lock,
-        lock["apparatus"]["command_config_path"],
-        {
-            "environment": {
-                "PYTHONUNBUFFERED": "1",
-                **extra_environment,
-            }
-        },
-    )
+
+    def add_extra_environment(config: dict[str, Any]) -> None:
+        config["environment"].update(extra_environment)
+
+    _rewrite_all_treatment_configs(lock, add_extra_environment)
 
     record = runner.run_block(
         lock=lock,
@@ -879,11 +1062,7 @@ def test_three_arms_release_together_with_closed_opaque_visibility(
     evidence_root = tmp_path / "evidence"
     lock = _pilot_lock(tmp_path, evidence_root)
     lock["apparatus"]["environment"]["allowed_keys"].append(secret_name)
-    _rewrite_manifest_json(
-        lock,
-        lock["apparatus"]["provider_config_path"],
-        {"credential_environment_keys": [secret_name]},
-    )
+    lock["apparatus"]["environment"]["credential_keys"] = [secret_name]
 
     record = runner.run_block(
         lock=lock,
@@ -938,6 +1117,98 @@ def test_three_arms_release_together_with_closed_opaque_visibility(
         for path in evidence_root.rglob("*")
         if path.is_file()
     )
+
+
+def test_standard_externs_compile_from_staged_private_apparatus_only(
+    runner: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    work_root = tmp_path / "work"
+    unrelated_cwd = tmp_path / "unrelated-cwd"
+    unrelated_cwd.mkdir()
+    lock = _pilot_lock(tmp_path, evidence_root)
+    control_root = Path(lock["apparatus"]["control_root"])
+    expected_assets = {
+        entry["path"]: entry["sha256"]
+        for entry in lock["apparatus"]["asset_manifest"]
+    }
+    real_atomic_record = runner._atomic_record
+    removed_after_started = False
+
+    def remove_original_after_started(
+        path: Path,
+        record: dict[str, Any],
+    ) -> None:
+        nonlocal removed_after_started
+        real_atomic_record(path, record)
+        if record["status"] == "STARTED" and not removed_after_started:
+            shutil.rmtree(control_root)
+            removed_after_started = True
+
+    monkeypatch.chdir(unrelated_cwd)
+    monkeypatch.setattr(runner, "_atomic_record", remove_original_after_started)
+
+    record = runner.run_block(
+        lock=lock,
+        block_id=lock["fixture_id"],
+        work_root=work_root,
+        evidence_root=evidence_root,
+    ).record
+
+    assert removed_after_started is True
+    assert not control_root.exists()
+    assert record["status"] == "VALID"
+    observations = _fixture_events(evidence_root, "started")
+    assert len(observations) == 3
+    for observation in observations:
+        visible = json.dumps(observation, sort_keys=True)
+        assert control_root.as_posix() not in visible
+        staged_root = Path(observation["apparatus_root"])
+        assert staged_root.is_dir()
+        staged_assets = {
+            path.relative_to(staged_root).as_posix(): _sha256(path.read_bytes())
+            for path in staged_root.rglob("*")
+            if path.is_file()
+        }
+        assert staged_assets == expected_assets
+        assert {
+            role: details["path"]
+            for role, details in observation["apparatus_assets"].items()
+        } == {
+            "task": lock["apparatus"]["task_path"],
+            "provider_config": lock["apparatus"]["provider_config_path"],
+            "prompt_config": lock["apparatus"]["prompt_config_path"],
+            "command_config": lock["apparatus"]["command_config_path"],
+        }
+
+    staged_root = Path(observations[0]["apparatus_root"])
+    compile_result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "orchestrator",
+            "compile",
+            str(staged_root / "fixture.orc"),
+            "--source-root",
+            str(staged_root),
+            "--entry-workflow",
+            "fixture::decide",
+            "--provider-externs-file",
+            str(staged_root / lock["apparatus"]["provider_config_path"]),
+            "--prompt-externs-file",
+            str(staged_root / lock["apparatus"]["prompt_config_path"]),
+            "--command-boundaries-file",
+            str(staged_root / lock["apparatus"]["command_config_path"]),
+        ],
+        cwd=unrelated_cwd,
+        env=os.environ.copy(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert compile_result.returncode == 0, compile_result.stderr
 
 
 @pytest.mark.parametrize(
@@ -1142,7 +1413,10 @@ def test_unproven_quiescence_preserves_started_before_product_freeze(
         grace_milliseconds: int,
     ) -> None:
         real_quiesce(process, grace_milliseconds)
-        is_provider = str(ARM_PROGRAM) in tuple(process.args)
+        is_provider = any(
+            str(argument).endswith("/fixture/arm_program.py")
+            for argument in process.args
+        )
         if (stage == "provider" and is_provider) or (
             stage == "check" and not is_provider
         ):

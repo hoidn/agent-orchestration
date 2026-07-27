@@ -77,11 +77,20 @@
                     "type": "string",
                     "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
                   }
+                },
+                "credential_keys": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  }
                 }
               },
               "required": [
                 "identity",
-                "allowed_keys"
+                "allowed_keys",
+                "credential_keys"
               ]
             },
             "visible_check": {

@@ -154,8 +154,9 @@ Later work must not depend on an interface absent from this block.
 - Requires one strict `pilot_lock.v1.apparatus` object and one
   `command_config_path` on each of the three existing treatment objects. The
   apparatus owns the only absolute apparatus path, a relative content
-  manifest, role paths, environment identity/allowlist, visible-check argv and
-  timeout, product exclusions, and start/quiescence bounds.
+  manifest, role paths for unmodified standard Workflow Lisp extern manifests,
+  a closed environment identity/allowlist/credential partition, visible-check
+  argv and timeout, product exclusions, and start/quiescence bounds.
 - No task adds a fifth first-tranche record kind.
 
 - [ ] **Step 1: Write the contract tests**
@@ -183,9 +184,12 @@ Cover:
   locked treatment command digests; and the task-path entry matching the task
   brief digest;
 - a nonempty unique environment-key allowlist using
-  `[A-Za-z_][A-Za-z0-9_]*`, explicit visible-check argv and positive timeout,
-  explicit unique product exclusions (including an allowed empty list), and
-  required positive maximum-start-skew and quiescence-grace bounds;
+  `[A-Za-z_][A-Za-z0-9_]*`, required controller-owned `HOME` and `TMPDIR`, and
+  unique credential-key names that are a subset of the allowlist and exclude
+  those controller keys;
+- explicit visible-check argv and positive timeout, explicit unique product
+  exclusions (including an allowed empty list), and required positive
+  maximum-start-skew and quiescence-grace bounds;
 - block attempts binding the pilot-lock digest, declared attempt class,
   sequence index, and predeclared block ID; requiring
   `STARTED | VALID | INVALID | ABORTED`; permitting no treatment executions
@@ -385,17 +389,26 @@ git commit -m "feat(experiments): materialize and freeze pilot workspaces"
   installation, repository checkout, or a fixed path.
 - Before writing `STARTED`, allocating workspaces, or launching an arm, reads
   every manifest file, verifies its bytes against the locked digest, and
-  rechecks all role and treatment command-configuration bindings.
+  rechecks all role and treatment command-configuration bindings. The three
+  role configs must validate as the unmodified standard Workflow Lisp
+  provider-extern, prompt-extern, and command-boundary manifests; no
+  experiment-specific interpretation is permitted. Every prompt extern must
+  use `asset_file` and name a verified manifest entry; `input_file` lookup is
+  outside this locked apparatus.
 - Constructs each `ArmCommand` from the verified configuration bytes and
   rejects missing configuration, uncontrolled environment keys, implicit
   commands/timeouts, or other defaults before launch.
+- Stages every verified manifest asset for each arm under one private
+  controller-owned apparatus root while preserving its normalized relative
+  path; the original `apparatus.control_root` is never candidate-visible.
 - Atomically persists one `block_attempt.v1`; valid attempts contain exactly
   three nested treatment executions.
 - Does not implement resume, a database, a reusable state machine, or
   whole-treatment retry.
 - Supplies every arm the same locked environment-key allowlist, distinct
-  per-arm `HOME`/temporary roots, and only the selected provider credential
-  variables obtained through the existing secrets manager.
+  per-arm `HOME`/temporary roots, only the explicitly locked credential keys
+  obtained through the existing secrets manager, and exactly the remaining
+  non-controller/noncredential keys from that treatment's launcher config.
 - Excludes unrelated ambient variables and records credential names/presence
   only in structured metadata, never values.
 
@@ -408,11 +421,12 @@ The fixture arm supports `success`, `timeout`, `nonzero`, `spawn-child`, and `pr
 - treatment IDs are replaced by opaque arm labels in candidate-visible paths and environment;
 - stdout/stderr go to evidence files outside candidate roots;
 - no arm argv/environment contains the shared evidence root, peer paths,
-  treatment mapping, or final block-attempt path;
+  treatment mapping, original apparatus control root, or final block-attempt
+  path;
 - each arm receives only one opaque per-arm raw-result path; the controller
   validates that payload and authors the nested execution record itself;
 - unrelated ambient variables are absent from every arm;
-- provider credential names/presence match the lock and structured records
+- credential names/presence match `apparatus.environment.credential_keys` and structured records
   never contain credential values;
 - a DIRECT arm result with provider-call count other than one is invalid;
 - COORDINATOR/ORC counts outside `5..9` are invalid treatment results, not block invalidity;
@@ -422,6 +436,13 @@ The fixture arm supports `success`, `timeout`, `nonzero`, `spawn-child`, and `pr
 - a missing manifest file, a file outside the control root, any manifest digest
   mismatch, any role/treatment binding mismatch, or any uncontrolled config
   default fails before `STARTED`, workspace allocation, and launch;
+- legacy experiment-only provider-credential/shared-environment shapes fail
+  while standard Workflow Lisp extern manifests compile unchanged;
+- prompt externs use only `asset_file` paths present in the verified manifest;
+  dynamic `input_file` paths fail before `STARTED`;
+- every verified asset is staged for every arm at its manifest-relative path,
+  and launch remains independent of CWD, package location, and the original
+  control root after preflight;
 - commands, the visible check, environment keys, exclusions, start skew, and
   quiescence grace all come from the verified lock/config assets rather than
   CWD, package-location, or hardcoded lookup;
@@ -458,23 +479,32 @@ _ALLOWED = {
     "provider_config",
     "prompt_config",
     "command_config",
+    "apparatus_root",
 }
 ```
 
-Resolve the task, provider, prompt, shared-command, and three treatment-command
-configurations from verified manifest bytes beneath `apparatus.control_root`.
-The three treatment command files must be distinct and each verified file
-digest must equal the treatment's locked `command_digest`; build `ArmCommand`
-only after those checks pass. Do not infer assets from CWD, package locations,
-or repository/fixed paths.
+Resolve the task, the unmodified standard provider/prompt/command extern
+manifests, and the three treatment launcher configurations from verified
+manifest bytes beneath `apparatus.control_root`. The three treatment command
+files must be distinct and each verified file digest must equal the
+treatment's locked `command_digest`; build `ArmCommand` only after those checks
+pass. Stage every verified manifest asset under each arm's private
+`apparatus_root`, preserving the normalized relative path. Bind the three
+extern-manifest placeholders to their staged standard role manifests—not to
+the treatment launcher configuration. Do not infer assets from CWD, package
+locations, or repository/fixed paths.
 
 Construct `closed_env` only from the lock's explicit
-`apparatus.environment.allowed_keys`, verified configuration values, selected
-provider credentials obtained through the existing secrets manager, and
-opaque per-arm `HOME`/temporary roots required by that verified configuration.
-Every credential key must be explicitly allowed. Do not copy `os.environ`
-wholesale, imply even `PATH`/locale as a default, or add a new secrets backend.
-Record environment key names and presence only; never serialize secret values.
+`apparatus.environment.allowed_keys`: controller-owned per-arm `HOME` and
+`TMPDIR`; only `apparatus.environment.credential_keys` resolved through the
+existing secrets manager; and exactly the remaining allowed keys supplied by
+each treatment launcher's `environment` object. Credential keys must be unique,
+explicitly allowed, and distinct from `HOME`/`TMPDIR`. Reject overlap, missing
+keys, extras, and ambient/default inheritance before `STARTED`. Do not parse
+the provider extern manifest as a credential object or the command-boundary
+manifest as a shared environment object. Do not copy `os.environ` wholesale,
+imply even `PATH`/locale as a default, or add a new secrets backend. Record
+environment key names and presence only; never serialize secret values.
 
 Reject unknown placeholders and never invoke a shell.
 
@@ -715,7 +745,12 @@ pytest -q tests/experiments/test_lean_pilot_treatment_parity.py
 Create the three standard extern manifests in this task. They bind the shared
 provider templates, all seven prompt paths, the product-manifest command, and
 the fixed-check command used by both orchestrated treatments. Use the existing
-public manifest formats; do not invent an experiment-specific control format.
+public manifest formats unchanged; do not add credentials, launcher
+environment, or another experiment-specific control shape to them. Each
+treatment launcher config supplies its exact locked
+non-controller/noncredential environment partition and uses the staged
+`{apparatus_root}` plus staged role-manifest placeholders. Every prompt extern
+uses `asset_file` and names another verified asset-manifest entry.
 
 Expected: compile exits `0`; all nine parity routes pass.
 
@@ -1013,17 +1048,18 @@ Bind:
   five-element `live_attempt_ids` list;
 - `claim_level: exploratory_controlled_task`;
 - one canonical absolute `apparatus.control_root` and every required A1 task,
-  provider, prompt, shared-command, treatment-command, visible-check, and
+  provider, prompt, command-boundary, treatment-command, visible-check, and
   evaluator/config asset as a unique canonical relative path plus digest in
   `apparatus.asset_manifest`;
-- task/provider/prompt/shared-command role paths, each naming one manifest
+- task/provider/prompt/command-boundary role paths, each naming one manifest
   entry, with the task entry digest equal to `task.brief_digest`;
 - exact DIRECT, COORDINATOR, and ORC source/command digests plus three distinct
   treatment `command_config_path` values, each naming the manifest entry whose
   digest equals that treatment's command digest;
 - provider/model/effort/tool/timeout policy;
 - environment identity and the complete nonempty allowed-key list, with no
-  ambient environment key implied;
+  ambient environment key implied, plus the unique allowed credential-key
+  subset excluding `HOME` and `TMPDIR`;
 - explicit visible-check argv and positive timeout;
 - reviewer rubric and passing calibration digests;
 - deterministic randomization seed;
@@ -1034,8 +1070,12 @@ Bind:
 The lock names every input explicitly. Task 7 and the runner may not infer any
 asset from CWD, package installation, repository layout, or a fixed path. On
 each block, Task 3 verifies every manifest file and digest beneath the locked
-control root and all role/treatment bindings before writing `STARTED`,
-allocating, or launching.
+control root, validates the three unmodified standard extern manifests, and
+requires each prompt extern to bind a verified `asset_file` before checking all
+role/treatment/environment bindings and writing `STARTED`, allocating, or
+launching. It then stages every verified asset under each arm's private
+apparatus root at the same relative path; the original control root is not
+passed to any treatment.
 
 Validate:
 

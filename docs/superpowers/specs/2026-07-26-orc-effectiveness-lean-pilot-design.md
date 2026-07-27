@@ -191,16 +191,19 @@ Each block lock binds:
 - one explicit apparatus control root as canonical absolute POSIX text, plus a
   content manifest whose entries are unique canonical relative POSIX paths and
   SHA-256 digests;
-- canonical relative role paths for the task, provider configuration, prompt
-  configuration, and shared command configuration, each naming exactly one
-  manifest entry;
-- environment identity and a nonempty explicit allowlist of environment-key
-  names; no ambient key is implied;
+- canonical relative role paths for the task and the unmodified standard
+  Workflow Lisp provider-extern, prompt-extern, and command-boundary manifests,
+  each naming exactly one content-manifest entry;
+- environment identity, a nonempty explicit allowlist of environment-key names,
+  and unique credential-key names that are a subset of the allowlist but
+  exclude controller-owned `HOME` and `TMPDIR`; no ambient key is implied;
 - the visible-check argv and positive timeout, with no default command or
   timeout;
 - treatment command/source digests and one distinct canonical relative command
   configuration path per treatment, with each command path naming a manifest
-  entry whose digest equals that treatment's locked command digest;
+  entry whose digest equals that treatment's locked command digest; each
+  launcher configuration supplies exactly the allowed environment keys that
+  are neither controller-owned nor credential-backed;
 - explicit canonical relative product-projection exclusions, which may be an
   empty list;
 - positive maximum-start-skew and quiescence-grace bounds, with no timing
@@ -289,14 +292,32 @@ micro-units of the locked currency or `UNKNOWN`; and derived ratios are reduced
 probabilities and ratios use canonical decimal strings parsed as exact
 rationals. Markdown may render decimals but cannot become the source value.
 
-Record validation checks the apparatus shape and its manifest cross-bindings
-without reading the filesystem. Before writing `STARTED`, allocating a
-workspace, or launching any treatment, the runner resolves assets only beneath
-the locked `apparatus.control_root`, reads and verifies every manifest entry's
-bytes against its SHA-256 digest, and rechecks the task and three treatment
-command-configuration bindings. It constructs commands only from those
-verified configuration bytes. It never infers an asset from the current
-working directory, an installed package location, or a fixed/hardcoded path.
+Record validation checks the apparatus shape, environment partition, and
+manifest cross-bindings without reading the filesystem. Before writing
+`STARTED`, allocating a workspace, or launching any treatment, the runner
+resolves assets only beneath the locked `apparatus.control_root`, reads and
+verifies every manifest entry's bytes against its SHA-256 digest, validates the
+three role manifests through the standard Workflow Lisp extern-manifest
+contract, requires every prompt extern to use `asset_file` and name verified
+manifest bytes, and rechecks the task and three treatment
+command-configuration bindings. Dynamic `input_file` prompt lookup is not part
+of the locked apparatus. It constructs commands only from those verified
+configuration bytes.
+The provider manifest is never reinterpreted as a credential declaration, and
+the command-boundary manifest is never reinterpreted as shared launcher
+environment.
+
+For each arm, the controller stages every verified manifest asset beneath one
+private controller-owned apparatus root while preserving its normalized
+relative path. Launcher substitution binds `{task_path}`, `{provider_config}`,
+`{prompt_config}`, and `{command_config}` to the corresponding staged role
+assets and binds `{apparatus_root}` to that private root. `HOME` and `TMPDIR`
+come only from the controller; credential keys come only from
+`SecretsManager`; and the treatment launcher supplies exactly the remaining
+allowed keys. The resulting child environment has exactly the locked allowlist.
+The original `apparatus.control_root` is never candidate-visible. The runner
+never infers an asset from the current working directory, an installed package
+location, or a fixed/hardcoded path.
 
 Treatment processes receive one opaque raw-result path, not the shared evidence
 root, peer paths, treatment map, or final attempt-record path. The controller
