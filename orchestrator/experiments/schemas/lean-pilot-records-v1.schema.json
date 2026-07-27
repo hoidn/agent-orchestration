@@ -99,6 +99,28 @@
             "command_config_path": {
               "$ref": "#/$defs/relative_canonical_posix_path"
             },
+            "treatment_runtime": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "import_root": {
+                  "$ref": "#/$defs/absolute_canonical_posix_path"
+                },
+                "revision_identity": {
+                  "type": "string",
+                  "pattern": "^commit:[0-9a-f]{40,64}$"
+                },
+                "tree_identity": {
+                  "type": "string",
+                  "pattern": "^git-tree:[0-9a-f]{40,64}$"
+                }
+              },
+              "required": [
+                "import_root",
+                "revision_identity",
+                "tree_identity"
+              ]
+            },
             "environment": {
               "type": "object",
               "additionalProperties": false,

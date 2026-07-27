@@ -137,14 +137,26 @@ def _fixture(tmp_path: Path) -> dict[str, Any]:
             "CODEX_HOME",
             "HOME",
             "PATH",
+            "PYTHONDONTWRITEBYTECODE",
+            "PYTHONPATH",
             "PYTHONUNBUFFERED",
             "TMPDIR",
         ],
         "credential_keys": ["CODEX_HOME"],
     }
     treatment_config = {
-        "argv": ["python", "{apparatus_root}/treatment_driver.py"],
-        "environment": {"PATH": "/usr/bin:/bin", "PYTHONUNBUFFERED": "1"},
+        "argv": [
+            "python",
+            "-B",
+            "-P",
+            "{apparatus_root}/treatment_driver.py",
+        ],
+        "environment": {
+            "PATH": "/usr/bin:/bin",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPATH": "{treatment_runtime_root}",
+            "PYTHONUNBUFFERED": "1",
+        },
         "environment_identity": environment["identity"],
         "provider_policy_digest": policy_digest,
         "timeout_milliseconds": 18_000_000,
@@ -246,6 +258,7 @@ def _fixture(tmp_path: Path) -> dict[str, Any]:
     )
     commit = _git(repo, "rev-parse", "HEAD")
     tree = _git(repo, "rev-parse", f"{commit}:benchmark")
+    _git(repo, "checkout", "--detach", "-q", commit)
     archive_probe = tmp_path / "archive-probe"
     archive_digest = workspace.materialize_git_archive(
         repo, f"{commit}:benchmark", archive_probe
@@ -560,6 +573,27 @@ def test_prepare_materializes_closed_tree_and_publishes_valid_lock(
     ).read_bytes() == case["source_values"]["tasks/a1.md"]
 
 
+def test_prepare_derives_treatment_runtime_from_explicit_repo_and_revision(
+    tmp_path: Path,
+) -> None:
+    case = _fixture(tmp_path)
+
+    lock = _prepare(case)
+
+    assert lock["apparatus"]["treatment_runtime"] == {
+        "import_root": case["repo"].as_posix(),
+        "revision_identity": f"commit:{case['commit']}",
+        "tree_identity": (
+            "git-tree:"
+            + _git(
+                case["repo"],
+                "rev-parse",
+                f"{case['commit']}^{{tree}}",
+            )
+        ),
+    }
+
+
 @pytest.mark.parametrize("occupied", ["control_root", "evidence_root", "lock_output"])
 def test_prepare_rejects_nonfresh_destinations(
     tmp_path: Path, occupied: str
@@ -745,19 +779,66 @@ def test_prepare_rejects_asserted_derived_digest_drift(
         _prepare(case)
 
 
-def test_prepare_uses_git_object_bytes_not_dirty_worktree(tmp_path: Path) -> None:
+@pytest.mark.parametrize("state", ["tracked", "untracked", "ignored"])
+def test_prepare_rejects_nonclean_treatment_runtime_repository(
+    tmp_path: Path,
+    state: str,
+) -> None:
     case = _fixture(tmp_path)
-    dirty_source = case["repo"] / "tasks/a1.md"
-    dirty_source.write_bytes(b"dirty live-tree bytes\n")
+    if state == "tracked":
+        path = case["repo"] / "tasks/a1.md"
+    else:
+        path = case["repo"] / f"{state}.tmp"
+    if state == "ignored":
+        (case["repo"] / ".git/info/exclude").write_text(
+            "ignored.tmp\n",
+            encoding="utf-8",
+        )
+    path.write_bytes(b"nonclean live-tree bytes\n")
 
-    lock = _prepare(case)
+    with pytest.raises(PilotPreparationError, match="clean including ignored"):
+        _prepare(case)
 
-    assert (
-        case["control_root"] / "task.md"
-    ).read_bytes() == case["source_values"]["tasks/a1.md"]
-    assert lock["task"]["brief_digest"] == _sha256(
-        case["source_values"]["tasks/a1.md"]
+    assert not os.path.lexists(case["control_root"])
+    assert not os.path.lexists(case["evidence_root"])
+    assert not os.path.lexists(case["lock_output"])
+
+
+def test_prepare_rejects_attached_or_indirect_treatment_runtime(
+    tmp_path: Path,
+) -> None:
+    attached_root = tmp_path / "attached"
+    attached_root.mkdir()
+    attached = _fixture(attached_root)
+    _git(attached["repo"], "checkout", "-q", "-")
+    with pytest.raises(PilotPreparationError, match="HEAD must be detached"):
+        _prepare(attached)
+
+    indirect_root = tmp_path / "indirect"
+    indirect_root.mkdir()
+    indirect = _fixture(indirect_root)
+    (indirect["repo"] / ".git/commondir").write_text(".\n", encoding="utf-8")
+    with pytest.raises(PilotPreparationError, match="common-dir indirection"):
+        _prepare(indirect)
+
+
+@pytest.mark.parametrize("name", ["alternates", "http-alternates"])
+def test_prepare_rejects_treatment_runtime_object_alternates(
+    tmp_path: Path,
+    name: str,
+) -> None:
+    case = _fixture(tmp_path)
+    (case["repo"] / ".git/objects/info" / name).write_text(
+        "/unlocked/object-store\n",
+        encoding="utf-8",
     )
+
+    with pytest.raises(PilotPreparationError, match=name):
+        _prepare(case)
+
+    assert not os.path.lexists(case["control_root"])
+    assert not os.path.lexists(case["evidence_root"])
+    assert not os.path.lexists(case["lock_output"])
 
 
 def test_lock_publication_is_exclusive_under_a_late_collision(

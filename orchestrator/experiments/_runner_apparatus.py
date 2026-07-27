@@ -21,7 +21,9 @@ from orchestrator.workflow_lisp.command_boundaries import (
 )
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 
+from ._pilot_prepare_support import PilotPreparationError
 from ._runner_types import RunnerError
+from ._treatment_runtime import derive_treatment_runtime
 
 
 _ALLOWED_PLACEHOLDERS = {
@@ -32,6 +34,7 @@ _ALLOWED_PLACEHOLDERS = {
     "prompt_config",
     "command_config",
     "apparatus_root",
+    "treatment_runtime_root",
 }
 _ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _TREATMENT_CONFIG_FIELDS = {
@@ -94,6 +97,37 @@ def canonical_absolute_path(value: object, *, label: str) -> Path:
     if not path.is_absolute() or path.resolve(strict=False).as_posix() != value:
         raise RunnerError(f"{label} must be an explicit canonical absolute path")
     return path
+
+
+def verified_treatment_runtime(
+    value: object,
+    *,
+    repository_root: Path,
+) -> Path:
+    if not isinstance(value, Mapping):
+        raise RunnerError("apparatus.treatment_runtime is required for launch")
+    import_root = canonical_absolute_path(
+        value.get("import_root"),
+        label="apparatus.treatment_runtime.import_root",
+    )
+    revision_identity = value.get("revision_identity")
+    if (
+        import_root != repository_root
+        or not isinstance(revision_identity, str)
+        or not revision_identity.startswith("commit:")
+        or not isinstance(value.get("tree_identity"), str)
+    ):
+        raise RunnerError("apparatus.treatment_runtime binding is malformed")
+    try:
+        observed = derive_treatment_runtime(
+            import_root,
+            revision_identity.removeprefix("commit:"),
+        )
+    except PilotPreparationError as exc:
+        raise RunnerError(f"treatment runtime verification failed: {exc}") from exc
+    if observed != dict(value):
+        raise RunnerError("treatment runtime identity mismatch")
+    return import_root
 
 
 def _read_manifest_asset(control_root: Path, relative_path: str) -> bytes:

@@ -1,6 +1,8 @@
 {
   "argv": [
     "python",
+    "-B",
+    "-P",
     "{apparatus_root}/treatment_driver.py",
     "workflow",
     "--workspace",
@@ -28,9 +30,11 @@
   ],
   "environment": {
     "PATH": "/home/ollie/.nvm/versions/node/v20.19.4/bin:/home/ollie/miniconda3/bin:/usr/local/bin:/usr/bin:/bin",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONPATH": "{treatment_runtime_root}",
     "PYTHONUNBUFFERED": "1"
   },
-  "environment_identity": "sha256:0412722e0436c61866b7f0841f09baf8803853f41f4eb1192561a36437b317ca",
+  "environment_identity": "sha256:0fc13d7943c27b0ae00b12ae41cdac413090b4c3f4a15e47914a322319e8c0af",
   "provider_policy_digest": "sha256:f6894af0098ad618ceaf74d6e46a76ab0519549d15f31f8b8685e40862bd0b25",
   "timeout_milliseconds": 18000000
 }

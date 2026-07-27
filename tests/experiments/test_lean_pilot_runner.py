@@ -106,6 +106,7 @@ def _committed_repo(root: Path) -> tuple[Path, str, str, str]:
     )
     commit = _git(repo, "rev-parse", "HEAD")
     tree = _git(repo, "rev-parse", f"{commit}:benchmark")
+    _git(repo, "checkout", "--detach", "-q", commit)
     archive = workspace.materialize_git_archive(
         repo,
         f"{commit}:benchmark",
@@ -207,7 +208,9 @@ def _pilot_lock(
             relative_path,
             {
                 "argv": [
-                    sys.executable,
+                    "python",
+                    "-B",
+                    "-P",
                     "{apparatus_root}/fixture/arm_program.py",
                     "--mode",
                     "success",
@@ -226,7 +229,15 @@ def _pilot_lock(
                     "--command-config",
                     "{command_config}",
                 ],
-                "environment": {"PYTHONUNBUFFERED": "1"},
+                "environment": {
+                    "PATH": (
+                        f"{Path(sys.executable).parent.as_posix()}:"
+                        "/usr/bin:/bin"
+                    ),
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                    "PYTHONPATH": "{treatment_runtime_root}",
+                    "PYTHONUNBUFFERED": "1",
+                },
                 "environment_identity": environment_identity,
                 "provider_policy_digest": provider_policy_digest,
                 "timeout_milliseconds": 10_000,
@@ -352,10 +363,21 @@ def _pilot_lock(
             "provider_config_path": "config/provider.json",
             "prompt_config_path": "config/prompts.json",
             "command_config_path": "config/commands.json",
+            "treatment_runtime": {
+                "import_root": repo.resolve().as_posix(),
+                "revision_identity": f"commit:{commit}",
+                "tree_identity": (
+                    "git-tree:"
+                    + _git(repo, "rev-parse", f"{commit}^{{tree}}")
+                ),
+            },
             "environment": {
                 "identity": environment_identity,
                 "allowed_keys": [
                     "HOME",
+                    "PATH",
+                    "PYTHONDONTWRITEBYTECODE",
+                    "PYTHONPATH",
                     "PYTHONUNBUFFERED",
                     "TMPDIR",
                 ],
@@ -629,6 +651,248 @@ def test_run_smoke_block_needs_no_fixture_identity(
         block_id=lock["smoke_id"],
         evidence_root=evidence_root.resolve(),
     )
+
+
+def test_run_block_uses_locked_treatment_runtime_before_started(
+    runner: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    work_root = tmp_path / "work"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    import_root = lock["apparatus"]["treatment_runtime"]["import_root"]
+    observed_pythonpaths: list[str] = []
+    real_popen = runner_execution.subprocess.Popen
+
+    def observing_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+        environment = kwargs.get("env")
+        if isinstance(environment, dict) and "PYTHONPATH" in environment:
+            observed_pythonpaths.append(environment["PYTHONPATH"])
+        return real_popen(*args, **kwargs)
+
+    monkeypatch.setattr(runner_execution.subprocess, "Popen", observing_popen)
+
+    record = runner.run_block(
+        lock=lock,
+        block_id=lock["smoke_id"],
+        work_root=work_root,
+        evidence_root=evidence_root,
+    ).record
+
+    assert record["status"] == "VALID"
+    assert observed_pythonpaths
+    assert set(observed_pythonpaths) == {import_root}
+
+    del lock["apparatus"]["treatment_runtime"]
+    with pytest.raises(runner.RunnerError, match="treatment_runtime"):
+        runner.run_block(
+            lock=lock,
+            block_id=lock["live_attempt_ids"][0],
+            work_root=work_root,
+            evidence_root=evidence_root,
+        )
+
+    assert not (evidence_root / lock["live_attempt_ids"][0]).exists()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["dirty", "revision", "tree", "alternates", "http-alternates"],
+)
+def test_run_block_reverifies_treatment_runtime_before_started(
+    runner: ModuleType,
+    tmp_path: Path,
+    fault: str,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    work_root = tmp_path / "work"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    runtime = lock["apparatus"]["treatment_runtime"]
+    if fault == "dirty":
+        (Path(runtime["import_root"]) / "untracked-runtime-drift").write_text(
+            "drift\n",
+            encoding="utf-8",
+        )
+    elif fault in {"alternates", "http-alternates"}:
+        (
+            Path(runtime["import_root"])
+            / ".git/objects/info"
+            / fault
+        ).write_text("/unlocked/object-store\n", encoding="utf-8")
+    elif fault == "revision":
+        runtime["revision_identity"] = f"commit:{'0' * 40}"
+    else:
+        runtime["tree_identity"] = f"git-tree:{'0' * 40}"
+
+    with pytest.raises(runner.RunnerError, match="treatment runtime"):
+        runner.run_block(
+            lock=lock,
+            block_id=lock["smoke_id"],
+            work_root=work_root,
+            evidence_root=evidence_root,
+        )
+
+    assert not evidence_root.exists()
+    assert not work_root.exists()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing-path",
+        "literal-path",
+        "path-list-string",
+        "path-list-json",
+        "bytecode",
+        "missing-bytecode-flag",
+        "missing-safe-path-flag",
+        "isolated",
+    ],
+)
+def test_run_block_rejects_unlocked_python_runtime_controls(
+    runner: ModuleType,
+    tmp_path: Path,
+    fault: str,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    work_root = tmp_path / "work"
+    lock = _pilot_lock(tmp_path, evidence_root)
+
+    def mutate(config: dict[str, Any]) -> None:
+        if fault == "missing-path":
+            del config["environment"]["PYTHONPATH"]
+        elif fault == "literal-path":
+            config["environment"]["PYTHONPATH"] = lock["apparatus"][
+                "treatment_runtime"
+            ]["import_root"]
+        elif fault == "path-list-string":
+            config["environment"]["PYTHONPATH"] = (
+                "{treatment_runtime_root}:/ambient"
+            )
+        elif fault == "path-list-json":
+            config["environment"]["PYTHONPATH"] = [
+                "{treatment_runtime_root}",
+                "/ambient",
+            ]
+        elif fault == "bytecode":
+            config["environment"]["PYTHONDONTWRITEBYTECODE"] = "0"
+        elif fault == "missing-bytecode-flag":
+            config["argv"].remove("-B")
+        elif fault == "missing-safe-path-flag":
+            config["argv"].remove("-P")
+        else:
+            config["argv"].append("-I")
+
+    _rewrite_treatment_config(lock, "DIRECT", mutate)
+
+    with pytest.raises(runner.RunnerError):
+        runner.run_block(
+            lock=lock,
+            block_id=lock["smoke_id"],
+            work_root=work_root,
+            evidence_root=evidence_root,
+        )
+
+    assert not evidence_root.exists()
+    assert not work_root.exists()
+
+
+def test_run_block_rejects_symlinked_treatment_runtime_root(
+    runner: ModuleType,
+    tmp_path: Path,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    work_root = tmp_path / "work"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    runtime_alias = tmp_path / "runtime-alias"
+    runtime_alias.symlink_to(
+        lock["archive"]["repository_root"],
+        target_is_directory=True,
+    )
+    alias_text = runtime_alias.as_posix()
+    lock["archive"]["repository_root"] = alias_text
+    lock["apparatus"]["treatment_runtime"]["import_root"] = alias_text
+
+    with pytest.raises(runner.RunnerError, match="canonical absolute"):
+        runner.run_block(
+            lock=lock,
+            block_id=lock["smoke_id"],
+            work_root=work_root,
+            evidence_root=evidence_root,
+        )
+
+    assert not evidence_root.exists()
+    assert not work_root.exists()
+
+
+def test_locked_pythonpath_wins_over_hostile_ambient_and_current_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    repo = Path(lock["archive"]["repository_root"])
+    sentinel = repo / "lean_pilot_runtime_sentinel.py"
+    sentinel.write_text("ORIGIN = 'locked-clone'\n", encoding="utf-8")
+    _git(repo, "add", sentinel.name)
+    _git(
+        repo,
+        "-c",
+        "user.name=Lean Pilot Test",
+        "-c",
+        "user.email=lean-pilot@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-qm",
+        "add runtime sentinel",
+    )
+    commit = _git(repo, "rev-parse", "HEAD")
+    root_tree = _git(repo, "rev-parse", f"{commit}^{{tree}}")
+    lock["archive"]["revision_identity"] = f"commit:{commit}"
+    lock["apparatus"]["treatment_runtime"] = {
+        "import_root": repo.as_posix(),
+        "revision_identity": f"commit:{commit}",
+        "tree_identity": f"git-tree:{root_tree}",
+    }
+
+    hostile = tmp_path / "hostile-editable-copy"
+    hostile.mkdir()
+    (hostile / sentinel.name).write_text(
+        "ORIGIN = 'hostile-copy'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PYTHONPATH", hostile.as_posix())
+    preflight = runner_preflight._preflight(
+        lock=lock,
+        block_id=lock["smoke_id"],
+        work_root=tmp_path / "work",
+        evidence_root=evidence_root,
+    )
+    environment = dict(preflight.arms[0].command.environment)
+
+    child = subprocess.run(
+        [
+            "python",
+            "-B",
+            "-P",
+            "-c",
+            "import lean_pilot_runtime_sentinel as s; print(s.ORIGIN)",
+        ],
+        cwd=hostile,
+        env=environment,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert child.stdout.strip() == "locked-clone"
+    assert environment["PYTHONPATH"] == repo.as_posix()
+    assert hostile.as_posix() not in environment.values()
+    assert not evidence_root.exists()
+    assert not (tmp_path / "work").exists()
 
 
 @pytest.mark.parametrize(
@@ -1084,6 +1348,8 @@ def _configure_codex_home_credential_partition(
         "CODEX_HOME",
         "HOME",
         "PATH",
+        "PYTHONDONTWRITEBYTECODE",
+        "PYTHONPATH",
         "PYTHONUNBUFFERED",
         "TMPDIR",
     ]
@@ -1119,6 +1385,8 @@ def test_preflight_injects_codex_home_from_controller_credentials_only(
             "CODEX_HOME",
             "HOME",
             "PATH",
+            "PYTHONDONTWRITEBYTECODE",
+            "PYTHONPATH",
             "PYTHONUNBUFFERED",
             "TMPDIR",
         }
@@ -1827,10 +2095,12 @@ def test_arm_process_fault_is_an_outcome_and_peers_finish(
     if fault in {"nonzero", "prelaunch-fail"}:
         _configure_arm(lock, "DIRECT", mode=fault)
     else:
-        _configure_arm(
+        _rewrite_treatment_config(
             lock,
             "DIRECT",
-            executable="/nonexistent/lean-pilot-arm",
+            lambda config: config["environment"].update(
+                {"PATH": "/nonexistent/lean-pilot-path"}
+            ),
         )
 
     record = runner.run_block(

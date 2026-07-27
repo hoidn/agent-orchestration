@@ -12,7 +12,6 @@ from ._pilot_prepare_support import (
     _archive,
     _bundle,
     _calibration,
-    _commit,
     _configs,
     _directory,
     _fail,
@@ -24,6 +23,7 @@ from ._pilot_prepare_support import (
     _sources,
 )
 from ._pilot_prepare_validation import _shape
+from ._treatment_runtime import derive_treatment_runtime
 from .contracts import (
     PilotContractError,
     canonical_json_bytes,
@@ -38,6 +38,7 @@ def _derive_lock(
     control: Path,
     evidence: Path,
     manifest_rows: list[dict[str, str]],
+    treatment_runtime: Mapping[str, str],
 ) -> dict[str, Any]:
     manifest = {row["path"]: row for row in manifest_rows}
     apparatus = _obj(value["apparatus"], "apparatus")
@@ -137,6 +138,7 @@ def _derive_lock(
         | {
             "control_root": control.as_posix(),
             "asset_manifest": manifest_rows,
+            "treatment_runtime": dict(treatment_runtime),
         },
         "randomization_seed": pilot["randomization_seed"],
         "evidence_root": evidence.as_posix(),
@@ -221,7 +223,8 @@ def prepare_pilot(
     value = _json(_regular(source_map_path, "source map"), "source map")
     _shape(value)
     repo = _directory(repository_root, "repository root")
-    revision = _commit(repo, apparatus_revision, "apparatus revision")
+    treatment_runtime = derive_treatment_runtime(repo, apparatus_revision)
+    revision = treatment_runtime["revision_identity"][7:]
     control = _fresh(control_root, "control root")
     evidence = _fresh(evidence_root, "evidence root")
     output = _fresh(lock_output_path, "lock output")
@@ -241,7 +244,14 @@ def prepare_pilot(
     _archive(value, repo, content[str(apparatus["task_path"])])
     _configs(value, content)
     _calibration(value, content)
-    lock = _derive_lock(value, repo, control, evidence, manifest)
+    lock = _derive_lock(
+        value,
+        repo,
+        control,
+        evidence,
+        manifest,
+        treatment_runtime,
+    )
 
     _materialize(control, manifest, content)
     try:

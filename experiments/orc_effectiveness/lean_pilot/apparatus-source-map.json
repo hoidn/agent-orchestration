@@ -6,13 +6,15 @@
         "CODEX_HOME",
         "HOME",
         "PATH",
+        "PYTHONDONTWRITEBYTECODE",
+        "PYTHONPATH",
         "PYTHONUNBUFFERED",
         "TMPDIR"
       ],
       "credential_keys": [
         "CODEX_HOME"
       ],
-      "identity": "sha256:0412722e0436c61866b7f0841f09baf8803853f41f4eb1192561a36437b317ca"
+      "identity": "sha256:0fc13d7943c27b0ae00b12ae41cdac413090b4c3f4a15e47914a322319e8c0af"
     },
     "maximum_start_skew_milliseconds": 2000,
     "product_projection_exclusions": [
@@ -67,9 +69,9 @@
     "reviewer_command_bundle": "sha256:4392641541a626ee2f78a52806694bb2d826bce4d34340424d28705ea53932d2",
     "task_profile": "sha256:2a62a2020ad22fd02b1949c66311ebceebcecb72c48c10b46e3da1388be4d953",
     "treatment_sources": {
-      "COORDINATOR": "sha256:871d0f481954b82e4cbc1b3f98dd9dcaf79900a39a5cd2cad697d75a2af9aec3",
-      "DIRECT": "sha256:d2b084537c898c0c1f2400a70fe6074c14156dc0c10be52e0e111d6758eb6808",
-      "ORC": "sha256:20265f5cba791ec84f8773661e59dc6ce503b454a1a04c6e0d4b80a562890df1"
+      "COORDINATOR": "sha256:9194bf4f99e3ef5235d870a99500fb632d07e828cd2517e8536e29f14e3d08c5",
+      "DIRECT": "sha256:1a3bf78d0b9a9dab14b524ae19b3bf6dc94c05304a6b233f9930149f135df31b",
+      "ORC": "sha256:388b278f5f94ff5bed3942bf41f20f9531f09029cd0aeb59775d67951823622e"
     }
   },
   "pilot": {
@@ -419,25 +421,25 @@
     },
     {
       "destination_path": "treatment_driver.py",
-      "sha256": "sha256:03710612a072dc0d331b8909f1b5b95ef8031302bba4d98d6e3f2c02b09b87c2",
+      "sha256": "sha256:ecbe868509d50644251e59ae17cac049c8ea829aec3ffb5b7426a8e029d294e3",
       "source_kind": "repository",
       "source_path": "scripts/experiments/conventional_coordinator.py"
     },
     {
       "destination_path": "treatments/coordinator.json",
-      "sha256": "sha256:276edad3ddf4be30682c33f6c89aa12c732cf54bd5b33da5c4a6629eaf55350f",
+      "sha256": "sha256:ce16289c0d657bd697c9511e8ad7437b16900899c7e09edd9c8aac530bd0acaa",
       "source_kind": "repository",
       "source_path": "experiments/orc_effectiveness/lean_pilot/treatments/coordinator.json"
     },
     {
       "destination_path": "treatments/direct.json",
-      "sha256": "sha256:42a22e43f1352d9a4f7ca3f7ad2b31d250f836affab5886130705c4a6aa5b459",
+      "sha256": "sha256:468b1142f9e0cbe270ec965cb57953f7d990cd100e722d1b3256567d9ac0c851",
       "source_kind": "repository",
       "source_path": "experiments/orc_effectiveness/lean_pilot/treatments/direct.json"
     },
     {
       "destination_path": "treatments/orc.json",
-      "sha256": "sha256:f67c409a12c8278e417a9ef967f42f077fda8c26750aae017c6cc8257d25cc4b",
+      "sha256": "sha256:891d96e83cf99d3d1743ade47b33e9afd346a783a14ac1cfec34bf5638130023",
       "source_kind": "repository",
       "source_path": "experiments/orc_effectiveness/lean_pilot/treatments/orc.json"
     }

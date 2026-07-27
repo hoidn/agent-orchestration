@@ -114,6 +114,8 @@ def _shape(value: dict[str, object]) -> None:
         "CODEX_HOME",
         "HOME",
         "PATH",
+        "PYTHONDONTWRITEBYTECODE",
+        "PYTHONPATH",
         "PYTHONUNBUFFERED",
         "TMPDIR",
     } or _texts(environment["credential_keys"], "credential keys") != [

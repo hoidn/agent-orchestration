@@ -41,6 +41,12 @@ def validate_pilot_lock(
         raise error("$.smoke_id: must not collide with a live attempt ID")
 
     apparatus = record["apparatus"]
+    treatment_runtime = apparatus.get("treatment_runtime")
+    if treatment_runtime is not None:
+        archive = record["archive"]
+        if treatment_runtime["import_root"] != archive["repository_root"]:
+            raise error("treatment_runtime_import_root_mismatch")
+
     manifest: dict[str, dict[str, str]] = {}
     for index, asset in enumerate(apparatus["asset_manifest"]):
         path = asset["path"]
@@ -81,6 +87,17 @@ def validate_pilot_lock(
             )
     for credential_key in sorted(credential_keys - allowed_keys):
         raise error(f"credential_key_not_allowed:{credential_key}")
+    if treatment_runtime is not None:
+        for runtime_key in ("PYTHONDONTWRITEBYTECODE", "PYTHONPATH"):
+            if runtime_key not in allowed_keys:
+                raise error(
+                    f"missing_treatment_runtime_environment_key:{runtime_key}"
+                )
+            if runtime_key in credential_keys:
+                raise error(
+                    "treatment_runtime_environment_key_cannot_be_credential:"
+                    f"{runtime_key}"
+                )
 
     treatment_asset_paths = apparatus["treatment_asset_paths"]
     _require_manifest_paths(

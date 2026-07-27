@@ -1220,7 +1220,9 @@ def _run_workflow_treatment(
     if not workflow_path.is_file():
         raise PilotTreatmentError("staged Workflow Lisp source is missing")
     command = [
-        "python",
+        Path(sys.executable).resolve().as_posix(),
+        "-B",
+        "-P",
         "-m",
         "orchestrator",
         "run",

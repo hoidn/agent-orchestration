@@ -176,6 +176,10 @@ def _preflight(
         locked_apparatus["control_root"],
         label="apparatus.control_root",
     )
+    import_root = apparatus.verified_treatment_runtime(
+        locked_apparatus.get("treatment_runtime"),
+        repository_root=repository_root,
+    )
     _validate_root_topology(
         repository_root=repository_root,
         control_root=control_root,
@@ -348,7 +352,25 @@ def _preflight(
             "prompt_config": str(staged_paths["prompt_config"]),
             "command_config": str(staged_paths["command_config"]),
             "apparatus_root": str(asset_root),
+            "treatment_runtime_root": import_root.as_posix(),
         }
+        if (
+            tuple(config_argv[:3]) != ("python", "-B", "-P")
+            or "-I" in config_argv
+        ):
+            raise RunnerError(
+                f"{treatment_id} command argv must start with python -B -P "
+                "and must not use -I"
+            )
+        if config_environment.get("PYTHONPATH") != "{treatment_runtime_root}":
+            raise RunnerError(
+                f"{treatment_id} PYTHONPATH must be exactly "
+                "{treatment_runtime_root}"
+            )
+        if config_environment.get("PYTHONDONTWRITEBYTECODE") != "1":
+            raise RunnerError(
+                f"{treatment_id} PYTHONDONTWRITEBYTECODE must be exactly 1"
+            )
         argv = tuple(
             apparatus.substitute(
                 item,
@@ -376,6 +398,8 @@ def _preflight(
                 replacements,
                 label=f"{treatment_id} environment value",
             )
+        if environment["PYTHONPATH"] != import_root.as_posix():
+            raise RunnerError(f"{treatment_id} PYTHONPATH substitution mismatch")
         environment["HOME"] = str(runtime_root / "home")
         environment["TMPDIR"] = str(runtime_root / "tmp")
         environment.update(secret_values)

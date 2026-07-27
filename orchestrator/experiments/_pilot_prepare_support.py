@@ -351,13 +351,26 @@ def _configs(value: Mapping[str, object], content: Mapping[str, bytes]) -> None:
         path = str(row["command_config_path"])
         config = _json(content[path], f"treatment config {path}")
         launcher_environment = config.get("environment")
+        launcher_argv = config.get("argv")
         if (
             config.get("provider_policy_digest") != policy_digest
             or config.get("environment_identity") != environment["identity"]
             or not isinstance(launcher_environment, Mapping)
-            or set(launcher_environment) != {"PATH", "PYTHONUNBUFFERED"}
+            or set(launcher_environment)
+            != {
+                "PATH",
+                "PYTHONDONTWRITEBYTECODE",
+                "PYTHONPATH",
+                "PYTHONUNBUFFERED",
+            }
             or not isinstance(launcher_environment.get("PATH"), str)
+            or launcher_environment.get("PYTHONDONTWRITEBYTECODE") != "1"
+            or launcher_environment.get("PYTHONPATH")
+            != "{treatment_runtime_root}"
             or launcher_environment.get("PYTHONUNBUFFERED") != "1"
+            or not isinstance(launcher_argv, list)
+            or launcher_argv[:3] != ["python", "-B", "-P"]
+            or "-I" in launcher_argv
         ):
             _fail(f"treatment config has uncontrolled defaults: {path}")
     runtime = _json(content["runtime-control.json"], "runtime control")

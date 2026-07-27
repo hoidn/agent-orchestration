@@ -63,7 +63,7 @@ TREATMENT_ROOT = (
 )
 A1_SEED_ROOT = ROOT / "examples" / "demo_task_nanobragg_entrypoint_port"
 ENVIRONMENT_IDENTITY = (
-    "sha256:0412722e0436c61866b7f0841f09baf8803853f41f4eb1192561a36437b317ca"
+    "sha256:0fc13d7943c27b0ae00b12ae41cdac413090b4c3f4a15e47914a322319e8c0af"
 )
 PROSPECTIVE_PROVIDER_POLICY = {
     "family": "codex-cli",
@@ -81,6 +81,8 @@ LAUNCHER_ENVIRONMENT = {
         "/home/ollie/.nvm/versions/node/v20.19.4/bin:"
         "/home/ollie/miniconda3/bin:/usr/local/bin:/usr/bin:/bin"
     ),
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONPATH": "{treatment_runtime_root}",
     "PYTHONUNBUFFERED": "1",
 }
 CONTROLLER_CREDENTIAL_ENVIRONMENT = {
@@ -881,10 +883,13 @@ def test_frozen_launch_configs_use_standard_manifests_and_staged_assets(
             + maximum_visible_checks * 300_000
         )
         argv = config["argv"]
-        assert argv[:2] == [
+        assert argv[:4] == [
             "python",
+            "-B",
+            "-P",
             "{apparatus_root}/treatment_driver.py",
         ]
+        assert "-I" not in argv
         assert {
             "{workspace}",
             "{task_path}",
@@ -929,6 +934,62 @@ def test_frozen_launch_configs_use_standard_manifests_and_staged_assets(
         name.endswith("::run-task") or name == "run-task"
         for name in compiled.validated_bundles_by_name
     )
+
+
+def test_workflow_treatment_uses_locked_runtime_python_invocation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    coordinator = importlib.import_module(
+        "scripts.experiments.conventional_coordinator"
+    )
+    workspace = tmp_path / "candidate"
+    workspace.mkdir()
+    apparatus_root = tmp_path / "apparatus"
+    apparatus_root.mkdir()
+    (apparatus_root / "task_loop.orc").write_text(
+        "(workflow-lisp)\n",
+        encoding="utf-8",
+    )
+    task_path = workspace / "task.md"
+    task_path.write_text("fixture\n", encoding="utf-8")
+    control_path = workspace / "control.json"
+    control_path.write_text("{}\n", encoding="utf-8")
+    command_seen: list[str] = []
+
+    def run_nested(command: Sequence[str], **_kwargs: object) -> object:
+        command_seen.extend(command)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(coordinator.subprocess, "run", run_nested)
+    monkeypatch.setattr(
+        coordinator,
+        "_workflow_treatment_result",
+        lambda _state_root: (5, "COMPLETED"),
+    )
+
+    assert coordinator._run_workflow_treatment(
+        workspace=workspace,
+        apparatus_root=apparatus_root,
+        task_path=task_path,
+        control_path=control_path,
+        provider_config=apparatus_root / "providers.json",
+        prompt_config=apparatus_root / "prompts.json",
+        command_config=apparatus_root / "commands.json",
+        controller_script=apparatus_root / "treatment_driver.py",
+        model="gpt-5.5",
+        effort="high",
+        provider_timeout_seconds=1_800,
+    ) == (5, "COMPLETED")
+
+    assert command_seen[:5] == [
+        Path(sys.executable).resolve().as_posix(),
+        "-B",
+        "-P",
+        "-m",
+        "orchestrator",
+    ]
+    assert "-I" not in command_seen
 
 
 def test_staged_workflow_compiles_from_candidate_under_closed_environment(

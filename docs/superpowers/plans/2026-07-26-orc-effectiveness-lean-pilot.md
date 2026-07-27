@@ -16,16 +16,19 @@ exploratory blocks. The coordinator is frozen and parity-tested against the
 
 **Tech Stack:** Python 3, `pytest`, `jsonschema`, `tarfile`, `subprocess`, SHA-256 canonical JSON, Workflow Lisp, existing provider CLIs, and JSON evidence.
 
-> **Execution status (2026-07-27):** Tasks 1–6 and the pre-calibration
-> module-size gate are focused green. Locked A0 calibration round 1 passed with
-> six unique sessions and external seal
+> **Execution status (2026-07-27):** Tasks 1–6, locked A0 calibration round 1,
+> the Task 7 provider-free controller, and the recursive pre-calibration
+> module-size gate are focused green. The first locked live series (`a1-v5`)
+> completed its smoke and three live blocks but halted during blinded review
+> on an empty-payload citation-guidance defect; it produced no review bindings,
+> unblinding, summary, or report. A provider-free successor (`a1-v6`) was
+> superseded before launch when its source/import lineage was found not to
+> prove the exact treatment runtime. The citation correction is reviewed and
+> Task 3A of
+> `docs/plans/2026-07-27-lean-pilot-a1-v5-review-citation-incident-recovery.md`
+> is pinning that runtime for fresh successor `a1-v7`. The calibration seal
+> remains
 > `sha256:ad2570d72a0608173232d53beee7990c0e2afaa198f549bae8769083cc8e7f8f`.
-> Task 6B is complete. The Task 7 provider-free controller and its focused
-> contract/module-quality gate, governed by
-> `docs/plans/2026-07-27-orc-effectiveness-lean-pilot-task7-readiness-amendment.md`,
-> are active. The controller implementation and focused behavioral suites are
-> green; the focused rereviews and broad verification must close before lock
-> creation. No pilot lock, real-provider smoke, or live `A1` attempt has run.
 
 ## Global Constraints
 
@@ -75,6 +78,7 @@ orchestrator/experiments/
   _runner_block.py
   _runner_source.py
   _runner_quiescence.py
+  _treatment_runtime.py
   evaluation.py      # thin public blinded-evaluation facade
   _evaluation_support.py
   _evaluation_live.py
@@ -190,23 +194,30 @@ class BlockAttempt: ...
 def run_block(*, lock: Mapping[str, object], block_id: str, work_root: Path, evidence_root: Path) -> BlockAttempt: ...
 
 # orchestrator/experiments/evaluation.py
+class EvaluationError(ValueError): ...
+
 def build_blind_packages(*, lock: Mapping[str, object], block: Mapping[str, object], product_roots: Mapping[str, Path], base_root: Path, task_path: str, selected_final_files: Mapping[str, Sequence[str]], permitted_check_evidence: Mapping[str, Sequence[str]], output_root: Path, controller_root: Path) -> dict[str, Path]: ...
 def build_calibration_packages(*, calibration_lock: Mapping[str, object], base_identity: Mapping[str, object], predecessor_lock: Mapping[str, object] | None, predecessor_controller_mapping: Mapping[str, object] | None, predecessor_controller_root: Path | None, predecessor_reviews: Sequence[Mapping[str, object]] | None, base_root: Path, task_path: str, reference_patch: Path, rubric_path: Path, selected_final_files: Sequence[str], visible_check_argv: Sequence[str], visible_check_timeout_milliseconds: int, visible_check_class: str, hidden_evaluator_class: str, evaluator_module: ModuleType, oracle_path: Path, environment: Mapping[str, str], reviewer_execution: Mapping[str, object], output_root: Path, controller_root: Path) -> dict[str, Path]: ...
 def validate_calibration(*, calibration_lock: Mapping[str, object], controller_mapping: Mapping[str, object], controller_root: Path, reviews: Sequence[Mapping[str, object]], predecessor_lock: Mapping[str, object] | None, predecessor_controller_mapping: Mapping[str, object] | None, predecessor_controller_root: Path | None, predecessor_reviews: Sequence[Mapping[str, object]] | None) -> None: ...
 def ingest_review(path: Path, *, package_root: Path, expected_bindings: Mapping[str, object], used_session_ids: Collection[str], prior_records: Sequence[Mapping[str, object]]) -> dict[str, object]: ...
 
 # orchestrator/experiments/reporting.py
+class ReportingError(ValueError): ...
+
 @dataclass(frozen=True)
 class ExactSampleSizePlan: ...
 @dataclass(frozen=True)
 class ReviewBinding: ...
 @dataclass(frozen=True)
 class UnblindingBinding: ...
+def assess_readiness(*, lock: Mapping[str, object], block_attempts: Sequence[Mapping[str, object]]) -> str: ...
 def load_attempt_records(*, lock: Mapping[str, object], evidence_root: Path) -> tuple[dict[str, object], ...]: ...
 def build_pilot_summary(*, lock: Mapping[str, object], block_attempts: Sequence[Mapping[str, object]], reviews: Sequence[Mapping[str, object]], sealed_review_bindings: Sequence[ReviewBinding], unblinding: Sequence[UnblindingBinding]) -> dict[str, object]: ...
 def render_pilot_markdown(summary: Mapping[str, object]) -> str: ...
 def exact_binomial_tail(*, n: int, successes_at_least: int, rate: Fraction) -> Fraction: ...
-def plan_exact_sample_size(*, null_rate: Fraction, target_rate: Fraction, alpha: Fraction, power: Fraction, max_tie_rate: Fraction, accrual_probability: Fraction, max_invalid_attempts: int, max_cost_ratio: Fraction, min_calls_per_block: int, max_calls_per_block: int, search_limit: int) -> ExactSampleSizePlan: ...
+def parse_canonical_decimal(text: str) -> Fraction: ...
+def plan_sample_size(*, null_rate: Fraction, target_rate: Fraction, alpha: Fraction, power: Fraction, max_tie_rate: Fraction, accrual_probability: Fraction, max_invalid_attempts: int, max_cost_ratio: Fraction, min_calls_per_block: int, max_calls_per_block: int, search_limit: int) -> ExactSampleSizePlan: ...
+plan_exact_sample_size = plan_sample_size
 ```
 
 Later work must not depend on an interface absent from this block.
@@ -609,6 +620,7 @@ _ALLOWED = {
     "prompt_config",
     "command_config",
     "apparatus_root",
+    "treatment_runtime_root",
 }
 ```
 
@@ -1604,11 +1616,12 @@ Bind:
 - environment identity and the complete nonempty allowed-key list, with no
   ambient environment key implied, plus the unique allowed credential-key
   subset excluding `HOME` and `TMPDIR`;
-- the exact launcher partition: treatment configurations supply only `PATH`
-  and `PYTHONUNBUFFERED`, the controller supplies `HOME` and `TMPDIR`, and
-  `SecretsManager` alone supplies credential-backed `CODEX_HOME`; the lock
-  allowlist is exactly those five names and its sole credential key is
-  `CODEX_HOME`;
+- the exact launcher partition: treatment configurations supply only `PATH`,
+  `PYTHONUNBUFFERED`, `PYTHONDONTWRITEBYTECODE=1`, and the single
+  `{treatment_runtime_root}` `PYTHONPATH`; the controller supplies `HOME` and
+  `TMPDIR`; and `SecretsManager` alone supplies credential-backed
+  `CODEX_HOME`. The lock allowlist is exactly those seven names and its sole
+  credential key is `CODEX_HOME`;
 - explicit visible-check argv and positive timeout;
 - exactly two stable calibrated reviewer IDs, selected-final-file and
   permitted-check-evidence-name allowlists, reviewer rubric and passing

@@ -337,6 +337,37 @@ path allowlist, the three citation code/test blobs to equal `2f6be134`, and all
 other predecessor blobs to remain equal. Record full commit/tree and per-path
 digests; do not treat a restricted Git pathspec as proof of the full delta.
 
+The explicit reviewed path allowlist is exactly:
+
+```text
+docs/plans/2026-07-27-lean-pilot-a1-v5-review-citation-incident-recovery.md
+docs/superpowers/plans/2026-07-26-orc-effectiveness-lean-pilot.md
+docs/superpowers/specs/2026-07-26-orc-effectiveness-lean-pilot-design.md
+experiments/orc_effectiveness/lean_pilot/apparatus-source-map.json
+experiments/orc_effectiveness/lean_pilot/treatments/coordinator.json
+experiments/orc_effectiveness/lean_pilot/treatments/direct.json
+experiments/orc_effectiveness/lean_pilot/treatments/orc.json
+orchestrator/experiments/_contracts_pilot_lock.py
+orchestrator/experiments/_pilot_prepare.py
+orchestrator/experiments/_pilot_prepare_support.py
+orchestrator/experiments/_pilot_prepare_validation.py
+orchestrator/experiments/_pilot_review_support.py
+orchestrator/experiments/_runner_apparatus.py
+orchestrator/experiments/_runner_preflight.py
+orchestrator/experiments/_treatment_runtime.py
+orchestrator/experiments/schemas/lean-pilot-records-v1.schema.json
+scripts/experiments/conventional_coordinator.py
+tests/experiments/test_lean_pilot_contracts.py
+tests/experiments/test_lean_pilot_evaluation.py
+tests/experiments/test_lean_pilot_module_layout.py
+tests/experiments/test_lean_pilot_prepare.py
+tests/experiments/test_lean_pilot_review.py
+tests/experiments/test_lean_pilot_runner.py
+tests/experiments/test_lean_pilot_treatment_parity.py
+```
+
+No other path is permitted in the synthetic source revision.
+
 - [ ] **Step 4: Run verification and ordered reviews**
 
 Run the exact RED/GREEN selectors, the treatment-parity and provider-free

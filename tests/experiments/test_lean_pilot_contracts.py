@@ -151,9 +151,21 @@ def _apparatus() -> dict[str, Any]:
         "provider_config_path": "config/provider.json",
         "prompt_config_path": "config/prompts.json",
         "command_config_path": "config/commands.json",
+        "treatment_runtime": {
+            "import_root": "/srv/repositories/agent-orchestration",
+            "revision_identity": f"commit:{'3' * 40}",
+            "tree_identity": f"git-tree:{'2' * 40}",
+        },
         "environment": {
             "identity": _digest("environment"),
-            "allowed_keys": ["HOME", "OPENAI_API_KEY", "PATH", "TMPDIR"],
+            "allowed_keys": [
+                "HOME",
+                "OPENAI_API_KEY",
+                "PATH",
+                "PYTHONDONTWRITEBYTECODE",
+                "PYTHONPATH",
+                "TMPDIR",
+            ],
             "credential_keys": ["OPENAI_API_KEY"],
         },
         "visible_check": {
@@ -667,6 +679,115 @@ def test_pilot_lock_accepts_explicit_locked_apparatus(
 
     assert record["apparatus"]["product_projection_exclusions"]
     assert contracts.validate_record(record) is None
+
+
+def test_pilot_lock_requires_closed_treatment_runtime(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_lock()
+    expected = {
+        "import_root": record["archive"]["repository_root"],
+        "revision_identity": f"commit:{'3' * 40}",
+        "tree_identity": f"git-tree:{'2' * 40}",
+    }
+
+    assert record["apparatus"]["treatment_runtime"] == expected
+    assert contracts.validate_record(record) is None
+
+    for field in expected:
+        missing = copy.deepcopy(record)
+        del missing["apparatus"]["treatment_runtime"][field]
+        with pytest.raises(contracts.PilotContractError, match=field):
+            contracts.validate_record(missing)
+
+    unexpected = copy.deepcopy(record)
+    unexpected["apparatus"]["treatment_runtime"]["unexpected"] = "open"
+    with pytest.raises(contracts.PilotContractError, match="unexpected"):
+        contracts.validate_record(unexpected)
+
+    legacy = copy.deepcopy(record)
+    del legacy["apparatus"]["treatment_runtime"]
+    legacy["apparatus"]["environment"]["allowed_keys"].remove(
+        "PYTHONDONTWRITEBYTECODE"
+    )
+    legacy["apparatus"]["environment"]["allowed_keys"].remove("PYTHONPATH")
+    assert contracts.validate_record(legacy) is None
+
+    mismatched = copy.deepcopy(record)
+    mismatched["apparatus"]["treatment_runtime"][
+        "import_root"
+    ] = "/srv/repositories/other"
+    with pytest.raises(
+        contracts.PilotContractError,
+        match="treatment_runtime_import_root_mismatch",
+    ):
+        contracts.validate_record(mismatched)
+
+
+@pytest.mark.parametrize("bad_root", ["relative/runtime", "/"])
+def test_treatment_runtime_import_root_is_nonroot_canonical_absolute_text(
+    contracts: ModuleType,
+    bad_root: str,
+) -> None:
+    record = _pilot_lock()
+    record["apparatus"]["treatment_runtime"]["import_root"] = bad_root
+    record["archive"]["repository_root"] = bad_root
+
+    with pytest.raises(
+        contracts.PilotContractError,
+        match=r"(treatment_runtime\.import_root|archive\.repository_root)",
+    ):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("revision_identity", "0" * 40),
+        ("revision_identity", f"commit:{'0' * 39}"),
+        ("revision_identity", f"commit:{'A' * 40}"),
+        ("tree_identity", "0" * 40),
+        ("tree_identity", f"git-tree:{'0' * 39}"),
+        ("tree_identity", f"git-tree:{'A' * 40}"),
+    ],
+)
+def test_treatment_runtime_identities_require_exact_full_lowercase_format(
+    contracts: ModuleType,
+    field: str,
+    value: str,
+) -> None:
+    record = _pilot_lock()
+    record["apparatus"]["treatment_runtime"][field] = value
+
+    with pytest.raises(contracts.PilotContractError, match=field):
+        contracts.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    ("key", "credential_backed"),
+    [
+        ("PYTHONDONTWRITEBYTECODE", False),
+        ("PYTHONPATH", False),
+        ("PYTHONDONTWRITEBYTECODE", True),
+        ("PYTHONPATH", True),
+    ],
+)
+def test_treatment_runtime_environment_keys_are_locked_noncredentials(
+    contracts: ModuleType,
+    key: str,
+    credential_backed: bool,
+) -> None:
+    record = _pilot_lock()
+    environment = record["apparatus"]["environment"]
+    if credential_backed:
+        environment["credential_keys"].append(key)
+        expected = "treatment_runtime_environment_key_cannot_be_credential"
+    else:
+        environment["allowed_keys"].remove(key)
+        expected = "missing_treatment_runtime_environment_key"
+
+    with pytest.raises(contracts.PilotContractError, match=expected):
+        contracts.validate_record(record)
 
 
 def test_record_kind_dispatch_is_exact(contracts: ModuleType) -> None:
