@@ -10,7 +10,10 @@ from typing import Any, Mapping, Optional
 
 from .prompt_dependency_contract import CompilerPromptDependencyContract
 from .prompt_fragment_contract import (
+    CompilerPromptAttemptBindingPlan,
     CompilerPromptFragmentContractCarrier,
+    serialize_compiler_prompt_attempt_binding_plan,
+    validate_compiler_prompt_attempt_pair,
     validate_compiler_prompt_fragment_pair,
 )
 
@@ -278,6 +281,19 @@ class SurfaceStep:
         default=None,
         metadata={"json_omit_if_none": True},
     )
+    prompt_attempt_identity_version: str | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    compiler_prompt_attempt_binding_plan: (
+        CompilerPromptAttemptBindingPlan | None
+    ) = field(
+        default=None,
+        metadata={
+            "json_omit_if_none": True,
+            "json_serializer": serialize_compiler_prompt_attempt_binding_plan,
+        },
+    )
     provider_supervision: Any = field(
         default=None,
         metadata={"json_omit_if_none": True},
@@ -313,6 +329,13 @@ class SurfaceStep:
             self.compiled_prompt_fragment_identity,
             self.common.expected_outputs,
         )
+        validate_compiler_prompt_attempt_pair(
+            self.prompt_attempt_identity_version,
+            self.compiler_prompt_attempt_binding_plan,
+            fragment_contract=self.compiler_prompt_fragment_contract,
+            dependency_contract=self.compiler_prompt_dependency_contract,
+            typed_prompt_inputs=self.typed_prompt_inputs,
+        )
 
 
 @dataclass(frozen=True)
@@ -338,3 +361,43 @@ class SurfaceWorkflow:
     imports: Mapping[str, ImportedWorkflowMetadata] = field(default_factory=empty_frozen_mapping)
     finalization: Optional[SurfaceFinallyBlock] = None
     result_guidance: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        for step in _iter_surface_steps(
+            (
+                *self.steps,
+                *(
+                    ()
+                    if self.finalization is None
+                    else self.finalization.steps
+                ),
+            )
+        ):
+            if step.kind is not SurfaceStepKind.PROVIDER:
+                continue
+            validate_compiler_prompt_attempt_pair(
+                step.prompt_attempt_identity_version,
+                step.compiler_prompt_attempt_binding_plan,
+                fragment_contract=step.compiler_prompt_fragment_contract,
+                dependency_contract=(
+                    step.compiler_prompt_dependency_contract
+                ),
+                typed_prompt_inputs=step.typed_prompt_inputs,
+                target_dsl_version=self.version,
+            )
+
+
+def _iter_surface_steps(
+    steps: tuple[SurfaceStep, ...],
+):
+    for step in steps:
+        yield step
+        if step.then_branch is not None:
+            yield from _iter_surface_steps(step.then_branch.steps)
+        if step.else_branch is not None:
+            yield from _iter_surface_steps(step.else_branch.steps)
+        for case in step.match_cases.values():
+            yield from _iter_surface_steps(case.steps)
+        yield from _iter_surface_steps(step.for_each_steps)
+        if step.repeat_until is not None:
+            yield from _iter_surface_steps(step.repeat_until.steps)

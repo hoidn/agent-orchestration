@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 
 
 COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA = "compiler_prompt_fragment_contract.v1"
 COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2 = "compiler_prompt_fragment_contract.v2"
+PROMPT_ATTEMPT_IDENTITY_VERSION = "workflow_prompt_attempt_identity.v1"
+COMPILER_PROMPT_ATTEMPT_BINDING_PLAN_SCHEMA = (
+    "compiler_prompt_attempt_binding_plan.v1"
+)
 _IDENTITY_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _PLACEHOLDER_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\Z")
 _RENDERERS_BY_KIND = {
@@ -56,6 +61,19 @@ def _canonical_json_bytes(value: Any) -> bytes:
         ensure_ascii=False,
         allow_nan=False,
     ).encode("utf-8")
+
+
+def canonical_compiler_prompt_attempt_binding_plan_sha256(
+    value: Mapping[str, Any],
+) -> str:
+    """Digest one unsealed closed binding-plan projection."""
+
+    if set(value) != {"schema_version", "rows"}:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "digest projection must contain exactly schema_version and rows"
+        )
+    return "sha256:" + hashlib.sha256(_canonical_json_bytes(value)).hexdigest()
 
 
 def _require_exact_keys(
@@ -328,6 +346,489 @@ CompilerPromptFragmentContractCarrier = (
 )
 
 
+@dataclass(frozen=True)
+class CompilerPromptAttemptBindingPlanRow:
+    """One declaration-ordered Q3 runtime binding locator."""
+
+    declaration_ordinal: int
+    slot_name: str
+    slot_kind: str
+    refinement: Mapping[str, Any] | None
+    output_role: str
+    delivery: str
+    runtime_source: Mapping[str, Any]
+    renderer: Mapping[str, Any] | None
+
+    def __post_init__(self) -> None:
+        if self.refinement is not None:
+            object.__setattr__(self, "refinement", _freeze_json(self.refinement))
+        object.__setattr__(
+            self,
+            "runtime_source",
+            _freeze_json(self.runtime_source),
+        )
+        if self.renderer is not None:
+            object.__setattr__(self, "renderer", _freeze_json(self.renderer))
+        _validate_compiler_prompt_attempt_binding_plan_row(self)
+
+    def __deepcopy__(
+        self,
+        memo: dict[int, Any],
+    ) -> "CompilerPromptAttemptBindingPlanRow":
+        return self
+
+
+@dataclass(frozen=True)
+class CompilerPromptAttemptBindingPlan:
+    """Closed compiler-owned Q3 declaration-to-runtime binding plan."""
+
+    schema_version: str
+    rows: tuple[CompilerPromptAttemptBindingPlanRow, ...]
+    plan_sha256: str | None
+    _compiler_expected_plan_sha256: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "rows", tuple(self.rows))
+        validate_compiler_prompt_attempt_binding_plan(
+            self,
+            require_digest=self.plan_sha256 is not None,
+        )
+
+    def with_canonical_sha256(self) -> "CompilerPromptAttemptBindingPlan":
+        """Seal one already validated unsealed plan."""
+
+        projection = {
+            "schema_version": self.schema_version,
+            "rows": [
+                serialize_compiler_prompt_attempt_binding_plan_row(row)
+                for row in self.rows
+            ],
+        }
+        return CompilerPromptAttemptBindingPlan(
+            schema_version=self.schema_version,
+            rows=self.rows,
+            plan_sha256=(
+                canonical_compiler_prompt_attempt_binding_plan_sha256(
+                    projection
+                )
+            ),
+            _compiler_expected_plan_sha256=(
+                self._compiler_expected_plan_sha256
+            ),
+        )
+
+    def with_compiler_expected_plan_authority(
+        self,
+    ) -> "CompilerPromptAttemptBindingPlan":
+        """Bind this compiler-created plan to its initial validation bytes."""
+
+        validate_compiler_prompt_attempt_binding_plan(self)
+        assert self.plan_sha256 is not None
+        return CompilerPromptAttemptBindingPlan(
+            schema_version=self.schema_version,
+            rows=self.rows,
+            plan_sha256=self.plan_sha256,
+            _compiler_expected_plan_sha256=self.plan_sha256,
+        )
+
+    def __deepcopy__(
+        self,
+        memo: dict[int, Any],
+    ) -> "CompilerPromptAttemptBindingPlan":
+        return self
+
+
+def _validate_compiler_prompt_attempt_binding_plan_row(
+    row: CompilerPromptAttemptBindingPlanRow,
+) -> None:
+    if (
+        not isinstance(row.declaration_ordinal, int)
+        or isinstance(row.declaration_ordinal, bool)
+        or row.declaration_ordinal < 0
+    ):
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "declaration ordinal must be a non-negative integer"
+        )
+    if (
+        not isinstance(row.slot_name, str)
+        or not _PLACEHOLDER_NAME_RE.fullmatch(row.slot_name)
+    ):
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: slot name is invalid"
+        )
+    if row.slot_kind not in {"doc", "text", "value", "path"}:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: slot kind is invalid"
+        )
+    if row.refinement is not None:
+        if not isinstance(row.refinement, Mapping):
+            raise ValueError(
+                "prompt_attempt_binding_plan_invalid: refinement is invalid"
+            )
+        from orchestrator.workflow_lisp.lowering.pure_projection import (
+            validate_compiler_normalized_type_descriptor,
+        )
+
+        try:
+            validate_compiler_normalized_type_descriptor(
+                row.refinement,
+                context="refinement",
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "prompt_attempt_binding_plan_invalid: refinement is invalid"
+            ) from exc
+    if row.slot_kind == "text" and row.refinement is not None:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "text slots forbid refinements"
+        )
+    if (
+        row.refinement is not None
+        and row.slot_kind in {"doc", "path"}
+        and row.refinement.get("kind") != "path"
+    ):
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "document and path refinements must be path descriptors"
+        )
+    if row.output_role not in {"none", "required_string_file"}:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: output role is invalid"
+        )
+    if (
+        row.output_role == "required_string_file"
+        and row.slot_kind != "path"
+    ):
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "required output role requires a path slot"
+        )
+    expected_delivery = (
+        "dependency" if row.slot_kind == "doc" else "template"
+    )
+    if row.delivery != expected_delivery:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: delivery is invalid"
+        )
+    if not isinstance(row.runtime_source, Mapping) or set(
+        row.runtime_source
+    ) != {"kind", "ordinal"}:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: runtime source is invalid"
+        )
+    expected_source_kind = (
+        "required_dependency"
+        if row.slot_kind == "doc"
+        else "rendered_slot"
+    )
+    if row.runtime_source["kind"] != expected_source_kind:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: runtime source kind is invalid"
+        )
+    source_ordinal = row.runtime_source["ordinal"]
+    if (
+        not isinstance(source_ordinal, int)
+        or isinstance(source_ordinal, bool)
+        or source_ordinal < 0
+    ):
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "runtime source ordinal is invalid"
+        )
+    if row.slot_kind == "doc":
+        if row.renderer is not None:
+            raise ValueError(
+                "prompt_attempt_binding_plan_invalid: "
+                "document renderer must be null"
+            )
+        return
+    if not isinstance(row.renderer, Mapping) or set(row.renderer) != {
+        "renderer_id",
+        "renderer_version",
+    }:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: renderer is invalid"
+        )
+    renderer_version = row.renderer["renderer_version"]
+    if (
+        row.renderer["renderer_id"] != _RENDERERS_BY_KIND[row.slot_kind]
+        or type(renderer_version) is not int
+        or renderer_version != 1
+    ):
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: renderer is invalid"
+        )
+
+
+def validate_compiler_prompt_attempt_binding_plan(
+    plan: CompilerPromptAttemptBindingPlan,
+    *,
+    require_digest: bool = True,
+) -> CompilerPromptAttemptBindingPlan:
+    """Validate the closed schema, order, locators, and canonical seal."""
+
+    if type(plan) is not CompilerPromptAttemptBindingPlan:
+        raise TypeError(
+            "prompt_attempt_binding_plan_invalid: "
+            "expected CompilerPromptAttemptBindingPlan"
+        )
+    if plan.schema_version != COMPILER_PROMPT_ATTEMPT_BINDING_PLAN_SCHEMA:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: unsupported schema"
+        )
+    if not isinstance(plan.rows, tuple):
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: rows must be a tuple"
+        )
+    if any(
+        type(row) is not CompilerPromptAttemptBindingPlanRow
+        for row in plan.rows
+    ):
+        raise TypeError(
+            "prompt_attempt_binding_plan_invalid: rows have invalid type"
+        )
+    for row in plan.rows:
+        _validate_compiler_prompt_attempt_binding_plan_row(row)
+    if tuple(row.declaration_ordinal for row in plan.rows) != tuple(
+        range(len(plan.rows))
+    ):
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: "
+            "declaration ordinals must be contiguous and ordered"
+        )
+    names = tuple(row.slot_name for row in plan.rows)
+    if len(set(names)) != len(names):
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: slot names must be unique"
+        )
+    for source_kind in ("required_dependency", "rendered_slot"):
+        ordinals = tuple(
+            int(row.runtime_source["ordinal"])
+            for row in plan.rows
+            if row.runtime_source["kind"] == source_kind
+        )
+        if ordinals != tuple(range(len(ordinals))):
+            raise ValueError(
+                "prompt_attempt_binding_plan_invalid: "
+                f"{source_kind} locators must be contiguous and ordered"
+            )
+    if not require_digest and plan.plan_sha256 is None:
+        return plan
+    if (
+        not isinstance(plan.plan_sha256, str)
+        or not _IDENTITY_RE.fullmatch(plan.plan_sha256)
+    ):
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: plan digest is malformed"
+        )
+    expected = canonical_compiler_prompt_attempt_binding_plan_sha256(
+        {
+            "schema_version": plan.schema_version,
+            "rows": [
+                serialize_compiler_prompt_attempt_binding_plan_row(row)
+                for row in plan.rows
+            ],
+        }
+    )
+    if expected != plan.plan_sha256:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: plan digest mismatch"
+        )
+    return plan
+
+
+def validate_compiler_prompt_attempt_binding_plan_authority(
+    plan: CompilerPromptAttemptBindingPlan,
+) -> None:
+    """Check the ephemeral compiler seal at initial mapping validation."""
+
+    validate_compiler_prompt_attempt_binding_plan(plan)
+    expected = plan._compiler_expected_plan_sha256
+    if (
+        not isinstance(expected, str)
+        or not _IDENTITY_RE.fullmatch(expected)
+        or expected != plan.plan_sha256
+    ):
+        raise ValueError(
+            "prompt_attempt_binding_plan_mismatch: "
+            "binding plan disagrees with compiler-owned declaration authority"
+        )
+
+
+def _typed_prompt_input_by_name(
+    typed_prompt_inputs: tuple[Any, ...],
+) -> dict[str, Mapping[str, Any]]:
+    by_name: dict[str, Mapping[str, Any]] = {}
+    for value in typed_prompt_inputs:
+        if not isinstance(value, Mapping):
+            raise ValueError(
+                "prompt_attempt_binding_plan_mismatch: "
+                "typed prompt input row is invalid"
+            )
+        name = value.get("binding_name")
+        if not isinstance(name, str) or name in by_name:
+            raise ValueError(
+                "prompt_attempt_binding_plan_mismatch: "
+                "typed prompt input names are invalid"
+            )
+        by_name[name] = value
+    return by_name
+
+
+def validate_compiler_prompt_attempt_pair(
+    identity_version: str | None,
+    plan: CompilerPromptAttemptBindingPlan | None,
+    *,
+    fragment_contract: CompilerPromptFragmentContractCarrier | None,
+    dependency_contract: Any = None,
+    typed_prompt_inputs: tuple[Any, ...] = (),
+    required: bool = False,
+    target_dsl_version: str | None = None,
+) -> None:
+    """Validate the target-gated Q3 pair and its existing carrier locators."""
+
+    pair_present = identity_version is not None or plan is not None
+    if target_dsl_version is not None:
+        try:
+            target_parts = tuple(
+                int(part) for part in target_dsl_version.split(".")
+            )
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "prompt_attempt_identity_version_invalid: "
+                "target DSL version is invalid"
+            ) from exc
+        target_supports_pair = target_parts >= (2, 22)
+        if not target_supports_pair and pair_present:
+            raise ValueError(
+                "prompt_attempt_identity_version_invalid: "
+                "Q3 prompt-attempt carriers require target DSL 2.22"
+            )
+        required = (
+            required
+            or target_supports_pair
+            and fragment_contract is not None
+        )
+    if identity_version is None and plan is None:
+        if required:
+            raise ValueError(
+                "prompt_attempt_identity_version_missing: "
+                "target-2.22 fragment application requires the Q3 pair"
+            )
+        return
+    if identity_version is None:
+        raise ValueError(
+            "prompt_attempt_identity_version_missing: "
+            "identity version and binding plan must be paired"
+        )
+    if plan is None:
+        raise ValueError(
+            "prompt_attempt_binding_plan_missing: "
+            "identity version and binding plan must be paired"
+        )
+    if identity_version != PROMPT_ATTEMPT_IDENTITY_VERSION:
+        raise ValueError(
+            "prompt_attempt_identity_version_invalid: "
+            "unsupported prompt-attempt identity version"
+        )
+    try:
+        validate_compiler_prompt_attempt_binding_plan(plan)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "prompt_attempt_binding_plan_invalid: binding plan is invalid"
+        ) from exc
+    if fragment_contract is None:
+        raise ValueError(
+            "prompt_attempt_binding_plan_mismatch: "
+            "binding plan requires a fragment contract"
+        )
+    rendered_plan_rows = tuple(
+        row for row in plan.rows if row.slot_kind != "doc"
+    )
+    if len(rendered_plan_rows) != len(fragment_contract.rendered_slots):
+        raise ValueError(
+            "prompt_attempt_binding_plan_mismatch: rendered rows disagree"
+        )
+    for row, fragment_row in zip(
+        rendered_plan_rows,
+        fragment_contract.rendered_slots,
+        strict=True,
+    ):
+        if (
+            row.slot_name != fragment_row.name
+            or row.slot_kind != fragment_row.kind
+            or row.renderer is None
+            or row.renderer["renderer_id"] != fragment_row.renderer_id
+        ):
+            raise ValueError(
+                "prompt_attempt_binding_plan_mismatch: "
+                "rendered row disagrees with fragment contract"
+            )
+    output_roles = {
+        row.slot_name: row.output_role for row in plan.rows
+    }
+    expected_output_names = tuple(
+        row.slot_name
+        for row in getattr(fragment_contract, "output_positions", ())
+    )
+    observed_output_names = tuple(
+        row.slot_name
+        for row in plan.rows
+        if row.output_role == "required_string_file"
+    )
+    if expected_output_names != observed_output_names or any(
+        role == "required_string_file" and name not in expected_output_names
+        for name, role in output_roles.items()
+    ):
+        raise ValueError(
+            "prompt_attempt_binding_plan_mismatch: "
+            "output roles disagree with fragment contract"
+        )
+    typed_by_name = _typed_prompt_input_by_name(typed_prompt_inputs)
+    expected_typed_names = {
+        row.slot_name
+        for row in plan.rows
+        if row.slot_kind in {"value", "path"}
+    }
+    if set(typed_by_name) != expected_typed_names:
+        raise ValueError(
+            "prompt_attempt_binding_plan_mismatch: "
+            "typed input coverage disagrees with binding plan"
+        )
+    for row in plan.rows:
+        if row.slot_kind not in {"value", "path"}:
+            continue
+        typed_renderer = typed_by_name[row.slot_name].get("renderer")
+        if (
+            not isinstance(typed_renderer, Mapping)
+            or row.renderer is None
+            or typed_renderer.get("renderer_id")
+            != row.renderer["renderer_id"]
+            or typed_renderer.get("renderer_version")
+            != row.renderer["renderer_version"]
+        ):
+            raise ValueError(
+                "prompt_attempt_binding_plan_mismatch: "
+                "typed renderer disagrees with binding plan"
+            )
+    if dependency_contract is not None:
+        doc_rows = tuple(row for row in plan.rows if row.slot_kind == "doc")
+        dependency_refs = tuple(
+            getattr(dependency_contract, "required_binding_refs", ())
+        )
+        if len(doc_rows) != len(dependency_refs):
+            raise ValueError(
+                "prompt_attempt_binding_plan_mismatch: "
+                "dependency coverage disagrees with binding plan"
+            )
+
+
 def _path_template_from_rendered_slot(
     slot: CompilerPromptFragmentRenderedSlot,
 ) -> str:
@@ -575,6 +1076,45 @@ def serialize_compiler_prompt_fragment_rendered_slot(
         "renderer_id": slot.renderer_id,
         "value_source": _thaw_json(slot.value_source),
         "placeholder_ordinals": list(slot.placeholder_ordinals),
+    }
+
+
+def serialize_compiler_prompt_attempt_binding_plan_row(
+    row: CompilerPromptAttemptBindingPlanRow,
+) -> dict[str, Any]:
+    """Serialize one validated binding-plan row."""
+
+    _validate_compiler_prompt_attempt_binding_plan_row(row)
+    return {
+        "declaration_ordinal": row.declaration_ordinal,
+        "slot_name": row.slot_name,
+        "slot_kind": row.slot_kind,
+        "refinement": (
+            None if row.refinement is None else _thaw_json(row.refinement)
+        ),
+        "output_role": row.output_role,
+        "delivery": row.delivery,
+        "runtime_source": _thaw_json(row.runtime_source),
+        "renderer": (
+            None if row.renderer is None else _thaw_json(row.renderer)
+        ),
+    }
+
+
+def serialize_compiler_prompt_attempt_binding_plan(
+    plan: CompilerPromptAttemptBindingPlan,
+) -> dict[str, Any]:
+    """Serialize one sealed plan to its closed wire representation."""
+
+    validate_compiler_prompt_attempt_binding_plan(plan)
+    assert plan.plan_sha256 is not None
+    return {
+        "schema_version": plan.schema_version,
+        "rows": [
+            serialize_compiler_prompt_attempt_binding_plan_row(row)
+            for row in plan.rows
+        ],
+        "plan_sha256": plan.plan_sha256,
     }
 
 

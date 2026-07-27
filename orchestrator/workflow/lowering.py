@@ -1044,6 +1044,12 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
             compiled_prompt_fragment_identity=(
                 step.compiled_prompt_fragment_identity
             ),
+            prompt_attempt_identity_version=(
+                step.prompt_attempt_identity_version
+            ),
+            compiler_prompt_attempt_binding_plan=(
+                step.compiler_prompt_attempt_binding_plan
+            ),
         )
     if step.kind is SurfaceStepKind.PROVIDER_SUPERVISION:
         if not isinstance(

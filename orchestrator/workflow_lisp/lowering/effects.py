@@ -408,6 +408,7 @@ def _lower_provider_result_operation(
             fragment_typed_prompt_inputs,
             fragment_hidden_inputs,
             fragment_expected_outputs,
+            fragment_binding_plan,
         ) = _build_compiler_prompt_fragment_contract(
             provider_result.prompt_application,
             provider_step_id=provider_step_id,
@@ -419,6 +420,14 @@ def _lower_provider_result_operation(
         provider_step["compiled_prompt_fragment_identity"] = (
             fragment_contract.compiled_prompt_fragment_identity
         )
+        if fragment_binding_plan is not None:
+            provider_step["prompt_attempt_identity_version"] = (
+                provider_result.prompt_application
+                .prompt_attempt_identity_version
+            )
+            provider_step["compiler_prompt_attempt_binding_plan"] = (
+                fragment_binding_plan
+            )
         provider_step["typed_prompt_inputs"] = list(
             fragment_typed_prompt_inputs
         )

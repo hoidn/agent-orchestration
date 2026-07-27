@@ -32,9 +32,12 @@ from .prompt_dependency_contract import (
     serialize_compiler_prompt_dependency_contract,
 )
 from .prompt_fragment_contract import (
+    CompilerPromptAttemptBindingPlan,
     CompilerPromptFragmentContractCarrier,
     CompilerPromptFragmentContractV2,
+    serialize_compiler_prompt_attempt_binding_plan,
     serialize_compiler_prompt_fragment_contract,
+    validate_compiler_prompt_attempt_pair,
     validate_compiler_prompt_fragment_pair,
 )
 from .references import ReferenceResolutionError, StructuredStepReference, parse_structured_ref
@@ -198,6 +201,19 @@ class SemanticPromptSurface:
         default=None,
         metadata={"json_omit_if_none": True},
     )
+    prompt_attempt_identity_version: str | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    compiler_prompt_attempt_binding_plan: (
+        CompilerPromptAttemptBindingPlan | None
+    ) = field(
+        default=None,
+        metadata={
+            "json_omit_if_none": True,
+            "json_serializer": serialize_compiler_prompt_attempt_binding_plan,
+        },
+    )
 
     def __post_init__(self) -> None:
         validate_compiler_prompt_fragment_pair(
@@ -211,6 +227,13 @@ class SemanticPromptSurface:
                     (),
                 )
             ),
+        )
+        validate_compiler_prompt_attempt_pair(
+            self.prompt_attempt_identity_version,
+            self.compiler_prompt_attempt_binding_plan,
+            fragment_contract=self.compiler_prompt_fragment_contract,
+            dependency_contract=self.compiler_prompt_dependency_contract,
+            typed_prompt_inputs=self.typed_prompt_inputs,
         )
 
 
@@ -439,6 +462,12 @@ def derive_workflow_semantic_ir(
                 ),
                 compiled_prompt_fragment_identity=(
                     step.compiled_prompt_fragment_identity
+                ),
+                prompt_attempt_identity_version=(
+                    step.prompt_attempt_identity_version
+                ),
+                compiler_prompt_attempt_binding_plan=(
+                    step.compiler_prompt_attempt_binding_plan
                 ),
             )
             effect_id = _effect_id(workflow_name, statement_surface.surface_step_id, "provider_call")
@@ -954,10 +983,26 @@ def validate_workflow_semantic_ir(
                     else provider_config.common.expected_outputs
                 ),
             )
+            validate_compiler_prompt_attempt_pair(
+                prompt_surface.prompt_attempt_identity_version,
+                prompt_surface.compiler_prompt_attempt_binding_plan,
+                fragment_contract=(
+                    prompt_surface.compiler_prompt_fragment_contract
+                ),
+                dependency_contract=(
+                    prompt_surface.compiler_prompt_dependency_contract
+                ),
+                typed_prompt_inputs=prompt_surface.typed_prompt_inputs,
+                target_dsl_version=ir.version,
+            )
         except (TypeError, ValueError) as exc:
             message = str(exc)
             if not message.startswith(
-                "prompt_output_position_contract_mismatch"
+                (
+                    "prompt_output_position_contract_mismatch",
+                    "prompt_attempt_identity_version_",
+                    "prompt_attempt_binding_plan_",
+                )
             ):
                 message = (
                     "semantic_ir_invalid: "
@@ -977,6 +1022,10 @@ def validate_workflow_semantic_ir(
             != provider_config.compiler_prompt_fragment_contract
             or prompt_surface.compiled_prompt_fragment_identity
             != provider_config.compiled_prompt_fragment_identity
+            or prompt_surface.prompt_attempt_identity_version
+            != provider_config.prompt_attempt_identity_version
+            or prompt_surface.compiler_prompt_attempt_binding_plan
+            != provider_config.compiler_prompt_attempt_binding_plan
         ):
             semantic_contract = prompt_surface.compiler_prompt_fragment_contract
             executable_contract = (
@@ -984,7 +1033,32 @@ def validate_workflow_semantic_ir(
                 if provider_config is None
                 else provider_config.compiler_prompt_fragment_contract
             )
+            q3_version_mismatch = (
+                prompt_surface.prompt_attempt_identity_version
+                != (
+                    None
+                    if provider_config is None
+                    else provider_config.prompt_attempt_identity_version
+                )
+            )
+            q3_plan_mismatch = (
+                prompt_surface.compiler_prompt_attempt_binding_plan
+                != (
+                    None
+                    if provider_config is None
+                    else provider_config.compiler_prompt_attempt_binding_plan
+                )
+            )
             message = (
+                "prompt_attempt_identity_version_mismatch: "
+                "Semantic and Executable prompt-attempt identity versions mismatch"
+                if q3_version_mismatch
+                else (
+                    "prompt_attempt_binding_plan_mismatch: "
+                    "Semantic and Executable prompt-attempt binding plans mismatch"
+                )
+                if q3_plan_mismatch
+                else
                 "prompt_output_position_contract_mismatch: "
                 "Semantic and Executable prompt fragment carriers mismatch"
                 if (

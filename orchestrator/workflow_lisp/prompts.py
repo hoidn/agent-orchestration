@@ -10,6 +10,13 @@ import json
 import re
 from typing import Any, NoReturn
 
+from orchestrator.workflow.prompt_fragment_contract import (
+    COMPILER_PROMPT_ATTEMPT_BINDING_PLAN_SCHEMA,
+    PROMPT_ATTEMPT_IDENTITY_VERSION,
+    CompilerPromptAttemptBindingPlan,
+    CompilerPromptAttemptBindingPlanRow,
+)
+
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .result_guidance import (
     ReturnSpec,
@@ -31,6 +38,7 @@ from .syntax import (
     syntax_identifier,
     syntax_node_datum,
     target_dsl_supports_prompt_calculus,
+    target_dsl_supports_prompt_attempt_identity,
     target_dsl_supports_prompt_output_positions,
 )
 
@@ -139,6 +147,10 @@ class PromptApplicationExpr:
     expansion_stack: ExpansionStack = ()
     canonical_identity_projection: Mapping[str, Any] | None = None
     compiled_prompt_fragment_identity: str | None = None
+    prompt_attempt_identity_version: str | None = None
+    compiler_prompt_attempt_binding_plan: (
+        CompilerPromptAttemptBindingPlan | None
+    ) = None
     return_redeclaration_span: SourceSpan | None = None
     return_redeclaration_expansion_stack: ExpansionStack = ()
 
@@ -493,15 +505,91 @@ def typecheck_prompt_application(
         type_env=type_env,
     )
     identity = _identity_for_projection(projection)
+    identity_version = None
+    binding_plan = None
+    if target_dsl_supports_prompt_attempt_identity(
+        getattr(type_env, "target_dsl_version", "")
+    ):
+        identity_version = PROMPT_ATTEMPT_IDENTITY_VERSION
+        binding_plan = _compiler_prompt_attempt_binding_plan(
+            application.prompt,
+            tuple(typed_fills),
+            type_env=type_env,
+        )
     return (
         replace(
             application,
             fills=tuple(typed_fills),
             canonical_identity_projection=projection,
             compiled_prompt_fragment_identity=identity,
+            prompt_attempt_identity_version=identity_version,
+            compiler_prompt_attempt_binding_plan=binding_plan,
         ),
         tuple(effects),
     )
+
+
+def _compiler_prompt_attempt_binding_plan(
+    prompt: ResolvedPromptDef,
+    fills: tuple[PromptFill, ...],
+    *,
+    type_env,
+) -> CompilerPromptAttemptBindingPlan:
+    """Build Q3's declaration-ordered typed application carrier."""
+
+    dependency_ordinal = 0
+    rendered_ordinal = 0
+    rows: list[CompilerPromptAttemptBindingPlanRow] = []
+    for declaration_ordinal, (slot, fill) in enumerate(
+        zip(prompt.slots, fills, strict=True)
+    ):
+        is_document = slot.declaration.kind is PromptSlotKind.DOC
+        runtime_ordinal = (
+            dependency_ordinal if is_document else rendered_ordinal
+        )
+        if is_document:
+            dependency_ordinal += 1
+        else:
+            rendered_ordinal += 1
+        refinement = (
+            None
+            if slot.refinement_type_ref is None
+            else _normalized_type_descriptor(
+                slot.refinement_type_ref,
+                type_env=type_env,
+            )
+        )
+        rows.append(
+            CompilerPromptAttemptBindingPlanRow(
+                declaration_ordinal=declaration_ordinal,
+                slot_name=slot.declaration.name,
+                slot_kind=slot.declaration.kind.value,
+                refinement=refinement,
+                output_role=slot.declaration.output_role.value,
+                delivery="dependency" if is_document else "template",
+                runtime_source={
+                    "kind": (
+                        "required_dependency"
+                        if is_document
+                        else "rendered_slot"
+                    ),
+                    "ordinal": runtime_ordinal,
+                },
+                renderer=(
+                    None
+                    if is_document
+                    else {
+                        "renderer_id": fill.renderer_id,
+                        "renderer_version": 1,
+                    }
+                ),
+            )
+        )
+    return CompilerPromptAttemptBindingPlan(
+        schema_version=COMPILER_PROMPT_ATTEMPT_BINDING_PLAN_SCHEMA,
+        rows=tuple(rows),
+        plan_sha256=None,
+    ).with_canonical_sha256().with_compiler_expected_plan_authority()
 
 
 def validate_compiled_prompt_fragment_identity(

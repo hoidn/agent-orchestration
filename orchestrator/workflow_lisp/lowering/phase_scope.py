@@ -17,7 +17,11 @@ from orchestrator.workflow.prompt_fragment_contract import (
     CompilerPromptFragmentContractV2,
     CompilerPromptFragmentOutputPosition,
     CompilerPromptFragmentRenderedSlot,
+    CompilerPromptAttemptBindingPlan,
+    PROMPT_ATTEMPT_IDENTITY_VERSION,
     freeze_prompt_fragment_json,
+    validate_compiler_prompt_attempt_binding_plan,
+    validate_compiler_prompt_attempt_pair,
 )
 from orchestrator.workflow.surface_ast import SurfaceStep
 from orchestrator.workflow.view_renderer import (
@@ -66,6 +70,7 @@ from ..phase import (
     PhaseScope,
 )
 from ..prompts import PromptApplicationExpr, PromptOutputRole, PromptSlotKind
+from ..syntax import target_dsl_supports_prompt_attempt_identity
 from ..procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
 from ..procedures import ProcedureCatalog
 from ..spans import SourcePosition, SourceSpan
@@ -1825,6 +1830,7 @@ def _build_compiler_prompt_fragment_contract(
     tuple[dict[str, Any], ...],
     dict[str, LoweringOrigin],
     tuple[Mapping[str, Any], ...],
+    CompilerPromptAttemptBindingPlan | None,
 ]:
     """Lower one typed fragment into its frozen renderer program and doc rows."""
 
@@ -1833,6 +1839,50 @@ def _build_compiler_prompt_fragment_contract(
         raise _compile_error(
             code="compiled_prompt_fragment_identity_missing",
             message="typed prompt application lacks its compiled identity",
+            span=application.span,
+            form_path=application.form_path,
+        )
+    q3_required = target_dsl_supports_prompt_attempt_identity(
+        getattr(context.type_env, "target_dsl_version", "")
+    )
+    identity_version = application.prompt_attempt_identity_version
+    binding_plan = application.compiler_prompt_attempt_binding_plan
+    if q3_required and identity_version is None:
+        raise _compile_error(
+            code="prompt_attempt_identity_version_missing",
+            message="target-2.22 fragment application lacks its identity version",
+            span=application.span,
+            form_path=application.form_path,
+        )
+    if q3_required and binding_plan is None:
+        raise _compile_error(
+            code="prompt_attempt_binding_plan_missing",
+            message="target-2.22 fragment application lacks its binding plan",
+            span=application.span,
+            form_path=application.form_path,
+        )
+    if q3_required and identity_version != PROMPT_ATTEMPT_IDENTITY_VERSION:
+        raise _compile_error(
+            code="prompt_attempt_identity_version_invalid",
+            message="target-2.22 fragment application has an invalid identity version",
+            span=application.span,
+            form_path=application.form_path,
+        )
+    if q3_required:
+        assert binding_plan is not None
+        try:
+            validate_compiler_prompt_attempt_binding_plan(binding_plan)
+        except (TypeError, ValueError) as exc:
+            raise _compile_error(
+                code="prompt_attempt_binding_plan_invalid",
+                message="target-2.22 fragment application has an invalid binding plan",
+                span=application.span,
+                form_path=application.form_path,
+            ) from exc
+    elif identity_version is not None or binding_plan is not None:
+        raise _compile_error(
+            code="prompt_attempt_identity_version_invalid",
+            message="Q3 prompt-attempt carriers require target DSL 2.22",
             span=application.span,
             form_path=application.form_path,
         )
@@ -2035,6 +2085,23 @@ def _build_compiler_prompt_fragment_contract(
             span=application.span,
             form_path=application.form_path,
         ) from exc
+    if q3_required:
+        try:
+            validate_compiler_prompt_attempt_pair(
+                identity_version,
+                binding_plan,
+                fragment_contract=contract,
+                typed_prompt_inputs=tuple(typed_prompt_inputs),
+                required=True,
+            )
+        except ValueError as exc:
+            message = str(exc)
+            raise _compile_error(
+                code=message.split(":", 1)[0],
+                message=message.split(":", 1)[-1].strip(),
+                span=application.span,
+                form_path=application.form_path,
+            ) from exc
     for subject_name, fill_source, slot_source, output_role_span in output_origins:
         _register_compiler_expected_output_binding(
             context,
@@ -2060,6 +2127,7 @@ def _build_compiler_prompt_fragment_contract(
         tuple(typed_prompt_inputs),
         hidden_inputs,
         expected_outputs,
+        binding_plan,
     )
 
 

@@ -531,6 +531,17 @@ def _elaborate_step(
             and isinstance(step.get("compiled_prompt_fragment_identity"), str)
             else None
         ),
+        prompt_attempt_identity_version=(
+            step.get("prompt_attempt_identity_version")
+            if kind is SurfaceStepKind.PROVIDER
+            and isinstance(step.get("prompt_attempt_identity_version"), str)
+            else None
+        ),
+        compiler_prompt_attempt_binding_plan=(
+            step.get("compiler_prompt_attempt_binding_plan")
+            if kind is SurfaceStepKind.PROVIDER
+            else None
+        ),
         consumes_injection_position=(
             step.get("consumes_injection_position")
             if kind in {SurfaceStepKind.PROVIDER, SurfaceStepKind.ADJUDICATED_PROVIDER}

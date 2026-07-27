@@ -256,6 +256,7 @@ def test_prompt_calculus_target_gate_and_registry_are_target_aware() -> None:
     assert syntax.PROMPT_CALCULUS_MIN_TARGET_DSL_VERSION == "2.20"
     assert "2.20" in syntax.SUPPORTED_TARGET_DSL_VERSIONS
     assert "2.21" in syntax.SUPPORTED_TARGET_DSL_VERSIONS
+    assert "2.22" in syntax.SUPPORTED_TARGET_DSL_VERSIONS
     assert not syntax.target_dsl_supports_prompt_calculus("2.19")
     assert syntax.target_dsl_supports_prompt_calculus("2.20")
     assert syntax.target_dsl_supports_prompt_calculus("2.21")

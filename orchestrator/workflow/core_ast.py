@@ -12,7 +12,10 @@ from orchestrator.exceptions import ValidationError, ValidationSubjectRef, Workf
 
 from .prompt_dependency_contract import CompilerPromptDependencyContract
 from .prompt_fragment_contract import (
+    CompilerPromptAttemptBindingPlan,
     CompilerPromptFragmentContractCarrier,
+    serialize_compiler_prompt_attempt_binding_plan,
+    validate_compiler_prompt_attempt_pair,
     validate_compiler_prompt_fragment_pair,
 )
 from .state_layout import GeneratedPathAllocation
@@ -126,6 +129,19 @@ class CoreProviderStep:
         default=None,
         metadata={"json_omit_if_none": True},
     )
+    prompt_attempt_identity_version: str | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    compiler_prompt_attempt_binding_plan: (
+        CompilerPromptAttemptBindingPlan | None
+    ) = field(
+        default=None,
+        metadata={
+            "json_omit_if_none": True,
+            "json_serializer": serialize_compiler_prompt_attempt_binding_plan,
+        },
+    )
     _surface_step: SurfaceStep | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -133,6 +149,13 @@ class CoreProviderStep:
             self.compiler_prompt_fragment_contract,
             self.compiled_prompt_fragment_identity,
             getattr(self.common, "expected_outputs", ()),
+        )
+        validate_compiler_prompt_attempt_pair(
+            self.prompt_attempt_identity_version,
+            self.compiler_prompt_attempt_binding_plan,
+            fragment_contract=self.compiler_prompt_fragment_contract,
+            dependency_contract=self.compiler_prompt_dependency_contract,
+            typed_prompt_inputs=self.typed_prompt_inputs,
         )
 
 
@@ -395,6 +418,30 @@ def validate_core_workflow_ast(
                     subject_refs=_subject_refs_for_meta(core_workflow_ast.workflow_name, meta),
                 )
             )
+        if isinstance(statement, CoreProviderStep):
+            try:
+                validate_compiler_prompt_attempt_pair(
+                    statement.prompt_attempt_identity_version,
+                    statement.compiler_prompt_attempt_binding_plan,
+                    fragment_contract=(
+                        statement.compiler_prompt_fragment_contract
+                    ),
+                    dependency_contract=(
+                        statement.compiler_prompt_dependency_contract
+                    ),
+                    typed_prompt_inputs=statement.typed_prompt_inputs,
+                    target_dsl_version=core_workflow_ast.dsl_version,
+                )
+            except (TypeError, ValueError) as exc:
+                errors.append(
+                    ValidationError(
+                        message=str(exc),
+                        subject_refs=_subject_refs_for_meta(
+                            core_workflow_ast.workflow_name,
+                            meta,
+                        ),
+                    )
+                )
         if isinstance(statement, CoreCallStep):
             alias = statement.call_alias
             if isinstance(alias, str) and alias and alias not in core_workflow_ast.imports and alias not in imports:
@@ -573,6 +620,12 @@ def _build_statement(
             ),
             compiled_prompt_fragment_identity=(
                 step.compiled_prompt_fragment_identity
+            ),
+            prompt_attempt_identity_version=(
+                step.prompt_attempt_identity_version
+            ),
+            compiler_prompt_attempt_binding_plan=(
+                step.compiler_prompt_attempt_binding_plan
             ),
             _surface_step=step,
         )
@@ -1012,6 +1065,12 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
             compiled_prompt_fragment_identity=(
                 statement.compiled_prompt_fragment_identity
             ),
+            prompt_attempt_identity_version=(
+                statement.prompt_attempt_identity_version
+            ),
+            compiler_prompt_attempt_binding_plan=(
+                statement.compiler_prompt_attempt_binding_plan
+            ),
         )
     elif isinstance(statement, CoreProviderSupervisionStep):
         kwargs["provider_supervision"] = statement.provider_supervision
@@ -1219,6 +1278,16 @@ def _statement_to_json(statement: Any) -> dict[str, Any]:
         if statement.provider_call_policy is not None:
             payload["provider_call_policy"] = _serialize_provider_call_policy(
                 statement.provider_call_policy
+            )
+        if statement.prompt_attempt_identity_version is not None:
+            payload["prompt_attempt_identity_version"] = (
+                statement.prompt_attempt_identity_version
+            )
+        if statement.compiler_prompt_attempt_binding_plan is not None:
+            payload["compiler_prompt_attempt_binding_plan"] = (
+                serialize_compiler_prompt_attempt_binding_plan(
+                    statement.compiler_prompt_attempt_binding_plan
+                )
             )
         return payload
     if isinstance(statement, CoreProviderSupervisionStep):

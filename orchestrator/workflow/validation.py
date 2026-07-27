@@ -43,6 +43,10 @@ from orchestrator.workflow.prompt_dependency_contract import (
     CompilerPromptDependencyContract,
     validate_compiler_prompt_dependency_contract,
 )
+from orchestrator.workflow.prompt_fragment_contract import (
+    validate_compiler_prompt_attempt_binding_plan_authority,
+    validate_compiler_prompt_attempt_pair,
+)
 from orchestrator.workflow.provider_supervision.contracts import (
     derive_result_bundle_contract,
 )
@@ -88,14 +92,14 @@ DEFAULT_SUPPORTED_VERSIONS = frozenset(
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
         "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8",
         "2.9", "2.10", "2.11", "2.12", "2.13", "2.14", "2.15", "2.16", "2.17",
-        "2.18", "2.19", "2.20", "2.21",
+        "2.18", "2.19", "2.20", "2.21", "2.22",
     }
 )
 DEFAULT_VERSION_ORDER = (
     "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
     "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8",
     "2.9", "2.10", "2.11", "2.12", "2.13", "2.14", "2.15", "2.16", "2.17",
-    "2.18", "2.19", "2.20", "2.21",
+    "2.18", "2.19", "2.20", "2.21", "2.22",
 )
 DEFAULT_SUPPORTED_OUTPUT_TYPES = frozenset(
     {"enum", "integer", "float", "bool", "relpath", "string"}
@@ -1484,6 +1488,12 @@ class _WorkflowMappingValidator:
 
             if 'provider_call_policy' in step:
                 self._validate_provider_call_policy(step, name)
+
+            self._validate_prompt_attempt_carriage(
+                step=step,
+                step_name=name,
+                version=version,
+            )
 
             # AT-40: Reject deprecated command_override
             if 'command_override' in step:
@@ -3226,6 +3236,58 @@ class _WorkflowMappingValidator:
         for key in ("model", "effort"):
             if key in policy and not isinstance(policy[key], str):
                 self._add_error(f"{context}.{key} must be a string")
+
+    def _validate_prompt_attempt_carriage(
+        self,
+        *,
+        step: Dict[str, Any],
+        step_name: str,
+        version: str,
+    ) -> None:
+        """Require the exact target-2.22 pair on fragment-backed providers."""
+
+        identity_version = step.get("prompt_attempt_identity_version")
+        binding_plan = step.get("compiler_prompt_attempt_binding_plan")
+        fragment_contract = step.get("compiler_prompt_fragment_contract")
+        pair_present = identity_version is not None or binding_plan is not None
+        fragment_present = fragment_contract is not None
+        subject_refs = self._workflow_subject_refs("step_id", step_name)
+
+        if not self._version_at_least(version, "2.22"):
+            if pair_present:
+                self._add_error(
+                    "prompt_attempt_identity_version_invalid: "
+                    "Q3 prompt-attempt carriers require target DSL 2.22",
+                    subject_refs=subject_refs,
+                )
+            return
+        if not fragment_present and pair_present:
+            self._add_error(
+                "prompt_attempt_binding_plan_mismatch: "
+                "Q3 prompt-attempt carriers require a fragment application",
+                subject_refs=subject_refs,
+            )
+            return
+        if not fragment_present:
+            return
+        try:
+            validate_compiler_prompt_attempt_pair(
+                identity_version,
+                binding_plan,
+                fragment_contract=fragment_contract,
+                typed_prompt_inputs=tuple(
+                    step.get("typed_prompt_inputs") or ()
+                ),
+                required=True,
+            )
+            validate_compiler_prompt_attempt_binding_plan_authority(
+                binding_plan
+            )
+        except (TypeError, ValueError) as exc:
+            self._add_error(
+                str(exc),
+                subject_refs=subject_refs,
+            )
 
     def _validate_call_step(
         self,

@@ -715,12 +715,17 @@ def test_shared_validation_returns_structured_errors(tmp_path: Path) -> None:
     assert "Unsupported version '9.9'" in result.errors[0].message
 
 
-def test_shared_validation_target_dsl_supports_2_21_as_latest_closed_version() -> None:
+def test_shared_validation_target_dsl_supports_2_22_as_latest_closed_version() -> None:
     validation = _validation_module()
 
     assert "2.20" in validation.DEFAULT_SUPPORTED_VERSIONS
     assert "2.21" in validation.DEFAULT_SUPPORTED_VERSIONS
-    assert validation.DEFAULT_VERSION_ORDER[-2:] == ("2.20", "2.21")
+    assert "2.22" in validation.DEFAULT_SUPPORTED_VERSIONS
+    assert validation.DEFAULT_VERSION_ORDER[-3:] == (
+        "2.20",
+        "2.21",
+        "2.22",
+    )
 
 
 def test_shared_validation_returns_bundle_construction_errors(

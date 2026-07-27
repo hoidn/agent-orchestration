@@ -19,8 +19,11 @@ from .prompt_dependency_contract import (
     validate_compiler_prompt_dependency_contract,
 )
 from .prompt_fragment_contract import (
+    CompilerPromptAttemptBindingPlan,
     CompilerPromptFragmentContractCarrier,
+    serialize_compiler_prompt_attempt_binding_plan,
     serialize_compiler_prompt_fragment_contract,
+    validate_compiler_prompt_attempt_pair,
     validate_compiler_prompt_fragment_pair,
 )
 from .provider_supervision.models import (
@@ -278,6 +281,19 @@ class ProviderStepConfig:
         default=None,
         metadata={"json_omit_if_none": True},
     )
+    prompt_attempt_identity_version: str | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    compiler_prompt_attempt_binding_plan: (
+        CompilerPromptAttemptBindingPlan | None
+    ) = field(
+        default=None,
+        metadata={
+            "json_omit_if_none": True,
+            "json_serializer": serialize_compiler_prompt_attempt_binding_plan,
+        },
+    )
 
     def __post_init__(self) -> None:
         if not isinstance(self.common, StepCommonConfig):
@@ -286,6 +302,13 @@ class ProviderStepConfig:
             self.compiler_prompt_fragment_contract,
             self.compiled_prompt_fragment_identity,
             self.common.expected_outputs,
+        )
+        validate_compiler_prompt_attempt_pair(
+            self.prompt_attempt_identity_version,
+            self.compiler_prompt_attempt_binding_plan,
+            fragment_contract=self.compiler_prompt_fragment_contract,
+            dependency_contract=self.compiler_prompt_dependency_contract,
+            typed_prompt_inputs=self.typed_prompt_inputs,
         )
 
 
@@ -843,7 +866,12 @@ def validate_executable_workflow(ir: ExecutableWorkflow) -> None:
                 workflow_name=ir.name,
                 node=node,
             )
-        _validate_node_shape(node, workflow_name=ir.name, known_node_ids=known_node_ids)
+        _validate_node_shape(
+            node,
+            workflow_name=ir.name,
+            known_node_ids=known_node_ids,
+            target_dsl_version=ir.version,
+        )
         _validate_target_node_id(
             node.fallthrough_node_id,
             known_node_ids=known_node_ids,
@@ -898,6 +926,7 @@ def _validate_node_shape(
     *,
     workflow_name: str | None,
     known_node_ids: set[str],
+    target_dsl_version: str,
 ) -> None:
     expected_type = _NODE_TYPE_BY_KIND.get(node.kind)
     if expected_type is not None:
@@ -937,10 +966,22 @@ def _validate_node_shape(
             try:
                 _validate_provider_prompt_fragment_binding(
                     node.execution_config,
+                    target_dsl_version=target_dsl_version,
                 )
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as exc:
+                message = str(exc)
+                if not message.startswith(
+                    (
+                        "prompt_attempt_identity_version_",
+                        "prompt_attempt_binding_plan_",
+                    )
+                ):
+                    message = (
+                        "executable_ir_invalid: provider prompt fragment "
+                        "contract is invalid"
+                    )
                 _raise_executable_ir_invalid(
-                    "executable_ir_invalid: provider prompt fragment contract is invalid",
+                    message,
                     workflow_name=workflow_name,
                     node=node,
                 )
@@ -1096,6 +1137,8 @@ def _validate_provider_prompt_dependency_binding(
 
 def _validate_provider_prompt_fragment_binding(
     config: ProviderStepConfig,
+    *,
+    target_dsl_version: str,
 ) -> None:
     """Validate fragment pairing and its required dependency-origin coupling."""
 
@@ -1103,6 +1146,14 @@ def _validate_provider_prompt_fragment_binding(
         config.compiler_prompt_fragment_contract,
         config.compiled_prompt_fragment_identity,
         config.common.expected_outputs,
+    )
+    validate_compiler_prompt_attempt_pair(
+        config.prompt_attempt_identity_version,
+        config.compiler_prompt_attempt_binding_plan,
+        fragment_contract=config.compiler_prompt_fragment_contract,
+        dependency_contract=config.compiler_prompt_dependency_contract,
+        typed_prompt_inputs=config.typed_prompt_inputs,
+        target_dsl_version=target_dsl_version,
     )
     dependency_contract = config.compiler_prompt_dependency_contract
     fragment_origin = (
