@@ -338,16 +338,31 @@ The exact carrier field is `compiled_prompt_fragment_identity` in:
 
 - the Semantic IR provider application;
 - the lowered Executable IR provider step; and
-- the top level of the receiving attempt's existing immutable prompt-snapshot
-  record.
+- the top level of the receiving attempt's existing immutable
+  `record_kind=prompt_snapshot` evidence.
 
-A fragment-backed call always uses that existing attempt snapshot publication
-owner, including when it has no `:doc` fill and no separately authored prompt
-dependency. In that case the snapshot has an empty dependency contribution
-set but still binds the compiled identity and final prompt digest. A snapshot
-for an extern-backed call remains unchanged. The three identity strings must
-be byte-equal before provider preparation; missing, malformed, or unequal
-carriage fails before launch.
+The attempt carrier is
+`workflow_prompt_fragment_snapshot.functional.v1`: a closed,
+fragment-specific sibling schema owned by the existing schema-2.1 functional
+prompt-snapshot builder, publisher, allocator projection, and terminal
+validator. It retains the existing attempt, run, compiler-contract,
+dependency-row/group, injection, and final-prompt digest fields, and adds the
+required compiled-fragment identity.
+
+The compiler contract uses the new closed origin
+`workflow_lisp_prompt_fragment`. It permits zero or more required `:doc`
+binding refs, forbids optional refs and authored instruction/position
+overrides, and fixes `position=prepend`. With zero document slots, the same
+owner publishes empty authored/group/injection rows with instruction source
+`none`; this is an explicit fragment snapshot, not an implicit-empty
+provider-dependency contract.
+
+Extern-backed calls and existing dependency-bearing calls continue to publish
+`workflow_prompt_dependency_evidence.functional.v1` byte-for-byte and carry
+no fragment identity. Q1 uses the current public schema-2.1 attempt allocator
+and state lifecycle and does not depend on schema-2.2 or provider-isolation
+work. The three fragment identity strings must be byte-equal before provider
+preparation; missing, malformed, or unequal carriage fails before launch.
 
 ## Diagnostics And Source Ownership
 
