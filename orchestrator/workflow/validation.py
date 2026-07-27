@@ -1613,18 +1613,27 @@ class _WorkflowMappingValidator:
                 ['expected_outputs', 'output_bundle'],
                 ['expected_outputs', 'variant_output'],
             )
-            if (
-                len(declared_output_contracts) > 1
-                and declared_output_contracts not in admitted_output_contract_sets
-            ):
-                self._add_error(
-                    f"Step '{name}': mutually exclusive output contract fields {declared_output_contracts}"
-                )
-            elif len(declared_output_contracts) == 2:
-                self._validate_prompt_output_position_contract_names(
-                    step=step,
-                    step_name=name,
-                )
+            if len(declared_output_contracts) > 1:
+                if (
+                    declared_output_contracts
+                    == ['expected_outputs', 'output_bundle']
+                    and not self._version_at_least(version, "2.21")
+                ):
+                    self._add_error(
+                        f"Step '{name}': output_bundle is mutually exclusive with expected_outputs"
+                    )
+                elif (
+                    declared_output_contracts not in admitted_output_contract_sets
+                    or not self._version_at_least(version, "2.21")
+                ):
+                    self._add_error(
+                        f"Step '{name}': mutually exclusive output contract fields {declared_output_contracts}"
+                    )
+                else:
+                    self._validate_prompt_output_position_contract_names(
+                        step=step,
+                        step_name=name,
+                    )
 
             if 'inject_output_contract' in step and not isinstance(step['inject_output_contract'], bool):
                 self._add_error(f"Step '{name}': 'inject_output_contract' must be a boolean")

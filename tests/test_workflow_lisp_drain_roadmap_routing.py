@@ -1155,9 +1155,34 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "| Q2 |",
     )
     normalized_q2_row = _normalized_routing_text(q2_row)
-    assert "accepted design" in normalized_q2_row
-    assert "implementation plan" in normalized_q2_row
-    assert "next" in normalized_q2_row
+    assert "complete" in normalized_q2_row
+    assert "implementation through d0bb9a1d" in normalized_q2_row
+    assert "a40b536c" in normalized_q2_row
+    assert "4e2c4911" in normalized_q2_row
+    assert "ordered final reviews accepted" in normalized_q2_row
+    q3_row = _markdown_table_row(
+        REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
+        "| Q3 |",
+    )
+    normalized_q3_row = _normalized_routing_text(q3_row)
+    assert "next" in normalized_q3_row
+    assert "design" in normalized_q3_row
+    assert "review" in normalized_q3_row
+    assert "no q3 design is accepted" in normalized_q3_row
+    assert "blocked by q2" not in normalized_q3_row
+    q2_capability_row = _markdown_table_row(
+        capability_matrix_path,
+        "Workflow Lisp prompt calculus Q2 output positions",
+    )
+    normalized_q2_capability_row = _normalized_routing_text(q2_capability_row)
+    assert "| Implemented |" in q2_capability_row
+    assert "target 2.21" in normalized_q2_capability_row
+    assert "6ae74a82" in q2_capability_row
+    assert "d0bb9a1d" in q2_capability_row
+    assert "a40b536c" in q2_capability_row
+    assert "4e2c4911" in q2_capability_row
+    assert "q2_final_spec_approved" in normalized_q2_capability_row
+    assert "q2_final_quality_approved" in normalized_q2_capability_row
     l2_row = _markdown_table_row(
         REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
         "| L2 |",
@@ -1243,16 +1268,22 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "value_q0_plan_spec_approved" in normalized_plan
     assert "value_q0_plan_quality_approved" in normalized_plan
     assert TRANSPORTABLE_VALUE_PLAN_PATH in successor
-    for plan, spec_token, quality_token in (
-        (q2_plan, "q2_plan_spec_approved", "q2_plan_quality_approved"),
-        (l1_plan, "l1_plan_spec_approved", "l1_plan_quality_approved"),
-    ):
-        normalized_component_plan = _normalized_routing_text(
-            "\n".join(plan.splitlines()[:90])
-        )
-        assert "status: accepted for execution" in normalized_component_plan
-        assert spec_token in normalized_component_plan
-        assert quality_token in normalized_component_plan
+    normalized_q2_plan = _normalized_routing_text(
+        "\n".join(q2_plan.splitlines()[:90])
+    )
+    assert "execution status: complete" in normalized_q2_plan
+    assert "a40b536c" in normalized_q2_plan
+    assert "4e2c4911" in normalized_q2_plan
+    assert "q2_final_spec_approved" in normalized_q2_plan
+    assert "q2_final_quality_approved" in normalized_q2_plan
+    assert "q2_plan_spec_approved" in normalized_q2_plan
+    assert "q2_plan_quality_approved" in normalized_q2_plan
+    normalized_l1_plan = _normalized_routing_text(
+        "\n".join(l1_plan.splitlines()[:90])
+    )
+    assert "status: accepted for execution" in normalized_l1_plan
+    assert "l1_plan_spec_approved" in normalized_l1_plan
+    assert "l1_plan_quality_approved" in normalized_l1_plan
     assert PROMPT_OUTPUT_POSITIONS_PLAN_PATH in successor
     assert LANGUAGE_SERVER_L1_PLAN_PATH in successor
 
@@ -1316,10 +1347,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         )
     )
     assert "active post stage 8 selector" in normalized_successor_index
-    assert "q0 and q1 are complete" in normalized_successor_index
-    assert "q2 implementation remains active" in (
-        normalized_successor_index
-    )
+    assert "q0, q1, and q2 are complete" in normalized_successor_index
+    assert "q3 design review gate is next" in normalized_successor_index
     assert "l1 authored symbols/signatures are complete" in (
         normalized_successor_index
     )
@@ -1334,15 +1363,17 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     normalized_prompt_design_row = _normalized_routing_text(prompt_design_row)
     assert "| Implemented |" in prompt_design_row
-    assert "bounded q1 surface" in normalized_prompt_design_row
-    assert "target 2.20" in normalized_prompt_design_row
+    assert "bounded q1 and q2 surfaces" in normalized_prompt_design_row
+    assert "target 2.21" in normalized_prompt_design_row
     normalized_prompt_index = _normalized_routing_text(
         _markdown_heading_section(
             index,
             "### [Workflow Lisp Prompt Calculus]",
         )
     )
-    assert "implemented target 2.20 q1 prompt core" in normalized_prompt_index
+    assert "implemented target 2.20 q1 prompt core and target 2.21 q2 output positions" in (
+        normalized_prompt_index
+    )
     assert "available for authoring" in normalized_prompt_index
     assert "partial application" in normalized_prompt_index
     assert "excludes" in normalized_prompt_index
@@ -1523,16 +1554,121 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
             "### [Workflow Lisp Language Quality And Domain Semantics Roadmap]",
         )
     )
-    assert "q0 and q1 are complete" in active_roadmap_index
-    assert "q2 implementation remains active" in (
-        active_roadmap_index
-    )
+    assert "q0, q1, and q2 are complete" in active_roadmap_index
+    assert "q3 design review gate is next" in active_roadmap_index
     assert "l1 authored symbols/signatures are complete" in (
         active_roadmap_index
     )
     assert "l2 design amendment/review gate is next" in (
         active_roadmap_index
     )
+
+
+def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> None:
+    master = (REPO_ROOT / "specs/index.md").read_text(encoding="utf-8")
+    versioning = (REPO_ROOT / "specs/versioning.md").read_text(encoding="utf-8")
+    dsl = (REPO_ROOT / "specs/dsl.md").read_text(encoding="utf-8")
+    io = (REPO_ROOT / "specs/io.md").read_text(encoding="utf-8")
+    providers = (REPO_ROOT / "specs/providers.md").read_text(encoding="utf-8")
+    state = (REPO_ROOT / "specs/state.md").read_text(encoding="utf-8")
+    semantic_ir = (
+        REPO_ROOT / "docs/design/workflow_lisp_semantic_workflow_ir.md"
+    ).read_text(encoding="utf-8")
+    executable_ir = (
+        REPO_ROOT / "docs/design/workflow_lisp_executable_ir.md"
+    ).read_text(encoding="utf-8")
+    prompt_design = (
+        REPO_ROOT / "docs/design/workflow_lisp_prompt_calculus.md"
+    ).read_text(encoding="utf-8")
+    guide = (REPO_ROOT / "docs/lisp_workflow_drafting_guide.md").read_text(
+        encoding="utf-8"
+    )
+
+    normalized_master = _normalized_routing_text(master)
+    assert "target 2.21" in normalized_master
+    assert "prompt output positions" in normalized_master
+    assert "v2.18 bounded list traversal tranche" in normalized_master
+
+    version_rows = [
+        line
+        for line in versioning.splitlines()
+        if line.startswith("| 2.21 |")
+    ]
+    assert len(version_rows) == 1
+    normalized_version_row = _normalized_routing_text(version_rows[0])
+    assert ":path :out" in normalized_version_row
+    assert "compiled_prompt_fragment_identity.v2" in version_rows[0]
+    list_version_rows = [
+        line
+        for line in versioning.splitlines()
+        if line.startswith("| 2.18 |")
+    ]
+    assert len(list_version_rows) == 1
+    normalized_versioning = _normalized_routing_text(versioning)
+    assert "v2.18 additions" in normalized_versioning
+    assert "workflow lisp bounded list traversal" in normalized_versioning
+    assert "v2.18: bounded workflow lisp list traversal" in normalized_versioning
+
+    normalized_dsl = _normalized_routing_text(dsl)
+    assert "workflow lisp prompt output positions" in normalized_dsl
+    assert "target 2.21" in normalized_dsl
+    assert "slot name :path :out [pathtype]" in normalized_dsl
+    assert "compiler_prompt_fragment_contract.v2" in dsl
+    assert "below target 2.21" in normalized_dsl
+    assert "expected_outputs may coexist with exactly one output_bundle" in (
+        normalized_dsl
+    )
+    assert "expected_outputs may coexist with exactly one variant_output" in (
+        normalized_dsl
+    )
+
+    normalized_io = _normalized_routing_text(io)
+    assert "prompt output position composition" in normalized_io
+    assert "target 2.21" in normalized_io
+    assert "output position first" in normalized_io
+    assert "state atomic" in normalized_io
+
+    normalized_providers = _normalized_routing_text(providers)
+    assert "workflow lisp prompt output positions" in normalized_providers
+    assert "target 2.21" in normalized_providers
+    assert "before provider launch" in normalized_providers
+    assert "output position then structured result" in normalized_providers
+    assert "expected_outputs then structured contract order" in (
+        normalized_providers
+    )
+
+    normalized_prompt_design = _normalized_routing_text(prompt_design)
+    assert "before q2, the generic owners assumed one output contract surface" in (
+        normalized_prompt_design
+    )
+    assert "q2 implemented the following generic correction" in (
+        normalized_prompt_design
+    )
+
+    normalized_state = _normalized_routing_text(state)
+    assert "target 2.21 prompt output position attempt state and resume" in (
+        normalized_state
+    )
+    assert "compiled_prompt_fragment_identity.v2" in state
+    assert "compiler_prompt_fragment_contract.v2" in state
+    assert "compatible completed result reuse" in normalized_state
+
+    for ir_contract in (semantic_ir, executable_ir):
+        normalized_ir = _normalized_routing_text(ir_contract)
+        assert "target 2.21 prompt output positions" in normalized_ir
+        assert "compiled_prompt_fragment_identity.v2" in ir_contract
+        assert "compiler_prompt_fragment_contract.v2" in ir_contract
+        assert "output_positions" in ir_contract
+        assert "expected_output" in ir_contract
+        assert "expected_outputs" in ir_contract
+        assert "pair validated" in normalized_ir
+
+    normalized_guide = _normalized_routing_text(guide)
+    assert "authoring prompt output positions target 2.21" in normalized_guide
+    assert ":path :out" in normalized_guide
+    assert "review design docs" in normalized_guide
+    assert "one structured result" in normalized_guide
+    assert "q3" in normalized_guide
 
 
 def test_stage_6_numbered_sequence_closes_task_7_after_completed_queues() -> None:

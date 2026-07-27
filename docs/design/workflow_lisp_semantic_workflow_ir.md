@@ -136,6 +136,14 @@ The current contract is implemented in
   adjacent source map owns authored declaration/application/fill lineage. The
   semantic surface does not carry dependency bodies, resolved runtime values,
   final rendered prompt bytes, or attempt evidence.
+  Target-2.21 prompt output positions use
+  `compiled_prompt_fragment_identity.v2` and
+  `compiler_prompt_fragment_contract.v2`; the carrier's declaration-ordered
+  `output_positions[*].expected_output` objects are pair-validated against
+  the executable provider configuration's exact `expected_outputs` rows.
+  Q1-only calls retain exact v1 carriage. Missing, extra, reordered,
+  malformed, or unequal v2 carriage fails semantic validation before provider
+  preparation.
 - `SemanticCommandBoundary` records typed command-boundary metadata rather than
   leaving command meaning embedded in shell text.
 - `SemanticExecutableBridge` records the semantic-to-executable linkage for
@@ -237,6 +245,11 @@ build path.
   that the target-2.20 prompt fragment contract and identity reach
   `SemanticPromptSurface`, remain equal to executable carriage, and survive
   clean build and compatible resume.
+- `tests/test_workflow_semantic_ir.py` and
+  `tests/test_workflow_lisp_prompt_calculus_runtime.py` provide current
+  evidence that target-2.21 prompt output positions carry the exact v2
+  identity/contract pair and `expected_outputs` rows through the semantic
+  boundary, reject pair drift, and preserve target-2.20 v1 bytes.
 
 Those artifacts are durable evidence for the implemented surface. They do not
 change the rule that Semantic IR is derived from shared validated structures

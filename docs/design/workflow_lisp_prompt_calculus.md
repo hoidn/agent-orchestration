@@ -1,12 +1,11 @@
 # Workflow Lisp Prompt Calculus
 
-- **Status:** accepted and implemented Q1 design; accepted Q2 design amendment
-  and reviewed implementation plan; Q2 implementation active
+- **Status:** accepted and implemented Q1 and Q2 designs
 - **Kind:** language design — typed, compositional provider prompts
 - **Owner:** Workflow Lisp frontend plus the existing provider prompt pipeline
-- **Selected tranches:** Q1 prompt core is implemented; Q2 output positions
-  have an accepted design and reviewed implementation plan; Task 1 is next
-- **Minimum targets:** Q1 `(:target-dsl "2.20")`; accepted Q2 additive syntax
+- **Selected tranches:** Q1 prompt core and Q2 output positions are implemented;
+  Q3 role-separated identity/diagnostics is next at its design-review gate
+- **Minimum targets:** Q1 `(:target-dsl "2.20")`; Q2 additive syntax
   `(:target-dsl "2.21")`
 - **Q2 design reviews:** independent specification rereview
   `Q2_DESIGN_SPEC_REAPPROVED`, then independent quality review
@@ -502,16 +501,16 @@ The implementation plan must include TDD coverage for:
   resume adjacency; and
 - the repository broad non-security comparison.
 
-Q1 is implemented through the reviewed plan recorded in the active roadmap.
-The accepted Q2 amendment below does not select implementation; a separately
-reviewed Q2 implementation plan remains required.
+Q1 and Q2 are implemented through their reviewed plans recorded in the active
+roadmap. The design below is durable contract authority; factual execution
+evidence remains in the Q2 implementation plan.
 
-## Accepted Q2 Amendment: Output-Position Slots
+## Implemented Q2 Amendment: Output-Position Slots
 
 **Status:** accepted after independent specification rereview
 `Q2_DESIGN_SPEC_REAPPROVED` and independent quality review
-`Q2_DESIGN_QUALITY_APPROVED`; not implemented. This section is not authoring
-or implementation evidence. Q2 is an additive target-2.21 surface.
+`Q2_DESIGN_QUALITY_APPROVED`, then implemented under the reviewed Q2 plan.
+Q2 is an additive target-2.21 surface.
 Target-2.20 parsing, compilation, identity bytes, runtime behavior, and resume
 compatibility remain exactly the implemented Q1 behavior above.
 
@@ -612,17 +611,17 @@ between output slots and arbitrary path-valued result fields.
 
 ### Required Generic Output-Contract Composition
 
-The current generic owners assume one output-contract surface:
+Before Q2, the generic owners assumed one output-contract surface:
 
 - `orchestrator/workflow/validation.py`, in the declared-output-contract
   exclusivity check and `_validate_expected_outputs`, validates authored step
   combinations and expected-output rows;
 - `orchestrator/workflow/prompting.py`,
-  `PromptComposer.apply_output_contract_prompt_suffix`, currently selects only
-  one of `expected_outputs`, `output_bundle`, or `variant_output`;
+  `PromptComposer.apply_output_contract_prompt_suffix`, selected only one of
+  `expected_outputs`, `output_bundle`, or `variant_output`;
 - `orchestrator/workflow/executor.py`,
   `WorkflowExecutor._resolve_output_contract_paths` and
-  `_apply_expected_outputs_contract`, resolves and validates only one selected
+  `_apply_expected_outputs_contract`, resolved and validated only one selected
   contract and then attaches its artifacts;
 - `orchestrator/contracts/output_contract.py`,
   `validate_expected_outputs`, `validate_output_bundle`, and
@@ -636,7 +635,7 @@ The current generic owners assume one output-contract surface:
   `orchestrator/workflow/runtime_step.py` carry the existing
   `expected_outputs` and structured-result contracts into runtime.
 
-Q2 requires a generic correction in those owners. It is not a
+Q2 implemented the following generic correction in those owners. It is not a
 review-consumer special case:
 
 1. shared validation admits `expected_outputs` together with exactly one of
@@ -841,5 +840,6 @@ Q2 adds no:
 - change to Q1-only rendering, identity bytes, evidence schema, or resume; or
 - security/provider-isolation behavior.
 
-The accepted amendment routes next to a separately reviewed Q2 implementation
-plan; production changes remain forbidden until that plan gate closes.
+The implemented amendment routes next to Q3's separate role-separated
+identity/diagnostics design-review gate. It does not pre-accept or expose Q3 or
+Q4 behavior.

@@ -22,7 +22,7 @@ snippets are structural notation for that mapping, not accepted fresh workflow
 source.
 
 - Top-level workflow keys
-  - `version`: string (supported revisions extend through `"2.19"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (supported revisions extend through `"2.21"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -235,7 +235,8 @@ source.
       - Steps that declare `publishes` must keep this as `true` (or omit it) so publish runtime can read `steps.<Step>.artifacts`.
     - `inject_output_contract: boolean` (optional; default true)
       - Consumed only by provider steps to control prompt suffix injection.
-      - Applies to provider steps with `expected_outputs` or `output_bundle`.
+      - Applies to provider steps with `expected_outputs`, `output_bundle`, or
+        `variant_output`.
       - Accepted on non-provider steps as a compatibility no-op.
     - `inject_consumes: boolean` (optional; default true; v1.2+)
       - Provider steps only: controls automatic consumed-artifact prompt block injection for steps with `consumes`.
@@ -248,7 +249,11 @@ source.
     - `output_bundle` (optional; v1.3+): deterministic artifacts extracted from one JSON file.
       - `path: string` (required, relative JSON file written by the step)
       - `fields: OutputBundleField[]` (required, non-empty)
-      - Mutual exclusion: cannot be combined with `expected_outputs` on the same step.
+      - Below target 2.21, it cannot be combined with `expected_outputs` on
+        the same step. At target 2.21+, `expected_outputs` may coexist with
+        exactly one `output_bundle`; every other multi-contract combination
+        remains invalid. The two contracts must have disjoint artifact names
+        and resolved destinations.
       - `OutputBundleField`:
         - `name: string` (required artifact key; unique within `fields`)
         - `json_pointer: string` (required RFC 6901 pointer; `""` allowed for root)
@@ -295,7 +300,13 @@ source.
         schema, and `map` requires `keys` (must resolve to `type: string`)
         and `values` schemas, each itself an `OutputBundleField`-shaped spec.
     - `variant_output` (optional; v2.14+): deterministic artifacts extracted from one JSON bundle with a tagged-union shape.
-      - Mutually exclusive with `expected_outputs`, `output_bundle`, and `select_variant_output`.
+      - It is mutually exclusive with `output_bundle` and
+        `select_variant_output`. Below target 2.21 it is also mutually
+        exclusive with `expected_outputs`; at target 2.21+,
+        `expected_outputs` may coexist with exactly one `variant_output`.
+        Every other multi-contract combination remains invalid, and the two
+        admitted contracts must have disjoint artifact names and resolved
+        destinations.
       - The contract declares a `discriminant` artifact with enum `allowed` values and a `variants` map keyed by those values.
       - `shared_fields` is optional and defaults to `[]`. Shared fields are always present after bundle validation, are exposed without variant proof, and must not duplicate artifact names or JSON pointers used by the discriminant or any field in the same selected variant. Variant-only fields may reuse an artifact name or JSON pointer across distinct variants because only one variant is active.
       - Each variant declares required `fields` and optional `forbidden` JSON pointers. Runtime validation selects exactly one variant, enforces that variant's fields, rejects forbidden fields, and exposes the discriminant, any shared fields, and the selected-variant fields as `steps.<Step>.artifacts`.
@@ -504,6 +515,28 @@ source.
       historical filename for a JSON-rendered projection; it is not authored
       YAML and is never reparsed. The validated executable provider-step
       configuration is execution authority.
+
+  - Workflow Lisp prompt output positions (target 2.21):
+    - The sole output-position grammar is
+      `(slot-name :path :out [PathType])`. `:out` occurs at most once,
+      immediately after `:path`, and is a role modifier rather than a kind,
+      type, caller keyword, or result-field mapping.
+    - The optional refinement and resolved fill type must each be a
+      workspace-relative `relpath` with `must_exist=false`. The ordinary named
+      fill and placeholder rules still apply.
+    - The compiler projects one declaration-ordered `expected_outputs` row
+      named after the slot, with the same binding-ref or literal path source,
+      `type: string`, and `required: true`. No caller-authored output
+      declaration may override that row.
+    - A Q2 application carries
+      `compiled_prompt_fragment_identity.v2` and
+      `compiler_prompt_fragment_contract.v2`. The latter's ordered
+      `output_positions[*].expected_output` objects are pair-validated against
+      the exact provider `expected_outputs` rows before provider preparation.
+    - Targets below 2.21 reject the `:out` token with
+      `prompt_output_positions_require_dsl_2_21`. A prompt application without
+      `:out` retains the exact target-2.20 v1 identity, carrier, diagnostics,
+      and behavior even when compiled at target 2.21.
 
   - reusable-call contract boundary:
     - Task 10 reserves `imports`, `call`, `with`, `asset_file`, and `asset_depends_on` semantics before execution support lands.

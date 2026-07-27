@@ -70,6 +70,27 @@
       `__result__`, with `json_pointer: ""` and `type: value`. The bundle bytes
       are the JSON encoding of the value itself; neither the runtime nor the
       provider contract adds a `{"value": ...}` envelope.
+  - Workflow Lisp prompt output-position composition (target 2.21):
+    - A fragment-backed provider step may combine compiler-owned
+      `expected_outputs` rows with exactly one prompt-owned `output_bundle` or
+      `variant_output`. Every other multi-contract combination remains
+      invalid.
+    - Before provider launch, artifact names across both contracts must be
+      disjoint, resolved output-position destinations must be pairwise
+      distinct, and every output-position destination must differ from the
+      structured bundle destination. The rendered path value and resolved
+      expected-output path must be the same canonical workspace-relative POSIX
+      path.
+    - Prompt composition emits the output-position contract first and the
+      structured-result contract second. After a successful provider process,
+      validation uses that same output-position-first order.
+    - Both validations finish into local mappings before state mutation.
+      Failure of either contract commits neither mapping; successful disjoint
+      mappings merge once into the existing step-artifact map. This is
+      state-atomic and does not roll back provider-written files.
+    - The output-position row requires one UTF-8 string file at the exact
+      resolved path. Existing `invalid_output_path` and
+      `missing_output_file` violations remain the runtime failure surface.
   - Provider-supervision IO (v2.16):
     - Provider stdin/stdout/stderr, the selected metadata codec, and validated
       output bundles remain the execution and result transports. Observation

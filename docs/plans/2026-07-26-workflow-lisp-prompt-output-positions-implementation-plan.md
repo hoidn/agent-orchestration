@@ -35,8 +35,32 @@ That commit records ordered `Q2_DESIGN_SPEC_REAPPROVED` then
 `Q2_DESIGN_QUALITY_APPROVED`. Production work may begin only after this plan
 receives ordered independent plan reviews and is committed.
 
-**Execution status:** accepted for execution after ordered independent
-`Q2_PLAN_SPEC_APPROVED` then `Q2_PLAN_QUALITY_APPROVED`.
+**Execution status:** complete. The plan was accepted after ordered independent
+`Q2_PLAN_SPEC_APPROVED` then `Q2_PLAN_QUALITY_APPROVED`; Tasks 1–6 landed in
+order, and Task 7 completed the normative/authoring/routing surfaces plus the
+focused and broad non-security gates. A concurrent actor consumed the frozen
+Q2 index in mixed commit `a40b536c` before the required final reviews; commit
+`4e2c4911` exactly reverted that Q2 projection while preserving the lean-pilot
+fix. The restored and corrected clean closure then received ordered
+`Q2_FINAL_SPEC_APPROVED` followed by `Q2_FINAL_QUALITY_APPROVED`. This exact
+reviewed record enters history atomically with the clean closure commit. Q3's
+separate design-review gate is next.
+
+**Landed task record:**
+
+| Task | Commit | Focused outcome | Ordered task reviews |
+| --- | --- | --- | --- |
+| 1 — syntax, typing, identity selection | `6ae74a82` | Prompt-calculus and shared-validation RED/GREEN selectors passed, including the frozen target-2.20 v1 controls. | `Q2_TASK1_SPEC_APPROVED`, then `Q2_TASK1_QUALITY_APPROVED` |
+| 2 — v2 carrier and source ownership | `e6a31691` | Prompt-calculus and source-map RED/GREEN selectors passed with classic/WCC equality and exact compiler-owned row projection. | `Q2_TASK2_SPEC_APPROVED`, then `Q2_TASK2_QUALITY_APPROVED` |
+| 3 — IR, persisted carriage, checkpoint identity | `43e0070c` | The exact staged archive ran 462 passing tests plus the one pre-Q2-control Semantic-IR failure; no new task-owned failure was introduced. | `Q2_TASK3_SPEC_APPROVED`, then `Q2_TASK3_QUALITY_APPROVED` |
+| 4 — generic admission and prompt order | `8c2508d4` | The exact staged archive ran 169 passing tests plus the one pre-Q2-control output-contract integration failure; the admitted pair and fixed prompt order passed. | `Q2_TASK4_SPEC_APPROVED`, then `Q2_TASK4_QUALITY_APPROVED` |
+| 5 — prelaunch equality and atomic validation | `e58cb7ee` | The exact staged archive ran 163 passing tests plus the two exact pre-Q2-control failures; both-direction collision and atomicity cases passed. | `Q2_TASK5_SPEC_APPROVED`, then `Q2_TASK5_QUALITY_APPROVED` |
+| 6 — real consumer and resume | `d0bb9a1d` | The Q2-owned archive selector passed 161 tests; the complete consumer selector passed 333 tests with 5 skips, including clean and interrupted/resumed one-provider-call evidence. | `Q2_TASK6_SPEC_APPROVED`, then `Q2_TASK6_QUALITY_APPROVED` |
+| 7 — normative, authoring, routing, and gate closure | clean reviewed closure containing this exact record; bounded `a40b536c`/`4e2c4911` incident retained below | Routing/authoring 122 passed; affected compatibility modules 553 passed; focused Q2 723 passed with two exact precontrol failures; broad 9,329 passed, 24 failed, and 21 skipped with no Q2-owned added failure. | `Q2_FINAL_SPEC_APPROVED`, then `Q2_FINAL_QUALITY_APPROVED` |
+
+The named non-passing rows above are comparisons to
+`/tmp/q2-precontrol-run.txt`, not Q2 waivers. The closing focused and broad
+classification below supersedes task-local totals for the final checkout.
 
 **Deliberate cost:** Q2 implements one closed
 `required_string_file` output role rather than a role registry, optional-output
@@ -314,23 +338,23 @@ Primary tests:
 
 Before Task 1:
 
-- [ ] Obtain independent `Q2_PLAN_SPEC_APPROVED` against this exact plan and
+- [x] Obtain independent `Q2_PLAN_SPEC_APPROVED` against this exact plan and
       accepted design; resolve every finding and repeat.
-- [ ] Obtain a distinct `Q2_PLAN_QUALITY_APPROVED`.
-- [ ] Record accepted-for-execution status and both ordered tokens without
+- [x] Obtain a distinct `Q2_PLAN_QUALITY_APPROVED`.
+- [x] Record accepted-for-execution status and both ordered tokens without
       changing task scope, then patch-stage only this new plan and the exact Q2
       routing hunks selected by the parent roadmap executor.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py \
     -k 'language_quality or prompt_calculus or post_stage_8'
   ```
 
-- [ ] Obtain final ordered specification then quality reaffirmation against
+- [x] Obtain final ordered specification then quality reaffirmation against
       the exact staged plan/status/routing bytes. Commit those exact reviewed
       bytes without post-review edits before any production change.
-- [ ] At that landed plan-gate commit and before any Q2 production edit, run
+- [x] At that landed plan-gate commit and before any Q2 production edit, run
       the active roadmap's exact broad non-security command in tmux. Record
       `HEAD`, `HEAD^{tree}`, dirty-tree inventory, collected-node identity set,
       collection/pass/failure/skip totals, and exact failing node IDs as the
@@ -347,11 +371,11 @@ Before Task 1:
 - Modify: `tests/test_workflow_lisp_prompt_calculus.py`
 - Modify: `tests/test_workflow_shared_validation.py`
 
-- [ ] Write RED tests for target-2.20 refusal; target-2.21 positive syntax;
+- [x] Write RED tests for target-2.20 refusal; target-2.21 positive syntax;
   duplicated/misplaced `:out`; non-path use; existing-path refinement;
   unrefined wrong fill; explicit wrong fill; missing fill; caller override; and
   competing-error precedence.
-- [ ] Bind the Q2-owned cases to the exact codes and owners:
+- [x] Bind the Q2-owned cases to the exact codes and owners:
   `prompt_output_positions_require_dsl_2_21`,
   `prompt_output_position_syntax_invalid`,
   `prompt_output_position_kind_invalid`,
@@ -367,23 +391,23 @@ Before Task 1:
   compatibility. For each competing fixture, removing the higher-priority
   defect exposes the next exact code and source owner. Slots without `:out`
   retain Q1 codes and order.
-- [ ] Add target 2.21 to the Workflow Lisp and shared runtime version
+- [x] Add target 2.21 to the Workflow Lisp and shared runtime version
   inventories without changing acceptance below 2.21.
-- [ ] Begin only after L1 Task 1 has committed its shared
+- [x] Begin only after L1 Task 1 has committed its shared
   `ModuleDirective.name_span` hunk. Reconcile `syntax.py` against that commit
   and patch-stage only Q2's target/version and prompt-slot hunks.
-- [ ] Add one closed output-role enum/value and retain the `:out` token span.
+- [x] Add one closed output-role enum/value and retain the `:out` token span.
   Normalize `(slot :path :out [PathType])` before ordinary Q1 slot checks so
   the Q2 target and syntax diagnostics remain reachable.
-- [ ] Require both refinement and resolved fill, when present, to be a
+- [x] Require both refinement and resolved fill, when present, to be a
   workspace-relative `relpath` contract with `must_exist=false`. Do not convert
   `String`, weaken existing-path types, or create a nominal type.
-- [ ] Select identity v1 when no output-role slot exists, even at target 2.21.
+- [x] Select identity v1 when no output-role slot exists, even at target 2.21.
   Select v2 only when at least one output-role slot exists; v2 adds
   `output_role` to every declaration slot and changes no other field or order.
-- [ ] Add frozen-byte controls for the implemented target-2.20 Q1 canonical
+- [x] Add frozen-byte controls for the implemented target-2.20 Q1 canonical
   projection/digest and v1 carrier, plus the same Q1 source compiled at 2.21.
-- [ ] Run RED/GREEN and adjacent regressions:
+- [x] Run RED/GREEN and adjacent regressions:
 
   ```bash
   pytest --collect-only -q tests/test_workflow_lisp_prompt_calculus.py
@@ -392,7 +416,7 @@ Before Task 1:
     -k 'prompt_output_position or prompt_fragment_identity or target_dsl'
   ```
 
-- [ ] Obtain ordered specification then quality approval of the exact staged
+- [x] Obtain ordered specification then quality approval of the exact staged
   diff and commit.
 
 ## Task 2: V2 Carrier, Compiler-Owned Row, And Source Ownership
@@ -407,38 +431,38 @@ Before Task 1:
 - Modify: `tests/test_workflow_lisp_prompt_calculus.py`
 - Modify: `tests/test_workflow_lisp_source_map.py`
 
-- [ ] Write RED tests for the exact v2 carrier keys, at-least-one-row rule,
+- [x] Write RED tests for the exact v2 carrier keys, at-least-one-row rule,
   unique names, declaration-relative order, role/kind correspondence, and
   nested expected-output object.
-- [ ] Keep the existing v1 carrier class and serializer byte-for-byte
+- [x] Keep the existing v1 carrier class and serializer byte-for-byte
   unchanged. Add a separate v2 carrier with ordered `output_positions`; do not
   make v1 serialize an empty v2 field.
-- [ ] Derive a path template only from the already normalized Q1 value source:
+- [x] Derive a path template only from the already normalized Q1 value source:
   exact `{"ref": R}` becomes `${R}` and an admitted string literal remains
   that exact validated literal. Reject source spelling, AST representation,
   and any second path reconstruction.
-- [ ] Construct one normalized slot-role lowering record and use that same
+- [x] Construct one normalized slot-role lowering record and use that same
   record for v2 identity input and v2 carrier output rows.
-- [ ] Install the nested expected-output objects on the provider step in
+- [x] Install the nested expected-output objects on the provider step in
   declaration order. Neither call syntax nor the result contract may provide a
   substitute row.
-- [ ] Preserve existing generic expected-output carriage instead of adding a
+- [x] Preserve existing generic expected-output carriage instead of adding a
   second IR field or runtime channel.
-- [ ] Give each compiler-projected expected output one generic validation
+- [x] Give each compiler-projected expected output one generic validation
   subject owned primarily by its fill, with the slot and `:out` token retained
   as related origins. Prove runtime subject lookup and source-map round-trip
   without consumer-specific names.
-- [ ] Prove classic/WCC lowering produces the same declaration-ordered
+- [x] Prove classic/WCC lowering produces the same declaration-ordered
   expected-output rows, result bundle, source subjects, identity, and v2
   carrier before the generic IR boundary work begins.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_prompt_calculus.py \
     tests/test_workflow_lisp_source_map.py
   ```
 
-- [ ] Obtain ordered specification then quality approval of the exact staged
+- [x] Obtain ordered specification then quality approval of the exact staged
   diff and commit.
 
 ## Task 3: IR Pair Validation, Persisted Carriage, And Checkpoint Identity
@@ -463,20 +487,20 @@ Before Task 1:
 - Modify: `tests/test_workflow_lisp_build_in_memory.py`
 - Modify: `tests/test_workflow_lisp_prompt_calculus_runtime.py`
 
-- [ ] Write RED both-direction tests at each carrier boundary for missing,
+- [x] Write RED both-direction tests at each carrier boundary for missing,
   extra, reordered, unequal, v1/v2-mismatched, and unpaired
   identity/carrier/`expected_outputs` data. Every v2 boundary refusal uses
   `prompt_output_position_contract_mismatch` with the provider
   application/source-map owner; ordinary malformed standalone Q1 carriers
   retain their existing Q1 errors.
-- [ ] Extend the dedicated fragment pair validator to compare v2 nested rows
+- [x] Extend the dedicated fragment pair validator to compare v2 nested rows
   exactly and in order with provider `expected_outputs`. A v1 pair must retain
   its current bytes and behavior; a non-fragment provider's ordinary
   `expected_outputs` must not be mistaken for Q2 carriage.
-- [ ] Invoke the pair validator at Surface, Core, Semantic, Executable,
+- [x] Invoke the pair validator at Surface, Core, Semantic, Executable,
   persisted provider-configuration, and receiving runtime-step boundaries so
   defects fail before provider preparation.
-- [ ] Make persisted wire evolution explicit. Preserve
+- [x] Make persisted wire evolution explicit. Preserve
   `persisted_workflow_surface_graph.v1` bytes exactly for every Q1-only and
   non-fragment graph. A graph containing any Q2 carrier writes
   `persisted_workflow_surface_graph.v2`; its affected step carries the existing
@@ -488,7 +512,7 @@ Before Task 1:
   `expected_outputs` exactly; reject missing, extra, reordered, unequal, or
   v1/v2-mismatched carriage on both serialization and decode. Do not emit the
   new fields or v2 schema for a Q1 carrier.
-- [ ] Define mixed-graph v2 step schemas exactly: a Q2-affected provider step
+- [x] Define mixed-graph v2 step schemas exactly: a Q2-affected provider step
   has its unchanged v1 step key set plus common `expected_outputs`,
   `compiler_prompt_fragment_contract`, and
   `compiled_prompt_fragment_identity`; a Q1 fragment step and a non-fragment
@@ -496,28 +520,28 @@ Before Task 1:
   inferred Q2 fields even though the enclosing graph schema is v2. Add one
   canonical mixed Q2/Q1/non-fragment golden, decode/encode round trip, and
   per-step key-set assertion.
-- [ ] Add persisted codec/build-artifact tests in
+- [x] Add persisted codec/build-artifact tests in
   `tests/test_workflow_lisp_build_artifacts.py` and
   `tests/test_workflow_lisp_build_in_memory.py`: frozen Q1 v1 canonical bytes;
   positive Q2 v2 canonical round trip; and one tamper test for every missing,
   extra, reordered, unequal, wrong-schema, and unpaired dimension.
-- [ ] Prove classic/WCC Semantic and Executable IR parity and exact round trips
+- [x] Prove classic/WCC Semantic and Executable IR parity and exact round trips
   for the result contract, expected-output rows, v2 carrier, source-map
   subjects, and identity.
-- [ ] Prove checkpoint program identity includes the paired Q2 data, compatible
+- [x] Prove checkpoint program identity includes the paired Q2 data, compatible
   completed-boundary reuse remains valid, and v1/v2 or projected-row drift is
   rejected as ordinary program drift.
-- [ ] Prove receiving-attempt agreement without changing
+- [x] Prove receiving-attempt agreement without changing
   `workflow_prompt_fragment_snapshot.functional.v1`: a valid attempt records
   its exact existing `compiled_prompt_fragment_identity` field with the Q2 v2
   identity after the receiving runtime config has pair-validated carrier,
   rows, and sources. Missing/tampered/unpaired v2 data fails before provider
   preparation and creates/publishes no attempt snapshot or provider
   invocation evidence.
-- [ ] Do not add a Q2-only persisted or evidence field: reuse common
+- [x] Do not add a Q2-only persisted or evidence field: reuse common
   `expected_outputs`, generic fragment carrier/identity names, and the existing
   functional snapshot identity field.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_prompt_calculus.py \
@@ -530,7 +554,7 @@ Before Task 1:
     tests/test_workflow_lisp_prompt_calculus_runtime.py
   ```
 
-- [ ] Obtain ordered specification then quality approval of the exact staged
+- [x] Obtain ordered specification then quality approval of the exact staged
   diff and commit.
 
 ## Task 4: Generic Contract Admission, Name Checks, And Prompt Order
@@ -543,31 +567,31 @@ Before Task 1:
 - Modify: `tests/test_prompt_contract_injection.py`
 - Modify: `tests/test_workflow_output_contract_integration.py`
 
-- [ ] Write RED table tests admitting only
+- [x] Write RED table tests admitting only
   `expected_outputs + output_bundle` and
   `expected_outputs + variant_output`; reject every combination involving both
   structured contracts, `select_variant_output`, or any third contract.
-- [ ] Extract artifact names from all possible structured fields, including
+- [x] Extract artifact names from all possible structured fields, including
   variant discriminant, shared fields, and every variant field. Reject overlap
   with expected-output names before provider launch using
   `prompt_output_position_contract_collision`; the output slot is primary and
   the structured-result field origin is related.
-- [ ] Keep the admission logic generic: it may inspect contract structure but
+- [x] Keep the admission logic generic: it may inspect contract structure but
   contains no prompt, workflow, module, provider, or consumer name.
-- [ ] Change prompt completion from exclusive selection to deterministic block
+- [x] Change prompt completion from exclusive selection to deterministic block
   composition: expected-output block exactly once, then structured-result
   block exactly once. Preserve every single-contract and no-contract byte.
-- [ ] Ensure runtime-resolved contract copies retain both members of an
+- [x] Ensure runtime-resolved contract copies retain both members of an
   admitted pair; do not use `if/elif` selection that leaves one member
   unresolved.
-- [ ] Add both-direction competing-error controls for the middle diagnostic
+- [x] Add both-direction competing-error controls for the middle diagnostic
   chain: structured-return incompatibility wins over name collision; name
   collision wins over a simultaneously malformed v2 carrier; removing the
   higher-priority defect exposes the next exact diagnostic. Keep declaration
   refinement and application-fill checks at their distinct Task-1 positions.
-- [ ] Add positive/negative prompt tests by parsed blocks and ordering, not by
+- [x] Add positive/negative prompt tests by parsed blocks and ordering, not by
   asserting literal production prompt prose.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_workflow_shared_validation.py \
@@ -576,7 +600,7 @@ Before Task 1:
     -k 'output_contract or expected_outputs or variant_output'
   ```
 
-- [ ] Obtain ordered specification then quality approval of the exact staged
+- [x] Obtain ordered specification then quality approval of the exact staged
   diff and commit.
 
 ## Task 5: Prelaunch Path Equality And Atomic Dual Validation
@@ -593,40 +617,40 @@ Before Task 1:
 - Modify: `tests/test_workflow_output_contract_integration.py`
 - Modify: `tests/test_workflow_lisp_runtime_source_map.py`
 
-- [ ] Record and inspect the protected-path baseline described above. Confirm
+- [x] Record and inspect the protected-path baseline described above. Confirm
   the RED test fails on current reconciled code before editing production.
-- [ ] Write RED path tests for ref-derived and literal-derived equality,
+- [x] Write RED path tests for ref-derived and literal-derived equality,
   canonical path normalization, pairwise expected-output destination aliasing,
   aliasing with `output_bundle.path`, aliasing with `variant_output.path`, and
   distinct names that still alias one destination.
-- [ ] Bind rendered/resolved inequality to
+- [x] Bind rendered/resolved inequality to
   `prompt_output_position_contract_mismatch`, owned by the boundary's provider
   application/source-map origin. Bind only destination aliases to
   `prompt_output_position_destination_collision`, with both fills or the fill
   plus structured-bundle/provider-application origin attached. These
   preparation-time diagnostics follow carrier/name validation and precede
   provider launch.
-- [ ] Add a competing-error control proving a malformed v2 carrier wins over a
+- [x] Add a competing-error control proving a malformed v2 carrier wins over a
   simultaneous path-equality or destination-alias defect; removing the carrier
   defect exposes the exact mismatch or collision diagnostic.
-- [ ] Before provider launch, resolve all admitted contract paths, compare each
+- [x] Before provider launch, resolve all admitted contract paths, compare each
   v2 output slot's typed POSIX path-line value to its resolved expected-output
   path, and reject any mismatch or destination alias with the accepted Q2
   diagnostics and source owners.
-- [ ] Validate expected outputs first and the structured bundle second into
+- [x] Validate expected outputs first and the structured bundle second into
   separate local mappings. If either raises, return one failed step and attach
   neither map. On joint success, require disjoint names and merge once.
-- [ ] Preserve provider-written files on failure; state atomicity is not file
+- [x] Preserve provider-written files on failure; state atomicity is not file
   rollback.
-- [ ] Add both-direction runtime coverage:
+- [x] Add both-direction runtime coverage:
   required file + valid bundle succeeds; missing file + valid bundle fails;
   required file + missing/invalid bundle fails; neither failure publishes a
   partial artifact map.
-- [ ] Ensure existing expected-output runtime violations resolve to the Q2 fill
+- [x] Ensure existing expected-output runtime violations resolve to the Q2 fill
   subject while preserving all non-Q2 violation shapes and single-contract
   behavior.
-- [ ] Do not edit `orchestrator/providers/executor.py` or any isolation path.
-- [ ] Run:
+- [x] Do not edit `orchestrator/providers/executor.py` or any isolation path.
+- [x] Run:
 
   ```bash
   pytest -q tests/test_output_contract.py \
@@ -635,7 +659,7 @@ Before Task 1:
     tests/test_workflow_lisp_runtime_source_map.py
   ```
 
-- [ ] Inspect the staged and unstaged protected diffs independently, obtain
+- [x] Inspect the staged and unstaged protected diffs independently, obtain
   ordered specification then quality approval of the exact staged Q2 hunks,
   and commit.
 
@@ -650,37 +674,37 @@ Before Task 1:
 - Create:
   `tests/fixtures/workflow_lisp/valid/prompt_q1_target_2_20_resume.orc`
 
-- [ ] Write the real-consumer RED assertion before changing the example:
+- [x] Write the real-consumer RED assertion before changing the example:
   `review-design-doc.review_report_target_path` is `:path :out
   ReviewReportTargetPath`, the workflow targets 2.21, and one authored fill
   supplies rendering plus required-file validation while `ReviewDecision`
   remains the only structured result authority.
-- [ ] Change only the target version and the review fragment's output role.
+- [x] Change only the target version and the review fragment's output role.
   Keep the fill, provider selection/policy, result type, review loop, and
   extern-backed fix call unchanged.
-- [ ] Before converting that consumer, add an independent target-2.20 Q1
+- [x] Before converting that consumer, add an independent target-2.20 Q1
   capturing-provider control using the frozen fixture. Prove one clean run and
   one interrupted/resumed run produce the existing runtime artifacts and v1
   fragment identity/carrier, with exactly one provider execution per committed
   boundary and no Q2 fields. Keep this control after the real consumer moves
   to target 2.21.
-- [ ] Extend the capturing provider fixture to write the required UTF-8 review
+- [x] Extend the capturing provider fixture to write the required UTF-8 review
   file and the structured result bundle. Assert the returned
   `ReviewDecision.review_report` is the intended same path without teaching the
   compiler a general result-field mapping.
-- [ ] Prove classic/WCC build parity, one clean completion, interruption after
+- [x] Prove classic/WCC build parity, one clean completion, interruption after
   the committed review boundary, default resume with no second provider call,
   compatible checkpoint reuse, and rejection of v1/v2 identity or projected
   contract drift. Drift at a live boundary uses
   `prompt_output_position_contract_mismatch`; persisted/checkpoint program
   drift retains the existing program-drift envelope.
-- [ ] Add a genericity scan over Q2 compiler/runtime files that rejects all
+- [x] Add a genericity scan over Q2 compiler/runtime files that rejects all
   consumer workflow, procedure, module, provider, prompt-key, and fixture
   names.
-- [ ] Use structural assertions for fragment slots, contract rows, bundle
+- [x] Use structural assertions for fragment slots, contract rows, bundle
   fields, provider-call count, artifacts, and checkpoint identity. Do not
   retain a production-prompt-text oracle.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_prompt_calculus.py \
@@ -690,9 +714,9 @@ Before Task 1:
     tests/test_workflow_lisp_procedure_first_migrations.py
   ```
 
-- [ ] Treat this capturing-provider E2E as the required orchestrator/demo smoke
+- [x] Treat this capturing-provider E2E as the required orchestrator/demo smoke
   for the reusable DSL/runtime change.
-- [ ] Obtain ordered specification then quality approval of the exact staged
+- [x] Obtain ordered specification then quality approval of the exact staged
   diff and commit.
 
 ## Task 7: Normative Closure, Broad Gate, And Q3 Handoff
@@ -718,25 +742,28 @@ Before Task 1:
 - Modify:
   `docs/plans/2026-07-26-workflow-lisp-prompt-output-positions-implementation-plan.md`
 - Modify: `tests/test_workflow_lisp_drain_roadmap_routing.py`
+- Modify: `orchestrator/workflow/validation.py`
+- Modify: `orchestrator/workflow/executable_ir.py`
+- Modify: `tests/test_workflow_lisp_list_traversal.py`
 - Modify the narrow authoring/spec tests selected by the existing docs
   contracts.
 
-- [ ] Wait until L1 releases all shared routing/docs paths. Preserve its
+- [x] Wait until L1 releases all shared routing/docs paths. Preserve its
   factual status and every owner-authored ambient hunk.
-- [ ] Update normative specs from shipped behavior only: target 2.21, the
+- [x] Update normative specs from shipped behavior only: target 2.21, the
   admitted contract pair, fixed prompt/validation order, collision rules,
   state atomicity, v2 carrier/identity, checkpoint/resume behavior, and Q2
   exclusions.
-- [ ] Update the Workflow Lisp drafting guide with the one available `:path
+- [x] Update the Workflow Lisp drafting guide with the one available `:path
   :out` form and its first consumer. Check the surrounding prompt/result/output
   guidance for coherence; do not copy Q3/Q4 future surfaces into authoring
   guidance.
-- [ ] Mark Q2 implemented in capability and design indexes only after Tasks
+- [x] Mark Q2 implemented in capability and design indexes only after Tasks
   1–5 have reviewed commits and fresh evidence.
-- [ ] Record exact Task 1–6 commits, focused outcomes, and per-task review
+- [x] Record exact Task 1–6 commits, focused outcomes, and per-task review
   tokens in this plan. Route the Q-series to the Q3 design gate while
   preserving the current L-series selector.
-- [ ] Run routing and authoring closure:
+- [x] Run routing and authoring closure:
 
   ```bash
   pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py \
@@ -746,7 +773,7 @@ Before Task 1:
     tests/test_workflow_lisp_examples.py
   ```
 
-- [ ] Run the complete focused Q2 selector:
+- [x] Run the complete focused Q2 selector:
 
   ```bash
   pytest --collect-only -q \
@@ -782,7 +809,7 @@ Before Task 1:
     tests/test_workflow_lisp_build_in_memory.py
   ```
 
-- [ ] In tmux, run the broad non-security suite:
+- [x] In tmux, run the broad non-security suite:
 
   ```bash
   pytest -q -n 16 --dist=worksteal \
@@ -810,7 +837,7 @@ Before Task 1:
     -k 'not security and not secret and not isolation and not safety'
   ```
 
-- [ ] Compare like-for-like with the recorded pre-Q2 control: same
+- [x] Compare like-for-like with the recorded pre-Q2 control: same
   authoritative command and exact outcomes on the stable-node intersection.
   Enumerate every added, removed, or changed node identity. Classify
   L1-owned additions/changes against L1's ordered reviewed task and closing
@@ -818,13 +845,75 @@ Before Task 1:
   reviewed task evidence; do not silently fold either into the pre-Q2 totals.
   Fix Q2 regressions and rerun affected gates; classify unrelated deltas
   without repairing excluded security/safety/provider-isolation work.
-- [ ] Obtain a final ordered specification review and then quality review of
+
+  The closing evidence is:
+
+  - routing and authoring closure: 122 passed;
+  - complete focused Q2 collection: 725 nodes; execution: 723 passed and the
+    two exact pre-Q2-control failures in output-contract integration and
+    Semantic-IR artifact serialization;
+  - the first broad diagnostic run: 9,324 passed, 29 failed, and 21 skipped;
+    it exposed three Q2-owned compatibility failures, which were corrected by
+    target-gating the admitted contract pair at 2.21, deferring malformed
+    executable-IR `common` payloads to the executable validator, and moving a
+    stale unknown-version fixture from 2.21 to 2.22;
+  - affected-module verification after those corrections: 553 passed; the
+    complete focused Q2 rerun again produced 723 passed and the same two
+    pre-Q2-control failures;
+  - authoritative post-fix broad run: exit 1, 9,329 passed, 24 failed, and 21
+    skipped in 311.04 seconds. Against the 46-failure pre-Q2 control, 23
+    failures are exact stable identities, one newly failing provider-execution
+    cancellation identity is unrelated ambient work, and 23 control failures
+    are absent. No Q2-owned failure is newly non-passing;
+  - exact broad collection comparison: 8,989 precontrol nodes and 9,382 final
+    nodes, with 412 additions and 19 removals. The additions partition into
+    103 Q2-owned nodes, 17 reviewed L1-owned nodes, and 292 experiment/ambient
+    nodes; removals partition into 8 Q2-owned identity replacements, 6
+    reviewed L1-owned identity replacements, and 5 experiment/ambient nodes.
+    Exact sorted identities are frozen at
+    `/home/ollie/.tmp/q2-task7-broad/added.nodes` and
+    `/home/ollie/.tmp/q2-task7-broad/removed.nodes`; the corresponding full
+    final collection and broad log are
+    `/home/ollie/.tmp/q2-task7-broad/collect-final.log` and
+    `/home/ollie/.tmp/q2-task7-broad/broad-final.log`.
+
+  The Task-7 capture incident is bounded exactly:
+
+  - the frozen precommit Q2 index tree was
+    `8f6928a0d58d629b6962dfa319a2d3ba621a97d9`;
+  - while the final specification review was starting, a concurrent
+    lean-pilot actor committed that index as `a40b536c` (parent `f3738d7e`,
+    tree `3a85a674c5b6184288185dbba99e7e6d58ab125f`);
+  - the commit contains the 20 declared Q2 Task-7 paths plus exactly two
+    excluded lean-pilot paths:
+    `orchestrator/experiments/_pilot_review_support.py` and
+    `tests/experiments/test_lean_pilot_review.py`;
+  - the SHA-256 of the path-limited Q2 patch projection, in the plan's
+    20-path manifest order, is
+    `bf07fe2cb17b8744b9e856c1d7b07ddc4d72e2c7903a74c38583718123828f00`;
+  - no Q2 byte changed between the frozen index and the mixed commit; and
+  - `4e2c4911` exactly reverted all 20 Q2 paths: its Q2 projection returns to
+    the `f3738d7e` parent state with no path-limited diff, while the two
+    lean-pilot paths remain in history;
+  - neither `a40b536c` nor its exact Q2 reversion is described as a reviewed
+    closure. The restored Q2 projection, corrective spec findings, and ordered
+    specification/quality rereviews must close in one later clean commit.
+- [x] Obtain a final ordered specification review and then quality review of
   the ordered exact Q2 task commit set, a path-limited aggregate diff containing
-  only those commits, and the staged closure diff. L1 interleaving is excluded
-  from the review input rather than treated as part of a contiguous Q2 range.
-  Resolve findings and repeat in order until both approve.
-- [ ] Stage only exact Q2 documentation/routing hunks, verify the staged tree,
-  and commit the reviewed closure without post-review edits.
+  only those commits, the path-limited Q2 projection in `a40b536c`, and the
+  corrective closure diff. L1 and lean-pilot interleaving is excluded from the
+  review input rather than treated as part of a contiguous Q2 range. Resolve
+  findings and repeat in order until both approve. The corrected closure tree
+  `90a5e9e930ee12b90cdb5fe5e5a7dcb32f6814c0` received
+  `Q2_FINAL_SPEC_APPROVED` then `Q2_FINAL_QUALITY_APPROVED`.
+- [x] Stage only exact Q2 documentation/routing hunks and verify the frozen
+  tree. The intended pre-review commit ordering was violated by the bounded
+  concurrent-index incident above; `4e2c4911` restored the boundary without
+  rewriting shared history.
+- [x] Commit the corrective reviewed closure and record both ordered final
+  review tokens without claiming the mixed commit was reviewed before it
+  landed. This checkbox becomes true atomically when this exact reviewed tree
+  enters history; no post-review edit is required.
 
 ## Completion Contract
 

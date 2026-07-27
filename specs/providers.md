@@ -289,7 +289,14 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     - Scalar values render directly; list/map consume values render as deterministic JSON text. Prompt rendering is a view over resolved consume values, not semantic authority.
     - These annotations and render modes are prompt guidance only and do not change runtime consume enforcement semantics.
     - v2.10 resume steps reserve the `session_id_from` consume for runtime `${SESSION_ID}` binding; that consume is excluded from prompt injection and `consume_bundle`.
-  - If the step defines `expected_outputs`, `output_bundle`, or `variant_output` and `inject_output_contract` is not `false`, append a deterministic `Output Contract` or `Variant Output Contract` suffix describing required artifacts (`name`, `path`, `type`, optional constraints) or the required JSON bundle (`path`, `fields[*].json_pointer`, `fields[*].type`, optional constraints).
+  - If the step defines `expected_outputs`, `output_bundle`, or
+    `variant_output` and `inject_output_contract` is not `false`, append the
+    deterministic contract suffixes describing required artifacts (`name`,
+    `path`, `type`, optional constraints) and/or the required JSON bundle
+    (`path`, `fields[*].json_pointer`, `fields[*].type`, optional
+    constraints). An admitted target-2.21 pair renders exactly two blocks in
+    fixed `expected_outputs`-then-structured-contract order; a single contract
+    continues to render one block.
     - An `output_bundle` whose sole field uses `json_pointer: ""` (a direct
       root value) renders a "write one JSON value" suffix describing the root
       type and its resolved path, not an object/`fields:` list — the prompt
@@ -376,6 +383,30 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     checkpoint, bound-input, and completed-boundary guards and does not read
     evidence or execute the provider again. A changed fragment identity is
     ordinary program drift.
+
+- Workflow Lisp prompt output positions (target 2.21)
+  - `(slot-name :path :out [PathType])` retains ordinary POSIX path-line
+    rendering and additionally projects one compiler-owned required UTF-8
+    `expected_outputs` row from the same normalized slot and fill. The
+    rendered path and resolved validation destination must be equal.
+  - Before provider launch, the runtime resolves every output-position and
+    structured-bundle destination, rejects duplicate artifact names,
+    pairwise output-position aliases, and output-position/bundle aliases, and
+    ensures no authored or provider environment can replace the runtime-owned
+    bundle destination.
+  - Prompt composition appends exactly one output-position block followed by
+    exactly one structured-result block. The declared file and bundle paths
+    remain semantic authority; provider prose and stdout do not.
+  - Successful provider execution validates in the same
+    output-position-then-structured-result order. Neither artifact mapping is
+    published unless both contracts validate, after which their disjoint maps
+    merge once into ordinary step artifacts.
+  - Q2 applications carry `compiled_prompt_fragment_identity.v2` and
+    `compiler_prompt_fragment_contract.v2`; every ordered
+    `output_positions[*].expected_output` object must equal the corresponding
+    executable provider-configuration `expected_outputs` row.
+    Q1-only applications retain exact v1 bytes and behavior at targets 2.20
+    and 2.21.
 
 - Workflow Lisp live-provider supervision (v2.16)
   - `with-live-providers` is a `.orc`-only form with exactly two bindings and
