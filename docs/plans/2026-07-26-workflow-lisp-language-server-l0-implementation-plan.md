@@ -32,11 +32,10 @@ same-process probe returned the old export after same-path content replacement
 and returned the new export only after clearing the `lru_cache`. The minimal
 content-key correction is therefore required by L0.
 
-**Execution status:** closure commit pending. Tasks 1–4 landed at `0549625e`,
-`04bfb020`, `f921f55b`, and `c16904c1`. Task 5's watcher-disabled real-stdio
-importer gate and serialized L0 documentation/routing surface passed focused,
-broad-classification, and final ordered-review gates. The closure commit and
-exact command outcomes will be recorded in a final plan-only factual update.
+**Execution status:** complete. Tasks 1–4 landed at `0549625e`, `04bfb020`,
+`f921f55b`, and `c16904c1`; Task 5 and the serialized documentation/routing
+closure landed at `52ba9111`. The exact command outcomes, broad
+classification, and ordered review tokens are recorded below.
 
 **Deliberate cost:** exact-content cache keys require reading content before
 lookup, so they cannot avoid the filesystem read. L0 prevents stale reuse; it
@@ -228,7 +227,7 @@ No worktree is allowed. Stage exact task paths only; never use `git add .` or
   Classify unrelated failures; do not repair them under L0.
 - [x] Obtain final ordered spec then quality review of the exact committed Task
   1–4 range plus the Task 5 E2E/closure diff.
-- [ ] Commit the E2E and serialized routing/docs closure. Record exact commits,
+- [x] Commit the E2E and serialized routing/docs closure. Record exact commits,
   focused/broad outcomes, and review tokens in a final plan-only factual update.
 
 ## Completion Contract
@@ -249,3 +248,39 @@ L0 is complete only when:
 8. each task and final range receive ordered spec then quality approval; and
 9. shared docs are serialized after Q1 ownership and route L0 to complete/L1
    without changing Q1 status.
+
+## Factual Closeout
+
+L0 closed through these exact commits:
+
+- Task 1, content-keyed cache: `0549625e`;
+- Task 2, one-probe save observer: `04bfb020`;
+- Task 3, structured initialization failures: `f921f55b`;
+- Task 4, diagnostic notes and expansion roles: `c16904c1`; and
+- Task 5, watcher-disabled real-stdio gate plus routing/docs closure:
+  `52ba9111`.
+
+Fresh verification at closure:
+
+- focused L0 selector: 179 passed;
+- final real-stdio E2E plus roadmap-routing selector: 56 passed;
+- comprehensive non-security broad run:
+  8,909 passed, 21 skipped, 33 failed, and 38 warnings in 184.63 seconds.
+
+The 33 broad failures were classified without weakening or repairing L0:
+22 were concurrent temp-root/socket/build-writer effects and passed their
+isolated rechecks, two were standing-excluded security tests, two reproduced
+only against ambient uncommitted provider-isolation/runtime changes, two were
+adopted pre-existing baseline rows, and five belonged to the active Q1
+integration follow-up. In particular, the L0 cycle-guard row passed alone,
+the full provider-peer protocol module passed 17/17 alone, and the four
+retirement temp-root rows passed 4/4 alone. No L0-owned defect remained.
+
+Ordered holistic review tokens were:
+
+- `L0_FINAL_SPEC_APPROVED`;
+- `L0_FINAL_QUALITY_APPROVED`;
+- status-only `L0_FINAL_SPEC_REAFFIRMED` and
+  `L0_FINAL_QUALITY_REAFFIRMED`; and
+- final selector-correction `L0_FINAL_SPEC_REAFFIRMED_2` and
+  `L0_FINAL_QUALITY_REAFFIRMED_2`.
