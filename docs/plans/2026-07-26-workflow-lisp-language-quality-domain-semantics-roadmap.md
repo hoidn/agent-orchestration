@@ -414,6 +414,20 @@ session reporting.
   post-calculus consumer independently justifies one.
 - Residual prompt partial application is deferred until repeated fully applied
   fragment use demonstrates the staging pain.
+- Tolerant-but-loud boundary normalization (shelved; evidence-gated): at
+  typed ingress, a value with exactly one type-derived canonical reading is
+  normalized with a named, evidence-logged diagnostic (never silent);
+  fail-closed remains for zero-or-many readings. Named consumers: relpath
+  under-prefix spelling; closed schema-version tokens. Corollary on
+  selection: contract guidance prose shrinks to the fail-closed residue.
+  Selection trigger: post-ML re-spend evidence attributing normalizable
+  near-miss rejections to provider re-attempts in ≥3 distinct runs (or ≥2
+  within one run). Proof obligations at design time: per-family
+  unique-recovery theorem with regression fixture (multi-root/union families
+  can break it silently); recovery relations type-derived, total, injective,
+  idempotent; bundle bytes remain evidence-authoritative (normalization is
+  decode, not mutation); diagnostics additive under the L-series
+  identity/parity bounds. Enters only via its own design act, Q/L side.
 - Runtime prompt values, fragment-reference collections, type-parameterized
   fragments, semantic prompt checking, same-turn steering, and optimization
   remain outside this roadmap.
