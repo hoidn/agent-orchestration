@@ -273,12 +273,24 @@ Each block lock binds:
 - one explicit apparatus control root as canonical absolute POSIX text, plus a
   closed content manifest whose entries are the exact regular-file tree and an
   explicit subset of treatment-visible asset paths;
+- one explicit treatment-runtime import binding containing the canonical
+  absolute repository root supplied to preparation, the exact full apparatus
+  `commit:<40-64 lowercase hex>` revision identity, and its exact
+  `git-tree:<40-64 lowercase hex>` tree identity, under the closed keys
+  `import_root`, `revision_identity`, and `tree_identity`; the root must equal
+  the lock's local archive repository root, be a detached clean ordinary clone
+  without object alternates or linked-worktree/common-dir indirection, and
+  remain clean (including ignored files) at that commit/tree whenever a block
+  is prepared;
 - canonical relative role paths for the task and the unmodified standard
   Workflow Lisp provider-extern, prompt-extern, and command-boundary manifests,
   each naming exactly one content-manifest entry;
 - environment identity, a nonempty explicit allowlist of environment-key names,
   and unique credential-key names that are a subset of the allowlist but
-  exclude controller-owned `HOME` and `TMPDIR`; no ambient key is implied;
+  exclude controller-owned `HOME` and `TMPDIR`; each locked launcher supplies
+  `PYTHONPATH` as exactly the single `{treatment_runtime_root}` placeholder and
+  `PYTHONDONTWRITEBYTECODE=1`, with no path list, ambient fallback, editable
+  install, CWD, or package-location inference;
 - the visible-check argv and positive timeout, with no default command or
   timeout;
 - treatment command/source digests and one distinct canonical relative command
@@ -288,7 +300,12 @@ Each block lock binds:
   the sorted corresponding manifest rows; each command configuration binds the
   canonical provider-policy digest; each
   launcher configuration supplies exactly the allowed environment keys that
-  are neither controller-owned nor credential-backed;
+  are neither controller-owned nor credential-backed, and its Python argv
+  starts exactly with `python -B -P`; the nested Workflow Lisp invocation also
+  starts with its resolved Python executable followed by
+  `-B -P -m orchestrator`, so neither bytecode writes, the script directory,
+  nor CWD can supersede the locked runtime import; `-I` is forbidden because
+  it would ignore the locked `PYTHONPATH`;
 - explicit canonical relative product-projection exclusions, which may be an
   empty list;
 - positive maximum-start-skew and quiescence-grace bounds, with no timing

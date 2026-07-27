@@ -51,6 +51,52 @@ The validator behavior is correct. The apparatus defect is that the structured
 reviewer prompt advertised line locators without publishing each verified
 payload's line count or whether line locators were eligible.
 
+## Prelaunch source-lineage correction
+
+The first provider-free successor preparation at `a1-v6` exposed two further
+defects before either launch review completed:
+
+1. its proposed runtime commit `2f6be134` descended from the accepted
+   `a2099be6` runtime through sixteen unrelated Q3/L5 paths in addition to the
+   four reviewed citation-repair paths; reachable changes included prompt
+   composition used by the treatments; and
+2. the treatment child environment did not contain a controlled
+   `PYTHONPATH`, so the installed editable-package finder resolved
+   `orchestrator` from the live shared checkout rather than the detached
+   runtime clone.
+
+The prepared `a1-v6` root is therefore frozen as
+`SUPERSEDED_PRELAUNCH_SOURCE_AND_IMPORT_LINEAGE_MISMATCH`. It consumed no
+attempt: `evidence/` and `controller-tmp/` are empty; `work/`, `evaluation/`,
+and `packages/` are absent; and no controller, Codex, or provider process was
+started. Its lock, preflight, capture self-test, clean-test logs, and operations
+files remain byte-for-byte provenance only. It is outside the smoke/live
+denominator, supplies no evidence or session to a successor, and must not be
+launched or rewritten.
+
+The corrected successor is `a1-v7`, with a new pilot ID, seed, smoke ID, five
+live IDs, lock, and all fresh roots. Its source revision has sole parent
+`a2099be6` and contains only:
+
+- the reviewed citation-repair plan, production module, and two tests;
+- the generic treatment-runtime import strengthening and its tests;
+- the governing design/plan wording required by that strengthening.
+
+The new lock contains an explicit `apparatus.treatment_runtime` object with
+exactly `import_root`, `revision_identity`, and `tree_identity`: the canonical
+preparation repository root, `commit:<full runtime commit>`, and
+`git-tree:<exact tree>`. Preparation and every block preflight require that
+root to be the same canonical local repository as `archive.repository_root`,
+detached, clean including ignored files, free of object alternates and
+linked-worktree/common-dir indirection, and at the exact bound commit/tree.
+Each digest-bound treatment launcher supplies `PYTHONPATH` as the single
+`{treatment_runtime_root}` placeholder and
+`PYTHONDONTWRITEBYTECODE=1`; the controller substitutes the placeholder only
+from the verified binding. Top-level and nested Workflow Lisp Python
+invocations use bytecode-disabled safe-path mode. No CWD, package location,
+editable install, ambient path, provider-isolation feature, or changed
+`run_block` signature participates.
+
 ## File structure
 
 - Modify `orchestrator/experiments/_pilot_review_support.py`: derive immutable
@@ -250,7 +296,65 @@ fix_tree="$(git rev-parse HEAD^{tree})"
 The detached runtime and every subsequent provenance record bind this final
 reviewed `fix_commit` and `fix_tree`, not an earlier implementation commit.
 
+### Task 3A: Pin treatment imports and reconstruct the exact source lineage
+
+- [ ] **Step 1: Add RED contract and behavior tests**
+
+Cover the closed `apparatus.treatment_runtime` object, exact full commit/tree
+formats, canonical non-root import path, equality with
+`archive.repository_root`, required launcher-supplied `PYTHONPATH` placeholder
+and `PYTHONDONTWRITEBYTECODE` value, and rejection when either key is
+credential-backed.
+In prepare/runner tests require failure before `STARTED` for a missing binding,
+relative/root/symlink import root, wrong commit or tree, attached branch, dirty
+tracked/untracked/ignored content, object alternates, a missing/literal/list
+runtime path, a bytecode value other than `"1"`, or ambient editable-install
+fallback. Reject top-level or nested Workflow Lisp Python commands when `-B`
+or `-P` is absent, and forbid `-I`. A positive child probe must resolve a
+sentinel module only from the locked clone even when a hostile ambient/editable
+copy exists.
+
+- [ ] **Step 2: Implement the strict generic binding**
+
+Keep the four record kinds and existing `run_block` signature. Add no
+provider-isolation dependency. `prepare` derives the binding only from its
+already explicit `repository-root` and `full-revision` arguments and records
+the exact tree. Put Git/root verification in a small existing-responsibility
+private module so `_runner_preflight.py` remains below 500 physical lines.
+Keep `HOME` and `TMPDIR` controller-owned. Require each locked launcher to
+supply the exact runtime-root placeholder and bytecode value, add safe-path and
+bytecode-disabled Python flags as the exact `-B -P` prefix, require the nested
+Workflow Lisp command's exact `<resolved-python> -B -P -m orchestrator`
+prefix, reject either missing flag, and forbid `-I`.
+
+- [ ] **Step 3: Build one isolated reviewed source revision**
+
+Use an ordinary `--no-hardlinks` clone, never a worktree. Detach at
+`a2099be6`, apply only the two citation-fix commits and the scoped
+runtime-import/doc changes, and commit them on that lineage. Require the
+result's sole ancestry delta from `a2099be6` to equal the explicit reviewed
+path allowlist, the three citation code/test blobs to equal `2f6be134`, and all
+other predecessor blobs to remain equal. Record full commit/tree and per-path
+digests; do not treat a restricted Git pathspec as proof of the full delta.
+
+- [ ] **Step 4: Run verification and ordered reviews**
+
+Run the exact RED/GREEN selectors, the treatment-parity and provider-free
+integration smoke, all `tests/experiments` with
+`pytest -q -n 16 --dist=worksteal`, and the recursive 500-line gate from the
+clean clone. First obtain a contract/specification review of the runtime
+binding and fail-closed cases. After approval, obtain a code-quality and
+source-lineage review of the final commit/tree. Only then prepare `a1-v7`.
+
 ### Task 4: Freeze a fresh exact-method successor
+
+The path/identity literals below that name `a1-v6`, revision `r4`, or its tmux
+session are superseded by this correction and must be executed as `a1-v7`,
+revision `r5`, and a fresh `a1-v7` session. Preserve `a1-v6`; do not reuse or
+rename it. Add
+`operations/superseded-prelaunch.a1-v6.json` beside the existing bound a1-v5
+incident artifact in a1-v7. Both are auxiliary operations provenance, not
+experiment records or evidence inputs.
 
 - [ ] **Step 1: Preserve and bind a1-v5**
 

@@ -232,8 +232,13 @@ Later work must not depend on an interface absent from this block.
   `command_config_path` on each of the three existing treatment objects. The
   apparatus owns the only absolute apparatus path, a relative content
   manifest, role paths for unmodified standard Workflow Lisp extern manifests,
-  a closed environment identity/allowlist/credential partition, visible-check
-  argv and timeout, product exclusions, and start/quiescence bounds.
+  an explicit content-addressed treatment-runtime import binding, a closed
+  environment identity/allowlist/credential partition, visible-check argv and
+  timeout, product exclusions, and start/quiescence bounds. The runtime import
+  binding is the closed object
+  `{import_root, revision_identity, tree_identity}` containing the explicit
+  preparation repository root, `commit:<full apparatus commit>`, and
+  `git-tree:<exact tree>`; it is not inferred from CWD or package location.
 - Separates durable repository identity from its canonical local root and
   binds a commit-relative source subtree plus exact Git tree object.
 - Requires an exact treatment-visible asset subset, per-treatment source-asset
@@ -623,15 +628,27 @@ locations, or repository/fixed paths.
 
 Construct `closed_env` only from the lock's explicit
 `apparatus.environment.allowed_keys`: controller-owned per-arm `HOME` and
-`TMPDIR`; only `apparatus.environment.credential_keys` resolved through the
-existing secrets manager; and exactly the remaining allowed keys supplied by
-each treatment launcher's `environment` object. Credential keys must be unique,
-explicitly allowed, and distinct from `HOME`/`TMPDIR`. Reject overlap, missing
-keys, extras, and ambient/default inheritance before `STARTED`. Do not parse
-the provider extern manifest as a credential object or the command-boundary
-manifest as a shared environment object. Do not copy `os.environ` wholesale,
-imply even `PATH`/locale as a default, or add a new secrets backend. Record
-environment key names and presence only; never serialize secret values.
+`TMPDIR`; only
+`apparatus.environment.credential_keys` resolved through the existing secrets
+manager; and exactly the remaining allowed keys supplied by each treatment
+launcher's `environment` object. Require each launcher to supply
+`PYTHONPATH` as exactly `{treatment_runtime_root}` and
+`PYTHONDONTWRITEBYTECODE` as exactly `"1"`; substitute the former only from the
+verified `apparatus.treatment_runtime.import_root`. Require top-level and
+nested Workflow Lisp Python invocations to start exactly with `python -B -P`
+and `<resolved-python> -B -P -m orchestrator`, respectively. Reject either
+missing flag and forbid `-I`, which would ignore the locked `PYTHONPATH`.
+Before `STARTED`, require that root to equal the lock's local archive
+repository root and verify its detached clean ordinary clone, no-alternates,
+full-commit, and Git-tree bindings. Credential keys must be unique, explicitly
+allowed, and distinct from `HOME`/`TMPDIR`. Reject alternate or list-valued
+Python paths, overlap, missing keys, extras, dirty or mismatched runtime roots,
+and ambient/default inheritance before `STARTED`. Do not parse the provider
+extern manifest as a credential object or the command-boundary manifest as a
+shared environment object. Do not copy `os.environ` wholesale, imply even
+`PATH`/locale as a default, resolve the runtime from an editable install, CWD,
+or package location, or add a new secrets backend. Record environment key
+names and presence only; never serialize secret values.
 
 Reject unknown placeholders and never invoke a shell.
 
@@ -1487,6 +1504,16 @@ fresh-control-root, fresh-evidence-root, calibration-seal, and lock-output
 paths. `execute` receives the immutable lock plus explicit disjoint work,
 evaluation-copy, package, and canonical reviewer-environment paths. Neither
 command may infer one of those inputs.
+
+`prepare` also derives `apparatus.treatment_runtime` only from its explicit
+`repository-root` and `full-revision` inputs: canonical import root, exact full
+commit, and exact Git tree. It must require that repository root to be a
+detached clean ordinary clone without object alternates,
+linked-worktree/common-dir indirection, or tracked, untracked, or ignored
+changes before publishing the lock. This does not add a CLI argument or change
+the existing `run_block` signature. Historical locks lacking this
+strengthening may remain readable as records, but the runner must reject them
+before `STARTED`.
 
 Before authoring the lock, require a caller-supplied canonical absolute path
 for a fresh external apparatus control root. Reject the path if it already
