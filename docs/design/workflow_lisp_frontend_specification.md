@@ -1255,10 +1255,10 @@ do not reserve `defprompt` as a general expression; a Q1 declaration,
 application, or slot keyword there fails with
 `prompt_calculus_requires_dsl_2_20`.
 
-### 8.7.2 Implemented `:path :out` Slots (Target 2.21)
+### 8.7.2 Accepted `:path :out` Slots (Target 2.21)
 
 **Status:** accepted Q2 design after `Q2_DESIGN_SPEC_REAPPROVED` then
-`Q2_DESIGN_QUALITY_APPROVED`, then implemented under the reviewed Q2 plan.
+`Q2_DESIGN_QUALITY_APPROVED`; not implemented.
 The additive target-2.21 assumption preserves target-2.20 Q1 source, compiled
 bytes, runtime behavior, and resume semantics unchanged.
 
@@ -2461,11 +2461,11 @@ fragment/dependency/runtime/provider-policy identity or comparison diagnostics
 fragments, procedure/provider substitution, schema 2.2, or a second result,
 snapshot, or resume channel.
 
-### 22.7 Implemented Prompt Output Positions (Target 2.21)
+### 22.7 Accepted Prompt Output Positions (Target 2.21)
 
 **Status:** accepted Q2 design after `Q2_DESIGN_SPEC_REAPPROVED` then
-`Q2_DESIGN_QUALITY_APPROVED`, then implemented under the reviewed Q2 plan.
-The owning detailed contract is the implemented Q2 amendment in
+`Q2_DESIGN_QUALITY_APPROVED`; not implemented.
+The owning detailed contract is the accepted Q2 amendment in
 `workflow_lisp_prompt_calculus.md`.
 
 For every `(slot :path :out [PathType])`, the compiler projects one ordinary
@@ -5426,18 +5426,18 @@ identity carriage, runtime rendering through the existing prompt composer,
 schema-2.1 fragment snapshots, and compatible completed-boundary resume.
 
 The migrated `review-design-docs` review call is the current real consumer.
-Its fix call remains extern-backed. Q2 output positions are implemented; Q3
-role-separated identity/comparison and Q4 judgment views remain separate
-successor tranches whose design text is not evidence of shipped syntax.
+Its fix call remains extern-backed. Q2 output positions, Q3 role-separated
+identity/comparison, and Q4 judgment views remain separate successor tranches;
+their design text is not evidence of shipped syntax.
 
-## 105.7 Implemented Prompt Output Positions
+## 105.7 Accepted Prompt Output Positions
 
-Q2's independently reviewed design-amendment and implementation-plan gates are
-closed. Its minimum target is 2.21 and target-2.20 Q1 output remains
-byte-for-byte unchanged. The bounded `:path :out` syntax is available for
-authoring and is reflected in the capability/routing docs.
+Q2's independently reviewed design-amendment gate is accepted. Its minimum
+target is 2.21 and target-2.20 Q1 output remains byte-for-byte unchanged. No Q2
+syntax is available for authoring until a separately reviewed plan is
+implemented, verified, and reflected in capability/routing docs.
 
-Implementation evidence includes parser/type/diagnostic negatives; classic
+Implementation acceptance requires parser/type/diagnostic negatives; classic
 and WCC parity through Semantic and Executable IR; exact Q1 v1 and Q2 v2
 identity tests; exact Q1 v1 carrier serialization plus v2
 carrier/`expected_outputs` pair tests; generic paired-contract admission,

@@ -369,8 +369,6 @@ The currently implemented authoring surface includes:
 - `defmacro`
 - target-2.20 `defprompt` declarations and fully applied fragment-backed
   `provider-result :prompt` applications
-- target-2.21 `:path :out` prompt slots for one required UTF-8 output file
-  composed with the prompt-owned structured result
 - modules, imports, and exports
 - `let*`
 - `if`, including computed pure `Bool` conditions
@@ -1339,50 +1337,6 @@ The compiler and runtime bind the fragment program with
 field. A changed declaration, result contract, or fill expression changes
 program identity and is ordinary resume drift. Runtime prompt snapshots are
 evidence views, not an authoring or recovery surface.
-
-### Authoring Prompt Output Positions - Target 2.21
-
-Use one `:path :out` slot when the prompt must tell the provider where to write
-one required UTF-8 file and the runtime must validate that same path:
-
-```lisp
-(defprompt review-design-doc
-  (:fills
-    (target_doc :doc DesignDocPath)
-    (review_report_target_path :path :out ReviewReportTargetPath))
-  -> ReviewDecision
-  "Review the injected target.
-   Write the review to {review_report_target_path}.")
-
-(provider-result providers.review
-  :prompt
-    (review-design-doc
-      :target_doc completed.target_doc
-      :review_report_target_path inputs.review_report_target_path)
-  :model inputs.review_model
-  :effort inputs.review_effort
-  :timeout-sec 3600)
-```
-
-The slot's one named fill drives both the rendered POSIX path and one required
-file postcondition. The prompt still owns one structured result:
-`ReviewDecision` remains semantic authority for the decision and its declared
-fields, while the generated file contract validates the human-facing report.
-The first shipped consumer is the `review-design-docs` call in
-`workflows/examples/review_revise_design_docs.orc`.
-
-Do not add a call-site output declaration, duplicate the path in another
-contract, or infer a general relationship between an output slot and a result
-field. Output-position names and resolved destinations must be disjoint from
-the structured-result bundle before the provider starts. The prompt and
-post-attempt validators process the output position first and the structured
-result second; neither artifact mapping enters state unless both pass.
-
-Target 2.20 remains the compatibility route for fragments without `:out`.
-Target 2.21 does not add optional files, directories, globs, dynamic output
-sets, arbitrary file schemas, or a second result channel. Q3 role-separated
-prompt identity/diagnostics and Q4 judgment views are not current authoring
-surfaces.
 
 ## 8A. Bounded Live Provider Supervision
 
@@ -2844,7 +2798,7 @@ Before running a new `.orc` workflow, confirm:
 | Effects | Provider, command, write, move, ledger, state, and call effects are visible. |
 | Reuse | Durable public run/resume/invocation/publication identity is a `defworkflow`; repeated internal effectful behavior is a `defproc`; pure behavior is a `defun`. |
 | Gates | Gates have been replaced by typed outcomes or transitions where possible. |
-| Prompts | Prompts describe domain work, not runtime mechanics. At target 2.20, use `defprompt` only for a complete prompt-owned fill/result contract: fully discharge every named slot and do not duplicate `:inputs`, `:prompt-dependencies`, or `:returns` at the call. At target 2.21, use `:path :out` only when one slot must own both rendered destination guidance and one required UTF-8 file postcondition alongside the one structured result. |
+| Prompts | Prompts describe domain work, not runtime mechanics. At target 2.20, use `defprompt` only for a complete prompt-owned fill/result contract: fully discharge every named slot and do not duplicate `:inputs`, `:prompt-dependencies`, or `:returns` at the call. |
 | Lowering | Generated Core AST uses real shared statement families; Semantic IR derives from validated shared bundle data; Executable IR validates before runtime-facing use; source maps preserve authored/generated provenance. |
 | Diagnostics | Errors map back to useful `.orc` source forms. |
 | Metrics | Authored size and brittle-pattern count improve over the YAML baseline. |
@@ -2945,7 +2899,6 @@ writing a compatibility fixture, runtime test, or standard-library lowering.
 | "I need a tiny Python helper to compare, count, or format." | "This is pure computation; use the operator surface and typed projection." |
 | "I need to write a lot of target paths." | "These should derive from context or typed target schemas." |
 | "I need an external prompt plus separately repeated inputs, dependencies, and return guidance." | "Can one target-2.20 `defprompt` own the complete fill and result contract?" |
-| "I need prompt text and runtime validation to agree on a required report path." | "Can one target-2.21 `:path :out` slot own both while the prompt keeps one structured result?" |
 | "`expanded.debug.yaml` looks unusual." | "Inspect the Core AST, executable IR, Semantic IR, and source map; the historical filename contains only a JSON-rendered projection." |
 
 ## 32. Minimal Safe Subset

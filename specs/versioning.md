@@ -266,35 +266,6 @@
     `2.19` reject the source type or descriptor, and v2.15 narrower returns
     and result guidance remain unchanged.
 
-- v2.20 additions (Workflow Lisp prompt fragments)
-  - Target `2.20` admits importable `defprompt` declarations with the closed
-    `doc`, `text`, `value`, and `path` slot kinds, fully applied named fills,
-    prompt-owned structured returns, and byte-stable
-    `compiled_prompt_fragment_identity.v1` /
-    `compiler_prompt_fragment_contract.v1` carriage.
-  - Fragment snapshots remain non-authoritative schema-2.1 attempt evidence.
-    Compatible completed-result reuse validates the ordinary program and
-    checkpoint guards and does not execute the provider again.
-
-- v2.21 additions (Workflow Lisp prompt output positions)
-  - Target `2.21` adds exactly `(slot :path :out [PathType])`. One authored
-    fill drives both POSIX path rendering and one compiler-owned required
-    UTF-8 `expected_outputs` row.
-  - A fragment containing `:out` uses
-    `compiled_prompt_fragment_identity.v2` and
-    `compiler_prompt_fragment_contract.v2`; every ordered
-    `output_positions[*].expected_output` object must equal the corresponding
-    provider-configuration `expected_outputs` row exactly at every compiler,
-    persisted, runtime, checkpoint, and resume boundary.
-  - The generated file contract may coexist with exactly one prompt-owned
-    `output_bundle` or `variant_output`. Names and resolved destinations must
-    be disjoint before provider launch. Prompt blocks and post-attempt
-    validation use output-position-then-structured-result order, and neither
-    artifact mapping enters state unless both validations pass.
-  - Target-2.20 source, diagnostics, v1 carrier/identity bytes, runtime
-    behavior, and compatible completed-result reuse remain unchanged.
-    State schema remains `2.1`.
-
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -320,8 +291,6 @@
   - `v2.17`: static Workflow Lisp provider peer groups and recorded
     turn-boundary messaging
   - `v2.19`: exact opaque transportable `Value`
-  - `v2.20`: Workflow Lisp prompt fragments
-  - `v2.21`: Workflow Lisp prompt output positions
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -457,7 +426,5 @@ Planned acceptance:
 | 2.16 | `.orc` `with-live-providers`, reserved `ProviderSteeringDirective`, structural `session_support.turn_boundary_resume`, default provider observation, and `provider_supervision.v1` | Adds exactly-two-member bounded provider overlap inside one atomic workflow node, one validated observation edge, pure settlement, at most one exact-session resume, and interrupted-visit quarantine. General authored concurrency and parallel blocks remain unsupported. State schema remains `2.1`. |
 | 2.17 | `.orc` `with-live-provider-peers`, structural `interactive_session_support`, exact-attempt peer ingress, and `provider_peer_group.v1` | Adds static two-through-eight-member bounded provider overlap with durable record-before-offer receiver ledgers, cooperative acknowledgement/finish, typed direct-root member bundles, pure atomic settlement, natural-shutdown proof, failed cleanup, and interrupted-visit quarantine. It adds no forcing edge and leaves target-2.16 supervision artifacts unchanged. State schema remains `2.1`. |
 | 2.19 | Compiler-owned exact `Value`, `type: value`, and public `kind: value` | Adds an opaque strict-JSON transport contract with exact source compatibility, sole direct-root `__result__` carriage and no envelope, recursive failure paths, description/format-hint guidance without examples, and unchanged state schema `2.1`. Classic/WCC, state, checkpoint, and resume preserve the declared type rather than payload shape; targets below 2.19 reject it. |
-| 2.20 | Workflow Lisp `defprompt`, closed fragment slots, and prompt-owned structured returns | Adds fully applied importable fragments, exact v1 fragment identity/carriage, schema-2.1 prompt snapshots, and compatible completed-boundary reuse. |
-| 2.21 | Workflow Lisp `(slot :path :out [PathType])`, `compiled_prompt_fragment_identity.v2`, and `compiler_prompt_fragment_contract.v2` | One authored path fill drives rendering plus one required UTF-8 file contract. The generated file contract composes with exactly one prompt-owned structured result in fixed order, rejects name/destination collisions before launch, and commits both artifact maps state-atomically. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

@@ -74,8 +74,8 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | --- | --- | --- | --- | --- |
 | Q0 | Transportable `Value` prerequisite | Stage 8 complete; owner prerequisite decision recorded | accepted design; reviewed implementation plan; target-2.19 implementation with direct-root, loader, runtime, resume, classic/WCC, docs, and broad non-security evidence | complete — reviewed target-2.19 implementation and evidence gate closed at `020c6138` |
 | Q1 | Prompt core | Q0 complete; prompt-calculus design corrected and accepted | target-gated `defprompt`, imports, closed slot kinds, fully applied named fills, exact discharge/placeholder diagnostics, prompt-carried result derivation, deterministic flattening through existing prompt composition, one migrated real consumer | complete — implementation through `af45c4f1`; exact-tree gates and ordered final reviews accepted |
-| Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | complete — implementation through `d0bb9a1d`; ordered final reviews accepted |
-| Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | next — separate design and ordered review required; no Q3 design is accepted |
+| Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | active — accepted design and reviewed implementation plan; Task 1 next |
+| Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | blocked by Q2 |
 | Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | blocked by Q3 |
 
 ### L-Series: Language-Server Debugging Utility
@@ -88,9 +88,8 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | L3 | Per-source entry selection | L2 complete; immutable initialization-schema amendment accepted; compile-path reentrancy proven (substrate MR-4 complete, or an equivalent accepted reentrancy fixture) | one canonical workspace process can select an exported workflow for a named application source while compiling library entries with no selection, with exact CLI request parity and restart semantics | blocked by L2 |
 | L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and a diagnostic-currentness policy are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | blocked by L3 |
 
-The Q-series stages execute in Q-table order. Q0, Q1, and Q2 are complete.
-Q3's separate design-and-ordered-review gate is next; no Q3 design or
-implementation plan is accepted.
+The Q-series stages execute in Q-table order. Q0 and Q1 are complete; Q2's
+design and implementation plan are accepted and Q2 implementation is active.
 L0 and L1 are complete. L2's design-amendment/review gate is next; no L2
 design or implementation plan is accepted.
 The L-series is an owner-selected
@@ -186,12 +185,10 @@ Authority target: an independently reviewed Q2 amendment to
 `docs/design/workflow_lisp_prompt_calculus.md`, committed before the Q2
 implementation plan.
 
-**Status:** complete after ordered independent
-`Q2_DESIGN_SPEC_REAPPROVED` then `Q2_DESIGN_QUALITY_APPROVED`, the reviewed
-implementation plan after `Q2_PLAN_SPEC_APPROVED` then
-`Q2_PLAN_QUALITY_APPROVED`, implementation through `d0bb9a1d`, and the plan's
-focused, broad non-security, normative, authoring, and ordered final-review
-closure:
+**Status:** accepted after ordered independent
+`Q2_DESIGN_SPEC_REAPPROVED` then `Q2_DESIGN_QUALITY_APPROVED`. The reviewed
+implementation plan is accepted after `Q2_PLAN_SPEC_APPROVED` then
+`Q2_PLAN_QUALITY_APPROVED`; Task 1 is next:
 `docs/plans/2026-07-26-workflow-lisp-prompt-output-positions-implementation-plan.md`.
 
 Q2 owns only the `:path :out` delta. The declaration that instructs the
