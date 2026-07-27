@@ -21,6 +21,7 @@ from orchestrator.workflow_lisp.compiler import (
     Stage3ValidationProfile,
     compile_stage3_entrypoint,
 )
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
 from orchestrator.workflow_lisp.effects import WriteEffect, effect_summary
 from orchestrator.workflow_lisp.expressions import (
@@ -67,6 +68,12 @@ L5_AUTHORED_REFS_ENTRY = (
 )
 L5_AUTHORED_REFS_DEFINITIONS = (
     L5_AUTHORED_REFS_ROOT / "lsp_l5" / "definitions.orc"
+)
+L5_PRIVATE_ROOT = (
+    FIXTURES / "modules" / "invalid" / "lsp_l5_private"
+)
+L5_AMBIGUOUS_ROOT = (
+    FIXTURES / "modules" / "invalid" / "ambiguous"
 )
 REVIEW_REVISE_DESIGN_DOCS = (
     Path(__file__).resolve().parents[1]
@@ -2644,6 +2651,64 @@ def _compile_driver_for_l1_symbols_root(
     return driver, entry_path
 
 
+def _compile_driver_for_l5_root(
+    root: Path,
+    *,
+    entry_relative: Path = Path("lsp_l5/entry.orc"),
+) -> tuple[lsp_compile_driver.LspCompileDriver, Path]:
+    entry_path = root / entry_relative
+
+    def build(
+        _request: object,
+        *,
+        source_read_trace: SourceReadTrace,
+    ) -> object:
+        try:
+            compile_result = compile_stage3_entrypoint(
+                entry_path,
+                source_roots=(root,),
+                provider_externs={"providers.review": "test-provider"},
+                prompt_externs={},
+                command_boundaries={},
+                validate_shared=False,
+                workspace_root=root,
+                lowering_route="legacy",
+                source_read_trace=source_read_trace,
+            )
+        except LispFrontendCompileError as error:
+            vector = driver.state.configuration_vector
+            assert vector is not None
+            error.configuration_revision_vector = (
+                vector.configuration_revisions
+            )
+            error.configuration_revision_conflict_paths = ()
+            raise
+        return SimpleNamespace(
+            compile_result=compile_result,
+            diagnostics=compile_result.diagnostics,
+            configuration_trace=SimpleNamespace(revision_vector=()),
+        )
+
+    driver = lsp_compile_driver.initialize_compile_driver(
+        lsp_state.initialize_lsp_state(
+            root_uri=root.as_uri(),
+            initialization_options={"source_roots": (str(root),)},
+        ),
+        build_in_memory=build,
+    )
+    text = entry_path.read_text(encoding="utf-8")
+    driver.apply_transition(
+        lsp_state.open_entry(
+            driver.state,
+            document_uri=entry_path.as_uri(),
+            editor_text=text,
+            disk_snapshot=lsp_compile_driver.probe_disk_source(entry_path),
+        )
+    )
+    driver.drain()
+    return driver, entry_path
+
+
 def _definition_params(
     path: Path,
     *,
@@ -2688,6 +2753,503 @@ def _static_completion_shape(
         )
         for row in driver.frozen_form_completions
     )
+
+
+def _l5_definition_params_for_kind(
+    driver: lsp_compile_driver.LspCompileDriver,
+    entry_path: Path,
+    reference_kind: str,
+) -> types.DefinitionParams:
+    entry = driver.state.entries[0]
+    snapshot = entry.accepted_snapshot
+    assert snapshot is not None
+    compile_result = snapshot.build_value.compile_result
+    index = _build_index(compile_result)
+    link = next(
+        row
+        for row in index.definition_links
+        if (
+            row.reference_kind == reference_kind
+            and row.canonical_target == "lsp_l5/entry::local-review"
+        )
+    )
+    accepted_text = dict(snapshot.accepted_text_by_path)[entry_path.resolve()]
+    position = source_span_to_lsp_range(
+        link.reference_span,
+        accepted_text,
+    )["start"]
+    return _definition_params(
+        entry_path,
+        line=position["line"],
+        character=position["character"],
+    )
+
+
+def test_l5_same_visible_label_never_cross_substitutes_prompt_procedure_or_workflow(
+    l5_authored_refs_result: LinkedStage3CompileResult,
+) -> None:
+    result = l5_authored_refs_result
+    links = tuple(
+        row
+        for row in _build_index(result).definition_links
+        if row.canonical_target == "lsp_l5/entry::local-review"
+    )
+    prompt_span = result.entry_result.prompt_catalog.resolve(
+        "local-review"
+    ).declaration.span
+    procedure_span = _definition_span(
+        result,
+        callable_name="lsp_l5/entry::local-review",
+        kind="procedure",
+    )
+    workflow_span = _definition_span(
+        result,
+        callable_name="lsp_l5/entry::local-review",
+        kind="workflow",
+    )
+
+    assert {
+        (row.reference_kind, row.target_kind)
+        for row in links
+    } == {
+        ("prompt-application", "prompt"),
+        ("proc-ref", "procedure"),
+        ("procedure-call", "procedure"),
+        ("workflow-call", "workflow"),
+    }
+    assert {
+        row.reference_kind: row.definition_span
+        for row in links
+    } == {
+        "prompt-application": prompt_span,
+        "proc-ref": procedure_span,
+        "procedure-call": procedure_span,
+        "workflow-call": workflow_span,
+    }
+    assert prompt_span != procedure_span
+    assert procedure_span != workflow_span
+    assert prompt_span != workflow_span
+
+
+@pytest.mark.parametrize(
+    ("fixture_root", "entry_relative", "diagnostic_code"),
+    (
+        (
+            L5_PRIVATE_ROOT,
+            Path("lsp_l5/entry.orc"),
+            "proc_ref_private_import_invalid",
+        ),
+        (
+            L5_AMBIGUOUS_ROOT,
+            Path("ambiguous/entry.orc"),
+            "module_import_ambiguous",
+        ),
+    ),
+)
+def test_l5_private_and_ambiguous_imports_fail_through_compiler_authority(
+    tmp_path: Path,
+    fixture_root: Path,
+    entry_relative: Path,
+    diagnostic_code: str,
+) -> None:
+    root = tmp_path / fixture_root.name
+    shutil.copytree(fixture_root, root)
+    entry_path = root / entry_relative
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            entry_path,
+            source_roots=(root,),
+            provider_externs={"providers.review": "test-provider"},
+            prompt_externs={},
+            command_boundaries={},
+            validate_shared=False,
+            workspace_root=root,
+            lowering_route="legacy",
+        )
+    assert diagnostic_code in {
+        diagnostic.code for diagnostic in excinfo.value.diagnostics
+    }
+
+    driver, entry_path = _compile_driver_for_l5_root(
+        root,
+        entry_relative=entry_relative,
+    )
+    entry = driver.state.entries[0]
+    server = WorkflowLispLanguageServer()
+    server.driver = driver
+
+    assert entry.compile_status == "language_error"
+    assert entry.accepted_snapshot is None
+    assert diagnostic_code in {
+        contribution.code
+        for contribution in entry.diagnostic_contributions
+    }
+    assert lsp_state.current_navigation_snapshot(
+        driver.state,
+        document_uri=entry_path.as_uri(),
+    ) is None
+    assert server.definition(
+        _definition_params(entry_path, line=0, character=1)
+    ) is None
+
+
+_L5_DEFINITION_PREFLIGHT_STATES = (
+    "unavailable",
+    "unreadable",
+    "dirty",
+    "compile_pending",
+    "dependency_invalidated",
+    "language_failed",
+    "server_failed",
+    "superseded",
+    "closed",
+    "unassociated",
+    "configuration_stale",
+    "source_stale",
+    "source_configuration_stale",
+    "clean_idle",
+    "malformed",
+    "navigation_index_failed",
+)
+
+
+@pytest.mark.parametrize("preflight_state", _L5_DEFINITION_PREFLIGHT_STATES)
+def test_l5_definition_rows_share_the_complete_current_snapshot_preflight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    preflight_state: str,
+) -> None:
+    import orchestrator.lsp.server as server_module
+
+    root = tmp_path / "lsp_l5_authored_refs"
+    shutil.copytree(L5_AUTHORED_REFS_ROOT, root)
+    driver, entry_path = _compile_driver_for_l5_root(root)
+    params_by_kind = {
+        reference_kind: _l5_definition_params_for_kind(
+            driver,
+            entry_path,
+            reference_kind,
+        )
+        for reference_kind in (
+            "prompt-application",
+            "proc-ref",
+            "procedure-call",
+        )
+    }
+    server = WorkflowLispLanguageServer()
+    server.driver = driver
+    server._defer_compiles = True
+    monkeypatch.setattr(
+        server,
+        "_schedule_compile_pump",
+        lambda: None,
+    )
+    assert all(
+        server.definition(params) is not None
+        for params in params_by_kind.values()
+    )
+    entry = driver.state.entries[0]
+    dependency_path = root / "lsp_l5" / "definitions.orc"
+
+    if preflight_state == "unavailable":
+        dependency_path.unlink()
+    elif preflight_state == "unreadable":
+        original_probe = lsp_compile_driver.probe_disk_source
+
+        def unreadable_probe(path: str | Path) -> object:
+            snapshot = original_probe(path)
+            if snapshot.canonical_path == dependency_path.resolve():
+                return replace(
+                    snapshot,
+                    revision="unreadable",
+                    raw_decoded_text=None,
+                )
+            return snapshot
+
+        monkeypatch.setattr(
+            lsp_compile_driver,
+            "probe_disk_source",
+            unreadable_probe,
+        )
+    elif preflight_state == "dirty":
+        driver.apply_transition(
+            lsp_state.change_entry(
+                driver.state,
+                document_uri=entry_path.as_uri(),
+                editor_text=(entry.editor_text or "") + "\n",
+            )
+        )
+    elif preflight_state == "compile_pending":
+        assert entry.disk_snapshot is not None
+        driver.apply_transition(
+            lsp_state.save_entry(
+                driver.state,
+                document_uri=entry_path.as_uri(),
+                disk_snapshot=entry.disk_snapshot,
+            )
+        )
+    elif preflight_state == "dependency_invalidated":
+        dependency_path.write_text(
+            dependency_path.read_text(encoding="utf-8") + "\n",
+            encoding="utf-8",
+        )
+        driver.apply_transition(driver.observe_disk_path(dependency_path))
+    elif preflight_state in {"language_failed", "server_failed"}:
+        _replace_driver_entry(
+            driver,
+            replace(
+                entry,
+                pending_generation=None,
+                compile_status=(
+                    "language_error"
+                    if preflight_state == "language_failed"
+                    else "server_error"
+                ),
+                accepted_snapshot=None,
+                dependency_closure=None,
+                dependency_revision_vector=None,
+                diagnostic_contributions=(),
+            ),
+        )
+    elif preflight_state == "superseded":
+        _replace_driver_entry(
+            driver,
+            replace(
+                entry,
+                generation=entry.generation + 1,
+                pending_generation=entry.generation,
+                compile_status="pending",
+            ),
+        )
+    elif preflight_state == "closed":
+        driver.apply_transition(
+            lsp_state.close_entry(
+                driver.state,
+                document_uri=entry_path.as_uri(),
+            )
+        )
+    elif preflight_state == "unassociated":
+        params_by_kind = {
+            reference_kind: types.DefinitionParams(
+                text_document=types.TextDocumentIdentifier(
+                    uri=(root / "not-open.orc").as_uri()
+                ),
+                position=params.position,
+            )
+            for reference_kind, params in params_by_kind.items()
+        }
+    elif preflight_state == "configuration_stale":
+        driver.apply_transition(
+            lsp_state.latch_configuration_stale(driver.state)
+        )
+    elif preflight_state in {
+        "source_stale",
+        "source_configuration_stale",
+    }:
+        dependency_path.write_text(
+            dependency_path.read_text(encoding="utf-8") + "\n",
+            encoding="utf-8",
+        )
+        if preflight_state == "source_configuration_stale":
+            driver.apply_transition(
+                lsp_state.latch_configuration_stale(driver.state)
+            )
+    elif preflight_state == "clean_idle":
+        _replace_driver_entry(
+            driver,
+            replace(
+                entry,
+                pending_generation=None,
+                compile_status="idle",
+                accepted_snapshot=None,
+                dependency_closure=None,
+                dependency_revision_vector=None,
+                diagnostic_contributions=(),
+            ),
+        )
+    elif preflight_state == "malformed":
+        driver.state = replace(driver.state, configuration_vector=None)
+    else:
+        assert preflight_state == "navigation_index_failed"
+
+        def fail_index(*_args: object, **_kwargs: object) -> object:
+            raise ValueError("definition occurrence collision")
+
+        monkeypatch.setattr(
+            server_module,
+            "build_navigation_index",
+            fail_index,
+        )
+
+    assert {
+        reference_kind: server.definition(params)
+        for reference_kind, params in params_by_kind.items()
+    } == {
+        "prompt-application": None,
+        "proc-ref": None,
+        "procedure-call": None,
+    }
+
+
+@pytest.mark.parametrize(
+    "reference_kind",
+    ("procedure-call", "prompt-application", "proc-ref"),
+)
+def test_l5_navigation_index_failure_is_logged_once_and_all_definition_shapes_are_null(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reference_kind: str,
+) -> None:
+    import orchestrator.lsp.server as server_module
+
+    root = tmp_path / "lsp_l5_authored_refs"
+    shutil.copytree(L5_AUTHORED_REFS_ROOT, root)
+    driver, entry_path = _compile_driver_for_l5_root(root)
+    params = _l5_definition_params_for_kind(
+        driver,
+        entry_path,
+        reference_kind,
+    )
+    server = WorkflowLispLanguageServer()
+    server.driver = driver
+    logged: list[types.LogMessageParams] = []
+    published: list[types.PublishDiagnosticsParams] = []
+    monkeypatch.setattr(server, "window_log_message", logged.append)
+    monkeypatch.setattr(
+        server,
+        "text_document_publish_diagnostics",
+        published.append,
+    )
+    state_before = driver.state
+    workspace_before = tuple(
+        (path.relative_to(root).as_posix(), path.read_bytes())
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    )
+
+    def fail_index(*_args: object, **_kwargs: object) -> object:
+        raise ValueError("definition occurrence collision")
+
+    monkeypatch.setattr(
+        server_module,
+        "build_navigation_index",
+        fail_index,
+    )
+
+    assert server.definition(params) is None
+    assert len(logged) == 1
+    assert logged[0].type == types.MessageType.Error
+    assert "definition occurrence collision" in logged[0].message
+    assert published == []
+    assert driver.state is state_before
+    assert tuple(
+        (path.relative_to(root).as_posix(), path.read_bytes())
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    ) == workspace_before
+
+
+def test_l5_unsupported_generated_and_outside_token_requests_are_null(
+    l5_authored_refs_result: LinkedStage3CompileResult,
+    callable_result: LinkedStage3CompileResult,
+) -> None:
+    result = l5_authored_refs_result
+    index = _build_index(result)
+    accepted_texts = _accepted_texts(result)
+    entry_path = L5_AUTHORED_REFS_ENTRY.resolve()
+    entry_text = accepted_texts[entry_path]
+    exact_links = tuple(
+        row
+        for row in index.definition_links
+        if (
+            row.canonical_target == "lsp_l5/entry::local-review"
+            and row.reference_kind
+            in {"prompt-application", "proc-ref", "procedure-call"}
+        )
+    )
+
+    for link in exact_links:
+        for offset in (
+            link.reference_span.start.offset - 1,
+            link.reference_span.end.offset,
+        ):
+            prefix = entry_text[:offset]
+            line = prefix.count("\n")
+            character = len(
+                prefix.rsplit("\n", maxsplit=1)[-1].encode("utf-16-le")
+            ) // 2
+            assert _definition_at(
+                index,
+                source_path=entry_path,
+                line=line,
+                character=character,
+                accepted_text_by_path=accepted_texts,
+            ) is None
+
+    unsupported_offset = entry_text.index("provider-result")
+    unsupported_prefix = entry_text[:unsupported_offset]
+    unsupported_line = unsupported_prefix.count("\n")
+    unsupported_character = len(
+        unsupported_prefix.rsplit("\n", maxsplit=1)[-1].encode("utf-16-le")
+    ) // 2
+    assert _definition_at(
+        index,
+        source_path=entry_path,
+        line=unsupported_line,
+        character=unsupported_character,
+        accepted_text_by_path=accepted_texts,
+    ) is None
+
+    entry_result = callable_result.compiled_results_by_name["neurips/entry"]
+    typed_workflow = entry_result.typed_workflows[0]
+    typed_body = typed_workflow.typed_body
+    assert isinstance(typed_body.expr, LetStarExpr)
+    procedure_call = typed_body.expr.bindings[0][1]
+    assert isinstance(procedure_call, ProcedureCallExpr)
+    assert procedure_call.authored_callee_span is not None
+    generated_entry = replace(
+        entry_result,
+        typed_workflows=(
+            replace(
+                typed_workflow,
+                typed_body=replace(
+                    typed_body,
+                    expr=replace(
+                        typed_body.expr,
+                        bindings=(
+                            (
+                                "checks",
+                                replace(
+                                    procedure_call,
+                                    authored_callee_span=None,
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+    generated_result = replace(
+        callable_result,
+        entry_result=generated_entry,
+        compiled_results_by_name={
+            **callable_result.compiled_results_by_name,
+            "neurips/entry": generated_entry,
+        },
+    )
+    call_position = source_span_to_lsp_range(
+        procedure_call.authored_callee_span,
+        _accepted_texts(callable_result)[CALLABLE_ENTRY.resolve()],
+    )["start"]
+    assert _definition_at(
+        _build_index(generated_result),
+        source_path=CALLABLE_ENTRY.resolve(),
+        line=call_position["line"],
+        character=call_position["character"],
+        accepted_text_by_path=_accepted_texts(generated_result),
+    ) is None
 
 
 def test_success_snapshot_freezes_postflight_text_for_every_trace_path(
