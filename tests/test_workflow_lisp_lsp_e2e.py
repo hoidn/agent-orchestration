@@ -36,6 +36,18 @@ KISS_BACKLOG_INPUTS = (
 )
 KISS_BACKLOG_PROVIDERS = KISS_BACKLOG_INPUTS / "providers.json"
 KISS_BACKLOG_PROMPTS = KISS_BACKLOG_INPUTS / "prompts.json"
+REVIEW_DESIGN_DOCS_ENTRY = (
+    REPO_ROOT / "workflows" / "examples" / "review_revise_design_docs.orc"
+)
+REVIEW_DESIGN_DOCS_INPUTS = (
+    REPO_ROOT
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "review_revise_design_docs"
+)
+REVIEW_DESIGN_DOCS_PROVIDERS = REVIEW_DESIGN_DOCS_INPUTS / "providers.json"
+REVIEW_DESIGN_DOCS_PROMPTS = REVIEW_DESIGN_DOCS_INPUTS / "prompts.json"
 
 
 def _tree_digest(root: Path) -> str:
@@ -372,6 +384,169 @@ def test_real_repository_l2_recovery_to_full_is_read_only() -> None:
         for path in protected_paths
     } == protected_bytes
     assert _tree_digest(REPO_ROOT / ".orchestrate" / "build") == build_digest
+
+
+def test_real_repository_l5_authored_reference_navigation_is_read_only() -> None:
+    configuration_paths = (
+        REVIEW_DESIGN_DOCS_ENTRY,
+        REVIEW_DESIGN_DOCS_PROVIDERS,
+        REVIEW_DESIGN_DOCS_PROMPTS,
+    )
+    configuration_bytes = {
+        path: path.read_bytes()
+        for path in configuration_paths
+    }
+    prompt_assets = tuple(
+        REPO_ROOT / relative_path
+        for relative_path in json.loads(
+            configuration_bytes[REVIEW_DESIGN_DOCS_PROMPTS]
+        ).values()
+    )
+    protected_paths = (*configuration_paths, *prompt_assets)
+    protected_bytes = {
+        path: path.read_bytes()
+        for path in protected_paths
+    }
+    build_digest = _tree_digest(REPO_ROOT / ".orchestrate" / "build")
+    runs_root = REPO_ROOT / ".orchestrate" / "runs"
+    runs_digest = _tree_digest(runs_root)
+    artifact_digest = _tree_digest(REPO_ROOT / "artifacts")
+    source_text = protected_bytes[REVIEW_DESIGN_DOCS_ENTRY].decode("utf-8")
+
+    def position(offset: int) -> dict[str, int]:
+        prefix = source_text[:offset]
+        return {
+            "line": prefix.count("\n"),
+            "character": len(prefix.rsplit("\n", 1)[-1]),
+        }
+
+    prompt_reference_start = source_text.index(
+        "review-design-doc",
+        source_text.index("(provider-result"),
+    )
+    prompt_reference_end = prompt_reference_start + len("review-design-doc")
+    macro_reference_start = source_text.index(
+        "review-revise-loop",
+        source_text.index("(review-revise-loop"),
+    )
+    review_proc_ref_start = source_text.index(
+        "review-design-docs",
+        source_text.index("(proc-ref review-design-docs"),
+    )
+    fix_proc_ref_start = source_text.index(
+        "fix-design-doc",
+        source_text.index("(proc-ref fix-design-doc"),
+    )
+    direct_call_start = source_text.index(
+        "build-review-runtime-owned",
+        source_text.index("(call build-review-runtime-owned"),
+    )
+    fill_keyword_start = source_text.index(
+        ":target_doc",
+        prompt_reference_end,
+    )
+    adjacent_argument_start = source_text.index(
+        "completed.target_doc",
+        fill_keyword_start,
+    )
+    expected_prompt_definition = {
+        "uri": REVIEW_DESIGN_DOCS_ENTRY.as_uri(),
+        "range": {
+            "start": {"line": 72, "character": 2},
+            "end": {"line": 80, "character": 1666},
+        },
+    }
+    expected_workflow_definition = {
+        "uri": REVIEW_DESIGN_DOCS_ENTRY.as_uri(),
+        "range": {
+            "start": {"line": 32, "character": 2},
+            "end": {"line": 39, "character": 48},
+        },
+    }
+
+    process = _LspProcess(REPO_ROOT)
+    try:
+        _initialize(
+            process,
+            workspace=REPO_ROOT,
+            initialization_options={
+                "source_roots": [
+                    str(REPO_ROOT / "workflows" / "examples")
+                ],
+                "provider_externs_path": str(REVIEW_DESIGN_DOCS_PROVIDERS),
+                "prompt_externs_path": str(REVIEW_DESIGN_DOCS_PROMPTS),
+            },
+        )
+        _open(
+            process,
+            source_path=REVIEW_DESIGN_DOCS_ENTRY,
+            text=source_text,
+        )
+
+        prompt_definition, observed = _request_until(
+            process,
+            request_id=30,
+            method="textDocument/definition",
+            params={
+                "textDocument": {
+                    "uri": REVIEW_DESIGN_DOCS_ENTRY.as_uri(),
+                },
+                "position": position(prompt_reference_start + 1),
+            },
+            result_predicate=lambda result: result is not None,
+            timeout=30.0,
+        )
+        assert prompt_definition["result"] == expected_prompt_definition
+        assert prompt_definition["result"]["range"] != {
+            "start": {"line": 72, "character": 13},
+            "end": {"line": 72, "character": 30},
+        }
+        assert not any(
+            item.get("method") == "textDocument/publishDiagnostics"
+            and item["params"]["diagnostics"]
+            for item in observed
+        )
+
+        request_id = 31
+        cases = (
+            (prompt_reference_start, expected_prompt_definition),
+            (prompt_reference_end - 1, expected_prompt_definition),
+            (prompt_reference_start - 1, None),
+            (prompt_reference_end, None),
+            (fill_keyword_start + 1, None),
+            (adjacent_argument_start + 1, None),
+            (macro_reference_start + 1, None),
+            (review_proc_ref_start + 1, None),
+            (fix_proc_ref_start + 1, None),
+            (direct_call_start + 1, expected_workflow_definition),
+            (direct_call_start - 1, None),
+            (direct_call_start + len("build-review-runtime-owned"), None),
+        )
+        for offset, expected in cases:
+            response, _ = _request(
+                process,
+                request_id=request_id,
+                method="textDocument/definition",
+                params={
+                    "textDocument": {
+                        "uri": REVIEW_DESIGN_DOCS_ENTRY.as_uri(),
+                    },
+                    "position": position(offset),
+                },
+            )
+            assert response["result"] == expected
+            request_id += 1
+        process.shutdown()
+    finally:
+        process.close()
+
+    assert {
+        path: path.read_bytes()
+        for path in protected_paths
+    } == protected_bytes
+    assert _tree_digest(REPO_ROOT / ".orchestrate" / "build") == build_digest
+    assert _tree_digest(runs_root) == runs_digest
+    assert _tree_digest(REPO_ROOT / "artifacts") == artifact_digest
 
 
 def test_watcher_disabled_helper_save_recompiles_clean_importer(
