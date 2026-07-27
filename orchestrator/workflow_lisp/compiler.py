@@ -792,6 +792,7 @@ def compile_stage3_module(
         typed_workflows=state.typed_workflows,
         lowered_workflows=state.lowered_workflows,
         validated_bundles=state.validated_bundles,
+        prompt_catalog=state.extras.get("prompt_catalog"),
         diagnostics=diagnostics,
         validation_profile=normalized_validation_profile,
         retained_non_promotable_diagnostics=retained_non_promotable,
@@ -1656,7 +1657,17 @@ def _run_stage3_validation_pipeline(
         )
         _validate_definition_module(module)
         type_env = FrontendTypeEnvironment.from_module(module)
-        workflow_defs = elaborate_workflow_definitions(state.expanded_syntax_module)
+        prompt_defs = elaborate_prompt_definitions(
+            state.expanded_syntax_module
+        )
+        prompt_catalog = build_prompt_catalog(
+            module.module_name or path.stem,
+            prompt_defs,
+            type_env=type_env,
+        )
+        workflow_defs = elaborate_workflow_definitions(
+            state.expanded_syntax_module
+        )
         function_defs = elaborate_function_definitions(state.expanded_syntax_module)
         procedure_defs = elaborate_procedure_definitions(state.expanded_syntax_module)
         _validate_local_callable_name_collisions(function_defs, procedure_defs)
@@ -1717,6 +1728,7 @@ def _run_stage3_validation_pipeline(
             function_catalog=function_catalog,
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,
+            prompt_catalog=prompt_catalog,
         )
         function_catalog = validate_function_cycles(
             typed_functions,
@@ -1733,6 +1745,7 @@ def _run_stage3_validation_pipeline(
                 function_catalog=function_catalog,
                 extern_environment=extern_environment,
                 command_boundary_environment=command_boundary_environment,
+                prompt_catalog=prompt_catalog,
                 proc_ref_resolution_context=ProcRefResolutionContext(
                     local_raw_names=frozenset(procedure.name for procedure in procedure_defs),
                 ),
@@ -1777,6 +1790,10 @@ def _run_stage3_validation_pipeline(
                 command_boundary_environment=command_boundary_environment,
                 typed_procedures=typed_procedures,
                 typed_workflows=typed_workflows,
+                extras={
+                    **dict(state.extras),
+                    "prompt_catalog": prompt_catalog,
+                },
             ),
             workflow_path=path,
         )
@@ -2305,7 +2322,6 @@ def _compile_stage3_graph(
         raw_function_defs = elaborate_function_definitions(expanded_syntax)
         raw_procedure_defs = elaborate_procedure_definitions(expanded_syntax)
         raw_prompt_defs = elaborate_prompt_definitions(expanded_syntax)
-        raw_workflow_defs = elaborate_workflow_definitions(expanded_syntax)
         export_surfaces[module_name] = derive_export_surface(
             expanded_syntax,
             local_macros=collect_macro_catalog(module_source.syntax_module),
@@ -2313,7 +2329,7 @@ def _compile_stage3_graph(
             function_names=tuple(function.name for function in raw_function_defs),
             procedure_names=tuple(procedure.name for procedure in raw_procedure_defs),
             prompt_names=tuple(prompt.name for prompt in raw_prompt_defs),
-            workflow_names=tuple(workflow.name for workflow in raw_workflow_defs),
+            workflow_names=(),
         )
         exported_schema_defs_by_module[module_name] = _exported_schema_defs(
             definition_module,
@@ -2367,6 +2383,7 @@ def _compile_stage3_graph(
                 module_name
             ].prompts_by_name.items()
         }
+        raw_workflow_defs = elaborate_workflow_definitions(expanded_syntax)
         function_defs = _canonicalize_function_defs(module_name, raw_function_defs)
         procedure_defs = _canonicalize_procedure_defs(module_name, raw_procedure_defs)
         workflow_defs = _canonicalize_workflow_defs(module_name, raw_workflow_defs)

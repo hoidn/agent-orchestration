@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import orchestrator.workflow_lisp as workflow_lisp
+import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
 import orchestrator.workflow_lisp.form_registry as form_registry
 import orchestrator.workflow_lisp.syntax as syntax
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
@@ -610,6 +611,103 @@ def test_stage3_catalog_resolves_exported_prompt_imports(tmp_path: Path) -> None
     assert prompt_catalog is not None
     assert prompt_catalog.resolve("review").qualified_name == "demo/helper::review"
     assert prompt_catalog.resolve("helper.review").qualified_name == "demo/helper::review"
+
+
+@pytest.mark.parametrize("lowering_route", ("legacy", "wcc_m4"))
+@pytest.mark.parametrize("linked", (False, True))
+def test_real_stage3_prompt_application_reaches_typed_frontend_before_lowering(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    lowering_route: str,
+    linked: bool,
+) -> None:
+    source_root = tmp_path / "src"
+    source_root.mkdir()
+    if linked:
+        prompt_path = source_root / "demo" / "prompts.orc"
+        prompt_path.parent.mkdir(parents=True)
+        prompt_path.write_text(
+            _module_source(
+                "2.20",
+                "(defmodule demo/prompts)",
+                "(export review)",
+                '(defprompt review (:fills (message :text)) -> Bool "Review {message}")',
+            ),
+            encoding="utf-8",
+        )
+        entry_path = source_root / "demo" / "entry.orc"
+        entry_path.write_text(
+            _module_source(
+                "2.20",
+                "(defmodule demo/entry)",
+                "(import demo/prompts :as prompts :only (review))",
+                """
+                (defworkflow run-review
+                  ((message String))
+                  -> Bool
+                  (provider-result providers.review
+                    :prompt (review :message message)))
+                """,
+            ),
+            encoding="utf-8",
+        )
+    else:
+        entry_path = source_root / "prompt_frontend.orc"
+        entry_path.write_text(
+            _module_source(
+                "2.20",
+                '(defprompt review (:fills (message :text)) -> Bool "Review {message}")',
+                """
+                (defworkflow run-review
+                  ((message String))
+                  -> Bool
+                  (provider-result providers.review
+                    :prompt (review :message message)))
+                """,
+            ),
+            encoding="utf-8",
+        )
+
+    class TypedFrontendReached(Exception):
+        pass
+
+    def capture_typed_frontend(**kwargs):
+        typed_workflows = kwargs["typed_workflows"]
+        if not typed_workflows:
+            return ()
+        typed_body = typed_workflows[0].typed_body
+        assert typed_body.type_ref == PrimitiveTypeRef(name="Bool")
+        assert isinstance(typed_body.expr, ProviderResultExpr)
+        assert isinstance(typed_body.expr.prompt, PromptApplicationExpr)
+        assert (
+            typed_body.expr.prompt.compiled_prompt_fragment_identity
+            is not None
+        )
+        raise TypedFrontendReached
+
+    monkeypatch.setattr(
+        workflow_lisp_compiler,
+        "_lower_workflows_for_route",
+        capture_typed_frontend,
+    )
+    with pytest.raises(TypedFrontendReached):
+        if linked:
+            compile_stage3_entrypoint(
+                entry_path,
+                source_roots=(source_root,),
+                provider_externs={"providers.review": "test-provider"},
+                validate_shared=False,
+                workspace_root=tmp_path,
+                lowering_route=lowering_route,
+            )
+        else:
+            workflow_lisp.compile_stage3_module(
+                entry_path,
+                provider_externs={"providers.review": "test-provider"},
+                validate_shared=False,
+                workspace_root=tmp_path,
+                lowering_route=lowering_route,
+            )
 
 
 def test_provider_prompt_application_is_fully_applied_and_prompt_owned() -> None:
