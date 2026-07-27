@@ -14,6 +14,7 @@ import pytest
 
 import orchestrator.experiments.evaluation as evaluation_module
 from orchestrator.demo.evaluators import linear_classifier
+from orchestrator.experiments._evaluation_ingest import _validate_citation
 from orchestrator.experiments.contracts import (
     canonical_json_bytes,
     canonical_sha256,
@@ -2075,6 +2076,193 @@ def test_ingest_review_accepts_unknown_guesses_and_exact_package_citations(
         item["sealed_treatment_guess"] == "UNKNOWN"
         for item in loaded["candidates"]
     )
+
+
+@pytest.mark.parametrize("suffix", [":1", ":1-2"])
+def test_ingest_review_accepts_manifest_citations_with_line_locations(
+    tmp_path: Path,
+    suffix: str,
+) -> None:
+    package_root, record = _write_live_package(tmp_path)
+    candidate = record["candidates"][0]
+    candidate["evidence_citations"][0] += suffix
+    candidate["dimension_assessments"][0]["evidence_citations"][0] += suffix
+    record["pairwise_results"][0]["evidence_citations"][0] += suffix
+    path = tmp_path / "review.json"
+    path.write_bytes(canonical_json_bytes(record))
+
+    manifest_bytes = (package_root / "manifest.json").read_bytes()
+    loaded = ingest_review(
+        path,
+        package_root=package_root,
+        expected_bindings={
+            "pilot_lock_digest": _digest("pilot-lock"),
+            "rubric_digest": _digest("rubric"),
+            "review_class": "LIVE",
+            "candidate_labels": tuple(
+                item["opaque_label"] for item in record["candidates"]
+            ),
+            "package_id": "live-001",
+            "package_manifest_digest": _digest_bytes(manifest_bytes),
+            "reviewer_id": record["reviewer_id"],
+        },
+        used_session_ids=set(),
+        prior_records=(),
+    )
+
+    assert loaded == record
+
+
+@pytest.mark.parametrize(
+    ("citation", "expected_code"),
+    [
+        ("../escape.txt:1", "review_citation_escape"),
+        ("/absolute.txt:1", "review_citation_escape"),
+        ("not-in-manifest.txt:1", "review_citation_not_in_package"),
+        (None, "review_citation_location_invalid"),
+        ("OUT_OF_RANGE", "review_citation_location_invalid"),
+        ("ZERO", "review_citation_location_invalid"),
+        ("LEADING_ZERO", "review_citation_location_invalid"),
+        ("TRAILING_RANGE", "review_citation_location_invalid"),
+        ("DOUBLE_LOCATION", "review_citation_location_invalid"),
+        ("PREFIX_TRAVERSAL", "review_citation_escape"),
+        ("PREFIX_BACKSLASH", "review_citation_escape"),
+    ],
+)
+def test_ingest_review_rejects_invalid_line_location(
+    tmp_path: Path,
+    citation: str | None,
+    expected_code: str,
+) -> None:
+    package_root, record = _write_live_package(tmp_path)
+    manifest_path = record["candidates"][0]["evidence_citations"][0]
+    if citation is None:
+        citation = f"{manifest_path}:2-1"
+    elif citation == "OUT_OF_RANGE":
+        citation = f"{manifest_path}:999999"
+    elif citation == "ZERO":
+        citation = f"{manifest_path}:0"
+    elif citation == "LEADING_ZERO":
+        citation = f"{manifest_path}:01"
+    elif citation == "TRAILING_RANGE":
+        citation = f"{manifest_path}:1-"
+    elif citation == "DOUBLE_LOCATION":
+        citation = f"{manifest_path}:1:2"
+    elif citation == "PREFIX_TRAVERSAL":
+        citation = f"{manifest_path}:/../escape"
+    elif citation == "PREFIX_BACKSLASH":
+        citation = f"{manifest_path}:\\..\\escape"
+    record["candidates"][0]["evidence_citations"][0] = citation
+    path = tmp_path / "review.json"
+    path.write_bytes(canonical_json_bytes(record))
+
+    manifest_bytes = (package_root / "manifest.json").read_bytes()
+    with pytest.raises(EvaluationError) as caught:
+        ingest_review(
+            path,
+            package_root=package_root,
+            expected_bindings={
+                "pilot_lock_digest": _digest("pilot-lock"),
+                "rubric_digest": _digest("rubric"),
+                "review_class": "LIVE",
+                "candidate_labels": tuple(
+                    item["opaque_label"] for item in record["candidates"]
+                ),
+                "package_id": "live-001",
+                "package_manifest_digest": _digest_bytes(manifest_bytes),
+                "reviewer_id": record["reviewer_id"],
+            },
+            used_session_ids=set(),
+            prior_records=(),
+        )
+
+    assert caught.value.code == expected_code
+
+
+@pytest.mark.parametrize("citation", ["manifest.json", "manifest.json:1"])
+def test_ingest_review_rejects_manifest_navigation_citation(
+    tmp_path: Path,
+    citation: str,
+) -> None:
+    package_root, record = _write_live_package(tmp_path)
+    record["candidates"][0]["evidence_citations"][0] = citation
+    path = tmp_path / "review.json"
+    path.write_bytes(canonical_json_bytes(record))
+    manifest_bytes = (package_root / "manifest.json").read_bytes()
+
+    with pytest.raises(EvaluationError) as caught:
+        ingest_review(
+            path,
+            package_root=package_root,
+            expected_bindings={
+                "pilot_lock_digest": _digest("pilot-lock"),
+                "rubric_digest": _digest("rubric"),
+                "review_class": "LIVE",
+                "candidate_labels": tuple(
+                    item["opaque_label"] for item in record["candidates"]
+                ),
+                "package_id": "live-001",
+                "package_manifest_digest": _digest_bytes(manifest_bytes),
+                "reviewer_id": record["reviewer_id"],
+            },
+            used_session_ids=set(),
+            prior_records=(),
+        )
+
+    assert caught.value.code == "review_citation_not_in_package"
+
+
+def test_citation_exact_colon_path_takes_precedence_over_locator() -> None:
+    _validate_citation(
+        "artifact:1",
+        permitted_payloads={
+            "artifact": b"",
+            "artifact:1": b"\xff",
+        },
+    )
+
+
+def test_ingest_review_rejects_line_location_on_non_utf8_payload(
+    tmp_path: Path,
+) -> None:
+    package_root, record = _write_live_package(tmp_path)
+    citation_path = record["candidates"][0]["evidence_citations"][0]
+    payload_path = package_root / citation_path
+    payload = b"\xff"
+    payload_path.write_bytes(payload)
+    manifest_path = package_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    row = next(
+        item for item in manifest["files"] if item["path"] == citation_path
+    )
+    row["size"] = len(payload)
+    row["sha256"] = _digest_bytes(payload)
+    manifest_bytes = canonical_json_bytes(manifest)
+    manifest_path.write_bytes(manifest_bytes)
+    record["candidates"][0]["evidence_citations"][0] = f"{citation_path}:1"
+    path = tmp_path / "review.json"
+    path.write_bytes(canonical_json_bytes(record))
+
+    with pytest.raises(EvaluationError) as caught:
+        ingest_review(
+            path,
+            package_root=package_root,
+            expected_bindings={
+                "pilot_lock_digest": _digest("pilot-lock"),
+                "rubric_digest": _digest("rubric"),
+                "review_class": "LIVE",
+                "candidate_labels": tuple(
+                    item["opaque_label"] for item in record["candidates"]
+                ),
+                "package_id": "live-001",
+                "package_manifest_digest": _digest_bytes(manifest_bytes),
+                "reviewer_id": record["reviewer_id"],
+            },
+            used_session_ids=set(),
+            prior_records=(),
+        )
+
+    assert caught.value.code == "review_citation_location_invalid"
 
 
 def test_ingest_review_accepts_complete_pair_coverage_in_either_orientation(

@@ -688,6 +688,27 @@ def test_live_reviewer_runs_two_exact_bounded_slots_and_publishes_results(
             (package / "manifest.json").read_text(encoding="utf-8")
         )["files"]
     } | {"manifest.json"}
+    citation_contract = prompt["inspection_contract"]["citation_contract"]
+    assert set(citation_contract["citable_files"]) == {
+        row["path"]
+        for row in json.loads(
+            (package / "manifest.json").read_text(encoding="utf-8")
+        )["files"]
+    }
+    assert citation_contract["navigation_only_files"] == ["manifest.json"]
+    assert citation_contract["allowed_forms"] == [
+        "PATH",
+        "PATH:LINE",
+        "PATH:START-END",
+    ]
+    assert citation_contract["line_numbering"] == "ONE_BASED_INCLUSIVE"
+    assert citation_contract["exact_path_precedence"] is True
+    assert (
+        prompt["inspection_contract"]["task_path"]
+        == json.loads(
+            (package / "manifest.json").read_text(encoding="utf-8")
+        )["task_path"]
+    )
 
 
 @pytest.mark.parametrize("mutation", ["schema", "rubric"])

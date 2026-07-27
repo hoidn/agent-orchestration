@@ -47,8 +47,7 @@ def main() -> int:
         f"session-{prompt['review_context']['package_id']}-{reviewer_id}",
     )
     labels = prompt["output_contract"]["candidate_labels"]
-    citations = prompt["inspection_contract"]["package_files"]
-    citation = next(path for path in citations if path != "manifest.json")
+    citation = f"{prompt['inspection_contract']['task_path']}:1"
     payload = {
         "candidates": [
             {

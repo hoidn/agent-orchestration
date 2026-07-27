@@ -257,7 +257,14 @@ session. After provider start, a complete retained terminal transport may be
 finalized provider-free, but the slot is never relaunched; an incomplete
 session halts without unblinding or summary. All required initial reviews and
 canonical review bindings are sealed before any label-map content is read to
-publish the canonical unblinding bindings.
+publish the canonical unblinding bindings. Citation ingestion accepts an exact
+manifest payload path or that path plus a one-based inclusive `:line` or
+`:start-end` locator, validates any locator against the digest-verified UTF-8
+payload, and rejects malformed, escaping, unmanifested, non-text, or
+out-of-range references. `manifest.json` remains navigation metadata rather
+than citable evidence. The live inspection contract publishes the citable
+payload list, navigation-only list, allowed forms, line convention, and
+exact-path precedence as structured data.
 
 ## Execution Plan
 

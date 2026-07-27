@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path, PurePosixPath
@@ -17,6 +18,10 @@ from ._evaluation_support import (
     _sha256_bytes,
     _source_file,
     _strict_json,
+)
+
+_CITATION_LOCATION = re.compile(
+    r"^(?P<start>[1-9][0-9]*)(?:-(?P<end>[1-9][0-9]*))?$"
 )
 
 
@@ -62,6 +67,62 @@ def _citation_paths(record: Mapping[str, object]) -> tuple[str, ...]:
                         )
                     values.extend(nested_citations)
     return tuple(values)
+
+
+def _validate_citation(
+    citation: object,
+    *,
+    permitted_payloads: Mapping[str, bytes],
+) -> None:
+    try:
+        citation_path = _relative_path(citation)
+    except EvaluationError as exc:
+        raise EvaluationError("review_citation_escape", str(citation)) from exc
+    assert isinstance(citation, str)
+    if citation in permitted_payloads:
+        return
+    locations: list[tuple[str, re.Match[str]]] = []
+    has_manifest_prefix = False
+    if isinstance(citation, str):
+        for manifest_path in permitted_payloads:
+            prefix = f"{manifest_path}:"
+            if not citation.startswith(prefix):
+                continue
+            has_manifest_prefix = True
+            location = _CITATION_LOCATION.fullmatch(citation[len(prefix) :])
+            if location is not None:
+                locations.append((manifest_path, location))
+    if has_manifest_prefix and len(locations) != 1:
+        _fail("review_citation_location_invalid", str(citation))
+    if locations:
+        manifest_path, location = locations[0]
+    else:
+        location = None
+        manifest_path = citation_path.as_posix()
+    if manifest_path not in permitted_payloads:
+        _fail("review_citation_not_in_package", str(citation))
+    if location is None:
+        return
+    try:
+        start = int(location.group("start"))
+        end_text = location.group("end")
+        end = int(end_text) if end_text is not None else start
+    except ValueError as exc:
+        raise EvaluationError(
+            "review_citation_location_invalid",
+            citation,
+        ) from exc
+    try:
+        line_count = len(
+            permitted_payloads[manifest_path].decode("utf-8").splitlines()
+        )
+    except UnicodeDecodeError as exc:
+        raise EvaluationError(
+            "review_citation_location_invalid",
+            citation,
+        ) from exc
+    if end < start or end > line_count:
+        _fail("review_citation_location_invalid", citation)
 
 
 def _verify_closed_package_tree(
@@ -149,7 +210,7 @@ def ingest_review(
     rows = manifest.get("files")
     if not isinstance(rows, list):
         _fail("review_package_invalid", "files")
-    permitted_paths: set[str] = set()
+    permitted_payloads: dict[str, bytes] = {}
     for row in rows:
         if not isinstance(row, Mapping) or set(row) != {
             "path",
@@ -160,9 +221,8 @@ def ingest_review(
             _fail("review_package_invalid", "manifest row")
         relative = _relative_path(row.get("path"))
         path_text = relative.as_posix()
-        if path_text in permitted_paths or path_text == "manifest.json":
+        if path_text in permitted_payloads or path_text == "manifest.json":
             _fail("review_package_invalid", "duplicate path")
-        permitted_paths.add(path_text)
         source, data, mode = _source_file(package, relative)
         if (
             row.get("size") != len(data)
@@ -171,6 +231,8 @@ def ingest_review(
             or source != package.joinpath(*relative.parts)
         ):
             _fail("review_package_invalid", path_text)
+        permitted_payloads[path_text] = data
+    permitted_paths = set(permitted_payloads)
     task_path = _relative_path(manifest.get("task_path")).as_posix()
     if task_path not in permitted_paths:
         _fail("review_package_invalid", "task path")
@@ -232,10 +294,8 @@ def ingest_review(
         _fail("review_binding_mismatch", "pairwise coverage")
 
     for citation in _citation_paths(record):
-        try:
-            relative = _relative_path(citation)
-        except EvaluationError as exc:
-            raise EvaluationError("review_citation_escape", citation) from exc
-        if citation not in permitted_paths:
-            _fail("review_citation_not_in_package", citation)
+        _validate_citation(
+            citation,
+            permitted_payloads=permitted_payloads,
+        )
     return record

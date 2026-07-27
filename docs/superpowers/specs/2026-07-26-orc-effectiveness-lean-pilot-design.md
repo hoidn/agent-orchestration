@@ -565,8 +565,19 @@ and digest. Ingestion binds the expected package ID and digest of the raw
 canonical manifest, rejects noncanonical or coherently rewritten manifests,
 duplicate/extra/unsafe paths, NUL-bearing paths, and undeclared regular or
 non-regular filesystem nodes, and verifies every payload row before evaluating
-top-level or per-dimension citations. Calibration review records additionally
-bind the canonical calibration-lock digest, rubric digest, exact
+top-level or per-dimension citations. A citation is either an exact
+manifest-payload path or that path followed by a one-based inclusive
+`:line` or `:start-end` locator. Exact manifest-path membership takes
+precedence for colon-bearing filenames. Locator targets must be UTF-8 text,
+and their ordered range must exist in the already digest-verified payload;
+malformed, escaping, unmanifested, non-text, or out-of-range citations fail
+closed. `manifest.json` is package navigation metadata, not a citable payload
+row. The reviewer-visible inspection contract publishes the exact citable
+payload list, navigation-only list, allowed locator forms, line-numbering
+rule, and exact-path precedence as structured data; candidate judgments and
+citations rely only on those payloads and the named rubric. Calibration review
+records additionally bind the canonical
+calibration-lock digest, rubric digest, exact
 package-manifest digest, and exact distinct two-label order. The closed,
 canonical controller mapping is itself re-read from an explicit controller
 root. Its package and six review-binding sets must be exact, and every evaluator,

@@ -339,6 +339,7 @@ def _package_contract(package_root: Path, block_id: str) -> dict[str, object]:
         "manifest": manifest,
         "manifest_digest": _sha256_bytes(data),
         "package_files": tuple(package_files),
+        "citable_files": tuple(sorted(observed_paths)),
     }
 
 
@@ -357,9 +358,21 @@ def _prompt(
             "package_id": manifest["package_id"],
         },
         "inspection_contract": {
-            "instruction": "Inspect only the manifest-declared package files and the named rubric.",
+            "instruction": "Base candidate judgments and citations only on the declared citable package files and the named rubric.",
             "package_files": list(package["package_files"]),
+            "task_path": manifest["task_path"],
             "rubric_path": rubric_path.as_posix(),
+            "citation_contract": {
+                "citable_files": list(package["citable_files"]),
+                "navigation_only_files": ["manifest.json"],
+                "allowed_forms": [
+                    "PATH",
+                    "PATH:LINE",
+                    "PATH:START-END",
+                ],
+                "line_numbering": "ONE_BASED_INCLUSIVE",
+                "exact_path_precedence": True,
+            },
         },
         "output_contract": {
             "candidate_labels": manifest["candidate_labels"],

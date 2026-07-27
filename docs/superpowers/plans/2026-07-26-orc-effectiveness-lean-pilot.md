@@ -1058,7 +1058,13 @@ Cover:
   within one block while permitting the same reviewer role on distinct blocks;
 - live review ingestion requires a treatment guess for each opaque candidate
   while keeping the label map unavailable until sealing;
-- evidence citations must resolve inside the supplied review package.
+- evidence citations must name an exact manifest payload, optionally followed
+  by a strict one-based inclusive `:line` or `:start-end` locator; the
+  digest-verified base path and UTF-8 line bounds must resolve inside the
+  supplied review package, while `manifest.json` remains non-citable package
+  navigation metadata; the reviewer inspection contract exposes the citable
+  list, navigation-only list, allowed forms, line convention, and exact-path
+  precedence as structured data.
 
 - [ ] **Step 2: Run collection and RED**
 
