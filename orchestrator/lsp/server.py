@@ -45,6 +45,20 @@ from .state import (
 )
 
 
+_DOCUMENT_SYMBOL_KIND_BY_INTERNAL_KIND: dict[str, types.SymbolKind] = {
+    "module": types.SymbolKind.Module,
+    "procedure": types.SymbolKind.Function,
+    "workflow": types.SymbolKind.Function,
+    "enum": types.SymbolKind.Enum,
+    "path": types.SymbolKind.Class,
+    "record": types.SymbolKind.Struct,
+    "union": types.SymbolKind.Enum,
+    "schema": types.SymbolKind.Interface,
+    "resource": types.SymbolKind.Object,
+    "transition": types.SymbolKind.Event,
+}
+
+
 class WorkflowLispLanguageServer(LanguageServer):
     """One stdio server process with one atomically initialized compile driver."""
 
@@ -330,7 +344,7 @@ class WorkflowLispLanguageServer(LanguageServer):
         self,
         params: types.DocumentSymbolParams,
     ) -> tuple[types.DocumentSymbol, ...] | None:
-        """Return only authored module, procedure, and workflow definitions."""
+        """Return compiler-proven authored definitions with exact ranges."""
 
         uri = params.text_document.uri
         navigation = self._current_navigation(uri)
@@ -343,22 +357,32 @@ class WorkflowLispLanguageServer(LanguageServer):
             return None
         result: list[types.DocumentSymbol] = []
         for symbol in symbols_for_document(index, source_path=source_path):
+            symbol_kind = _DOCUMENT_SYMBOL_KIND_BY_INTERNAL_KIND.get(
+                symbol.kind
+            )
+            if symbol_kind is None:
+                return None
             try:
-                symbol_range = _lsp_range(
-                    source_span_to_lsp_range(symbol.span, accepted_text)
+                definition_range = _lsp_range(
+                    source_span_to_lsp_range(
+                        symbol.definition_span,
+                        accepted_text,
+                    )
+                )
+                selection_range = _lsp_range(
+                    source_span_to_lsp_range(
+                        symbol.selection_span,
+                        accepted_text,
+                    )
                 )
             except CoordinateTranslationError:
                 return None
             result.append(
                 types.DocumentSymbol(
                     name=symbol.name,
-                    kind=(
-                        types.SymbolKind.Module
-                        if symbol.kind == "module"
-                        else types.SymbolKind.Function
-                    ),
-                    range=symbol_range,
-                    selection_range=symbol_range,
+                    kind=symbol_kind,
+                    range=definition_range,
+                    selection_range=selection_range,
                 )
             )
         return tuple(result)

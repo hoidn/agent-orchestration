@@ -42,6 +42,12 @@ CALLABLE_ENTRY = CALLABLE_ROOT / "neurips" / "entry.orc"
 CALLABLE_HELPER = CALLABLE_ROOT / "neurips" / "helper.orc"
 CALLABLE_PROCEDURES = CALLABLE_ROOT / "neurips" / "procedures.orc"
 CALLABLE_TYPES = CALLABLE_ROOT / "neurips" / "types.orc"
+L1_SYMBOLS_ROOT = (
+    FIXTURES / "modules" / "valid" / "lsp_l1_symbols"
+)
+L1_SYMBOLS_ENTRY = (
+    L1_SYMBOLS_ROOT / "lsp_l1_symbols" / "entry.orc"
+)
 STDLIB_CALLER = FIXTURES / "valid" / "minimal_caller_finalize_selected_item.orc"
 
 
@@ -124,6 +130,17 @@ def stdlib_result() -> LinkedStage3CompileResult:
         command_boundaries={},
         validation_profile=Stage3ValidationProfile.SHARED_CALLABLE,
         workspace_root=Path.cwd().resolve(),
+    )
+
+
+@pytest.fixture(scope="module")
+def l1_symbols_result() -> LinkedStage3CompileResult:
+    return compile_stage3_entrypoint(
+        L1_SYMBOLS_ENTRY.resolve(),
+        source_roots=(L1_SYMBOLS_ROOT.resolve(),),
+        validate_shared=False,
+        workspace_root=L1_SYMBOLS_ROOT.resolve(),
+        lowering_route="legacy",
     )
 
 
@@ -536,47 +553,89 @@ def test_null_or_generated_call_provenance_is_never_indexed(
     )
 
 
-@pytest.mark.parametrize(
-    ("source_path", "expected"),
-    (
-        (
-            CALLABLE_ENTRY,
-            (
-                ("neurips/entry", "module"),
-                ("orchestrate", "workflow"),
-            ),
-        ),
-        (
-            CALLABLE_HELPER,
-            (
-                ("neurips/helper", "module"),
-                ("provider-attempt", "workflow"),
-                ("secondary", "workflow"),
-            ),
-        ),
-        (
-            CALLABLE_PROCEDURES,
-            (
-                ("neurips/procedures", "module"),
-                ("build-checks", "procedure"),
-            ),
-        ),
-        (
-            CALLABLE_TYPES,
-            (("neurips/types", "module"),),
-        ),
-    ),
-)
-def test_document_symbols_are_exact_authored_definitions_in_source_order(
-    callable_result: LinkedStage3CompileResult,
-    source_path: Path,
-    expected: tuple[tuple[str, str], ...],
+def test_document_symbols_are_all_ten_compiler_proven_kinds_in_source_order(
+    l1_symbols_result: LinkedStage3CompileResult,
 ) -> None:
-    symbols = _symbols(_build_index(callable_result), source_path.resolve())
+    symbols = _symbols(
+        _build_index(l1_symbols_result),
+        L1_SYMBOLS_ENTRY.resolve(),
+    )
+    text = L1_SYMBOLS_ENTRY.read_text(encoding="utf-8")
 
-    assert tuple((symbol.name, symbol.kind) for symbol in symbols) == expected
-    assert tuple(symbol.span.start.offset for symbol in symbols) == tuple(
-        sorted(symbol.span.start.offset for symbol in symbols)
+    assert tuple((symbol.name, symbol.kind) for symbol in symbols) == (
+        ("lsp_l1_symbols/entry", "module"),
+        ("ReviewDecision", "enum"),
+        ("ReportPath", "path"),
+        ("CommonFields", "schema"),
+        ("ReviewState", "record"),
+        ("ReviewOutcome", "union"),
+        ("review-state", "resource"),
+        ("record-review", "transition"),
+        ("default-status", "procedure"),
+        ("normalize-status", "procedure"),
+        ("render-and-preserve", "procedure"),
+        ("default-review", "workflow"),
+        ("review", "workflow"),
+        ("review-many", "workflow"),
+    )
+    assert tuple(symbol.source_ordinal for symbol in symbols) == tuple(
+        range(14)
+    )
+    assert tuple(
+        symbol.definition_span.start.offset for symbol in symbols
+    ) == tuple(
+        sorted(symbol.definition_span.start.offset for symbol in symbols)
+    )
+    for symbol in symbols:
+        assert symbol.definition_span != symbol.selection_span
+        assert text[
+            symbol.selection_span.start.offset :
+            symbol.selection_span.end.offset
+        ] == symbol.name
+        assert text[
+            symbol.definition_span.start.offset :
+            symbol.definition_span.end.offset
+        ].startswith("(def")
+
+
+def test_document_symbol_index_uses_projection_without_reading_or_parsing(
+    callable_result: LinkedStage3CompileResult,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    navigation = _navigation_surface()
+    reader = import_module("orchestrator.workflow_lisp.reader")
+    project = getattr(navigation, "project_authored_symbols", None)
+    assert callable(project), "compiler-owned symbol projection is not wired"
+    projected_modules: list[str] = []
+
+    def recording_projection(
+        resolved_source: object,
+        compiled_result: object,
+    ) -> tuple[object, ...]:
+        projected_modules.append(resolved_source.module_name)
+        return project(resolved_source, compiled_result)
+
+    def unexpected_read_or_parse(*args: object, **kwargs: object) -> object:
+        pytest.fail("navigation index construction read or parsed source text")
+
+    monkeypatch.setattr(
+        navigation,
+        "project_authored_symbols",
+        recording_projection,
+    )
+    monkeypatch.setattr("builtins.open", unexpected_read_or_parse)
+    monkeypatch.setattr(Path, "read_text", unexpected_read_or_parse)
+    monkeypatch.setattr(reader, "read_sexpr_text", unexpected_read_or_parse)
+    monkeypatch.setattr(reader, "read_sexpr_file", unexpected_read_or_parse)
+
+    symbols = _symbols(
+        _build_index(callable_result),
+        CALLABLE_ENTRY.resolve(),
+    )
+
+    assert len(symbols) == 2
+    assert projected_modules == list(
+        callable_result.graph.topological_order
     )
 
 
@@ -759,6 +818,50 @@ def _compile_driver_for_callable_root(
     return driver, entry_path, build_calls
 
 
+def _compile_driver_for_l1_symbols_root(
+    root: Path,
+) -> tuple[lsp_compile_driver.LspCompileDriver, Path]:
+    entry_path = root / "lsp_l1_symbols" / "entry.orc"
+
+    def build(
+        _request: object,
+        *,
+        source_read_trace: SourceReadTrace,
+    ) -> object:
+        compile_result = compile_stage3_entrypoint(
+            entry_path,
+            source_roots=(root,),
+            validate_shared=False,
+            workspace_root=root,
+            lowering_route="legacy",
+            source_read_trace=source_read_trace,
+        )
+        return SimpleNamespace(
+            compile_result=compile_result,
+            diagnostics=compile_result.diagnostics,
+            configuration_trace=SimpleNamespace(revision_vector=()),
+        )
+
+    driver = lsp_compile_driver.initialize_compile_driver(
+        lsp_state.initialize_lsp_state(
+            root_uri=root.as_uri(),
+            initialization_options={"source_roots": (str(root),)},
+        ),
+        build_in_memory=build,
+    )
+    text = entry_path.read_text(encoding="utf-8")
+    driver.apply_transition(
+        lsp_state.open_entry(
+            driver.state,
+            document_uri=entry_path.as_uri(),
+            editor_text=text,
+            disk_snapshot=lsp_compile_driver.probe_disk_source(entry_path),
+        )
+    )
+    driver.drain()
+    return driver, entry_path
+
+
 def _definition_params(
     path: Path,
     *,
@@ -851,6 +954,152 @@ def test_server_navigation_translates_only_from_current_frozen_snapshot(
     assert "build-checks" in {
         item.label for item in completions.items
     }
+
+
+def test_server_presents_ten_symbol_kinds_and_exact_selection_ranges(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "lsp_l1_symbols"
+    shutil.copytree(L1_SYMBOLS_ROOT, root)
+    driver, entry_path = _compile_driver_for_l1_symbols_root(root)
+    server = WorkflowLispLanguageServer()
+    server.driver = driver
+    snapshot = driver.state.entries[0].accepted_snapshot
+    assert snapshot is not None
+    compile_result = snapshot.build_value.compile_result
+    resolved_source = compile_result.graph.modules_by_name[
+        compile_result.graph.entry_module_name
+    ]
+    projection = import_module(
+        "orchestrator.workflow_lisp.authored_symbols"
+    ).project_authored_symbols(
+        resolved_source,
+        compile_result.entry_result,
+    )
+    accepted_text = dict(snapshot.accepted_text_by_path)[entry_path.resolve()]
+
+    symbols = server.document_symbols(_document_symbol_params(entry_path))
+
+    assert symbols is not None
+    assert tuple(symbol.kind for symbol in symbols) == (
+        types.SymbolKind.Module,
+        types.SymbolKind.Enum,
+        types.SymbolKind.Class,
+        types.SymbolKind.Interface,
+        types.SymbolKind.Struct,
+        types.SymbolKind.Enum,
+        types.SymbolKind.Object,
+        types.SymbolKind.Event,
+        types.SymbolKind.Function,
+        types.SymbolKind.Function,
+        types.SymbolKind.Function,
+        types.SymbolKind.Function,
+        types.SymbolKind.Function,
+        types.SymbolKind.Function,
+    )
+    assert tuple(symbol.name for symbol in symbols) == tuple(
+        row.name for row in projection
+    )
+    for symbol, row in zip(symbols, projection, strict=True):
+        assert symbol.range == types.Range(
+            **{
+                endpoint: types.Position(**position)
+                for endpoint, position in source_span_to_lsp_range(
+                    row.definition_span,
+                    accepted_text,
+                ).items()
+            }
+        )
+        assert symbol.selection_range == types.Range(
+            **{
+                endpoint: types.Position(**position)
+                for endpoint, position in source_span_to_lsp_range(
+                    row.selection_span,
+                    accepted_text,
+                ).items()
+            }
+        )
+        assert symbol.range != symbol.selection_range
+
+
+@pytest.mark.parametrize("invalid_range", ("definition", "selection"))
+def test_server_returns_null_if_either_symbol_range_cannot_be_translated(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_range: str,
+) -> None:
+    import orchestrator.lsp.server as server_module
+
+    root = tmp_path / "lsp_l1_symbols"
+    shutil.copytree(L1_SYMBOLS_ROOT, root)
+    driver, entry_path = _compile_driver_for_l1_symbols_root(root)
+    server = WorkflowLispLanguageServer()
+    server.driver = driver
+    snapshot = driver.state.entries[0].accepted_snapshot
+    assert snapshot is not None
+    index = _build_index(snapshot.build_value.compile_result)
+    symbol = _symbols(index, entry_path.resolve())[0]
+    span_name = f"{invalid_range}_span"
+    span = getattr(symbol, span_name)
+    invalid_span = replace(
+        span,
+        end=replace(span.end, offset=len(entry_path.read_text()) + 1),
+    )
+    invalid_symbol = replace(symbol, **{span_name: invalid_span})
+    monkeypatch.setattr(
+        server_module,
+        "symbols_for_document",
+        lambda *_args, **_kwargs: (invalid_symbol,),
+    )
+
+    assert server.document_symbols(
+        _document_symbol_params(entry_path)
+    ) is None
+
+
+def test_projection_crosscheck_failure_is_one_internal_error_and_null(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    navigation = _navigation_surface()
+    projection_module = import_module(
+        "orchestrator.workflow_lisp.authored_symbols"
+    )
+    root = tmp_path / "lsp_l1_symbols"
+    shutil.copytree(L1_SYMBOLS_ROOT, root)
+    driver, entry_path = _compile_driver_for_l1_symbols_root(root)
+    server = WorkflowLispLanguageServer()
+    server.driver = driver
+    logged: list[types.LogMessageParams] = []
+    published: list[types.PublishDiagnosticsParams] = []
+    monkeypatch.setattr(server, "window_log_message", logged.append)
+    monkeypatch.setattr(
+        server,
+        "text_document_publish_diagnostics",
+        published.append,
+    )
+    state_before = driver.state
+
+    def fail_projection(*args: object, **kwargs: object) -> object:
+        raise projection_module.AuthoredSymbolProjectionError(
+            "test crosscheck mismatch"
+        )
+
+    monkeypatch.setattr(
+        navigation,
+        "project_authored_symbols",
+        fail_projection,
+        raising=False,
+    )
+
+    assert server.document_symbols(
+        _document_symbol_params(entry_path)
+    ) is None
+    assert len(logged) == 1
+    assert logged[0].type == types.MessageType.Error
+    assert "AuthoredSymbolProjectionError" in logged[0].message
+    assert published == []
+    assert driver.state is state_before
 
 
 @pytest.mark.parametrize(

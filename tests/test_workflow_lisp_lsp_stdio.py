@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import select
+import shutil
 import subprocess
 import sys
 import time
@@ -14,6 +15,15 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+L1_SYMBOLS_ROOT = (
+    REPO_ROOT
+    / "tests"
+    / "fixtures"
+    / "workflow_lisp"
+    / "modules"
+    / "valid"
+    / "lsp_l1_symbols"
+)
 
 
 class _LspProcess:
@@ -517,6 +527,132 @@ def test_single_root_initialize_and_shutdown_are_frame_clean(
                 "method": "initialized",
                 "params": {},
             }
+        )
+        process.shutdown()
+    finally:
+        process.close()
+
+
+def test_document_symbol_protocol_exposes_ten_kinds_and_selection_ranges(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    shutil.copytree(L1_SYMBOLS_ROOT, workspace)
+    entry_path = workspace / "lsp_l1_symbols" / "entry.orc"
+    source_text = entry_path.read_text(encoding="utf-8")
+    broken_text = "(workflow-lisp"
+    entry_path.write_text(broken_text, encoding="utf-8")
+    process = _LspProcess(workspace)
+    try:
+        process.send(
+            _initialize_request(
+                1,
+                root_uri=workspace.as_uri(),
+                initialization_options={
+                    "source_roots": [str(workspace)],
+                },
+            )
+        )
+        initialize_response, _ = process.read_until(
+            lambda item: item.get("id") == 1
+        )
+        assert "error" not in initialize_response
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "method": "initialized",
+                "params": {},
+            }
+        )
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": {
+                    "textDocument": {
+                        "uri": entry_path.as_uri(),
+                        "languageId": "workflow-lisp",
+                        "version": 1,
+                        "text": broken_text,
+                    }
+                },
+            }
+        )
+        published_error, _ = process.read_until(
+            lambda item: (
+                item.get("method") == "textDocument/publishDiagnostics"
+                and item["params"]["uri"] == entry_path.as_uri()
+            )
+        )
+        assert published_error["params"]["diagnostics"]
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "method": "textDocument/didChange",
+                "params": {
+                    "textDocument": {
+                        "uri": entry_path.as_uri(),
+                        "version": 2,
+                    },
+                    "contentChanges": [{"text": source_text}],
+                },
+            }
+        )
+        process.assert_no_message()
+        entry_path.write_text(source_text, encoding="utf-8")
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "method": "textDocument/didSave",
+                "params": {
+                    "textDocument": {"uri": entry_path.as_uri()},
+                },
+            }
+        )
+        published_valid, _ = process.read_until(
+            lambda item: (
+                item.get("method") == "textDocument/publishDiagnostics"
+                and item["params"]["uri"] == entry_path.as_uri()
+            )
+        )
+        assert published_valid["params"]["diagnostics"] == []
+
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "textDocument/documentSymbol",
+                "params": {
+                    "textDocument": {"uri": entry_path.as_uri()},
+                },
+            }
+        )
+        response, _ = process.read_until(lambda item: item.get("id") == 2)
+
+        assert "error" not in response
+        symbols = response["result"]
+        assert [
+            (symbol["name"], symbol["kind"])
+            for symbol in symbols
+        ] == [
+            ("lsp_l1_symbols/entry", 2),
+            ("ReviewDecision", 10),
+            ("ReportPath", 5),
+            ("CommonFields", 11),
+            ("ReviewState", 23),
+            ("ReviewOutcome", 10),
+            ("review-state", 19),
+            ("record-review", 24),
+            ("default-status", 12),
+            ("normalize-status", 12),
+            ("render-and-preserve", 12),
+            ("default-review", 12),
+            ("review", 12),
+            ("review-many", 12),
+        ]
+        assert all(
+            symbol["range"] != symbol["selectionRange"]
+            for symbol in symbols
         )
         process.shutdown()
     finally:

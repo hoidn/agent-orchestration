@@ -6,6 +6,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from orchestrator.workflow_lisp.authored_symbols import (
+    project_authored_symbols,
+)
 from orchestrator.workflow_lisp.compiler import LinkedStage3CompileResult
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
 from orchestrator.workflow_lisp.expressions import CallExpr, ProcedureCallExpr
@@ -26,11 +29,13 @@ class DefinitionLink:
 
 @dataclass(frozen=True, slots=True)
 class NavigationSymbol:
-    """One authored definition admitted by the v1 document-symbol matrix."""
+    """One compiler-proven direct authored definition."""
 
     name: str
     kind: str
-    span: SourceSpan
+    definition_span: SourceSpan
+    selection_span: SourceSpan
+    source_ordinal: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,19 +81,20 @@ def build_navigation_index(
             fallback_span=compiled.module.span,
         )
         symbols = symbols_by_path.setdefault(module_path, [])
-        resolved_source = compile_result.graph.modules_by_name.get(module_name)
-        if (
-            resolved_source is not None
-            and resolved_source.syntax_module.module_directive is not None
-        ):
-            directive = resolved_source.syntax_module.module_directive
-            symbols.append(
-                NavigationSymbol(
-                    name=directive.name,
-                    kind="module",
-                    span=directive.span,
-                )
+        resolved_source = compile_result.graph.modules_by_name[module_name]
+        symbols.extend(
+            NavigationSymbol(
+                name=row.name,
+                kind=row.kind,
+                definition_span=row.definition_span,
+                selection_span=row.selection_span,
+                source_ordinal=row.source_ordinal,
             )
+            for row in project_authored_symbols(
+                resolved_source,
+                compiled,
+            )
+        )
 
         local_callable_names: set[str] = set()
         for typed_procedure in compiled.typed_procedures:
@@ -100,13 +106,6 @@ def build_navigation_index(
             ):
                 continue
             local_callable_names.add(_authored_callable_name(definition.name))
-            symbols.append(
-                NavigationSymbol(
-                    name=_authored_callable_name(definition.name),
-                    kind="procedure",
-                    span=definition.span,
-                )
-            )
             definition_links.extend(
                 _definition_links_for_expr(
                     typed_procedure.typed_body.expr,
@@ -118,13 +117,6 @@ def build_navigation_index(
             if typed_workflow.specialization is not None or definition.expansion_stack:
                 continue
             local_callable_names.add(_authored_callable_name(definition.name))
-            symbols.append(
-                NavigationSymbol(
-                    name=_authored_callable_name(definition.name),
-                    kind="workflow",
-                    span=definition.span,
-                )
-            )
             definition_links.extend(
                 _definition_links_for_expr(
                     typed_workflow.typed_body.expr,
@@ -159,9 +151,8 @@ def build_navigation_index(
                 sorted(
                     symbols,
                     key=lambda symbol: (
-                        symbol.span.start.offset,
-                        symbol.span.end.offset,
-                        symbol.name,
+                        symbol.definition_span.start.offset,
+                        symbol.source_ordinal,
                     ),
                 )
             ),
@@ -228,7 +219,7 @@ def symbols_for_document(
     *,
     source_path: str | Path,
 ) -> tuple[NavigationSymbol, ...]:
-    """Return only authored module/procedure/workflow symbols for one path."""
+    """Return all compiler-proven authored symbols for one source path."""
 
     path = Path(source_path).resolve(strict=False)
     return dict(index.symbols_by_path).get(path, ())
