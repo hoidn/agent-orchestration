@@ -31,6 +31,7 @@ from orchestrator.workflow.prompt_fragment_contract import (
     canonical_compiler_prompt_fragment_contract_json,
     serialize_compiler_prompt_fragment_contract,
     serialize_compiler_prompt_fragment_rendered_slot,
+    validate_compiler_prompt_fragment_pair,
 )
 from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
@@ -2780,6 +2781,103 @@ def test_q2_fragment_carrier_has_closed_ordered_output_position_rows() -> None:
                 output_positions=(row, rows[1]),
                 compiled_prompt_fragment_identity="sha256:" + "a" * 64,
             )
+
+
+def test_q2_fragment_pair_requires_exact_ordered_expected_outputs() -> None:
+    rendered_slots = tuple(
+        CompilerPromptFragmentRenderedSlot(
+            name=name,
+            kind="path",
+            static_type={
+                "kind": "path",
+                "must_exist_target": False,
+                "name": "ReportPath",
+                "under": "artifacts",
+            },
+            renderer_id="posix-path-line",
+            value_source={
+                "kind": "typed_binding_ref",
+                "binding": {"ref": f"inputs.{name}"},
+            },
+            placeholder_ordinals=(index,),
+        )
+        for index, name in enumerate(("first", "second"))
+    )
+    expected_outputs = (
+        {
+            "name": "first",
+            "path": "${inputs.first}",
+            "type": "string",
+            "required": True,
+        },
+        {
+            "name": "second",
+            "path": "${inputs.second}",
+            "type": "string",
+            "required": True,
+        },
+    )
+    contract = CompilerPromptFragmentContractV2(
+        schema_version=COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
+        template_utf8="{first} {second}",
+        rendered_slots=rendered_slots,
+        output_positions=tuple(
+            CompilerPromptFragmentOutputPosition(
+                slot_name=row["name"],
+                output_role="required_string_file",
+                expected_output=row,
+            )
+            for row in expected_outputs
+        ),
+        compiled_prompt_fragment_identity="sha256:" + "b" * 64,
+    )
+
+    validate_compiler_prompt_fragment_pair(
+        contract,
+        contract.compiled_prompt_fragment_identity,
+        expected_outputs,
+    )
+    for mismatched in (
+        (),
+        expected_outputs[:1],
+        (*expected_outputs, expected_outputs[0]),
+        tuple(reversed(expected_outputs)),
+        (
+            {**expected_outputs[0], "path": "${inputs.second}"},
+            expected_outputs[1],
+        ),
+    ):
+        with pytest.raises(
+            ValueError,
+            match="prompt_output_position_contract_mismatch",
+        ):
+            validate_compiler_prompt_fragment_pair(
+                contract,
+                contract.compiled_prompt_fragment_identity,
+                mismatched,
+            )
+
+    # A Q1 carrier does not claim ownership of ordinary expected outputs.
+    q1_contract = CompilerPromptFragmentContract(
+        schema_version=COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA,
+        template_utf8="{first}",
+        rendered_slots=(rendered_slots[0],),
+        compiled_prompt_fragment_identity="sha256:" + "c" * 64,
+    )
+    validate_compiler_prompt_fragment_pair(
+        q1_contract,
+        q1_contract.compiled_prompt_fragment_identity,
+        expected_outputs,
+    )
+    validate_compiler_prompt_fragment_pair(None, None, expected_outputs)
+    with pytest.raises(
+        ValueError,
+        match="prompt_output_position_contract_mismatch",
+    ):
+        validate_compiler_prompt_fragment_pair(
+            contract,
+            contract.compiled_prompt_fragment_identity,
+        )
 
 
 @pytest.mark.parametrize("lowering_route", ("legacy", "wcc_m4"))

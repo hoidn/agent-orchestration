@@ -32,7 +32,8 @@ from .prompt_dependency_contract import (
     serialize_compiler_prompt_dependency_contract,
 )
 from .prompt_fragment_contract import (
-    CompilerPromptFragmentContract,
+    CompilerPromptFragmentContractCarrier,
+    CompilerPromptFragmentContractV2,
     serialize_compiler_prompt_fragment_contract,
     validate_compiler_prompt_fragment_pair,
 )
@@ -186,7 +187,7 @@ class SemanticPromptSurface:
             "json_serializer": serialize_compiler_prompt_dependency_contract,
         },
     )
-    compiler_prompt_fragment_contract: CompilerPromptFragmentContract | None = field(
+    compiler_prompt_fragment_contract: CompilerPromptFragmentContractCarrier | None = field(
         default=None,
         metadata={
             "json_omit_if_none": True,
@@ -202,6 +203,14 @@ class SemanticPromptSurface:
         validate_compiler_prompt_fragment_pair(
             self.compiler_prompt_fragment_contract,
             self.compiled_prompt_fragment_identity,
+            tuple(
+                row.expected_output
+                for row in getattr(
+                    self.compiler_prompt_fragment_contract,
+                    "output_positions",
+                    (),
+                )
+            ),
         )
 
 
@@ -921,16 +930,6 @@ def validate_workflow_semantic_ir(
                 workflow_name=workflow_name,
             )
         prompt_surface = semantic_ir.prompt_surfaces[prompt_surface_id]
-        try:
-            validate_compiler_prompt_fragment_pair(
-                prompt_surface.compiler_prompt_fragment_contract,
-                prompt_surface.compiled_prompt_fragment_identity,
-            )
-        except (TypeError, ValueError) as exc:
-            _raise_semantic_ir_invalid(
-                "semantic_ir_invalid: provider prompt fragment carrier is invalid",
-                workflow_name=workflow_name,
-            )
         statement = workflow.statements.get(prompt_surface.statement_id)
         executable_configs = (
             ir.nodes[node_id].execution_config
@@ -945,15 +944,67 @@ def validate_workflow_semantic_ir(
             ),
             None,
         )
+        try:
+            validate_compiler_prompt_fragment_pair(
+                prompt_surface.compiler_prompt_fragment_contract,
+                prompt_surface.compiled_prompt_fragment_identity,
+                (
+                    ()
+                    if provider_config is None
+                    else provider_config.common.expected_outputs
+                ),
+            )
+        except (TypeError, ValueError) as exc:
+            message = str(exc)
+            if not message.startswith(
+                "prompt_output_position_contract_mismatch"
+            ):
+                message = (
+                    "semantic_ir_invalid: "
+                    "provider prompt fragment carrier is invalid"
+                )
+            _raise_semantic_ir_invalid(
+                message,
+                workflow_name=workflow_name,
+                subject_refs=(
+                    _subject_refs_for_statement(workflow_name, statement)
+                    if statement is not None
+                    else ()
+                ),
+            )
         if provider_config is None or (
             prompt_surface.compiler_prompt_fragment_contract
             != provider_config.compiler_prompt_fragment_contract
             or prompt_surface.compiled_prompt_fragment_identity
             != provider_config.compiled_prompt_fragment_identity
         ):
+            semantic_contract = prompt_surface.compiler_prompt_fragment_contract
+            executable_contract = (
+                None
+                if provider_config is None
+                else provider_config.compiler_prompt_fragment_contract
+            )
+            message = (
+                "prompt_output_position_contract_mismatch: "
+                "Semantic and Executable prompt fragment carriers mismatch"
+                if (
+                    type(semantic_contract) is CompilerPromptFragmentContractV2
+                    or type(executable_contract)
+                    is CompilerPromptFragmentContractV2
+                )
+                else (
+                    "semantic_ir_invalid: Semantic and Executable "
+                    "prompt fragment carriers mismatch"
+                )
+            )
             _raise_semantic_ir_invalid(
-                "semantic_ir_invalid: Semantic and Executable prompt fragment carriers mismatch",
+                message,
                 workflow_name=workflow_name,
+                subject_refs=(
+                    _subject_refs_for_statement(workflow_name, statement)
+                    if statement is not None
+                    else ()
+                ),
             )
     for command_boundary_id in workflow.command_boundary_ids:
         if command_boundary_id not in semantic_ir.command_boundaries:

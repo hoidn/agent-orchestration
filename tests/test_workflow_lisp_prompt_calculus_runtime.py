@@ -7,7 +7,7 @@ from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -31,11 +31,15 @@ from orchestrator.workflow.prompt_dependency_contract import (
 )
 from orchestrator.workflow.prompt_fragment_contract import (
     COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA,
+    COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
     CompilerPromptFragmentContract,
+    CompilerPromptFragmentContractV2,
+    CompilerPromptFragmentOutputPosition,
     CompilerPromptFragmentRenderedSlot,
 )
 from orchestrator.workflow.provider_attempts import ProviderAttemptScope
 from orchestrator.workflow.signatures import bind_workflow_inputs
+from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 import orchestrator.workflow_lisp as workflow_lisp
 from tests.workflow_bundle_helpers import bundle_context_dict
 
@@ -509,8 +513,48 @@ def test_existing_success_record_bytes_remain_exactly_unchanged() -> None:
     )
 
 
-def _compile_runtime_fragment(workspace: Path):
+def _compile_runtime_fragment(
+    workspace: Path,
+    *,
+    lowering_route: str = "legacy",
+    with_downstream_command: bool = False,
+):
     source_path = workspace / "prompt_runtime.orc"
+    provider_form = """
+    (provider-result providers.review
+      :prompt
+        (review
+          :target_doc target_doc
+          :message message
+          :score score
+          :report_path report_path))
+""".strip()
+    workflow_body = provider_form
+    command_boundaries = {}
+    if with_downstream_command:
+        workflow_body = f"""
+    (let* ((decision
+             {provider_form})
+           (continued
+             (command-result finish
+               :argv ("python" "finish.py")
+               :returns Bool)))
+      decision)
+""".strip()
+        (workspace / "finish.py").write_text(
+            "import os\n"
+            "from pathlib import Path\n"
+            'target = Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])\n'
+            "target.parent.mkdir(parents=True, exist_ok=True)\n"
+            'target.write_text("true\\n", encoding="utf-8")\n',
+            encoding="utf-8",
+        )
+        command_boundaries = {
+            "finish": ExternalToolBinding(
+                name="finish",
+                stable_command=("python", "finish.py"),
+            )
+        }
     source_path.write_text(
         """
 (workflow-lisp
@@ -540,23 +584,18 @@ def _compile_runtime_fragment(workspace: Path):
      (score Int)
      (report_path WorkReportPath))
     -> Bool
-    (provider-result providers.review
-      :prompt
-        (review
-          :target_doc target_doc
-          :message message
-          :score score
-          :report_path report_path))))
-""".lstrip(),
+    __WORKFLOW_BODY__))
+""".replace("__WORKFLOW_BODY__", workflow_body).lstrip(),
         encoding="utf-8",
     )
     result = workflow_lisp.compile_stage3_module(
         source_path,
         provider_externs={"providers.review": "capturing-provider"},
         prompt_externs={},
+        command_boundaries=command_boundaries,
         validate_shared=True,
         workspace_root=workspace,
-        lowering_route="legacy",
+        lowering_route=lowering_route,
     )
     return source_path, result.validated_bundles["run-review"]
 
@@ -627,6 +666,127 @@ def _provider_success(
         )
 
     return prepare, execute
+
+
+def _upgrade_runtime_fragment_bundle_to_q2(
+    bundle,
+    *,
+    identity: str = "sha256:" + "4" * 64,
+):
+    provider_node = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if node.kind is ExecutableNodeKind.PROVIDER
+    )
+    config = provider_node.execution_config
+    q1_contract = config.compiler_prompt_fragment_contract
+    expected_output = {
+        "name": "report_path",
+        "path": "${inputs.report_path}",
+        "type": "string",
+        "required": True,
+    }
+    q2_contract = CompilerPromptFragmentContractV2(
+        schema_version=COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
+        template_utf8=q1_contract.template_utf8,
+        rendered_slots=q1_contract.rendered_slots,
+        output_positions=(
+            CompilerPromptFragmentOutputPosition(
+                slot_name="report_path",
+                output_role="required_string_file",
+                expected_output=expected_output,
+            ),
+        ),
+        compiled_prompt_fragment_identity=identity,
+    )
+    q2_common = replace(
+        config.common,
+        expected_outputs=(expected_output,),
+    )
+    q2_config = replace(
+        config,
+        common=q2_common,
+        compiler_prompt_fragment_contract=q2_contract,
+        compiled_prompt_fragment_identity=identity,
+    )
+    q2_node = replace(provider_node, execution_config=q2_config)
+
+    surface_step = next(
+        step
+        for step in bundle.surface.steps
+        if step.step_id == provider_node.step_id
+    )
+    q2_surface_step = replace(
+        surface_step,
+        common=replace(
+            surface_step.common,
+            expected_outputs=(expected_output,),
+        ),
+        compiler_prompt_fragment_contract=q2_contract,
+        compiled_prompt_fragment_identity=identity,
+    )
+    core_step = next(
+        step
+        for step in bundle.core_workflow_ast.body
+        if step.meta.id == provider_node.node_id
+    )
+    q2_core_step = replace(
+        core_step,
+        common=replace(
+            core_step.common,
+            expected_outputs=(expected_output,),
+        ),
+        compiler_prompt_fragment_contract=q2_contract,
+        compiled_prompt_fragment_identity=identity,
+    )
+    prompt_surface_id, prompt_surface = next(
+        iter(bundle.semantic_ir.prompt_surfaces.items())
+    )
+    q2_prompt_surface = replace(
+        prompt_surface,
+        compiler_prompt_fragment_contract=q2_contract,
+        compiled_prompt_fragment_identity=identity,
+    )
+    q2_bundle = replace(
+        bundle,
+        surface=replace(
+            bundle.surface,
+            steps=tuple(
+                q2_surface_step
+                if step.step_id == provider_node.step_id
+                else step
+                for step in bundle.surface.steps
+            ),
+        ),
+        core_workflow_ast=replace(
+            bundle.core_workflow_ast,
+            body=tuple(
+                q2_core_step
+                if step.meta.id == provider_node.node_id
+                else step
+                for step in bundle.core_workflow_ast.body
+            ),
+        ),
+        semantic_ir=replace(
+            bundle.semantic_ir,
+            prompt_surfaces=MappingProxyType(
+                {
+                    **bundle.semantic_ir.prompt_surfaces,
+                    prompt_surface_id: q2_prompt_surface,
+                }
+            ),
+        ),
+        ir=replace(
+            bundle.ir,
+            nodes=MappingProxyType(
+                {
+                    **bundle.ir.nodes,
+                    provider_node.node_id: q2_node,
+                }
+            ),
+        ),
+    )
+    return q2_bundle, q2_node, q2_contract, expected_output
 
 
 def test_runtime_fragment_composes_once_in_the_existing_prompt_order_and_publishes(
@@ -722,6 +882,224 @@ def test_runtime_fragment_composes_once_in_the_existing_prompt_order_and_publish
         "score",
         "report_path",
     ]
+
+
+def test_q2_receiving_attempt_keeps_functional_v1_evidence_identity(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.prompt_dependency_evidence import (
+        FRAGMENT_SUCCESS_SCHEMA,
+        validate_fragment_success_evidence,
+    )
+
+    source_path, compiled_bundle = _compile_runtime_fragment(tmp_path)
+    bundle, _, contract, _ = _upgrade_runtime_fragment_bundle_to_q2(
+        compiled_bundle
+    )
+    manager = _runtime_fragment_manager(
+        tmp_path,
+        source_path,
+        bundle,
+        run_id="prompt-fragment-q2-runtime",
+    )
+    captured: dict[str, object] = {
+        "preparations": 0,
+        "executions": 0,
+    }
+    prepare, base_execute = _provider_success(tmp_path, captured)
+
+    def execute_with_required_file(provider, invocation, **kwargs):
+        report = tmp_path / "artifacts" / "work" / "review.md"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("reviewed\n", encoding="utf-8")
+        return base_execute(provider, invocation, **kwargs)
+
+    with patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        prepare,
+    ), patch.object(
+        ProviderExecutor,
+        "execute",
+        execute_with_required_file,
+    ):
+        WorkflowExecutor(
+            bundle,
+            tmp_path,
+            manager,
+            retry_delay_ms=0,
+        ).execute(on_error="stop")
+
+    assert captured == {
+        "preparations": 1,
+        "executions": 1,
+        "prompt": captured["prompt"],
+    }
+    allocations = json.loads(
+        manager.state_file.read_text(encoding="utf-8")
+    )["provider_attempt_allocations"]
+    (allocation,) = allocations.values()
+    publication = next(
+        event
+        for event in allocation["events"]
+        if event["event"] == "evidence_published"
+    )
+    record = validate_fragment_success_evidence(
+        json.loads(
+            (manager.run_root / publication["relative_path"]).read_text(
+                encoding="ascii"
+            )
+        )
+    )
+    assert record["schema"] == FRAGMENT_SUCCESS_SCHEMA
+    assert FRAGMENT_SUCCESS_SCHEMA == (
+        "workflow_prompt_fragment_snapshot.functional.v1"
+    )
+    assert record["compiled_prompt_fragment_identity"] == (
+        contract.compiled_prompt_fragment_identity
+    )
+
+
+def test_q2_compatible_completed_boundary_is_reused_without_provider_reexecution(
+    tmp_path: Path,
+) -> None:
+    class Q2BoundaryInterruption(BaseException):
+        pass
+
+    source_path, compiled_bundle = _compile_runtime_fragment(
+        tmp_path,
+        lowering_route="wcc_m4",
+        with_downstream_command=True,
+    )
+    bundle, provider_node, _, _ = _upgrade_runtime_fragment_bundle_to_q2(
+        compiled_bundle
+    )
+    manager = _runtime_fragment_manager(
+        tmp_path,
+        source_path,
+        bundle,
+        run_id="prompt-fragment-q2-resume",
+    )
+    captured: dict[str, object] = {
+        "preparations": 0,
+        "executions": 0,
+    }
+    prepare, base_execute = _provider_success(tmp_path, captured)
+
+    def execute_with_required_file(provider, invocation, **kwargs):
+        report = tmp_path / "artifacts" / "work" / "review.md"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("reviewed\n", encoding="utf-8")
+        return base_execute(provider, invocation, **kwargs)
+
+    original_emit = WorkflowExecutor._emit_lexical_checkpoint_shadow_after_step_commit
+
+    def interrupt_after_committed_boundary(
+        executor,
+        state,
+        step_name,
+        step,
+        finalized,
+    ):
+        original_emit(executor, state, step_name, step, finalized)
+        if finalized.get("status") == "completed":
+            raise Q2BoundaryInterruption
+
+    with patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        prepare,
+    ), patch.object(
+        ProviderExecutor,
+        "execute",
+        execute_with_required_file,
+    ), patch.object(
+        WorkflowExecutor,
+        "_emit_lexical_checkpoint_shadow_after_step_commit",
+        interrupt_after_committed_boundary,
+    ):
+        with pytest.raises(Q2BoundaryInterruption):
+            WorkflowExecutor(
+                bundle,
+                tmp_path,
+                manager,
+                retry_delay_ms=0,
+            ).execute(on_error="stop")
+
+    committed = json.loads(manager.state_file.read_text(encoding="utf-8"))
+    provider_state = next(
+        step
+        for step in committed["steps"].values()
+        if step["step_id"] == provider_node.step_id
+    )
+    assert provider_state["status"] == "completed"
+    assert (tmp_path / "artifacts" / "work" / "review.md").is_file()
+    resume_manager = StateManager(tmp_path, run_id=manager.run_id)
+    resume_manager.load()
+    with patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        prepare,
+    ), patch.object(
+        ProviderExecutor,
+        "execute",
+        execute_with_required_file,
+    ):
+        resumed = WorkflowExecutor(
+            bundle,
+            tmp_path,
+            resume_manager,
+            retry_delay_ms=0,
+        ).execute(resume=True, on_error="stop")
+
+    assert resumed["status"] == "completed"
+    assert captured["preparations"] == 1
+    assert captured["executions"] == 1
+
+
+def test_q2_receiving_mismatch_has_no_attempt_or_provider_side_effects(
+    tmp_path: Path,
+) -> None:
+    source_path, compiled_bundle = _compile_runtime_fragment(tmp_path)
+    bundle, provider_node, _, _ = _upgrade_runtime_fragment_bundle_to_q2(
+        compiled_bundle
+    )
+    config = provider_node.execution_config
+    object.__setattr__(
+        config,
+        "common",
+        replace(config.common, expected_outputs=()),
+    )
+    manager = _runtime_fragment_manager(
+        tmp_path,
+        source_path,
+        bundle,
+        run_id="prompt-fragment-q2-mismatch",
+    )
+    captured: dict[str, object] = {
+        "preparations": 0,
+        "executions": 0,
+    }
+    prepare, execute = _provider_success(tmp_path, captured)
+
+    with patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        prepare,
+    ), patch.object(ProviderExecutor, "execute", execute), pytest.raises(
+        ValueError,
+        match="prompt_output_position_contract_mismatch",
+    ):
+        WorkflowExecutor(
+            bundle,
+            tmp_path,
+            manager,
+            retry_delay_ms=0,
+        ).execute(on_error="stop")
+
+    assert captured == {"preparations": 0, "executions": 0}
+    assert manager.state is not None
+    assert manager.state.provider_attempt_allocations == {}
 
 
 @pytest.mark.parametrize(

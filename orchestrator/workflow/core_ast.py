@@ -12,7 +12,7 @@ from orchestrator.exceptions import ValidationError, ValidationSubjectRef, Workf
 
 from .prompt_dependency_contract import CompilerPromptDependencyContract
 from .prompt_fragment_contract import (
-    CompilerPromptFragmentContract,
+    CompilerPromptFragmentContractCarrier,
     validate_compiler_prompt_fragment_pair,
 )
 from .state_layout import GeneratedPathAllocation
@@ -118,7 +118,7 @@ class CoreProviderStep:
         default=None,
         metadata={"json_omit_if_none": True},
     )
-    compiler_prompt_fragment_contract: CompilerPromptFragmentContract | None = field(
+    compiler_prompt_fragment_contract: CompilerPromptFragmentContractCarrier | None = field(
         default=None,
         metadata={"json_omit_if_none": True},
     )
@@ -132,6 +132,7 @@ class CoreProviderStep:
         validate_compiler_prompt_fragment_pair(
             self.compiler_prompt_fragment_contract,
             self.compiled_prompt_fragment_identity,
+            getattr(self.common, "expected_outputs", ()),
         )
 
 

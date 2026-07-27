@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from .prompt_dependency_contract import CompilerPromptDependencyContract
+from .prompt_fragment_contract import (
+    CompilerPromptFragmentContractV2,
+    validate_compiler_prompt_fragment_pair,
+)
 from .executable_ir import (
     AdjudicatedProviderStepConfig,
     CallBoundaryNode,
@@ -143,6 +147,19 @@ class RuntimeStep(Mapping[str, Any]):
     node: ExecutableNode
     name: str
     step_id: str
+
+    def __post_init__(self) -> None:
+        config = self._config()
+        if (
+            isinstance(config, ProviderStepConfig)
+            and type(config.compiler_prompt_fragment_contract)
+            is CompilerPromptFragmentContractV2
+        ):
+            validate_compiler_prompt_fragment_pair(
+                config.compiler_prompt_fragment_contract,
+                config.compiled_prompt_fragment_identity,
+                config.common.expected_outputs,
+            )
 
     @property
     def node_id(self) -> str:

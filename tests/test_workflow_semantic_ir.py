@@ -19,6 +19,12 @@ from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compi
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_bundle_helpers import thaw_surface_workflow
+from tests.test_workflow_lisp_build_artifacts import (
+    _persisted_fragment_contracts,
+)
+from tests.test_workflow_lisp_prompt_calculus_runtime import (
+    _compile_runtime_fragment,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -28,6 +34,243 @@ LEXICAL_POLICY_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkp
 LEXICAL_RESTORE_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_restore_regions.orc")
 TYPED_PROMPT_INPUT_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/typed_prompt_input_phase.orc")
 ENTRY_PUBLICATION_RUNTIME_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/entry_publication_runtime.orc")
+
+
+def test_semantic_and_executable_q2_boundaries_require_exact_expected_outputs(
+    tmp_path: Path,
+) -> None:
+    semantic_module = importlib.import_module(
+        "orchestrator.workflow.semantic_ir"
+    )
+    executable_module = importlib.import_module(
+        "orchestrator.workflow.executable_ir"
+    )
+    _, bundle = _compile_runtime_fragment(tmp_path)
+    _, contract, expected_outputs = _persisted_fragment_contracts()
+    prompt_surface_id, prompt_surface = next(
+        iter(bundle.semantic_ir.prompt_surfaces.items())
+    )
+    q2_prompt_surface = replace(
+        prompt_surface,
+        compiler_prompt_fragment_contract=contract,
+        compiled_prompt_fragment_identity=(
+            contract.compiled_prompt_fragment_identity
+        ),
+    )
+    q2_semantic = replace(
+        bundle.semantic_ir,
+        prompt_surfaces=MappingProxyType(
+            {
+                **bundle.semantic_ir.prompt_surfaces,
+                prompt_surface_id: q2_prompt_surface,
+            }
+        ),
+    )
+    node = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if node.kind is executable_module.ExecutableNodeKind.PROVIDER
+    )
+    q2_config = replace(
+        node.execution_config,
+        common=replace(
+            node.execution_config.common,
+            expected_outputs=expected_outputs,
+        ),
+        compiler_prompt_fragment_contract=contract,
+        compiled_prompt_fragment_identity=(
+            contract.compiled_prompt_fragment_identity
+        ),
+    )
+    q2_node = replace(node, execution_config=q2_config)
+    q2_ir = replace(
+        bundle.ir,
+        nodes=MappingProxyType(
+            {**bundle.ir.nodes, node.node_id: q2_node}
+        ),
+    )
+    semantic_module.validate_workflow_semantic_ir(
+        q2_semantic,
+        ir=q2_ir,
+        projection=bundle.projection,
+        runtime_plan=bundle.runtime_plan,
+        surface=bundle.surface,
+        imports=bundle.imports,
+    )
+
+    statement = bundle.semantic_ir.workflows[bundle.surface.name].statements[
+        q2_prompt_surface.statement_id
+    ]
+    provider_subject = ValidationSubjectRef(
+        subject_kind="step_id",
+        subject_name=statement.step_id,
+        workflow_name=bundle.surface.name,
+    )
+    different_q2_contract = replace(
+        contract,
+        compiled_prompt_fragment_identity="sha256:" + "5" * 64,
+    )
+    different_q2_semantic = replace(
+        q2_semantic,
+        prompt_surfaces=MappingProxyType(
+            {
+                **q2_semantic.prompt_surfaces,
+                prompt_surface_id: replace(
+                    q2_prompt_surface,
+                    compiler_prompt_fragment_contract=different_q2_contract,
+                    compiled_prompt_fragment_identity=(
+                        different_q2_contract.compiled_prompt_fragment_identity
+                    ),
+                ),
+            }
+        ),
+    )
+    different_q2_config = replace(
+        q2_config,
+        compiler_prompt_fragment_contract=different_q2_contract,
+        compiled_prompt_fragment_identity=(
+            different_q2_contract.compiled_prompt_fragment_identity
+        ),
+    )
+    different_q2_ir = replace(
+        q2_ir,
+        nodes=MappingProxyType(
+            {
+                **q2_ir.nodes,
+                node.node_id: replace(
+                    q2_node,
+                    execution_config=different_q2_config,
+                ),
+            }
+        ),
+    )
+    for semantic_ir, executable_ir in (
+        (q2_semantic, different_q2_ir),
+        (different_q2_semantic, q2_ir),
+    ):
+        with pytest.raises(WorkflowValidationError) as mismatch:
+            semantic_module.validate_workflow_semantic_ir(
+                semantic_ir,
+                ir=executable_ir,
+                projection=bundle.projection,
+                runtime_plan=bundle.runtime_plan,
+                surface=bundle.surface,
+                imports=bundle.imports,
+            )
+        (error,) = mismatch.value.errors
+        assert error.message.startswith(
+            "prompt_output_position_contract_mismatch"
+        )
+        assert error.subject_refs == (provider_subject,)
+
+    for semantic_ir, executable_ir in (
+        (q2_semantic, bundle.ir),
+        (bundle.semantic_ir, q2_ir),
+    ):
+        with pytest.raises(WorkflowValidationError) as mismatch:
+            semantic_module.validate_workflow_semantic_ir(
+                semantic_ir,
+                ir=executable_ir,
+                projection=bundle.projection,
+                runtime_plan=bundle.runtime_plan,
+                surface=bundle.surface,
+                imports=bundle.imports,
+            )
+        (error,) = mismatch.value.errors
+        assert error.message.startswith(
+            "prompt_output_position_contract_mismatch"
+        )
+        assert error.subject_refs == (provider_subject,)
+
+    q1_contract = prompt_surface.compiler_prompt_fragment_contract
+    different_q1_contract = replace(
+        q1_contract,
+        compiled_prompt_fragment_identity="sha256:" + "6" * 64,
+    )
+    different_q1_semantic = replace(
+        bundle.semantic_ir,
+        prompt_surfaces=MappingProxyType(
+            {
+                **bundle.semantic_ir.prompt_surfaces,
+                prompt_surface_id: replace(
+                    prompt_surface,
+                    compiler_prompt_fragment_contract=different_q1_contract,
+                    compiled_prompt_fragment_identity=(
+                        different_q1_contract.compiled_prompt_fragment_identity
+                    ),
+                ),
+            }
+        ),
+    )
+    different_q1_config = replace(
+        node.execution_config,
+        compiler_prompt_fragment_contract=different_q1_contract,
+        compiled_prompt_fragment_identity=(
+            different_q1_contract.compiled_prompt_fragment_identity
+        ),
+    )
+    different_q1_ir = replace(
+        bundle.ir,
+        nodes=MappingProxyType(
+            {
+                **bundle.ir.nodes,
+                node.node_id: replace(
+                    node,
+                    execution_config=different_q1_config,
+                ),
+            }
+        ),
+    )
+    for semantic_ir, executable_ir in (
+        (bundle.semantic_ir, different_q1_ir),
+        (different_q1_semantic, bundle.ir),
+    ):
+        with pytest.raises(WorkflowValidationError) as mismatch:
+            semantic_module.validate_workflow_semantic_ir(
+                semantic_ir,
+                ir=executable_ir,
+                projection=bundle.projection,
+                runtime_plan=bundle.runtime_plan,
+                surface=bundle.surface,
+                imports=bundle.imports,
+            )
+        (error,) = mismatch.value.errors
+        assert error.message.startswith("semantic_ir_invalid")
+        assert error.subject_refs == (provider_subject,)
+
+    with pytest.raises(
+        ValueError,
+        match="prompt_output_position_contract_mismatch",
+    ):
+        replace(
+            q2_config,
+            common=replace(
+                q2_config.common,
+                expected_outputs=tuple(reversed(expected_outputs)),
+            ),
+        )
+
+    object.__setattr__(
+        q2_config,
+        "common",
+        replace(q2_config.common, expected_outputs=expected_outputs[:1]),
+    )
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        semantic_module.validate_workflow_semantic_ir(
+            q2_semantic,
+            ir=q2_ir,
+            projection=bundle.projection,
+            runtime_plan=bundle.runtime_plan,
+            surface=bundle.surface,
+            imports=bundle.imports,
+        )
+    (error,) = excinfo.value.errors
+    assert error.message.startswith(
+        "prompt_output_position_contract_mismatch"
+    )
+    assert error.subject_refs == (
+        provider_subject,
+    )
 
 
 @pytest.mark.parametrize("lowering_route", ["legacy", "wcc_m4"])

@@ -24,8 +24,8 @@ from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_boundary_projection
 from orchestrator.workflow.persisted_surface import (
     PERSISTED_WORKFLOW_SURFACE_FILENAME,
-    PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
     canonical_persisted_surface_bytes,
+    decode_persisted_workflow_surface_graph,
 )
 from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
@@ -272,6 +272,9 @@ def _build_manifest(
 ) -> FrontendBuildManifest:
     from .build import BUILD_SCHEMA_VERSION, FrontendBuildManifest
 
+    persisted_surface = decode_persisted_workflow_surface_graph(
+        artifact_paths["persisted_workflow_surface"].read_bytes()
+    )
     return FrontendBuildManifest(
         schema_version=BUILD_SCHEMA_VERSION,
         fingerprint=fingerprint,
@@ -311,13 +314,13 @@ def _build_manifest(
             "semantic_ir": "emitted",
         },
         persisted_workflow_surface={
-            "schema_version": PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
+            "schema_version": persisted_surface.schema_version,
             "path": str(
                 artifact_paths["persisted_workflow_surface"].relative_to(
                     build_root.parent.parent
                 )
             ).replace("\\", "/"),
-            "entry_workflow": entry_selection.canonical_name,
+            "entry_workflow": persisted_surface.entry_workflow,
             "sha256": f"sha256:{_sha256_path(artifact_paths['persisted_workflow_surface'])}",
         },
         diagnostic_count=len(diagnostics),

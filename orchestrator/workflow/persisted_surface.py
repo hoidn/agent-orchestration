@@ -27,10 +27,25 @@ from orchestrator.workflow.prompt_dependency_contract import (
     serialize_compiler_prompt_dependency_contract,
     validate_compiler_prompt_dependency_contract,
 )
+from orchestrator.workflow.prompt_fragment_contract import (
+    COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
+    CompilerPromptFragmentContractV2,
+    CompilerPromptFragmentOutputPosition,
+    CompilerPromptFragmentRenderedSlot,
+    serialize_compiler_prompt_fragment_contract,
+    validate_compiler_prompt_fragment_pair,
+)
 from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind
 
 
 PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA = "persisted_workflow_surface_graph.v1"
+PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2 = "persisted_workflow_surface_graph.v2"
+SUPPORTED_PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMAS = frozenset(
+    {
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2,
+    }
+)
 PERSISTED_WORKFLOW_SURFACE_FILENAME = "persisted_workflow_surface.json"
 
 
@@ -68,6 +83,8 @@ class PersistedSurfaceStep:
     match_cases: Mapping[str, tuple["PersistedSurfaceStep", ...]]
     repeat_until: PersistedSurfaceRepeatUntil | None
     compiler_prompt_dependency_contract: CompilerPromptDependencyContract | None = None
+    compiler_prompt_fragment_contract: CompilerPromptFragmentContractV2 | None = None
+    compiled_prompt_fragment_identity: str | None = None
 
 
 @dataclass(frozen=True)
@@ -185,8 +202,13 @@ def serialize_persisted_workflow_surface_graph(
         raise ValueError("persisted workflow surface entry must have a workflow name")
     if resolved_entry_name != entry_workflow:
         raise ValueError("persisted workflow surface entry identity is inconsistent")
+    schema_version = (
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2
+        if _serialized_nodes_contain_q2(nodes)
+        else PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
+    )
     return {
-        "schema_version": PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
+        "schema_version": schema_version,
         "entry_workflow": entry_workflow,
         "nodes": dict(sorted(nodes.items())),
     }
@@ -210,7 +232,8 @@ def decode_persisted_workflow_surface_graph(
         {"schema_version", "entry_workflow", "nodes"},
         "persisted workflow surface graph",
     )
-    if root["schema_version"] != PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA:
+    schema_version = root["schema_version"]
+    if schema_version not in SUPPORTED_PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMAS:
         raise ValueError("persisted workflow surface schema version is unsupported")
     entry_workflow = _non_empty_string(root["entry_workflow"], "entry workflow")
     raw_nodes = _mapping(root["nodes"], "persisted workflow surface nodes")
@@ -250,9 +273,12 @@ def decode_persisted_workflow_surface_graph(
                 _non_empty_string(node_mapping["workflow_path"], "workflow path")
             ),
             calls=MappingProxyType(parsed_calls),
-            steps=tuple(_decode_step(step) for step in raw_steps),
+            steps=tuple(
+                _decode_step(step, schema_version=schema_version)
+                for step in raw_steps
+            ),
             finalization_steps=tuple(
-                _decode_step(step)
+                _decode_step(step, schema_version=schema_version)
                 for step in _list(
                     node_mapping["finalization_steps"], "workflow finalization steps"
                 )
@@ -264,9 +290,20 @@ def decode_persisted_workflow_surface_graph(
         raise ValueError("persisted workflow surface bytes are not canonical")
     if entry_workflow not in nodes:
         raise ValueError("persisted workflow surface entry node is missing")
+    has_q2 = any(
+        _persisted_steps_contain_q2((*node.steps, *node.finalization_steps))
+        for node in nodes.values()
+    )
+    if (
+        schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2
+    ) != has_q2:
+        raise ValueError(
+            "prompt_output_position_contract_mismatch: "
+            "persisted graph schema does not match its v2 fragment carriage"
+        )
     _validate_graph_reachability(entry_workflow, nodes)
     return PersistedWorkflowSurfaceGraph(
-        schema_version=PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
+        schema_version=schema_version,
         entry_workflow=entry_workflow,
         nodes=MappingProxyType(nodes),
     )
@@ -274,6 +311,11 @@ def decode_persisted_workflow_surface_graph(
 
 def _serialize_step(step: SurfaceStep) -> dict[str, Any]:
     common = step.common
+    validate_compiler_prompt_fragment_pair(
+        step.compiler_prompt_fragment_contract,
+        step.compiled_prompt_fragment_identity,
+        common.expected_outputs,
+    )
     payload = {
         "name": step.name,
         "step_id": step.step_id,
@@ -322,7 +364,79 @@ def _serialize_step(step: SurfaceStep) -> dict[str, Any]:
                 step.compiler_prompt_dependency_contract
             )
         )
+    if type(step.compiler_prompt_fragment_contract) is CompilerPromptFragmentContractV2:
+        payload["compiler_prompt_fragment_contract"] = (
+            serialize_compiler_prompt_fragment_contract(
+                step.compiler_prompt_fragment_contract
+            )
+        )
+        payload["compiled_prompt_fragment_identity"] = (
+            step.compiled_prompt_fragment_identity
+        )
     return payload
+
+
+def _serialized_nodes_contain_q2(nodes: Mapping[str, Any]) -> bool:
+    def step_contains(step: Any) -> bool:
+        if not isinstance(step, Mapping):
+            return False
+        if "compiler_prompt_fragment_contract" in step:
+            return True
+        nested_groups: list[Any] = [
+            step.get("for_each_steps"),
+            step.get("then_steps"),
+            step.get("else_steps"),
+        ]
+        match_cases = step.get("match_cases")
+        if isinstance(match_cases, Mapping):
+            nested_groups.extend(match_cases.values())
+        repeat_until = step.get("repeat_until")
+        if isinstance(repeat_until, Mapping):
+            nested_groups.append(repeat_until.get("steps"))
+        return any(
+            isinstance(group, list)
+            and any(step_contains(child) for child in group)
+            for group in nested_groups
+        )
+
+    return any(
+        isinstance(node, Mapping)
+        and any(
+            isinstance(steps, list)
+            and any(step_contains(step) for step in steps)
+            for steps in (
+                node.get("steps"),
+                node.get("finalization_steps"),
+            )
+        )
+        for node in nodes.values()
+    )
+
+
+def _persisted_steps_contain_q2(
+    steps: tuple[PersistedSurfaceStep, ...],
+) -> bool:
+    for step in steps:
+        if step.compiler_prompt_fragment_contract is not None:
+            return True
+        nested = (
+            *step.for_each_steps,
+            *step.then_steps,
+            *step.else_steps,
+            *(
+                child
+                for case_steps in step.match_cases.values()
+                for child in case_steps
+            ),
+            *(
+                ()
+                if step.repeat_until is None
+                else step.repeat_until.steps
+            ),
+        )
+        if _persisted_steps_contain_q2(nested):
+            return True
+    return False
 
 
 _STEP_KEYS = {
@@ -344,6 +458,11 @@ _STEP_KEYS = {
     "repeat_until",
 }
 _OPTIONAL_STEP_KEYS = {"compiler_prompt_dependency_contract"}
+_V2_OPTIONAL_STEP_KEYS = {
+    *_OPTIONAL_STEP_KEYS,
+    "compiler_prompt_fragment_contract",
+    "compiled_prompt_fragment_identity",
+}
 _COMMON_KEYS = {
     "publishes",
     "consumes",
@@ -353,10 +472,38 @@ _COMMON_KEYS = {
 }
 
 
-def _decode_step(value: Any) -> PersistedSurfaceStep:
+def _decode_step(
+    value: Any,
+    *,
+    schema_version: str,
+) -> PersistedSurfaceStep:
     raw = _mapping(value, "persisted surface step")
-    if not _STEP_KEYS <= set(raw) or set(raw) - _STEP_KEYS - _OPTIONAL_STEP_KEYS:
+    if (
+        schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
+        and {
+            "compiler_prompt_fragment_contract",
+            "compiled_prompt_fragment_identity",
+        }
+        & set(raw)
+    ):
+        raise ValueError(
+            "prompt_output_position_contract_mismatch: "
+            "persisted v1 graph cannot carry v2 fragment fields"
+        )
+    optional_keys = (
+        _V2_OPTIONAL_STEP_KEYS
+        if schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2
+        else _OPTIONAL_STEP_KEYS
+    )
+    if not _STEP_KEYS <= set(raw) or set(raw) - _STEP_KEYS - optional_keys:
         raise ValueError("persisted surface step has unsupported or missing fields")
+    has_fragment_contract = "compiler_prompt_fragment_contract" in raw
+    has_fragment_identity = "compiled_prompt_fragment_identity" in raw
+    if has_fragment_contract != has_fragment_identity:
+        raise ValueError(
+            "prompt_output_position_contract_mismatch: "
+            "persisted v2 fragment contract and identity must be paired"
+        )
     try:
         kind = SurfaceStepKind(_non_empty_string(raw["kind"], "step kind"))
     except ValueError as exc:
@@ -392,11 +539,23 @@ def _decode_step(value: Any) -> PersistedSurfaceStep:
         repeat_until = PersistedSurfaceRepeatUntil(
             max_iterations=max_iterations,
             steps=tuple(
-                _decode_step(step)
+                _decode_step(step, schema_version=schema_version)
                 for step in _list(repeat["steps"], "repeat-until steps")
             ),
         )
-    return PersistedSurfaceStep(
+    decoded_fragment_identity = None
+    if has_fragment_identity:
+        try:
+            decoded_fragment_identity = _non_empty_string(
+                raw["compiled_prompt_fragment_identity"],
+                "compiled prompt fragment identity",
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "prompt_output_position_contract_mismatch: "
+                "persisted v2 fragment identity is invalid"
+            ) from exc
+    decoded = PersistedSurfaceStep(
         name=_non_empty_string(raw["name"], "step name"),
         step_id=_non_empty_string(raw["step_id"], "step id"),
         kind=kind,
@@ -425,14 +584,21 @@ def _decode_step(value: Any) -> PersistedSurfaceStep:
             variant_output=_freeze(common["variant_output"]),
         ),
         for_each_steps=tuple(
-            _decode_step(step) for step in for_each_steps
+            _decode_step(step, schema_version=schema_version)
+            for step in for_each_steps
         ),
-        then_steps=tuple(_decode_step(step) for step in then_steps),
-        else_steps=tuple(_decode_step(step) for step in else_steps),
+        then_steps=tuple(
+            _decode_step(step, schema_version=schema_version)
+            for step in then_steps
+        ),
+        else_steps=tuple(
+            _decode_step(step, schema_version=schema_version)
+            for step in else_steps
+        ),
         match_cases=MappingProxyType(
             {
                 _non_empty_string(name, "match case name"): tuple(
-                    _decode_step(step)
+                    _decode_step(step, schema_version=schema_version)
                     for step in _list(steps, "match case steps")
                 )
                 for name, steps in match_cases.items()
@@ -446,7 +612,21 @@ def _decode_step(value: Any) -> PersistedSurfaceStep:
             if "compiler_prompt_dependency_contract" in raw
             else None
         ),
+        compiler_prompt_fragment_contract=(
+            _decode_compiler_prompt_fragment_contract_v2(
+                raw["compiler_prompt_fragment_contract"]
+            )
+            if has_fragment_contract
+            else None
+        ),
+        compiled_prompt_fragment_identity=decoded_fragment_identity,
     )
+    validate_compiler_prompt_fragment_pair(
+        decoded.compiler_prompt_fragment_contract,
+        decoded.compiled_prompt_fragment_identity,
+        decoded.common.expected_outputs,
+    )
+    return decoded
 
 
 _COMPILER_PROMPT_DEPENDENCY_CONTRACT_KEYS = {
@@ -462,6 +642,116 @@ _COMPILER_PROMPT_DEPENDENCY_CONTRACT_KEYS = {
     "instruction_utf8_sha256_or_null",
     "normalized_contract_sha256",
 }
+
+_COMPILER_PROMPT_FRAGMENT_CONTRACT_V2_KEYS = {
+    "schema_version",
+    "template_utf8",
+    "rendered_slots",
+    "output_positions",
+    "compiled_prompt_fragment_identity",
+}
+_COMPILER_PROMPT_FRAGMENT_RENDERED_SLOT_KEYS = {
+    "name",
+    "kind",
+    "static_type",
+    "renderer_id",
+    "value_source",
+    "placeholder_ordinals",
+}
+_COMPILER_PROMPT_FRAGMENT_OUTPUT_POSITION_KEYS = {
+    "slot_name",
+    "output_role",
+    "expected_output",
+}
+
+
+def _decode_compiler_prompt_fragment_contract_v2(
+    value: Any,
+) -> CompilerPromptFragmentContractV2:
+    try:
+        raw = _mapping_with_keys(
+            value,
+            _COMPILER_PROMPT_FRAGMENT_CONTRACT_V2_KEYS,
+            "compiler prompt fragment contract v2",
+        )
+        if raw["schema_version"] != COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2:
+            raise ValueError("persisted fragment contract schema is not v2")
+        rendered_slots = tuple(
+            CompilerPromptFragmentRenderedSlot(
+                name=_non_empty_string(slot["name"], "rendered slot name"),
+                kind=_non_empty_string(slot["kind"], "rendered slot kind"),
+                static_type=_mapping(
+                    slot["static_type"],
+                    "rendered slot static type",
+                ),
+                renderer_id=_non_empty_string(
+                    slot["renderer_id"],
+                    "rendered slot renderer",
+                ),
+                value_source=_mapping(
+                    slot["value_source"],
+                    "rendered slot value source",
+                ),
+                placeholder_ordinals=tuple(
+                    ordinal
+                    for ordinal in _list(
+                        slot["placeholder_ordinals"],
+                        "rendered slot placeholder ordinals",
+                    )
+                ),
+            )
+            for slot in (
+                _mapping_with_keys(
+                    item,
+                    _COMPILER_PROMPT_FRAGMENT_RENDERED_SLOT_KEYS,
+                    "compiler prompt fragment rendered slot",
+                )
+                for item in _list(raw["rendered_slots"], "rendered slots")
+            )
+        )
+        output_positions = tuple(
+            CompilerPromptFragmentOutputPosition(
+                slot_name=_non_empty_string(
+                    row["slot_name"],
+                    "output-position slot name",
+                ),
+                output_role=_non_empty_string(
+                    row["output_role"],
+                    "output-position role",
+                ),
+                expected_output=_mapping_with_keys(
+                    row["expected_output"],
+                    {"name", "path", "type", "required"},
+                    "output-position expected output",
+                ),
+            )
+            for row in (
+                _mapping_with_keys(
+                    item,
+                    _COMPILER_PROMPT_FRAGMENT_OUTPUT_POSITION_KEYS,
+                    "compiler prompt fragment output position",
+                )
+                for item in _list(
+                    raw["output_positions"],
+                    "output positions",
+                )
+            )
+        )
+        return CompilerPromptFragmentContractV2(
+            schema_version=raw["schema_version"],
+            template_utf8=raw["template_utf8"],
+            rendered_slots=rendered_slots,
+            output_positions=output_positions,
+            compiled_prompt_fragment_identity=_non_empty_string(
+                raw["compiled_prompt_fragment_identity"],
+                "compiled prompt fragment identity",
+            ),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "prompt_output_position_contract_mismatch: "
+            "persisted v2 fragment contract is invalid"
+        ) from exc
 
 
 def _decode_compiler_prompt_dependency_contract(

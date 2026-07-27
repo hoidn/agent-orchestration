@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from orchestrator.workflow.persisted_surface import (
-    PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
+    SUPPORTED_PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMAS,
     PersistedWorkflowSurfaceGraph,
     decode_persisted_workflow_surface_graph,
 )
@@ -113,7 +113,10 @@ def _closed_anchor(value: Any, *, label: str) -> dict[str, str]:
     if not isinstance(value, Mapping) or set(value) != _ANCHOR_KEYS:
         _fail(f"{label} is partial or malformed")
     anchor = dict(value)
-    if anchor.get("schema_version") != PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA:
+    if (
+        anchor.get("schema_version")
+        not in SUPPORTED_PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMAS
+    ):
         _fail(f"{label} schema version is unsupported")
     for key in ("path", "entry_workflow"):
         if not isinstance(anchor.get(key), str) or not anchor[key]:

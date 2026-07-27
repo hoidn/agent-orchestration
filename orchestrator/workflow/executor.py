@@ -5685,7 +5685,11 @@ class WorkflowExecutor:
             is PromptDependencyOriginKind.WORKFLOW_LISP_PROMPT_FRAGMENT
         )
         try:
-            validate_compiler_prompt_fragment_pair(contract, identity)
+            validate_compiler_prompt_fragment_pair(
+                contract,
+                identity,
+                step.get("expected_outputs", ()),
+            )
         except (TypeError, ValueError) as exc:
             reason = str(exc).split(":", 1)[0]
             if reason not in {
@@ -5693,6 +5697,7 @@ class WorkflowExecutor:
                 "compiled_prompt_fragment_identity_invalid",
                 "compiled_prompt_fragment_identity_mismatch",
                 "compiler_prompt_fragment_contract_invalid",
+                "prompt_output_position_contract_mismatch",
             }:
                 reason = "compiler_prompt_fragment_contract_invalid"
             return (

@@ -19,7 +19,14 @@ from orchestrator.workflow.loaded_bundle import (
 )
 from orchestrator.workflow.predicates import ComparePredicateNode
 from orchestrator.workflow.references import SelfOutputReference
-from orchestrator.workflow.surface_ast import SurfaceStepKind
+from orchestrator.workflow.surface_ast import (
+    SurfaceStep,
+    SurfaceStepCommonConfig,
+    SurfaceStepKind,
+)
+from tests.test_workflow_lisp_build_artifacts import (
+    _persisted_fragment_contracts,
+)
 from tests.workflow_bundle_helpers import materialize_projection_body_steps
 
 
@@ -27,6 +34,50 @@ def _write_yaml(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
     return path
+
+
+def test_surface_q2_fragment_pair_is_exact_and_ordered() -> None:
+    _, contract, expected_outputs = _persisted_fragment_contracts()
+    valid = SurfaceStep(
+        name="Q2",
+        step_id="q2",
+        kind=SurfaceStepKind.PROVIDER,
+        provider="test-provider",
+        common=SurfaceStepCommonConfig(expected_outputs=expected_outputs),
+        compiler_prompt_fragment_contract=contract,
+        compiled_prompt_fragment_identity=(
+            contract.compiled_prompt_fragment_identity
+        ),
+    )
+    assert valid.common.expected_outputs == expected_outputs
+
+    for mismatched in (
+        (),
+        expected_outputs[:1],
+        (*expected_outputs, expected_outputs[0]),
+        tuple(reversed(expected_outputs)),
+        (
+            {**expected_outputs[0], "path": "${inputs.second}"},
+            expected_outputs[1],
+        ),
+    ):
+        with pytest.raises(
+            ValueError,
+            match="prompt_output_position_contract_mismatch",
+        ):
+            SurfaceStep(
+                name="Q2",
+                step_id="q2",
+                kind=SurfaceStepKind.PROVIDER,
+                provider="test-provider",
+                common=SurfaceStepCommonConfig(
+                    expected_outputs=mismatched
+                ),
+                compiler_prompt_fragment_contract=contract,
+                compiled_prompt_fragment_identity=(
+                    contract.compiled_prompt_fragment_identity
+                ),
+            )
 
 
 def _write_review_loop_library(workspace: Path) -> None:

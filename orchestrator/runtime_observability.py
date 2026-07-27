@@ -15,7 +15,7 @@ from typing import Any, Callable, Mapping, MutableMapping
 from orchestrator.monitor.process import is_pid_alive, process_start_time_token
 from orchestrator.workflow.persisted_surface import (
     PERSISTED_WORKFLOW_SURFACE_FILENAME,
-    PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
+    SUPPORTED_PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMAS,
 )
 from orchestrator.workflow.surface_ast import WorkflowProvenance
 
@@ -131,7 +131,8 @@ def record_compiled_frontend_provenance(
         and re.fullmatch(r"[0-9a-f]{16}", build_root.name) is not None
         and not persisted_surface_path.is_absolute()
         and persisted_surface_path.as_posix() == expected_surface_path.as_posix()
-        and persisted_surface_schema == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
+        and persisted_surface_schema
+        in SUPPORTED_PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMAS
         and isinstance(persisted_surface_entry, str)
         and persisted_surface_entry
         and persisted_surface_entry == frontend_entry_workflow

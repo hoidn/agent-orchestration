@@ -11,6 +11,10 @@ import pytest
 from orchestrator.dashboard.projection import RunProjector
 from orchestrator.dashboard.scanner import RunScanner
 from orchestrator.dashboard.server import DashboardApp
+from orchestrator.dashboard.compiled_workflow import (
+    PersistedCompiledWorkflowError,
+    _closed_anchor,
+)
 from orchestrator.runtime_observability import record_compiled_frontend_provenance
 from orchestrator.workflow.persisted_surface import (
     canonical_persisted_surface_bytes,
@@ -26,6 +30,39 @@ ENTRY_WORKFLOW = "dashboard_fixture::entry"
 CHILD_WORKFLOW = "dashboard_fixture::child"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LISP_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
+
+
+@pytest.mark.parametrize(
+    "schema",
+    (
+        "persisted_workflow_surface_graph.v1",
+        "persisted_workflow_surface_graph.v2",
+    ),
+)
+def test_persisted_surface_anchor_accepts_each_supported_schema(
+    schema: str,
+) -> None:
+    anchor = {
+        "schema_version": schema,
+        "path": f"build/{FINGERPRINT}/persisted_workflow_surface.json",
+        "entry_workflow": ENTRY_WORKFLOW,
+        "sha256": "sha256:" + "a" * 64,
+    }
+
+    assert _closed_anchor(anchor, label="test anchor") == anchor
+
+
+def test_persisted_surface_anchor_rejects_unknown_schema() -> None:
+    with pytest.raises(PersistedCompiledWorkflowError, match="unsupported"):
+        _closed_anchor(
+            {
+                "schema_version": "persisted_workflow_surface_graph.v3",
+                "path": f"build/{FINGERPRINT}/persisted_workflow_surface.json",
+                "entry_workflow": ENTRY_WORKFLOW,
+                "sha256": "sha256:" + "a" * 64,
+            },
+            label="test anchor",
+        )
 
 
 def _write_real_imported_bundle_mix_run(

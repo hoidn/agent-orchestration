@@ -10,7 +10,7 @@ from typing import Any, Mapping, Optional
 
 from .prompt_dependency_contract import CompilerPromptDependencyContract
 from .prompt_fragment_contract import (
-    CompilerPromptFragmentContract,
+    CompilerPromptFragmentContractCarrier,
     validate_compiler_prompt_fragment_pair,
 )
 
@@ -270,7 +270,7 @@ class SurfaceStep:
         default=None,
         metadata={"json_omit_if_none": True},
     )
-    compiler_prompt_fragment_contract: CompilerPromptFragmentContract | None = field(
+    compiler_prompt_fragment_contract: CompilerPromptFragmentContractCarrier | None = field(
         default=None,
         metadata={"json_omit_if_none": True},
     )
@@ -311,6 +311,7 @@ class SurfaceStep:
         validate_compiler_prompt_fragment_pair(
             self.compiler_prompt_fragment_contract,
             self.compiled_prompt_fragment_identity,
+            self.common.expected_outputs,
         )
 
 

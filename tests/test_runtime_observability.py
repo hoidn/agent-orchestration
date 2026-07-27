@@ -228,7 +228,16 @@ def test_record_compiled_frontend_provenance_persists_bridge_fields():
     assert "core_nodes" not in state["runtime_observability"]["compiled_frontend"]
 
 
-def test_record_compiled_frontend_surface_persists_complete_graph_anchor():
+@pytest.mark.parametrize(
+    "schema",
+    (
+        "persisted_workflow_surface_graph.v1",
+        "persisted_workflow_surface_graph.v2",
+    ),
+)
+def test_record_compiled_frontend_surface_persists_complete_graph_anchor(
+    schema: str,
+):
     state = {}
     fingerprint = "0123456789abcdef"
 
@@ -246,9 +255,7 @@ def test_record_compiled_frontend_surface_persists_complete_graph_anchor():
             frontend_persisted_surface_path=Path(
                 f"build/{fingerprint}/persisted_workflow_surface.json"
             ),
-            frontend_persisted_surface_schema_version=(
-                "persisted_workflow_surface_graph.v1"
-            ),
+            frontend_persisted_surface_schema_version=schema,
             frontend_persisted_surface_entry_workflow="example::run",
             frontend_persisted_surface_sha256="sha256:" + "a" * 64,
         ),
@@ -256,7 +263,7 @@ def test_record_compiled_frontend_surface_persists_complete_graph_anchor():
 
     compiled = state["runtime_observability"]["compiled_frontend"]
     assert compiled["persisted_workflow_surface"] == {
-        "schema_version": "persisted_workflow_surface_graph.v1",
+        "schema_version": schema,
         "path": f"build/{fingerprint}/persisted_workflow_surface.json",
         "entry_workflow": "example::run",
         "sha256": "sha256:" + "a" * 64,
@@ -327,7 +334,7 @@ def test_record_compiled_frontend_surface_omits_malformed_digest(
     [
         (
             "0123456789abcdef",
-            "persisted_workflow_surface_graph.v2",
+            "persisted_workflow_surface_graph.v3",
             "build/0123456789abcdef/persisted_workflow_surface.json",
             "example::run",
         ),

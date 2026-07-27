@@ -19,7 +19,7 @@ from .prompt_dependency_contract import (
     validate_compiler_prompt_dependency_contract,
 )
 from .prompt_fragment_contract import (
-    CompilerPromptFragmentContract,
+    CompilerPromptFragmentContractCarrier,
     serialize_compiler_prompt_fragment_contract,
     validate_compiler_prompt_fragment_pair,
 )
@@ -267,7 +267,7 @@ class ProviderStepConfig:
             "json_serializer": serialize_compiler_prompt_dependency_contract,
         },
     )
-    compiler_prompt_fragment_contract: CompilerPromptFragmentContract | None = field(
+    compiler_prompt_fragment_contract: CompilerPromptFragmentContractCarrier | None = field(
         default=None,
         metadata={
             "json_omit_if_none": True,
@@ -283,6 +283,7 @@ class ProviderStepConfig:
         validate_compiler_prompt_fragment_pair(
             self.compiler_prompt_fragment_contract,
             self.compiled_prompt_fragment_identity,
+            self.common.expected_outputs,
         )
 
 
@@ -1099,6 +1100,7 @@ def _validate_provider_prompt_fragment_binding(
     validate_compiler_prompt_fragment_pair(
         config.compiler_prompt_fragment_contract,
         config.compiled_prompt_fragment_identity,
+        config.common.expected_outputs,
     )
     dependency_contract = config.compiler_prompt_dependency_contract
     fragment_origin = (

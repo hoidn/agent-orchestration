@@ -18,7 +18,6 @@ from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow.persisted_surface import (
     PERSISTED_WORKFLOW_SURFACE_FILENAME,
-    PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
     canonical_persisted_surface_bytes,
     decode_persisted_workflow_surface_graph,
     persisted_surface_sha256,
@@ -1016,6 +1015,9 @@ def _select_and_reattach(
     source_map_path = build_root / "source_map.json"
     persisted_surface_payload = serialize_persisted_workflow_surface_graph(selected_bundle)
     persisted_surface_bytes = canonical_persisted_surface_bytes(persisted_surface_payload)
+    persisted_surface_graph = decode_persisted_workflow_surface_graph(
+        persisted_surface_bytes
+    )
     persisted_surface_relative_path = (
         Path("build") / fingerprint / PERSISTED_WORKFLOW_SURFACE_FILENAME
     )
@@ -1027,7 +1029,7 @@ def _select_and_reattach(
         frontend_source_map_schema_version=SOURCE_MAP_SCHEMA_VERSION,
         frontend_source_map_coverage=dict(SOURCE_MAP_COVERAGE),
         frontend_persisted_surface_path=persisted_surface_relative_path,
-        frontend_persisted_surface_schema_version=PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
+        frontend_persisted_surface_schema_version=persisted_surface_graph.schema_version,
         frontend_persisted_surface_entry_workflow=entry_selection.canonical_name,
         frontend_persisted_surface_sha256=persisted_surface_sha256(
             persisted_surface_bytes

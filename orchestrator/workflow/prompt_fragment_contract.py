@@ -19,6 +19,7 @@ _RENDERERS_BY_KIND = {
     "value": "canonical-json",
     "path": "posix-path-line",
 }
+_EXPECTED_OUTPUTS_UNSET = object()
 
 
 def _freeze_json(value: Any) -> Any:
@@ -322,6 +323,11 @@ class CompilerPromptFragmentContractV2:
         return self
 
 
+CompilerPromptFragmentContractCarrier = (
+    CompilerPromptFragmentContract | CompilerPromptFragmentContractV2
+)
+
+
 def _path_template_from_rendered_slot(
     slot: CompilerPromptFragmentRenderedSlot,
 ) -> str:
@@ -489,24 +495,71 @@ def validate_compiler_prompt_fragment_contract(
 def validate_compiler_prompt_fragment_pair(
     contract: CompilerPromptFragmentContract | CompilerPromptFragmentContractV2 | None,
     identity: str | None,
+    expected_outputs: object = _EXPECTED_OUTPUTS_UNSET,
 ) -> None:
     """Reject absent, malformed, or contradictory fragment carriage."""
 
     if contract is None and identity is None:
         return
     if contract is None or identity is None:
+        if type(contract) is CompilerPromptFragmentContractV2:
+            raise ValueError(
+                "prompt_output_position_contract_mismatch: "
+                "v2 fragment contract and identity must be paired"
+            )
         raise ValueError(
             "compiled_prompt_fragment_identity_missing: contract and identity must be paired"
         )
-    validate_compiler_prompt_fragment_contract(contract)
+    try:
+        validate_compiler_prompt_fragment_contract(contract)
+    except (TypeError, ValueError) as exc:
+        if type(contract) is CompilerPromptFragmentContractV2:
+            raise ValueError(
+                "prompt_output_position_contract_mismatch: "
+                "v2 fragment contract is invalid"
+            ) from exc
+        raise
     if not isinstance(identity, str) or not _IDENTITY_RE.fullmatch(identity):
+        if type(contract) is CompilerPromptFragmentContractV2:
+            raise ValueError(
+                "prompt_output_position_contract_mismatch: "
+                "v2 fragment identity is malformed"
+            )
         raise ValueError(
             "compiled_prompt_fragment_identity_invalid: identity is malformed"
         )
     if contract.compiled_prompt_fragment_identity != identity:
+        if type(contract) is CompilerPromptFragmentContractV2:
+            raise ValueError(
+                "prompt_output_position_contract_mismatch: "
+                "v2 fragment identity differs from its carrier"
+            )
         raise ValueError(
             "compiled_prompt_fragment_identity_mismatch: contract identity differs"
         )
+    if type(contract) is CompilerPromptFragmentContractV2:
+        if expected_outputs is _EXPECTED_OUTPUTS_UNSET:
+            raise ValueError(
+                "prompt_output_position_contract_mismatch: "
+                "v2 fragment pair validation requires expected_outputs"
+            )
+        if not isinstance(expected_outputs, (list, tuple)):
+            raise ValueError(
+                "prompt_output_position_contract_mismatch: "
+                "v2 fragment contract requires paired expected_outputs"
+            )
+        carrier_rows = [
+            _thaw_json(row.expected_output)
+            for row in contract.output_positions
+        ]
+        if (
+            any(not isinstance(row, Mapping) for row in expected_outputs)
+            or [_thaw_json(row) for row in expected_outputs] != carrier_rows
+        ):
+            raise ValueError(
+                "prompt_output_position_contract_mismatch: "
+                "v2 fragment output positions differ from expected_outputs"
+            )
 
 
 def serialize_compiler_prompt_fragment_rendered_slot(

@@ -5,6 +5,7 @@ import hashlib
 import json
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,11 +16,46 @@ from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from tests.workflow_bundle_helpers import historical_workflow_lisp_bundle_context
+from tests.test_workflow_lisp_prompt_calculus_runtime import (
+    _compile_runtime_fragment,
+    _upgrade_runtime_fragment_bundle_to_q2,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VALID_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "valid"
 PURE_EXPR_SELECTOR_PROJECTION = VALID_FIXTURES / "pure_expr_selector_action_projection.orc"
+
+
+def test_runtime_step_q2_boundary_validates_common_expected_outputs(
+    tmp_path: Path,
+) -> None:
+    runtime_step_module = importlib.import_module(
+        "orchestrator.workflow.runtime_step"
+    )
+    _, bundle = _compile_runtime_fragment(tmp_path)
+    _, provider_node, _, _ = _upgrade_runtime_fragment_bundle_to_q2(bundle)
+    runtime_step_module.RuntimeStep(
+        node=provider_node,
+        name=provider_node.presentation_name,
+        step_id=provider_node.step_id,
+    )
+
+    config = provider_node.execution_config
+    object.__setattr__(
+        config,
+        "common",
+        replace(config.common, expected_outputs=()),
+    )
+    with pytest.raises(
+        ValueError,
+        match="prompt_output_position_contract_mismatch",
+    ):
+        runtime_step_module.RuntimeStep(
+            node=provider_node,
+            name=provider_node.presentation_name,
+            step_id=provider_node.step_id,
+        )
 
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:

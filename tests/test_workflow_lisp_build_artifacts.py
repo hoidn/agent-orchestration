@@ -13,14 +13,27 @@ import pytest
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
 import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
+from orchestrator.workflow.executable_ir import (
+    ExecutableNodeKind,
+    workflow_executable_ir_to_json,
+)
 from orchestrator.workflow.persisted_surface import (
     canonical_persisted_surface_bytes,
     decode_persisted_workflow_surface_graph,
     serialize_persisted_workflow_surface_graph,
 )
+from orchestrator.workflow.prompt_fragment_contract import (
+    COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA,
+    COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
+    CompilerPromptFragmentContract,
+    CompilerPromptFragmentContractV2,
+    CompilerPromptFragmentOutputPosition,
+    CompilerPromptFragmentRenderedSlot,
+)
 from orchestrator.workflow.surface_ast import (
     SurfaceFinallyBlock,
     SurfaceStep,
+    SurfaceStepCommonConfig,
     SurfaceStepKind,
 )
 from orchestrator.workflow_lisp.compiler import compile_stage1_entrypoint, compile_stage3_entrypoint, compile_stage3_module
@@ -179,6 +192,69 @@ def _persisted_wire_graph(
     }
 
 
+def _persisted_fragment_contracts():
+    q1_slot = CompilerPromptFragmentRenderedSlot(
+        name="message",
+        kind="text",
+        static_type={"kind": "primitive", "name": "String"},
+        renderer_id="raw-utf8-string",
+        value_source={
+            "kind": "typed_binding_ref",
+            "binding": {"ref": "inputs.message"},
+        },
+        placeholder_ordinals=(0,),
+    )
+    q1 = CompilerPromptFragmentContract(
+        schema_version=COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA,
+        template_utf8="{message}",
+        rendered_slots=(q1_slot,),
+        compiled_prompt_fragment_identity="sha256:" + "1" * 64,
+    )
+    path_slots = tuple(
+        CompilerPromptFragmentRenderedSlot(
+            name=name,
+            kind="path",
+            static_type={
+                "kind": "path",
+                "must_exist_target": False,
+                "name": "ReportPath",
+                "under": "artifacts",
+            },
+            renderer_id="posix-path-line",
+            value_source={
+                "kind": "typed_binding_ref",
+                "binding": {"ref": f"inputs.{name}"},
+            },
+            placeholder_ordinals=(index,),
+        )
+        for index, name in enumerate(("first", "second"))
+    )
+    expected_outputs = tuple(
+        {
+            "name": name,
+            "path": f"${{inputs.{name}}}",
+            "type": "string",
+            "required": True,
+        }
+        for name in ("first", "second")
+    )
+    q2 = CompilerPromptFragmentContractV2(
+        schema_version=COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
+        template_utf8="{first} {second}",
+        rendered_slots=path_slots,
+        output_positions=tuple(
+            CompilerPromptFragmentOutputPosition(
+                slot_name=row["name"],
+                output_role="required_string_file",
+                expected_output=row,
+            )
+            for row in expected_outputs
+        ),
+        compiled_prompt_fragment_identity="sha256:" + "2" * 64,
+    )
+    return q1, q2, expected_outputs
+
+
 def test_build_emits_digest_bound_persisted_surface_graph_for_real_import_closure(
     tmp_path: Path,
 ) -> None:
@@ -207,6 +283,62 @@ def test_build_emits_digest_bound_persisted_surface_graph_for_real_import_closur
     assert result.validated_bundle.provenance.frontend_persisted_surface_sha256 == anchor[
         "sha256"
     ]
+
+
+def test_build_anchors_q2_persisted_surface_with_emitted_v2_schema(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    original_serialize = build.serialize_persisted_workflow_surface_graph
+    _, contract, expected_outputs = _persisted_fragment_contracts()
+
+    def serialize_q2_surface(bundle):
+        q2_bundle = replace(
+            bundle,
+            surface=replace(
+                bundle.surface,
+                steps=(
+                    SurfaceStep(
+                        name="Q2",
+                        step_id="q2",
+                        kind=SurfaceStepKind.PROVIDER,
+                        provider="test-provider",
+                        common=SurfaceStepCommonConfig(
+                            expected_outputs=expected_outputs
+                        ),
+                        compiler_prompt_fragment_contract=contract,
+                        compiled_prompt_fragment_identity=(
+                            contract.compiled_prompt_fragment_identity
+                        ),
+                    ),
+                ),
+                finalization=None,
+            ),
+            imports={},
+        )
+        return original_serialize(q2_bundle)
+
+    monkeypatch.setattr(
+        build,
+        "serialize_persisted_workflow_surface_graph",
+        serialize_q2_surface,
+    )
+
+    result = build.build_frontend_bundle(_build_request(tmp_path))
+    emitted = json.loads(
+        result.artifact_paths["persisted_workflow_surface"].read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert emitted["schema_version"] == "persisted_workflow_surface_graph.v2"
+    assert result.validated_bundle.provenance.frontend_persisted_surface_schema_version == (
+        emitted["schema_version"]
+    )
+    assert result.manifest.persisted_workflow_surface["schema_version"] == (
+        emitted["schema_version"]
+    )
 
 
 def test_build_fails_closed_when_emitted_persisted_surface_bytes_are_corrupted(
@@ -314,6 +446,184 @@ def test_persisted_surface_serializer_follows_nested_and_finalization_calls_only
         canonical_persisted_surface_bytes(payload)
     )
     assert decoded.entry_node.finalization_steps[0].call_alias == "final"
+
+
+def test_persisted_surface_v2_mixed_graph_has_exact_per_step_carriage(
+    tmp_path: Path,
+) -> None:
+    template = _build_module().build_frontend_bundle(
+        _build_request(tmp_path)
+    ).validated_bundle
+    q1, q2, expected_outputs = _persisted_fragment_contracts()
+    q2_step = SurfaceStep(
+        name="Q2",
+        step_id="q2",
+        kind=SurfaceStepKind.PROVIDER,
+        provider="test-provider",
+        common=SurfaceStepCommonConfig(expected_outputs=expected_outputs),
+        compiler_prompt_fragment_contract=q2,
+        compiled_prompt_fragment_identity=q2.compiled_prompt_fragment_identity,
+    )
+    q1_step = SurfaceStep(
+        name="Q1",
+        step_id="q1",
+        kind=SurfaceStepKind.PROVIDER,
+        provider="test-provider",
+        compiler_prompt_fragment_contract=q1,
+        compiled_prompt_fragment_identity=q1.compiled_prompt_fragment_identity,
+    )
+    plain_step = SurfaceStep(
+        name="Plain",
+        step_id="plain",
+        kind=SurfaceStepKind.COMMAND,
+        command=("true",),
+    )
+    root = _synthetic_surface_bundle(
+        template,
+        "synthetic::mixed-fragments",
+        steps=(q2_step, q1_step, plain_step),
+    )
+
+    payload = serialize_persisted_workflow_surface_graph(root)
+    assert payload["schema_version"] == "persisted_workflow_surface_graph.v2"
+    steps = payload["nodes"]["synthetic::mixed-fragments"]["steps"]
+    q2_extra = {
+        "compiler_prompt_fragment_contract",
+        "compiled_prompt_fragment_identity",
+    }
+    assert q2_extra <= set(steps[0])
+    assert not q2_extra & set(steps[1])
+    assert not q2_extra & set(steps[2])
+    assert steps[0]["common"]["expected_outputs"] == list(expected_outputs)
+    assert steps[0]["compiler_prompt_fragment_contract"][
+        "output_positions"
+    ] == [
+        {
+            "slot_name": row["name"],
+            "output_role": "required_string_file",
+            "expected_output": row,
+        }
+        for row in expected_outputs
+    ]
+
+    canonical = canonical_persisted_surface_bytes(payload)
+    decoded = decode_persisted_workflow_surface_graph(canonical)
+    decoded_steps = decoded.entry_node.steps
+    assert decoded.schema_version == "persisted_workflow_surface_graph.v2"
+    assert decoded_steps[0].compiler_prompt_fragment_contract == q2
+    assert decoded_steps[0].compiled_prompt_fragment_identity == (
+        q2.compiled_prompt_fragment_identity
+    )
+    assert decoded_steps[1].compiler_prompt_fragment_contract is None
+    assert decoded_steps[2].compiler_prompt_fragment_contract is None
+
+    mutations = (
+        lambda step: step.pop("compiler_prompt_fragment_contract"),
+        lambda step: step.pop("compiled_prompt_fragment_identity"),
+        lambda step: step["common"].update(expected_outputs=[]),
+        lambda step: step["common"].update(
+            expected_outputs=[
+                *step["common"]["expected_outputs"],
+                step["common"]["expected_outputs"][0],
+            ]
+        ),
+        lambda step: step["common"].update(
+            expected_outputs=list(
+                reversed(step["common"]["expected_outputs"])
+            )
+        ),
+        lambda step: step["common"]["expected_outputs"][0].update(
+            path="${inputs.second}"
+        ),
+        lambda step: step["compiler_prompt_fragment_contract"].update(
+            schema_version="compiler_prompt_fragment_contract.v1"
+        ),
+        lambda step: step.update(
+            compiled_prompt_fragment_identity="sha256:" + "3" * 64
+        ),
+        lambda step: step.update(compiled_prompt_fragment_identity=""),
+        lambda step: step.update(compiled_prompt_fragment_identity=7),
+    )
+    for mutate in mutations:
+        damaged = copy.deepcopy(payload)
+        damaged_step = damaged["nodes"]["synthetic::mixed-fragments"]["steps"][0]
+        mutate(damaged_step)
+        with pytest.raises(
+            ValueError,
+            match="prompt_output_position_contract_mismatch",
+        ):
+            decode_persisted_workflow_surface_graph(
+                canonical_persisted_surface_bytes(damaged)
+            )
+
+    top_level_carrier_key_mutations = (
+        lambda contract: contract.pop("template_utf8"),
+        lambda contract: contract.update(unexpected_field=True),
+    )
+    for mutate in top_level_carrier_key_mutations:
+        damaged = copy.deepcopy(payload)
+        damaged_contract = damaged["nodes"]["synthetic::mixed-fragments"][
+            "steps"
+        ][0]["compiler_prompt_fragment_contract"]
+        mutate(damaged_contract)
+        with pytest.raises(
+            ValueError,
+            match=r"^prompt_output_position_contract_mismatch",
+        ) as exc_info:
+            decode_persisted_workflow_surface_graph(
+                canonical_persisted_surface_bytes(damaged)
+            )
+        assert str(exc_info.value.__cause__) == (
+            "compiler prompt fragment contract v2 has unsupported or missing fields"
+        )
+
+    wrong_graph_schema = copy.deepcopy(payload)
+    wrong_graph_schema["schema_version"] = (
+        "persisted_workflow_surface_graph.v1"
+    )
+    with pytest.raises(
+        ValueError,
+        match="prompt_output_position_contract_mismatch",
+    ):
+        decode_persisted_workflow_surface_graph(
+            canonical_persisted_surface_bytes(wrong_graph_schema)
+        )
+
+    original_contract = q2_step.compiler_prompt_fragment_contract
+    original_identity = q2_step.compiled_prompt_fragment_identity
+    object.__setattr__(q2_step, "compiler_prompt_fragment_contract", None)
+    with pytest.raises(
+        ValueError,
+        match="compiled_prompt_fragment_identity_missing",
+    ):
+        serialize_persisted_workflow_surface_graph(root)
+    object.__setattr__(
+        q2_step,
+        "compiler_prompt_fragment_contract",
+        original_contract,
+    )
+    object.__setattr__(q2_step, "compiled_prompt_fragment_identity", None)
+    with pytest.raises(
+        ValueError,
+        match="prompt_output_position_contract_mismatch",
+    ):
+        serialize_persisted_workflow_surface_graph(root)
+    object.__setattr__(
+        q2_step,
+        "compiled_prompt_fragment_identity",
+        original_identity,
+    )
+
+    object.__setattr__(
+        q2_step,
+        "common",
+        replace(q2_step.common, expected_outputs=expected_outputs[:1]),
+    )
+    with pytest.raises(
+        ValueError,
+        match="prompt_output_position_contract_mismatch",
+    ):
+        serialize_persisted_workflow_surface_graph(root)
 
 
 def test_persisted_surface_serializer_deduplicates_diamond_by_workflow_name(
@@ -5419,6 +5729,128 @@ def test_build_emits_lexical_checkpoint_points_artifact(tmp_path: Path) -> None:
         and point["storage"]["semantic_role"] == "lexical_checkpoint_record"
         for point in payload["points"]
     )
+
+
+def test_q2_fragment_pair_participates_in_checkpoint_program_identity(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.semantic_ir import (
+        workflow_semantic_ir_to_json,
+    )
+    from tests.test_workflow_lisp_prompt_calculus_runtime import (
+        _compile_runtime_fragment,
+        _upgrade_runtime_fragment_bundle_to_q2,
+    )
+
+    build = _build_module()
+    build_artifacts = importlib.import_module(
+        "orchestrator.workflow_lisp.build_artifacts"
+    )
+    _, q1_bundle = _compile_runtime_fragment(tmp_path)
+    q2_bundle, _, contract, _ = _upgrade_runtime_fragment_bundle_to_q2(
+        q1_bundle
+    )
+    different_q2_bundle, _, _, _ = _upgrade_runtime_fragment_bundle_to_q2(
+        q1_bundle,
+        identity="sha256:" + "5" * 64,
+    )
+    runtime_payload = build._public_runtime_plan_payload(
+        q1_bundle.runtime_plan
+    )
+    q1_semantic_payload = workflow_semantic_ir_to_json(q1_bundle.semantic_ir)
+    q2_semantic_payload = workflow_semantic_ir_to_json(q2_bundle.semantic_ir)
+    different_q2_semantic_payload = workflow_semantic_ir_to_json(
+        different_q2_bundle.semantic_ir
+    )
+    q1_identity = build._checkpoint_program_identity(
+        q1_bundle,
+        runtime_plan_payload=runtime_payload,
+        semantic_ir_payload=q1_semantic_payload,
+    )
+    q2_identity = build._checkpoint_program_identity(
+        q2_bundle,
+        runtime_plan_payload=runtime_payload,
+        semantic_ir_payload=q2_semantic_payload,
+    )
+    different_q2_identity = build._checkpoint_program_identity(
+        different_q2_bundle,
+        runtime_plan_payload=runtime_payload,
+        semantic_ir_payload=different_q2_semantic_payload,
+    )
+
+    assert q2_identity != q1_identity
+    assert q2_identity["executable_ir_digest"] == q1_identity["executable_ir_digest"]
+    assert q2_identity["semantic_ir_digest"] != (
+        q1_identity["semantic_ir_digest"]
+    )
+    assert different_q2_identity["executable_ir_digest"] == (
+        q2_identity["executable_ir_digest"]
+    )
+    assert different_q2_identity["semantic_ir_digest"] != (
+        q2_identity["semantic_ir_digest"]
+    )
+    assert contract.compiled_prompt_fragment_identity in json.dumps(
+        workflow_executable_ir_to_json(q2_bundle.ir),
+        sort_keys=True,
+    )
+    assert contract.compiled_prompt_fragment_identity in json.dumps(
+        q2_semantic_payload,
+        sort_keys=True,
+    )
+    q2_provider_config = next(
+        node.execution_config
+        for node in q2_bundle.ir.nodes.values()
+        if node.kind is ExecutableNodeKind.PROVIDER
+    )
+    q2_prompt_surface = next(iter(q2_bundle.semantic_ir.prompt_surfaces.values()))
+    assert q2_provider_config.compiler_prompt_fragment_contract == (
+        q2_prompt_surface.compiler_prompt_fragment_contract
+    )
+    assert q2_provider_config.compiled_prompt_fragment_identity == (
+        q2_prompt_surface.compiled_prompt_fragment_identity
+    )
+    assert tuple(
+        row.expected_output
+        for row in q2_prompt_surface.compiler_prompt_fragment_contract.output_positions
+    ) == q2_provider_config.common.expected_outputs
+    points = {
+        "schema_version": build_artifacts.CHECKPOINT_POINTS_SCHEMA_VERSION,
+        "workflow_name": q2_bundle.surface.name,
+        "checkpoint_schema_version": (
+            build_artifacts.CHECKPOINT_RECORD_SCHEMA_VERSION
+        ),
+        "program_identity": q2_identity,
+        "points": [],
+    }
+    build_artifacts._validate_lexical_checkpoint_artifacts(
+        points,
+        validated_bundle=q2_bundle,
+        semantic_ir_payload=q2_semantic_payload,
+        runtime_plan_payload=runtime_payload,
+        source_map_payload={},
+    )
+    with pytest.raises(
+        ValueError,
+        match="lexical checkpoint program identity drift",
+    ):
+        build_artifacts._validate_lexical_checkpoint_artifacts(
+            points,
+            validated_bundle=q1_bundle,
+            semantic_ir_payload=q1_semantic_payload,
+            runtime_plan_payload=runtime_payload,
+            source_map_payload={},
+        )
+    with pytest.raises(
+        ValueError,
+        match="lexical checkpoint program identity drift",
+    ):
+        build_artifacts._validate_lexical_checkpoint_artifacts(
+            points,
+            validated_bundle=different_q2_bundle,
+            semantic_ir_payload=different_q2_semantic_payload,
+            runtime_plan_payload=runtime_payload,
+            source_map_payload={},
+        )
 
 
 def test_build_emits_compile_time_lexical_checkpoint_shadow_report(tmp_path: Path) -> None:

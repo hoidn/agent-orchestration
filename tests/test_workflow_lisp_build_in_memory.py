@@ -10,6 +10,22 @@ from pathlib import Path
 import pytest
 
 from orchestrator.workflow_lisp.reader import SourceReadTrace
+from orchestrator.workflow.persisted_surface import (
+    canonical_persisted_surface_bytes,
+    decode_persisted_workflow_surface_graph,
+    serialize_persisted_workflow_surface_graph,
+)
+from orchestrator.workflow.surface_ast import (
+    SurfaceStep,
+    SurfaceStepCommonConfig,
+    SurfaceStepKind,
+)
+from tests.test_workflow_lisp_build_artifacts import (
+    _build_module,
+    _build_request,
+    _persisted_fragment_contracts,
+    _synthetic_surface_bundle,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -48,6 +64,43 @@ PRODUCTION_REQUEST_CAPTURE_FIELDS = (
     "command_boundaries",
     "imported_workflow_bundles",
 )
+
+
+def test_in_memory_q2_persisted_surface_payload_round_trips_v2(
+    tmp_path: Path,
+) -> None:
+    template = _build_module().build_frontend_bundle(
+        _build_request(tmp_path)
+    ).validated_bundle
+    _, contract, expected_outputs = _persisted_fragment_contracts()
+    root = _synthetic_surface_bundle(
+        template,
+        "synthetic::in-memory-q2",
+        steps=(
+            SurfaceStep(
+                name="Q2",
+                step_id="q2",
+                kind=SurfaceStepKind.PROVIDER,
+                provider="test-provider",
+                common=SurfaceStepCommonConfig(
+                    expected_outputs=expected_outputs
+                ),
+                compiler_prompt_fragment_contract=contract,
+                compiled_prompt_fragment_identity=(
+                    contract.compiled_prompt_fragment_identity
+                ),
+            ),
+        ),
+    )
+
+    payload = serialize_persisted_workflow_surface_graph(root)
+    decoded = decode_persisted_workflow_surface_graph(
+        canonical_persisted_surface_bytes(payload)
+    )
+    assert payload["schema_version"] == "persisted_workflow_surface_graph.v2"
+    assert decoded.entry_node.steps[0].compiler_prompt_fragment_contract == (
+        contract
+    )
 
 
 def _tree_snapshot(root: Path) -> tuple[tuple[str, str, bytes | str], ...]:
