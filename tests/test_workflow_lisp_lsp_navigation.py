@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import FrozenInstanceError, fields, replace
 from importlib import import_module
 from pathlib import Path
 import shutil
@@ -28,7 +28,7 @@ from orchestrator.workflow_lisp.expressions import (
     LetStarExpr,
     ProcedureCallExpr,
 )
-from orchestrator.workflow_lisp.spans import SourceSpan
+from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.reader import SourceReadTrace
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
@@ -276,6 +276,342 @@ def _definition_span(
         if definition is not None:
             return definition.span
     raise AssertionError(f"missing {kind} definition {callable_name}")
+
+
+def _l5_test_span(
+    path: Path,
+    start: int,
+    end: int,
+) -> SourceSpan:
+    return SourceSpan(
+        start=SourcePosition(
+            path=str(path),
+            line=1,
+            column=start + 1,
+            offset=start,
+        ),
+        end=SourcePosition(
+            path=str(path),
+            line=1,
+            column=end + 1,
+            offset=end,
+        ),
+    )
+
+
+def test_definition_links_are_frozen_five_field_semantic_rows(
+    callable_result: LinkedStage3CompileResult,
+) -> None:
+    index = _build_index(callable_result)
+    links = tuple(
+        link
+        for link in index.definition_links
+        if link.reference_kind in {"procedure-call", "workflow-call"}
+    )
+
+    assert links
+    assert tuple(field.name for field in fields(type(links[0]))) == (
+        "reference_kind",
+        "reference_span",
+        "canonical_target",
+        "target_kind",
+        "definition_span",
+    )
+    assert {
+        (
+            link.reference_kind,
+            link.reference_span,
+            link.canonical_target,
+            link.target_kind,
+            link.definition_span,
+        )
+        for link in links
+    } == {
+        (
+            (
+                "workflow-call"
+                if type(node) is CallExpr
+                else "procedure-call"
+            ),
+            node.authored_callee_span,
+            node.callee_name,
+            "workflow" if type(node) is CallExpr else "procedure",
+            _definition_span(
+                callable_result,
+                callable_name=node.callee_name,
+                kind=(
+                    "workflow"
+                    if type(node) is CallExpr
+                    else "procedure"
+                ),
+            ),
+        )
+        for compiled in callable_result.compiled_results_by_name.values()
+        for owner in (*compiled.typed_procedures, *compiled.typed_workflows)
+        if owner.specialization is None
+        and not owner.definition.expansion_stack
+        and (
+            not hasattr(owner.definition, "generated_local_procedure")
+            or owner.definition.generated_local_procedure is None
+        )
+        for node in walk_expr(owner.typed_body.expr)
+        if type(node) in {CallExpr, ProcedureCallExpr}
+        and node.authored_callee_span is not None
+    }
+    with pytest.raises(FrozenInstanceError):
+        links[0].canonical_target = "changed"
+
+
+@pytest.mark.parametrize(
+    ("reference_kind", "target_kind"),
+    (
+        ("unknown-reference", "procedure"),
+        ("procedure-call", "unknown-target"),
+    ),
+)
+def test_definition_link_rejects_unknown_reference_and_target_kinds(
+    tmp_path: Path,
+    reference_kind: str,
+    target_kind: str,
+) -> None:
+    link_type = getattr(_navigation_surface(), "DefinitionLink")
+    reference_span = _l5_test_span(tmp_path / "source.orc", 1, 7)
+    definition_span = _l5_test_span(tmp_path / "target.orc", 10, 20)
+
+    with pytest.raises(ValueError):
+        link_type(
+            reference_kind=reference_kind,
+            reference_span=reference_span,
+            canonical_target="demo::shared",
+            target_kind=target_kind,
+            definition_span=definition_span,
+        )
+
+
+def test_reference_projection_collapses_only_identical_duplicate_facts(
+    tmp_path: Path,
+) -> None:
+    navigation = _navigation_surface()
+    link_type = getattr(navigation, "DefinitionLink")
+    insert_target = getattr(
+        navigation,
+        "_insert_unique_definition_target",
+        None,
+    )
+    insert_link = getattr(
+        navigation,
+        "_insert_unique_reference_link",
+        None,
+    )
+    assert callable(insert_target)
+    assert callable(insert_link)
+    definition_span = _l5_test_span(tmp_path / "target.orc", 10, 20)
+    link = link_type(
+        reference_kind="procedure-call",
+        reference_span=_l5_test_span(tmp_path / "source.orc", 1, 7),
+        canonical_target="demo::shared",
+        target_kind="procedure",
+        definition_span=definition_span,
+    )
+    targets: dict[tuple[str, str], SourceSpan] = {}
+    occurrences: dict[tuple[str, str, int, int], object] = {}
+    kinds_by_span: dict[tuple[str, int, int], str] = {}
+
+    insert_target(
+        targets,
+        target_kind="procedure",
+        canonical_target="demo::shared",
+        definition_span=definition_span,
+    )
+    insert_target(
+        targets,
+        target_kind="procedure",
+        canonical_target="demo::shared",
+        definition_span=definition_span,
+    )
+    insert_link(occurrences, kinds_by_span, link)
+    insert_link(occurrences, kinds_by_span, link)
+
+    assert targets == {("procedure", "demo::shared"): definition_span}
+    assert tuple(occurrences.values()) == (link,)
+
+
+@pytest.mark.parametrize(
+    "collision",
+    ("definition-span", "target-kind", "canonical-target"),
+)
+def test_reference_projection_rejects_target_and_occurrence_collisions(
+    tmp_path: Path,
+    collision: str,
+) -> None:
+    navigation = _navigation_surface()
+    link_type = getattr(navigation, "DefinitionLink")
+    insert_target = getattr(
+        navigation,
+        "_insert_unique_definition_target",
+        None,
+    )
+    insert_link = getattr(
+        navigation,
+        "_insert_unique_reference_link",
+        None,
+    )
+    assert callable(insert_target)
+    assert callable(insert_link)
+    reference_span = _l5_test_span(tmp_path / "source.orc", 1, 7)
+    definition_span = _l5_test_span(tmp_path / "target.orc", 10, 20)
+    other_definition_span = _l5_test_span(
+        tmp_path / "other-target.orc",
+        30,
+        40,
+    )
+    base = link_type(
+        reference_kind="procedure-call",
+        reference_span=reference_span,
+        canonical_target="demo::shared",
+        target_kind="procedure",
+        definition_span=definition_span,
+    )
+    targets: dict[tuple[str, str], SourceSpan] = {}
+    occurrences: dict[tuple[str, str, int, int], object] = {}
+    kinds_by_span: dict[tuple[str, int, int], str] = {}
+    insert_target(
+        targets,
+        target_kind=base.target_kind,
+        canonical_target=base.canonical_target,
+        definition_span=base.definition_span,
+    )
+    insert_link(occurrences, kinds_by_span, base)
+
+    if collision == "definition-span":
+        with pytest.raises(ValueError):
+            insert_target(
+                targets,
+                target_kind=base.target_kind,
+                canonical_target=base.canonical_target,
+                definition_span=other_definition_span,
+            )
+        conflicting = replace(
+            base,
+            definition_span=other_definition_span,
+        )
+    elif collision == "target-kind":
+        conflicting = replace(
+            base,
+            target_kind="workflow",
+        )
+    else:
+        conflicting = replace(
+            base,
+            canonical_target="other::shared",
+        )
+
+    with pytest.raises(ValueError):
+        insert_link(occurrences, kinds_by_span, conflicting)
+
+
+def test_reference_projection_rejects_cross_kind_assertions_at_one_span(
+    tmp_path: Path,
+) -> None:
+    navigation = _navigation_surface()
+    link_type = getattr(navigation, "DefinitionLink")
+    insert_link = getattr(
+        navigation,
+        "_insert_unique_reference_link",
+        None,
+    )
+    assert callable(insert_link)
+    reference_span = _l5_test_span(tmp_path / "source.orc", 1, 7)
+    definition_span = _l5_test_span(tmp_path / "target.orc", 10, 20)
+    occurrences: dict[tuple[str, str, int, int], object] = {}
+    kinds_by_span: dict[tuple[str, int, int], str] = {}
+    insert_link(
+        occurrences,
+        kinds_by_span,
+        link_type(
+            reference_kind="procedure-call",
+            reference_span=reference_span,
+            canonical_target="demo::shared",
+            target_kind="procedure",
+            definition_span=definition_span,
+        ),
+    )
+
+    with pytest.raises(ValueError):
+        insert_link(
+            occurrences,
+            kinds_by_span,
+            link_type(
+                reference_kind="workflow-call",
+                reference_span=reference_span,
+                canonical_target="demo::shared",
+                target_kind="workflow",
+                definition_span=definition_span,
+            ),
+        )
+
+
+def test_reference_projection_preserves_same_spelling_across_namespaces_at_distinct_spans(
+    tmp_path: Path,
+) -> None:
+    navigation = _navigation_surface()
+    link_type = getattr(navigation, "DefinitionLink")
+    insert_target = getattr(
+        navigation,
+        "_insert_unique_definition_target",
+        None,
+    )
+    insert_link = getattr(
+        navigation,
+        "_insert_unique_reference_link",
+        None,
+    )
+    assert callable(insert_target)
+    assert callable(insert_link)
+    targets: dict[tuple[str, str], SourceSpan] = {}
+    occurrences: dict[tuple[str, str, int, int], object] = {}
+    kinds_by_span: dict[tuple[str, int, int], str] = {}
+    rows = tuple(
+        link_type(
+            reference_kind=reference_kind,
+            reference_span=_l5_test_span(
+                tmp_path / "source.orc",
+                ordinal * 10,
+                ordinal * 10 + 6,
+            ),
+            canonical_target="demo::shared",
+            target_kind=target_kind,
+            definition_span=_l5_test_span(
+                tmp_path / f"{target_kind}.orc",
+                10,
+                20,
+            ),
+        )
+        for ordinal, (reference_kind, target_kind) in enumerate(
+            (
+                ("prompt-application", "prompt"),
+                ("procedure-call", "procedure"),
+                ("workflow-call", "workflow"),
+            ),
+            start=1,
+        )
+    )
+
+    for row in rows:
+        insert_target(
+            targets,
+            target_kind=row.target_kind,
+            canonical_target=row.canonical_target,
+            definition_span=row.definition_span,
+        )
+        insert_link(occurrences, kinds_by_span, row)
+
+    assert set(targets) == {
+        ("prompt", "demo::shared"),
+        ("procedure", "demo::shared"),
+        ("workflow", "demo::shared"),
+    }
+    assert set(occurrences.values()) == set(rows)
 
 
 @pytest.mark.parametrize(

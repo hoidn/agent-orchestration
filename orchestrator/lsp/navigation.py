@@ -24,10 +24,23 @@ from .coordinates import CoordinateTranslationError, source_span_to_lsp_range
 
 @dataclass(frozen=True, slots=True)
 class DefinitionLink:
-    """One exact authored call-head span and its compiler definition."""
+    """One exact authored reference and its compiler-owned target."""
 
-    callee_span: SourceSpan
+    reference_kind: str
+    reference_span: SourceSpan
+    canonical_target: str
+    target_kind: str
     definition_span: SourceSpan
+
+    def __post_init__(self) -> None:
+        if self.reference_kind not in _REFERENCE_KINDS:
+            raise ValueError(
+                f"unsupported definition reference kind: {self.reference_kind}"
+            )
+        if self.target_kind not in _TARGET_KINDS:
+            raise ValueError(
+                f"unsupported definition target kind: {self.target_kind}"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +114,14 @@ def build_navigation_index(
     _validate_frozen_form_completions(frozen_form_completions)
 
     definition_spans = _definition_spans(compile_result)
-    definition_links: list[DefinitionLink] = []
+    definition_links: dict[
+        tuple[str, str, int, int],
+        DefinitionLink,
+    ] = {}
+    reference_kinds_by_span: dict[
+        tuple[str, int, int],
+        str,
+    ] = {}
     symbols_by_path: dict[Path, list[NavigationSymbol]] = {}
     completions_by_path: dict[Path, tuple[NavigationCompletion, ...]] = {}
 
@@ -139,22 +159,28 @@ def build_navigation_index(
                 or definition.expansion_stack
             ):
                 continue
-            definition_links.extend(
-                _definition_links_for_expr(
-                    typed_procedure.typed_body.expr,
-                    definition_spans=definition_spans,
+            for link in _definition_links_for_expr(
+                typed_procedure.typed_body.expr,
+                definition_spans=definition_spans,
+            ):
+                _insert_unique_reference_link(
+                    definition_links,
+                    reference_kinds_by_span,
+                    link,
                 )
-            )
         for typed_workflow in compiled.typed_workflows:
             definition = typed_workflow.definition
             if typed_workflow.specialization is not None or definition.expansion_stack:
                 continue
-            definition_links.extend(
-                _definition_links_for_expr(
-                    typed_workflow.typed_body.expr,
-                    definition_spans=definition_spans,
+            for link in _definition_links_for_expr(
+                typed_workflow.typed_body.expr,
+                definition_spans=definition_spans,
+            ):
+                _insert_unique_reference_link(
+                    definition_links,
+                    reference_kinds_by_span,
+                    link,
                 )
-            )
 
         completion_rows: list[NavigationCompletion] = []
         for symbol in projected_symbols:
@@ -273,13 +299,16 @@ def build_navigation_index(
     return NavigationIndex(
         definition_links=tuple(
             sorted(
-                definition_links,
+                definition_links.values(),
                 key=lambda link: (
-                    Path(link.callee_span.start.path)
+                    Path(link.reference_span.start.path)
                     .resolve(strict=False)
                     .as_posix(),
-                    link.callee_span.start.offset,
-                    link.callee_span.end.offset,
+                    link.reference_span.start.offset,
+                    link.reference_span.end.offset,
+                    link.reference_kind,
+                    link.target_kind,
+                    link.canonical_target,
                 ),
             )
         ),
@@ -296,18 +325,20 @@ def definition_at_lsp_position(
     character: int,
     accepted_text_by_path: Mapping[Path, str],
 ) -> SourceSpan | None:
-    """Return a target only for a cursor inside an exact indexed callee span."""
+    """Return a target only for a cursor inside an exact reference span."""
 
     path = Path(source_path).resolve(strict=False)
     accepted_text = accepted_text_by_path.get(path)
     if not isinstance(accepted_text, str):
         return None
     for link in index.definition_links:
-        callee_path = Path(link.callee_span.start.path).resolve(strict=False)
-        if callee_path != path:
+        reference_path = Path(
+            link.reference_span.start.path
+        ).resolve(strict=False)
+        if reference_path != path:
             continue
         if lsp_position_in_source_span(
-            link.callee_span,
+            link.reference_span,
             line=line,
             character=character,
             accepted_text=accepted_text,
@@ -378,13 +409,74 @@ def _definition_spans(
         for name, definition in procedure_definitions.items():
             if definition.expansion_stack:
                 continue
-            spans[("procedure", name)] = definition.span
+            _insert_unique_definition_target(
+                spans,
+                target_kind="procedure",
+                canonical_target=name,
+                definition_span=definition.span,
+            )
         workflow_definitions = compiled.workflow_catalog.definitions_by_name
         for name, definition in workflow_definitions.items():
             if definition.expansion_stack:
                 continue
-            spans[("workflow", name)] = definition.span
+            _insert_unique_definition_target(
+                spans,
+                target_kind="workflow",
+                canonical_target=name,
+                definition_span=definition.span,
+            )
     return spans
+
+
+def _insert_unique_definition_target(
+    targets: dict[tuple[str, str], SourceSpan],
+    *,
+    target_kind: str,
+    canonical_target: str,
+    definition_span: SourceSpan,
+) -> None:
+    key = (target_kind, canonical_target)
+    existing = targets.get(key)
+    if existing is not None and existing != definition_span:
+        raise ValueError(
+            "definition target has conflicting authored spans: "
+            f"{target_kind} {canonical_target}"
+        )
+    targets[key] = definition_span
+
+
+def _insert_unique_reference_link(
+    links_by_occurrence: dict[
+        tuple[str, str, int, int],
+        DefinitionLink,
+    ],
+    reference_kinds_by_span: dict[tuple[str, int, int], str],
+    link: DefinitionLink,
+) -> None:
+    canonical_path = (
+        Path(link.reference_span.start.path)
+        .resolve(strict=False)
+        .as_posix()
+    )
+    span_key = (
+        canonical_path,
+        link.reference_span.start.offset,
+        link.reference_span.end.offset,
+    )
+    existing_kind = reference_kinds_by_span.get(span_key)
+    if existing_kind is not None and existing_kind != link.reference_kind:
+        raise ValueError(
+            "definition reference span has conflicting reference kinds: "
+            f"{existing_kind} and {link.reference_kind}"
+        )
+    occurrence_key = (link.reference_kind, *span_key)
+    existing = links_by_occurrence.get(occurrence_key)
+    if existing is not None and existing != link:
+        raise ValueError(
+            "definition reference occurrence has conflicting semantic facts"
+        )
+    reference_kinds_by_span[span_key] = link.reference_kind
+    links_by_occurrence[occurrence_key] = link
 
 
 def _validate_frozen_form_completions(
@@ -440,7 +532,14 @@ def _definition_links_for_expr(
             continue
         links.append(
             DefinitionLink(
-                callee_span=callee_span,
+                reference_kind=(
+                    "workflow-call"
+                    if callable_kind == "workflow"
+                    else "procedure-call"
+                ),
+                reference_span=callee_span,
+                canonical_target=node.callee_name,
+                target_kind=callable_kind,
                 definition_span=definition_span,
             )
         )
@@ -464,6 +563,16 @@ _COMPLETION_KIND_RANK = {
     "workflow": 1,
     "form": 2,
 }
+
+_REFERENCE_KINDS = frozenset(
+    {
+        "procedure-call",
+        "workflow-call",
+        "prompt-application",
+        "proc-ref",
+    }
+)
+_TARGET_KINDS = frozenset({"procedure", "workflow", "prompt"})
 
 
 def _procedure_completion(
