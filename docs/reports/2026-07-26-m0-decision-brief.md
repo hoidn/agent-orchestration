@@ -174,6 +174,70 @@ reconstructed from the anchors above.]
    procedure neither gains nor loses hidden-context eligibility relative
    to its authored equivalent. Reopens on: that fixture exposing a real
    asymmetry.
+   - **REOPENED then RESOLVED (2026-07-27).** The fixture required by
+     this item's own micro-task exposed a real asymmetry, reopening the
+     default ruling: a byte-equivalent `let-proc` local (identical params,
+     body, and consumer to the authored top-level `defproc` twin
+     `design_delta_item_ctx_child_phase_reuse_proc_ref.orc`) was
+     **rejected** where the authored twin compiled — the enclosing
+     `defworkflow`'s active `workflow_signature` was gating the local's
+     eligibility instead of the local's own signature
+     (`_typecheck_let_proc_expr_impl`,
+     `orchestrator/workflow_lisp/procedure_typecheck.py`, previously
+     :1252-1268, typechecked the generated body via `_typecheck_owner`
+     with no gate swap, unlike the per-definition proc-body path at
+     `procedure_typecheck.py:243-280`). Resolved per the let-proc
+     equivalence contract
+     (`docs/design/workflow_lisp_let_proc_local_proc_refs.md`: "A
+     `let-proc` body is valid only when the generated `defproc`-equivalent
+     ... passes the same shared validation path as an authored `defproc`
+     would") — ground-truth precedence puts the accepted design contract
+     over the as-shipped extraction behavior, so the code was in defect,
+     not the contract. Fix commit `6182ae48` ("Gate let-proc body
+     typecheck on its own signature, not the caller's") swaps both
+     `session_state.workflow_signature` (to `None`) and
+     `session_state.procedure_hidden_context_signature` (to the generated
+     signature, if eligible, else `None`) for the duration of the local
+     body's typecheck, with exact save/restore in a `finally`, mirroring
+     `procedure_typecheck.py:243-280` exactly. Verified behavior-safe for
+     every currently-compiling program before committing: reference-checked
+     the other two `session_state.workflow_signature` consumer families
+     (`compatibility_bridge_omission_allowed`,
+     `typecheck_resume.py`'s resume public-input-hash/producer-fingerprint
+     basis) against the full let-proc fixture/test/production corpus — zero
+     overlap (no let-proc fixture, test, or production workflow currently
+     combines `let-proc` with private-compatibility-bridge omission or
+     resume/reusable-state derivation), so the swap has no reachable
+     side channel today.
+     - Both-direction RED fixtures (confirmed RED pre-fix, GREEN post-fix
+       by stash/restore of the code change):
+       `tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse_let_proc.orc`
+       (loses-direction: now compiles, parametrized into
+       `test_registered_design_delta_fixture_compiles_directly`
+       [item-ctx-let-proc] in
+       `tests/test_workflow_lisp_design_delta_smoke.py`) and
+       `tests/fixtures/workflow_lisp/invalid/derived_phase_context_let_proc_without_context_source_invalid.orc`
+       (gains-direction: now rejects at `phase=="typecheck"` instead of
+       `"lowering"`, asserted by the new
+       `test_let_proc_without_context_source_rejects_at_typecheck_like_authored_twin`
+       in the same module). The nested-in-eligible-proc control fixture
+       `tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse_let_proc_in_proc.orc`
+       is committed as a regression guard (`[item-ctx-let-proc-in-proc]`;
+       compiled both before and after the fix).
+     - **Known residual gap, out of this fix's scope:** the gains-direction
+       diagnostic's `form_path` still attributes to the *enclosing*
+       `defproc`/`defworkflow` form, not to the `let-proc` local itself,
+       both before and after this fix — `_elaborate_let_proc`
+       (`orchestrator/workflow_lisp/expressions.py`) threads the enclosing
+       `form_path` through unchanged into the local body and never pushes
+       a distinguishing segment for the local name. Correcting attribution
+       would require rewriting `form_path` across the generated body's
+       whole AST (or changing `_elaborate_let_proc`'s form-path threading
+       repo-wide, affecting every diagnostic raised inside any `let-proc`
+       body), which is not a small, local change and was not attempted —
+       consistent with keeping this fix to the gate swap only. The test
+       above therefore asserts `code`/`phase`/message content, not
+       `form_path`.
 
 ## 3. Frontloaded Defaults (Recorded 2026-07-26)
 
