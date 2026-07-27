@@ -42,8 +42,10 @@
   lives in `docs/workflow_lisp_language_server_setup.md`. The bounded L0
   reliability/actionability successor is also implemented under
   `docs/plans/2026-07-26-workflow-lisp-language-server-l0-implementation-plan.md`;
-  L1 has an accepted design amendment and routes next to a separately reviewed
-  implementation-plan gate.
+  L1 has an accepted design amendment and reviewed implementation plan under
+  `docs/plans/2026-07-26-workflow-lisp-language-server-l1-implementation-plan.md`;
+  Task 1 is next after `L1_PLAN_SPEC_APPROVED` then
+  `L1_PLAN_QUALITY_APPROVED`.
 
 ## Summary
 
@@ -1205,8 +1207,8 @@ observation, unsaved-buffer analysis, multi-diagnostic recovery, full
 `form_path` rendering, and runtime debugging remain excluded.
 
 The accepted boundary is implemented. L1 authored symbols and callable
-signatures have an accepted design and route next to a separately reviewed
-implementation-plan gate; this closure does not pre-implement that surface.
+signatures have an accepted design and reviewed implementation plan, with Task
+1 next; this closure does not pre-implement that surface.
 
 ## Accepted L1 Authored Symbols And Callable Signatures Amendment
 

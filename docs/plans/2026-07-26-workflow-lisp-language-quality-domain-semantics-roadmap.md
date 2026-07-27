@@ -47,7 +47,7 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
   part of this roadmap.
 - Each behavior change uses TDD, narrow checks before broad non-security
   checks, and ordered independent specification then quality review.
-- Security and provider-isolation work remain outside scope.
+- Security, safety, secrets, and provider-isolation work remain outside scope.
 - Gate S8 remains complete. L-series corrections and increments are successors
   to the implemented v1 surface, not a reopening or relabeling of Stage 8.
 - The language server remains a read-only consumer of production compile entry
@@ -74,7 +74,7 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | --- | --- | --- | --- | --- |
 | Q0 | Transportable `Value` prerequisite | Stage 8 complete; owner prerequisite decision recorded | accepted design; reviewed implementation plan; target-2.19 implementation with direct-root, loader, runtime, resume, classic/WCC, docs, and broad non-security evidence | complete — reviewed target-2.19 implementation and evidence gate closed at `020c6138` |
 | Q1 | Prompt core | Q0 complete; prompt-calculus design corrected and accepted | target-gated `defprompt`, imports, closed slot kinds, fully applied named fills, exact discharge/placeholder diagnostics, prompt-carried result derivation, deterministic flattening through existing prompt composition, one migrated real consumer | complete — implementation through `af45c4f1`; exact-tree gates and ordered final reviews accepted |
-| Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | next — accepted design; separately reviewed implementation-plan gate next |
+| Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | active — accepted design and reviewed implementation plan; Task 1 next |
 | Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | blocked by Q2 |
 | Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | blocked by Q3 |
 
@@ -83,15 +83,15 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | Stage | Work | Entry condition | Completion gate | Status |
 | --- | --- | --- | --- | --- |
 | L0 | Reliability and diagnostic actionability | Gate S8 complete; current v1 behavior characterized | no-watcher `didSave` reverse invalidation, intentional structured initialization failures, visible compiler-owned notes/expansion provenance, and a content-keyed pure-projection source cache pass focused state/driver/stdio/diagnostic/cache tests plus one real stdio E2E without changing diagnostic identity | complete — reviewed implementation closes the four bounded corrections and watcher-disabled real-stdio gate |
-| L1 | Authored symbols and callable signatures | L0 complete; closed navigation/completion amendment accepted | authored type/resource/transition symbols and namespace-preserving procedure/workflow signature completion use existing compiler spans/catalogs, exclude generated shapes, and retain fail-closed freshness | next — accepted design; separately reviewed implementation-plan gate next |
+| L1 | Authored symbols and callable signatures | L0 complete; closed navigation/completion amendment accepted | authored type/resource/transition symbols and namespace-preserving procedure/workflow signature completion use existing compiler spans/catalogs, exclude generated shapes, and retain fail-closed freshness | active — accepted design and reviewed implementation plan; Task 1 next |
 | L2 | Recovery-safe static completion | L1 complete; two-tier completion amendment accepted | dirty/pending/invalidated/failed open entries receive only deterministic compiler-registry form heads as an incomplete list; stale callables remain closed and stale/closed/unassociated entries remain empty | blocked by L1 |
 | L3 | Per-source entry selection | L2 complete; immutable initialization-schema amendment accepted; compile-path reentrancy proven (substrate MR-4 complete, or an equivalent accepted reentrancy fixture) | one canonical workspace process can select an exported workflow for a named application source while compiling library entries with no selection, with exact CLI request parity and restart semantics | blocked by L2 |
 | L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and a diagnostic-currentness policy are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | blocked by L3 |
 
 The Q-series stages execute in Q-table order. Q0 and Q1 are complete; Q2's
-design is accepted and its separately reviewed implementation-plan gate is
-next. L0 is complete; L1's design is accepted and its separately reviewed
-implementation-plan gate is next.
+design and implementation plan are accepted and Q2 implementation is active.
+L0 is complete; L1's design and implementation plan are accepted and L1
+implementation is active.
 The L-series is an owner-selected
 priority queue rather than a
 claim that every adjacent stage has a compiler dependency on its predecessor;
@@ -186,8 +186,10 @@ Authority target: an independently reviewed Q2 amendment to
 implementation plan.
 
 **Status:** accepted after ordered independent
-`Q2_DESIGN_SPEC_REAPPROVED` then `Q2_DESIGN_QUALITY_APPROVED`; the separately
-reviewed implementation-plan gate is next.
+`Q2_DESIGN_SPEC_REAPPROVED` then `Q2_DESIGN_QUALITY_APPROVED`. The reviewed
+implementation plan is accepted after `Q2_PLAN_SPEC_APPROVED` then
+`Q2_PLAN_QUALITY_APPROVED`; Task 1 is next:
+`docs/plans/2026-07-26-workflow-lisp-prompt-output-positions-implementation-plan.md`.
 
 Q2 owns only the `:path :out` delta. The declaration that instructs the
 provider to write a path and the runtime postcondition checking that path must
@@ -287,8 +289,9 @@ Authority target: an accepted closed-matrix amendment to
 specification before the implementation plan.
 
 **Status:** accepted after ordered independent `L1_DESIGN_SPEC_APPROVED` then
-`L1_DESIGN_QUALITY_APPROVED`; the separately reviewed implementation-plan gate
-is next.
+`L1_DESIGN_QUALITY_APPROVED`. The reviewed implementation plan is accepted
+after `L1_PLAN_SPEC_APPROVED` then `L1_PLAN_QUALITY_APPROVED`; Task 1 is next:
+`docs/plans/2026-07-26-workflow-lisp-language-server-l1-implementation-plan.md`.
 
 L1 may expose only compiler-retained authored structure:
 
@@ -415,24 +418,42 @@ For each stage:
 8. obtain specification approval before distinct quality approval; and
 9. commit only the exact reviewed tree.
 
-The reproducible broad command is:
+The reproducible broad command is below. The owner explicitly amended this
+comparison authority on 2026-07-26, prospectively for the not-yet-executed
+Q2–Q4 and L1–L4 gates, to keep every security-, safety-, secrets-, and
+provider-isolation-owned module out of this roadmap's implementation and
+verification scope. This amendment does not reinterpret the already closed
+Q0, Q1, or L0 evidence.
 
 ```bash
 pytest -q -n 16 --dist=worksteal \
   --ignore=tests/test_at61_at62_wait_for_path_safety.py \
   --ignore=tests/test_cli_safety.py \
-  --ignore=tests/test_provider_isolation_policy.py \
-  --ignore=tests/test_provider_isolation_schema_resources.py \
+  --ignore=tests/test_execution_safety.py \
+  --ignore=tests/test_provider_isolation_attestation.py \
+  --ignore=tests/test_provider_isolation_backend.py \
+  --ignore=tests/test_provider_isolation_backend_identity_negatives.py \
+  --ignore=tests/test_provider_isolation_bundle_broker.py \
+  --ignore=tests/test_provider_isolation_candidate.py \
+  --ignore=tests/test_provider_isolation_controller_lifecycle.py \
   --ignore=tests/test_provider_isolation_environment.py \
   --ignore=tests/test_provider_isolation_environment_cli.py \
+  --ignore=tests/test_provider_isolation_execution.py \
+  --ignore=tests/test_provider_isolation_network_preflight.py \
+  --ignore=tests/test_provider_isolation_policy.py \
+  --ignore=tests/test_provider_isolation_runtime_authority.py \
+  --ignore=tests/test_provider_isolation_schema_resources.py \
+  --ignore=tests/test_provider_isolation_workflow_continuation.py \
+  --ignore=tests/test_provider_isolation_workflow_lifecycle.py \
   --ignore=tests/test_provider_launch_shim.py \
   --ignore=tests/test_secrets.py \
-  -k 'not security and not secret and not isolation'
+  --ignore=tests/test_workflow_provider_isolation_integration.py \
+  -k 'not security and not secret and not isolation and not safety'
 ```
 
-If a later security/provider-isolation module is added, it is excluded by the
-same `-k` rule; the command itself remains the comparison authority unless the
-owner amends it explicitly.
+If a later security, safety, secrets, or provider-isolation module is added, it
+is excluded by the same `-k` rule; the command itself remains the comparison
+authority unless the owner amends it explicitly.
 
 This roadmap closes when Q0–Q4 and L0–L4 satisfy their completion gates,
 normative and authoring surfaces describe only shipped behavior, all ten stage

@@ -1,17 +1,19 @@
 # Workflow Lisp Prompt Calculus
 
-- **Status:** accepted and implemented Q1 design; accepted Q2 design amendment,
-  implementation plan pending
+- **Status:** accepted and implemented Q1 design; accepted Q2 design amendment
+  and reviewed implementation plan; Q2 implementation active
 - **Kind:** language design — typed, compositional provider prompts
 - **Owner:** Workflow Lisp frontend plus the existing provider prompt pipeline
 - **Selected tranches:** Q1 prompt core is implemented; Q2 output positions
-  have an accepted design and route next to a separately reviewed
-  implementation-plan gate
+  have an accepted design and reviewed implementation plan; Task 1 is next
 - **Minimum targets:** Q1 `(:target-dsl "2.20")`; accepted Q2 additive syntax
   `(:target-dsl "2.21")`
 - **Q2 design reviews:** independent specification rereview
   `Q2_DESIGN_SPEC_REAPPROVED`, then independent quality review
   `Q2_DESIGN_QUALITY_APPROVED` (2026-07-26)
+- **Q2 implementation plan:** accepted after independent
+  `Q2_PLAN_SPEC_APPROVED` then `Q2_PLAN_QUALITY_APPROVED`;
+  `docs/plans/2026-07-26-workflow-lisp-prompt-output-positions-implementation-plan.md`
 - **Related docs:**
   - `docs/design/workflow_lisp_frontend_specification.md`
   - `docs/design/workflow_lisp_transportable_value_type.md`

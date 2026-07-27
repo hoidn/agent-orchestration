@@ -49,6 +49,12 @@ TRANSPORTABLE_VALUE_DESIGN_PATH = (
 TRANSPORTABLE_VALUE_PLAN_PATH = (
     "docs/plans/2026-07-26-workflow-lisp-transportable-value-implementation-plan.md"
 )
+PROMPT_OUTPUT_POSITIONS_PLAN_PATH = (
+    "docs/plans/2026-07-26-workflow-lisp-prompt-output-positions-implementation-plan.md"
+)
+LANGUAGE_SERVER_L1_PLAN_PATH = (
+    "docs/plans/2026-07-26-workflow-lisp-language-server-l1-implementation-plan.md"
+)
 EVOLUTION_FOLLOW_ON_ROADMAP_PATH = (
     "docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md"
 )
@@ -1093,6 +1099,12 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     value_plan = (REPO_ROOT / TRANSPORTABLE_VALUE_PLAN_PATH).read_text(
         encoding="utf-8"
     )
+    q2_plan = (REPO_ROOT / PROMPT_OUTPUT_POSITIONS_PLAN_PATH).read_text(
+        encoding="utf-8"
+    )
+    l1_plan = (REPO_ROOT / LANGUAGE_SERVER_L1_PLAN_PATH).read_text(
+        encoding="utf-8"
+    )
     evolution = (REPO_ROOT / EVOLUTION_FOLLOW_ON_ROADMAP_PATH).read_text(
         encoding="utf-8"
     )
@@ -1201,6 +1213,18 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "value_q0_plan_spec_approved" in normalized_plan
     assert "value_q0_plan_quality_approved" in normalized_plan
     assert TRANSPORTABLE_VALUE_PLAN_PATH in successor
+    for plan, spec_token, quality_token in (
+        (q2_plan, "q2_plan_spec_approved", "q2_plan_quality_approved"),
+        (l1_plan, "l1_plan_spec_approved", "l1_plan_quality_approved"),
+    ):
+        normalized_component_plan = _normalized_routing_text(
+            "\n".join(plan.splitlines()[:90])
+        )
+        assert "status: accepted for execution" in normalized_component_plan
+        assert spec_token in normalized_component_plan
+        assert quality_token in normalized_component_plan
+    assert PROMPT_OUTPUT_POSITIONS_PLAN_PATH in successor
+    assert LANGUAGE_SERVER_L1_PLAN_PATH in successor
 
     normalized_sequence = _normalized_routing_text(sequence)
     assert "stage 8 is the active numbered stage" not in normalized_sequence
@@ -1263,7 +1287,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "active post stage 8 selector" in normalized_successor_index
     assert "q0 and q1 are complete" in normalized_successor_index
-    assert "q2 and l1 implementation plan gates are next" in (
+    assert "q2 and l1 reviewed implementation plans are active" in (
         normalized_successor_index
     )
     assert "do not select e0" in normalized_successor_index
@@ -1464,7 +1488,7 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
         )
     )
     assert "q0 and q1 are complete" in active_roadmap_index
-    assert "q2 and l1 implementation plan gates are next" in (
+    assert "q2 and l1 reviewed implementation plans are active" in (
         active_roadmap_index
     )
 
