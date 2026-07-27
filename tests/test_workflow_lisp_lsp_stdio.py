@@ -13,6 +13,8 @@ from typing import Callable
 
 import pytest
 
+from orchestrator.workflow_lisp.form_registry import registered_form_heads
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 L1_SYMBOLS_ROOT = (
@@ -756,10 +758,31 @@ def test_document_symbol_protocol_exposes_ten_kinds_and_selection_ranges(
             )
             assert "error" not in dirty_response
             if method == "textDocument/completion":
-                assert dirty_response["result"] == {
-                    "isIncomplete": False,
-                    "items": [],
-                }
+                dirty_completion = dirty_response["result"]
+                assert dirty_completion["isIncomplete"] is True
+                assert tuple(
+                    (
+                        item["label"],
+                        item["kind"],
+                        item["detail"],
+                        item["sortText"],
+                    )
+                    for item in dirty_completion["items"]
+                ) == tuple(
+                    (head, 14, "form", head)
+                    for head in registered_form_heads(
+                        target_dsl_version=None
+                    )
+                )
+                assert all(
+                    set(item) == {"label", "kind", "detail", "sortText"}
+                    for item in dirty_completion["items"]
+                )
+                assert all(
+                    "procedure" not in item["detail"]
+                    and "workflow" not in item["detail"]
+                    for item in dirty_completion["items"]
+                )
             else:
                 assert dirty_response["result"] is None
         process.shutdown()

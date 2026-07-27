@@ -25,6 +25,7 @@ from .diagnostics import (
 )
 from .coordinates import CoordinateTranslationError, source_span_to_lsp_range
 from .navigation import (
+    NavigationCompletion,
     NavigationIndex,
     build_navigation_index,
     completion_for_document,
@@ -37,6 +38,7 @@ from .state import (
     LspStateTransition,
     canonicalize_workspace_roots,
     change_entry,
+    classify_completion_recovery,
     close_entry,
     initialize_lsp_state,
     open_entry,
@@ -400,29 +402,55 @@ class WorkflowLispLanguageServer(LanguageServer):
         self,
         params: types.CompletionParams,
     ) -> types.CompletionList:
-        """Return the exact visibility-plus-form-registry completion set."""
+        """Return full, frozen recovery, or exact empty completion."""
 
         uri = params.text_document.uri
-        navigation = self._current_navigation(uri)
-        if navigation is None:
-            return types.CompletionList(is_incomplete=False, items=())
-        _snapshot, index = navigation
+        driver = self._require_driver()
+        transitions: list[LspStateTransition] = []
+        snapshot = driver.snapshot_if_current(
+            uri,
+            transition_sink=transitions.append,
+        )
+        self._emit_transition_effects(transitions)
+        if snapshot is None and not transitions:
+            return _completion_list((), is_incomplete=False)
         source_path = _file_uri_path(uri)
-        return types.CompletionList(
-            is_incomplete=False,
-            items=tuple(
-                types.CompletionItem(
-                    label=item.label,
-                    kind=_COMPLETION_ITEM_KIND_BY_INTERNAL_KIND[item.kind],
-                    detail=item.detail,
-                    sort_text=item.label,
+        if snapshot is not None:
+            compile_result = getattr(
+                snapshot.build_value,
+                "compile_result",
+                None,
+            )
+            try:
+                index = build_navigation_index(
+                    compile_result,
+                    frozen_form_completions=driver.frozen_form_completions,
                 )
-                for item in completion_for_document(
+            except (TypeError, ValueError) as error:
+                self.log_internal_error(error)
+                return _completion_list((), is_incomplete=False)
+            return _completion_list(
+                completion_for_document(
                     index,
                     source_path=source_path,
-                )
-            ),
+                ),
+                is_incomplete=False,
+            )
+
+        recovery_selection = classify_completion_recovery(
+            driver.state,
+            entry_path=source_path,
         )
+        if self._defer_compiles:
+            self._schedule_compile_pump()
+        else:
+            self._emit_transition_effects(driver.drain())
+        if recovery_selection == "static-incomplete":
+            return _completion_list(
+                driver.frozen_form_completions,
+                is_incomplete=True,
+            )
+        return _completion_list((), is_incomplete=False)
 
     def log_internal_error(self, error: Exception) -> None:
         """Report an internal failure without creating a language diagnostic."""
@@ -652,6 +680,25 @@ def _file_uri_path(uri: str) -> Path:
         workspace_folder_uris=(),
     )
     return next(iter(canonical_paths))
+
+
+def _completion_list(
+    rows: Iterable[NavigationCompletion],
+    *,
+    is_incomplete: bool,
+) -> types.CompletionList:
+    return types.CompletionList(
+        is_incomplete=is_incomplete,
+        items=tuple(
+            types.CompletionItem(
+                label=item.label,
+                kind=_COMPLETION_ITEM_KIND_BY_INTERNAL_KIND[item.kind],
+                detail=item.detail,
+                sort_text=item.label,
+            )
+            for item in rows
+        ),
+    )
 
 
 def _lsp_diagnostic(

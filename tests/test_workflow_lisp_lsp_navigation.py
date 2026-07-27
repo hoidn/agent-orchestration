@@ -1247,6 +1247,27 @@ def _completion_params(path: Path) -> types.CompletionParams:
     )
 
 
+def _replace_driver_entry(
+    driver: lsp_compile_driver.LspCompileDriver,
+    entry: lsp_state.CompileEntryState,
+) -> None:
+    driver.state = replace(driver.state, entries=(entry,))
+
+
+def _static_completion_shape(
+    driver: lsp_compile_driver.LspCompileDriver,
+) -> tuple[tuple[str, types.CompletionItemKind, str, str], ...]:
+    return tuple(
+        (
+            row.label,
+            types.CompletionItemKind.Keyword,
+            "form",
+            row.label,
+        )
+        for row in driver.frozen_form_completions
+    )
+
+
 def test_success_snapshot_freezes_postflight_text_for_every_trace_path(
     tmp_path: Path,
 ) -> None:
@@ -1313,6 +1334,310 @@ def test_server_navigation_translates_only_from_current_frozen_snapshot(
     assert completions.is_incomplete is False
     assert "build-checks" in {
         item.label for item in completions.items
+    }
+
+
+@pytest.mark.parametrize(
+    "recovery_status",
+    (
+        "dirty-idle",
+        "current-pending",
+        "language-error",
+        "server-error",
+    ),
+)
+def test_server_completion_returns_only_frozen_forms_for_valid_recovery(
+    tmp_path: Path,
+    recovery_status: str,
+) -> None:
+    root = tmp_path / "lsp_l1_symbols"
+    shutil.copytree(L1_SYMBOLS_ROOT, root)
+    driver, entry_path = _compile_driver_for_l1_symbols_root(root)
+    current_entry = driver.state.entries[0]
+    disk_snapshot = current_entry.disk_snapshot
+    assert disk_snapshot is not None
+    assert disk_snapshot.raw_decoded_text is not None
+    common = {
+        "accepted_snapshot": None,
+        "dependency_closure": None,
+        "dependency_revision_vector": None,
+        "diagnostic_contributions": (),
+    }
+    if recovery_status == "dirty-idle":
+        recovery_entry = replace(
+            current_entry,
+            editor_text=disk_snapshot.raw_decoded_text + "\n",
+            generation=current_entry.generation + 1,
+            pending_generation=None,
+            buffer_status="dirty",
+            compile_status="idle",
+            **common,
+        )
+    elif recovery_status == "current-pending":
+        pending = lsp_state.save_entry(
+            driver.state,
+            document_uri=entry_path.as_uri(),
+            disk_snapshot=disk_snapshot,
+        )
+        driver.apply_transition(pending)
+        recovery_entry = None
+    else:
+        recovery_entry = replace(
+            current_entry,
+            pending_generation=None,
+            buffer_status="clean",
+            compile_status=(
+                "language_error"
+                if recovery_status == "language-error"
+                else "server_error"
+            ),
+            **common,
+        )
+    if recovery_entry is not None:
+        _replace_driver_entry(driver, recovery_entry)
+    server = WorkflowLispLanguageServer()
+    server.driver = driver
+
+    completion = server.completion(_completion_params(entry_path))
+
+    assert completion.is_incomplete is True
+    assert tuple(
+        (item.label, item.kind, item.detail, item.sort_text)
+        for item in completion.items
+    ) == _static_completion_shape(driver)
+    assert all(item.data is None for item in completion.items)
+    assert all(item.insert_text is None for item in completion.items)
+    assert all(item.text_edit is None for item in completion.items)
+    assert all("procedure" not in item.detail for item in completion.items)
+    assert all("workflow" not in item.detail for item in completion.items)
+    assert "review" not in {
+        item.label
+        for item in completion.items
+        if item.detail != "form"
+    }
+    if recovery_status == "current-pending":
+        assert driver.state.entries[0].compile_status == "success"
+
+
+@pytest.mark.parametrize(
+    "closed_status",
+    (
+        "configuration-stale",
+        "unavailable",
+        "unassociated",
+        "closed",
+        "clean-idle",
+        "malformed",
+    ),
+)
+def test_server_completion_returns_exact_empty_for_closed_l2_states(
+    tmp_path: Path,
+    closed_status: str,
+) -> None:
+    root = tmp_path / "lsp_l1_symbols"
+    shutil.copytree(L1_SYMBOLS_ROOT, root)
+    driver, entry_path = _compile_driver_for_l1_symbols_root(root)
+    entry = driver.state.entries[0]
+    disk_snapshot = entry.disk_snapshot
+    assert disk_snapshot is not None
+    assert disk_snapshot.raw_decoded_text is not None
+    requested_path = entry_path
+    if closed_status == "configuration-stale":
+        driver.state = replace(driver.state, configuration_stale=True)
+    elif closed_status == "unavailable":
+        _replace_driver_entry(
+            driver,
+            replace(
+                entry,
+                disk_snapshot=replace(
+                    disk_snapshot,
+                    revision="missing",
+                    raw_decoded_text=None,
+                ),
+                accepted_snapshot=None,
+                pending_generation=None,
+                buffer_status="unavailable",
+                compile_status="idle",
+                dependency_closure=None,
+                dependency_revision_vector=None,
+                diagnostic_contributions=(),
+            ),
+        )
+    elif closed_status == "unassociated":
+        requested_path = root / "not-open.orc"
+    elif closed_status == "closed":
+        driver.state = lsp_state.close_entry(
+            driver.state,
+            document_uri=entry_path.as_uri(),
+        ).state
+    elif closed_status == "clean-idle":
+        _replace_driver_entry(
+            driver,
+            replace(
+                entry,
+                accepted_snapshot=None,
+                pending_generation=None,
+                compile_status="idle",
+                dependency_closure=None,
+                dependency_revision_vector=None,
+                diagnostic_contributions=(),
+            ),
+        )
+    else:
+        _replace_driver_entry(
+            driver,
+            replace(
+                entry,
+                editor_text=disk_snapshot.raw_decoded_text,
+                accepted_snapshot=None,
+                pending_generation=None,
+                buffer_status="dirty",
+                compile_status="idle",
+                dependency_closure=None,
+                dependency_revision_vector=None,
+                diagnostic_contributions=(),
+            ),
+        )
+    server = WorkflowLispLanguageServer()
+    server.driver = driver
+
+    completion = server.completion(_completion_params(requested_path))
+
+    assert completion.is_incomplete is False
+    assert tuple(completion.items) == ()
+
+
+def test_current_success_index_failure_never_falls_back_to_static_completion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestrator.lsp.server as server_module
+
+    root = tmp_path / "lsp_l1_symbols"
+    shutil.copytree(L1_SYMBOLS_ROOT, root)
+    driver, entry_path = _compile_driver_for_l1_symbols_root(root)
+    server = WorkflowLispLanguageServer()
+    server.driver = driver
+    logged: list[types.LogMessageParams] = []
+    monkeypatch.setattr(server, "window_log_message", logged.append)
+
+    def fail_index(*_args: object, **_kwargs: object) -> object:
+        raise ValueError("candidate index is invalid")
+
+    monkeypatch.setattr(
+        server_module,
+        "build_navigation_index",
+        fail_index,
+    )
+
+    def unexpected_static_fallback(*_args: object, **_kwargs: object) -> str:
+        pytest.fail("current-success index failure selected static completion")
+
+    monkeypatch.setattr(
+        server_module,
+        "classify_completion_recovery",
+        unexpected_static_fallback,
+        raising=False,
+    )
+
+    completion = server.completion(_completion_params(entry_path))
+
+    assert completion.is_incomplete is False
+    assert tuple(completion.items) == ()
+    assert len(logged) == 1
+    assert "candidate index is invalid" in logged[0].message
+
+
+def test_completion_preflight_failure_is_logged_once_and_returns_exact_empty(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "lsp_l1_symbols"
+    shutil.copytree(L1_SYMBOLS_ROOT, root)
+    driver, entry_path = _compile_driver_for_l1_symbols_root(root)
+    entry = driver.state.entries[0]
+    disk_snapshot = entry.disk_snapshot
+    assert disk_snapshot is not None
+    assert disk_snapshot.raw_decoded_text is not None
+    _replace_driver_entry(
+        driver,
+        replace(
+            entry,
+            editor_text=disk_snapshot.raw_decoded_text + "\n",
+            generation=entry.generation + 1,
+            pending_generation=None,
+            buffer_status="dirty",
+            compile_status="idle",
+            accepted_snapshot=None,
+            dependency_closure=None,
+            dependency_revision_vector=None,
+            diagnostic_contributions=(),
+        ),
+    )
+    driver.state = replace(driver.state, configuration_vector=None)
+    server = WorkflowLispLanguageServer()
+    server.driver = driver
+    logged: list[types.LogMessageParams] = []
+    monkeypatch.setattr(server, "window_log_message", logged.append)
+    driver._log_server_error = server.log_internal_error
+
+    completion = server.completion(_completion_params(entry_path))
+
+    assert completion.is_incomplete is False
+    assert tuple(completion.items) == ()
+    assert len(logged) == 1
+    assert logged[0].type == types.MessageType.Error
+    assert logged[0].message == (
+        "RuntimeError: compile driver state has no configuration vector"
+    )
+
+
+def test_full_and_recovery_completion_ignore_post_init_registry_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = import_module("orchestrator.workflow_lisp.form_registry")
+    root = tmp_path / "lsp_l1_symbols"
+    shutil.copytree(L1_SYMBOLS_ROOT, root)
+    driver, entry_path = _compile_driver_for_l1_symbols_root(root)
+    frozen_labels = tuple(row.label for row in driver.frozen_form_completions)
+    form_spec = registry.get_form_spec("defproc")
+    assert form_spec is not None
+    monkeypatch.setitem(registry._FORM_REGISTRY, "zz-late-form", form_spec)
+    server = WorkflowLispLanguageServer()
+    server.driver = driver
+
+    full = server.completion(_completion_params(entry_path))
+    entry = driver.state.entries[0]
+    disk_snapshot = entry.disk_snapshot
+    assert disk_snapshot is not None
+    assert disk_snapshot.raw_decoded_text is not None
+    _replace_driver_entry(
+        driver,
+        replace(
+            entry,
+            editor_text=disk_snapshot.raw_decoded_text + "\n",
+            generation=entry.generation + 1,
+            pending_generation=None,
+            buffer_status="dirty",
+            compile_status="idle",
+            accepted_snapshot=None,
+            dependency_closure=None,
+            dependency_revision_vector=None,
+            diagnostic_contributions=(),
+        ),
+    )
+    recovery = server.completion(_completion_params(entry_path))
+
+    assert tuple(
+        item.label
+        for item in full.items
+        if item.kind == types.CompletionItemKind.Keyword
+    ) == frozen_labels
+    assert recovery.is_incomplete is True
+    assert tuple(item.label for item in recovery.items) == frozen_labels
+    assert "zz-late-form" not in {
+        item.label for item in (*full.items, *recovery.items)
     }
 
 
