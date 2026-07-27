@@ -219,7 +219,14 @@ def _copy_context_with_composition_scope(
     )
 
 
-def _compile_error(*, code: str, message: str, span: SourceSpan, form_path: tuple[str, ...]) -> LispFrontendCompileError:
+def _compile_error(
+    *,
+    code: str,
+    message: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    notes: tuple[str, ...] = (),
+) -> LispFrontendCompileError:
     """Create a single lowering-phase frontend compile error."""
 
     return LispFrontendCompileError(
@@ -230,6 +237,7 @@ def _compile_error(*, code: str, message: str, span: SourceSpan, form_path: tupl
                 span=span,
                 form_path=form_path,
                 phase="lowering",
+                notes=notes,
             ),
         )
     )

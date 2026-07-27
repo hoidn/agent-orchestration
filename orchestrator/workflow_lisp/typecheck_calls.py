@@ -432,11 +432,24 @@ def typecheck_call_expr(
             )
         )
     if missing_bindings:
+        active_signature = context.session_state.workflow_signature
+        if active_signature is None:
+            active_signature = context.session_state.procedure_hidden_context_signature
+        entry_bootstrap_gate_denial_note = getattr(
+            active_signature,
+            "entry_bootstrap_gate_denial",
+            None,
+        )
         raise_error(
             f"call is missing required binding `{missing_bindings[0]}`",
             code="workflow_signature_mismatch",
             span=expr.span,
             form_path=expr.form_path,
+            notes=(
+                (entry_bootstrap_gate_denial_note,)
+                if entry_bootstrap_gate_denial_note
+                else ()
+            ),
         )
     call_summary = effect_summary_from_direct(
         direct_effects=(CallsWorkflowEffect(subject=(signature_name,)),)

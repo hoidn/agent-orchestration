@@ -31,6 +31,21 @@ accepted set, attached as a secondary note to any resulting
 `workflow_signature_mismatch` on an omitted context binding. Add one negative
 test asserting the note appears for a non-allowlisted entry name.
 
+**Status: done.** `orchestrator/workflow_lisp/workflows.py`'s gate (function
+renamed in code churn to `_selected_entry_hidden_context_omission_callees`,
+still the same three-name literal set at the same behavior) now routes its
+accept/deny decision through `_entry_bootstrap_name_gate_denial`, and
+`build_workflow_catalog` stamps the resulting note onto the denied
+workflow's `WorkflowSignature.entry_bootstrap_gate_denial` (new field). The
+diagnostic actually surfaces from the typecheck-phase call-binding check
+(`orchestrator/workflow_lisp/typecheck_calls.py`, the `missing_bindings`
+raise, not the lowering-phase raise the plan's file pointer implied) via
+`raise_error`'s new `notes` parameter — both `raise_error`
+(`typecheck_context.py`) and lowering's `_compile_error`
+(`orchestrator/workflow_lisp/lowering/context.py`) gained a `notes` kwarg for
+this. New test:
+`tests/test_workflow_lisp_lowering.py::test_compile_stage3_entrypoint_names_the_denied_gate_for_unexported_non_magic_name_entry_workflow`.
+
 ## Task 2: Replace the name key with the declared-property rule
 
 The exports branch already implements the principled rule: exported workflows

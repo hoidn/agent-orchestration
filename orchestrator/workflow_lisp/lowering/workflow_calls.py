@@ -1161,11 +1161,21 @@ def _lower_workflow_call(
                             )
                         )
                         continue
+                    entry_bootstrap_gate_denial_note = getattr(
+                        context.signature,
+                        "entry_bootstrap_gate_denial",
+                        None,
+                    )
                     raise _compile_error(
                         code="workflow_signature_mismatch",
                         message=f"call is missing required binding `{param_name}`",
                         span=expr.span,
                         form_path=expr.form_path,
+                        notes=(
+                            (entry_bootstrap_gate_denial_note,)
+                            if entry_bootstrap_gate_denial_note
+                            else ()
+                        ),
                     )
                 generated_binding_name = f"{param_name}__{requirement.phase_name}"
                 with_bindings.update(

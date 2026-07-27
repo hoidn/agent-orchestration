@@ -6340,6 +6340,69 @@ def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_unselecte
     assert "phase-ctx" in diagnostic.message
 
 
+def test_compile_stage3_entrypoint_names_the_denied_gate_for_unexported_non_magic_name_entry_workflow(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "entry_bootstrap_gate_diagnostic_probe.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule entry_bootstrap_gate_diagnostic_probe)",
+                "  (import std/phase :only (with-phase))",
+                "  (export helper ResumeInputs WorkflowOutput PhaseCtx RunCtx WorkReport)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord ResumeInputs",
+                "    (report_path WorkReport))",
+                "  (defrecord WorkflowOutput",
+                "    (report_path WorkReport))",
+                "  (defworkflow unexported-custom-entry",
+                "    ((inputs ResumeInputs))",
+                "    -> WorkflowOutput",
+                "    (call helper",
+                "      :inputs inputs))",
+                "  (defworkflow helper",
+                "    ((phase-ctx PhaseCtx)",
+                "     (inputs ResumeInputs))",
+                "    -> WorkflowOutput",
+                "    (with-phase phase-ctx plan-gate-wrapper",
+                "      (record WorkflowOutput",
+                "        :report_path inputs.report_path))))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            workflow_path,
+            source_roots=(tmp_path,),
+            validate_shared=False,
+            workspace_root=tmp_path,
+            entry_workflow="entry_bootstrap_gate_diagnostic_probe::unexported-custom-entry",
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_signature_mismatch"
+    assert any(
+        "entry_bootstrap_name_gate_denied" in note and "unexported-custom-entry" in note
+        for note in diagnostic.notes
+    )
+
+
 def test_compile_stage3_entrypoint_rejects_private_compatibility_bridge_omission_for_arbitrary_caller(
     tmp_path: Path,
 ) -> None:

@@ -387,6 +387,7 @@ class WorkflowSignature:
     derived_hidden_context_callees: frozenset[str] = frozenset()
     entry_hidden_context_callees: frozenset[str] = frozenset()
     allowed_private_compatibility_bridge_callees: frozenset[str] = frozenset()
+    entry_bootstrap_gate_denial: str | None = None
 
 
 @dataclass(frozen=True)
@@ -950,6 +951,26 @@ def build_workflow_catalog(
         definitions_by_name[workflow_def.name] = workflow_def
         signatures_by_name[workflow_def.name] = signature
 
+    entry_bootstrap_gate_denial_workflow_name: str | None = None
+    entry_bootstrap_gate_denial_note: str | None = None
+    if selected_entry_workflow_name is not None:
+        entry_bootstrap_workflow_name_by_local_name = {
+            workflow_def.name.rsplit("::", 1)[-1]: workflow_def.name for workflow_def in workflow_defs
+        }
+        candidate_entry_bootstrap_workflow_name = entry_bootstrap_workflow_name_by_local_name.get(
+            selected_entry_workflow_name,
+            selected_entry_workflow_name,
+        )
+        candidate_entry_bootstrap_denial_note = _entry_bootstrap_name_gate_denial(
+            selected_local_name=candidate_entry_bootstrap_workflow_name.rsplit("::", 1)[-1],
+        )
+        if (
+            candidate_entry_bootstrap_denial_note is not None
+            and candidate_entry_bootstrap_workflow_name in signatures_by_name
+        ):
+            entry_bootstrap_gate_denial_workflow_name = candidate_entry_bootstrap_workflow_name
+            entry_bootstrap_gate_denial_note = candidate_entry_bootstrap_denial_note
+
     derived_hidden_context_callees_by_workflow: Mapping[str, frozenset[str]] = {}
     entry_hidden_context_callees_by_workflow: Mapping[str, frozenset[str]] = {}
     if allow_hidden_context_callers:
@@ -1009,6 +1030,10 @@ def build_workflow_catalog(
         compatibility_bridge_callees_by_workflow
     ).union(merged_compatibility_bridge_types_by_workflow).union(
         workflow_ref_bridge_omission_workflows
+    ).union(
+        {entry_bootstrap_gate_denial_workflow_name}
+        if entry_bootstrap_gate_denial_workflow_name is not None
+        else set()
     ):
         signature = signatures_by_name[workflow_name]
         hidden_context_callees = hidden_context_callees_by_workflow.get(workflow_name, frozenset())
@@ -1045,6 +1070,11 @@ def build_workflow_catalog(
                 frozenset(),
             ),
             allowed_private_compatibility_bridge_callees=compatibility_bridge_callees,
+            entry_bootstrap_gate_denial=(
+                entry_bootstrap_gate_denial_note
+                if workflow_name == entry_bootstrap_gate_denial_workflow_name
+                else signature.entry_bootstrap_gate_denial
+            ),
         )
 
     for imported_name, imported_bundle in (imported_workflow_bundles or {}).items():
@@ -1131,6 +1161,21 @@ def _shared_proof_hidden_context_omission_callees(
     return allowed
 
 
+def _entry_bootstrap_name_gate_denial(*, selected_local_name: str) -> str | None:
+    """Return a coded denial note when the selected entry-bootstrap
+    candidate's local name is outside the accepted set; None when it
+    qualifies (design principle 28, docs/design/workflow_language_design_principles.md)."""
+
+    accepted_names = ("entry", "drain", "promoted-entry-resume-plan-gate-wrapper")
+    if selected_local_name in accepted_names:
+        return None
+    return (
+        "entry_bootstrap_name_gate_denied: selected entry "
+        f"`{selected_local_name}` is not in the accepted set "
+        f"({', '.join(accepted_names)})"
+    )
+
+
 def _selected_entry_hidden_context_omission_callees(
     *,
     module: WorkflowLispModule,
@@ -1188,9 +1233,7 @@ def _selected_entry_hidden_context_omission_callees(
             selected_entry_workflow_name,
         )
         selected_local_name = selected_workflow_name.rsplit("::", 1)[-1]
-        if not (
-            selected_local_name in {"entry", "drain", "promoted-entry-resume-plan-gate-wrapper"}
-        ):
+        if _entry_bootstrap_name_gate_denial(selected_local_name=selected_local_name) is not None:
             return {}
         candidate_workflow_names.add(selected_workflow_name)
     else:
@@ -2501,6 +2544,7 @@ def typecheck_workflow_definitions(
             allowed_private_compatibility_bridge_callees=(
                 signature.allowed_private_compatibility_bridge_callees
             ),
+            entry_bootstrap_gate_denial=signature.entry_bootstrap_gate_denial,
         )
 
     typed_workflows: list[TypedWorkflowDef] = []

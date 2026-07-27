@@ -195,6 +195,7 @@ def raise_error(
     span: SourceSpan,
     form_path: tuple[str, ...],
     expansion_stack: tuple[object, ...] = (),
+    notes: tuple[str, ...] = (),
 ) -> None:
     raise LispFrontendCompileError(
         (
@@ -205,6 +206,7 @@ def raise_error(
                 form_path=form_path,
                 expansion_stack=expansion_stack,
                 phase="typecheck",
+                notes=notes,
             ),
         )
     )
