@@ -200,8 +200,8 @@ def _pilot_lock(
     treatments = []
     for treatment_id, bounds in (
         ("DIRECT", {"minimum": 1, "maximum": 1}),
-        ("COORDINATOR", {"minimum": 5, "maximum": 9}),
-        ("ORC", {"minimum": 5, "maximum": 9}),
+        ("COORDINATOR", {"minimum": 3, "maximum": 9}),
+        ("ORC", {"minimum": 3, "maximum": 9}),
     ):
         command_asset = command_assets[treatment_id]
         treatments.append(
@@ -268,7 +268,6 @@ def _pilot_lock(
         "evidence_root": evidence_root.resolve().as_posix(),
         "valid_block_count": 3,
         "max_live_attempt_count": 5,
-        "fixture_id": "fixture-001",
         "smoke_id": "smoke-001",
         "live_attempt_ids": [
             "live-001",
@@ -440,7 +439,7 @@ def _observe_atomic_records(
     return observed
 
 
-def test_run_fixture_block_persists_three_frozen_treatments(
+def test_run_smoke_block_persists_three_frozen_treatments(
     runner: ModuleType,
     tmp_path: Path,
 ) -> None:
@@ -451,7 +450,7 @@ def test_run_fixture_block_persists_three_frozen_treatments(
 
     attempt = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=work_root,
         evidence_root=evidence_root,
     )
@@ -466,6 +465,24 @@ def test_run_fixture_block_persists_three_frozen_treatments(
         execution["treatment_id"]: execution["provider_call_count"]
         for execution in executions
     } == {"DIRECT": 1, "COORDINATOR": 5, "ORC": 5}
+
+
+def test_run_smoke_block_needs_no_fixture_identity(
+    runner: ModuleType,
+    tmp_path: Path,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+
+    record = runner.run_block(
+        lock=lock,
+        block_id=lock["smoke_id"],
+        work_root=tmp_path / "work",
+        evidence_root=evidence_root,
+    ).record
+
+    assert record["attempt_class"] == "SMOKE"
+    assert record["status"] == "VALID"
 
 
 @pytest.mark.parametrize(
@@ -498,7 +515,7 @@ def test_manifest_asset_faults_reject_before_evidence_or_workspace(
     with pytest.raises(ValueError):
         runner.run_block(
             lock=lock,
-            block_id=lock["fixture_id"],
+            block_id=lock["smoke_id"],
             work_root=work_root,
             evidence_root=evidence_root,
         )
@@ -540,7 +557,7 @@ def test_treatment_config_faults_reject_before_started(
     with pytest.raises(ValueError):
         runner.run_block(
             lock=lock,
-            block_id=lock["fixture_id"],
+            block_id=lock["smoke_id"],
             work_root=work_root,
             evidence_root=evidence_root,
         )
@@ -576,7 +593,7 @@ def test_legacy_custom_role_manifest_shapes_reject_before_started(
     with pytest.raises(ValueError, match="standard Workflow Lisp"):
         runner.run_block(
             lock=lock,
-            block_id=lock["fixture_id"],
+            block_id=lock["smoke_id"],
             work_root=work_root,
             evidence_root=evidence_root,
         )
@@ -599,7 +616,7 @@ def test_standard_asset_file_prompt_binding_is_accepted(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -623,7 +640,7 @@ def test_input_file_prompt_binding_rejects_before_started(
     with pytest.raises(ValueError, match="asset_file"):
         runner.run_block(
             lock=lock,
-            block_id=lock["fixture_id"],
+            block_id=lock["smoke_id"],
             work_root=work_root,
             evidence_root=evidence_root,
         )
@@ -672,7 +689,7 @@ def test_treatment_environment_partition_rejects_before_started(
     with pytest.raises(ValueError, match=expected):
         runner.run_block(
             lock=lock,
-            block_id=lock["fixture_id"],
+            block_id=lock["smoke_id"],
             work_root=work_root,
             evidence_root=evidence_root,
         )
@@ -697,7 +714,7 @@ def test_empty_treatment_argv_rejects_before_started(
     with pytest.raises(ValueError, match="argv"):
         runner.run_block(
             lock=lock,
-            block_id=lock["fixture_id"],
+            block_id=lock["smoke_id"],
             work_root=work_root,
             evidence_root=evidence_root,
         )
@@ -720,7 +737,7 @@ def test_controller_owned_runtime_key_is_required_before_started(
     with pytest.raises(ValueError, match="missing_controller_environment_key"):
         runner.run_block(
             lock=lock,
-            block_id=lock["fixture_id"],
+            block_id=lock["smoke_id"],
             work_root=work_root,
             evidence_root=evidence_root,
         )
@@ -739,7 +756,7 @@ def test_preflight_assigns_distinct_controller_owned_runtime_roots(
 
     preflight = runner._preflight(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=work_root,
         evidence_root=evidence_root,
     )
@@ -770,7 +787,7 @@ def test_controller_runtime_keys_cannot_be_provider_credentials(
     with pytest.raises(ValueError, match="controller_environment_key"):
         runner.run_block(
             lock=lock,
-            block_id=lock["fixture_id"],
+            block_id=lock["smoke_id"],
             work_root=work_root,
             evidence_root=evidence_root,
         )
@@ -788,7 +805,7 @@ def test_empty_locked_credential_list_remains_valid(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -820,7 +837,7 @@ def test_work_and_evidence_roots_must_be_disjoint_before_started(
     with pytest.raises(ValueError, match="disjoint"):
         runner.run_block(
             lock=lock,
-            block_id=lock["fixture_id"],
+            block_id=lock["smoke_id"],
             work_root=work_root,
             evidence_root=evidence_root,
         )
@@ -852,7 +869,7 @@ def test_candidate_visible_controller_data_rejects_before_started(
     work_root = (tmp_path / "work").resolve()
     evidence_root = (tmp_path / "evidence").resolve()
     lock = _pilot_lock(tmp_path, evidence_root)
-    block_id = lock["fixture_id"]
+    block_id = lock["smoke_id"]
     peer_label = runner._opaque_label(
         lock["randomization_seed"],
         block_id,
@@ -925,7 +942,7 @@ def test_candidate_visible_environment_key_cannot_name_a_treatment(
     with pytest.raises(ValueError, match="candidate-visible"):
         runner.run_block(
             lock=lock,
-            block_id=lock["fixture_id"],
+            block_id=lock["smoke_id"],
             work_root=work_root,
             evidence_root=evidence_root,
         )
@@ -954,7 +971,7 @@ def test_treatment_tokens_inside_larger_identifier_components_are_permitted(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -962,15 +979,13 @@ def test_treatment_tokens_inside_larger_identifier_components_are_permitted(
     assert record["status"] == "VALID"
 
 
-@pytest.mark.parametrize("block_id_key", ["fixture_id", "smoke_id"])
-def test_fixture_and_smoke_ids_are_single_use(
+def test_smoke_id_is_single_use(
     runner: ModuleType,
     tmp_path: Path,
-    block_id_key: str,
 ) -> None:
     evidence_root = tmp_path / "evidence"
     lock = _pilot_lock(tmp_path, evidence_root)
-    block_id = lock[block_id_key]
+    block_id = lock["smoke_id"]
     runner.run_block(
         lock=lock,
         block_id=block_id,
@@ -1069,7 +1084,7 @@ def test_three_arms_release_together_with_closed_opaque_visibility(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -1096,7 +1111,7 @@ def test_three_arms_release_together_with_closed_opaque_visibility(
         {"name": name, "present": True}
         for name in sorted(lock["apparatus"]["environment"]["allowed_keys"])
     ]
-    final_record = _block_record_path(evidence_root, lock["fixture_id"])
+    final_record = _block_record_path(evidence_root, lock["smoke_id"])
     result_paths = []
     for observation in observations:
         assert observation["environment_key_presence"] == expected_environment
@@ -1155,7 +1170,7 @@ def test_standard_externs_compile_from_staged_private_apparatus_only(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=work_root,
         evidence_root=evidence_root,
     ).record
@@ -1216,7 +1231,7 @@ def test_standard_externs_compile_from_staged_private_apparatus_only(
 
 @pytest.mark.parametrize(
     ("treatment_id", "provider_call_count"),
-    [("DIRECT", 2), ("COORDINATOR", 4), ("ORC", 10)],
+    [("DIRECT", 2), ("COORDINATOR", 2), ("ORC", 10)],
 )
 def test_provider_call_bound_mismatch_is_a_protocol_outcome(
     runner: ModuleType,
@@ -1234,7 +1249,7 @@ def test_provider_call_bound_mismatch_is_a_protocol_outcome(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -1268,7 +1283,7 @@ def test_valid_raw_result_semantic_terminal_is_preserved(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -1295,7 +1310,7 @@ def test_raw_result_requires_valid_terminal_outcome(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -1320,7 +1335,7 @@ def test_transport_nonzero_precedes_raw_semantic_terminal(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -1345,13 +1360,53 @@ def test_provider_call_bounds_apply_to_noncompleted_terminal(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
 
     assert _execution(record, "DIRECT")["lifecycle_outcome"] == (
         "PROTOCOL_FAILURE"
+    )
+
+
+@pytest.mark.parametrize(
+    ("treatment_id", "provider_call_count", "expected_outcome"),
+    [
+        ("COORDINATOR", 3, "BLOCKED"),
+        ("ORC", 3, "BLOCKED"),
+        ("COORDINATOR", 2, "PROTOCOL_FAILURE"),
+        ("ORC", 2, "PROTOCOL_FAILURE"),
+    ],
+)
+def test_multi_provider_bounds_apply_to_blocked_terminal(
+    runner: ModuleType,
+    tmp_path: Path,
+    treatment_id: str,
+    provider_call_count: int,
+    expected_outcome: str,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    lock = _pilot_lock(tmp_path, evidence_root)
+    for treatment in lock["treatments"]:
+        if treatment["treatment_id"] != "DIRECT":
+            treatment["provider_call_bounds"]["minimum"] = 3
+    _configure_arm(
+        lock,
+        treatment_id,
+        provider_call_count=provider_call_count,
+        terminal_outcome="BLOCKED",
+    )
+
+    record = runner.run_block(
+        lock=lock,
+        block_id=lock["smoke_id"],
+        work_root=tmp_path / "work",
+        evidence_root=evidence_root,
+    ).record
+
+    assert _execution(record, treatment_id)["lifecycle_outcome"] == (
+        expected_outcome
     )
 
 
@@ -1382,7 +1437,7 @@ def test_arm_process_fault_is_an_outcome_and_peers_finish(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -1423,7 +1478,7 @@ def test_arm_process_group_is_quiescent_before_product_freeze(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -1552,13 +1607,13 @@ def test_unproven_quiescence_preserves_started_before_product_freeze(
     with pytest.raises(runner.RunnerError, match="process group"):
         runner.run_block(
             lock=lock,
-            block_id=lock["fixture_id"],
+            block_id=lock["smoke_id"],
             work_root=tmp_path / "work",
             evidence_root=evidence_root,
         )
 
     persisted = contracts.load_record(
-        _block_record_path(evidence_root, lock["fixture_id"]),
+        _block_record_path(evidence_root, lock["smoke_id"]),
         expected_kind="block_attempt.v1",
     )
     assert persisted["status"] == "STARTED"
@@ -1590,7 +1645,7 @@ def test_locked_visible_check_failure_is_an_outcome_and_runtime_is_excluded(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -1639,7 +1694,7 @@ def test_visible_check_failure_only_overrides_completed_semantic_terminal(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -1671,7 +1726,7 @@ def test_unused_manifest_asset_is_still_verified_before_started(
     with pytest.raises(ValueError):
         runner.run_block(
             lock=lock,
-            block_id=lock["fixture_id"],
+            block_id=lock["smoke_id"],
             work_root=work_root,
             evidence_root=evidence_root,
         )
@@ -1699,7 +1754,7 @@ def test_invalid_raw_result_is_strict_protocol_evidence(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -1732,7 +1787,7 @@ def test_shared_materialization_failure_atomically_invalidates_the_block(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=work_root,
         evidence_root=evidence_root,
     ).record
@@ -1763,7 +1818,7 @@ def test_broken_launch_barrier_is_a_shared_invalidity(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -1810,7 +1865,7 @@ def test_excessive_start_skew_is_a_shared_invalidity(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -1844,7 +1899,7 @@ def test_controller_exception_after_started_atomically_aborts(
 
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -1878,14 +1933,14 @@ def test_base_exception_preserves_complete_started_record(
     with pytest.raises(InjectedStop):
         runner.run_block(
             lock=lock,
-            block_id=lock["fixture_id"],
+            block_id=lock["smoke_id"],
             work_root=tmp_path / "work",
             evidence_root=evidence_root,
         )
 
     assert [item["status"] for item in observed] == ["STARTED"]
     persisted = contracts.load_record(
-        _block_record_path(evidence_root, lock["fixture_id"]),
+        _block_record_path(evidence_root, lock["smoke_id"]),
         expected_kind="block_attempt.v1",
     )
     assert persisted["status"] == "STARTED"
@@ -1922,13 +1977,13 @@ def test_worker_interruption_before_barrier_preserves_started_and_releases_peers
     with pytest.raises(InjectedStop):
         runner.run_block(
             lock=lock,
-            block_id=lock["fixture_id"],
+            block_id=lock["smoke_id"],
             work_root=tmp_path / "work",
             evidence_root=evidence_root,
         )
 
     persisted = contracts.load_record(
-        _block_record_path(evidence_root, lock["fixture_id"]),
+        _block_record_path(evidence_root, lock["smoke_id"]),
         expected_kind="block_attempt.v1",
     )
     assert persisted["status"] == "STARTED"
@@ -1946,7 +2001,7 @@ def test_atomic_installs_are_always_complete_valid_records(
 
     runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     )
@@ -1982,7 +2037,7 @@ def test_evidence_is_external_relative_and_freeze_uses_locked_exclusions(
     monkeypatch.setattr(workspace, "freeze_product", observe_freeze)
     record = runner.run_block(
         lock=lock,
-        block_id=lock["fixture_id"],
+        block_id=lock["smoke_id"],
         work_root=tmp_path / "work",
         evidence_root=evidence_root,
     ).record
@@ -2031,7 +2086,7 @@ def test_source_and_evidence_identity_mismatch_rejects_before_allocation(
     with pytest.raises(ValueError):
         runner.run_block(
             lock=lock,
-            block_id=lock["fixture_id"],
+            block_id=lock["smoke_id"],
             work_root=work_root,
             evidence_root=supplied_evidence_root,
         )

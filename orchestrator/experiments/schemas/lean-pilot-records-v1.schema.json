@@ -214,7 +214,7 @@
                 "provider_call_bounds": {
                   "properties": {
                     "minimum": {
-                      "const": 5
+                      "const": 3
                     },
                     "maximum": {
                       "const": 9
@@ -231,7 +231,7 @@
                 "provider_call_bounds": {
                   "properties": {
                     "minimum": {
-                      "const": 5
+                      "const": 3
                     },
                     "maximum": {
                       "const": 9
@@ -366,9 +366,6 @@
         "max_live_attempt_count": {
           "const": 5
         },
-        "fixture_id": {
-          "$ref": "#/$defs/nonempty_string"
-        },
         "smoke_id": {
           "$ref": "#/$defs/nonempty_string"
         },
@@ -453,7 +450,6 @@
         "evidence_root",
         "valid_block_count",
         "max_live_attempt_count",
-        "fixture_id",
         "smoke_id",
         "live_attempt_ids",
         "claim_level",
@@ -619,7 +615,6 @@
         },
         "attempt_class": {
           "enum": [
-            "FIXTURE",
             "SMOKE",
             "LIVE"
           ]

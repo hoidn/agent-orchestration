@@ -1,0 +1,23 @@
+{
+  "prompts.repository-task.discover": {
+    "asset_file": "prompts/discover.md"
+  },
+  "prompts.repository-task.fix-implementation": {
+    "asset_file": "prompts/fix_implementation.md"
+  },
+  "prompts.repository-task.implement": {
+    "asset_file": "prompts/implement.md"
+  },
+  "prompts.repository-task.plan": {
+    "asset_file": "prompts/plan.md"
+  },
+  "prompts.repository-task.review-implementation": {
+    "asset_file": "prompts/review_implementation.md"
+  },
+  "prompts.repository-task.review-plan": {
+    "asset_file": "prompts/review_plan.md"
+  },
+  "prompts.repository-task.revise-plan": {
+    "asset_file": "prompts/revise_plan.md"
+  }
+}

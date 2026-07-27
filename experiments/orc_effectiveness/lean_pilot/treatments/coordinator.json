@@ -1,0 +1,36 @@
+{
+  "argv": [
+    "python",
+    "{apparatus_root}/treatment_driver.py",
+    "bounded",
+    "--workspace",
+    "{workspace}",
+    "--task",
+    "{task_path}",
+    "--result-file",
+    "{result_path}",
+    "--provider-config",
+    "{provider_config}",
+    "--prompt-config",
+    "{prompt_config}",
+    "--command-config",
+    "{command_config}",
+    "--apparatus-root",
+    "{apparatus_root}",
+    "--runtime-control",
+    "{apparatus_root}/runtime-control.json",
+    "--model",
+    "gpt-5.5",
+    "--effort",
+    "high",
+    "--provider-timeout-seconds",
+    "1800"
+  ],
+  "environment": {
+    "CODEX_HOME": "/home/ollie/.codex",
+    "PATH": "/home/ollie/.nvm/versions/node/v20.19.4/bin:/home/ollie/miniconda3/bin:/usr/local/bin:/usr/bin:/bin",
+    "PYTHONUNBUFFERED": "1"
+  },
+  "environment_identity": "sha256:0412722e0436c61866b7f0841f09baf8803853f41f4eb1192561a36437b317ca",
+  "timeout_milliseconds": 18000000
+}

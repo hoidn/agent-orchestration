@@ -111,7 +111,6 @@ def _pilot_lock() -> dict[str, Any]:
         "evidence_root": "evidence/lean-pilot-001",
         "valid_block_count": 3,
         "max_live_attempt_count": 5,
-        "fixture_id": "fixture-001",
         "smoke_id": "smoke-001",
         "live_attempt_ids": [
             "live-001",
@@ -134,14 +133,14 @@ def _pilot_lock() -> dict[str, Any]:
                 "source_digest": _digest("coordinator-source"),
                 "command_digest": _digest("coordinator-command"),
                 "command_config_path": "config/treatments/coordinator.json",
-                "provider_call_bounds": {"minimum": 5, "maximum": 9},
+                "provider_call_bounds": {"minimum": 3, "maximum": 9},
             },
             {
                 "treatment_id": "ORC",
                 "source_digest": _digest("orc-source"),
                 "command_digest": _digest("orc-command"),
                 "command_config_path": "config/treatments/orc.json",
-                "provider_call_bounds": {"minimum": 5, "maximum": 9},
+                "provider_call_bounds": {"minimum": 3, "maximum": 9},
             },
         ],
     }
@@ -432,7 +431,6 @@ def test_validation_errors_are_sorted_by_absolute_path(
     [
         ("valid_block_count", 2),
         ("max_live_attempt_count", 6),
-        ("fixture_id", ""),
         ("smoke_id", ""),
         ("claim_level", "confirmatory"),
     ],
@@ -461,6 +459,32 @@ def test_pilot_lock_requires_five_ordered_unique_live_attempt_ids(
     record["live_attempt_ids"] = ["live-001", "live-002", "live-003", "live-004"]
     with pytest.raises(contracts.PilotContractError):
         contracts.validate_record(record)
+
+
+def test_pilot_lock_accepts_smoke_and_live_ids_without_fixture_identity(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_lock()
+
+    contracts.validate_record(record)
+
+
+def test_pilot_lock_rejects_retired_fixture_identity(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_lock()
+    record["fixture_id"] = "fixture-001"
+
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
+def test_pilot_lock_accepts_three_to_nine_multi_provider_call_bounds(
+    contracts: ModuleType,
+) -> None:
+    record = _pilot_lock()
+
+    contracts.validate_record(record)
 
 
 @pytest.mark.parametrize(
@@ -1037,6 +1061,16 @@ def test_block_attempt_binds_lock_class_sequence_id_and_status(
 ) -> None:
     record = _block_attempt()
     record[field] = bad_value
+
+    with pytest.raises(contracts.PilotContractError):
+        contracts.validate_record(record)
+
+
+def test_block_attempt_rejects_retired_fixture_attempt_class(
+    contracts: ModuleType,
+) -> None:
+    record = _block_attempt()
+    record["attempt_class"] = "FIXTURE"
 
     with pytest.raises(contracts.PilotContractError):
         contracts.validate_record(record)

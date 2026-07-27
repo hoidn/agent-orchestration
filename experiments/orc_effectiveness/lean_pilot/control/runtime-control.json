@@ -1,0 +1,17 @@
+{
+  "product_exclusions": [
+    ".orchestrate",
+    ".pilot/runtime",
+    "logs"
+  ],
+  "visible_check": {
+    "argv": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "tests/test_smoke_entrypoint.py"
+    ],
+    "timeout_seconds": 300
+  }
+}

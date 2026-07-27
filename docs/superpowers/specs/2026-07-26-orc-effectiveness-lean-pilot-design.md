@@ -135,14 +135,20 @@ during calibration.
 ### 4. Run only an exploratory controlled-task pilot first
 
 The first live series targets exactly three valid three-treatment blocks on
-`A1` within a fixed maximum of five live block attempts. One deterministic
-fixture block and one unscored real-provider apparatus smoke precede the live
-series and are excluded from treatment evidence.
+`A1` within a fixed maximum of five live block attempts. Before the pilot lock
+exists, one provider-free integration gate exercises all three frozen treatment
+argv values through the real staged launchers and standard manifests with a
+test-only provider executable prepended to `PATH`. The test asserts that this
+provider executable and corresponding `PATH` value are the only
+production-environment differences. After the lock exists, one unscored
+real-provider apparatus smoke precedes the live series. Neither gate contributes
+treatment evidence.
 
-The smoke gate is mechanical: all three attempt executions must be recorded,
-all process groups quiesced, all products frozen, call accounting parsed, and
-blind packages generated. A treatment-specific failure is preserved and does
-not authorize treatment changes or prevent the locked live series. A shared
+The smoke uses the exact locked closed environment and standard manifests. Its
+gate is mechanical: all three attempt executions must be recorded, all process
+groups quiesced, all products frozen, call accounting parsed, and blind
+packages generated. A treatment-specific failure is preserved and does not
+authorize treatment changes or prevent the locked live series. A shared
 apparatus defect stops the pilot as `STOP_APPARATUS_NOT_VIABLE`; repairing it
 requires a separately locked rerun, not mutation of this pilot.
 
@@ -210,8 +216,8 @@ Each block lock binds:
   defaults;
 - reviewer rubric and calibration evidence digests;
 - randomization seed and opaque treatment mapping;
-- exact valid-block target, maximum live-attempt count, one fixture ID, one
-  smoke ID, and an ordered list of five opaque live-attempt IDs;
+- exact valid-block target, maximum live-attempt count, one smoke ID, and an
+  ordered list of five opaque live-attempt IDs;
 - artifact root outside all candidate products; and
 - claim level `exploratory_controlled_task`.
 
@@ -235,7 +241,10 @@ discover
   -> terminal completed | blocked | exhausted
 ```
 
-The minimum successful route uses five provider calls. The maximum route uses nine. The coordinator may not add retry, resume, dynamic DAG, generic workflow, or persistence abstractions.
+The shortest terminal route uses three provider calls when plan review blocks.
+Completion-capable routes use five to nine provider calls. The maximum route
+uses nine. The coordinator may not add retry, resume, dynamic DAG, generic
+workflow, or persistence abstractions.
 It reuses the same public provider adapter and request renderer as Workflow Lisp;
 it does not implement a provider client or alternate prompt wrapper.
 
@@ -245,7 +254,10 @@ orchestrated treatment receives hidden conversational carry-over.
 
 ### `ORC`
 
-`ORC` is one ordinary Workflow Lisp run implementing the same five-to-nine-call topology. Compiler, lowering, typed-output, runtime, and routing failures are treatment outcomes. The pilot does not add language/runtime behavior to make the workflow fit.
+`ORC` is one ordinary Workflow Lisp run implementing the same three-to-nine-call
+terminal topology and five-to-nine-call completion-capable topology. Compiler,
+lowering, typed-output, runtime, and routing failures are treatment outcomes.
+The pilot does not add language/runtime behavior to make the workflow fit.
 
 For both orchestrated treatments, `discover`, `plan`, both plan-review calls,
 `revise_plan`, and both implementation-review calls are judgment-only. A
@@ -256,7 +268,8 @@ The guard detects mutation; it does not claim to hide information from a phase.
 
 ### Parity contract
 
-Before live execution, deterministic fixture tests compare `COORDINATOR` and `ORC` for:
+Before live execution, deterministic scripted-provider tests compare
+`COORDINATOR` and `ORC` for:
 
 - canonical complete provider-request payloads after substituting the same task
   inputs, including system/user messages, tool policy, typed-result schema, and
@@ -273,6 +286,14 @@ Before live execution, deterministic fixture tests compare `COORDINATOR` and `OR
 Any parity mismatch blocks the current live first tranche. Fix it before any
 live outcome or stop; a package-only comparison requires a separate design and
 lock rather than an implicit fallback.
+
+The same provider-free gate also executes the frozen DIRECT, COORDINATOR, and
+ORC treatment JSON argv through a flat staged apparatus, the real treatment
+entrypoint, the real DIRECT/coordinator/Workflow Lisp paths, standard manifests,
+and runtime-control visible check. Expected semantic results are DIRECT
+`1/COMPLETED`, COORDINATOR `5/COMPLETED`, and ORC `5/COMPLETED`. This is a
+provider-free integration test, not a `block_attempt.v1`, lock identity,
+production provider mode, or substitute for the locked real-provider smoke.
 
 ## Minimal Evidence Model
 
@@ -545,8 +566,11 @@ Provider-phase information isolation remains `Partial` in the capability matrix.
 
 ### Integration checks
 
-- One deterministic fixture-provider block across all three treatments.
-- One real-provider unscored apparatus smoke before the locked pilot.
+- One provider-free actual-launcher integration gate across all three frozen
+  treatments, using only an asserted test-specific `PATH`/provider executable
+  difference.
+- One real-provider unscored apparatus smoke after lock validation and before
+  the locked live series.
 - Up to five ordered live `A1` attempts to obtain three valid blocks, only
   after calibration, parity, and smoke pass.
 - `pytest --collect-only` for new test modules, focused tests first, then affected broad suites.
@@ -574,7 +598,7 @@ digest with six new sessions. A second failure closes the live route as
 
 ### Representation parity fails
 
-Given deterministic route fixtures, if COORDINATOR and ORC differ in complete
+Given deterministic scripted-provider routes, if COORDINATOR and ORC differ in complete
 provider requests, calls, branches, validation, guards, or terminal outcome,
 the mismatch is fixed before live outcomes or the current first tranche stops.
 
@@ -645,8 +669,9 @@ Use the linked lean-pilot plan. Implement in this order:
 4. frozen coordinator/ORC parity;
 5. blinded evaluation packages and bounded reviewer calibration;
 6. deterministic reporting and exact sample-size planning;
-7. one deterministic fixture, one real-provider apparatus smoke, and up to
-   five live `A1` attempts to obtain three valid blocks;
+7. confirm the reviewed provider-free actual-launcher gate, then run one
+   real-provider apparatus smoke and up to five live `A1` attempts to obtain
+   three valid blocks;
 8. deterministic synthesis and evidence review; and
 9. an owner decision on whether to stop, rerun under a new lock, or commission
    a separate prospective `F1`/`F2` plan.

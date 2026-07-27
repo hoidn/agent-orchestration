@@ -1,0 +1,9 @@
+{
+  "providers.repository-task.discover": "codex_unrestricted_workspace",
+  "providers.repository-task.fix-implementation": "codex_unrestricted_workspace",
+  "providers.repository-task.implement": "codex_unrestricted_workspace",
+  "providers.repository-task.plan": "codex_unrestricted_workspace",
+  "providers.repository-task.review-implementation": "codex_unrestricted_workspace",
+  "providers.repository-task.review-plan": "codex_unrestricted_workspace",
+  "providers.repository-task.revise-plan": "codex_unrestricted_workspace"
+}

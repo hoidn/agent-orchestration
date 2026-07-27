@@ -62,6 +62,7 @@ experiments/orc_effectiveness/lean_pilot/
     providers.json
     prompts.json
     commands.json
+    runtime-control.json
   pilot-lock.json
   tasks/a1.md
   treatments/direct.json
@@ -169,10 +170,12 @@ Cover:
 - recursive unknown-field rejection;
 - exact `record_kind` dispatch to one of four `$defs` in one packaged schema;
 - a pilot lock requiring exactly `DIRECT`, `COORDINATOR`, and `ORC` treatments;
-- `valid_block_count == 3`, `max_live_attempt_count == 5`, one fixture ID, one
-  smoke ID, an ordered five-element live-attempt-ID list, and
+- `valid_block_count == 3`, `max_live_attempt_count == 5`, one smoke ID, an
+  ordered five-element live-attempt-ID list, and
   `claim_level == "exploratory_controlled_task"`;
-- one provider-call bound for DIRECT and `5..9` for both orchestrated treatments;
+- one provider-call bound for DIRECT and `3..9` for both orchestrated
+  treatments, with completion-capable orchestrated routes constrained to
+  `5..9`;
 - exact treatment source/command digests, task/archive identity, provider policy, reviewer/rubric identity, randomization seed, and evidence root;
 - a required apparatus whose `control_root` is canonical absolute POSIX text
   other than `/`; whose manifest, role, treatment-command, and exclusion paths
@@ -425,11 +428,18 @@ The fixture arm supports `success`, `timeout`, `nonzero`, `spawn-child`, and `pr
   path;
 - each arm receives only one opaque per-arm raw-result path; the controller
   validates that payload and authors the nested execution record itself;
+- the strict raw result carries exactly one semantic terminal
+  (`COMPLETED | BLOCKED | EXHAUSTED | PROTOCOL_FAILURE`) alongside
+  provider-call count and usage/cost, and every allowed terminal is preserved;
+- missing, unknown, or conflicting semantic terminals fail the raw-result
+  protocol closed;
 - unrelated ambient variables are absent from every arm;
 - credential names/presence match `apparatus.environment.credential_keys` and structured records
   never contain credential values;
 - a DIRECT arm result with provider-call count other than one is invalid;
-- COORDINATOR/ORC counts outside `5..9` are invalid treatment results, not block invalidity;
+- COORDINATOR/ORC counts outside `3..9` are invalid treatment results, not
+  block invalidity; a three-call plan-review block is valid while every
+  completion-capable route uses `5..9`;
 - one treatment timeout terminates its process group and remains an outcome while peers complete;
 - an outliving child is terminated before product freeze;
 - a shared prelaunch archive/allocation failure invalidates the whole block symmetrically;
@@ -514,7 +524,15 @@ Create one opaque raw-result path per arm outside the candidate product. Pass
 only that path—not the shared evidence root, peer directories, or final attempt
 path—to the arm. The controller alone opens stdout/stderr evidence files,
 collects process state, validates the raw result, computes the product
-manifest, and constructs the nested treatment execution.
+manifest, and constructs the nested treatment execution. The raw result
+contains a strict semantic terminal
+(`COMPLETED | BLOCKED | EXHAUSTED | PROTOCOL_FAILURE`), provider-call count,
+and usage/cost. After a zero exit and a valid raw result, preserve that semantic
+terminal as the treatment lifecycle. Launch failure, timeout, nonzero exit,
+and an invalid raw result retain precedence over every reported semantic
+terminal. A provider-call bound violation becomes `PROTOCOL_FAILURE`. A final
+visible-check failure converts only semantic `COMPLETED` to `CHECK_FAILURE`; it
+never erases `BLOCKED`, `EXHAUSTED`, or `PROTOCOL_FAILURE`.
 
 Use one `threading.Barrier(4)` for three arm-launch workers plus the controller. Launch each command with:
 
@@ -541,8 +559,8 @@ maximum start skew and run exactly the locked visible-check argv with its
 locked timeout; there are no timing or command defaults. Record each treatment
 outcome before freezing its product. Every caught controller terminal path validates and atomically
 replaces the same attempt path with `VALID`, `INVALID`, or `ABORTED`; a shared
-failure terminates any process already launched. Permit only the fixture ID,
-single-use smoke ID, or next unused live ID declared by the lock. Never reuse
+failure terminates any process already launched. Permit only the single-use
+smoke ID or next unused live ID declared by the lock. Never reuse
 an ID, skip a live prefix position, or resume a surviving `STARTED` attempt.
 
 - [ ] **Step 5: Add the thin CLI**
@@ -614,13 +632,15 @@ git commit -m "feat(experiments): run lean three-treatment blocks"
 - Create: `experiments/orc_effectiveness/lean_pilot/control/providers.json`
 - Create: `experiments/orc_effectiveness/lean_pilot/control/prompts.json`
 - Create: `experiments/orc_effectiveness/lean_pilot/control/commands.json`
+- Create: `experiments/orc_effectiveness/lean_pilot/control/runtime-control.json`
 - Create: `tests/experiments/test_lean_pilot_treatment_parity.py`
 - Create: `tests/experiments/fixtures/lean_pilot/scripted_provider.py`
 
 **Interfaces:**
 
 - Both orchestrated treatments consume the same seven prompt files and logical result schemas.
-- Both implement exactly the five-to-nine-call topology in the governing design.
+- Both implement exactly the three-to-nine-call terminal topology and
+  five-to-nine-call completion-capable topology in the governing design.
 - Both call the same existing public provider adapter and request renderer. The
   coordinator may not implement a provider client or alternate wrapper.
 - Every logical provider call uses a fresh session; cross-phase context is
@@ -638,8 +658,8 @@ Drive both treatments with one scripted provider covering:
 2. one plan revision — seven calls;
 3. one implementation fix — seven calls;
 4. both correction routes — nine calls;
-5. plan blocked;
-6. implementation blocked;
+5. plan blocked — three calls;
+6. implementation blocked — five calls;
 7. second review still revises — exhausted;
 8. a judgment-only provider mutates the product — protocol failure; and
 9. required checks still fail after the one fix — exhausted.
@@ -721,8 +741,8 @@ return completed_or_exhausted_or_blocked(review, checks)
 
 - [ ] **Step 5: Author the `.orc` treatment through ordinary Workflow Lisp**
 
-Use current implemented typed records/unions, `provider-result`, `let*`, and
-`match`. Surround every judgment-only `provider-result` with the same
+Use current implemented typed records, enums, `provider-result`, `let*`, and
+explicit typed `if` branches. Surround every judgment-only `provider-result` with the same
 controller-owned product-manifest command and compare its typed digest result;
 route mutation to the same protocol-failure outcome as the coordinator. The
 workflow must lower through the ordinary frontend and use no
@@ -734,8 +754,8 @@ externs, and command externs external inputs.
 ```bash
 python -m orchestrator compile \
   workflows/experiments/repository_task_pilot/task_loop.orc \
-  --source-root workflows/experiments \
-  --entry-workflow repository_task_pilot/task_loop::run-task \
+  --source-root workflows/experiments/repository_task_pilot \
+  --entry-workflow task_loop::run-task \
   --provider-externs-file experiments/orc_effectiveness/lean_pilot/control/providers.json \
   --prompt-externs-file experiments/orc_effectiveness/lean_pilot/control/prompts.json \
   --command-boundaries-file experiments/orc_effectiveness/lean_pilot/control/commands.json
@@ -751,8 +771,26 @@ treatment launcher config supplies its exact locked
 non-controller/noncredential environment partition and uses the staged
 `{apparatus_root}` plus staged role-manifest placeholders. Every prompt extern
 uses `asset_file` and names another verified asset-manifest entry.
+The task-local module is `task_loop`, so the portable apparatus stages
+`task_loop.orc` at its root with `prompts/` beside it; this keeps each
+source-relative prompt path identical to its verified manifest path.
+`control/runtime-control.json` is a verified apparatus template, not a fifth
+cross-process experiment record. It binds the product-projection exclusions
+and visible-check definition consumed by both orchestrated treatments, and the
+launcher materializes its verified content into each candidate's excluded
+runtime directory.
 
 Expected: compile exits `0`; all nine parity routes pass.
+
+Also exercise each frozen treatment JSON argv through one flat staged
+apparatus, the real treatment entrypoint, real DIRECT/coordinator/Workflow Lisp
+paths, standard manifests, and runtime-control visible check. The
+scripted-provider executable is test-only and is made visible solely by
+prepending its directory to `PATH`; assert that executable and `PATH` are the
+only production-environment differences. Assert the raw results and visible
+check: DIRECT `1/COMPLETED`, COORDINATOR `5/COMPLETED`, and ORC
+`5/COMPLETED`. This provider-free actual-launcher gate creates no lock ID,
+`block_attempt.v1`, live asset, hidden registry, or fifth record.
 
 - [ ] **Step 7: Obtain the treatment-parity review gate**
 
@@ -762,6 +800,8 @@ One independent reviewer verifies:
 - no reusable second framework was created;
 - prompts and logical schemas are shared;
 - every route has byte/logical parity;
+- all three frozen argv values pass the provider-free actual-launcher gate and
+  disclose the sole test-only provider/`PATH` difference;
 - judgment-only product mutation fails both treatments identically;
 - DIRECT is one invocation; and
 - no provider-isolation implementation path changed.
@@ -771,9 +811,33 @@ treatment digests for Task 7 to bind into the immutable pilot lock.
 
 - [ ] **Step 8: Commit Task 4 paths after the gate**
 
-Stage exactly the created treatment, prompt, task, fixture, and parity-test paths. Use:
+Stage exactly the governing-design/plan amendments plus the created treatment,
+prompt, task, control-template, scripted-provider test helper, and parity-test
+paths. Use:
 
 ```bash
+git add \
+  docs/superpowers/specs/2026-07-26-orc-effectiveness-lean-pilot-design.md \
+  docs/superpowers/plans/2026-07-26-orc-effectiveness-lean-pilot.md \
+  scripts/experiments/conventional_coordinator.py \
+  workflows/experiments/repository_task_pilot/task_loop.orc \
+  workflows/experiments/repository_task_pilot/prompts/discover.md \
+  workflows/experiments/repository_task_pilot/prompts/plan.md \
+  workflows/experiments/repository_task_pilot/prompts/review_plan.md \
+  workflows/experiments/repository_task_pilot/prompts/revise_plan.md \
+  workflows/experiments/repository_task_pilot/prompts/implement.md \
+  workflows/experiments/repository_task_pilot/prompts/review_implementation.md \
+  workflows/experiments/repository_task_pilot/prompts/fix_implementation.md \
+  experiments/orc_effectiveness/lean_pilot/tasks/a1.md \
+  experiments/orc_effectiveness/lean_pilot/treatments/direct.json \
+  experiments/orc_effectiveness/lean_pilot/treatments/coordinator.json \
+  experiments/orc_effectiveness/lean_pilot/treatments/orc.json \
+  experiments/orc_effectiveness/lean_pilot/control/providers.json \
+  experiments/orc_effectiveness/lean_pilot/control/prompts.json \
+  experiments/orc_effectiveness/lean_pilot/control/commands.json \
+  experiments/orc_effectiveness/lean_pilot/control/runtime-control.json \
+  tests/experiments/test_lean_pilot_treatment_parity.py \
+  tests/experiments/fixtures/lean_pilot/scripted_provider.py
 git commit -m "feat(experiments): freeze lean pilot treatments"
 ```
 
@@ -965,7 +1029,7 @@ Expected: missing reporting module/CLI commands.
 
 - [ ] **Step 3: Implement deterministic synthesis**
 
-Do not infer missing outcomes. Load the exact fixture, smoke, and ordered live
+Do not infer missing outcomes. Load the exact smoke and ordered live
 `block_attempt.v1` paths declared by the lock. Require one smoke record, live
 records to form a contiguous prefix, exactly three nested executions for each
 `VALID` attempt, and a missing live suffix only after three valid attempts have
@@ -1040,12 +1104,47 @@ Enter this task only with a passing locked calibration. If both calibration
 rounds failed, preserve `CALIBRATION_FAILED`, complete Task 6 and its
 verification, route that terminal status, and skip every remaining Task 7 step.
 
+Before authoring the lock, require a caller-supplied canonical absolute path
+for a fresh external apparatus control root. Reject the path if it already
+exists or if materialization would encounter any undeclared destination.
+Create the root and deterministically copy the frozen Task 4 sources into these
+exact flat apparatus paths:
+
+| Canonical authoritative source | Derived apparatus path |
+| --- | --- |
+| `scripts/experiments/conventional_coordinator.py` | `treatment_driver.py` |
+| `workflows/experiments/repository_task_pilot/task_loop.orc` | `task_loop.orc` |
+| `workflows/experiments/repository_task_pilot/prompts/discover.md` | `prompts/discover.md` |
+| `workflows/experiments/repository_task_pilot/prompts/plan.md` | `prompts/plan.md` |
+| `workflows/experiments/repository_task_pilot/prompts/review_plan.md` | `prompts/review_plan.md` |
+| `workflows/experiments/repository_task_pilot/prompts/revise_plan.md` | `prompts/revise_plan.md` |
+| `workflows/experiments/repository_task_pilot/prompts/implement.md` | `prompts/implement.md` |
+| `workflows/experiments/repository_task_pilot/prompts/review_implementation.md` | `prompts/review_implementation.md` |
+| `workflows/experiments/repository_task_pilot/prompts/fix_implementation.md` | `prompts/fix_implementation.md` |
+| `experiments/orc_effectiveness/lean_pilot/control/providers.json` | `providers.json` |
+| `experiments/orc_effectiveness/lean_pilot/control/prompts.json` | `prompts.json` |
+| `experiments/orc_effectiveness/lean_pilot/control/commands.json` | `commands.json` |
+| `experiments/orc_effectiveness/lean_pilot/control/runtime-control.json` | `runtime-control.json` |
+| `experiments/orc_effectiveness/lean_pilot/tasks/a1.md` | `task.md` |
+| `experiments/orc_effectiveness/lean_pilot/treatments/direct.json` | `treatments/direct.json` |
+| `experiments/orc_effectiveness/lean_pilot/treatments/coordinator.json` | `treatments/coordinator.json` |
+| `experiments/orc_effectiveness/lean_pilot/treatments/orc.json` | `treatments/orc.json` |
+
+Task 5 adds its evaluator, rubric, calibration, and other review/config assets
+through a separately explicit mapping before this step is executed; do not
+discover or infer them from repository layout. Verify every derived regular
+file is byte-identical to its named canonical source, reject missing or
+extraneous files, and generate `apparatus.asset_manifest` only from that closed
+tree. After manifest generation, treat the external control root as immutable
+through smoke and every live attempt. This is derived apparatus
+materialization, not a second authoritative source, CWD/package inference,
+hidden registry, fifth experiment record, or tracked flat snapshot.
+
 Bind:
 
 - `valid_block_count: 3`;
 - `max_live_attempt_count: 5`;
-- one opaque `fixture_id`, one opaque `smoke_id`, and an ordered
-  five-element `live_attempt_ids` list;
+- one opaque `smoke_id` and an ordered five-element `live_attempt_ids` list;
 - `claim_level: exploratory_controlled_task`;
 - one canonical absolute `apparatus.control_root` and every required A1 task,
   provider, prompt, command-boundary, treatment-command, visible-check, and
@@ -1086,28 +1185,23 @@ python scripts/experiments/lean_pilot.py validate-lock \
 
 Expected: exits `0` and prints the canonical lock digest.
 
-- [ ] **Step 2: Run one deterministic three-treatment block**
-
-Use the scripted provider and exercise the immediate-approval route. Regenerate
-the final `block_attempt.v1`, blind packages, fixture reviews, and summary from
-structured records.
-
-Expected: three successful arms; DIRECT call count 1; COORDINATOR and ORC call count 5; representation parity remains valid. Mark this block `apparatus_only` and exclude it from live evidence.
-
-- [ ] **Step 3: Run one unscored real-provider apparatus smoke**
+- [ ] **Step 2: Run one unscored real-provider apparatus smoke**
 
 Use one fresh provider/model allocation per arm and the same three treatments
-on A1. The mechanical gate requires all three nested executions, process-group
-quiescence, frozen products, parsed call accounting, and generated blind
-packages; it does not score task quality and does not enter the live
-denominator.
+on A1 under the exact locked closed environment and standard manifests. The
+provider-free actual-launcher gate from Task 4 is a reviewed prerequisite, not
+a post-lock block; its test-only provider executable and `PATH` override are
+not apparatus assets or permitted here. The mechanical smoke gate requires all
+three nested executions, process-group quiescence, frozen products, parsed
+call accounting, and generated blind packages; it does not score task quality
+and does not enter the live denominator.
 
 Treatment-specific failure is preserved and the locked live series proceeds
 without treatment changes. A shared apparatus defect yields
 `STOP_APPARATUS_NOT_VIABLE`; repairing it requires a separately locked pilot,
 not a second smoke or mutation of this denominator.
 
-- [ ] **Step 4: Run up to five live attempts to obtain three valid A1 blocks**
+- [ ] **Step 3: Run up to five live attempts to obtain three valid A1 blocks**
 
 Launch each attempt with the next ordered opaque live ID from the immutable
 lock. Preserve every `INVALID`, `ABORTED`, or surviving `STARTED` record and
@@ -1118,11 +1212,11 @@ Stop when three valid blocks accrue or after five live attempts, whichever
 comes first. Do not extend after viewing any result. Failure to accrue three
 valid blocks yields `STOP_INSUFFICIENT_VALID_BLOCKS`.
 
-- [ ] **Step 5: Conduct blinded live review**
+- [ ] **Step 4: Conduct blinded live review**
 
 For every valid block, generate opaque packages and obtain two fresh independent reviews. Use a third blinded adjudicator only for material disagreement. Seal all initial reviews before unblinding treatment/cost evidence.
 
-- [ ] **Step 6: Generate the authoritative pilot summary**
+- [ ] **Step 5: Generate the authoritative pilot summary**
 
 Generate JSON first, then Markdown:
 
@@ -1145,7 +1239,7 @@ The deterministic summary does not choose whether to stop, repeat, or invest.
 That owner decision occurs after the final evidence review and is recorded in
 the next route, not backfilled into `pilot_summary.v1`.
 
-- [ ] **Step 7: Obtain the final evidence review gate**
+- [ ] **Step 6: Obtain the final evidence review gate**
 
 One independent reviewer checks:
 
@@ -1159,7 +1253,7 @@ One independent reviewer checks:
 
 A second review is required only if the first identifies a concrete contract violation after results exist; it verifies the repair and that the definition digest changed when required. Do not require a second ceremonial approval when the first review approves.
 
-- [ ] **Step 8: Run final verification**
+- [ ] **Step 7: Run final verification**
 
 Run focused checks first:
 
@@ -1178,7 +1272,7 @@ pytest -q -n 16 --dist=worksteal
 
 Record exact pass/fail/skip counts. Do not weaken checks to close the report.
 
-- [ ] **Step 9: Route the observed status and commit reviewed paths**
+- [ ] **Step 8: Route the observed status and commit reviewed paths**
 
 Update indexes/status only with facts established by the run. Stage the frozen lock, source/rubric assets, implementation, tests, and report; do not stage external raw provider logs or unrelated shared-tree changes.
 
@@ -1205,9 +1299,9 @@ Evidence execution then completes at exactly one truthful terminal:
 
 1. `CALIBRATION_FAILED` — both locked calibration rounds failed; preserve all
    packages/reviews and create no pilot lock;
-2. `STOP_APPARATUS_NOT_VIABLE` — calibration passed and the deterministic
-   fixture passed, but the one locked real-provider smoke had a shared apparatus
-   failure;
+2. `STOP_APPARATUS_NOT_VIABLE` — calibration and the reviewed provider-free
+   actual-launcher gate passed, but the one locked real-provider smoke had a
+   shared apparatus failure;
 3. `STOP_INSUFFICIENT_VALID_BLOCKS` — the smoke passed, fewer than three valid
    live blocks accrued within five attempts, and the reviewed summary preserves
    every attempt; or

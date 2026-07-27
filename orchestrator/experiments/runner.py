@@ -420,17 +420,16 @@ def _attempt_identity(
     block_id: str,
     evidence_root: Path,
 ) -> tuple[str, int, Path]:
-    fixture_id = lock["fixture_id"]
     smoke_id = lock["smoke_id"]
     live_ids = lock["live_attempt_ids"]
-    if not isinstance(fixture_id, str) or not isinstance(smoke_id, str):
+    if not isinstance(smoke_id, str):
         raise RunnerError("lock attempt identifiers are malformed")
     if not isinstance(live_ids, list) or any(
         not isinstance(item, str) for item in live_ids
     ):
         raise RunnerError("lock live attempt identifiers are malformed")
 
-    known_ids = [fixture_id, smoke_id, *live_ids]
+    known_ids = [smoke_id, *live_ids]
     existing: dict[str, dict[str, Any]] = {}
     for known_id in known_ids:
         path = evidence_root / known_id / "block-attempt.json"
@@ -451,8 +450,6 @@ def _attempt_identity(
     if used_live != live_ids[: len(used_live)]:
         raise RunnerError("existing live attempts are not a contiguous prefix")
 
-    if block_id == fixture_id:
-        return "FIXTURE", 0, evidence_root / block_id / "block-attempt.json"
     if block_id == smoke_id:
         return "SMOKE", 0, evidence_root / block_id / "block-attempt.json"
     next_index = len(used_live)

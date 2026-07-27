@@ -1,0 +1,14 @@
+{
+  "pilot_product_manifest": {
+    "kind": "external_tool",
+    "stable_command": [
+      "python"
+    ]
+  },
+  "pilot_visible_check": {
+    "kind": "external_tool",
+    "stable_command": [
+      "python"
+    ]
+  }
+}
