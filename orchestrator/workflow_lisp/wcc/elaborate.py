@@ -55,6 +55,7 @@ from ..procedures import (
     TypedProcedureDef,
     procedure_type_env_for,
 )
+from ..prompts import PromptApplicationExpr
 from ..procedure_refs import ResolvedProcRefValue
 from ..spans import SourceSpan
 from ..type_env import (
@@ -3964,6 +3965,31 @@ def _elaborate_effect_expr_to_binding_value(
         )
     if isinstance(expr, ProviderResultExpr):
         operation_payload = {"return_spec": expr.return_spec}
+        if isinstance(expr.prompt, PromptApplicationExpr):
+            operation_payload["prompt_application"] = replace(
+                expr.prompt,
+                fills=tuple(
+                    replace(
+                        fill,
+                        value_expr=_elaborate_atomic_value(
+                            fill.value_expr,
+                            scope=scope.child_scope(
+                                "prompt-fragment-fill",
+                                authored_binding_name=fill.name,
+                            ),
+                            type_env=type_env,
+                            value_env=value_env,
+                            workflow_return_types=workflow_return_types,
+                            procedure_return_types=procedure_return_types,
+                            effect_summary=effect_summary,
+                            procedure_edges_by_site=procedure_edges_by_site,
+                            compile_time_bindings=compile_time_bindings,
+                            active_phase_scope=active_phase_scope,
+                        ),
+                    )
+                    for fill in expr.prompt.fills
+                ),
+            )
         for field_name, field_expr in (
             ("model", expr.model),
             ("effort", expr.effort),
@@ -4031,7 +4057,11 @@ def _elaborate_effect_expr_to_binding_value(
             metadata=scope.value_metadata(role="perform:provider_result", **metadata_kwargs),
             perform_kind="provider_result",
             target_name=_require_name_expr(expr.provider),
-            prompt_name=_require_name_expr(expr.prompt),
+            prompt_name=(
+                None
+                if isinstance(expr.prompt, PromptApplicationExpr)
+                else _require_name_expr(expr.prompt)
+            ),
             positional_args=tuple(
                 _elaborate_atomic_value(
                     item,

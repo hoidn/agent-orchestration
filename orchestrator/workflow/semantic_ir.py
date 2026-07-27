@@ -23,12 +23,18 @@ from .core_ast import (
 from .executable_ir import (
     ExecutableWorkflow,
     ProviderPeerGroupStepConfig,
+    ProviderStepConfig,
     ProviderSupervisionStepConfig,
     provider_peer_group_config_to_runtime_dict,
 )
 from .prompt_dependency_contract import (
     CompilerPromptDependencyContract,
     serialize_compiler_prompt_dependency_contract,
+)
+from .prompt_fragment_contract import (
+    CompilerPromptFragmentContract,
+    serialize_compiler_prompt_fragment_contract,
+    validate_compiler_prompt_fragment_pair,
 )
 from .references import ReferenceResolutionError, StructuredStepReference, parse_structured_ref
 from .runtime_plan import WorkflowRuntimePlan
@@ -180,6 +186,23 @@ class SemanticPromptSurface:
             "json_serializer": serialize_compiler_prompt_dependency_contract,
         },
     )
+    compiler_prompt_fragment_contract: CompilerPromptFragmentContract | None = field(
+        default=None,
+        metadata={
+            "json_omit_if_none": True,
+            "json_serializer": serialize_compiler_prompt_fragment_contract,
+        },
+    )
+    compiled_prompt_fragment_identity: str | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+
+    def __post_init__(self) -> None:
+        validate_compiler_prompt_fragment_pair(
+            self.compiler_prompt_fragment_contract,
+            self.compiled_prompt_fragment_identity,
+        )
 
 
 @dataclass(frozen=True)
@@ -401,6 +424,12 @@ def derive_workflow_semantic_ir(
                 inject_consumes=step.inject_consumes,
                 compiler_prompt_dependency_contract=(
                     step.compiler_prompt_dependency_contract
+                ),
+                compiler_prompt_fragment_contract=(
+                    step.compiler_prompt_fragment_contract
+                ),
+                compiled_prompt_fragment_identity=(
+                    step.compiled_prompt_fragment_identity
                 ),
             )
             effect_id = _effect_id(workflow_name, statement_surface.surface_step_id, "provider_call")
@@ -889,6 +918,41 @@ def validate_workflow_semantic_ir(
         if prompt_surface_id not in semantic_ir.prompt_surfaces:
             _raise_semantic_ir_invalid(
                 f"semantic_ir_invalid: missing prompt-surface catalog entry `{prompt_surface_id}`",
+                workflow_name=workflow_name,
+            )
+        prompt_surface = semantic_ir.prompt_surfaces[prompt_surface_id]
+        try:
+            validate_compiler_prompt_fragment_pair(
+                prompt_surface.compiler_prompt_fragment_contract,
+                prompt_surface.compiled_prompt_fragment_identity,
+            )
+        except (TypeError, ValueError) as exc:
+            _raise_semantic_ir_invalid(
+                "semantic_ir_invalid: provider prompt fragment carrier is invalid",
+                workflow_name=workflow_name,
+            )
+        statement = workflow.statements.get(prompt_surface.statement_id)
+        executable_configs = (
+            ir.nodes[node_id].execution_config
+            for node_id in (() if statement is None else statement.executable_node_ids)
+            if node_id in ir.nodes
+        )
+        provider_config = next(
+            (
+                config
+                for config in executable_configs
+                if isinstance(config, ProviderStepConfig)
+            ),
+            None,
+        )
+        if provider_config is None or (
+            prompt_surface.compiler_prompt_fragment_contract
+            != provider_config.compiler_prompt_fragment_contract
+            or prompt_surface.compiled_prompt_fragment_identity
+            != provider_config.compiled_prompt_fragment_identity
+        ):
+            _raise_semantic_ir_invalid(
+                "semantic_ir_invalid: Semantic and Executable prompt fragment carriers mismatch",
                 workflow_name=workflow_name,
             )
     for command_boundary_id in workflow.command_boundary_ids:

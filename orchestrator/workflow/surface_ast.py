@@ -9,6 +9,10 @@ from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
 from .prompt_dependency_contract import CompilerPromptDependencyContract
+from .prompt_fragment_contract import (
+    CompilerPromptFragmentContract,
+    validate_compiler_prompt_fragment_pair,
+)
 
 from .state_layout import GeneratedPathAllocation
 
@@ -266,6 +270,14 @@ class SurfaceStep:
         default=None,
         metadata={"json_omit_if_none": True},
     )
+    compiler_prompt_fragment_contract: CompilerPromptFragmentContract | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    compiled_prompt_fragment_identity: str | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
     provider_supervision: Any = field(
         default=None,
         metadata={"json_omit_if_none": True},
@@ -294,6 +306,12 @@ class SurfaceStep:
     repeat_until: Optional[SurfaceRepeatUntilBlock] = None
     call_alias: Optional[str] = None
     call_bindings: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+
+    def __post_init__(self) -> None:
+        validate_compiler_prompt_fragment_pair(
+            self.compiler_prompt_fragment_contract,
+            self.compiled_prompt_fragment_identity,
+        )
 
 
 @dataclass(frozen=True)

@@ -46,6 +46,7 @@ from ..expressions import (
     UnionVariantExpr,
 )
 from ..phase_stdlib import ProduceOneOfProducerSpec
+from ..prompts import PromptApplicationExpr
 from ..phase_family_boundary import (
     apply_phase_family_boundary_classification,
     classify_phase_family_boundary,
@@ -4339,7 +4340,7 @@ def _lower_provider_peer_group_member(
     member_steps, _terminal = _lower_provider_result_operation(
         LowerableProviderResult(
             provider_name=perform.target_name,
-            prompt_name=perform.prompt_name or "",
+            prompt_name=perform.prompt_name,
             inputs=tuple(
                 _frontend_expr_from_wcc_value_with_env(
                     argument,
@@ -4370,6 +4371,10 @@ def _lower_provider_peer_group_member(
                 )
                 if payload.get("effort") is not None
                 else None
+            ),
+            prompt_application=_prompt_application_from_wcc_payload(
+                payload,
+                env=provider_env,
             ),
             timeout_sec=_frontend_expr_from_wcc_value_with_env(
                 payload["timeout_sec"],
@@ -4574,7 +4579,7 @@ def _lower_provider_supervision_member(
     member_steps, _terminal = _lower_provider_result_operation(
         LowerableProviderResult(
             provider_name=perform.target_name,
-            prompt_name=perform.prompt_name or "",
+            prompt_name=perform.prompt_name,
             inputs=tuple(
                 _frontend_expr_from_wcc_value_with_env(
                     argument,
@@ -4605,6 +4610,10 @@ def _lower_provider_supervision_member(
                 )
                 if payload.get("effort") is not None
                 else None
+            ),
+            prompt_application=_prompt_application_from_wcc_payload(
+                payload,
+                env=provider_env,
             ),
             timeout_sec=_frontend_expr_from_wcc_value_with_env(
                 payload["timeout_sec"],
@@ -5310,7 +5319,7 @@ def _lower_effectful_binding(
             return _lower_provider_result_operation(
                 LowerableProviderResult(
                     provider_name=value.target_name,
-                    prompt_name=value.prompt_name or "",
+                    prompt_name=value.prompt_name,
                     inputs=tuple(_frontend_expr_from_wcc_value(arg) for arg in value.positional_args),
                     span=value.metadata.source_span,
                     form_path=value.metadata.form_path,
@@ -5337,6 +5346,9 @@ def _lower_effectful_binding(
                     ),
                     prompt_dependencies=_prompt_dependency_spec_from_wcc_payload(
                         operation_payload.get("prompt_dependencies")
+                    ),
+                    prompt_application=_prompt_application_from_wcc_payload(
+                        operation_payload,
                     ),
                 ),
                 result_type=binding_type,
@@ -5547,7 +5559,11 @@ def _lower_wcc_effect_expr(
         steps, terminal = _lower_provider_result_operation(
             LowerableProviderResult(
                 provider_name=expr.provider.name,
-                prompt_name=expr.prompt.name,
+                prompt_name=(
+                    None
+                    if isinstance(expr.prompt, PromptApplicationExpr)
+                    else expr.prompt.name
+                ),
                 inputs=tuple(expr.inputs),
                 span=expr.span,
                 form_path=expr.form_path,
@@ -5557,6 +5573,11 @@ def _lower_wcc_effect_expr(
                 effort=expr.effort,
                 timeout_sec=expr.timeout_sec,
                 prompt_dependencies=expr.prompt_dependencies,
+                prompt_application=(
+                    expr.prompt
+                    if isinstance(expr.prompt, PromptApplicationExpr)
+                    else None
+                ),
             ),
             result_type=typed_expr.type_ref,
             context=context,
@@ -6085,10 +6106,42 @@ def _prompt_dependency_spec_from_wcc_payload(
     )
 
 
+def _prompt_application_from_wcc_payload(
+    payload: Mapping[str, object],
+    *,
+    env: Mapping[str, object] | None = None,
+) -> PromptApplicationExpr | None:
+    """Reconstruct the typed compile-time application retained by one perform."""
+
+    application = payload.get("prompt_application")
+    if application is None:
+        return None
+    if not isinstance(application, PromptApplicationExpr):
+        raise TypeError("WCC prompt application payload must be typed")
+    convert = (
+        (lambda value: _frontend_expr_from_wcc_value_with_env(value, env))
+        if env is not None
+        else _frontend_expr_from_wcc_value
+    )
+    return replace(
+        application,
+        fills=tuple(
+            replace(
+                fill,
+                value_expr=convert(fill.value_expr),
+            )
+            for fill in application.fills
+        ),
+    )
+
+
 def _frontend_expr_from_wcc_loop_binding_value(value):
     if isinstance(value, WccPerform):
         if value.perform_kind == "provider_result":
             operation_payload = value.operation_payload if isinstance(value.operation_payload, dict) else {}
+            prompt_application = _prompt_application_from_wcc_payload(
+                operation_payload,
+            )
             return ProviderResultExpr(
                 provider=NameExpr(
                     name=value.target_name,
@@ -6096,11 +6149,15 @@ def _frontend_expr_from_wcc_loop_binding_value(value):
                     form_path=value.metadata.form_path,
                     expansion_stack=value.metadata.expansion_stack,
                 ),
-                prompt=NameExpr(
-                    name=value.prompt_name or "",
-                    span=value.metadata.source_span,
-                    form_path=value.metadata.form_path,
-                    expansion_stack=value.metadata.expansion_stack,
+                prompt=(
+                    prompt_application
+                    if prompt_application is not None
+                    else NameExpr(
+                        name=value.prompt_name or "",
+                        span=value.metadata.source_span,
+                        form_path=value.metadata.form_path,
+                        expansion_stack=value.metadata.expansion_stack,
+                    )
                 ),
                 inputs=tuple(_frontend_expr_from_wcc_value(arg) for arg in value.positional_args),
                 return_spec=operation_payload.get("return_spec"),

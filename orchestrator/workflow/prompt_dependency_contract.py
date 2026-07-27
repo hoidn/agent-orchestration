@@ -26,6 +26,7 @@ class PromptDependencyOriginKind(Enum):
     WORKFLOW_LISP_PROVIDER_PEER_GROUP_MEMBER_IMPLICIT_EMPTY = (
         "workflow_lisp_provider_peer_group_member_implicit_empty"
     )
+    WORKFLOW_LISP_PROMPT_FRAGMENT = "workflow_lisp_prompt_fragment"
 
 
 class PromptDependencyPathInterpretation(Enum):
@@ -193,6 +194,10 @@ def _validate_contract_fields(contract: CompilerPromptDependencyContract) -> Non
     implicit_empty = is_implicit_empty_prompt_dependency_origin_kind(
         contract.origin_kind
     )
+    prompt_fragment = (
+        contract.origin_kind
+        is PromptDependencyOriginKind.WORKFLOW_LISP_PROMPT_FRAGMENT
+    )
     if implicit_empty and (required or optional):
         raise ValueError(
             "implicit-empty provider supervision contracts forbid dependency refs"
@@ -201,7 +206,13 @@ def _validate_contract_fields(contract: CompilerPromptDependencyContract) -> Non
         raise ValueError(
             "implicit-empty provider supervision contracts forbid an instruction"
         )
-    if not implicit_empty and not required and not optional:
+    if prompt_fragment and optional:
+        raise ValueError("Workflow Lisp prompt fragments forbid optional dependency refs")
+    if prompt_fragment and contract.position is not PromptDependencyPosition.PREPEND:
+        raise ValueError("Workflow Lisp prompt fragments require prepend position")
+    if prompt_fragment and contract.instruction_utf8_sha256_or_null is not None:
+        raise ValueError("Workflow Lisp prompt fragments forbid an authored instruction")
+    if not implicit_empty and not prompt_fragment and not required and not optional:
         raise ValueError("at least one prompt dependency binding ref is required")
     if not isinstance(contract.position, PromptDependencyPosition):
         raise TypeError("position must be PromptDependencyPosition")

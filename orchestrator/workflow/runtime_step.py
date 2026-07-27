@@ -165,6 +165,24 @@ class RuntimeStep(Mapping[str, Any]):
             return config.compiler_prompt_dependency_contract
         return None
 
+    @property
+    def compiler_prompt_fragment_contract(self) -> Any:
+        """Frozen fragment renderer program, outside the mapping view."""
+
+        config = self._config()
+        if isinstance(config, ProviderStepConfig):
+            return config.compiler_prompt_fragment_contract
+        return None
+
+    @property
+    def compiled_prompt_fragment_identity(self) -> str | None:
+        """Compiled fragment identity paired with the renderer program."""
+
+        config = self._config()
+        if isinstance(config, ProviderStepConfig):
+            return config.compiled_prompt_fragment_identity
+        return None
+
     def _config(self) -> Any:
         return self.node.execution_config
 

@@ -1,6 +1,7 @@
 """Focused acceptance tests for the target-2.20 prompt declaration core."""
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
+import json
 from pathlib import Path
 
 import pytest
@@ -8,7 +9,21 @@ import pytest
 import orchestrator.workflow_lisp as workflow_lisp
 import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
 import orchestrator.workflow_lisp.form_registry as form_registry
+import orchestrator.workflow_lisp.lowering.pure_projection as pure_projection_lowering
 import orchestrator.workflow_lisp.syntax as syntax
+from orchestrator.workflow.core_ast import workflow_core_ast_to_json
+from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
+from orchestrator.workflow.prompt_dependency_contract import (
+    serialize_compiler_prompt_dependency_contract,
+)
+from orchestrator.workflow.prompt_fragment_contract import (
+    COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA,
+    CompilerPromptFragmentContract,
+    CompilerPromptFragmentRenderedSlot,
+    canonical_compiler_prompt_fragment_contract_json,
+    serialize_compiler_prompt_fragment_rendered_slot,
+)
+from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.definitions import (
     PathDef,
@@ -37,6 +52,110 @@ from orchestrator.workflow_lisp.type_env import (
 )
 from orchestrator.workflow_lisp.typecheck import typecheck_expression
 from orchestrator.workflow_lisp.workflows import ExternEnvironment, ProviderExtern
+
+
+def _compile_fragment_workflow(
+    tmp_path: Path,
+    *,
+    lowering_route: str,
+):
+    source_path = tmp_path / f"prompt_fragment_{lowering_route}.orc"
+    source_path.write_text(
+        _module_source(
+            "2.20",
+            "(defmodule demo/prompt-fragment)",
+            """
+            (defpath DesignDocPath
+              :kind relpath
+              :under "docs/design"
+              :must-exist true)
+            """,
+            """
+            (defpath WorkReportPath
+              :kind relpath
+              :under "artifacts/work"
+              :must-exist false)
+            """,
+            """
+            (defprompt review
+              (:fills
+                (target_doc :doc DesignDocPath)
+                (message :text)
+                (score :value Int)
+                (report_path :path WorkReportPath))
+              -> Bool
+              "Message={message}; score={score}; report={report_path}; again={message}")
+            """,
+            """
+            (defworkflow run-review
+              ((target_doc DesignDocPath)
+               (message String)
+               (score Int)
+               (report_path WorkReportPath))
+              -> Bool
+              (provider-result providers.review
+                :prompt
+                  (review
+                    :report_path report_path
+                    :score score
+                    :target_doc target_doc
+                    :message message)))
+            """,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return workflow_lisp.compile_stage3_module(
+        source_path,
+        provider_externs={"providers.review": "test-provider"},
+        prompt_externs={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route=lowering_route,
+    )
+
+
+def _compile_zero_document_fragment_workflow(
+    tmp_path: Path,
+    *,
+    lowering_route: str,
+):
+    source_path = tmp_path / f"zero_document_fragment_{lowering_route}.orc"
+    source_path.write_text(
+        _module_source(
+            "2.20",
+            "(defmodule demo/zero-document-fragment)",
+            """
+            (defprompt inspect
+              (:fills
+                (message :text)
+                (payload :value Value))
+              -> Bool
+              "Message={message}; payload={payload}")
+            """,
+            """
+            (defworkflow run-inspect
+              ((message String)
+               (payload Value))
+              -> Bool
+              (provider-result providers.review
+                :prompt
+                  (inspect
+                    :payload payload
+                    :message message)))
+            """,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return workflow_lisp.compile_stage3_module(
+        source_path,
+        provider_externs={"providers.review": "test-provider"},
+        prompt_externs={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route=lowering_route,
+    )
 
 
 def _module_source(target_dsl: str, *forms: str) -> str:
@@ -1323,3 +1442,560 @@ def test_compiled_prompt_identity_is_order_stable_and_change_sensitive() -> None
     with pytest.raises(LispFrontendCompileError) as excinfo:
         validate_compiled_prompt_fragment_identity("sha256:ABC")
     assert _diagnostic_code(excinfo) == "compiled_prompt_fragment_identity_invalid"
+
+
+@pytest.mark.parametrize("lowering_route", ("legacy", "wcc_m4"))
+def test_fragment_application_lowers_through_both_routes_with_typed_carriers(
+    tmp_path: Path,
+    lowering_route: str,
+) -> None:
+    result = _compile_fragment_workflow(
+        tmp_path,
+        lowering_route=lowering_route,
+    )
+    bundle = result.validated_bundles["run-review"]
+    provider_step = next(
+        step
+        for step in bundle.surface.steps
+        if step.kind.value == "provider"
+    )
+
+    contract = provider_step.compiler_prompt_fragment_contract
+    identity = provider_step.compiled_prompt_fragment_identity
+    assert contract is not None
+    assert identity is not None
+    assert contract.compiled_prompt_fragment_identity == identity
+    assert contract.template_utf8 == (
+        "Message={message}; score={score}; report={report_path}; again={message}"
+    )
+    assert tuple(slot.name for slot in contract.rendered_slots) == (
+        "message",
+        "score",
+        "report_path",
+    )
+    assert tuple(slot.kind for slot in contract.rendered_slots) == (
+        "text",
+        "value",
+        "path",
+    )
+    assert tuple(slot.renderer_id for slot in contract.rendered_slots) == (
+        "raw-utf8-string",
+        "canonical-json",
+        "posix-path-line",
+    )
+    assert tuple(slot.placeholder_ordinals for slot in contract.rendered_slots) == (
+        (0, 3),
+        (1,),
+        (2,),
+    )
+    assert provider_step.depends_on == {
+        "required": ("${inputs.target_doc}",),
+        "optional": (),
+        "inject": {
+            "mode": "content",
+            "position": "prepend",
+        },
+    }
+    dependency_contract = provider_step.compiler_prompt_dependency_contract
+    assert dependency_contract is not None
+    assert dependency_contract.origin_kind.value == "workflow_lisp_prompt_fragment"
+    assert dependency_contract.required_binding_refs == ("inputs.target_doc",)
+    assert dependency_contract.optional_binding_refs == ()
+
+    core_step = next(
+        statement
+        for statement in bundle.core_workflow_ast.body
+        if statement.meta.step_kind == "provider"
+    )
+    assert core_step.compiler_prompt_fragment_contract == contract
+    assert core_step.compiled_prompt_fragment_identity == identity
+    executable_config = next(
+        node.execution_config
+        for node in bundle.ir.nodes.values()
+        if getattr(node, "execution_config", None) is not None
+        and hasattr(node.execution_config, "provider")
+    )
+    assert executable_config.compiler_prompt_fragment_contract == contract
+    assert executable_config.compiled_prompt_fragment_identity == identity
+    prompt_surface = next(
+        iter(bundle.semantic_ir.prompt_surfaces.values())
+    )
+    assert prompt_surface.compiler_prompt_fragment_contract == contract
+    assert prompt_surface.compiled_prompt_fragment_identity == identity
+    (lineage,) = next(
+        lowered.origin_map.prompt_dependency_lineages
+        for lowered in result.lowered_workflows
+        if lowered.typed_workflow.definition.name == "run-review"
+    )
+    assert provider_step.step_id.endswith(lineage.step_id)
+    assert tuple(
+        (row.role, row.authored_index, row.binding_ref)
+        for row in lineage.rows
+    ) == (("required", 0, "inputs.target_doc"),)
+    assert lineage.position.value == "prepend"
+    assert lineage.instruction is None
+
+
+@pytest.mark.parametrize(
+    ("descriptor", "renderer_id"),
+    (
+        ({"kind": "primitive", "name": "String"}, "raw-utf8-string"),
+        ({"kind": "primitive", "name": "Int"}, "canonical-json"),
+        ({"kind": "primitive", "name": "Float"}, "canonical-json"),
+        ({"kind": "primitive", "name": "Bool"}, "canonical-json"),
+        ({"kind": "primitive", "name": "Json"}, "canonical-json"),
+        ({"kind": "primitive", "name": "Value"}, "canonical-json"),
+        (
+            {
+                "kind": "enum",
+                "name": "Decision",
+                "allowed": ["APPROVE", "REJECT"],
+            },
+            "canonical-json",
+        ),
+        (
+            {
+                "kind": "path",
+                "name": "ReportPath",
+                "under": "artifacts/reports",
+                "must_exist_target": False,
+            },
+            "posix-path-line",
+        ),
+        (
+            {
+                "kind": "record",
+                "name": "Scorecard",
+                "fields": [
+                    {
+                        "name": "score",
+                        "type": {"kind": "primitive", "name": "Float"},
+                    }
+                ],
+            },
+            "canonical-json",
+        ),
+        (
+            {
+                "kind": "list",
+                "item": {"kind": "primitive", "name": "Value"},
+            },
+            "canonical-json",
+        ),
+    ),
+)
+def test_fragment_static_types_use_shared_compiler_normalized_descriptor_owner(
+    descriptor: dict[str, object],
+    renderer_id: str,
+) -> None:
+    pure_projection_lowering.validate_compiler_normalized_type_descriptor(
+        descriptor
+    )
+    slot = CompilerPromptFragmentRenderedSlot(
+        name="value",
+        kind=(
+            "text"
+            if renderer_id == "raw-utf8-string"
+            else "path"
+            if renderer_id == "posix-path-line"
+            else "value"
+        ),
+        static_type=descriptor,
+        renderer_id=renderer_id,
+        value_source={
+            "kind": "typed_binding_ref",
+            "binding": {"ref": "inputs.value"},
+        },
+        placeholder_ordinals=(0,),
+    )
+    assert serialize_compiler_prompt_fragment_rendered_slot(slot)[
+        "static_type"
+    ] == descriptor
+
+
+@pytest.mark.parametrize("lowering_route", ("legacy", "wcc_m4"))
+def test_zero_document_fragment_lowers_validates_and_serializes_empty_dependencies(
+    tmp_path: Path,
+    lowering_route: str,
+) -> None:
+    result = _compile_zero_document_fragment_workflow(
+        tmp_path,
+        lowering_route=lowering_route,
+    )
+    bundle = result.validated_bundles["run-inspect"]
+    surface = next(
+        step for step in bundle.surface.steps if step.kind.value == "provider"
+    )
+    expected_depends_on = {
+        "required": (),
+        "optional": (),
+        "inject": {"mode": "content", "position": "prepend"},
+    }
+    dependency_contract = surface.compiler_prompt_dependency_contract
+    fragment_contract = surface.compiler_prompt_fragment_contract
+    assert surface.depends_on == expected_depends_on
+    assert dependency_contract is not None
+    assert dependency_contract.origin_kind.value == "workflow_lisp_prompt_fragment"
+    assert dependency_contract.required_binding_refs == ()
+    assert dependency_contract.optional_binding_refs == ()
+    assert fragment_contract is not None
+    assert tuple(slot.name for slot in fragment_contract.rendered_slots) == (
+        "message",
+        "payload",
+    )
+    assert fragment_contract.rendered_slots[1].static_type == {
+        "kind": "primitive",
+        "name": "Value",
+    }
+
+    core = next(
+        statement
+        for statement in bundle.core_workflow_ast.body
+        if statement.meta.step_kind == "provider"
+    )
+    executable = next(
+        node.execution_config
+        for node in bundle.ir.nodes.values()
+        if getattr(node, "execution_config", None) is not None
+        and hasattr(node.execution_config, "provider")
+    )
+    semantic = next(iter(bundle.semantic_ir.prompt_surfaces.values()))
+    for carrier in (core, executable, semantic):
+        assert carrier.compiler_prompt_dependency_contract == dependency_contract
+        assert carrier.compiler_prompt_fragment_contract == fragment_contract
+    assert core.depends_on == expected_depends_on
+    assert executable.depends_on == expected_depends_on
+
+    (lineage,) = next(
+        lowered.origin_map.prompt_dependency_lineages
+        for lowered in result.lowered_workflows
+        if lowered.typed_workflow.definition.name == "run-inspect"
+    )
+    assert lineage.rows == ()
+    assert lineage.position.value == "prepend"
+    assert lineage.instruction is None
+
+    expected_serialized_contract = (
+        serialize_compiler_prompt_dependency_contract(dependency_contract)
+    )
+
+    def dependency_contract_rows(value):
+        if isinstance(value, dict):
+            rows = (
+                [value["compiler_prompt_dependency_contract"]]
+                if "compiler_prompt_dependency_contract" in value
+                else []
+            )
+            return rows + [
+                row
+                for item in value.values()
+                for row in dependency_contract_rows(item)
+            ]
+        if isinstance(value, list):
+            return [
+                row
+                for item in value
+                for row in dependency_contract_rows(item)
+            ]
+        return []
+
+    for serialized_ir in (
+        workflow_executable_ir_to_json(bundle.ir),
+        workflow_semantic_ir_to_json(bundle.semantic_ir),
+    ):
+        assert dependency_contract_rows(serialized_ir) == [
+            expected_serialized_contract
+        ]
+
+
+def test_fragment_carriers_fail_closed_on_missing_malformed_and_mismatched_identity(
+    tmp_path: Path,
+) -> None:
+    result = _compile_fragment_workflow(tmp_path, lowering_route="legacy")
+    bundle = result.validated_bundles["run-review"]
+    surface = next(step for step in bundle.surface.steps if step.kind.value == "provider")
+    core = next(
+        statement
+        for statement in bundle.core_workflow_ast.body
+        if statement.meta.step_kind == "provider"
+    )
+    executable = next(
+        node.execution_config
+        for node in bundle.ir.nodes.values()
+        if getattr(node, "execution_config", None) is not None
+        and hasattr(node.execution_config, "provider")
+    )
+    semantic = next(iter(bundle.semantic_ir.prompt_surfaces.values()))
+
+    for carrier in (surface, core, executable, semantic):
+        with pytest.raises(
+            ValueError,
+            match="compiled_prompt_fragment_identity_missing",
+        ):
+            replace(carrier, compiled_prompt_fragment_identity=None)
+        with pytest.raises(
+            ValueError,
+            match="compiled_prompt_fragment_identity_invalid",
+        ):
+            replace(carrier, compiled_prompt_fragment_identity="sha256:ABC")
+
+        mismatched = replace(
+            carrier.compiler_prompt_fragment_contract,
+            compiled_prompt_fragment_identity=f"sha256:{'0' * 64}",
+        )
+        with pytest.raises(
+            ValueError,
+            match="compiled_prompt_fragment_identity_mismatch",
+        ):
+            replace(carrier, compiler_prompt_fragment_contract=mismatched)
+
+
+def test_fragment_contract_serialization_is_closed_and_route_deterministic(
+    tmp_path: Path,
+) -> None:
+    first = _compile_fragment_workflow(tmp_path, lowering_route="legacy")
+    second = _compile_fragment_workflow(tmp_path, lowering_route="wcc_m4")
+    first_step = next(
+        step
+        for step in first.validated_bundles["run-review"].surface.steps
+        if step.kind.value == "provider"
+    )
+    second_step = next(
+        step
+        for step in second.validated_bundles["run-review"].surface.steps
+        if step.kind.value == "provider"
+    )
+
+    assert canonical_compiler_prompt_fragment_contract_json(
+        first_step.compiler_prompt_fragment_contract
+    ) == canonical_compiler_prompt_fragment_contract_json(
+        second_step.compiler_prompt_fragment_contract
+    )
+    assert (
+        first_step.compiled_prompt_fragment_identity
+        == second_step.compiled_prompt_fragment_identity
+    )
+    assert first_step.common.output_bundle == second_step.common.output_bundle
+    assert first_step.common.output_bundle["fields"][0]["type"] == "bool"
+    assert first_step.common.output_bundle["fields"][0]["json_pointer"] == ""
+    expected_typed_prompt_inputs = (
+        {
+            "schema_version": "workflow_lisp_typed_prompt_input.v1",
+            "binding_name": "score",
+            "renderer": {
+                "renderer_id": "canonical-json",
+                "renderer_version": 1,
+                "accepted_shape": "any_pure_value",
+            },
+            "value_source": {
+                "kind": "typed_binding_ref",
+                "binding": {"ref": "inputs.score"},
+            },
+            "value_type_name": "Int",
+            "source_map_origin_key": "run-review",
+            "injection_order": 0,
+        },
+        {
+            "schema_version": "workflow_lisp_typed_prompt_input.v1",
+            "binding_name": "report_path",
+            "renderer": {
+                "renderer_id": "posix-path-line",
+                "renderer_version": 1,
+                "accepted_shape": "path_value",
+            },
+            "value_source": {
+                "kind": "typed_binding_ref",
+                "binding": {"ref": "inputs.report_path"},
+            },
+            "value_type_name": "WorkReportPath",
+            "source_map_origin_key": "run-review",
+            "injection_order": 1,
+        },
+    )
+    assert first_step.typed_prompt_inputs == second_step.typed_prompt_inputs
+    assert first_step.typed_prompt_inputs == expected_typed_prompt_inputs
+    assert second_step.typed_prompt_inputs == expected_typed_prompt_inputs
+
+    rendered_by_name = {
+        slot.name: slot
+        for slot in first_step.compiler_prompt_fragment_contract.rendered_slots
+    }
+    assert {
+        name: slot.value_source
+        for name, slot in rendered_by_name.items()
+    } == {
+        "message": {
+            "kind": "typed_binding_ref",
+            "binding": {"ref": "inputs.message"},
+        },
+        "score": {
+            "kind": "typed_binding_ref",
+            "binding": {"ref": "inputs.score"},
+        },
+        "report_path": {
+            "kind": "typed_binding_ref",
+            "binding": {"ref": "inputs.report_path"},
+        },
+    }
+    assert tuple(
+        entry["binding_name"]
+        for entry in first_step.typed_prompt_inputs
+    ) == ("score", "report_path")
+    assert {
+        entry["binding_name"]: entry["value_source"]
+        for entry in first_step.typed_prompt_inputs
+    } == {
+        name: rendered_by_name[name].value_source
+        for name in ("score", "report_path")
+    }
+
+
+def test_fragment_rendered_slot_deeply_freezes_constructor_inputs() -> None:
+    static_type = {
+        "kind": "list",
+        "item": {"kind": "primitive", "name": "Int"},
+    }
+    value_source = {
+        "kind": "typed_binding_ref",
+        "binding": {"ref": "inputs.values"},
+    }
+    slot = CompilerPromptFragmentRenderedSlot(
+        name="values",
+        kind="value",
+        static_type=static_type,
+        renderer_id="canonical-json",
+        value_source=value_source,
+        placeholder_ordinals=(0,),
+    )
+    contract = CompilerPromptFragmentContract(
+        schema_version=COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA,
+        template_utf8="{values}",
+        rendered_slots=(slot,),
+        compiled_prompt_fragment_identity=f"sha256:{'1' * 64}",
+    )
+    before = canonical_compiler_prompt_fragment_contract_json(contract)
+
+    static_type["item"]["name"] = "String"
+    value_source["binding"]["ref"] = "inputs.changed"
+
+    assert canonical_compiler_prompt_fragment_contract_json(contract) == before
+    assert slot.static_type["item"]["name"] == "Int"
+    assert slot.value_source["binding"]["ref"] == "inputs.values"
+    with pytest.raises(TypeError):
+        slot.static_type["item"]["name"] = "String"
+    with pytest.raises(TypeError):
+        slot.value_source["binding"]["ref"] = "inputs.changed"
+
+
+@pytest.mark.parametrize(
+    ("static_type", "value_source"),
+    (
+        (
+            {"kind": "primitive", "name": "Int", "extra": True},
+            {"kind": "typed_binding_ref", "binding": {"ref": "inputs.value"}},
+        ),
+        (
+            {"kind": "list", "item": {"kind": "primitive", "name": "Int", "extra": True}},
+            {"kind": "typed_binding_ref", "binding": {"ref": "inputs.value"}},
+        ),
+        (
+            {"kind": "primitive", "name": "Int"},
+            {
+                "kind": "typed_binding_ref",
+                "binding": {"ref": "inputs.value"},
+                "extra": True,
+            },
+        ),
+        (
+            {"kind": "primitive", "name": "Int"},
+            {
+                "kind": "typed_binding_ref",
+                "binding": {"ref": "inputs.value", "extra": True},
+            },
+        ),
+        (
+            {"kind": "primitive", "name": "Int"},
+            {"kind": "other", "binding": {"ref": "inputs.value"}},
+        ),
+        (
+            {"kind": "primitive", "name": "Int"},
+            {"kind": "typed_binding_ref", "binding": {"ref": ""}},
+        ),
+    ),
+)
+def test_fragment_rendered_slot_rejects_open_or_invalid_nested_schemas(
+    static_type: dict[str, object],
+    value_source: dict[str, object],
+) -> None:
+    with pytest.raises(
+        (TypeError, ValueError),
+        match="compiler_prompt_fragment_contract_invalid",
+    ):
+        CompilerPromptFragmentRenderedSlot(
+            name="value",
+            kind="value",
+            static_type=static_type,
+            renderer_id="canonical-json",
+            value_source=value_source,
+            placeholder_ordinals=(0,),
+        )
+
+
+@pytest.mark.parametrize("lowering_route", ("legacy", "wcc_m4"))
+def test_extern_prompt_build_artifacts_are_byte_neutral_at_target_2_20(
+    tmp_path: Path,
+    lowering_route: str,
+) -> None:
+    source_path = tmp_path / "extern_prompt.orc"
+
+    def build_payload_bytes(target_dsl: str) -> tuple[bytes, bytes, bytes]:
+        source_path.write_text(
+            _module_source(
+                target_dsl,
+                """
+                (defworkflow run-extern ((message String)) -> Bool
+                  (provider-result providers.review
+                    :prompt prompts.review
+                    :inputs (message)
+                    :returns Bool))
+                """,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        result = workflow_lisp.compile_stage3_module(
+            source_path,
+            provider_externs={"providers.review": "test-provider"},
+            prompt_externs={"prompts.review": "prompts/review.md"},
+            validate_shared=True,
+            workspace_root=tmp_path,
+            lowering_route=lowering_route,
+        )
+        bundle = result.validated_bundles["run-extern"]
+
+        def normalize_target(value):
+            if isinstance(value, dict):
+                return {
+                    key: normalize_target(item)
+                    for key, item in value.items()
+                }
+            if isinstance(value, list):
+                return [normalize_target(item) for item in value]
+            if value in {"2.19", "2.20"}:
+                return "<target-dsl>"
+            return value
+
+        return tuple(
+            json.dumps(
+                normalize_target(payload),
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            for payload in (
+                workflow_core_ast_to_json(bundle.core_workflow_ast),
+                workflow_executable_ir_to_json(bundle.ir),
+                workflow_semantic_ir_to_json(bundle.semantic_ir),
+            )
+        )
+
+    assert build_payload_bytes("2.20") == build_payload_bytes("2.19")

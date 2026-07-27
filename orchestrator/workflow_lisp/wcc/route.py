@@ -49,6 +49,7 @@ from ..expressions import (
     WithLiveProvidersExpr,
     WithPhaseExpr,
 )
+from ..prompts import PromptApplicationExpr
 from ..type_env import WorkflowRefTypeRef
 from ..procedures import TypedProcedureDef
 from ..workflows import TypedWorkflowDef, WorkflowSignature
@@ -374,12 +375,21 @@ def _validate_wcc_m2_expr_supported(
             local_workflow_signatures=local_workflow_signatures,
             workflow_ref_value_names=workflow_ref_value_names,
         )
-        _validate_wcc_m2_expr_supported(
-            expr.prompt,
-            workflow_name=workflow_name,
-            local_workflow_signatures=local_workflow_signatures,
-            workflow_ref_value_names=workflow_ref_value_names,
-        )
+        if isinstance(expr.prompt, PromptApplicationExpr):
+            for fill in expr.prompt.fills:
+                _validate_wcc_m2_expr_supported(
+                    fill.value_expr,
+                    workflow_name=workflow_name,
+                    local_workflow_signatures=local_workflow_signatures,
+                    workflow_ref_value_names=workflow_ref_value_names,
+                )
+        else:
+            _validate_wcc_m2_expr_supported(
+                expr.prompt,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
         for arg_expr in expr.inputs:
             _validate_wcc_m2_expr_supported(
                 arg_expr,
@@ -581,12 +591,21 @@ def _validate_wcc_m3_expr_supported(
             local_workflow_signatures=local_workflow_signatures,
             workflow_ref_value_names=workflow_ref_value_names,
         )
-        _validate_wcc_m3_expr_supported(
-            expr.prompt,
-            workflow_name=workflow_name,
-            local_workflow_signatures=local_workflow_signatures,
-            workflow_ref_value_names=workflow_ref_value_names,
-        )
+        if isinstance(expr.prompt, PromptApplicationExpr):
+            for fill in expr.prompt.fills:
+                _validate_wcc_m3_expr_supported(
+                    fill.value_expr,
+                    workflow_name=workflow_name,
+                    local_workflow_signatures=local_workflow_signatures,
+                    workflow_ref_value_names=workflow_ref_value_names,
+                )
+        else:
+            _validate_wcc_m3_expr_supported(
+                expr.prompt,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
         for arg_expr in expr.inputs:
             _validate_wcc_m3_expr_supported(
                 arg_expr,
@@ -933,12 +952,21 @@ def _validate_wcc_m4_expr_supported(
             local_workflow_signatures=local_workflow_signatures,
             workflow_ref_value_names=workflow_ref_value_names,
         )
-        _validate_wcc_m4_expr_supported(
-            expr.prompt,
-            workflow_name=workflow_name,
-            local_workflow_signatures=local_workflow_signatures,
-            workflow_ref_value_names=workflow_ref_value_names,
-        )
+        if isinstance(expr.prompt, PromptApplicationExpr):
+            for fill in expr.prompt.fills:
+                _validate_wcc_m4_expr_supported(
+                    fill.value_expr,
+                    workflow_name=workflow_name,
+                    local_workflow_signatures=local_workflow_signatures,
+                    workflow_ref_value_names=workflow_ref_value_names,
+                )
+        else:
+            _validate_wcc_m4_expr_supported(
+                expr.prompt,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
         for arg_expr in expr.inputs:
             _validate_wcc_m4_expr_supported(
                 arg_expr,

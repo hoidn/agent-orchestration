@@ -18,6 +18,11 @@ from .prompt_dependency_contract import (
     serialize_compiler_prompt_dependency_contract,
     validate_compiler_prompt_dependency_contract,
 )
+from .prompt_fragment_contract import (
+    CompilerPromptFragmentContract,
+    serialize_compiler_prompt_fragment_contract,
+    validate_compiler_prompt_fragment_pair,
+)
 from .provider_supervision.models import (
     ProviderSupervisionObservation,
     ProviderSupervisionSourceOwnership,
@@ -262,6 +267,23 @@ class ProviderStepConfig:
             "json_serializer": serialize_compiler_prompt_dependency_contract,
         },
     )
+    compiler_prompt_fragment_contract: CompilerPromptFragmentContract | None = field(
+        default=None,
+        metadata={
+            "json_omit_if_none": True,
+            "json_serializer": serialize_compiler_prompt_fragment_contract,
+        },
+    )
+    compiled_prompt_fragment_identity: str | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+
+    def __post_init__(self) -> None:
+        validate_compiler_prompt_fragment_pair(
+            self.compiler_prompt_fragment_contract,
+            self.compiled_prompt_fragment_identity,
+        )
 
 
 @dataclass(frozen=True)
@@ -903,9 +925,12 @@ def _validate_node_shape(
                     node.execution_config,
                     required=False,
                 )
+                _validate_provider_prompt_fragment_binding(
+                    node.execution_config,
+                )
             except (TypeError, ValueError):
                 _raise_executable_ir_invalid(
-                    "executable_ir_invalid: provider prompt dependency contract is invalid",
+                    "executable_ir_invalid: provider prompt compiler contract is invalid",
                     workflow_name=workflow_name,
                     node=node,
                 )
@@ -1059,6 +1084,24 @@ def _validate_provider_prompt_dependency_binding(
             )
 
 
+def _validate_provider_prompt_fragment_binding(
+    config: ProviderStepConfig,
+) -> None:
+    """Validate fragment pairing and its required dependency-origin coupling."""
+
+    validate_compiler_prompt_fragment_pair(
+        config.compiler_prompt_fragment_contract,
+        config.compiled_prompt_fragment_identity,
+    )
+    dependency_contract = config.compiler_prompt_dependency_contract
+    fragment_origin = (
+        dependency_contract is not None
+        and dependency_contract.origin_kind.value == "workflow_lisp_prompt_fragment"
+    )
+    if (config.compiler_prompt_fragment_contract is not None) != fragment_origin:
+        raise ValueError(
+            "fragment renderer and fragment dependency contracts must be paired"
+        )
 def _validate_provider_supervision_step_config(
     config: ProviderSupervisionStepConfig,
     *,

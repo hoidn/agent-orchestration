@@ -520,6 +520,17 @@ def _elaborate_step(
             if kind is SurfaceStepKind.PROVIDER and "typed_prompt_inputs" in step
             else ()
         ),
+        compiler_prompt_fragment_contract=(
+            step.get("compiler_prompt_fragment_contract")
+            if kind is SurfaceStepKind.PROVIDER
+            else None
+        ),
+        compiled_prompt_fragment_identity=(
+            step.get("compiled_prompt_fragment_identity")
+            if kind is SurfaceStepKind.PROVIDER
+            and isinstance(step.get("compiled_prompt_fragment_identity"), str)
+            else None
+        ),
         consumes_injection_position=(
             step.get("consumes_injection_position")
             if kind in {SurfaceStepKind.PROVIDER, SurfaceStepKind.ADJUDICATED_PROVIDER}

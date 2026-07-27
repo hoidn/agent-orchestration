@@ -162,6 +162,7 @@ class PromptDependencyContractLineage:
 
     step_id: str
     source_origin_key: str
+    origin_kind: str
     clause: SourceMapEntry
     rows: tuple[PromptDependencyRowLineage, ...]
     position: PromptDependencyPolicyLineage
@@ -1080,11 +1081,20 @@ def validate_source_map_document(
                         message="prompt dependency contract origin does not resolve to its clause",
                     )
                 )
-            rows_policy_error = _prompt_dependency_rows_policy_error(
-                lineage.rows,
-                position=lineage.position.value,
-                require_rows=True,
-            )
+            try:
+                origin_kind = PromptDependencyOriginKind(lineage.origin_kind)
+            except ValueError:
+                rows_policy_error = "origin kind is invalid"
+            else:
+                rows_policy_error = _prompt_dependency_rows_policy_error(
+                    lineage.rows,
+                    position=lineage.position.value,
+                    require_rows=(
+                        origin_kind
+                        is not PromptDependencyOriginKind
+                        .WORKFLOW_LISP_PROMPT_FRAGMENT
+                    ),
+                )
             if rows_policy_error is not None:
                 diagnostics.append(
                     _diagnostic_for_entry(
@@ -2014,6 +2024,7 @@ def _prompt_dependency_lineages_for_workflow(
             PromptDependencyContractLineage(
                 step_id=lineage.step_id,
                 source_origin_key=lineage.source_origin_key,
+                origin_kind=contract.origin_kind.value,
                 clause=_entry_from_origin(
                     lineage.clause_origin,
                     workflow_name=workflow_name,

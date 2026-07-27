@@ -11,6 +11,10 @@ from typing import Any, Mapping
 from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
 
 from .prompt_dependency_contract import CompilerPromptDependencyContract
+from .prompt_fragment_contract import (
+    CompilerPromptFragmentContract,
+    validate_compiler_prompt_fragment_pair,
+)
 from .state_layout import GeneratedPathAllocation
 from .surface_ast import (
     ImportedWorkflowMetadata,
@@ -114,7 +118,21 @@ class CoreProviderStep:
         default=None,
         metadata={"json_omit_if_none": True},
     )
+    compiler_prompt_fragment_contract: CompilerPromptFragmentContract | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    compiled_prompt_fragment_identity: str | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
     _surface_step: SurfaceStep | None = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        validate_compiler_prompt_fragment_pair(
+            self.compiler_prompt_fragment_contract,
+            self.compiled_prompt_fragment_identity,
+        )
 
 
 @dataclass(frozen=True)
@@ -549,6 +567,12 @@ def _build_statement(
             compiler_prompt_dependency_contract=(
                 step.compiler_prompt_dependency_contract
             ),
+            compiler_prompt_fragment_contract=(
+                step.compiler_prompt_fragment_contract
+            ),
+            compiled_prompt_fragment_identity=(
+                step.compiled_prompt_fragment_identity
+            ),
             _surface_step=step,
         )
     if step.kind is SurfaceStepKind.PROVIDER_SUPERVISION:
@@ -980,6 +1004,12 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
             consumes_injection_position=statement.consumes_injection_position,
             compiler_prompt_dependency_contract=(
                 statement.compiler_prompt_dependency_contract
+            ),
+            compiler_prompt_fragment_contract=(
+                statement.compiler_prompt_fragment_contract
+            ),
+            compiled_prompt_fragment_identity=(
+                statement.compiled_prompt_fragment_identity
             ),
         )
     elif isinstance(statement, CoreProviderSupervisionStep):

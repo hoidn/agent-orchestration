@@ -10,10 +10,17 @@ from pathlib import Path
 from typing import Any
 
 from orchestrator.workflow.references import StructuredStepReference
+from orchestrator.workflow.prompt_fragment_contract import (
+    COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA,
+    CompilerPromptFragmentContract,
+    CompilerPromptFragmentRenderedSlot,
+    freeze_prompt_fragment_json,
+)
 from orchestrator.workflow.surface_ast import SurfaceStep
 from orchestrator.workflow.view_renderer import (
     ViewRendererError,
     resolve_default_view_renderer,
+    resolve_view_renderer,
 )
 from orchestrator.workflow_lisp.typed_prompt_inputs import normalize_typed_prompt_input_entry
 
@@ -55,6 +62,7 @@ from ..phase import (
     PHASE_TARGET_SPECS,
     PhaseScope,
 )
+from ..prompts import PromptApplicationExpr, PromptSlotKind
 from ..procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
 from ..procedures import ProcedureCatalog
 from ..spans import SourcePosition, SourceSpan
@@ -1689,6 +1697,159 @@ def _build_typed_prompt_inputs_for_prompt_specs(
             )
         )
     return typed_prompt_inputs, hidden_inputs
+
+
+def _build_compiler_prompt_fragment_contract(
+    application: PromptApplicationExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[
+    CompilerPromptFragmentContract,
+    tuple[tuple[int, str, Any], ...],
+    tuple[dict[str, Any], ...],
+    dict[str, LoweringOrigin],
+]:
+    """Lower one typed fragment into its frozen renderer program and doc rows."""
+
+    identity = application.compiled_prompt_fragment_identity
+    if not isinstance(identity, str):
+        raise _compile_error(
+            code="compiled_prompt_fragment_identity_missing",
+            message="typed prompt application lacks its compiled identity",
+            span=application.span,
+            form_path=application.form_path,
+        )
+    placeholder_names = application.prompt.declaration.template.placeholder_names
+    rendered_slots: list[CompilerPromptFragmentRenderedSlot] = []
+    document_rows: list[tuple[int, str, Any]] = []
+    typed_prompt_inputs: list[dict[str, Any]] = []
+    hidden_inputs: dict[str, LoweringOrigin] = {}
+    for declaration_index, (slot, fill) in enumerate(
+        zip(application.prompt.slots, application.fills, strict=True)
+    ):
+        raw_source, extra_hidden_inputs = _resolve_phase_prompt_input_source(
+            fill.value_expr,
+            artifact_name=f"prompt_fragment__{fill.name}",
+            context=context,
+            local_values=local_values,
+        )
+        hidden_inputs.update(extra_hidden_inputs)
+        for hidden_input_name in extra_hidden_inputs:
+            context.internal_generated_input_reasons.setdefault(
+                hidden_input_name,
+                "prompt_fragment_transport",
+            )
+        if isinstance(raw_source.get("input"), str):
+            binding: Any = {"ref": f"inputs.{raw_source['input']}"}
+        elif isinstance(raw_source.get("ref"), str):
+            binding = {"ref": str(raw_source["ref"])}
+        elif "literal" in raw_source:
+            binding = raw_source["literal"]
+        else:
+            raise _compile_error(
+                code="prompt_fill_identity_unsupported",
+                message="prompt fill has no closed runtime value source",
+                span=fill.span,
+                form_path=application.form_path,
+            )
+        if slot.declaration.kind is PromptSlotKind.DOC:
+            if not isinstance(binding, Mapping) or not isinstance(
+                binding.get("ref"), str
+            ):
+                raise _compile_error(
+                    code="prompt_dependency_operand_not_binding_ref",
+                    message="document prompt fills must lower to one binding ref",
+                    span=fill.span,
+                    form_path=application.form_path,
+                )
+            document_rows.append(
+                (declaration_index, str(binding["ref"]), fill.value_expr)
+            )
+            continue
+        expression_identity = fill.typed_expression_identity
+        static_type = (
+            expression_identity.get("static_type")
+            if isinstance(expression_identity, Mapping)
+            else None
+        )
+        if not isinstance(static_type, Mapping):
+            raise _compile_error(
+                code="compiled_prompt_fragment_identity_invalid",
+                message="prompt fill lacks a normalized static type projection",
+                span=fill.span,
+                form_path=application.form_path,
+            )
+        if not isinstance(fill.renderer_id, str):
+            raise _compile_error(
+                code="prompt_fill_renderer_unsupported",
+                message="prompt fill lacks a selected renderer",
+                span=fill.span,
+                form_path=application.form_path,
+            )
+        typed_value_source = {
+            "kind": "typed_binding_ref",
+            "binding": binding,
+        }
+        value_source = freeze_prompt_fragment_json(typed_value_source)
+        rendered_slots.append(
+            CompilerPromptFragmentRenderedSlot(
+                name=fill.name,
+                kind=slot.declaration.kind.value,
+                static_type=freeze_prompt_fragment_json(static_type),
+                renderer_id=fill.renderer_id,
+                value_source=value_source,
+                placeholder_ordinals=tuple(
+                    ordinal
+                    for ordinal, placeholder_name in enumerate(placeholder_names)
+                    if placeholder_name == fill.name
+                ),
+            )
+        )
+        if slot.declaration.kind in {
+            PromptSlotKind.VALUE,
+            PromptSlotKind.PATH,
+        }:
+            descriptor = resolve_view_renderer(fill.renderer_id, 1)
+            typed_prompt_inputs.append(
+                normalize_typed_prompt_input_entry(
+                    {
+                        "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                        "binding_name": fill.name,
+                        "renderer": {
+                            "renderer_id": descriptor.renderer_id,
+                            "renderer_version": descriptor.renderer_version,
+                            "accepted_shape": descriptor.accepted_shape,
+                        },
+                        "value_source": typed_value_source,
+                        "value_type_name": _type_ref_display_name(
+                            fill.static_type_ref
+                        ),
+                        "source_map_origin_key": context.workflow_name,
+                        "injection_order": len(typed_prompt_inputs),
+                    }
+                )
+            )
+    try:
+        contract = CompilerPromptFragmentContract(
+            schema_version=COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA,
+            template_utf8=application.prompt.declaration.template.text,
+            rendered_slots=tuple(rendered_slots),
+            compiled_prompt_fragment_identity=identity,
+        )
+    except (TypeError, ValueError) as exc:
+        raise _compile_error(
+            code="compiled_prompt_fragment_identity_invalid",
+            message="prompt fragment renderer contract is invalid",
+            span=application.span,
+            form_path=application.form_path,
+        ) from exc
+    return (
+        contract,
+        tuple(document_rows),
+        tuple(typed_prompt_inputs),
+        hidden_inputs,
+    )
 
 
 def _build_phase_stdlib_prompt_input_prelude(
