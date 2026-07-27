@@ -77,6 +77,7 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | complete — implementation through `d0bb9a1d`; clean Task-7 closure after exact `a40b536c`/`4e2c4911` boundary repair; ordered final reviews accepted |
 | Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | next — accepted design and [reviewed implementation plan](2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md); implementation not started |
 | Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | blocked by Q3 completion |
+| Q5 | Phased contract delivery | accepted design (`docs/design/workflow_lisp_phased_contract_delivery.md`); Q1 fragments and target-2.17 turn queue landed (both are); no Q3/Q4 dependency | opt-in two-turn delivery for fragment-backed session calls with derived cut rule, materialization-only retry with named diagnostics, byte-identical composed fallback, and the review consumer migrated with unchanged result authority | blocked by table order; owner may advance it ahead of Q4 by explicit reordering amendment |
 
 ### L-Series: Language-Server Debugging Utility
 
@@ -251,6 +252,30 @@ bounded `list/map-effect` surface. This stage may use lists of judgment
 inspection values only if their transport and view contract is accepted in
 the Q4 design; it may not add runtime prompt references or higher-order
 mapping.
+
+## Stage Q5: Phased Contract Delivery
+
+Authority target:
+`docs/design/workflow_lisp_phased_contract_delivery.md` (proposed;
+independent design review required before planning).
+
+Deliver a fragment-backed provider call's composed prompt as two successive
+session turns — task prose first, derived contract tail at the turn
+boundary — so judgment runs before serialization obligations arrive
+(principle 30's sequencing corollary), and a contract-validation failure
+re-elicits only the materialization turn, never the task phase. The cut
+between phases is derived from the declaration (authored template prose
+versus machinery-rendered contract), never authored per slot. Composition
+on non-session providers, and on calls that do not opt in, remains
+byte-identical to the single-prompt rendering.
+
+Q5 depends only on landed substrate (Q1 fragments; the target-2.17
+turn-boundary queue) and has no semantic dependency on Q3 or Q4; it sits
+last in table order, and advancing it ahead of Q4 requires only an explicit
+reordering amendment to this table. Required order per this roadmap's
+standard: independent design review, reviewed implementation plan, TDD
+implementation, byte-accounting and retry-containment fixtures, one real
+phased run of the review consumer, ordered final reviews.
 
 ## Stage L0: Reliability And Diagnostic Actionability
 
