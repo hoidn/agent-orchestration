@@ -124,15 +124,27 @@ from .predicates import (
 from .prompting import (
     PromptCompletionError,
     PromptComposer,
+    PromptFragmentRenderResult,
     render_prompt_fragment_base,
+    validate_runtime_contribution_composition,
 )
 from .prompt_dependency_contract import PromptDependencyOriginKind
 from .prompt_dependency_evidence import (
     authored_row_id,
+    build_fragment_preparation_failure_evidence,
     build_fragment_success_evidence,
+    build_fragment_success_evidence_v2,
     build_failure_evidence,
     build_success_evidence,
     publish_evidence_file,
+)
+from .prompt_identity import (
+    build_fragment_program_role,
+    build_injected_dependencies_role,
+    build_prompt_attempt_identity,
+    build_provider_policy_role,
+    build_resolved_bindings_role,
+    build_runtime_contributions_role,
 )
 from .prompt_fragment_contract import (
     CompilerPromptFragmentContractV2,
@@ -5930,6 +5942,24 @@ class WorkflowExecutor:
         ) = self._validated_runtime_prompt_fragment_pair(step)
         if fragment_error is not None:
             return fragment_error
+        fragment_identity_schema_version = (
+            "compiled_prompt_fragment_identity.v2"
+            if isinstance(
+                fragment_contract,
+                CompilerPromptFragmentContractV2,
+            )
+            else (
+                "compiled_prompt_fragment_identity.v1"
+                if fragment_contract is not None
+                else None
+            )
+        )
+        q3_fragment_enabled = (
+            fragment_contract is not None
+            and isinstance(step, RuntimeStep)
+            and step.prompt_attempt_identity_version is not None
+            and step.compiler_prompt_attempt_binding_plan is not None
+        )
         managed_jobs_config = _managed_jobs_config_from_step(step)
         current_step_state = state.get('current_step')
         current_managed_state = (
@@ -5977,41 +6007,79 @@ class WorkflowExecutor:
                 root_steps=runtime_context.root_steps,
             )
         variables = runtime_context.build_variables(self.variable_substitutor, state)
-        resolved_expected_outputs, resolved_output_bundle, path_error = self._resolve_output_contract_paths(
-            step,
-            state,
-            context=context,
-        )
-        if path_error is not None:
-            return path_error
-        output_position_error = (
-            self._prompt_output_position_prelaunch_result(
-                step=step,
-                fragment_contract=fragment_contract,
-                resolved_expected_outputs=resolved_expected_outputs,
-                resolved_output_bundle=resolved_output_bundle,
-                state=state,
-                runtime_context=runtime_context,
-            )
-        )
-        if output_position_error is not None:
-            return output_position_error
-        bundle_path_error = self._prepare_runtime_output_bundle_parent(resolved_output_bundle)
-        if bundle_path_error is not None:
-            return bundle_path_error
+        resolved_expected_outputs: Optional[List[Dict[str, Any]]] = None
+        resolved_output_bundle: Optional[Dict[str, Any]] = None
         prompt_contract_step = step
-        if (
-            resolved_expected_outputs is not None
-            or resolved_output_bundle is not None
-        ):
-            prompt_contract_step = dict(step)
-        if resolved_expected_outputs is not None:
-            prompt_contract_step['expected_outputs'] = resolved_expected_outputs
-        if resolved_output_bundle is not None:
-            if 'variant_output' in step:
-                prompt_contract_step['variant_output'] = resolved_output_bundle
-            else:
-                prompt_contract_step['output_bundle'] = resolved_output_bundle
+
+        def resolve_output_contract_for_attempt() -> tuple[
+            Optional[List[Dict[str, Any]]],
+            Optional[Dict[str, Any]],
+            RuntimeStepInput,
+            Optional[Dict[str, Any]],
+        ]:
+            (
+                attempt_expected_outputs,
+                attempt_output_bundle,
+                path_error,
+            ) = self._resolve_output_contract_paths(
+                step,
+                state,
+                context=context,
+            )
+            if path_error is not None:
+                return None, None, step, path_error
+            output_position_error = (
+                self._prompt_output_position_prelaunch_result(
+                    step=step,
+                    fragment_contract=fragment_contract,
+                    resolved_expected_outputs=attempt_expected_outputs,
+                    resolved_output_bundle=attempt_output_bundle,
+                    state=state,
+                    runtime_context=runtime_context,
+                )
+            )
+            if output_position_error is not None:
+                return None, None, step, output_position_error
+            bundle_path_error = self._prepare_runtime_output_bundle_parent(
+                attempt_output_bundle
+            )
+            if bundle_path_error is not None:
+                return None, None, step, bundle_path_error
+            attempt_contract_step: RuntimeStepInput = step
+            if (
+                attempt_expected_outputs is not None
+                or attempt_output_bundle is not None
+            ):
+                attempt_contract_step = dict(step)
+            if attempt_expected_outputs is not None:
+                attempt_contract_step[
+                    'expected_outputs'
+                ] = attempt_expected_outputs
+            if attempt_output_bundle is not None:
+                if 'variant_output' in step:
+                    attempt_contract_step[
+                        'variant_output'
+                    ] = attempt_output_bundle
+                else:
+                    attempt_contract_step[
+                        'output_bundle'
+                    ] = attempt_output_bundle
+            return (
+                attempt_expected_outputs,
+                attempt_output_bundle,
+                attempt_contract_step,
+                None,
+            )
+
+        if not q3_fragment_enabled:
+            (
+                resolved_expected_outputs,
+                resolved_output_bundle,
+                prompt_contract_step,
+                output_contract_error,
+            ) = resolve_output_contract_for_attempt()
+            if output_contract_error is not None:
+                return output_contract_error
 
         # Initialize prompt variable from either input_file or asset_file.
         prompt, prompt_error = self.prompt_composer.read_prompt_source(
@@ -6073,8 +6141,20 @@ class WorkflowExecutor:
                     if injection_result.was_truncated and injection_result.truncation_details:
                         debug_info['injection'] = injection_result.truncation_details
 
-        resolved_fragment_values: dict[str, Any] = {}
-        if fragment_contract is not None:
+        fragment_render_result: PromptFragmentRenderResult | None = None
+        q3_binding_plan = (
+            step.compiler_prompt_attempt_binding_plan
+            if isinstance(step, RuntimeStep)
+            else None
+        )
+
+        def render_fragment_for_attempt() -> tuple[
+            str | PromptFragmentRenderResult | None,
+            Optional[Dict[str, Any]],
+        ]:
+            resolved_fragment_values: dict[str, Any] = {}
+            if fragment_contract is None:
+                return None, None
             for slot in fragment_contract.rendered_slots:
                 binding = slot.value_source.get("binding")
                 if isinstance(binding, Mapping):
@@ -6087,46 +6167,98 @@ class WorkflowExecutor:
                     )
                 )
                 if resolve_error is not None:
-                    return self._contract_violation_result(
-                        "Provider prompt fragment rendering failed",
-                        {
-                            "reason": (
-                                "prompt_fragment_slot_value_unavailable"
-                            ),
-                            "slot": slot.name,
-                        },
+                    return (
+                        None,
+                        self._contract_violation_result(
+                            "Provider prompt fragment rendering failed",
+                            {
+                                "reason": (
+                                    "prompt_fragment_slot_value_unavailable"
+                                ),
+                                "slot": slot.name,
+                            },
+                        ),
                     )
                 resolved_fragment_values[slot.name] = resolved_value
             try:
-                prompt = render_prompt_fragment_base(
+                rendered_fragment = render_prompt_fragment_base(
                     fragment_contract,
                     resolved_slot_values=resolved_fragment_values,
+                    target_dsl_version=(
+                        step.target_dsl_version
+                        if q3_fragment_enabled
+                        else None
+                    ),
+                    compiler_prompt_attempt_binding_plan=(
+                        q3_binding_plan if q3_fragment_enabled else None
+                    ),
                 )
+                if q3_fragment_enabled and type(
+                    rendered_fragment
+                ) is not PromptFragmentRenderResult:
+                    raise ValueError(
+                        "prompt_attempt_binding_plan_invalid: "
+                        "target-2.22 render trace is missing"
+                    )
+                if not q3_fragment_enabled and not isinstance(
+                    rendered_fragment,
+                    str,
+                ):
+                    raise ValueError(
+                        "legacy fragment rendering returned a trace"
+                    )
+                return rendered_fragment, None
             except (TypeError, ValueError) as exc:
-                return self._contract_violation_result(
-                    "Provider prompt fragment rendering failed",
-                    {
-                        "reason": "prompt_fragment_render_invalid",
-                        "error": str(exc),
-                    },
+                return (
+                    None,
+                    self._contract_violation_result(
+                        "Provider prompt fragment rendering failed",
+                        {
+                            "reason": "prompt_fragment_render_invalid",
+                            "error": str(exc),
+                        },
+                    ),
                 )
 
-        # Resolve typed prompt values once; insertion remains a deterministic
-        # later stage that can be applied to each fresh content attempt.
+        if fragment_contract is not None and not q3_fragment_enabled:
+            rendered_fragment, fragment_render_error = (
+                render_fragment_for_attempt()
+            )
+            if fragment_render_error is not None:
+                return fragment_render_error
+            assert isinstance(rendered_fragment, str)
+            prompt = rendered_fragment
+
         typed_prompt_inputs = step.get("typed_prompt_inputs")
         resolved_typed_values: dict[str, Any] = {}
-        if isinstance(typed_prompt_inputs, list) and typed_prompt_inputs:
+
+        def resolve_typed_prompt_values_for_attempt() -> tuple[
+            dict[str, Any],
+            Optional[Dict[str, Any]],
+        ]:
+            attempt_values: dict[str, Any] = {}
+            if not (
+                isinstance(typed_prompt_inputs, list)
+                and typed_prompt_inputs
+            ):
+                return attempt_values, None
             for typed_prompt_input in typed_prompt_inputs:
                 if not isinstance(typed_prompt_input, dict):
-                    return self._contract_violation_result(
-                        "Provider prompt composition failed",
-                        {"reason": "typed_prompt_input_invalid"},
+                    return (
+                        {},
+                        self._contract_violation_result(
+                            "Provider prompt composition failed",
+                            {"reason": "typed_prompt_input_invalid"},
+                        ),
                     )
                 value_source = typed_prompt_input.get("value_source")
                 if not isinstance(value_source, dict):
-                    return self._contract_violation_result(
-                        "Provider prompt composition failed",
-                        {"reason": "typed_prompt_input_invalid"},
+                    return (
+                        {},
+                        self._contract_violation_result(
+                            "Provider prompt composition failed",
+                            {"reason": "typed_prompt_input_invalid"},
+                        ),
                     )
                 binding_value = value_source.get("binding")
                 if binding_value is None and isinstance(value_source.get("ref"), str):
@@ -6134,9 +6266,12 @@ class WorkflowExecutor:
                 if binding_value is None and isinstance(value_source.get("binding_ref"), str):
                     binding_value = {"ref": value_source["binding_ref"]}
                 if binding_value is None:
-                    return self._contract_violation_result(
-                        "Provider prompt composition failed",
-                        {"reason": "typed_prompt_input_invalid"},
+                    return (
+                        {},
+                        self._contract_violation_result(
+                            "Provider prompt composition failed",
+                            {"reason": "typed_prompt_input_invalid"},
+                        ),
                     )
                 resolved_value, resolve_error = self._resolve_typed_prompt_input_value(
                     binding_value,
@@ -6144,20 +6279,39 @@ class WorkflowExecutor:
                     scope=runtime_context.scope(),
                 )
                 if resolve_error is not None:
-                    return self._contract_violation_result(
-                        "Provider prompt composition failed",
-                        {
-                            "reason": "typed_prompt_input_value_unavailable",
-                            "binding_name": typed_prompt_input.get("binding_name"),
-                        },
+                    return (
+                        {},
+                        self._contract_violation_result(
+                            "Provider prompt composition failed",
+                            {
+                                "reason": (
+                                    "typed_prompt_input_value_unavailable"
+                                ),
+                                "binding_name": typed_prompt_input.get(
+                                    "binding_name"
+                                ),
+                            },
+                        ),
                     )
                 binding_name = typed_prompt_input.get("binding_name")
                 if not isinstance(binding_name, str) or not binding_name:
-                    return self._contract_violation_result(
-                        "Provider prompt composition failed",
-                        {"reason": "typed_prompt_input_invalid"},
+                    return (
+                        {},
+                        self._contract_violation_result(
+                            "Provider prompt composition failed",
+                            {"reason": "typed_prompt_input_invalid"},
+                        ),
                     )
-                resolved_typed_values[binding_name] = resolved_value
+                attempt_values[binding_name] = resolved_value
+            return attempt_values, None
+
+        if not q3_fragment_enabled:
+            (
+                resolved_typed_values,
+                typed_prompt_resolution_error,
+            ) = resolve_typed_prompt_values_for_attempt()
+            if typed_prompt_resolution_error is not None:
+                return typed_prompt_resolution_error
         resolved_consumes = state.get('_resolved_consumes', {})
 
         def finish_prompt_composition(candidate_prompt: str) -> str:
@@ -6176,6 +6330,8 @@ class WorkflowExecutor:
                         resolved_typed_values=resolved_typed_values,
                         workflow_name=self.workflow_name or "",
                         step_id=runtime_step_id or self._step_id(step),
+                        fragment_render_result=fragment_render_result,
+                        compiler_prompt_attempt_binding_plan=q3_binding_plan,
                     )
                 else:
                     candidate_prompt, typed_prompt_input_evidence = (
@@ -6199,12 +6355,52 @@ class WorkflowExecutor:
                         evidence=typed_prompt_input_evidence,
                         workflow_name=self.workflow_name or "",
                         step_id=runtime_step_id or self._step_id(step),
+                        fragment_render_result=fragment_render_result,
+                        compiler_prompt_attempt_binding_plan=q3_binding_plan,
                     )
                 )
                 self._write_typed_prompt_input_evidence(
                     step_id=runtime_step_id or self._step_id(step),
                     evidence=typed_prompt_input_evidence,
                 )
+            if q3_fragment_enabled:
+                runtime_composition = (
+                    self.prompt_composer
+                    .apply_consumes_prompt_injection_with_trace(
+                        step,
+                        candidate_prompt,
+                        resolved_consumes=(
+                            resolved_consumes
+                            if isinstance(resolved_consumes, dict)
+                            else {}
+                        ),
+                        step_name=step.get(
+                            'name',
+                            f'step_{self.current_step}',
+                        ),
+                        consume_identity=(
+                            runtime_step_id or self._step_id(step)
+                        ),
+                        uses_qualified_identities=(
+                            self._uses_qualified_identities()
+                        ),
+                    )
+                )
+                runtime_composition = (
+                    self.prompt_composer
+                    .apply_output_contract_prompt_suffix_with_trace(
+                        prompt_contract_step,
+                        runtime_composition,
+                    )
+                )
+                setattr(
+                    finish_prompt_composition,
+                    "_q3_runtime_contribution_rows",
+                    validate_runtime_contribution_composition(
+                        runtime_composition
+                    ),
+                )
+                return runtime_composition.prompt
             candidate_prompt = self.prompt_composer.apply_consumes_prompt_injection(
                 step,
                 candidate_prompt,
@@ -6219,6 +6415,12 @@ class WorkflowExecutor:
                 prompt_contract_step,
                 candidate_prompt,
             )
+
+        setattr(
+            finish_prompt_composition,
+            "_q3_fragment_render_result",
+            fragment_render_result,
+        )
 
         if content_dependencies is None:
             try:
@@ -6284,10 +6486,11 @@ class WorkflowExecutor:
         from ..exec.output_capture import OutputCapture
 
         while True:
+            scope: ProviderAttemptScope | None = None
+            ordinal: int | None = None
+            q3_fragment_success_build: Any = None
             attempt_prompt = prompt
             if content_dependencies is not None:
-                scope: ProviderAttemptScope | None = None
-                ordinal: int | None = None
                 if compiler_prompt_dependency_contract is not None:
                     try:
                         scope = self._provider_attempt_scope(
@@ -6299,6 +6502,44 @@ class WorkflowExecutor:
                         return self._contract_violation_result(
                             "Provider prompt composition failed",
                             {"reason": "provider_attempt_allocation_failed", "error": str(exc)},
+                        )
+                if q3_fragment_enabled:
+                    (
+                        resolved_expected_outputs,
+                        resolved_output_bundle,
+                        prompt_contract_step,
+                        output_contract_error,
+                    ) = resolve_output_contract_for_attempt()
+                    if output_contract_error is not None:
+                        return output_contract_error
+                    (
+                        resolved_typed_values,
+                        typed_prompt_resolution_error,
+                    ) = resolve_typed_prompt_values_for_attempt()
+                    if typed_prompt_resolution_error is not None:
+                        return typed_prompt_resolution_error
+                    rendered_fragment, fragment_render_error = (
+                        render_fragment_for_attempt()
+                    )
+                    if fragment_render_error is not None:
+                        return fragment_render_error
+                    assert type(
+                        rendered_fragment
+                    ) is PromptFragmentRenderResult
+                    fragment_render_result = rendered_fragment
+                    attempt_prompt = rendered_fragment.rendered_base
+                    setattr(
+                        finish_prompt_composition,
+                        "_q3_fragment_render_result",
+                        fragment_render_result,
+                    )
+                    if hasattr(
+                        finish_prompt_composition,
+                        "_q3_runtime_contribution_rows",
+                    ):
+                        delattr(
+                            finish_prompt_composition,
+                            "_q3_runtime_contribution_rows",
                         )
                 try:
                     if compiler_prompt_dependency_contract is None:
@@ -6413,7 +6654,7 @@ class WorkflowExecutor:
                             )
 
                     composition = self.prompt_composer.compose_content_dependency_attempt(
-                        base_prompt=prompt,
+                        base_prompt=attempt_prompt,
                         snapshot=snapshot,
                         instruction=instruction,
                         position=(
@@ -6464,21 +6705,24 @@ class WorkflowExecutor:
                     )
                 if scope is not None and ordinal is not None:
                     success_build = composition.render_owner_result
-                    try:
-                        publish_evidence_file(
-                            self.state_manager,
-                            scope,
-                            ordinal,
-                            success_build.evidence,
-                        )
-                    except (TypeError, ValueError, OSError) as exc:
-                        return self._contract_violation_result(
-                            "Provider prompt composition failed",
-                            {
-                                "reason": "prompt_dependency_evidence_publication_failed",
-                                "error": str(exc),
-                            },
-                        )
+                    if q3_fragment_enabled:
+                        q3_fragment_success_build = success_build
+                    else:
+                        try:
+                            publish_evidence_file(
+                                self.state_manager,
+                                scope,
+                                ordinal,
+                                success_build.evidence,
+                            )
+                        except (TypeError, ValueError, OSError) as exc:
+                            return self._contract_violation_result(
+                                "Provider prompt composition failed",
+                                {
+                                    "reason": "prompt_dependency_evidence_publication_failed",
+                                    "error": str(exc),
+                                },
+                            )
                 if composition.debug_injection is None:
                     debug_info.pop('injection', None)
                 else:
@@ -6513,6 +6757,57 @@ class WorkflowExecutor:
 
             if error or invocation is None:
                 # Invocation preparation failed
+                if q3_fragment_enabled:
+                    assert scope is not None and ordinal is not None
+                    assert isinstance(step, RuntimeStep)
+                    assert fragment_contract is not None
+                    assert _fragment_identity is not None
+                    binding_plan = (
+                        step.compiler_prompt_attempt_binding_plan
+                    )
+                    assert binding_plan is not None
+                    try:
+                        owner = resolve_aggregate_run_owner(
+                            self.state_manager
+                        )
+                        failure_record = (
+                            build_fragment_preparation_failure_evidence(
+                                run_state=owner.root_manager.state,
+                                scope=scope,
+                                ordinal=ordinal,
+                                fragment={
+                                    "identity_schema_version": (
+                                        fragment_identity_schema_version
+                                    ),
+                                    "compiled_prompt_fragment_identity": (
+                                        _fragment_identity
+                                    ),
+                                    "prompt_attempt_identity_version": (
+                                        step.prompt_attempt_identity_version
+                                    ),
+                                    "binding_plan_sha256": (
+                                        binding_plan.plan_sha256
+                                    ),
+                                },
+                            )
+                        )
+                        publish_evidence_file(
+                            self.state_manager,
+                            scope,
+                            ordinal,
+                            failure_record,
+                        )
+                    except (OSError, TypeError, ValueError) as exc:
+                        return self._contract_violation_result(
+                            "Provider prompt identity publication failed",
+                            {
+                                "reason": (
+                                    "prompt_attempt_identity_preparation_"
+                                    "failure_publication_failed"
+                                ),
+                                "error": str(exc),
+                            },
+                        )
                 return {
                     'status': 'failed',
                     'exit_code': 2,
@@ -6521,6 +6816,135 @@ class WorkflowExecutor:
                         'message': 'Failed to create provider invocation',
                     }
                 }
+
+            if q3_fragment_enabled:
+                assert scope is not None and ordinal is not None
+                assert isinstance(step, RuntimeStep)
+                assert fragment_contract is not None
+                assert _fragment_identity is not None
+                binding_plan = step.compiler_prompt_attempt_binding_plan
+                assert binding_plan is not None
+                try:
+                    prepared_prompt = getattr(
+                        invocation,
+                        "prepared_prompt",
+                        None,
+                    )
+                    prepared_policy = getattr(
+                        invocation,
+                        "prepared_provider_policy",
+                        None,
+                    )
+                    if (
+                        not isinstance(prepared_prompt, str)
+                        or prepared_prompt != attempt_prompt
+                    ):
+                        raise ValueError(
+                            "prompt_attempt_identity_final_prompt_mismatch: "
+                            "prepared prompt differs from composed prompt"
+                        )
+                    if prepared_policy is None or not callable(
+                        getattr(prepared_policy, "to_dict", None)
+                    ):
+                        raise ValueError(
+                            "prompt_attempt_identity_policy_invalid: "
+                            "prepared policy projection is missing"
+                        )
+                    if q3_fragment_success_build is None:
+                        raise ValueError(
+                            "prompt_attempt_identity_role_invalid: "
+                            "retained fragment snapshot is missing"
+                        )
+                    fragment_render_result = getattr(
+                        finish_prompt_composition,
+                        "_q3_fragment_render_result",
+                        None,
+                    )
+                    runtime_rows = getattr(
+                        finish_prompt_composition,
+                        "_q3_runtime_contribution_rows",
+                        None,
+                    )
+                    if (
+                        type(fragment_render_result)
+                        is not PromptFragmentRenderResult
+                        or not isinstance(runtime_rows, tuple)
+                    ):
+                        raise ValueError(
+                            "prompt_attempt_identity_role_invalid: "
+                            "runtime trace is missing"
+                        )
+                    retained_v1 = q3_fragment_success_build.evidence
+                    assert fragment_identity_schema_version is not None
+                    roles = {
+                        "fragment_program": build_fragment_program_role(
+                            identity_schema_version=(
+                                fragment_identity_schema_version
+                            ),
+                            compiled_prompt_fragment_identity=(
+                                _fragment_identity
+                            ),
+                        ),
+                        "resolved_bindings": build_resolved_bindings_role(
+                            binding_plan=binding_plan,
+                            fragment_render_result=(
+                                fragment_render_result
+                            ),
+                            authored_rows=retained_v1["authored_rows"],
+                        ),
+                        "injected_dependencies": (
+                            build_injected_dependencies_role(
+                                canonical_groups=(
+                                    retained_v1["canonical_groups"]
+                                ),
+                                injection=retained_v1["injection"],
+                            )
+                        ),
+                        "runtime_contributions": (
+                            build_runtime_contributions_role(runtime_rows)
+                        ),
+                        "provider_policy": build_provider_policy_role(
+                            prepared_policy.to_dict()
+                        ),
+                    }
+                    attempt_identity = build_prompt_attempt_identity(
+                        roles=roles,
+                        final_prompt=prepared_prompt.encode(
+                            "utf-8",
+                            errors="strict",
+                        ),
+                    )
+                    v2_record = build_fragment_success_evidence_v2(
+                        retained_v1=retained_v1,
+                        prompt_attempt_identity=attempt_identity,
+                        compiler_fragment_identity_schema_version=(
+                            fragment_identity_schema_version
+                        ),
+                    )
+                    publish_evidence_file(
+                        self.state_manager,
+                        scope,
+                        ordinal,
+                        v2_record,
+                        compiler_fragment_identity_schema_version=(
+                            fragment_identity_schema_version
+                        ),
+                    )
+                except (OSError, TypeError, ValueError) as exc:
+                    return self._contract_violation_result(
+                        "Provider prompt identity publication failed",
+                        {
+                            "reason": (
+                                str(exc).split(":", 1)[0]
+                                if ":" in str(exc)
+                                else (
+                                    "prompt_attempt_identity_"
+                                    "publication_failed"
+                                )
+                            ),
+                            "error": str(exc),
+                        },
+                    )
 
             if managed_jobs_config is not None:
                 visit_count = 1

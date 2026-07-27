@@ -517,6 +517,130 @@ def test_call_policy_merge_precedence_and_one_pass_substitution(
         }
     ]
     assert invocation.command == ["tool", "policy-model", "high", "preserved"]
+    assert invocation.prepared_provider_policy.to_dict() == {
+        "provider_name": "merge-policy",
+        "model": "policy-model",
+        "effort": "high",
+        "timeout_sec": None,
+        "input_mode": "stdin",
+    }
+
+
+@pytest.mark.parametrize("input_mode", (InputMode.ARGV, InputMode.STDIN))
+def test_prepared_provider_policy_is_closed_and_carries_exact_prompt(
+    tmp_path,
+    input_mode: InputMode,
+) -> None:
+    executor, registry = _executor(tmp_path)
+    registry.register(
+        ProviderTemplate(
+            name="prepared-policy",
+            command=(
+                ["tool", "${model}", "${PROMPT}"]
+                if input_mode == InputMode.ARGV
+                else ["tool", "${model}"]
+            ),
+            defaults={"model": "default-model"},
+            input_mode=input_mode,
+            call_policy_bindings={
+                "model": CallPolicyBinding(target_param="model"),
+            },
+        )
+    )
+
+    invocation, error = executor.prepare_invocation(
+        "prepared-policy",
+        ProviderParams(),
+        {},
+        prompt_content="exact prompt",
+        timeout_sec=17,
+    )
+
+    assert error is None
+    assert invocation is not None
+    assert invocation.prepared_prompt == "exact prompt"
+    assert invocation.prepared_provider_policy.to_dict() == {
+        "provider_name": "prepared-policy",
+        "model": "default-model",
+        "effort": None,
+        "timeout_sec": 17,
+        "input_mode": input_mode.value,
+    }
+
+
+def test_prepared_provider_policy_does_not_infer_undeclared_values_from_argv(
+    tmp_path,
+) -> None:
+    executor, registry = _executor(tmp_path)
+    registry.register(
+        ProviderTemplate(
+            name="argv-is-not-policy",
+            command=["tool", "--model", "argv-model", "${PROMPT}"],
+            input_mode=InputMode.ARGV,
+        )
+    )
+
+    invocation, error = executor.prepare_invocation(
+        "argv-is-not-policy",
+        ProviderParams(),
+        {},
+        prompt_content="exact prompt",
+    )
+
+    assert error is None
+    assert invocation is not None
+    assert invocation.prepared_provider_policy.to_dict() == {
+        "provider_name": "argv-is-not-policy",
+        "model": None,
+        "effort": None,
+        "timeout_sec": None,
+        "input_mode": "argv",
+    }
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    (
+        {"provider_name": "", "model": None, "effort": None,
+         "timeout_sec": None, "input_mode": "stdin"},
+        {"provider_name": "provider", "model": None, "effort": None,
+         "timeout_sec": 0, "input_mode": "stdin"},
+        {"provider_name": "provider", "model": None, "effort": None,
+         "timeout_sec": None, "input_mode": "file"},
+    ),
+)
+def test_prepared_provider_policy_rejects_invalid_closed_fields(kwargs) -> None:
+    from orchestrator.providers.types import PreparedProviderPolicy
+
+    with pytest.raises((TypeError, ValueError)):
+        PreparedProviderPolicy(**kwargs)
+
+
+def test_prepare_invocation_reports_invalid_effective_policy_without_raising(
+    tmp_path,
+) -> None:
+    executor, registry = _executor(tmp_path)
+    registry.register(
+        ProviderTemplate(
+            name="invalid-effective-policy",
+            command=["tool", "${model}"],
+            defaults={"model": 7},
+            input_mode=InputMode.STDIN,
+            call_policy_bindings={
+                "model": CallPolicyBinding(target_param="model"),
+            },
+        )
+    )
+
+    invocation, error = executor.prepare_invocation(
+        "invalid-effective-policy",
+        ProviderParams(),
+        {},
+    )
+
+    assert invocation is None
+    assert error is not None
+    assert error["type"] == "provider_policy_invalid"
 
 
 def test_call_policy_unresolved_dynamic_value_uses_single_substitution_error(

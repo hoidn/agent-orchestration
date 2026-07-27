@@ -132,6 +132,98 @@ class PromptFragmentRenderResult:
             )
 
 
+_RUNTIME_CONTRIBUTION_KINDS = (
+    "consumed_artifacts",
+    "output_positions",
+    "structured_result",
+)
+
+
+@dataclass(frozen=True)
+class RuntimeContributionSegment:
+    """One exact, separator-inclusive in-memory prompt insertion."""
+
+    kind: str
+    position: str
+    segment: bytes
+
+
+@dataclass(frozen=True)
+class RuntimeContributionComposition:
+    """One prompt plus the immutable insertions that produced it."""
+
+    base_prompt: str
+    prompt: str
+    segments: tuple[RuntimeContributionSegment, ...] = ()
+
+
+def validate_runtime_contribution_composition(
+    value: RuntimeContributionComposition,
+) -> tuple[Mapping[str, Any], ...]:
+    """Validate exact segment order/coverage and return content-free rows."""
+
+    if type(value) is not RuntimeContributionComposition:
+        raise ValueError("runtime contribution composition is invalid")
+    if (
+        not isinstance(value.base_prompt, str)
+        or not isinstance(value.prompt, str)
+        or not isinstance(value.segments, tuple)
+    ):
+        raise ValueError("runtime contribution composition is invalid")
+    replay = value.base_prompt
+    projected: list[Mapping[str, Any]] = []
+    kind_ordinals: list[int] = []
+    for ordinal, segment in enumerate(value.segments):
+        if type(segment) is not RuntimeContributionSegment:
+            raise ValueError("runtime contribution segment is invalid")
+        if segment.kind not in _RUNTIME_CONTRIBUTION_KINDS:
+            raise ValueError("runtime contribution kind is invalid")
+        if segment.position not in {"prepend", "append"}:
+            raise ValueError("runtime contribution position is invalid")
+        if (
+            segment.kind in {"output_positions", "structured_result"}
+            and segment.position != "append"
+        ):
+            raise ValueError("runtime contribution suffix position is invalid")
+        if type(segment.segment) is not bytes or not segment.segment:
+            raise ValueError("runtime contribution segment bytes are invalid")
+        try:
+            text = segment.segment.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                "runtime contribution segment bytes are invalid"
+            ) from exc
+        if segment.position == "prepend":
+            replay = text + replay
+        else:
+            replay = replay + text
+        kind_ordinals.append(
+            _RUNTIME_CONTRIBUTION_KINDS.index(segment.kind)
+        )
+        projected.append(
+            MappingProxyType(
+                {
+                    "composition_ordinal": ordinal,
+                    "kind": segment.kind,
+                    "position": segment.position,
+                    "bytes": len(segment.segment),
+                    "sha256": (
+                        "sha256:" + sha256(segment.segment).hexdigest()
+                    ),
+                }
+            )
+        )
+    if kind_ordinals != sorted(set(kind_ordinals)):
+        raise ValueError(
+            "runtime contribution kinds are duplicated or out of order"
+        )
+    if replay != value.prompt:
+        raise ValueError(
+            "runtime contribution coverage has a gap or overlap"
+        )
+    return tuple(projected)
+
+
 def _is_sha256(value: object) -> bool:
     return (
         isinstance(value, str)
@@ -599,28 +691,85 @@ class PromptComposer:
 
     def apply_output_contract_prompt_suffix(self, step: RuntimeStepInput, prompt: str) -> str:
         """Append deterministic output contract instructions to provider prompts."""
-        if step.get("inject_output_contract", True) is False:
-            return prompt
-
-        expected_outputs = step.get("expected_outputs")
-        output_bundle = step.get("output_bundle")
-        variant_output = step.get("variant_output")
-        contract_blocks: list[str] = []
-        if expected_outputs:
-            contract_blocks.append(render_output_contract_block(expected_outputs))
-        if isinstance(output_bundle, dict) and output_bundle:
-            contract_blocks.append(render_output_bundle_contract_block(output_bundle))
-        elif isinstance(variant_output, dict) and variant_output:
-            contract_blocks.append(render_variant_output_contract_block(variant_output))
+        contract_blocks = self._output_contract_contributions(step)
         if not contract_blocks:
             return prompt
-        contract_block = "\n\n".join(contract_blocks)
+        contract_block = "\n\n".join(
+            block for _kind, block in contract_blocks
+        )
 
         if not prompt:
             return contract_block
         if prompt.endswith("\n"):
             return f"{prompt}\n{contract_block}"
         return f"{prompt}\n\n{contract_block}"
+
+    @staticmethod
+    def _output_contract_contributions(
+        step: RuntimeStepInput,
+    ) -> list[tuple[str, str]]:
+        if step.get("inject_output_contract", True) is False:
+            return []
+        expected_outputs = step.get("expected_outputs")
+        output_bundle = step.get("output_bundle")
+        variant_output = step.get("variant_output")
+        contributions: list[tuple[str, str]] = []
+        if expected_outputs:
+            contributions.append(
+                (
+                    "output_positions",
+                    render_output_contract_block(expected_outputs),
+                )
+            )
+        if isinstance(output_bundle, dict) and output_bundle:
+            contributions.append(
+                (
+                    "structured_result",
+                    render_output_bundle_contract_block(output_bundle),
+                )
+            )
+        elif isinstance(variant_output, dict) and variant_output:
+            contributions.append(
+                (
+                    "structured_result",
+                    render_variant_output_contract_block(variant_output),
+                )
+            )
+        return contributions
+
+    def apply_output_contract_prompt_suffix_with_trace(
+        self,
+        step: RuntimeStepInput,
+        composition: RuntimeContributionComposition,
+    ) -> RuntimeContributionComposition:
+        """Append contract blocks once while retaining exact inserted deltas."""
+
+        validate_runtime_contribution_composition(composition)
+        prompt = composition.prompt
+        segments = list(composition.segments)
+        for kind, block in self._output_contract_contributions(step):
+            if not block:
+                continue
+            if not prompt:
+                inserted = block
+            elif prompt.endswith("\n"):
+                inserted = f"\n{block}"
+            else:
+                inserted = f"\n\n{block}"
+            segment = RuntimeContributionSegment(
+                kind=kind,
+                position="append",
+                segment=inserted.encode("utf-8", errors="strict"),
+            )
+            segments.append(segment)
+            prompt += inserted
+        result = RuntimeContributionComposition(
+            base_prompt=composition.base_prompt,
+            prompt=prompt,
+            segments=tuple(segments),
+        )
+        validate_runtime_contribution_composition(result)
+        return result
 
     @staticmethod
     def apply_rendered_content_dependency(
@@ -720,25 +869,58 @@ class PromptComposer:
         uses_qualified_identities: bool,
     ) -> str:
         """Inject resolved consume values into provider prompts."""
-        if step.get("inject_consumes", True) is False:
+        consumes_block = self._render_consumes_prompt_block(
+            step,
+            resolved_consumes=resolved_consumes,
+            step_name=step_name,
+            consume_identity=consume_identity,
+            uses_qualified_identities=uses_qualified_identities,
+        )
+        if consumes_block is None:
             return prompt
+
+        position = step.get("consumes_injection_position", "prepend")
+        if position == "append":
+            if not prompt:
+                return consumes_block
+            if prompt.endswith("\n"):
+                return f"{prompt}\n{consumes_block}"
+            return f"{prompt}\n\n{consumes_block}"
+
+        if not prompt:
+            return consumes_block
+        if prompt.startswith("\n"):
+            return f"{consumes_block}{prompt}"
+        return f"{consumes_block}\n{prompt}"
+
+    @staticmethod
+    def _render_consumes_prompt_block(
+        step: RuntimeStepInput,
+        *,
+        resolved_consumes: Dict[str, Any],
+        step_name: str,
+        consume_identity: str,
+        uses_qualified_identities: bool,
+    ) -> str | None:
+        if step.get("inject_consumes", True) is False:
+            return None
 
         consumes = step.get("consumes")
         if not isinstance(consumes, list) or not consumes:
-            return prompt
+            return None
 
         if not isinstance(resolved_consumes, dict):
-            return prompt
+            return None
 
         step_consumed_values = resolved_consumes.get(step_name, {})
         if uses_qualified_identities and (not isinstance(step_consumed_values, dict) or not step_consumed_values):
             step_consumed_values = resolved_consumes.get(consume_identity, {})
         if not isinstance(step_consumed_values, dict) or not step_consumed_values:
-            return prompt
+            return None
 
         selected_consumes = selected_consumed_artifacts_for_prompt(step, step_consumed_values)
         if not selected_consumes:
-            return prompt
+            return None
 
         rendered_consumes: list[RenderedConsumedArtifact] = []
         for policy, raw_value in selected_consumes:
@@ -759,22 +941,64 @@ class PromptComposer:
             )
 
         if not rendered_consumes:
-            return prompt
+            return None
 
-        consumes_block = render_consumed_artifacts_block(rendered_consumes)
+        return render_consumed_artifacts_block(rendered_consumes)
+
+    def apply_consumes_prompt_injection_with_trace(
+        self,
+        step: RuntimeStepInput,
+        prompt: str,
+        *,
+        resolved_consumes: Dict[str, Any],
+        step_name: str,
+        consume_identity: str,
+        uses_qualified_identities: bool,
+    ) -> RuntimeContributionComposition:
+        """Insert consumed artifacts once and retain the exact delta."""
+
+        consumes_block = self._render_consumes_prompt_block(
+            step,
+            resolved_consumes=resolved_consumes,
+            step_name=step_name,
+            consume_identity=consume_identity,
+            uses_qualified_identities=uses_qualified_identities,
+        )
+        if consumes_block is None:
+            return RuntimeContributionComposition(
+                base_prompt=prompt,
+                prompt=prompt,
+            )
         position = step.get("consumes_injection_position", "prepend")
         if position == "append":
             if not prompt:
-                return consumes_block
-            if prompt.endswith("\n"):
-                return f"{prompt}\n{consumes_block}"
-            return f"{prompt}\n\n{consumes_block}"
-
-        if not prompt:
-            return consumes_block
-        if prompt.startswith("\n"):
-            return f"{consumes_block}{prompt}"
-        return f"{consumes_block}\n{prompt}"
+                inserted = consumes_block
+            elif prompt.endswith("\n"):
+                inserted = f"\n{consumes_block}"
+            else:
+                inserted = f"\n\n{consumes_block}"
+            final_prompt = prompt + inserted
+        else:
+            if not prompt:
+                inserted = consumes_block
+            elif prompt.startswith("\n"):
+                inserted = consumes_block
+            else:
+                inserted = f"{consumes_block}\n"
+            final_prompt = inserted + prompt
+        result = RuntimeContributionComposition(
+            base_prompt=prompt,
+            prompt=final_prompt,
+            segments=(
+                RuntimeContributionSegment(
+                    kind="consumed_artifacts",
+                    position=position,
+                    segment=inserted.encode("utf-8", errors="strict"),
+                ),
+            ),
+        )
+        validate_runtime_contribution_composition(result)
+        return result
 
     def apply_typed_prompt_input_injection(
         self,

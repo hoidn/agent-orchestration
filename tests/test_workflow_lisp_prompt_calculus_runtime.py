@@ -679,6 +679,16 @@ def _provider_success(
             input_mode="stdin",
             prompt=captured["prompt"],
             env=kwargs.get("env") or {},
+            prepared_prompt=captured["prompt"],
+            prepared_provider_policy=SimpleNamespace(
+                to_dict=lambda: {
+                    "provider_name": kwargs["provider_name"],
+                    "model": None,
+                    "effort": None,
+                    "timeout_sec": kwargs.get("timeout_sec"),
+                    "input_mode": "stdin",
+                }
+            ),
         ), None
 
     def execute(_self, invocation, **_kwargs):

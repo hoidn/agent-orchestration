@@ -30,6 +30,15 @@ from orchestrator.workflow.prompt_dependency_contract import (
     is_implicit_empty_prompt_dependency_origin_kind,
     serialize_compiler_prompt_dependency_contract,
 )
+from orchestrator.workflow.prompt_identity import (
+    PROMPT_FRAGMENT_PREPARATION_FAILURE_SCHEMA,
+    PROMPT_FRAGMENT_SNAPSHOT_V2_SCHEMA,
+    build_prompt_fragment_preparation_failure,
+    build_prompt_fragment_snapshot_v2,
+    canonical_json_bytes as canonical_prompt_identity_json_bytes,
+    validate_prompt_fragment_preparation_failure,
+    validate_prompt_fragment_snapshot_v2_q3,
+)
 from orchestrator.workflow.provider_attempts import (
     ProviderAttemptScope,
     resolve_aggregate_run_owner,
@@ -39,6 +48,7 @@ from orchestrator.workflow.provider_attempts import (
 
 SUCCESS_SCHEMA = "workflow_prompt_dependency_evidence.functional.v1"
 FRAGMENT_SUCCESS_SCHEMA = "workflow_prompt_fragment_snapshot.functional.v1"
+FRAGMENT_SUCCESS_SCHEMA_V2 = PROMPT_FRAGMENT_SNAPSHOT_V2_SCHEMA
 FAILURE_SCHEMA = "workflow_prompt_dependency_failure_evidence.functional.v1"
 INDEX_SCHEMA = "workflow_prompt_dependency_validated_index.functional.v1"
 ALLOCATION_PROJECTION_SCHEMA = "workflow_provider_attempt_allocation_projection.v1"
@@ -50,6 +60,9 @@ _SUCCESS_KEYS = {
 }
 _FRAGMENT_SUCCESS_KEYS = _SUCCESS_KEYS | {
     "compiled_prompt_fragment_identity",
+}
+_FRAGMENT_SUCCESS_V2_KEYS = _FRAGMENT_SUCCESS_KEYS | {
+    "prompt_attempt_identity",
 }
 _FAILURE_KEYS = {
     "schema", "record_kind", "run", "compiler_contract", "attempt",
@@ -605,6 +618,83 @@ def validate_fragment_success_evidence(value: Any) -> dict[str, Any]:
     return dict(record)
 
 
+def _retained_v1_from_fragment_v2(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    retained = json.loads(canonical_prompt_identity_json_bytes(value))
+    retained.pop("prompt_attempt_identity", None)
+    retained["schema"] = FRAGMENT_SUCCESS_SCHEMA
+    return _seal(retained)
+
+
+def validate_fragment_success_evidence_v2(
+    value: Any,
+    *,
+    compiler_fragment_identity_schema_version: str,
+) -> dict[str, Any]:
+    """Validate retained v1 authority before applying Q3 cross-field checks."""
+
+    record = _closed(
+        value,
+        _FRAGMENT_SUCCESS_V2_KEYS,
+        "prompt fragment v2 success evidence",
+    )
+    if record["schema"] != FRAGMENT_SUCCESS_SCHEMA_V2:
+        raise ValueError("prompt fragment v2 success schema is invalid")
+    retained = validate_fragment_success_evidence(
+        _retained_v1_from_fragment_v2(record)
+    )
+    validated = validate_prompt_fragment_snapshot_v2_q3(
+        record,
+        validated_retained_v1=retained,
+        compiler_fragment_identity_schema_version=(
+            compiler_fragment_identity_schema_version
+        ),
+    )
+    return json.loads(canonical_prompt_identity_json_bytes(validated))
+
+
+def build_fragment_success_evidence_v2(
+    *,
+    retained_v1: Mapping[str, Any],
+    prompt_attempt_identity: Mapping[str, Any],
+    compiler_fragment_identity_schema_version: str,
+) -> dict[str, Any]:
+    """Add Q3 identity only after validating the exact retained v1 record."""
+
+    validated_v1 = validate_fragment_success_evidence(retained_v1)
+    built = build_prompt_fragment_snapshot_v2(
+        validated_retained_v1=validated_v1,
+        prompt_attempt_identity=prompt_attempt_identity,
+        compiler_fragment_identity_schema_version=(
+            compiler_fragment_identity_schema_version
+        ),
+    )
+    return validate_fragment_success_evidence_v2(
+        built,
+        compiler_fragment_identity_schema_version=(
+            compiler_fragment_identity_schema_version
+        ),
+    )
+
+
+def build_fragment_preparation_failure_evidence(
+    *,
+    run_state: RunState,
+    scope: ProviderAttemptScope,
+    ordinal: int,
+    fragment: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build the exact Q3 failure through existing run/attempt projections."""
+
+    built = build_prompt_fragment_preparation_failure(
+        run=_run(run_state, scope),
+        attempt=_attempt(scope, ordinal),
+        fragment=fragment,
+    )
+    return json.loads(canonical_prompt_identity_json_bytes(built))
+
+
 def build_fragment_success_evidence(
     *,
     run_state: RunState,
@@ -715,11 +805,34 @@ def validate_failure_evidence(value: Any) -> dict[str, Any]:
     return dict(record)
 
 
-def canonical_record_bytes(record: Mapping[str, Any]) -> bytes:
+def canonical_record_bytes(
+    record: Mapping[str, Any],
+    *,
+    compiler_fragment_identity_schema_version: str | None = None,
+) -> bytes:
     if record.get("schema") == SUCCESS_SCHEMA:
         normalized = validate_success_evidence(record)
     elif record.get("schema") == FRAGMENT_SUCCESS_SCHEMA:
         normalized = validate_fragment_success_evidence(record)
+    elif record.get("schema") == FRAGMENT_SUCCESS_SCHEMA_V2:
+        if compiler_fragment_identity_schema_version is None:
+            raise ValueError(
+                "compiler_fragment_identity_schema_version is required "
+                "for v2 prompt fragment evidence"
+            )
+        normalized = validate_fragment_success_evidence_v2(
+            record,
+            compiler_fragment_identity_schema_version=(
+                compiler_fragment_identity_schema_version
+            ),
+        )
+        return canonical_prompt_identity_json_bytes(normalized)
+    elif (
+        record.get("schema")
+        == PROMPT_FRAGMENT_PREPARATION_FAILURE_SCHEMA
+    ):
+        normalized = validate_prompt_fragment_preparation_failure(record)
+        return canonical_prompt_identity_json_bytes(normalized)
     elif record.get("schema") == FAILURE_SCHEMA:
         normalized = validate_failure_evidence(record)
     else:
@@ -808,10 +921,17 @@ def publish_evidence_file(
     scope: ProviderAttemptScope,
     ordinal: int,
     record: Mapping[str, Any],
+    *,
+    compiler_fragment_identity_schema_version: str | None = None,
 ) -> PublicationResult:
     """Link a current record and persist its event under one lock interval."""
 
-    payload = canonical_record_bytes(record)
+    payload = canonical_record_bytes(
+        record,
+        compiler_fragment_identity_schema_version=(
+            compiler_fragment_identity_schema_version
+        ),
+    )
     if record["attempt"] != _attempt(scope, ordinal):
         raise ValueError("record attempt contradicts publication identity")
     owner = resolve_aggregate_run_owner(manager)
@@ -1000,7 +1120,12 @@ def validate_index(value: Any) -> dict[str, Any]:
     return dict(index)
 
 
-def _read_manifest_record(path: Path, kind: str) -> tuple[dict[str, Any], bytes]:
+def _read_manifest_record(
+    path: Path,
+    kind: str,
+    *,
+    compiler_fragment_identity_schema_version: str | None = None,
+) -> tuple[dict[str, Any], bytes]:
     try:
         payload = path.read_bytes()
     except FileNotFoundError as exc:
@@ -1013,13 +1138,24 @@ def _read_manifest_record(path: Path, kind: str) -> tuple[dict[str, Any], bytes]
         raise ValueError("manifest-bound evidence record is corrupt")
     if value.get("record_kind") != kind:
         raise ValueError("manifest-bound evidence record has wrong kind")
-    canonical = canonical_record_bytes(value)
+    canonical = canonical_record_bytes(
+        value,
+        compiler_fragment_identity_schema_version=(
+            compiler_fragment_identity_schema_version
+        ),
+    )
     if payload != canonical:
         raise ValueError("manifest-bound evidence record bytes are not canonical")
     return dict(value), payload
 
 
-def _build_terminal_index(state: RunState, projection: Mapping[str, Any], root: Path) -> dict[str, Any]:
+def _build_terminal_index(
+    state: RunState,
+    projection: Mapping[str, Any],
+    root: Path,
+    *,
+    compiler_fragment_identity_schema_versions: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     publications: list[dict[str, Any]] = []
     gaps: list[dict[str, Any]] = []
     claimed_paths: set[str] = set()
@@ -1050,7 +1186,17 @@ def _build_terminal_index(state: RunState, projection: Mapping[str, Any], root: 
             if expected_path in claimed_paths:
                 raise ValueError("duplicate manifest evidence path")
             claimed_paths.add(expected_path)
-            record, payload = _read_manifest_record(root / expected_path, event["record_kind"])
+            record, payload = _read_manifest_record(
+                root / expected_path,
+                event["record_kind"],
+                compiler_fragment_identity_schema_version=(
+                    compiler_fragment_identity_schema_versions.get(
+                        scope.runtime_step_id
+                    )
+                    if compiler_fragment_identity_schema_versions is not None
+                    else None
+                ),
+            )
             file_digest = _sha(payload)
             if file_digest != event["file_sha256"]:
                 raise ValueError("manifest evidence file digest is invalid")
@@ -1155,6 +1301,9 @@ def validate_terminal_evidence(
     aggregate_root: str | Path,
     state_file: str | Path,
     *,
+    compiler_fragment_identity_schema_versions: (
+        Mapping[str, str] | None
+    ) = None,
     _after_initial_read: Any = None,
     _after_index_publish: Any = None,
 ) -> TerminalValidationResult:
@@ -1162,6 +1311,16 @@ def validate_terminal_evidence(
 
     root = Path(aggregate_root)
     state_path = Path(state_file)
+    if (
+        compiler_fragment_identity_schema_versions is not None
+        and not isinstance(
+            compiler_fragment_identity_schema_versions,
+            Mapping,
+        )
+    ):
+        raise TypeError(
+            "compiler_fragment_identity_schema_versions must be a mapping"
+        )
     if state_path.absolute() != (root / "state.json").absolute():
         raise ValueError("state_file must be the authoritative aggregate-root state.json")
     with provider_attempt_process_locks(root):
@@ -1173,7 +1332,14 @@ def validate_terminal_evidence(
         projection = build_allocator_projection(state)
         if _after_initial_read is not None:
             _after_initial_read()
-        index = _build_terminal_index(state, projection, root)
+        index = _build_terminal_index(
+            state,
+            projection,
+            root,
+            compiler_fragment_identity_schema_versions=(
+                compiler_fragment_identity_schema_versions
+            ),
+        )
         payload = _canonical_bytes(index)
         before_link, before_state = _read_terminal_state(state_path)
         if before_link != initial_bytes or build_allocator_projection(before_state) != projection:
@@ -1200,9 +1366,16 @@ def validate_terminal_evidence(
 
 
 __all__ = [
-    "SUCCESS_SCHEMA", "FAILURE_SCHEMA", "INDEX_SCHEMA", "ALLOCATION_PROJECTION_SCHEMA",
+    "SUCCESS_SCHEMA",
+    "FRAGMENT_SUCCESS_SCHEMA",
+    "FRAGMENT_SUCCESS_SCHEMA_V2",
+    "PROMPT_FRAGMENT_PREPARATION_FAILURE_SCHEMA",
+    "FAILURE_SCHEMA", "INDEX_SCHEMA", "ALLOCATION_PROJECTION_SCHEMA",
     "PublicationResult", "SuccessEvidenceBuild", "authored_row_id", "build_success_evidence", "validate_success_evidence",
     "build_fragment_success_evidence", "validate_fragment_success_evidence",
+    "build_fragment_success_evidence_v2",
+    "validate_fragment_success_evidence_v2",
+    "build_fragment_preparation_failure_evidence",
     "build_failure_evidence", "validate_failure_evidence", "canonical_record_bytes",
     "evidence_relative_path", "publish_evidence_file",
     "build_allocator_projection", "validate_allocator_projection",

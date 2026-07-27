@@ -552,6 +552,46 @@ class ProviderParams:
     output_file: Optional[str] = None
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedProviderPolicy:
+    """Closed canonical policy selected for one prepared invocation."""
+
+    provider_name: str
+    model: Optional[str]
+    effort: Optional[str]
+    timeout_sec: Optional[int]
+    input_mode: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.provider_name, str) or not self.provider_name:
+            raise ValueError("prepared provider name must be non-empty")
+        for field_name in ("model", "effort"):
+            value = getattr(self, field_name)
+            if value is not None and (
+                not isinstance(value, str) or not value
+            ):
+                raise ValueError(
+                    f"prepared provider {field_name} must be non-empty text"
+                )
+        if self.timeout_sec is not None and (
+            type(self.timeout_sec) is not int or self.timeout_sec <= 0
+        ):
+            raise ValueError(
+                "prepared provider timeout must be a positive integer"
+            )
+        if self.input_mode not in {InputMode.ARGV.value, InputMode.STDIN.value}:
+            raise ValueError("prepared provider input mode is invalid")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "provider_name": self.provider_name,
+            "model": self.model,
+            "effort": self.effort,
+            "timeout_sec": self.timeout_sec,
+            "input_mode": self.input_mode,
+        }
+
+
 @dataclass
 class ProviderInvocation:
     """
@@ -581,3 +621,5 @@ class ProviderInvocation:
     terminate_process_tree: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
     turn_boundary_resume: bool = False
+    prepared_prompt: Optional[str] = None
+    prepared_provider_policy: Optional[PreparedProviderPolicy] = None

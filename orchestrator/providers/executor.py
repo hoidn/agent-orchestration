@@ -8,13 +8,14 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
+from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Tuple
 from dataclasses import dataclass
 
 from .types import (
     CALL_POLICY_OPTION_ORDER,
     InputMode,
     INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION,
+    PreparedProviderPolicy,
     ProviderInvocation,
     ProviderParams,
     ProviderSessionMode,
@@ -278,6 +279,29 @@ class ProviderExecutor:
                 "context": {"errors": param_errors}
             }
 
+        try:
+            prepared_provider_policy = PreparedProviderPolicy(
+                provider_name=provider_name,
+                model=self._prepared_canonical_policy_value(
+                    provider,
+                    substituted_params,
+                    "model",
+                ),
+                effort=self._prepared_canonical_policy_value(
+                    provider,
+                    substituted_params,
+                    "effort",
+                ),
+                timeout_sec=timeout_sec,
+                input_mode=provider.input_mode.value,
+            )
+        except (TypeError, ValueError) as exc:
+            return None, {
+                "type": "provider_policy_invalid",
+                "message": "Prepared provider policy is invalid",
+                "context": {"error": str(exc)},
+            }
+
         command_template = provider.command
         command_variant = "command"
         metadata_mode = None
@@ -370,9 +394,31 @@ class ProviderExecutor:
                     provider.session_support
                 )
             ),
+            prepared_prompt=prompt_content,
+            prepared_provider_policy=prepared_provider_policy,
         )
 
         return invocation, None
+
+    @staticmethod
+    def _prepared_canonical_policy_value(
+        provider: Any,
+        substituted_params: Mapping[str, Any],
+        canonical_option: str,
+    ) -> Optional[str]:
+        """Project a declared canonical value without inspecting command argv."""
+
+        binding = provider.call_policy_bindings.get(canonical_option)
+        if binding is None:
+            return None
+        value = substituted_params.get(binding.target_param)
+        if value is None:
+            return None
+        if not isinstance(value, str) or not value:
+            raise ValueError(
+                "prepared canonical provider policy value is invalid"
+            )
+        return value
 
     def prepare_interactive_invocation(
         self,
