@@ -81,6 +81,7 @@ CompileStatus = Literal[
     "language_error",
     "server_error",
 ]
+CompletionRecoverySelection = Literal["static-incomplete", "empty"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -893,6 +894,171 @@ def current_navigation_snapshot(
     except LspInitializationError:
         return None
     return entry.navigation_snapshot
+
+
+def classify_completion_recovery(
+    state: LspState,
+    *,
+    entry_path: Path,
+) -> CompletionRecoverySelection:
+    """Classify one already-canonical entry path without filesystem access."""
+
+    if (
+        not isinstance(state, LspState)
+        or type(state.configuration_stale) is not bool
+        or state.configuration_stale
+        or not isinstance(entry_path, Path)
+        or not entry_path.is_absolute()
+        or not isinstance(state.entries, tuple)
+    ):
+        return "empty"
+    matches = tuple(
+        entry
+        for entry in state.entries
+        if isinstance(entry, CompileEntryState) and entry.path == entry_path
+    )
+    if len(matches) != 1:
+        return "empty"
+    entry = matches[0]
+    if not _valid_completion_recovery_entry(entry):
+        return "empty"
+    if entry.buffer_status == "dirty":
+        if entry.compile_status == "idle" and entry.pending_generation is None:
+            return "static-incomplete"
+        return "empty"
+    if entry.buffer_status != "clean":
+        return "empty"
+    if entry.compile_status == "pending":
+        if entry.pending_generation == entry.generation:
+            return "static-incomplete"
+        return "empty"
+    if (
+        entry.compile_status in {"language_error", "server_error"}
+        and entry.pending_generation is None
+    ):
+        if (
+            entry.compile_status == "server_error"
+            and (
+                entry.dependency_closure is not None
+                or entry.dependency_revision_vector is not None
+            )
+        ):
+            return "empty"
+        return "static-incomplete"
+    return "empty"
+
+
+def _valid_completion_recovery_entry(entry: object) -> bool:
+    if not isinstance(entry, CompileEntryState):
+        return False
+    if (
+        not isinstance(entry.path, Path)
+        or not entry.path.is_absolute()
+        or type(entry.generation) is not int
+        or entry.generation < 1
+        or (
+            entry.pending_generation is not None
+            and (
+                type(entry.pending_generation) is not int
+                or entry.pending_generation < 1
+            )
+        )
+        or type(entry.buffer_status) is not str
+        or entry.buffer_status not in {"clean", "dirty", "unavailable"}
+        or type(entry.compile_status) is not str
+        or entry.compile_status
+        not in {
+            "idle",
+            "pending",
+            "success",
+            "language_error",
+            "server_error",
+        }
+        or entry.accepted_snapshot is not None
+        or not _valid_recovery_disk_editor_shape(entry)
+        or not _valid_recovery_dependency_shape(entry)
+        or not _valid_recovery_contribution_shape(entry)
+    ):
+        return False
+    return True
+
+
+def _valid_recovery_disk_editor_shape(entry: CompileEntryState) -> bool:
+    snapshot = entry.disk_snapshot
+    if (
+        not isinstance(snapshot, DiskSourceSnapshot)
+        or not isinstance(snapshot.canonical_path, Path)
+        or snapshot.canonical_path != entry.path
+        or not snapshot.canonical_path.is_absolute()
+        or type(snapshot.revision) is not str
+        or len(snapshot.revision) != 71
+        or not snapshot.revision.startswith("sha256:")
+        or any(character not in "0123456789abcdef" for character in snapshot.revision[7:])
+        or type(snapshot.raw_decoded_text) is not str
+        or type(entry.editor_text) is not str
+    ):
+        return False
+    text_is_current = entry.editor_text == snapshot.raw_decoded_text
+    return (entry.buffer_status == "clean" and text_is_current) or (
+        entry.buffer_status == "dirty"
+        and not text_is_current
+    )
+
+
+def _valid_recovery_dependency_shape(entry: CompileEntryState) -> bool:
+    closure = entry.dependency_closure
+    revision_vector = entry.dependency_revision_vector
+    if closure is None or revision_vector is None:
+        return closure is None and revision_vector is None
+    if (
+        not isinstance(closure, frozenset)
+        or not isinstance(revision_vector, tuple)
+        or any(
+            not isinstance(path, Path) or not path.is_absolute()
+            for path in closure
+        )
+    ):
+        return False
+    revisions: list[tuple[Path, str]] = []
+    for row in revision_vector:
+        if (
+            not isinstance(row, tuple)
+            or len(row) != 2
+            or not isinstance(row[0], Path)
+            or not row[0].is_absolute()
+            or type(row[1]) is not str
+            or not row[1]
+        ):
+            return False
+        revisions.append((row[0], row[1]))
+    revision_paths = tuple(path for path, _revision in revisions)
+    return (
+        len(frozenset(revision_paths)) == len(revision_paths)
+        and frozenset(revision_paths) == closure
+    )
+
+
+def _valid_recovery_contribution_shape(entry: CompileEntryState) -> bool:
+    contributions = entry.diagnostic_contributions
+    if not isinstance(contributions, tuple):
+        return False
+    for contribution in contributions:
+        try:
+            compile_entry_uri = contribution.compile_entry_uri
+            target_uri = contribution.target_uri
+            accepted_generation = contribution.accepted_generation
+            parity_identity = contribution.parity_identity
+        except AttributeError:
+            return False
+        if (
+            type(compile_entry_uri) is not str
+            or type(target_uri) is not str
+            or type(accepted_generation) is not int
+            or accepted_generation < 1
+            or not isinstance(parity_identity, tuple)
+        ):
+            return False
+    return True
 
 
 def _open_entry_for_uri(

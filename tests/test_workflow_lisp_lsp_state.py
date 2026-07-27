@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.lsp import state as lsp_state
 from orchestrator.lsp.compile_driver import probe_disk_source
 from orchestrator.lsp.state import (
     AcceptedCompileSnapshot,
@@ -44,6 +45,456 @@ class _Contribution:
     compile_entry_uri: str
     accepted_generation: int
     parity_identity: tuple[object, ...]
+
+
+class _StringLikeStatus:
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def __hash__(self) -> int:
+        return hash(self.value)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, str) and other == self.value
+
+
+_READABLE_REVISION = f"sha256:{'a' * 64}"
+
+
+def _recovery_completion_state(
+    *,
+    workspace: Path,
+    entry_path: Path,
+    entry_changes: dict[str, object] | None = None,
+    configuration_stale: object = False,
+):
+    disk_text = "(workflow-lisp disk)\n"
+    entry = CompileEntryState(
+        path=entry_path.resolve(),
+        disk_snapshot=DiskSourceSnapshot(
+            canonical_path=entry_path.resolve(),
+            revision=_READABLE_REVISION,
+            raw_decoded_text=disk_text,
+        ),
+        editor_text=disk_text,
+        generation=3,
+        pending_generation=None,
+        buffer_status="clean",
+        compile_status="idle",
+        accepted_snapshot=None,
+    )
+    if entry_changes:
+        entry = replace(entry, **entry_changes)
+    state = initialize_lsp_state(root_uri=workspace.as_uri())
+    return replace(
+        state,
+        entries=(entry,),
+        configuration_stale=configuration_stale,
+    )
+
+
+@pytest.mark.parametrize(
+    ("case", "entry_changes"),
+    (
+        (
+            "dirty_idle",
+            {
+                "editor_text": "(workflow-lisp edited)\n",
+                "buffer_status": "dirty",
+            },
+        ),
+        (
+            "dependency_invalidated_dirty_idle",
+            {
+                "editor_text": "(workflow-lisp edited)\n",
+                "buffer_status": "dirty",
+                "generation": 4,
+                "dependency_closure": frozenset(),
+                "dependency_revision_vector": (),
+            },
+        ),
+        (
+            "current_pending",
+            {
+                "pending_generation": 3,
+                "compile_status": "pending",
+            },
+        ),
+        (
+            "superseded_current_pending",
+            {
+                "generation": 4,
+                "pending_generation": 4,
+                "compile_status": "pending",
+                "dependency_closure": frozenset(),
+                "dependency_revision_vector": (),
+            },
+        ),
+        (
+            "current_language_error",
+            {
+                "compile_status": "language_error",
+            },
+        ),
+        (
+            "current_server_error",
+            {
+                "compile_status": "server_error",
+            },
+        ),
+    ),
+)
+def test_completion_recovery_classifier_admits_only_exact_open_recovery_shapes(
+    tmp_path: Path,
+    case: str,
+    entry_changes: dict[str, object],
+) -> None:
+    workspace = tmp_path / case
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    state = _recovery_completion_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        entry_changes=entry_changes,
+    )
+
+    selection = lsp_state.classify_completion_recovery(
+        state,
+        entry_path=entry_path.resolve(),
+    )
+
+    assert selection == "static-incomplete"
+
+
+@pytest.mark.parametrize(
+    ("case", "entry_changes", "configuration_stale", "associated"),
+    (
+        ("configuration_stale", {}, True, True),
+        (
+            "unavailable",
+            {
+                "disk_snapshot": None,
+                "editor_text": None,
+                "buffer_status": "unavailable",
+            },
+            False,
+            True,
+        ),
+        ("unassociated", {}, False, False),
+        ("closed", {}, False, False),
+        ("clean_idle", {}, False, True),
+        ("success", {"compile_status": "success"}, False, True),
+        ("unknown_status", {"compile_status": "unknown"}, False, True),
+        (
+            "pending_generation_absent",
+            {"compile_status": "pending"},
+            False,
+            True,
+        ),
+        (
+            "pending_generation_non_current",
+            {
+                "compile_status": "pending",
+                "pending_generation": 2,
+            },
+            False,
+            True,
+        ),
+        (
+            "pending_with_accepted_snapshot",
+            {
+                "compile_status": "pending",
+                "pending_generation": 3,
+                "accepted_snapshot": AcceptedCompileSnapshot(
+                    build_value="stale",
+                    source_revision_vector=(),
+                ),
+            },
+            False,
+            True,
+        ),
+        (
+            "dirty_with_accepted_snapshot",
+            {
+                "editor_text": "(workflow-lisp edited)\n",
+                "buffer_status": "dirty",
+                "accepted_snapshot": AcceptedCompileSnapshot(
+                    build_value="stale",
+                    source_revision_vector=(),
+                ),
+            },
+            False,
+            True,
+        ),
+        (
+            "language_error_with_accepted_snapshot",
+            {
+                "compile_status": "language_error",
+                "accepted_snapshot": AcceptedCompileSnapshot(
+                    build_value="stale",
+                    source_revision_vector=(),
+                ),
+            },
+            False,
+            True,
+        ),
+        (
+            "server_error_with_accepted_snapshot",
+            {
+                "compile_status": "server_error",
+                "accepted_snapshot": AcceptedCompileSnapshot(
+                    build_value="stale",
+                    source_revision_vector=(),
+                ),
+            },
+            False,
+            True,
+        ),
+        (
+            "server_error_with_dependency_ownership",
+            {
+                "compile_status": "server_error",
+                "dependency_closure": frozenset(),
+                "dependency_revision_vector": (),
+            },
+            False,
+            True,
+        ),
+        (
+            "recovery_with_snapshot_and_pending",
+            {
+                "compile_status": "language_error",
+                "pending_generation": 3,
+            },
+            False,
+            True,
+        ),
+        (
+            "clean_without_editor",
+            {"editor_text": None},
+            False,
+            True,
+        ),
+        (
+            "dirty_without_editor",
+            {
+                "editor_text": None,
+                "buffer_status": "dirty",
+            },
+            False,
+            True,
+        ),
+        (
+            "dirty_without_readable_disk",
+            {
+                "disk_snapshot": None,
+                "editor_text": "(workflow-lisp edited)\n",
+                "buffer_status": "dirty",
+            },
+            False,
+            True,
+        ),
+        (
+            "snapshot_path_mismatch",
+            {
+                "disk_snapshot": DiskSourceSnapshot(
+                    canonical_path=Path("/other/entry.orc"),
+                    revision=_READABLE_REVISION,
+                    raw_decoded_text="(workflow-lisp disk)\n",
+                ),
+                "editor_text": "(workflow-lisp edited)\n",
+                "buffer_status": "dirty",
+            },
+            False,
+            True,
+        ),
+        (
+            "dirty_editor_equals_disk",
+            {
+                "buffer_status": "dirty",
+            },
+            False,
+            True,
+        ),
+        (
+            "clean_editor_differs_from_disk",
+            {
+                "editor_text": "(workflow-lisp edited)\n",
+                "compile_status": "language_error",
+            },
+            False,
+            True,
+        ),
+        (
+            "dirty_pending",
+            {
+                "editor_text": "(workflow-lisp edited)\n",
+                "buffer_status": "dirty",
+                "pending_generation": 3,
+                "compile_status": "pending",
+            },
+            False,
+            True,
+        ),
+        (
+            "malformed_generation",
+            {
+                "editor_text": "(workflow-lisp edited)\n",
+                "buffer_status": "dirty",
+                "generation": True,
+            },
+            False,
+            True,
+        ),
+        (
+            "malformed_pending_generation",
+            {
+                "compile_status": "pending",
+                "pending_generation": True,
+            },
+            False,
+            True,
+        ),
+        (
+            "malformed_editor_text",
+            {
+                "editor_text": object(),
+                "buffer_status": "dirty",
+            },
+            False,
+            True,
+        ),
+        (
+            "malformed_disk_snapshot",
+            {
+                "disk_snapshot": object(),
+                "editor_text": "(workflow-lisp edited)\n",
+                "buffer_status": "dirty",
+            },
+            False,
+            True,
+        ),
+    ),
+)
+def test_completion_recovery_classifier_fails_closed_for_every_other_shape(
+    tmp_path: Path,
+    case: str,
+    entry_changes: dict[str, object],
+    configuration_stale: object,
+    associated: bool,
+) -> None:
+    workspace = tmp_path / case
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    state = _recovery_completion_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        entry_changes=entry_changes,
+        configuration_stale=configuration_stale,
+    )
+    if not associated:
+        requested_path = workspace / (
+            "closed.orc" if case == "closed" else "unassociated.orc"
+        )
+    else:
+        requested_path = entry_path.resolve()
+    if case == "closed":
+        state = replace(state, entries=())
+
+    selection = lsp_state.classify_completion_recovery(
+        state,
+        entry_path=requested_path,
+    )
+
+    assert selection == "empty"
+
+
+@pytest.mark.parametrize("association_shape", ("malformed", "duplicate"))
+def test_completion_recovery_classifier_fails_closed_for_invalid_association(
+    tmp_path: Path,
+    association_shape: str,
+) -> None:
+    workspace = tmp_path / association_shape
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    state = _recovery_completion_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        entry_changes={
+            "editor_text": "(workflow-lisp edited)\n",
+            "buffer_status": "dirty",
+        },
+    )
+    entries = (
+        (object(),)
+        if association_shape == "malformed"
+        else (state.entries[0], state.entries[0])
+    )
+
+    selection = lsp_state.classify_completion_recovery(
+        replace(state, entries=entries),
+        entry_path=entry_path.resolve(),
+    )
+
+    assert selection == "empty"
+
+
+@pytest.mark.parametrize(
+    ("field_name", "malformed_value", "entry_changes"),
+    (
+        (
+            "buffer_status",
+            _StringLikeStatus("dirty"),
+            {"editor_text": "(workflow-lisp edited)\n"},
+        ),
+        (
+            "buffer_status",
+            ["dirty"],
+            {"editor_text": "(workflow-lisp edited)\n"},
+        ),
+        (
+            "compile_status",
+            _StringLikeStatus("idle"),
+            {
+                "editor_text": "(workflow-lisp edited)\n",
+                "buffer_status": "dirty",
+            },
+        ),
+        (
+            "compile_status",
+            ["idle"],
+            {
+                "editor_text": "(workflow-lisp edited)\n",
+                "buffer_status": "dirty",
+            },
+        ),
+    ),
+)
+def test_completion_recovery_classifier_rejects_non_string_status_fields(
+    tmp_path: Path,
+    field_name: str,
+    malformed_value: object,
+    entry_changes: dict[str, object],
+) -> None:
+    workspace = tmp_path / field_name
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    state = _recovery_completion_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        entry_changes={
+            **entry_changes,
+            field_name: malformed_value,
+        },
+    )
+
+    assert (
+        lsp_state.classify_completion_recovery(
+            state,
+            entry_path=entry_path.resolve(),
+        )
+        == "empty"
+    )
 
 
 def _contributions(
@@ -2035,6 +2486,72 @@ def _accepted_state(
         dependency_closure=closure,
         diagnostic_contributions=diagnostic_contributions,
     ).state
+
+
+@pytest.mark.parametrize(
+    "recovery_transition",
+    ("dependency_invalidated_dirty_idle", "superseded_current_pending"),
+)
+def test_completion_recovery_classifier_accepts_transition_produced_shapes(
+    tmp_path: Path,
+    recovery_transition: str,
+) -> None:
+    workspace = tmp_path / recovery_transition
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    dependency_path = workspace / "dependency.orc"
+    text = "(workflow-lisp)\n"
+    entry_path.write_text(text, encoding="utf-8")
+    dependency_path.write_text(text, encoding="utf-8")
+    accepted = _accepted_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        closure=frozenset({entry_path.resolve(), dependency_path.resolve()}),
+        revision_paths=(entry_path, dependency_path),
+    )
+
+    if recovery_transition == "dependency_invalidated_dirty_idle":
+        dirty = change_entry(
+            accepted,
+            document_uri=entry_path.as_uri(),
+            editor_text="(workflow-lisp edited)\n",
+        )
+        dependency_path.write_text(
+            "(workflow-lisp dependency-edited)\n",
+            encoding="utf-8",
+        )
+        recovered_state = observe_file_revision(
+            dirty.state,
+            probe_disk_source(dependency_path),
+        ).state
+        recovered_entry = recovered_state.entries[0]
+        assert recovered_entry.buffer_status == "dirty"
+        assert recovered_entry.compile_status == "idle"
+        assert recovered_entry.pending_generation is None
+    else:
+        first_pending = save_entry(
+            accepted,
+            document_uri=entry_path.as_uri(),
+            disk_snapshot=probe_disk_source(entry_path),
+        )
+        second_pending = save_entry(
+            first_pending.state,
+            document_uri=entry_path.as_uri(),
+            disk_snapshot=probe_disk_source(entry_path),
+        )
+        recovered_state = second_pending.state
+        recovered_entry = recovered_state.entries[0]
+        assert recovered_entry.buffer_status == "clean"
+        assert recovered_entry.compile_status == "pending"
+        assert recovered_entry.pending_generation == recovered_entry.generation
+
+    assert (
+        lsp_state.classify_completion_recovery(
+            recovered_state,
+            entry_path=entry_path.resolve(),
+        )
+        == "static-incomplete"
+    )
 
 
 def test_initialization_freezes_one_canonical_root_without_implicit_source_roots(
