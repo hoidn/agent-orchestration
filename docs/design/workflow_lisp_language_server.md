@@ -1099,6 +1099,103 @@ Failure behavior:
   closed symbol matrix) so editor users' expectations match the pipeline's
   semantics.
 
+## L0 Reliability And Diagnostic Actionability Amendment
+
+**Amendment status:** accepted 2026-07-26 after ordered independent review:
+`L0_DESIGN_SPEC_APPROVED`, then `L0_DESIGN_QUALITY_APPROVED`.
+
+This bounded post-v1 amendment corrects four reliability/presentation defects.
+It does not add a language feature, source overlay, incremental compiler,
+parallel analyzer, runtime debugger, or new diagnostic authority.
+
+### One-Probe Save Observation
+
+`didSave` obtains exactly one authoritative `DiskSourceSnapshot` through
+`probe_disk_source`. One pure state transition consumes that same snapshot:
+
+- when its revision differs from the saved entry's retained disk revision, it
+  delegates to
+  `observe_file_revision` only; that existing observer owns the saved entry,
+  trustworthy importers, unknown-closure conservative invalidation,
+  diagnostic-target ownership, pending-generation cancellation, and scheduling;
+- when the revision is unchanged, it delegates to `save_entry` only so the
+  existing one local save generation still occurs.
+
+Revision equality is tested first and includes equal missing or unreadable
+sentinels. Thus an unchanged sentinel takes the local-save branch; a transition
+to, from, or between different sentinels takes the observer branch. The two
+branches are mutually exclusive.
+
+The server must not call `observe_disk_path` from `didSave`, because that owner
+performs a second probe. A changed save must not then call `save_entry`; doing
+both would advance the saved entry twice. A dirty or unavailable saved source
+may be unable to schedule itself, but its changed revision/sentinel still
+invalidates every affected importer through the existing observer rules.
+Watcher delivery remains an eager optimization, not correctness authority.
+
+### Intentional Initialization Failures
+
+Production initialization loading remains owned by the existing compile-driver
+initializer. The LSP boundary catches only `LispFrontendCompileError` from that
+loading and translates it to JSON-RPC invalid params (`-32602`) with:
+
+- the fixed-shape human message
+  `Workflow Lisp initialization failed (<N> compiler diagnostics); see data`;
+  and
+- closed structured `data={"diagnostics":[...]}` preserving the compiler
+  exception's diagnostic tuple order, with exactly one `{"code":..., "path":...}`
+  row per diagnostic. `path` is the canonical path when canonicalization is
+  available, otherwise the retained raw path.
+
+No text-document diagnostic is synthesized because initialization has no
+accepted document generation. `OSError`, `RuntimeError`, `UnicodeDecodeError`,
+permission failures, and other unstructured exceptions are not reclassified as
+client mistakes and continue through the existing internal/server-failure path.
+
+### Visible Notes And Expansion Roles
+
+`DiagnosticContribution.message`, parity identity, aggregation key,
+representative selection, and structured `data` remain byte-for-byte semantic
+authority. LSP presentation derives a visible message by appending the
+compiler's ordered `data["notes"]` to the unchanged raw contribution message.
+Tests bind order and sentinel containment rather than the complete human prose.
+
+Every expansion-related-information row retains closed structured fields for:
+
+- frame role: `macro` or `helper`;
+- location role: `call` or `definition`;
+- authored frame name; and
+- nullable compiler-owned expansion ID.
+
+The LSP label is a deterministic view of those fields. It does not parse prose,
+change the diagnostic span, or mint a new identity.
+
+### Content-Keyed Pure-Projection Source Cache
+
+The untraced pure-projection module-export cache must not key by source path
+alone. Its cache key is the canonical source path plus a digest of the exact
+raw bytes to be parsed, and the cached parser consumes those same bytes. A
+same-path content change therefore cannot reuse the earlier export result;
+unchanged bytes may. The compiler-traced path continues to bypass this cache so
+`SourceReadTrace` remains the authoritative single-read owner.
+
+This is a local reentrancy correction, not compile caching/incrementality P5 and
+not the substrate track's broader MR-4 session-state refactor.
+
+### L0 Acceptance Boundary
+
+Acceptance requires both-direction tests for changed/unchanged saves,
+dirty/unavailable dependencies, unknown closures, diagnostic-target ownership,
+active-ticket cancellation, exactly one `didSave` probe, structured and
+unstructured initialization failures (including missing-manifest and
+malformed-manifest positive cases plus an unstructured negative control),
+diagnostic aggregation and visible notes/roles, changed/unchanged cached
+source content, traced-read bypass, and one watcher-disabled real-stdio
+importer save.
+Eager `didOpen` reverse
+observation, unsaved-buffer analysis, multi-diagnostic recovery, full
+`form_path` rendering, and runtime debugging remain excluded.
+
 ## Verification Strategy
 
 - **Unit (translation layer):** 1-based→0-based and UTF-16 conversion

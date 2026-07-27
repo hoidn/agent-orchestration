@@ -4135,6 +4135,28 @@ The language-server implementation does not authorize the separately deferred
 P1–P5 frontend prerequisites: diagnostic accumulation, reader recovery,
 hover-type sidecars, unsaved source overlays, or compile caching.
 
+The L0 reliability amendment tightens that implemented consumer without
+changing compiler authority:
+
+- one `didSave` disk snapshot selects either the existing reverse-revision
+  observer for a changed revision (including sentinel transitions) or the
+  existing local save transition for an equal revision (including equal
+  sentinels), never both;
+- structured `LispFrontendCompileError` failures during production
+  initialization loading become intentional invalid-params responses carrying
+  an ordered closed array of stable diagnostic code/path rows, while
+  unstructured failures retain their existing server-failure classification;
+- the LSP presentation appends ordered compiler notes and renders structured
+  macro/helper, call/definition, name, and nullable expansion-ID provenance
+  without changing raw diagnostic contributions or parity identity; and
+- the untraced pure-projection export-info cache keys canonical source identity
+  by exact content as well as path, while compiler-traced reads continue to
+  bypass it.
+
+This amendment remains save-driven full compilation. It does not select source
+overlays, diagnostic recovery, type sidecars, general compile caching, or
+incremental compilation.
+
 ## Part XIII. CLI
 
 ## 77. Compile
