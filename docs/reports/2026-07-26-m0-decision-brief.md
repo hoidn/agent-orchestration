@@ -143,6 +143,30 @@ reconstructed from the anchors above.]
    M0 micro-task: reference-check that nothing imports the dead local,
    then delete. Reopens on: a live reference or behavioral diff surfacing
    during deletion.
+   - **CLOSED (2026-07-27).** The dead dispatch-local copy
+     (`_validate_semantic_command_adapter_usage`) was already deleted by
+     `881b3f16` ("Retire omitted typecheck dispatch tail residue",
+     2026-07-09) — after the divergence was recorded, before this brief.
+     Repo-wide reference check (2026-07-27): no
+     `def _validate_semantic_command_adapter_usage` exists anywhere; the
+     only remaining occurrences of the name are the facade compat alias
+     import (`typecheck.py:28`, itself imported by no module — the
+     facade's sole consumer, `workflows.py:87`, imports none of the
+     underscore aliases) and the absence locks
+     (`tests/test_workflow_lisp_expressions.py:306`,
+     `tests/test_workflow_lisp_structured_results.py:837`). One
+     correction to this item's premise: the owner is live via its
+     `typecheck_effects`-internal call sites (`typecheck_effects.py:943`,
+     `:1008`), not via the `typecheck.py:28` alias, which is dead compat
+     surface. Behavioral diff of the dead local (from `881b3f16^`)
+     against the owner
+     (`typecheck_effects.validate_semantic_command_adapter_usage:488`):
+     mechanical spellings plus one owner-only *stricter* disjunct
+     (`binding.behavior_class == "resume_state_reuse"` also triggers
+     `recovery_gate_without_resume_or_start`); the dead local had zero
+     call sites since before the extraction branch, so this was never a
+     live divergence. Deletion bound already satisfied by history; no
+     code change required.
 3. **Let-proc hidden-context gate.** Default ruling: hidden-context
    eligibility stays exact-type-only for `let-proc`-generated procedures,
    per the promoted-entry hidden-context contract (RunCtx exact-type
