@@ -10,11 +10,15 @@ from orchestrator.workflow_lisp.authored_symbols import (
     project_authored_symbols,
 )
 from orchestrator.workflow_lisp.compiler import LinkedStage3CompileResult
+from orchestrator.workflow_lisp.effects import render_effect_set
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
 from orchestrator.workflow_lisp.expressions import CallExpr, ProcedureCallExpr
 from orchestrator.workflow_lisp.form_registry import registered_form_heads
 from orchestrator.workflow_lisp.modules import build_import_scope
+from orchestrator.workflow_lisp.procedures import ProcedureSignature
 from orchestrator.workflow_lisp.spans import SourceSpan
+from orchestrator.workflow_lisp.type_env import TypeRef, render_type_ref
+from orchestrator.workflow_lisp.workflows import WorkflowSignature
 
 from .coordinates import CoordinateTranslationError, source_span_to_lsp_range
 
@@ -44,6 +48,8 @@ class NavigationCompletion:
 
     label: str
     kind: str
+    canonical_target: str
+    detail: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +88,7 @@ def build_navigation_index(
         )
         symbols = symbols_by_path.setdefault(module_path, [])
         resolved_source = compile_result.graph.modules_by_name[module_name]
-        symbols.extend(
+        projected_symbols = tuple(
             NavigationSymbol(
                 name=row.name,
                 kind=row.kind,
@@ -95,8 +101,8 @@ def build_navigation_index(
                 compiled,
             )
         )
+        symbols.extend(projected_symbols)
 
-        local_callable_names: set[str] = set()
         for typed_procedure in compiled.typed_procedures:
             definition = typed_procedure.definition
             if (
@@ -105,7 +111,6 @@ def build_navigation_index(
                 or definition.expansion_stack
             ):
                 continue
-            local_callable_names.add(_authored_callable_name(definition.name))
             definition_links.extend(
                 _definition_links_for_expr(
                     typed_procedure.typed_body.expr,
@@ -116,7 +121,6 @@ def build_navigation_index(
             definition = typed_workflow.definition
             if typed_workflow.specialization is not None or definition.expansion_stack:
                 continue
-            local_callable_names.add(_authored_callable_name(definition.name))
             definition_links.extend(
                 _definition_links_for_expr(
                     typed_workflow.typed_body.expr,
@@ -124,7 +128,41 @@ def build_navigation_index(
                 )
             )
 
-        imported_callable_names: set[str] = set()
+        completion_rows: list[NavigationCompletion] = []
+        for symbol in projected_symbols:
+            if symbol.kind == "procedure":
+                signature = compiled.procedure_catalog.signatures_by_name.get(
+                    symbol.name
+                )
+                if signature is None:
+                    raise ValueError(
+                        "authored procedure completion is missing its "
+                        f"compiler signature: {symbol.name}"
+                    )
+                completion_rows.append(
+                    _procedure_completion(
+                        label=symbol.name,
+                        canonical_target=signature.name,
+                        signature=signature,
+                    )
+                )
+            elif symbol.kind == "workflow":
+                signature = compiled.workflow_catalog.signatures_by_name.get(
+                    symbol.name
+                )
+                if signature is None:
+                    raise ValueError(
+                        "authored workflow completion is missing its "
+                        f"compiler signature: {symbol.name}"
+                    )
+                completion_rows.append(
+                    _workflow_completion(
+                        label=symbol.name,
+                        canonical_target=signature.name,
+                        signature=signature,
+                    )
+                )
+
         if compiled.module.module_name is not None:
             import_scope = build_import_scope(
                 compiled.module,
@@ -132,16 +170,60 @@ def build_navigation_index(
                     compile_result.graph.export_surfaces_by_name
                 ),
             )
-            imported_callable_names.update(import_scope.procedure_bindings)
-            imported_callable_names.update(import_scope.workflow_bindings)
-        callable_names = local_callable_names | imported_callable_names
-        form_heads = set(registered_form_heads())
-        completions_by_path[module_path] = tuple(
+            for label, binding in import_scope.procedure_bindings.items():
+                signature = (
+                    compiled.procedure_catalog.signatures_by_name.get(
+                        binding.canonical_name
+                    )
+                )
+                if signature is None:
+                    raise ValueError(
+                        "imported procedure completion is missing its "
+                        f"compiler signature: {binding.canonical_name}"
+                    )
+                completion_rows.append(
+                    _procedure_completion(
+                        label=label,
+                        canonical_target=binding.canonical_name,
+                        signature=signature,
+                    )
+                )
+            for label, binding in import_scope.workflow_bindings.items():
+                signature = (
+                    compiled.workflow_catalog.signatures_by_name.get(
+                        binding.canonical_name
+                    )
+                )
+                if signature is None:
+                    raise ValueError(
+                        "imported workflow completion is missing its "
+                        f"compiler signature: {binding.canonical_name}"
+                    )
+                completion_rows.append(
+                    _workflow_completion(
+                        label=label,
+                        canonical_target=binding.canonical_name,
+                        signature=signature,
+                    )
+                )
+        completion_rows.extend(
             NavigationCompletion(
-                label=label,
-                kind="callable" if label in callable_names else "form",
+                label=head,
+                kind="form",
+                canonical_target=head,
+                detail="form",
             )
-            for label in sorted(callable_names | form_heads)
+            for head in registered_form_heads()
+        )
+        completions_by_path[module_path] = tuple(
+            sorted(
+                completion_rows,
+                key=lambda item: (
+                    item.label,
+                    _COMPLETION_KIND_RANK[item.kind],
+                    item.canonical_target,
+                ),
+            )
         )
 
     normalized_symbols = tuple(
@@ -326,8 +408,55 @@ def _module_path(
     return Path(fallback_span.start.path).resolve(strict=False)
 
 
-def _authored_callable_name(canonical_name: str) -> str:
-    return canonical_name.rsplit("::", 1)[-1]
+_COMPLETION_KIND_RANK = {
+    "procedure": 0,
+    "workflow": 1,
+    "form": 2,
+}
+
+
+def _procedure_completion(
+    *,
+    label: str,
+    canonical_target: str,
+    signature: ProcedureSignature,
+) -> NavigationCompletion:
+    return NavigationCompletion(
+        label=label,
+        kind="procedure",
+        canonical_target=canonical_target,
+        detail=(
+            f"procedure ({_render_signature_params(signature.params)}) -> "
+            f"{render_type_ref(signature.return_type_ref)} effects "
+            f"{render_effect_set(signature.declared_effects)}"
+        ),
+    )
+
+
+def _workflow_completion(
+    *,
+    label: str,
+    canonical_target: str,
+    signature: WorkflowSignature,
+) -> NavigationCompletion:
+    return NavigationCompletion(
+        label=label,
+        kind="workflow",
+        canonical_target=canonical_target,
+        detail=(
+            f"workflow ({_render_signature_params(signature.params)}) -> "
+            f"{render_type_ref(signature.return_type_ref)}"
+        ),
+    )
+
+
+def _render_signature_params(
+    params: tuple[tuple[str, TypeRef], ...],
+) -> str:
+    return ", ".join(
+        f"{name}: {render_type_ref(type_ref)}"
+        for name, type_ref in params
+    )
 
 
 __all__ = [

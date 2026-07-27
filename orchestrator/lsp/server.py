@@ -58,6 +58,15 @@ _DOCUMENT_SYMBOL_KIND_BY_INTERNAL_KIND: dict[str, types.SymbolKind] = {
     "transition": types.SymbolKind.Event,
 }
 
+_COMPLETION_ITEM_KIND_BY_INTERNAL_KIND: dict[
+    str,
+    types.CompletionItemKind,
+] = {
+    "procedure": types.CompletionItemKind.Function,
+    "workflow": types.CompletionItemKind.Function,
+    "form": types.CompletionItemKind.Keyword,
+}
+
 
 class WorkflowLispLanguageServer(LanguageServer):
     """One stdio server process with one atomically initialized compile driver."""
@@ -404,11 +413,8 @@ class WorkflowLispLanguageServer(LanguageServer):
             items=tuple(
                 types.CompletionItem(
                     label=item.label,
-                    kind=(
-                        types.CompletionItemKind.Function
-                        if item.kind == "callable"
-                        else types.CompletionItemKind.Keyword
-                    ),
+                    kind=_COMPLETION_ITEM_KIND_BY_INTERNAL_KIND[item.kind],
+                    detail=item.detail,
                     sort_text=item.label,
                 )
                 for item in completion_for_document(

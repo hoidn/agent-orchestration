@@ -22,6 +22,7 @@ from orchestrator.workflow_lisp.compiler import (
     compile_stage3_entrypoint,
 )
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
+from orchestrator.workflow_lisp.effects import WriteEffect, effect_summary
 from orchestrator.workflow_lisp.expressions import (
     CallExpr,
     LetStarExpr,
@@ -639,43 +640,305 @@ def test_document_symbol_index_uses_projection_without_reading_or_parsing(
     )
 
 
-def test_completion_is_exact_visible_callable_and_registered_form_union(
+def test_completion_preserves_exact_import_scope_spellings_and_namespaces(
     callable_result: LinkedStage3CompileResult,
 ) -> None:
     registry = import_module("orchestrator.workflow_lisp.form_registry")
     registered_form_heads = getattr(registry, "registered_form_heads", None)
     assert callable(registered_form_heads), "registered_form_heads is missing"
     expected_callables = {
-        "orchestrate",
-        "proc.build-checks",
-        "neurips/procedures/build-checks",
-        "build-checks",
-        "helper.provider-attempt",
-        "neurips/helper/provider-attempt",
-        "provider-attempt",
-        "helper.secondary",
-        "neurips/helper/secondary",
-        "secondary",
+        "orchestrate": (
+            "workflow",
+            "neurips/entry::orchestrate",
+        ),
+        "proc.build-checks": (
+            "procedure",
+            "neurips/procedures::build-checks",
+        ),
+        "neurips/procedures/build-checks": (
+            "procedure",
+            "neurips/procedures::build-checks",
+        ),
+        "build-checks": (
+            "procedure",
+            "neurips/procedures::build-checks",
+        ),
+        "helper.provider-attempt": (
+            "workflow",
+            "neurips/helper::provider-attempt",
+        ),
+        "neurips/helper/provider-attempt": (
+            "workflow",
+            "neurips/helper::provider-attempt",
+        ),
+        "provider-attempt": (
+            "workflow",
+            "neurips/helper::provider-attempt",
+        ),
+        "helper.secondary": (
+            "workflow",
+            "neurips/helper::secondary",
+        ),
+        "neurips/helper/secondary": (
+            "workflow",
+            "neurips/helper::secondary",
+        ),
+        "secondary": (
+            "workflow",
+            "neurips/helper::secondary",
+        ),
     }
 
     completions = _completions(
         _build_index(callable_result),
         CALLABLE_ENTRY.resolve(),
     )
-
-    assert tuple(item.label for item in completions) == tuple(
-        sorted(expected_callables | set(registered_form_heads()))
+    kind_rank = {"procedure": 0, "workflow": 1, "form": 2}
+    expected_order = tuple(
+        sorted(
+            (
+                *(
+                    (label, kind, canonical_target)
+                    for label, (kind, canonical_target) in expected_callables.items()
+                ),
+                *(
+                    (head, "form", head)
+                    for head in registered_form_heads()
+                ),
+            ),
+            key=lambda row: (row[0], kind_rank[row[1]], row[2]),
+        )
     )
-    assert {
-        item.label
+    assert tuple(
+        (item.label, item.kind, item.canonical_target)
         for item in completions
-        if item.kind == "callable"
-    } == expected_callables
+    ) == expected_order
+
+    callable_rows = {
+        item.label: (item.kind, item.canonical_target)
+        for item in completions
+        if item.kind in {"procedure", "workflow"}
+    }
+
+    assert callable_rows == expected_callables
     assert {
         item.label
         for item in completions
         if item.kind == "form"
-    } == set(registered_form_heads()) - expected_callables
+    } == set(registered_form_heads())
+    assert "neurips/procedures::build-checks" not in callable_rows
+    assert "procedures.build-checks" not in callable_rows
+
+
+def test_completion_preserves_same_label_procedure_workflow_and_form_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "lsp_l1_symbols"
+    shutil.copytree(L1_SYMBOLS_ROOT, root)
+    entry_path = root / "lsp_l1_symbols" / "entry.orc"
+    entry_path.write_text(
+        entry_path.read_text(encoding="utf-8").replace(
+            "normalize-status",
+            "review",
+        ),
+        encoding="utf-8",
+    )
+    result = compile_stage3_entrypoint(
+        entry_path,
+        source_roots=(root,),
+        validate_shared=False,
+        workspace_root=root,
+        lowering_route="legacy",
+    )
+    navigation = _navigation_surface()
+    monkeypatch.setattr(
+        navigation,
+        "registered_form_heads",
+        lambda: ("review",),
+    )
+
+    rows = tuple(
+        item
+        for item in _completions(
+            _build_index(result),
+            entry_path,
+        )
+        if item.label == "review"
+    )
+
+    assert tuple(
+        (item.label, item.kind, item.canonical_target, item.detail)
+        for item in rows
+    ) == (
+        (
+            "review",
+            "procedure",
+            "lsp_l1_symbols/entry::review",
+            "procedure (status: String) -> String effects ()",
+        ),
+        (
+            "review",
+            "workflow",
+            "lsp_l1_symbols/entry::review",
+            "workflow (status: String) -> String",
+        ),
+        ("review", "form", "review", "form"),
+    )
+
+
+def test_completion_details_use_resolved_signatures_and_declared_effects_only(
+    l1_symbols_result: LinkedStage3CompileResult,
+) -> None:
+    rows = {
+        (item.kind, item.label): item.detail
+        for item in _completions(
+            _build_index(l1_symbols_result),
+            L1_SYMBOLS_ENTRY.resolve(),
+        )
+    }
+    typed_render = next(
+        procedure
+        for procedure in l1_symbols_result.entry_result.typed_procedures
+        if procedure.definition.name.endswith("::render-and-preserve")
+    )
+    typed_review_workflow = next(
+        workflow
+        for workflow in l1_symbols_result.entry_result.typed_workflows
+        if workflow.definition.name.endswith("::review")
+    )
+    inferred_only_summary = effect_summary(
+        direct_effects=(WriteEffect(subject=("inferred-only",)),),
+    )
+    changed_procedure = replace(
+        typed_render,
+        direct_effect_summary=inferred_only_summary,
+        transitive_effect_summary=inferred_only_summary,
+    )
+    changed_workflow = replace(
+        typed_review_workflow,
+        effect_summary=inferred_only_summary,
+    )
+    changed_entry_result = replace(
+        l1_symbols_result.entry_result,
+        typed_procedures=tuple(
+            changed_procedure
+            if procedure is typed_render
+            else procedure
+            for procedure in l1_symbols_result.entry_result.typed_procedures
+        ),
+        typed_workflows=tuple(
+            changed_workflow
+            if workflow is typed_review_workflow
+            else workflow
+            for workflow in l1_symbols_result.entry_result.typed_workflows
+        ),
+    )
+    changed_result = replace(
+        l1_symbols_result,
+        entry_result=changed_entry_result,
+        compiled_results_by_name={
+            **l1_symbols_result.compiled_results_by_name,
+            l1_symbols_result.graph.entry_module_name: changed_entry_result,
+        },
+    )
+    changed_rows = {
+        (item.kind, item.label): item.detail
+        for item in _completions(
+            _build_index(changed_result),
+            L1_SYMBOLS_ENTRY.resolve(),
+        )
+    }
+
+    assert changed_procedure.direct_effect_summary.direct_effects
+    assert (
+        changed_procedure.direct_effect_summary.direct_effects
+        != changed_procedure.signature.declared_effects
+    )
+    assert changed_workflow.effect_summary.transitive_effects
+    assert rows[("procedure", "default-status")] == (
+        "procedure () -> String effects ()"
+    )
+    assert rows[("procedure", "normalize-status")] == (
+        "procedure (status: String) -> String effects ()"
+    )
+    assert rows[("procedure", "render-and-preserve")] == (
+        "procedure "
+        "(reports: List[Optional[Map[String, ReportPath]]], "
+        "status: String, target: ReportPath) "
+        "-> List[Optional[Map[String, ReportPath]]] "
+        "effects (writes(status-view))"
+    )
+    assert changed_rows[("procedure", "render-and-preserve")] == (
+        "procedure "
+        "(reports: List[Optional[Map[String, ReportPath]]], "
+        "status: String, target: ReportPath) "
+        "-> List[Optional[Map[String, ReportPath]]] "
+        "effects (writes(status-view))"
+    )
+    assert rows[("workflow", "default-review")] == (
+        "workflow () -> ReviewState"
+    )
+    assert rows[("workflow", "review")] == (
+        "workflow (status: String) -> String"
+    )
+    assert changed_rows[("workflow", "review")] == (
+        "workflow (status: String) -> String"
+    )
+    assert rows[("workflow", "review-many")] == (
+        "workflow "
+        "(primary: String, secondary: String, fallback: String) -> String"
+    )
+
+
+def test_server_maps_completion_namespaces_details_and_protocol_kinds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "lsp_l1_symbols"
+    shutil.copytree(L1_SYMBOLS_ROOT, root)
+    entry_path = root / "lsp_l1_symbols" / "entry.orc"
+    entry_path.write_text(
+        entry_path.read_text(encoding="utf-8").replace(
+            "normalize-status",
+            "review",
+        ),
+        encoding="utf-8",
+    )
+    driver, entry_path = _compile_driver_for_l1_symbols_root(root)
+    navigation = _navigation_surface()
+    monkeypatch.setattr(
+        navigation,
+        "registered_form_heads",
+        lambda: ("review",),
+    )
+    server = WorkflowLispLanguageServer()
+    server.driver = driver
+
+    completion = server.completion(_completion_params(entry_path))
+
+    assert completion.is_incomplete is False
+    assert tuple(
+        (item.label, item.kind, item.detail)
+        for item in completion.items
+        if item.label == "review"
+    ) == (
+        (
+            "review",
+            types.CompletionItemKind.Function,
+            "procedure (status: String) -> String effects ()",
+        ),
+        (
+            "review",
+            types.CompletionItemKind.Function,
+            "workflow (status: String) -> String",
+        ),
+        (
+            "review",
+            types.CompletionItemKind.Keyword,
+            "form",
+        ),
+    )
 
 
 def test_completion_has_no_nominal_or_server_inferred_type_filter(

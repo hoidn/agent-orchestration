@@ -539,7 +539,10 @@ def test_document_symbol_protocol_exposes_ten_kinds_and_selection_ranges(
     workspace = tmp_path / "workspace"
     shutil.copytree(L1_SYMBOLS_ROOT, workspace)
     entry_path = workspace / "lsp_l1_symbols" / "entry.orc"
-    source_text = entry_path.read_text(encoding="utf-8")
+    source_text = entry_path.read_text(encoding="utf-8").replace(
+        "normalize-status",
+        "review",
+    )
     broken_text = "(workflow-lisp"
     entry_path.write_text(broken_text, encoding="utf-8")
     process = _LspProcess(workspace)
@@ -644,7 +647,7 @@ def test_document_symbol_protocol_exposes_ten_kinds_and_selection_ranges(
             ("review-state", 19),
             ("record-review", 24),
             ("default-status", 12),
-            ("normalize-status", 12),
+            ("review", 12),
             ("render-and-preserve", 12),
             ("default-review", 12),
             ("review", 12),
@@ -654,6 +657,53 @@ def test_document_symbol_protocol_exposes_ten_kinds_and_selection_ranges(
             symbol["range"] != symbol["selectionRange"]
             for symbol in symbols
         )
+
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "textDocument/completion",
+                "params": {
+                    "textDocument": {"uri": entry_path.as_uri()},
+                    "position": {"line": 0, "character": 0},
+                },
+            }
+        )
+        completion_response, _ = process.read_until(
+            lambda item: item.get("id") == 3
+        )
+
+        assert "error" not in completion_response
+        completion = completion_response["result"]
+        assert completion["isIncomplete"] is False
+        assert [
+            (item["label"], item["kind"], item["detail"])
+            for item in completion["items"]
+            if item["label"] == "review"
+        ] == [
+            (
+                "review",
+                3,
+                "procedure (status: String) -> String effects ()",
+            ),
+            (
+                "review",
+                3,
+                "workflow (status: String) -> String",
+            ),
+        ]
+        assert {
+            (item["label"], item["kind"], item["detail"])
+            for item in completion["items"]
+            if item["label"] in {"default-status", "defproc"}
+        } == {
+            (
+                "default-status",
+                3,
+                "procedure () -> String effects ()",
+            ),
+            ("defproc", 14, "form"),
+        }
         process.shutdown()
     finally:
         process.close()
