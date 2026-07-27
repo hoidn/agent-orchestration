@@ -55,6 +55,9 @@ PROMPT_OUTPUT_POSITIONS_PLAN_PATH = (
 PROMPT_IDENTITY_DESIGN_PATH = (
     "docs/design/workflow_lisp_prompt_identity_diagnostics.md"
 )
+PROMPT_IDENTITY_PLAN_PATH = (
+    "docs/plans/2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md"
+)
 LANGUAGE_SERVER_L1_PLAN_PATH = (
     "docs/plans/2026-07-26-workflow-lisp-language-server-l1-implementation-plan.md"
 )
@@ -1111,6 +1114,9 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     q3_design = (REPO_ROOT / PROMPT_IDENTITY_DESIGN_PATH).read_text(
         encoding="utf-8"
     )
+    q3_plan = (REPO_ROOT / PROMPT_IDENTITY_PLAN_PATH).read_text(
+        encoding="utf-8"
+    )
     l1_plan = (REPO_ROOT / LANGUAGE_SERVER_L1_PLAN_PATH).read_text(
         encoding="utf-8"
     )
@@ -1179,8 +1185,9 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     normalized_q3_row = _normalized_routing_text(q3_row)
     assert "next" in normalized_q3_row
     assert "accepted design" in normalized_q3_row
-    assert "implementation plan" in normalized_q3_row
+    assert "reviewed implementation plan" in normalized_q3_row
     assert "implementation not started" in normalized_q3_row
+    assert Path(PROMPT_IDENTITY_PLAN_PATH).name in q3_row
     assert "no q3 design is accepted" not in normalized_q3_row
     assert "blocked by q2" not in normalized_q3_row
     q4_row = _markdown_table_row(
@@ -1204,7 +1211,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         q3_design_router_row
     )
     assert "| Accepted design |" in q3_design_router_row
-    assert "implementation plan gate is next" in normalized_q3_design_router_row
+    assert "implementation is next" in normalized_q3_design_router_row
+    assert Path(PROMPT_IDENTITY_PLAN_PATH).name in q3_design_router_row
     q3_capability_row = _markdown_table_row(
         capability_matrix_path,
         "Workflow Lisp prompt identity diagnostics Q3",
@@ -1212,18 +1220,29 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     normalized_q3_capability_row = _normalized_routing_text(q3_capability_row)
     assert "| Designed |" in q3_capability_row
     assert "not implemented" in normalized_q3_capability_row
-    assert "implementation plan" in normalized_q3_capability_row
+    assert "not implemented or authoring guidance" in normalized_q3_capability_row
+    assert Path(PROMPT_IDENTITY_PLAN_PATH).name in q3_capability_row
     normalized_index = _normalized_routing_text(index)
-    assert "workflow lisp prompt identity diagnostics" in normalized_index
-    assert "q3 design is accepted" in normalized_index
-    assert "implementation plan gate is next" in normalized_index
-    assert "q3 remains unimplemented" in normalized_index
+    prompt_identity_index = _normalized_routing_text(
+        _markdown_heading_section(
+            index,
+            "### [Workflow Lisp Prompt Identity Diagnostics]",
+        )
+    )
+    assert "accepted target 2.22 q3 design" in prompt_identity_index
+    assert "reviewed implementation plan" in prompt_identity_index
+    assert "accepted" in prompt_identity_index
+    assert "implementation is next" in prompt_identity_index
+    assert "q3 remains unimplemented" in prompt_identity_index
+    assert Path(PROMPT_IDENTITY_PLAN_PATH).name in index
+    assert "# Workflow Lisp Prompt Identity And Diagnostics Implementation Plan" in (
+        q3_plan
+    )
     prompt_calculus = (
         REPO_ROOT / "docs" / "design" / "workflow_lisp_prompt_calculus.md"
     ).read_text(encoding="utf-8")
     normalized_prompt_calculus = _normalized_routing_text(prompt_calculus)
     assert "q3 design is accepted" in normalized_prompt_calculus
-    assert "implementation plan gate is next" in normalized_prompt_calculus
     frontend = (
         REPO_ROOT
         / "docs"
@@ -1432,9 +1451,12 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "active post stage 8 selector" in normalized_successor_index
     assert "q0, q1, and q2 are complete" in normalized_successor_index
-    assert "q3 design is accepted" in normalized_successor_index
-    assert "implementation plan gate is next" in normalized_successor_index
+    assert "q3 design" in normalized_successor_index
+    assert "reviewed implementation plan" in normalized_successor_index
+    assert "accepted" in normalized_successor_index
+    assert "q3 implementation is next" in normalized_successor_index
     assert "q3 remains unimplemented" in normalized_successor_index
+    assert Path(PROMPT_IDENTITY_PLAN_PATH).name in index
     assert "l1 authored symbols/signatures, and l2 recovery safe static completion are complete" in (
         normalized_successor_index
     )
@@ -1642,8 +1664,10 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
         )
     )
     assert "q0, q1, and q2 are complete" in active_roadmap_index
-    assert "q3 design is accepted" in active_roadmap_index
-    assert "implementation plan gate is next" in active_roadmap_index
+    assert "q3 design" in active_roadmap_index
+    assert "reviewed implementation plan" in active_roadmap_index
+    assert "accepted" in active_roadmap_index
+    assert "q3 implementation is next" in active_roadmap_index
     assert "q3 remains unimplemented" in active_roadmap_index
     assert "l1 authored symbols/signatures, and l2 recovery safe static completion are complete" in (
         active_roadmap_index
