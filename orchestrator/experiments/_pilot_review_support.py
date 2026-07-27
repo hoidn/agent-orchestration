@@ -395,6 +395,11 @@ def _prompt(
                     "PATH:START-END",
                 ],
                 "line_numbering": "ONE_BASED_INCLUSIVE",
+                "line_location_bounds": {
+                    "start_minimum": 1,
+                    "end_maximum_field": "line_count",
+                    "require_start_lte_end": True,
+                },
                 "exact_path_precedence": True,
                 "locator_eligibility_rules": {
                     "EXACT_PATH_ONLY": ["PATH"],

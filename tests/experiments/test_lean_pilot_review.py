@@ -707,6 +707,11 @@ def test_live_reviewer_runs_two_exact_bounded_slots_and_publishes_results(
         "PATH:START-END",
     ]
     assert citation_contract["line_numbering"] == "ONE_BASED_INCLUSIVE"
+    assert citation_contract["line_location_bounds"] == {
+        "start_minimum": 1,
+        "end_maximum_field": "line_count",
+        "require_start_lte_end": True,
+    }
     assert citation_contract["exact_path_precedence"] is True
     expected_citable_payloads = [
         {
