@@ -9,7 +9,17 @@ from types import MappingProxyType, ModuleType
 
 import pytest
 
-from orchestrator.exceptions import ValidationError, WorkflowValidationError
+from orchestrator.exceptions import (
+    ValidationError,
+    ValidationSubjectRef,
+    WorkflowValidationError,
+)
+from orchestrator.workflow.prompt_fragment_contract import (
+    COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
+    CompilerPromptFragmentContractV2,
+    CompilerPromptFragmentOutputPosition,
+    CompilerPromptFragmentRenderedSlot,
+)
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from tests.workflow_fixture_loader import WorkflowLoader
 from tests.workflow_bundle_helpers import thaw_surface_workflow
@@ -146,11 +156,413 @@ def _minimal_mapping(name: str = "shared-in-memory") -> dict:
     }
 
 
+def _prompt_output_position_contracts() -> dict[str, object]:
+    return {
+        "expected_outputs": [
+            {
+                "name": "report_path",
+                "path": "state/report_path.txt",
+                "type": "relpath",
+                "must_exist_target": True,
+            }
+        ],
+        "output_bundle": {
+            "path": "state/result.json",
+            "fields": [
+                {
+                    "name": "approved",
+                    "json_pointer": "/approved",
+                    "type": "bool",
+                }
+            ],
+        },
+        "variant_output": {
+            "path": "state/result.json",
+            "discriminant": {
+                "name": "decision",
+                "json_pointer": "/decision",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            },
+            "shared_fields": [
+                {
+                    "name": "owner",
+                    "json_pointer": "/owner",
+                    "type": "string",
+                }
+            ],
+            "variants": {
+                "APPROVE": {
+                    "fields": [
+                        {
+                            "name": "approval_path",
+                            "json_pointer": "/approval_path",
+                            "type": "relpath",
+                        }
+                    ]
+                },
+                "REVISE": {
+                    "fields": [
+                        {
+                            "name": "reason",
+                            "json_pointer": "/reason",
+                            "type": "string",
+                        }
+                    ]
+                },
+            },
+        },
+        "select_variant_output": {},
+    }
+
+
+def _validate_prompt_output_position_contracts(
+    tmp_path: Path,
+    contract_names: tuple[str, ...],
+    *,
+    contracts: dict[str, object] | None = None,
+    compiler_contract: CompilerPromptFragmentContractV2 | None = None,
+):
+    validation = _validation_module()
+    contracts = contracts or _prompt_output_position_contracts()
+    mapping = _minimal_mapping("prompt-output-position-admission")
+    mapping["version"] = "2.21"
+    mapping["steps"][0]["id"] = "produce"
+    mapping["steps"][0].update(
+        {name: contracts[name] for name in contract_names}
+    )
+    if compiler_contract is not None:
+        mapping["inputs"] = {
+            "report_path": {"kind": "scalar", "type": "string"},
+            "other_path": {"kind": "scalar", "type": "string"},
+        }
+        mapping["steps"][0]["provider"] = "provider"
+        mapping["steps"][0].pop("command")
+        mapping["steps"][0]["compiler_prompt_fragment_contract"] = compiler_contract
+        mapping["steps"][0]["compiled_prompt_fragment_identity"] = (
+            compiler_contract.compiled_prompt_fragment_identity
+        )
+    return validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=mapping,
+            workflow_path=tmp_path / "prompt-output-position.fixture.json",
+            frontend_kind="workflow_lisp" if compiler_contract is not None else None,
+        ),
+        options=_default_options(tmp_path),
+    )
+
+
+def _prompt_output_position_v2_carrier() -> CompilerPromptFragmentContractV2:
+    expected_output = {
+        "name": "report_path",
+        "path": "${inputs.report_path}",
+        "type": "string",
+        "required": True,
+    }
+    return CompilerPromptFragmentContractV2(
+        schema_version=COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
+        template_utf8="{report_path}",
+        rendered_slots=(
+            CompilerPromptFragmentRenderedSlot(
+                name="report_path",
+                kind="path",
+                static_type={
+                    "kind": "path",
+                    "name": "ReportPath",
+                    "under": "state",
+                    "must_exist_target": False,
+                },
+                renderer_id="posix-path-line",
+                value_source={
+                    "kind": "typed_binding_ref",
+                    "binding": {"ref": "inputs.report_path"},
+                },
+                placeholder_ordinals=(0,),
+            ),
+        ),
+        output_positions=(
+            CompilerPromptFragmentOutputPosition(
+                slot_name="report_path",
+                output_role="required_string_file",
+                expected_output=expected_output,
+            ),
+        ),
+        compiled_prompt_fragment_identity="sha256:" + "a" * 64,
+    )
+
+
+@pytest.mark.parametrize(
+    "structured_contract,field_location",
+    [
+        ("output_bundle", "field"),
+        ("variant_output", "discriminant"),
+        ("variant_output", "shared"),
+        ("variant_output", "approve"),
+        ("variant_output", "revise"),
+    ],
+)
+def test_prompt_output_position_contract_rejects_every_structured_name_collision(
+    tmp_path: Path,
+    structured_contract: str,
+    field_location: str,
+) -> None:
+    contracts = _prompt_output_position_contracts()
+    if field_location == "field":
+        contracts["output_bundle"]["fields"][0]["name"] = "report_path"
+    elif field_location == "discriminant":
+        contracts["variant_output"]["discriminant"]["name"] = "report_path"
+    elif field_location == "shared":
+        contracts["variant_output"]["shared_fields"][0]["name"] = "report_path"
+    else:
+        variant = "APPROVE" if field_location == "approve" else "REVISE"
+        contracts["variant_output"]["variants"][variant]["fields"][0]["name"] = (
+            "report_path"
+        )
+
+    result = _validate_prompt_output_position_contracts(
+        tmp_path,
+        ("expected_outputs", structured_contract),
+        contracts=contracts,
+    )
+
+    assert result.bundle is None
+    collision = next(
+        error
+        for error in result.errors
+        if error.message.startswith("prompt_output_position_contract_collision:")
+    )
+    assert collision.subject_refs == (
+        ValidationSubjectRef(
+            subject_kind="expected_output",
+            subject_name="produce::expected-output::report_path",
+            workflow_name="prompt-output-position-admission",
+        ),
+        ValidationSubjectRef(
+            subject_kind="step_id",
+            subject_name="produce",
+            workflow_name="prompt-output-position-admission",
+        ),
+    )
+
+
+def test_prompt_output_position_collision_relates_structured_field_origin(
+    tmp_path: Path,
+) -> None:
+    contracts = _prompt_output_position_contracts()
+    contracts["output_bundle"]["fields"][0].update(
+        {
+            "name": "report_path",
+            "source_map_subject": {
+                "subject_kind": "output_bundle_field",
+                "subject_name": "done::result::report_path",
+                "workflow_name": "prompt-output-position-admission",
+            },
+        }
+    )
+
+    result = _validate_prompt_output_position_contracts(
+        tmp_path,
+        ("expected_outputs", "output_bundle"),
+        contracts=contracts,
+    )
+
+    collision = next(
+        error
+        for error in result.errors
+        if error.message.startswith("prompt_output_position_contract_collision:")
+    )
+    assert collision.subject_refs == (
+        ValidationSubjectRef(
+            subject_kind="expected_output",
+            subject_name="produce::expected-output::report_path",
+            workflow_name="prompt-output-position-admission",
+        ),
+        ValidationSubjectRef(
+            subject_kind="output_bundle_field",
+            subject_name="done::result::report_path",
+            workflow_name="prompt-output-position-admission",
+        ),
+    )
+
+
+def test_prompt_output_position_collision_retains_all_variant_field_lineage(
+    tmp_path: Path,
+) -> None:
+    contracts = _prompt_output_position_contracts()
+    shared_field = contracts["variant_output"]["shared_fields"][0]
+    shared_field.update(
+        {
+            "name": "report_path",
+            "source_map_subjects_by_variant": {
+                variant: {
+                    "subject_kind": "variant_output_field",
+                    "subject_name": f"produce::result::{variant}::report_path",
+                    "workflow_name": "prompt-output-position-admission",
+                }
+                for variant in ("APPROVE", "REVISE")
+            },
+        }
+    )
+
+    result = _validate_prompt_output_position_contracts(
+        tmp_path,
+        ("expected_outputs", "variant_output"),
+        contracts=contracts,
+    )
+
+    collision = next(
+        error
+        for error in result.errors
+        if error.message.startswith("prompt_output_position_contract_collision:")
+    )
+    assert collision.subject_refs == (
+        ValidationSubjectRef(
+            subject_kind="expected_output",
+            subject_name="produce::expected-output::report_path",
+            workflow_name="prompt-output-position-admission",
+        ),
+        ValidationSubjectRef(
+            subject_kind="variant_output_field",
+            subject_name="produce::result::APPROVE::report_path",
+            workflow_name="prompt-output-position-admission",
+        ),
+        ValidationSubjectRef(
+            subject_kind="variant_output_field",
+            subject_name="produce::result::REVISE::report_path",
+            workflow_name="prompt-output-position-admission",
+        ),
+    )
+
+
+def test_prompt_output_position_contract_precedence_exposes_each_next_defect(
+    tmp_path: Path,
+) -> None:
+    carrier = _prompt_output_position_v2_carrier()
+
+    incompatible = _prompt_output_position_contracts()
+    incompatible["expected_outputs"] = [
+        dict(carrier.output_positions[0].expected_output)
+    ]
+    incompatible["output_bundle"]["fields"][0]["name"] = "report_path"
+    incompatible_result = _validate_prompt_output_position_contracts(
+        tmp_path,
+        ("expected_outputs", "output_bundle", "variant_output"),
+        contracts=incompatible,
+        compiler_contract=carrier,
+    )
+    assert any(
+        "mutually exclusive output contract fields" in error.message
+        for error in incompatible_result.errors
+    )
+    assert not any(
+        error.message.startswith("prompt_output_position_contract_collision:")
+        for error in incompatible_result.errors
+    )
+    assert not any(
+        error.message.startswith("prompt_output_position_contract_mismatch")
+        for error in incompatible_result.errors
+    )
+
+    colliding = _prompt_output_position_contracts()
+    colliding["expected_outputs"] = [
+        dict(carrier.output_positions[0].expected_output)
+    ]
+    colliding["output_bundle"]["fields"][0]["name"] = "report_path"
+    collision_result = _validate_prompt_output_position_contracts(
+        tmp_path,
+        ("expected_outputs", "output_bundle"),
+        contracts=colliding,
+        compiler_contract=carrier,
+    )
+    assert any(
+        error.message.startswith("prompt_output_position_contract_collision:")
+        for error in collision_result.errors
+    )
+    assert not any(
+        error.message.startswith("prompt_output_position_contract_mismatch")
+        for error in collision_result.errors
+    )
+
+    malformed_carrier = _prompt_output_position_contracts()
+    malformed_carrier["expected_outputs"] = [
+        {
+            **dict(carrier.output_positions[0].expected_output),
+            "path": "${inputs.other_path}",
+        }
+    ]
+    mismatch_result = _validate_prompt_output_position_contracts(
+        tmp_path,
+        ("expected_outputs", "output_bundle"),
+        contracts=malformed_carrier,
+        compiler_contract=carrier,
+    )
+    assert not any(
+        error.message.startswith("prompt_output_position_contract_collision:")
+        for error in mismatch_result.errors
+    )
+    assert any(
+        error.message.startswith("prompt_output_position_contract_mismatch")
+        for error in mismatch_result.errors
+    )
+
+
 def _default_options(tmp_path: Path):
     validation = _validation_module()
     return validation.WorkflowMappingValidationOptions(
         workspace_root=tmp_path,
         boundary_validation_policy=validation.WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE,
+    )
+
+
+@pytest.mark.parametrize(
+    "contract_names",
+    [
+        ("expected_outputs",),
+        ("output_bundle",),
+        ("variant_output",),
+        ("expected_outputs", "output_bundle"),
+        ("expected_outputs", "variant_output"),
+    ],
+)
+def test_prompt_output_position_contract_admission_accepts_supported_sets(
+    tmp_path: Path,
+    contract_names: tuple[str, ...],
+) -> None:
+    result = _validate_prompt_output_position_contracts(tmp_path, contract_names)
+
+    assert result.errors == ()
+    assert result.bundle is not None
+
+
+@pytest.mark.parametrize(
+    "contract_names",
+    [
+        ("output_bundle", "variant_output"),
+        ("expected_outputs", "output_bundle", "variant_output"),
+        ("expected_outputs", "select_variant_output"),
+        ("output_bundle", "select_variant_output"),
+        ("variant_output", "select_variant_output"),
+        ("expected_outputs", "output_bundle", "select_variant_output"),
+        ("expected_outputs", "variant_output", "select_variant_output"),
+        ("output_bundle", "variant_output", "select_variant_output"),
+        (
+            "expected_outputs",
+            "output_bundle",
+            "variant_output",
+            "select_variant_output",
+        ),
+    ],
+)
+def test_prompt_output_position_contract_admission_rejects_other_sets(
+    tmp_path: Path,
+    contract_names: tuple[str, ...],
+) -> None:
+    result = _validate_prompt_output_position_contracts(tmp_path, contract_names)
+
+    assert result.bundle is None
+    assert any(
+        "mutually exclusive output contract fields" in error.message
+        for error in result.errors
     )
 
 

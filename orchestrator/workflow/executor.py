@@ -5974,11 +5974,14 @@ class WorkflowExecutor:
         if bundle_path_error is not None:
             return bundle_path_error
         prompt_contract_step = step
+        if (
+            resolved_expected_outputs is not None
+            or resolved_output_bundle is not None
+        ):
+            prompt_contract_step = dict(step)
         if resolved_expected_outputs is not None:
-            prompt_contract_step = dict(step)
             prompt_contract_step['expected_outputs'] = resolved_expected_outputs
-        elif resolved_output_bundle is not None:
-            prompt_contract_step = dict(step)
+        if resolved_output_bundle is not None:
             if 'variant_output' in step:
                 prompt_contract_step['variant_output'] = resolved_output_bundle
             else:

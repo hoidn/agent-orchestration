@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Pattern, Protocol, Set
 
 from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
-from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
+from orchestrator.exceptions import (
+    ValidationError,
+    ValidationSubjectRef,
+    WorkflowValidationError,
+    parse_validation_subject_ref,
+)
 from orchestrator.providers import (
     ProviderRegistry,
     ProviderSessionMetadataMode,
@@ -1604,15 +1609,22 @@ class _WorkflowMappingValidator:
                 for field_name in ('expected_outputs', 'output_bundle', 'variant_output', 'select_variant_output')
                 if field_name in step
             ]
-            if len(declared_output_contracts) > 1:
-                if declared_output_contracts == ['expected_outputs', 'output_bundle']:
-                    self._add_error(
-                        f"Step '{name}': output_bundle is mutually exclusive with expected_outputs"
-                    )
-                else:
-                    self._add_error(
-                        f"Step '{name}': mutually exclusive output contract fields {declared_output_contracts}"
-                    )
+            admitted_output_contract_sets = (
+                ['expected_outputs', 'output_bundle'],
+                ['expected_outputs', 'variant_output'],
+            )
+            if (
+                len(declared_output_contracts) > 1
+                and declared_output_contracts not in admitted_output_contract_sets
+            ):
+                self._add_error(
+                    f"Step '{name}': mutually exclusive output contract fields {declared_output_contracts}"
+                )
+            elif len(declared_output_contracts) == 2:
+                self._validate_prompt_output_position_contract_names(
+                    step=step,
+                    step_name=name,
+                )
 
             if 'inject_output_contract' in step and not isinstance(step['inject_output_contract'], bool):
                 self._add_error(f"Step '{name}': 'inject_output_contract' must be a boolean")
@@ -6342,6 +6354,127 @@ class _WorkflowMappingValidator:
                     for prompt_key in ('label', 'description', 'format_hint', 'example', 'role'):
                         if prompt_key in prompt and not isinstance(prompt[prompt_key], str):
                             self._add_error(f"{context} consume prompt '{prompt_key}' must be a string")
+
+    @staticmethod
+    def _structured_output_contract_fields(
+        step: Dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        output_bundle = step.get("output_bundle")
+        if isinstance(output_bundle, dict):
+            fields = output_bundle.get("fields")
+            if not isinstance(fields, list):
+                return []
+            return [field for field in fields if isinstance(field, dict)]
+
+        variant_output = step.get("variant_output")
+        if not isinstance(variant_output, dict):
+            return []
+
+        fields: list[dict[str, Any]] = []
+        discriminant = variant_output.get("discriminant")
+        if isinstance(discriminant, dict):
+            fields.append(discriminant)
+        shared_fields = variant_output.get("shared_fields")
+        if isinstance(shared_fields, list):
+            fields.extend(
+                field for field in shared_fields if isinstance(field, dict)
+            )
+        variants = variant_output.get("variants")
+        if isinstance(variants, dict):
+            for variant in variants.values():
+                if not isinstance(variant, dict):
+                    continue
+                variant_fields = variant.get("fields")
+                if isinstance(variant_fields, list):
+                    fields.extend(
+                        field
+                        for field in variant_fields
+                        if isinstance(field, dict)
+                    )
+        return fields
+
+    @staticmethod
+    def _structured_output_field_subject_refs(
+        field: dict[str, Any],
+    ) -> tuple[ValidationSubjectRef, ...]:
+        candidates = [field.get("source_map_subject")]
+        subjects_by_variant = field.get("source_map_subjects_by_variant")
+        if isinstance(subjects_by_variant, dict):
+            candidates.extend(subjects_by_variant.values())
+
+        refs: list[ValidationSubjectRef] = []
+        seen: set[tuple[str, str, str | None]] = set()
+        for candidate in candidates:
+            subject_ref = parse_validation_subject_ref(candidate)
+            if subject_ref is None:
+                continue
+            key = (
+                subject_ref.subject_kind,
+                subject_ref.subject_name,
+                subject_ref.workflow_name,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            refs.append(subject_ref)
+        return tuple(refs)
+
+    def _validate_prompt_output_position_contract_names(
+        self,
+        *,
+        step: Dict[str, Any],
+        step_name: str,
+    ) -> None:
+        expected_outputs = step.get("expected_outputs")
+        if not isinstance(expected_outputs, list):
+            return
+
+        structured_fields_by_name: dict[
+            str, list[tuple[ValidationSubjectRef, ...]]
+        ] = {}
+        for field in self._structured_output_contract_fields(step):
+            artifact_name = field.get("name")
+            if not isinstance(artifact_name, str):
+                continue
+            structured_fields_by_name.setdefault(artifact_name, []).append(
+                self._structured_output_field_subject_refs(field)
+            )
+
+        step_id = step.get("id")
+        if not isinstance(step_id, str) or not step_id:
+            step_id = step_name
+        for expected_output in expected_outputs:
+            if not isinstance(expected_output, dict):
+                continue
+            artifact_name = expected_output.get("name")
+            if (
+                not isinstance(artifact_name, str)
+                or artifact_name not in structured_fields_by_name
+            ):
+                continue
+            primary = ValidationSubjectRef(
+                subject_kind="expected_output",
+                subject_name=f"{step_id}::expected-output::{artifact_name}",
+                workflow_name=self._current_validation_workflow_name,
+            )
+            application_fallback = ValidationSubjectRef(
+                subject_kind="step_id",
+                subject_name=step_id,
+                workflow_name=self._current_validation_workflow_name,
+            )
+            related = tuple(
+                subject_ref
+                for field_refs in structured_fields_by_name[artifact_name]
+                for subject_ref in (field_refs or (application_fallback,))
+            )
+            self._add_error(
+                (
+                    "prompt_output_position_contract_collision: "
+                    f"Step '{step_name}' artifact name '{artifact_name}' is declared "
+                    "by expected_outputs and the structured result contract"
+                ),
+                subject_refs=(primary, *related),
+            )
 
     def _get_publish_source_map(
         self,

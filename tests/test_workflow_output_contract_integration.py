@@ -6,6 +6,10 @@ from types import SimpleNamespace
 
 
 from orchestrator.contracts.output_contract import validate_output_bundle
+from orchestrator.contracts.prompt_contract import (
+    render_output_bundle_contract_block,
+    render_output_contract_block,
+)
 from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
@@ -639,6 +643,92 @@ def test_provider_step_persists_artifacts_when_contract_is_valid(tmp_path: Path)
     assert result["exit_code"] == 0
     assert result["status"] == "completed"
     assert result["artifacts"] == {"review_decision": "APPROVE"}
+
+
+def test_provider_prompt_retains_both_runtime_resolved_output_contracts(
+    tmp_path: Path,
+) -> None:
+    workflow = {
+        "version": "2.21",
+        "name": "provider-dual-contract-resolution",
+        "inputs": {
+            "state_root": {
+                "kind": "relpath",
+                "type": "relpath",
+                "under": "state",
+            }
+        },
+        "steps": [
+            {
+                "name": "Review",
+                "provider": "codex",
+                "expected_outputs": [
+                    {
+                        "name": "review_note",
+                        "path": "${inputs.state_root}/review_note.txt",
+                        "type": "string",
+                    }
+                ],
+                "output_bundle": {
+                    "path": "${inputs.state_root}/result.json",
+                    "fields": [
+                        {
+                            "name": "approved",
+                            "json_pointer": "/approved",
+                            "type": "bool",
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+    loaded = WorkflowLoader(tmp_path).load(_write_workflow(tmp_path, workflow))
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize(
+        "workflow.yaml",
+        bound_inputs={"state_root": "state/review"},
+    )
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    captured: dict[str, str] = {}
+
+    def _prepare_invocation(*_args, **kwargs):
+        captured["prompt"] = kwargs.get("prompt_content") or ""
+        return SimpleNamespace(), None
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = lambda *_args, **_kwargs: SimpleNamespace(
+        exit_code=1,
+        stdout=b"",
+        stderr=b"stop after prompt capture",
+        duration_ms=1,
+        error={"type": "execution_failed", "message": "captured"},
+        missing_placeholders=None,
+        invalid_prompt_placeholder=False,
+    )
+
+    executor.execute(on_error="continue")
+
+    resolved_expected = [
+        {
+            "name": "review_note",
+            "path": "state/review/review_note.txt",
+            "type": "string",
+        }
+    ]
+    resolved_bundle = {
+        "path": "state/review/result.json",
+        "fields": [
+            {
+                "name": "approved",
+                "json_pointer": "/approved",
+                "type": "bool",
+            }
+        ],
+    }
+    assert captured["prompt"] == (
+        f"{render_output_contract_block(resolved_expected)}\n\n"
+        f"{render_output_bundle_contract_block(resolved_bundle)}"
+    )
 
 
 def test_provider_failure_preserves_original_error_and_skips_contract(tmp_path: Path):

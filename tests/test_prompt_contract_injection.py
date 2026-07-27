@@ -8,7 +8,11 @@ from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
-from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block
+from orchestrator.contracts.prompt_contract import (
+    render_output_bundle_contract_block,
+    render_output_contract_block,
+    render_variant_output_contract_block,
+)
 from orchestrator.deps.content_snapshot import build_content_snapshot
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
@@ -50,6 +54,132 @@ def _variant_contract_document(prompt_block: str) -> dict[str, object]:
 
 def _output_contract_document(prompt_block: str) -> dict[str, object]:
     return parse_prompt_contract_document(prompt_block)
+
+
+def _expected_output_contract_rows(prompt_block: str) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for line in prompt_block.splitlines():
+        if line.startswith("- name: "):
+            rows.append({"name": line.removeprefix("- name: ")})
+        elif rows and line.startswith("  ") and ": " in line:
+            key, value = line.strip().split(": ", 1)
+            rows[-1][key] = value
+    return rows
+
+
+@pytest.mark.parametrize("structured_contract_name", ("output_bundle", "variant_output"))
+def test_prompt_output_position_contract_blocks_are_composed_in_contract_order(
+    tmp_path: Path,
+    structured_contract_name: str,
+) -> None:
+    expected_outputs = [
+        {
+            "name": "report_path",
+            "path": "state/report_path.txt",
+            "type": "relpath",
+            "required": True,
+        }
+    ]
+    output_bundle = {
+        "path": "state/result.json",
+        "fields": [
+            {
+                "name": "approved",
+                "json_pointer": "/approved",
+                "type": "bool",
+            }
+        ],
+    }
+    variant_output = {
+        "path": "state/result.json",
+        "discriminant": {
+            "name": "decision",
+            "json_pointer": "/decision",
+            "type": "enum",
+            "allowed": ["APPROVE", "REVISE"],
+        },
+        "variants": {
+            "APPROVE": {"fields": []},
+            "REVISE": {"fields": []},
+        },
+    }
+    structured_contract = (
+        output_bundle
+        if structured_contract_name == "output_bundle"
+        else variant_output
+    )
+    structured_block = (
+        render_output_bundle_contract_block(output_bundle)
+        if structured_contract_name == "output_bundle"
+        else render_variant_output_contract_block(variant_output)
+    )
+    step = {
+        "expected_outputs": expected_outputs,
+        structured_contract_name: structured_contract,
+    }
+
+    rendered = PromptComposer(
+        workspace=tmp_path,
+        asset_resolver=None,
+    ).apply_output_contract_prompt_suffix(step, "")
+
+    expected_block = render_output_contract_block(expected_outputs)
+    assert rendered == f"{expected_block}\n\n{structured_block}"
+    assert _expected_output_contract_rows(expected_block) == [
+        {
+            "name": "report_path",
+            "path": expected_outputs[0]["path"],
+            "type": "relpath",
+        }
+    ]
+    assert _output_contract_document(structured_block)["path"] == (
+        structured_contract["path"]
+    )
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        {},
+        {
+            "expected_outputs": [
+                {
+                    "name": "report_path",
+                    "path": "state/report_path.txt",
+                    "type": "relpath",
+                }
+            ]
+        },
+        {
+            "output_bundle": {
+                "path": "state/result.json",
+                "fields": [
+                    {
+                        "name": "approved",
+                        "json_pointer": "/approved",
+                        "type": "bool",
+                    }
+                ],
+            }
+        },
+    ],
+)
+def test_output_contract_composition_preserves_no_or_single_contract_bytes(
+    tmp_path: Path,
+    step: dict[str, object],
+) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+    prompt = "Perform the task.\n"
+    rendered = composer.apply_output_contract_prompt_suffix(step, prompt)
+
+    if "expected_outputs" in step:
+        block = render_output_contract_block(step["expected_outputs"])
+        assert rendered == f"{prompt}\n{block}"
+    elif "output_bundle" in step:
+        block = render_output_bundle_contract_block(step["output_bundle"])
+        assert rendered == f"{prompt}\n{block}"
+    else:
+        assert rendered == prompt
 
 
 def _typed_dependency_runtime(
