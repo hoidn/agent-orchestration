@@ -1,339 +1,483 @@
 # Workflow Lisp Prompt Calculus
 
-- **Status:** proposed direction (owner-directed 2026-07-25; design review
-  pending)
-- **Kind:** language direction — a typed, compositional prompt layer
-- **Owner:** Workflow Lisp frontend + provider runtime
+- **Status:** accepted Q1 design (independent specification and quality review
+  approved 2026-07-26)
+- **Kind:** language design — typed, compositional provider prompts
+- **Owner:** Workflow Lisp frontend plus the existing provider prompt pipeline
+- **Selected tranche:** Q1 prompt core only
+- **Minimum target:** `(:target-dsl "2.20")`
 - **Related docs:**
   - `docs/design/workflow_lisp_frontend_specification.md`
+  - `docs/design/workflow_lisp_transportable_value_type.md`
+  - `docs/design/workflow_lisp_native_transportable_returns.md`
   - `docs/plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-design.md`
-    (implemented per-attempt snapshot contract)
-  - `docs/design/workflow_lisp_program_search_boundaries.md` (invariant 8:
-    role-separated prompt identity — the E4P discipline)
-  - `docs/design/workflow_lisp_provider_peer_messaging.md` (runtime-owned
-    prompt preludes)
-  - `docs/design/workflow_lisp_pure_list_traversal.md` (mapping substrate)
-  - `docs/design/workflow_language_design_principles.md`
-- **Sequencing:** head of the post-Stage-8 successor queue by owner
-  direction. Prerequisite: the opt-in transportable top value type
-  (`Value`), which is the unstated-return default of prompt-carried
-  signatures. The list-traversal delta and Stage 8 have both landed.
+  - `docs/design/workflow_lisp_program_search_boundaries.md`
+  - `docs/design/workflow_language_design_principles.md`, especially
+    principle 29
+  - `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`
 
-## The asymmetry this direction closes
+## Decision
 
-The language types exactly half of its interface to the stochastic
-coprocessor. Agent *results* receive the full treatment: unions, variant
-proofs, fail-closed validation, provenance. The *programs sent to the
-agent* — prompts, which determine everything downstream — are opaque extern
-files. Nothing verifies that a prompt mentions its inputs, discharges its
-task, or matches the result type it is supposed to elicit; an empty
-instructions file is first detected as a useless provider result, at
-provider-call prices.
+Q1 adds importable `defprompt` declarations with a closed delivery-kind
+surface, fully applied named fills, prompt-owned result contracts, and one
+minimum compiled-fragment identity. A `defprompt` is compile-time prompt
+structure accepted only in `provider-result :prompt`. It is not a value,
+`ProcRef`, procedure body, provider implementation, runtime prompt reference,
+or general callable.
 
-The strategic claim (owner, 2026-07-25): the language's differentiation
-against general-purpose scripting is domain semantics — prompts, judgments,
-reviews as typed objects — not generic orchestration, which merely defends.
-A compiler that can say "this prompt is incomplete" is not competing with
-Python.
+The compiler checks declared slot coverage, delivery compatibility,
+placeholder correspondence, and result-contract coherence. It does not judge
+whether prose is relevant, persuasive, sufficient for the task, or likely to
+make a model comply.
 
-## Existing seeds (convergent, currently ad hoc)
+The first consumer is the review half of
+`workflows/examples/review_revise_design_docs.orc`. Q1 migrates only
+`review-design-docs` and its current `prompts.design-docs.review` extern.
+The fix prompt, review/revise loop, provider policy, result authority,
+retry/resume behavior, and terminal routing remain unchanged.
 
-Five shipped mechanisms already grope toward this layer:
+`defprompt`, a fragment application in `provider-result :prompt`, and every
+Q1-specific slot keyword require target DSL 2.20 or later. At target 2.19 and
+earlier they fail with `prompt_calculus_requires_dsl_2_20`; lower targets do
+not reserve `defprompt` as a general expression or change any extern-backed
+provider call.
 
-1. **Output-contract rendering** — the declared result type is rendered
-   into the prompt as a deterministic contract block: the one existing
-   type-to-prompt bridge.
-2. **Prompt dependencies** — typed, ordered, frozen content injection with
-   per-attempt snapshots: composition through the filesystem, untyped at
-   the fragment level.
-3. **The generic-reviewer pattern** — one template prompt plus injected
-   per-lens instruction files: fragment composition by convention, with no
-   check that an instruction file is nonempty, relevant, or shaped for the
-   declared result.
-4. **Runtime-owned preludes** — the peer-protocol injection: structured
-   prompt blocks owned by the runtime, composed positionally.
-5. **E4P prompt-identity roles** (salvaged to
-   `workflow_lisp_program_search_boundaries.md` §8) — the identity
-   discipline: resolved-binding domains, used-dependency-minimal program
-   identity, protected composition environments, per-attempt snapshots.
+## Why This Surface Exists
 
-A prompt calculus unifies these rather than adding a sixth convention.
+Provider results already have typed, fail-closed contracts. Provider prompts
+are still external files plus independently declared inputs, dependencies,
+and returns. That split permits drift:
 
-## Components
+- an external prompt can omit an input the call believes it supplies;
+- a rendered placeholder can have no declared source;
+- a result type can be duplicated between prompt intent and call syntax; and
+- two compiled calls can use different prompt programs without a stable
+  fragment-program identity.
 
-### 1. `defprompt` — importable fragments with typed slots
+Q1 closes only those structural gaps. It reuses the existing prompt
+dependency, typed-input, output-contract, prompt snapshot, and provider
+transport owners rather than adding another prompt renderer, snapshot store,
+result channel, or runtime authority.
 
-A prompt fragment is a compile-time language object, importable and
-composable like a type or procedure:
+## Q1 Surface
+
+### `defprompt`
+
+A prompt declaration belongs to a distinct compile-time module namespace. It
+uses ordinary import/export visibility, ambiguity, and source-location rules.
 
 ```lisp
-(defprompt lens-review
-  (:fills (criteria :doc)        ; slot kind: injected document content
-          (target   :doc)
-          (report_target :path)) ; slot kind: rendered path value
-  "Review the target strictly according to the criteria.
-   Ground every finding in a specific section.
-   Write your review to {report_target}.")
+(defprompt review-design-doc
+  (:fills
+    (target_doc :doc DesignDocPath)
+    (context_docs :value List[DesignDocPath])
+    (review_focus :text)
+    (checks_report :path WorkReportPath)
+    (review_report_target_path :path ReviewReportTargetPath))
+  -> ReviewDecision
+  "Take the role of a principal engineer.
+
+   Review the injected target document using {review_focus}.
+   Read the context paths in {context_docs}.
+   Read the checks report at {checks_report}.
+   Write the review to {review_report_target_path}.")
 ```
 
-A fragment's slots are one set seen two ways. The **templating view** is
-the text: fields in the prose, bindable one at a time until fully bound.
-The **signature view** is the interface: typed inputs and outputs,
-one-to-one with a procedure signature (component 2). The views cannot
-drift because they share the slots: for rendered kinds (`:text`, `:value`,
-`:path`) the compiler checks the placeholder/slot correspondence both
-ways — an undeclared `{placeholder}` or a declared rendered slot absent
-from the text is a compile error — while `:doc` slots deliver as injected
-blocks and need no inline placeholder.
+The declaration contains:
 
-Slots are holes with **kinds**, drawn from a closed, small vocabulary —
-`:doc` (injected document content), `:text` (rendered string), `:value`
-(rendered transportable value), `:path` (rendered path) — mirroring the
-injection channels that already exist. A provider call site must discharge
-every slot of its composed prompt — with a value, a document, or another
-fragment of the matching kind — and an unfilled or wrong-kind slot is a
-compile error with the slot and expected kind named. "Fully specified
-prompt" becomes a checkable proposition, exactly like an unbound variable.
+- one module-local name;
+- slots in authored declaration order;
+- one optional `ReturnSpec`, defaulting to exact target-2.19 `Value`; and
+- one template string.
 
-Kinds are **delivery channels**, and choosing between them is a real
-authoring decision the design makes explicit rather than implied:
+`ReturnSpec` is the existing type plus optional description/format-hint/example
+guidance structure. All existing target gates and type-specific guidance rules
+continue to apply, including the prohibition on a `Value` example.
 
-- `:doc` delivers **by injection**: the fill's content is frozen into the
-  attempt snapshot and the prompt identity — maximal "what did the agent
-  see" evidence, bounded by the injection size cap.
-- `:path` delivers **by reference**: the agent receives the path and reads
-  for itself — right for large or navigable material and tool-bearing
-  agents, at a stated evidence cost: identity records which path was
-  named, not what the file held when read. Choosing reference is choosing
-  that weaker evidence (an authoring decision in the principle-29 sense).
-  An open option, not machinery yet: recording a dispatch-time digest of
-  referenced files to evidence "what was there at call start" without
-  injection.
+### Fully Applied Named Use
 
-Delivery mode is the fragment author's choice per slot, not the caller's
-per call: prose and delivery are coupled ("the injected content above"
-versus "read the file at {p}"), so caller-side overrides could silently
-contradict the fragment's own text. Same-fragment-both-modes is deferred
-until a consumer demonstrates the need.
-
-A `:path` slot may additionally be marked an **output position**
-(`(report_target :path :out)`): the prose instructs writing to that path,
-the signature declares it, and the runtime verifies existence there after
-the attempt — today's expected-output postcondition, relocated to the
-declaration the instruction lives in. This closes a real drift class
-(prompt instructs writing to X while the step checks Y) by making prose,
-signature, and postcondition one declaration.
-
-Kinds are not a vocabulary beside the type system; each kind is the loose
-top type of its delivery channel, and a slot *may* narrow it with a
-specific type (`(criteria :doc CriteriaDoc)`) when a particular path
-family or value shape genuinely matters. Refinement is ordinary
-principle-29 narrowing — optional, and not the idiom: the calculus's
-value is discharge checking, not nominal branding, and a fragment usable
-only with bespoke types is a worse fragment.
-
-Fragments compose: a call's prompt is a fragment application tree,
-flattened deterministically at composition time into the same rendered
-bytes / attempt-snapshot / evidence pipeline that exists today. There are
-no runtime prompt values: composition is compile-time structure, rendering
-is the existing per-attempt runtime step.
-
-Application may be partial. Binding a subset of slots by name yields a
-**residual fragment** whose signature is exactly the remaining slots,
-usable anywhere a fragment is: partial application is compile-time
-structural staging, not closure creation — a residual is never a runtime
-value. The discharge rule generalizes accordingly: a provider call
-applied to a fragment with a nonempty residual is the compile error
-`prompt_slot_undischarged`, naming the open slots and their kinds.
-Staging gives the generic-reviewer pattern its natural shape —
-panel-invariant slots bound once, the per-lens slot bound at each use.
-
-### 2. Prompt-carried signatures
-
-Slots and return type together make a prompt a full procedure signature:
-slots are the parameters, and the declared return type is what the prompt
-elicits. A fully bound prompt handed to a provider is a call to a
-procedure whose body is stochastic.
+Q1 accepts exactly one direct, fully applied named application in a provider
+prompt position:
 
 ```lisp
-(defprompt classify-blocker
-  (:fills (evidence :doc))
-  -> BlockerClass
-  "...")
+(provider-result providers.design-docs.review
+  :prompt
+    (review-design-doc
+      :target_doc completed.target_doc
+      :context_docs completed.context_docs
+      :review_focus inputs.review_focus
+      :checks_report inputs.checks_report
+      :review_report_target_path inputs.review_report_target_path)
+  :model inputs.review_model
+  :effort inputs.review_effort
+  :timeout-sec 3600)
 ```
 
-An unstated return type is `Value` — loose by choice, per principle 29.
-Provider call sites *derive* their result type from the composed prompt
-instead of re-declaring it, exactly as any call site takes its type from
-the callee's signature; a call-site annotation is optional and is checked
-against the signature, never trusted over it. The existing
-output-contract rendering keys off this one declaration, so the bridge
-runs both ways from a single source: the return type renders into the
-prompt as the contract block, and the provider's result validates against
-it at the runtime boundary.
+All declared slots must appear exactly once as named fills. Fill order in the
+application is not semantic: normalization reorders bindings into declaration
+order. Unknown, duplicate, missing, or incompatible fills are compile errors.
+An incomplete application never yields a residual fragment.
 
-Two consequences follow. Prompts and procedures become
-signature-interchangeable: a deterministic `defproc` with the same
-signature can stand in for a prompt-backed call, making provider doubles
-in tests type-checked substitutions rather than conventions. And the
-anti-inference line is unmoved: the signature is authored at the
-`defprompt`, never derived from the prose — the checker reads structure,
-not meaning.
+A fragment-backed `provider-result` must not author `:returns`. Its result
+type and guidance derive from the declaration's sole `ReturnSpec`. The
+enclosing procedure or workflow still checks that derived result through
+ordinary type compatibility. Existing extern-backed provider calls retain
+their current explicit `:returns` syntax.
 
-### 3. Prompt identity (E4P discipline, instantiated)
+A fragment-backed call also must not author `:inputs` or
+`:prompt-dependencies`. Every provider-visible typed value or injected
+document belongs to one declared slot. Existing extern-backed calls retain
+both forms unchanged. Coexistence and merge policy are deferred until a real
+consumer needs prompt material outside the fragment declaration.
 
-Composed prompts get used-dependency-minimal identity per invariant 8: the
-fragments actually composed, the slots actually filled, and the resolved
-bindings — not unused imports, not ambient hashes; partial application
-adds no identity surface, since residuals are staging and identity
-attaches to the fully composed tree at the call. Consequences: "did this
-review run under the same prompt as last week" is a computable question;
-prompt drift is a diff between identities; and the evidence ledger's
-"what did this agent see" gains a stable name for the program half.
+## Closed Slot Contract
 
-### 4. Judgment provenance and domain views
+Kinds classify delivery. They are not nominal brands, source subtypes, or
+implicit conversion rules. In particular, `:value` is not the Workflow Lisp
+type `Value`; it creates neither `T -> Value` nor `Value -> T` conversion.
 
-Attempt evidence already records which prompt, model, effort, and injected
-inputs produced each result. This component lifts that association to the
-inspection layer: a typed judgment — a result together with its producing
-prompt identity, provider policy, and evidence set — plus a stdlib of
-`materialize-view` renderers over common judgment shapes: per-lens verdict
-matrices, panel disagreement tables, findings-over-iterations series.
-Reports remain views (principle 7); the semantics live in the typed
-results and the evidence, and the views make them legible.
+| Kind | Admissible fill | Optional refinement | Delivery owner | Placeholder rule |
+| --- | --- | --- | --- | --- |
+| `:doc` | one `PathTypeRef` whose contract is workspace-relative `relpath` and `must_exist=true` | any admissible `PathTypeRef` | existing immutable required-content snapshot and injection block | forbidden |
+| `:text` | exact `String` | none in Q1 | raw UTF-8 inline rendering | required at least once; repetition allowed |
+| `:value` | a type for which the target-2.20 typed-input registry selects exactly one canonical-JSON renderer | any admissible `:value` type | existing typed prompt-input renderer and evidence path | required at least once; repetition allowed |
+| `:path` | any `PathTypeRef` for which the existing registry selects the path-line renderer | any admissible `PathTypeRef` | existing POSIX path reference renderer | required at least once; repetition allowed |
 
-### 5. Mapping over prompts
+Transportability alone does not install a renderer. Unsupported or ambiguous
+renderer selection remains fail-closed. Target 2.20 adds exactly one
+Q1-required registry rule: `List[T]` selects canonical JSON when `T` is a
+scalar, enum, path, record, or exact `Value` type already representable by
+that renderer; the rule applies recursively to nested lists and adds no new
+renderer implementation. This rule is required for the selected consumer's
+`List[DesignDocPath]`. Q1 does not add implicit renderers for `Optional`,
+`Map`, union, variant-case, reference, resource, schema, or other collection
+types.
 
-With fragments as importable objects and the list-traversal delta landed,
-the review panel reaches its final form: map a procedure over a list of
-fragment references or criteria documents, collect a list of judgments,
-render the matrix. Partial application supplies the idiom —
-panel-invariant slots bound once outside the map, only the per-lens slot
-bound in the body. No new machinery in this component; it is the
-composition of components 1–4 with `list/map-effect`.
+When a slot has a refinement, the fill's resolved static type must satisfy
+the existing `type_refs_compatible(refinement, fill_type)` predicate. With no
+refinement, membership in the kind's admissible set is sufficient. A
+refinement must itself belong to that set. Thus refinement only narrows and
+never creates a renderer, path contract, conversion, or subtype rule.
 
-## Worked example: opt-in density across a workflow's life
+### Delivery Order
 
-The same review panel at two moments, demonstrating the calculus together
-with design principle 29 (types are opt-in constraints). Day one —
-exploratory, nearly typeless:
+Lowering first renders the fragment template's `:text`, `:value`, and `:path`
+placeholders as the in-memory base prompt. It lowers `:doc` fills into the
+existing required prompt-dependency lane, with `position=prepend`, and records
+their declaration order as provenance. The existing dependency owner retains
+its canonical resolved-target ordering and alias de-duplication rules; Q1 does
+not substitute fragment declaration order for that final block order. The
+block uses the existing default dependency instruction; Q1 exposes no
+fragment-level instruction or position override.
 
-```lisp
-(defprompt lens-review
-  (:fills (criteria :doc) (target :doc) (report_target :path))
-  "Review the target according to the criteria.
-   Write your review to {report_target}.")
+The final prompt then follows the existing composition contract:
 
-(defworkflow entry
-  ((doc Path)                       ; generic path: no root/existence ceremony yet
-   (lens_names List[String]))       ; the panel is a list of strings
-  -> Value                          ; opt-in top type: no result contract yet
-  (list/map-effect ((name lens_names)) :max 8
-    (provider-result providers.reviewer  ; result type from the prompt's
-      :prompt (lens-review               ; signature — unstated, so Value
-                :criteria (path/join-under "lenses" (string/concat name ".md"))
-                :target doc
-                :report_target (path/join-under "artifacts/review" (string/concat name ".md"))))))
+1. start from the rendered fragment base prompt;
+2. prepend the fragment's one canonical required `:doc` dependency block;
+3. apply consumed-artifact injection at its declared position;
+4. append the one generated output-contract suffix; and
+5. deliver through the existing provider argv/stdin transport.
+
+Q1 creates no prompt file at runtime. The fragment renderer hands its in-memory
+base text and lowered contribution rows to the existing composition path.
+The existing attempt snapshot remains the sole record of the prompt delivered
+to that attempt.
+
+The migrated generic-reviewer consumer must preserve its current five inputs:
+
+| Slot | Fill | Required preservation |
+| --- | --- | --- |
+| `target_doc :doc DesignDocPath` | `completed.target_doc` | frozen required content in the prepend lane |
+| `context_docs :value List[DesignDocPath]` | `completed.context_docs` | target-2.20 canonical JSON list rendering through the explicit registry rule above |
+| `review_focus :text` | `inputs.review_focus` | task-specific lens text |
+| `checks_report :path WorkReportPath` | `inputs.checks_report` | referenced path |
+| `review_report_target_path :path ReviewReportTargetPath` | `inputs.review_report_target_path` | referenced path only; not an output-position declaration |
+
+The prompt owns `-> ReviewDecision`. The existing `ReturnSpec` pipeline still
+produces the generated variant contract, output-contract prompt suffix, and
+runtime bundle validation. Provider prose remains a view; the validated
+bundle remains result authority.
+
+## Placeholder Grammar
+
+The template scanner is deterministic and left-to-right.
+
+- A placeholder is `{slot-name}`.
+- `slot-name` must match `[A-Za-z_][A-Za-z0-9_-]*`.
+- `{{` renders a literal `{`; `}}` renders a literal `}`.
+- A lone or mismatched brace is invalid.
+- Placeholder whitespace, format operators, attribute access, indexing, and
+  nested expressions are invalid.
+- A placeholder must name one declared `:text`, `:value`, or `:path` slot.
+- Every declared rendered slot must appear at least once.
+- Repeating a rendered placeholder is allowed and reuses the same rendered
+  bytes.
+- A `:doc` placeholder is invalid because document content is injected through
+  the dependency lane, not inline.
+
+This syntax is independent of provider command `${...}` substitution and
+never enters that substitution engine.
+
+## Return Ownership
+
+One `defprompt` declaration owns one `ReturnSpec`. An omitted return means
+exact `Value`, not an inferred type and not a wildcard. A fragment-backed
+call:
+
+- derives its provider result type from that declaration;
+- lowers through the same direct-root/record/union contract machinery as any
+  other declared result;
+- renders the output contract exactly once; and
+- rejects a second authored `:returns`.
+
+Prompts and procedures remain different operation kinds. A procedure cannot
+stand in for a prompt, a prompt cannot be referenced by `proc-ref`, and
+matching parameter/result shapes do not make them interchangeable.
+
+## Minimum Fragment Identity
+
+Q1 adds `compiled_prompt_fragment_identity.v1`, a canonical SHA-256 digest of
+compiled fragment structure:
+
+```text
+sha256(canonical_json({
+  "schema_version": "compiled_prompt_fragment_identity.v1",
+  "referenced_declarations": [
+    {
+      "qualified_name": ...,
+      "template_utf8": ...,
+      "slots": [
+        {
+          "name": ...,
+          "kind": ...,
+          "refinement": ...,
+          "placeholder_policy": ...
+        }
+      ],
+      "return_spec": ...
+    }
+  ],
+  "fully_applied_bindings": [
+    {
+      "slot": ...,
+      "typed_expression_identity": ...
+    }
+  ]
+}))
 ```
 
-Zero `defrecord`, `defunion`, or `defpath` declarations — yet slot-discharge
-checking, path containment, per-attempt evidence, mid-panel resume, and the
-spend cap all hold, because they are structural. Result-shape validation is
-deliberately loose: a loose contract is a loose check, chosen.
+Canonical JSON means UTF-8, sorted object keys, compact separators, JSON
+literals only, and no trailing newline. The stored identity is
+`sha256:<lowercase-hex>`. Declaration, slot, and binding rows use authored
+declaration order; object-key sorting does not reorder those arrays.
 
-Hardened later, narrowing only where narrowing pays (each step legal under
-"contracts may only narrow"): the prompt's declared return type becomes a
-record once its fields are consumed; the report path becomes a rooted must-exist family once
-downstream relies on it; one `defenum` verdict appears at the single place
-a caller routes with `match`; and the irreconcilable-contradiction outcome
-becomes an authored failure (`fail :class "panel_contradiction" ...`)
-rather than a variant threaded through every caller. Reusable aggregation
-bridges both eras without re-wrapping through a structural constraint:
+Type identity is the existing normalized compiler type descriptor. A
+`typed_expression_identity` is a closed JSON projection of the elaborated,
+typechecked fill expression:
 
-```lisp
-(defproc worst-severity
-  :forall (T)
-  ((items List[T]))
-  :where ((T is-record) (T has-field severity_count Int))
-  -> Int
-  ...)
-```
+- a literal is
+  `{"kind":"literal","literal_kind":K,"static_type":T,"value":V}`;
+- a lexical name is
+  `{"binding_path":[N],"kind":"binding_path","static_type":T}`;
+- a field access rooted at a lexical name is
+  `{"binding_path":[N,F1,...,Fn],"kind":"binding_path","static_type":T}`.
 
-Feature status within this example: structural constraints, `string/concat`,
-evidence, resume, `list/map-effect`, `path/join-under`, and the list
-operators all exist today (the list surface landed with the completed
-pure-list-traversal interstage); `defprompt` with prompt-carried
-signatures is this design's first tranche; `Value` is that tranche's
-prerequisite, as the unstated-return default; authored `fail` is a
-shelved consumer-triggered candidate expected at the hardening phase.
+`K` is the existing normalized literal-kind token, `T` is the normalized
+static type descriptor, `V` is the already validated JSON literal, `N` is the
+authored lexical binding name, and each `F` is one resolved field name.
+Imported module constants are not an admitted Q1 fill form. Authors can bind
+the result of another pure expression with ordinary `let`/`let*` and fill the
+slot from that lexical name.
 
-## Boundaries
+No other expression node is admitted in Q1. The projection therefore excludes
+spans, form paths, expansion stacks, comments, whitespace, runtime values,
+Python `repr`, object addresses, absolute paths, and fallback source spelling.
+Any other fill form is rejected with `prompt_fill_identity_unsupported`; the
+compiler may not fall back to a source location or host-language
+representation.
 
-- **Completeness is structural, not semantic.** The checker verifies that
-  every slot is discharged with the right type — never that the prose will
-  persuade, or that the model will comply. Overclaiming here would violate
-  the honesty the evidence layer is built on; the quality of a fragment
-  remains a prompt-engineering judgment, versioned and identified but not
-  verified.
-- **No runtime prompt values.** Workflow code cannot construct, mutate, or
-  branch on prompt content at runtime; composition is compile-time
-  structure, and runtime contribution remains what it is today — typed
-  value rendering and frozen document injection into declared slots.
-  Partial application stays inside the boundary: residuals are
-  compile-time structure, never values.
-- **No optimization semantics.** Prompt variation, search, and fitness are
-  the parked E-series; if ever revived they operate over this layer under
-  the program-search boundary invariants, which this direction neither
-  relaxes nor anticipates.
-- **Type parsimony (owner direction, 2026-07-25).** The calculus mints no
-  new nominal types and imposes no obligation to define any: slot
-  signatures are kinds from the closed vocabulary, refinement is optional,
-  and any value, path, or document satisfying the kind discharges the
-  slot. The return type is likewise optional, defaulting to loose
-  `Value`. A design that makes fragment
-  authors build type taxonomies before writing prose has failed this
-  boundary.
-- **Union parsimony (owner direction, 2026-07-25).** This layer must not
-  multiply unions. Declared return types target any transportable type —
-  enums, records, scalars — not preferentially unions; judgments are records
-  (result + provenance), not new outcome unions; and fragment machinery
-  introduces no DONE/FAILED-shaped types anywhere. Unions remain reserved
-  for outcomes a caller genuinely routes on; outcomes that are only ever
-  propagated belong to the failure channel, not the type.
-- **Type-parameterized fragments (deferred).** Type-generic prose — a
-  fragment whose instructions hold for a family of elicited types
-  ("classify into exactly one of the categories in the contract below")
-  — is admitted in one future form only: an explicit type parameter on
-  the `defprompt`, reusing the structural `:forall`/`:where` mechanism,
-  with the type argument instantiated visibly at the call site,
-  constraints bounded by contract-render totality (every admissible type
-  must render a coherent contract block), and prompt identity including
-  the instantiation. Deriving the contract block from a call-site
-  annotation or the enclosing procedure's return type is context flow
-  and remains ruled out regardless of duplication pressure. Admission
-  condition: two or more fragments with byte-identical prose differing
-  only in declared return type; until then the honest state is concrete
-  duplicated fragments.
-- **Migration is additive.** Extern prompt files remain valid; `defprompt`
-  is the typed successor adopted per prompt, with the generic-reviewer
-  pattern as the first migration candidate.
+The remaining declaration projections are exact:
 
-## First tranche
+- `refinement` is the normalized compiler type descriptor or JSON `null`;
+- `placeholder_policy` is `forbidden` for `:doc` and
+  `required_repetition_allowed` for every rendered kind; and
+- `return_spec` is
+  `{"type":T,"guidance":G}`, where `T` is the normalized result type
+  descriptor and `G` is the existing
+  `normalized_result_guidance_payload` object or JSON `null`.
 
-`defprompt` with prompt-carried signatures (slots as parameters, return
-type defaulting to `Value`), partial application with residual
-signatures, discharge checking at provider call sites, call-site result
-derivation, and deterministic fragment flattening into the existing
-rendering pipeline — components 1 and 2. Output-position slots follow in
-a second tranche once the post-attempt verification wiring is in scope;
-identity and judgment views follow in separate small tranches, each with
-its own consumer named.
+Q1 has no nested fragment references, so `referenced_declarations` contains
+exactly one row: the directly applied declaration. Its `qualified_name` is the
+resolved module name plus declaration name, `template_utf8` is the exact
+decoded template string, and its slot rows have exactly the four keys shown
+above. `fully_applied_bindings` contains exactly one `slot` plus
+`typed_expression_identity` row per declared slot. All illustrated `...`
+values in the envelope above are replaced only by these closed projections.
 
-Verification sketch for the first tranche: RED fixtures for an unfilled
-slot, an ill-typed fill, nested-fragment discharge, a provider call
-applied to a nonempty residual, a placeholder/slot mismatch inside a
-fragment, and a call-site annotation contradicting the prompt's
-signature; goldens proving composed rendering is byte-identical to an
-equivalent hand-authored prompt file; one end-to-end run converting the
-generic-reviewer example to fragments with unchanged provider behavior
-and evidence shape.
+The digest includes exactly referenced declarations and normalized fully
+applied binding expressions. It excludes:
+
+- unused imports;
+- resolved runtime values;
+- injected file bytes or digests;
+- provider/model/effort policy;
+- runtime-owned prompt contributions and preludes;
+- consumed-artifact values;
+- output bytes;
+- ambient repository state; and
+- cross-attempt comparison state.
+
+The same digest is required in Semantic IR, Executable IR, and the receiving
+attempt's existing immutable prompt snapshot before delivery. Missing or
+different carriage fails before provider launch. Q1 makes no claim that this
+digest identifies everything the agent saw. Q3 owns role-separated binding,
+dependency-content, runtime-contribution, and provider-policy identities,
+comparison, and diagnostic presentation.
+
+The exact carrier field is `compiled_prompt_fragment_identity` in:
+
+- the Semantic IR provider application;
+- the lowered Executable IR provider step; and
+- the top level of the receiving attempt's existing immutable prompt-snapshot
+  record.
+
+A fragment-backed call always uses that existing attempt snapshot publication
+owner, including when it has no `:doc` fill and no separately authored prompt
+dependency. In that case the snapshot has an empty dependency contribution
+set but still binds the compiled identity and final prompt digest. A snapshot
+for an extern-backed call remains unchanged. The three identity strings must
+be byte-equal before provider preparation; missing, malformed, or unequal
+carriage fails before launch.
+
+## Diagnostics And Source Ownership
+
+The Q1 refusal set is closed:
+
+| Code | Refusal | Primary source owner |
+| --- | --- | --- |
+| `prompt_slot_kind_unknown` | kind is not `doc`, `text`, `value`, or `path` | kind token |
+| `prompt_slot_duplicate` | slot name is declared more than once | duplicate declaration |
+| `prompt_slot_refinement_invalid` | refinement is incompatible with the kind/renderer lane | refinement occurrence |
+| `prompt_placeholder_syntax_invalid` | malformed name, escape, or brace | template occurrence |
+| `prompt_placeholder_undeclared` | placeholder names no slot | placeholder occurrence |
+| `prompt_placeholder_missing` | rendered slot has no placeholder | slot declaration; template is related |
+| `prompt_doc_placeholder_forbidden` | document slot appears inline | placeholder; slot declaration is related |
+| `prompt_fill_duplicate` | named fill appears more than once | duplicate fill keyword |
+| `prompt_fill_unknown` | fill names no slot | fill keyword |
+| `prompt_slot_undischarged` | one or more declared fills are absent | application; missing declarations are related |
+| `prompt_slot_type_mismatch` | fill fails kind/refinement compatibility | fill expression; slot declaration is related |
+| `prompt_fill_renderer_unsupported` | selected kind has no unique existing renderer | fill expression |
+| `prompt_fill_identity_unsupported` | fill expression is outside the closed literal/name/field-path identity grammar | fill expression |
+| `prompt_partial_application_unsupported` | incomplete application is used as structure | application |
+| `prompt_return_redeclaration_forbidden` | fragment-backed call also authors `:returns` | call-site `:returns`; declaration return is related |
+| `prompt_inputs_redeclaration_forbidden` | fragment-backed call also authors `:inputs` | call-site `:inputs`; declaration slots are related |
+| `prompt_dependency_redeclaration_forbidden` | fragment-backed call also authors `:prompt-dependencies` | call-site dependency form; declaration document slots are related |
+| `prompt_calculus_requires_dsl_2_20` | a Q1 declaration, application, or slot keyword is authored below target 2.20 | first Q1-specific form or keyword |
+| `compiled_prompt_fragment_identity_missing` | Semantic IR, Executable IR, or attempt snapshot lacks the digest | provider application/source-map owner |
+| `compiled_prompt_fragment_identity_invalid` | a carried identity is not `sha256:` plus 64 lowercase hex digits or its bound canonical projection is malformed | malformed carrier or bound application |
+| `compiled_prompt_fragment_identity_mismatch` | carried digests disagree | provider application/source-map owner |
+
+Existing module visibility, type resolution, prompt-dependency, path,
+renderer-runtime, output-contract, and provider-transport failures retain
+their existing codes. They may relate the fill occurrence to their existing
+source owner; Q1 does not mint duplicate runtime errors.
+
+Diagnostic precedence is:
+
+1. declaration syntax, duplicate slots, kinds, refinements, and placeholders;
+2. module/import/export resolution;
+3. application fill names and completeness;
+4. fill type and renderer compatibility;
+5. return redeclaration and enclosing result compatibility;
+6. identity carriage validation; and
+7. existing runtime prompt/output/provider failures.
+
+## Real Consumer And Equivalence Gate
+
+Q1 migrates:
+
+- workflow: `workflows/examples/review_revise_design_docs.orc`;
+- procedure: `review-design-docs`;
+- provider: `providers.design-docs.review`;
+- extern key: `prompts.design-docs.review`;
+- prompt asset:
+  `prompts/workflows/review_revise_design_docs/review.md`; and
+- result: imported `std/phase::ReviewDecision`.
+
+The declaration may live in the consumer module or one importable companion
+module selected by the implementation plan. The extern key and review prompt
+asset are retired only for this call. `prompts.design-docs.fix` remains an
+extern.
+
+Acceptance must prove:
+
+- the consumer remains WCC/schema-2 and preferred current guidance;
+- all five fills follow the existing delivery lanes and order;
+- the composed base/dependency/input/contract bytes are intentionally
+  equivalent to the prior consumer, apart from the reviewed placeholder
+  normalization needed to make the fragment explicit;
+- provider selection, model, effort, timeout, result contract, bundle
+  authority, retry/resume, and review-loop behavior are unchanged; and
+- no family/module/provider name appears in generic compiler or runtime
+  machinery.
+
+## Principle 29 And Parsimony
+
+Slot kinds are structural delivery constraints, not mandatory type
+taxonomies. Refinements are optional and may only narrow. Q1 introduces no
+nominal wrapper type, implicit `Value` coercion, structural record coercion,
+new outcome union, or failure-as-data carrier. Existing declared types remain
+exact and fail-closed.
+
+An author can begin with `:text`, unrefined `:value`, generic path families,
+and an omitted return (`Value`), then narrow where consumers need stronger
+guarantees. Names remain mandatory only where they already carry a
+load-bearing contract, such as rooted paths, routed variants, and persisted
+identities.
+
+## Explicitly Outside Q1
+
+Q1 does not add:
+
+- residual or partial application;
+- fragment-valued fills or nested fragment composition;
+- prompt values, `PromptRef`, prompt collections, or dynamic selection;
+- `:out` output-position slots or post-attempt existence checks;
+- judgment values, judgment lists, provenance views, or reviewer matrices;
+- role-separated attempt identity, cross-attempt comparison, or prompt-drift
+  diagnostics;
+- type-parameterized fragments;
+- semantic prompt-quality checking;
+- optimization, search, or fitness;
+- a new runtime prompt/result/snapshot store;
+- procedure/provider signature interchangeability; or
+- security/provider-isolation behavior.
+
+Q2 exclusively owns `:path :out`. Q3 exclusively owns role-separated prompt
+identity and diagnostics. Q4 exclusively owns judgment inspection values and
+views. Residual fragments require a later consumer-triggered design amendment
+and are not implicitly selected by any of those stages.
+
+## Q1 Verification Boundary
+
+The implementation plan must include TDD coverage for:
+
+- declaration/import/export and distinct namespace behavior;
+- all kind/refinement/placeholder rules and diagnostic precedence;
+- fully applied named fills, including missing/unknown/duplicate/wrong-type
+  failures;
+- explicit rejection of residuals, nested fragments, `:out`, `proc-ref`, and
+  call-site `:returns`;
+- default exact `Value` and an explicit structured `ReturnSpec`;
+- classic/WCC parity where both routes support the surrounding provider call;
+- Semantic IR, Executable IR, attempt-snapshot identity carriage, and
+  missing/mismatch failure before launch;
+- unchanged existing extern-backed calls;
+- one clean and one resumed deterministic migrated-consumer execution without
+  duplicate provider work;
+- the existing prompt dependency, typed-input, output-contract, state, and
+  resume adjacency; and
+- the repository broad non-security comparison.
+
+Q1 design acceptance does not select implementation. A reviewed implementation
+plan remains the next gate.
