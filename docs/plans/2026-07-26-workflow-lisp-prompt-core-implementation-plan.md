@@ -24,11 +24,13 @@ runtime prompt object or second result authority is introduced.
 `5cab2160`, exact SHA-256
 `8410274c6681f406d14854265705156a73a1936e55f559cd9badee71fead611a`.
 
-**Execution status:** accepted for execution after ordered independent plan
-review: specification `Q1_IMPLEMENTATION_PLAN_SPEC_APPROVED`, quality
+**Execution status:** complete. Ordered plan review recorded specification
+`Q1_IMPLEMENTATION_PLAN_SPEC_APPROVED`, quality
 `Q1_IMPLEMENTATION_PLAN_QUALITY_APPROVED`, and post-quality specification
-reaffirmation `Q1_IMPLEMENTATION_PLAN_SPEC_REAFFIRMED`. No Q1 implementation is
-claimed until every task and the closing gates below pass.
+reaffirmation `Q1_IMPLEMENTATION_PLAN_SPEC_REAFFIRMED`. Tasks 1–6 landed through
+`e9bac6fa`; the structural-test quality correction landed at `af45c4f1`.
+Task 7's exact-tree gates, pre-Q1 control, and ordered final reviews are recorded
+below.
 
 **Deliberate cost:** Q1's direct, closed expression identity grammar and
 fragment-specific schema-2.1 snapshot make arbitrary prompt composition,
@@ -100,25 +102,25 @@ task patch. Security/provider-isolation tests are outside the verification set.
 - Modify: `orchestrator/workflow_lisp/__init__.py`
 - Create: `tests/test_workflow_lisp_prompt_calculus.py`
 
-- [ ] Write failing tests for the 2.20 target gate; declaration shape; slot
+- [x] Write failing tests for the 2.20 target gate; declaration shape; slot
   kinds/refinements; duplicate slots; exact brace/placeholder grammar;
   rendered-slot completeness; forbidden document placeholders; default
   `Value`; and result guidance parsing.
-- [ ] Run collection and the narrow tests to prove RED:
+- [x] Run collection and the narrow tests to prove RED:
 
   ```bash
   pytest --collect-only -q tests/test_workflow_lisp_prompt_calculus.py
   pytest -q tests/test_workflow_lisp_prompt_calculus.py
   ```
 
-- [ ] Implement immutable prompt declaration/slot/template models and one parser
+- [x] Implement immutable prompt declaration/slot/template models and one parser
   owner. Reuse `ReturnSpec`, existing target comparison, type syntax, spans, and
   diagnostic constructors.
-- [ ] Keep `defprompt` unreserved as a general expression below 2.20 while
+- [x] Keep `defprompt` unreserved as a general expression below 2.20 while
   diagnosing its Q1 form with `prompt_calculus_requires_dsl_2_20`.
-- [ ] Run the narrow tests GREEN.
-- [ ] Obtain ordered spec then quality review of the exact staged diff.
-- [ ] Commit the reviewed task.
+- [x] Run the narrow tests GREEN.
+- [x] Obtain ordered spec then quality review of the exact staged diff.
+- [x] Commit the reviewed task.
 
 ## Task 2: Prompt Namespace, Applications, Types, And Identity
 
@@ -134,37 +136,37 @@ task patch. Security/provider-isolation tests are outside the verification set.
 - Modify: `tests/test_workflow_lisp_prompt_calculus.py`
 - Modify: `tests/test_workflow_lisp_typed_prompt_inputs.py`
 
-- [ ] Write failing tests for local/imported/exported prompt resolution,
+- [x] Write failing tests for local/imported/exported prompt resolution,
   ambiguity and missing names; fully applied named fills; duplicate/unknown/
   missing fills; kind/refinement compatibility; forbidden call-site
   redeclarations; prompt-owned result typing including default exact `Value`
   and one explicit structured `ReturnSpec`; the exact admitted fill expression
   grammar; canonical identity stability and change sensitivity; and
   malformed/unsupported identity refusal.
-- [ ] Exercise every code in the design's closed Q1 refusal table and the
+- [x] Exercise every code in the design's closed Q1 refusal table and the
   accepted diagnostic precedence with competing failures. Explicitly reject
   residual/partial application, fragment-valued or nested fragment use,
   `:out`, prompt-as-value, `proc-ref` of a prompt, and call-site `:returns`,
   `:inputs`, and `:prompt-dependencies`.
-- [ ] Add both-direction renderer tests for the recursive Q1 `List[T]` rule,
+- [x] Add both-direction renderer tests for the recursive Q1 `List[T]` rule,
   including `List[DesignDocPath]`, and negative Optional/Map/union cases.
-- [ ] Implement a prompt prepass/catalog and a distinct module namespace without
+- [x] Implement a prompt prepass/catalog and a distinct module namespace without
   making prompts values or `ProcRef`s.
-- [ ] Parse prompt applications only in provider prompt position. Normalize
+- [x] Parse prompt applications only in provider prompt position. Normalize
   named fills into declaration order after resolution and typecheck.
-- [ ] Reuse the existing normalized type descriptor and result-guidance payload
+- [x] Reuse the existing normalized type descriptor and result-guidance payload
   when constructing `compiled_prompt_fragment_identity.v1`; do not use spans,
   source spelling, `repr`, runtime values, or absolute paths.
-- [ ] Add raw UTF-8 string selection for `:text` only through the fragment
+- [x] Add raw UTF-8 string selection for `:text` only through the fragment
   renderer contract; do not widen the ordinary authored `:inputs` surface.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_prompt_calculus.py \
     tests/test_workflow_lisp_typed_prompt_inputs.py
   ```
 
-- [ ] Obtain ordered spec then quality review and commit.
+- [x] Obtain ordered spec then quality review and commit.
 
 ## Task 3: Classic And WCC Lowering Plus Typed IR Carriage
 
@@ -186,36 +188,36 @@ task patch. Security/provider-isolation tests are outside the verification set.
 - Modify focused lowering, WCC, semantic-IR, executable-IR, source-map, and
   prompt-input tests.
 
-- [ ] Write failing classic/direct and WCC tests proving identical normalized
+- [x] Write failing classic/direct and WCC tests proving identical normalized
   fragment application, rendered typed inputs/document rows, derived result
   contract, and identity.
-- [ ] Write fail-closed IR validation and round-trip tests for missing,
+- [x] Write fail-closed IR validation and round-trip tests for missing,
   malformed, and mismatched identities, plus an absence-sensitive extern
   control.
-- [ ] Introduce the closed frozen
+- [x] Introduce the closed frozen
   `CompilerPromptFragmentContract`/`CompilerPromptFragmentRenderedSlot` runtime
   carrier in `prompt_fragment_contract.py`. It owns exact template UTF-8,
   ordered rendered-slot name/kind/type/renderer/value-source/placeholder rows,
   and canonical serialization/validation. It does not own provider policy,
   runtime values, document bytes, or output-contract text.
-- [ ] Carry that program as `compiler_prompt_fragment_contract` and its separate
+- [x] Carry that program as `compiler_prompt_fragment_contract` and its separate
   exact digest as `compiled_prompt_fragment_identity` on `SurfaceStep`,
   `CoreProviderStep`, `ProviderStepConfig`, and `SemanticPromptSurface`.
   `ProviderResultExpr` retains the resolved compile-time application; these four
   dataclasses are the executable/semantic boundary and must reject a contract
   without its matching digest or a digest without its contract.
-- [ ] Add the closed `workflow_lisp_prompt_fragment` dependency origin now,
+- [x] Add the closed `workflow_lisp_prompt_fragment` dependency origin now,
   before lowering document slots: zero-or-more required exact paths, no
   optional paths or authored instruction, and fixed prepend position.
-- [ ] Carry typed fragment structure only as far as compilation needs it; carry
+- [x] Carry typed fragment structure only as far as compilation needs it; carry
   the closed digest in Semantic and Executable IR under the exact accepted
   field name.
-- [ ] Lower `:doc` slots into the existing required/prepend compiler dependency
+- [x] Lower `:doc` slots into the existing required/prepend compiler dependency
   contract with declaration-order provenance. Lower rendered slots through the
   selected registry renderers.
-- [ ] Preserve classic/WCC parity, source-map ownership, build determinism, and
+- [x] Preserve classic/WCC parity, source-map ownership, build determinism, and
   byte-for-byte extern absence behavior.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_prompt_calculus.py \
@@ -226,7 +228,7 @@ task patch. Security/provider-isolation tests are outside the verification set.
     tests/test_workflow_lowering_invariants.py
   ```
 
-- [ ] Obtain ordered spec then quality review and commit.
+- [x] Obtain ordered spec then quality review and commit.
 
 ## Task 4: Runtime Fragment Rendering And Schema-2.1 Snapshot
 
@@ -241,20 +243,20 @@ task patch. Security/provider-isolation tests are outside the verification set.
 - Modify: `tests/test_prompt_dependency_evidence.py`
 - Create: `tests/test_workflow_lisp_prompt_calculus_runtime.py`
 
-- [ ] Write failing tests for
+- [x] Write failing tests for
   `workflow_prompt_fragment_snapshot.functional.v1`, including zero-document
   snapshots, closed keys, identity shape/equality, canonical digesting,
   publication, terminal indexing/validation, and tamper rejection.
-- [ ] Add a negative-control golden proving existing
+- [x] Add a negative-control golden proving existing
   `workflow_prompt_dependency_evidence.functional.v1` success records are
   byte-identical.
-- [ ] Render the fragment base prompt exactly once, then reuse dependency,
+- [x] Render the fragment base prompt exactly once, then reuse dependency,
   consumed-artifact, output-contract, and provider-transport composition owners.
-- [ ] Reject missing/malformed/mismatched Semantic/Executable/evidence identity
+- [x] Reject missing/malformed/mismatched Semantic/Executable/evidence identity
   before provider preparation. Do not read evidence as resume authority.
-- [ ] Use the committed schema-2.1 allocator and `prompt_snapshot` record kind;
+- [x] Use the committed schema-2.1 allocator and `prompt_snapshot` record kind;
   do not depend on or stage ambient schema-2.2/provider-isolation changes.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_prompt_calculus_runtime.py \
@@ -263,7 +265,7 @@ task patch. Security/provider-isolation tests are outside the verification set.
     tests/test_workflow_lisp_provider_prompt_dependencies_e2e.py
   ```
 
-- [ ] Obtain ordered spec then quality review and commit exact hunks only.
+- [x] Obtain ordered spec then quality review and commit exact hunks only.
 
 ## Task 5: Build, Resume, And Real Consumer Proof
 
@@ -279,29 +281,29 @@ task patch. Security/provider-isolation tests are outside the verification set.
 - Delete: `prompts/workflows/review_revise_design_docs/review.md`
 - Modify focused example/build/procedure-first migration tests.
 
-- [ ] Write an end-to-end fixture with a capturing provider that proves exact
+- [x] Write an end-to-end fixture with a capturing provider that proves exact
   rendered dataflow, prompt-owned typed return validation, fragment snapshot
   publication, clean completion, interruption after a committed provider
   boundary, and default resume without duplicate provider execution.
-- [ ] Add a checkpoint-identity change test and an unchanged-identity reuse
+- [x] Add a checkpoint-identity change test and an unchanged-identity reuse
   control.
-- [ ] Migrate only `review-design-docs` to target 2.20 `defprompt`, preserving
+- [x] Migrate only `review-design-docs` to target 2.20 `defprompt`, preserving
   all five inputs and `ReviewDecision`; keep `fix-design-doc` extern-backed and
   behaviorally unchanged.
-- [ ] Remove only the now-unused review prompt manifest row and prompt file.
-- [ ] Compile the real consumer through classic and WCC/schema-2 paths, retaining
+- [x] Remove only the now-unused review prompt manifest row and prompt file.
+- [x] Compile the real consumer through classic and WCC/schema-2 paths, retaining
   preferred-current guidance. Assert all five typed/dependency contributions
   structurally, not by production prose.
-- [ ] Bind a pre-migration fixture/golden and prove intentional equivalence of
+- [x] Bind a pre-migration fixture/golden and prove intentional equivalence of
   the composed base/dependency/input/output-contract bytes apart from the
   reviewed placeholder normalization that makes the fragment explicit.
-- [ ] Prove provider selection, model, effort, timeout, result contract, bundle
+- [x] Prove provider selection, model, effort, timeout, result contract, bundle
   authority, retry/resume, and review-loop behavior are unchanged, and prove
   the fix call and its extern prompt remain unchanged.
-- [ ] Run a genericity scan/test that rejects any migrated
+- [x] Run a genericity scan/test that rejects any migrated
   workflow/procedure/module/provider/prompt key or asset name in generic
   compiler and runtime machinery.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_prompt_calculus.py \
@@ -311,7 +313,7 @@ task patch. Security/provider-isolation tests are outside the verification set.
     tests/test_workflow_lisp_procedure_first_migrations.py
   ```
 
-- [ ] Obtain ordered spec then quality review and commit.
+- [x] Obtain ordered spec then quality review and commit.
 
 ## Task 6: Normative And Authoring Surface Closure
 
@@ -328,15 +330,15 @@ task patch. Security/provider-isolation tests are outside the verification set.
   `docs/design/README.md`, and `docs/index.md`
 - Modify routing/authoring tests.
 
-- [ ] Update durable specs from shipped behavior only: 2.20 surface,
+- [x] Update durable specs from shipped behavior only: 2.20 surface,
   diagnostics, renderer selection, result ownership, fragment identity,
   schema-2.1 snapshot, resume semantics, and Q2/Q3/Q4 exclusions.
-- [ ] Check the Lisp workflow drafting guide for coherent current syntax,
+- [x] Check the Lisp workflow drafting guide for coherent current syntax,
   targets, examples, and routing; remove stale Q1 proposal wording without
   copying future surfaces into shipped guidance.
-- [ ] Update capability/routing surfaces to `implemented` only after focused
+- [x] Update capability/routing surfaces to `implemented` only after focused
   implementation evidence exists.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py \
@@ -346,7 +348,7 @@ task patch. Security/provider-isolation tests are outside the verification set.
     tests/test_workflow_lisp_examples.py
   ```
 
-- [ ] Obtain ordered spec then quality review and commit exact hunks only.
+- [x] Obtain ordered spec then quality review and commit exact hunks only.
 
 ## Task 7: Closing Gates And Roadmap Handoff
 
@@ -357,7 +359,7 @@ task patch. Security/provider-isolation tests are outside the verification set.
 - Modify exact Q1-owned hunks in:
   `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`
 
-- [ ] Run focused Q1 tests and one full collection:
+- [x] Run focused Q1 tests and one full collection:
 
   ```bash
   pytest --collect-only -q
@@ -368,7 +370,7 @@ task patch. Security/provider-isolation tests are outside the verification set.
     tests/test_workflow_lisp_typed_prompt_inputs.py
   ```
 
-- [ ] In tmux, run the broad non-security suite:
+- [x] In tmux, run the broad non-security suite:
 
   ```bash
   pytest -q -n 16 --dist=worksteal \
@@ -383,15 +385,70 @@ task patch. Security/provider-isolation tests are outside the verification set.
     --ignore=tests/test_workflow_provider_isolation_integration.py
   ```
 
-- [ ] Classify every failure against the pre-Q1 baseline; fix Q1 regressions and
+- [x] Classify every failure against the pre-Q1 baseline; fix Q1 regressions and
   rerun the relevant gate. Do not repair unrelated/security failures.
-- [ ] Freeze the exact contiguous commit range from the reviewed plan commit
+- [x] Freeze the exact contiguous commit range from the reviewed plan commit
   through Task 6 and obtain final ordered specification then quality review of
   that committed range/tree. There is no second implementation commit: Tasks
   1–6 already landed their individually reviewed changes.
-- [ ] In one plan-only closure commit, record the exact implementation
+- [x] In one plan-only closure commit, record the exact implementation
   commits/tree, focused/broad outcomes, final review tokens, and mark Q1
-  complete. Route the roadmap to L0 without starting Q2.
+  complete. Because L0 completed concurrently, route the roadmap to Q2 as the
+  next Q-series design gate and L1 as the next L-series design-amendment gate.
+
+## Completion Evidence
+
+Q1 landed in these reviewed implementation commits:
+
+- declaration surface: `87a56d1f`;
+- applications, typechecking, identity, and renderer selection: `51d3a459`;
+- catalog ordering and target validation: `b171a078` and `e5154609`;
+- classic/WCC, Semantic IR, and Executable IR carriage: `40bba3de`;
+- compatibility correction: `13d6b648`;
+- runtime rendering, evidence, and resume integration: `1906ccce`;
+- real-consumer migration and frozen one-time migration fixture:
+  `0ab25825`;
+- normative, authoring, capability, and routing closure: `e9bac6fa`, tree
+  `fce34c4284d88b2f68f7a20529811510636b30de`; and
+- structural-test quality correction: `af45c4f1`, terminal implementation tree
+  `043394f670120f9cf4d0be46761c224eec67f9e6`.
+
+The frozen pre-migration consumer fixture records the one-time static prompt
+equivalence reviewed for `0ab25825`. Persistent tests intentionally do not use
+those prose bytes as an oracle. They instead check slot contracts, renderer and
+value-source selection, dependency/fragment/result-contract ordering, single
+delivery, provider policy, typed result authority, evidence, identity, and
+resume behavior.
+
+Fresh closing verification:
+
+- Task 6 routing/authoring selector: 121 passed;
+- terminal prompt-core migration selector after the structural-test correction:
+  295 passed and 5 skipped, with 300 collected;
+- exact-commit all-security-skipped collection at `e9bac6fa`: 9,039 collected,
+  exit 0;
+- exact Task 7 focused selector: 207 passed;
+- exact-commit broad non-security run: 8,982 passed, 21 skipped, 36 failed, and
+  36 warnings in 180.78 seconds;
+- serial rerun: one xdist AF_UNIX path-length row passed and 35 residuals
+  remained; and
+- the same 35 node identities failed at the immediate pre-Q1 control
+  `c18b4cd9`, with an empty sorted identity diff. The residuals are standing,
+  ignored-evidence, missing-external-corpus, or path/golden portability rows;
+  none is Q1-attributable.
+
+The invalid first broad attempt that exhausted the root filesystem and the
+ambient-contaminated shared-working-tree diagnostic are not completion
+evidence. Local supporting logs are currently under
+`/home/ollie/.cache/q1-task7-e9bac6fa/logs/`; the durable reviewed outcomes are
+recorded above.
+
+Ordered closing reviews recorded:
+
+- `Q1_FINAL_SPEC_APPROVED`;
+- initial quality review found the prohibited production-prompt prose oracle;
+- `Q1_PROMPT_TEST_FIX_SPEC_APPROVED` accepted its structural replacement; and
+- `Q1_FINAL_QUALITY_APPROVED` accepted the terminal implementation tree.
 
 ## Completion Contract
 
@@ -413,4 +470,5 @@ Q1 is complete only when:
 7. focused and broad non-security gates are freshly classified;
 8. every task and the final committed range/tree have ordered independent spec then
    quality approval; and
-9. the plan-only closure commit routes the roadmap to L0.
+9. the plan-only closure commit routes Q2 next in the Q-series and L1 next in
+   the already-advanced L-series.

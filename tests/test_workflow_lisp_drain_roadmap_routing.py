@@ -1120,11 +1120,9 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "| Q1 |",
     )
     q1_status = _normalized_routing_text(q1_row.rsplit("|", 2)[-2])
-    assert q1_status.startswith("active ")
-    assert "accepted design" in q1_status
-    assert "reviewed implementation plan at 53d2786b" in q1_status
-    assert "task execution started" in q1_status
-    assert "implemented" not in q1_status
+    assert q1_status.startswith("complete ")
+    assert "implementation through af45c4f1" in q1_status
+    assert "ordered final reviews accepted" in q1_status
     assert "blocked by q0" not in q1_status
     assert "design review pending" not in normalized_successor
     assert "implementation plan pending" not in normalized_successor
@@ -1140,6 +1138,13 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "complete" in normalized_l0_row
     assert "reviewed implementation" in normalized_l0_row
     assert "content keyed pure projection source cache" in normalized_l0_row
+    q2_row = _markdown_table_row(
+        REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
+        "| Q2 |",
+    )
+    normalized_q2_row = _normalized_routing_text(q2_row)
+    assert "next" in normalized_q2_row
+    assert "design amendment" in normalized_q2_row
     for stage, blocker in (
         ("L1", "next"),
         ("L2", "blocked by l1"),
@@ -1249,9 +1254,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         )
     )
     assert "active post stage 8 selector" in normalized_successor_index
-    assert "q series work with q1" in normalized_successor_index
-    assert "tasks 1 6 are implemented" in normalized_successor_index
-    assert "task 7" in normalized_successor_index
+    assert "q0 and q1 are complete" in normalized_successor_index
+    assert "q2 design amendment gate is next" in normalized_successor_index
     assert "do not select e0" in normalized_successor_index
 
     prompt_design_row = _markdown_table_row(
@@ -1449,8 +1453,8 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
             "### [Workflow Lisp Language Quality And Domain Semantics Roadmap]",
         )
     )
-    assert "tasks 1 6 are implemented" in active_roadmap_index
-    assert "task 7" in active_roadmap_index
+    assert "q0 and q1 are complete" in active_roadmap_index
+    assert "q2 design amendment gate is next" in active_roadmap_index
 
 
 def test_stage_6_numbered_sequence_closes_task_7_after_completed_queues() -> None:
