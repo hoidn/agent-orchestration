@@ -70,6 +70,13 @@ from .expressions import (
 )
 from .lowering import LoweredWorkflow, LoweringOriginMap, lower_workflow_definitions, validate_lowered_workflows
 from .phase import PhaseScope
+from .prompts import (
+    PromptDef,
+    PromptSlot,
+    PromptSlotKind,
+    PromptTemplate,
+    elaborate_prompt_definitions,
+)
 from .reader import read_sexpr_file, read_sexpr_text
 from .result_guidance import ResultGuidance, ReturnSpec
 from .sexpr import BoolAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
@@ -163,7 +170,11 @@ __all__ = [
     "ProcedureLoweringMode",
     "ProcedureParam",
     "ProcedureSignature",
+    "PromptDef",
     "PromptExtern",
+    "PromptSlot",
+    "PromptSlotKind",
+    "PromptTemplate",
     "PublishEffect",
     "ProviderExtern",
     "ProviderResultExpr",
@@ -211,6 +222,7 @@ __all__ = [
     "compile_stage3_entrypoint",
     "compile_stage3_module",
     "elaborate_procedure_definitions",
+    "elaborate_prompt_definitions",
     "elaborate_expression",
     "elaborate_definition_module",
     "classify_condition_expr",

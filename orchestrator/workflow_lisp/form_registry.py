@@ -47,6 +47,7 @@ class FormSpec:
     stdlib_owner_module: str | None
     compatibility_route: str | None
     rationale: str
+    min_target_dsl_version: str | None = None
 
 
 def _spec(
@@ -63,6 +64,7 @@ def _spec(
     stdlib_owner_module: str | None = None,
     compatibility_route: str | None = None,
     rationale: str,
+    min_target_dsl_version: str | None = None,
 ) -> FormSpec:
     return FormSpec(
         name=name,
@@ -77,6 +79,7 @@ def _spec(
         stdlib_owner_module=stdlib_owner_module,
         compatibility_route=compatibility_route,
         rationale=rationale,
+        min_target_dsl_version=min_target_dsl_version,
     )
 
 
@@ -201,6 +204,21 @@ _FORM_SPECS = (
         admitted_top_level=True,
         elaboration_route=None,
         rationale="Procedure definitions remain top-level-only compiler definitions.",
+    ),
+    _spec(
+        "defprompt",
+        kind=FormKind.TOP_LEVEL_DEFINITION,
+        owner_module="prompts",
+        introduced_in="workflow_lisp_prompt_core",
+        remove_by=None,
+        macro_bindable=False,
+        admitted_top_level=True,
+        elaboration_route=None,
+        rationale=(
+            "Prompt declarations are target-2.20 compile-time definitions in "
+            "their own namespace."
+        ),
+        min_target_dsl_version="2.20",
     ),
     _spec(
         "defmodule",
@@ -715,29 +733,78 @@ def _build_registry(specs: tuple[FormSpec, ...]) -> dict[str, FormSpec]:
 
 _FORM_REGISTRY = _build_registry(_FORM_SPECS)
 _RESERVED_MACRO_NAMES = frozenset(
-    spec.name for spec in _FORM_REGISTRY.values() if not spec.macro_bindable
+    spec.name
+    for spec in _FORM_REGISTRY.values()
+    if not spec.macro_bindable and spec.min_target_dsl_version is None
 )
 _ADMITTED_TOP_LEVEL_HEADS = frozenset(
-    spec.name for spec in _FORM_REGISTRY.values() if spec.admitted_top_level
+    spec.name
+    for spec in _FORM_REGISTRY.values()
+    if spec.admitted_top_level and spec.min_target_dsl_version is None
 )
 
 
-def get_form_spec(name: str) -> FormSpec | None:
+def _available_at_target(
+    spec: FormSpec,
+    target_dsl_version: str | None,
+) -> bool:
+    if spec.min_target_dsl_version is None:
+        return True
+    if target_dsl_version is None:
+        return False
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+        minimum = tuple(
+            int(part)
+            for part in spec.min_target_dsl_version.split(".")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
+def get_form_spec(
+    name: str,
+    *,
+    target_dsl_version: str | None = None,
+) -> FormSpec | None:
     """Return one compiler-known form spec by authored head name."""
 
-    return _FORM_REGISTRY.get(name)
+    spec = _FORM_REGISTRY.get(name)
+    if spec is None or not _available_at_target(spec, target_dsl_version):
+        return None
+    return spec
 
 
-def registered_form_heads() -> tuple[str, ...]:
+def registered_form_heads(
+    *,
+    target_dsl_version: str | None = None,
+) -> tuple[str, ...]:
     """Return every compiler-known authored head in deterministic order."""
 
-    return tuple(sorted(_FORM_REGISTRY))
+    return tuple(
+        sorted(
+            spec.name
+            for spec in _FORM_REGISTRY.values()
+            if _available_at_target(spec, target_dsl_version)
+        )
+    )
 
 
-def reserved_macro_names() -> frozenset[str]:
+def reserved_macro_names(
+    *,
+    target_dsl_version: str | None = None,
+) -> frozenset[str]:
     """Return the exact set of macro-reserved authored heads."""
 
-    return _RESERVED_MACRO_NAMES
+    if target_dsl_version is None:
+        return _RESERVED_MACRO_NAMES
+    return frozenset(
+        spec.name
+        for spec in _FORM_REGISTRY.values()
+        if not spec.macro_bindable
+        and _available_at_target(spec, target_dsl_version)
+    )
 
 
 def list_traversal_authored_heads() -> frozenset[str]:
@@ -746,7 +813,17 @@ def list_traversal_authored_heads() -> frozenset[str]:
     return _LIST_TRAVERSAL_AUTHORED_HEADS
 
 
-def admitted_top_level_heads() -> frozenset[str]:
+def admitted_top_level_heads(
+    *,
+    target_dsl_version: str | None = None,
+) -> frozenset[str]:
     """Return the exact set of compiler-admitted top-level definition heads."""
 
-    return _ADMITTED_TOP_LEVEL_HEADS
+    if target_dsl_version is None:
+        return _ADMITTED_TOP_LEVEL_HEADS
+    return frozenset(
+        spec.name
+        for spec in _FORM_REGISTRY.values()
+        if spec.admitted_top_level
+        and _available_at_target(spec, target_dsl_version)
+    )
