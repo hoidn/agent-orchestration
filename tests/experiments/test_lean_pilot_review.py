@@ -673,7 +673,10 @@ def test_live_reviewer_runs_two_exact_bounded_slots_and_publishes_results(
     assert "--strict-config" in command
     assert command[command.index("--sandbox") + 1] == "read-only"
     assert command[command.index("--model") + 1] == "gpt-5.5"
-    assert command[command.index("--config") + 1] == 'reasoning_effort="high"'
+    assert (
+        command[command.index("--config") + 1]
+        == 'model_reasoning_effort="high"'
+    )
     assert command[-1] == "-"
     prompt = intent["prompt_contract"]
     assert prompt["output_contract"]["candidate_count"] == 3

@@ -393,7 +393,7 @@ def _command(
         "--model",
         str(execution["model"]),
         "--config",
-        f'reasoning_effort="{execution["reasoning_effort"]}"',
+        f'model_reasoning_effort="{execution["reasoning_effort"]}"',
         "--output-schema",
         apparatus["schema_path"].as_posix(),  # type: ignore[union-attr]
         "--output-last-message",
