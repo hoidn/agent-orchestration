@@ -556,7 +556,12 @@ def _apparatus(
 def _package(tmp_path: Path, block_id: str) -> Path:
     root = tmp_path / "packages" / block_id
     labels = [f"candidate-{index}" for index in range(3)]
-    payloads = {"task.md": b"task"}
+    payloads = {
+        "task.md": b"task",
+        "empty.txt": b"",
+        "two-lines.txt": b"first\nsecond\n",
+        "non-utf8.bin": b"\xff",
+    }
     for label in labels:
         payloads[f"candidates/{label}/diff.patch"] = label.encode()
     rows = []
@@ -703,6 +708,50 @@ def test_live_reviewer_runs_two_exact_bounded_slots_and_publishes_results(
     ]
     assert citation_contract["line_numbering"] == "ONE_BASED_INCLUSIVE"
     assert citation_contract["exact_path_precedence"] is True
+    expected_citable_payloads = [
+        {
+            "path": f"candidates/{label}/diff.patch",
+            "utf8": True,
+            "line_count": 1,
+            "locator_eligibility": "EXACT_PATH_OR_LINE_LOCATION",
+        }
+        for label in ("candidate-0", "candidate-1", "candidate-2")
+    ] + [
+        {
+            "path": "empty.txt",
+            "utf8": True,
+            "line_count": 0,
+            "locator_eligibility": "EXACT_PATH_ONLY",
+        },
+        {
+            "path": "non-utf8.bin",
+            "utf8": False,
+            "line_count": None,
+            "locator_eligibility": "EXACT_PATH_ONLY",
+        },
+        {
+            "path": "task.md",
+            "utf8": True,
+            "line_count": 1,
+            "locator_eligibility": "EXACT_PATH_OR_LINE_LOCATION",
+        },
+        {
+            "path": "two-lines.txt",
+            "utf8": True,
+            "line_count": 2,
+            "locator_eligibility": "EXACT_PATH_OR_LINE_LOCATION",
+        },
+    ]
+    expected_citable_payloads.sort(key=lambda row: row["path"])
+    assert citation_contract["citable_payloads"] == expected_citable_payloads
+    assert citation_contract["locator_eligibility_rules"] == {
+        "EXACT_PATH_ONLY": ["PATH"],
+        "EXACT_PATH_OR_LINE_LOCATION": [
+            "PATH",
+            "PATH:LINE",
+            "PATH:START-END",
+        ],
+    }
     assert (
         prompt["inspection_contract"]["task_path"]
         == json.loads(

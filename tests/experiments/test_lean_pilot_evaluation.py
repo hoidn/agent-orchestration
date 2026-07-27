@@ -2222,6 +2222,26 @@ def test_citation_exact_colon_path_takes_precedence_over_locator() -> None:
     )
 
 
+def test_validate_citation_accepts_exact_path_for_empty_payload() -> None:
+    _validate_citation(
+        "empty.txt",
+        permitted_payloads={"empty.txt": b""},
+    )
+
+
+@pytest.mark.parametrize("suffix", [":1", ":1-1", ":1-2"])
+def test_validate_citation_rejects_line_location_for_empty_payload(
+    suffix: str,
+) -> None:
+    with pytest.raises(EvaluationError) as caught:
+        _validate_citation(
+            f"empty.txt{suffix}",
+            permitted_payloads={"empty.txt": b""},
+        )
+
+    assert caught.value.code == "review_citation_location_invalid"
+
+
 def test_ingest_review_rejects_line_location_on_non_utf8_payload(
     tmp_path: Path,
 ) -> None:

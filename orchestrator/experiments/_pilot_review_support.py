@@ -298,6 +298,7 @@ def _package_contract(package_root: Path, block_id: str) -> dict[str, object]:
         _fail("live_reviewer_package_invalid", "manifest")
     package_files = ["manifest.json"]
     observed_paths: set[str] = set()
+    citable_payloads: list[dict[str, object]] = []
     for row in manifest["files"]:
         if not isinstance(row, Mapping) or set(row) != {
             "path",
@@ -325,6 +326,24 @@ def _package_contract(package_root: Path, block_id: str) -> dict[str, object]:
         ):
             _fail("live_reviewer_package_invalid", path_text)
         package_files.append(path_text)
+        try:
+            line_count: int | None = len(
+                payload.decode("utf-8").splitlines()
+            )
+        except UnicodeDecodeError:
+            line_count = None
+        citable_payloads.append(
+            {
+                "path": path_text,
+                "utf8": line_count is not None,
+                "line_count": line_count,
+                "locator_eligibility": (
+                    "EXACT_PATH_OR_LINE_LOCATION"
+                    if line_count is not None and line_count > 0
+                    else "EXACT_PATH_ONLY"
+                ),
+            }
+        )
     if manifest.get("task_path") not in observed_paths:
         _fail("live_reviewer_package_invalid", "task path")
     try:
@@ -334,12 +353,16 @@ def _package_contract(package_root: Path, block_id: str) -> dict[str, object]:
         )
     except EvaluationError as exc:
         raise EvaluationError("live_reviewer_package_invalid", str(exc)) from exc
+    citable_payloads.sort(key=lambda row: str(row["path"]))
     return {
         "root": package,
         "manifest": manifest,
         "manifest_digest": _sha256_bytes(data),
         "package_files": tuple(package_files),
-        "citable_files": tuple(sorted(observed_paths)),
+        "citable_files": tuple(
+            str(row["path"]) for row in citable_payloads
+        ),
+        "citable_payloads": tuple(citable_payloads),
     }
 
 
@@ -364,6 +387,7 @@ def _prompt(
             "rubric_path": rubric_path.as_posix(),
             "citation_contract": {
                 "citable_files": list(package["citable_files"]),
+                "citable_payloads": list(package["citable_payloads"]),
                 "navigation_only_files": ["manifest.json"],
                 "allowed_forms": [
                     "PATH",
@@ -372,6 +396,14 @@ def _prompt(
                 ],
                 "line_numbering": "ONE_BASED_INCLUSIVE",
                 "exact_path_precedence": True,
+                "locator_eligibility_rules": {
+                    "EXACT_PATH_ONLY": ["PATH"],
+                    "EXACT_PATH_OR_LINE_LOCATION": [
+                        "PATH",
+                        "PATH:LINE",
+                        "PATH:START-END",
+                    ],
+                },
             },
         },
         "output_contract": {
