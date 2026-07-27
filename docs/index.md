@@ -157,9 +157,9 @@ document owns the answer.
 **Use this when:** Auditing the completed numbered stages or the provenance of the post-Stage-8 handoff. Do not use this historical roadmap or the parked evolution proposal to select current work.
 
 ### [Workflow Lisp Language Quality And Domain Semantics Roadmap](plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md)
-**Description:** Active post-Stage-8 selector: Q0 has completed the target-2.19 transportable `Value` prerequisite; Q1 design correction/review is next before any prompt-core implementation. E0 remains unselected and the evolution roadmap remains parked.
+**Description:** Active post-Stage-8 selector: Q0 has completed the target-2.19 transportable `Value` prerequisite; Q1's corrected target-2.20 prompt-core design is accepted and its implementation-plan gate is next. E0 remains unselected and the evolution roadmap remains parked.
 **Keywords:** workflow-lisp, active-roadmap, value, prompt-calculus, prompt-identity, judgments, principle-29
-**Use this when:** Selecting or sequencing current post-Stage-8 language-quality work. Start the next Q-series work with Q1's required design correction/review; do not select E0, parked evolution, or shelved parsimony candidates from this route.
+**Use this when:** Selecting or sequencing current post-Stage-8 language-quality work. Start the next Q-series work with Q1's implementation-plan gate; do not select E0, parked evolution, or shelved parsimony candidates from this route.
 
 ### [Workflow Lisp Evolution Follow-On Roadmap](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md)
 **Description:** Parked, non-active E0-E5 historical proposal whose durable program-search boundaries were extracted; none of its tranches is selectable.
@@ -423,9 +423,9 @@ document owns the answer.
 **Use this when:** Authoring or reviewing target-2.19+ opaque transport results; `Value` is available for authoring there. Q0 is complete, `Json` remains a distinct non-transportable type, and Q1 prompt-core implementation has not begun.
 
 ### [Workflow Lisp Prompt Calculus](design/workflow_lisp_prompt_calculus.md)
-**Description:** Owner-selected typed compositional prompt direction covering `defprompt`, kind-based slots, prompt-carried results, output positions, prompt identity, and judgment views. The target-2.19 `Value` prerequisite is implemented; Q1 design correction and ordered review are selected next.
+**Description:** Accepted target-2.20 Q1 prompt-core design covering importable `defprompt`, closed kind-based slots, fully applied named fills, prompt-owned results, and one canonical compiled-fragment identity. Output positions, role-separated identity, and judgment views remain separately owned by Q2–Q4.
 **Keywords:** lisp-frontend, prompts, defprompt, slots, prompt-identity, judgments, principle-29
-**Use this when:** Reviewing the proposed prompt domain surface or preparing successor Stage Q1 after Q0 completes. Do not implement its stale partial-application or procedure-substitution claims before the required design correction.
+**Use this when:** Preparing or reviewing the Q1 implementation plan. The accepted tranche excludes partial application, runtime prompt values, call-site `:inputs`/`:prompt-dependencies`/`:returns`, output positions, judgments, and procedure/provider substitution.
 
 ### [Workflow Lisp Language Server](design/workflow_lisp_language_server.md)
 **Description:** Implemented `.orc` LSP v1: a read-only stdio consumer of the production Stage-3 compiler, delivering clean-open/save diagnostics, exact direct-call go-to-definition, document symbols, and visibility/registry completion under one canonical workspace root.

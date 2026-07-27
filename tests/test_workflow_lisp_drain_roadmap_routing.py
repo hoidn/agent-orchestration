@@ -1121,8 +1121,9 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     q1_status = _normalized_routing_text(q1_row.rsplit("|", 2)[-2])
     assert "next" in q1_status
-    assert "design correction" in q1_status
-    assert "implementation" in q1_status
+    assert "accepted design" in q1_status
+    assert "implementation plan" in q1_status
+    assert "implementation not started" in q1_status
     assert "implemented" not in q1_status
     assert "blocked by q0" not in q1_status
     assert "design review pending" not in normalized_successor
@@ -1137,7 +1138,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     normalized_l0_row = _normalized_routing_text(l0_row)
     assert "| L0 |" in l0_row
     assert "ready" in normalized_l0_row
-    assert "may execute beside q0" in normalized_l0_row
+    assert "may execute beside q1" in normalized_l0_row
+    assert "content keyed pure projection source cache" in normalized_l0_row
     for stage, blocker in (
         ("L1", "blocked by l0"),
         ("L2", "blocked by l1"),
@@ -1248,7 +1250,26 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "active post stage 8 selector" in normalized_successor_index
     assert "q series work with q1" in normalized_successor_index
+    assert "implementation plan gate" in normalized_successor_index
     assert "do not select e0" in normalized_successor_index
+
+    prompt_design_row = _markdown_table_row(
+        design_router_path,
+        "workflow_lisp_prompt_calculus.md",
+    )
+    normalized_prompt_design_row = _normalized_routing_text(prompt_design_row)
+    assert "accepted q1 design" in normalized_prompt_design_row
+    assert "implementation plan next" in normalized_prompt_design_row
+    assert "target 2.20" in normalized_prompt_design_row
+    normalized_prompt_index = _normalized_routing_text(
+        _markdown_heading_section(
+            index,
+            "### [Workflow Lisp Prompt Calculus]",
+        )
+    )
+    assert "accepted target 2.20 q1 prompt core design" in normalized_prompt_index
+    assert "partial application" in normalized_prompt_index
+    assert "excludes" in normalized_prompt_index
 
     normalized_value_index = _normalized_routing_text(
         _markdown_heading_section(
