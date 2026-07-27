@@ -38,7 +38,7 @@ from .state import (
     close_entry,
     initialize_lsp_state,
     open_entry,
-    save_entry,
+    save_observed_entry,
     transition_workspace_root_set,
 )
 
@@ -195,10 +195,10 @@ class WorkflowLispLanguageServer(LanguageServer):
 
         driver = self._require_driver()
         uri = params.text_document.uri
-        transition = save_entry(
+        transition = save_observed_entry(
             driver.state,
             document_uri=uri,
-            disk_snapshot=probe_disk_source(_file_uri_path(uri)),
+            observed_snapshot=probe_disk_source(_file_uri_path(uri)),
         )
         driver.apply_transition(transition)
         self._drain_and_publish(transition)

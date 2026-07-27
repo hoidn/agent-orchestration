@@ -807,6 +807,92 @@ def test_internal_compile_error_logs_without_replacing_owned_diagnostics(
     assert "transport-visible internal failure" in logged[0].message
 
 
+def test_save_document_probes_once_and_applies_one_observed_transition(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lsprotocol import types
+
+    import orchestrator.lsp.server as server_module
+    from orchestrator.lsp.compile_driver import probe_disk_source
+    from orchestrator.lsp.server import WorkflowLispLanguageServer
+    from orchestrator.lsp.state import change_entry, open_entry
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    source_path = workspace / "entry.orc"
+    initial_text = "(workflow-lisp)\n"
+    changed_text = "(workflow-lisp changed)\n"
+    source_path.write_text(initial_text, encoding="utf-8")
+    server = WorkflowLispLanguageServer()
+    server.initialize_runtime(
+        types.InitializeParams(
+            capabilities=types.ClientCapabilities(),
+            root_uri=workspace.as_uri(),
+        )
+    )
+    assert server.driver is not None
+    opened = open_entry(
+        server.driver.state,
+        document_uri=source_path.as_uri(),
+        editor_text=initial_text,
+        disk_snapshot=probe_disk_source(source_path),
+    )
+    server.driver.apply_transition(opened)
+    server.driver.apply_transition(
+        change_entry(
+            server.driver.state,
+            document_uri=source_path.as_uri(),
+            editor_text=changed_text,
+        )
+    )
+    source_path.write_text(changed_text, encoding="utf-8")
+
+    probes = []
+    transitions = []
+    original_probe = server_module.probe_disk_source
+    original_save_observed = server_module.save_observed_entry
+
+    def counted_probe(path: Path):
+        snapshot = original_probe(path)
+        probes.append(snapshot)
+        return snapshot
+
+    def counted_save_observed(*args: object, **kwargs: object):
+        transitions.append(kwargs["observed_snapshot"])
+        return original_save_observed(*args, **kwargs)
+
+    monkeypatch.setattr(server_module, "probe_disk_source", counted_probe)
+    monkeypatch.setattr(
+        server_module,
+        "save_observed_entry",
+        counted_save_observed,
+    )
+    monkeypatch.setattr(
+        type(server.driver),
+        "observe_disk_path",
+        lambda _self, _path: pytest.fail(
+            "didSave must not call observe_disk_path"
+        ),
+    )
+    emitted = []
+    monkeypatch.setattr(server, "_drain_and_publish", emitted.append)
+
+    server.save_document(
+        types.DidSaveTextDocumentParams(
+            text_document=types.TextDocumentIdentifier(
+                uri=source_path.as_uri(),
+            )
+        )
+    )
+
+    assert len(probes) == 1
+    assert transitions == probes
+    assert len(emitted) == 1
+    assert server.driver.state.entries[0].generation == 3
+    assert server.driver.queued_generations == ((source_path.resolve(), 3),)
+
+
 def test_dynamic_watcher_registration_includes_frozen_configuration_paths(
     tmp_path: Path,
 ) -> None:

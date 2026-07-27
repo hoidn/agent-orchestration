@@ -401,6 +401,34 @@ def save_entry(
     )
 
 
+def save_observed_entry(
+    state: LspState,
+    *,
+    document_uri: str,
+    observed_snapshot: DiskSourceSnapshot,
+) -> LspStateTransition:
+    """Select exactly one save transition from one supplied disk snapshot."""
+
+    path, entry = _open_entry_for_uri(state, document_uri=document_uri)
+    if _canonical_path(observed_snapshot.canonical_path) != path:
+        raise LspInitializationError(
+            "lsp_entry_snapshot_path_mismatch",
+            "disk snapshot path does not match the saved document URI",
+        )
+    observed_snapshot = replace(observed_snapshot, canonical_path=path)
+    retained_snapshot = entry.disk_snapshot
+    if (
+        retained_snapshot is not None
+        and retained_snapshot.revision == observed_snapshot.revision
+    ):
+        return save_entry(
+            state,
+            document_uri=document_uri,
+            disk_snapshot=observed_snapshot,
+        )
+    return observe_file_revision(state, observed_snapshot)
+
+
 def accept_compile_success(
     state: LspState,
     *,

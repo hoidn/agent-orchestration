@@ -745,6 +745,78 @@ def test_real_stdio_dependency_invalidation_and_rapid_saves_keep_latest_state(
     assert not (workspace / ".orchestrate").exists()
 
 
+def test_real_stdio_changed_helper_save_invalidates_importer_without_watcher(
+    tmp_path: Path,
+) -> None:
+    workspace, entry_path, options = _fixture_workspace(tmp_path)
+    entry_text = entry_path.read_text(encoding="utf-8")
+    helper_path = workspace / "neurips" / "helper.orc"
+    helper_text = helper_path.read_text(encoding="utf-8")
+    process = _LspProcess(workspace)
+    try:
+        _initialize(
+            process,
+            workspace=workspace,
+            initialization_options=options,
+        )
+        _open(process, source_path=entry_path, text=entry_text)
+        initial_definition, _ = _request_until(
+            process,
+            request_id=2,
+            method="textDocument/definition",
+            params={
+                "textDocument": {"uri": entry_path.as_uri()},
+                "position": {"line": 13, "character": 12},
+            },
+            result_predicate=lambda result: result is not None,
+        )
+        assert initial_definition["result"]["uri"] == helper_path.as_uri()
+
+        _open(process, source_path=helper_path, text=helper_text)
+        helper_initial_diagnostics, _ = process.read_until(
+            lambda item: (
+                item.get("method") == "textDocument/publishDiagnostics"
+                and item["params"]["uri"] == helper_path.as_uri()
+            ),
+            timeout=30.0,
+        )
+        assert helper_initial_diagnostics["params"]["diagnostics"]
+
+        changed_helper = helper_text.replace(
+            "provider-attempt",
+            "provider-attempt-renamed",
+        )
+        _change(
+            process,
+            source_path=helper_path,
+            text=changed_helper,
+            version=2,
+        )
+        helper_path.write_text(changed_helper, encoding="utf-8")
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "method": "textDocument/didSave",
+                "params": {
+                    "textDocument": {"uri": helper_path.as_uri()},
+                },
+            }
+        )
+
+        importer_diagnostics, _ = process.read_until(
+            lambda item: (
+                item.get("method") == "textDocument/publishDiagnostics"
+                and item["params"]["uri"] == entry_path.as_uri()
+                and bool(item["params"]["diagnostics"])
+            ),
+            timeout=30.0,
+        )
+        assert importer_diagnostics["params"]["diagnostics"]
+        process.shutdown()
+    finally:
+        process.close()
+
+
 def test_real_stdio_definition_reaches_compiler_owned_builtin_stdlib(
     tmp_path: Path,
 ) -> None:

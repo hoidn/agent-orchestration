@@ -10,6 +10,7 @@ from orchestrator.lsp.compile_driver import probe_disk_source
 from orchestrator.lsp.state import (
     AcceptedCompileSnapshot,
     CompileEntryState,
+    DiskSourceSnapshot,
     LspConfigurationPaths,
     LspInitializationError,
     LspStateTransition,
@@ -25,6 +26,7 @@ from orchestrator.lsp.state import (
     open_entry,
     record_server_failure,
     save_entry,
+    save_observed_entry,
     transition_workspace_root_set,
 )
 from orchestrator.workflow_lisp import compiler
@@ -492,6 +494,264 @@ def test_save_entry_keeps_unreadable_states_unavailable_without_self_compile(
     assert entry.navigation_snapshot is None
     assert saved.effects == StateEffects(
         canceled_generations=((path.resolve(), 1),),
+    )
+
+
+def test_save_observed_entry_equal_revision_runs_one_local_save_generation(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    path = workspace / "entry.orc"
+    text = "(workflow-lisp)\n"
+    path.write_text(text, encoding="utf-8")
+    snapshot = probe_disk_source(path)
+    opened = open_entry(
+        initialize_lsp_state(root_uri=workspace.as_uri()),
+        document_uri=path.as_uri(),
+        editor_text=text,
+        disk_snapshot=snapshot,
+    )
+
+    saved = save_observed_entry(
+        opened.state,
+        document_uri=path.as_uri(),
+        observed_snapshot=snapshot,
+    )
+
+    entry = saved.state.entries[0]
+    assert entry.generation == 2
+    assert entry.pending_generation == 2
+    assert saved.effects == StateEffects(
+        scheduled_generations=((path.resolve(), 2),),
+        canceled_generations=((path.resolve(), 1),),
+    )
+
+
+@pytest.mark.parametrize(
+    (
+        "retained_revision",
+        "observed_revision",
+        "editor_text",
+        "observed_text",
+        "expected_status",
+        "expected_scheduled",
+        "expected_canceled",
+    ),
+    (
+        ("missing", "missing", "text", None, "unavailable", (), ()),
+        ("unreadable", "unreadable", "text", None, "unavailable", (), ()),
+        ("missing", "unreadable", "text", None, "unavailable", (), ()),
+        ("unreadable", "missing", "text", None, "unavailable", (), ()),
+        (
+            "sha256:old",
+            "missing",
+            "old",
+            None,
+            "unavailable",
+            (),
+            (("entry", 1),),
+        ),
+        (
+            "missing",
+            "sha256:new",
+            "new",
+            "new",
+            "clean",
+            (("entry", 2),),
+            (),
+        ),
+    ),
+)
+def test_save_observed_entry_handles_equal_and_transitioning_sentinels(
+    tmp_path: Path,
+    retained_revision: str,
+    observed_revision: str,
+    editor_text: str,
+    observed_text: str | None,
+    expected_status: str,
+    expected_scheduled: tuple[tuple[str, int], ...],
+    expected_canceled: tuple[tuple[str, int], ...],
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    path = workspace / "entry.orc"
+    retained = DiskSourceSnapshot(
+        canonical_path=path.resolve(),
+        revision=retained_revision,
+        raw_decoded_text=(
+            editor_text if retained_revision.startswith("sha256:") else None
+        ),
+    )
+    opened = open_entry(
+        initialize_lsp_state(root_uri=workspace.as_uri()),
+        document_uri=path.as_uri(),
+        editor_text=editor_text,
+        disk_snapshot=retained,
+    )
+    observed = DiskSourceSnapshot(
+        canonical_path=path.resolve(),
+        revision=observed_revision,
+        raw_decoded_text=observed_text,
+    )
+
+    saved = save_observed_entry(
+        opened.state,
+        document_uri=path.as_uri(),
+        observed_snapshot=observed,
+    )
+
+    entry = saved.state.entries[0]
+    assert entry.generation == 2
+    assert entry.buffer_status == expected_status
+    assert saved.effects.scheduled_generations == tuple(
+        (path.resolve(), generation) for _name, generation in expected_scheduled
+    )
+    assert saved.effects.canceled_generations == tuple(
+        (path.resolve(), generation) for _name, generation in expected_canceled
+    )
+
+
+def test_changed_save_invalidates_importer_and_diagnostic_owner_once(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    importer = workspace / "importer.orc"
+    diagnostic_owner = workspace / "diagnostic-owner.orc"
+    saved_path = workspace / "saved.orc"
+    for path in (importer, diagnostic_owner, saved_path):
+        path.write_text("(workflow-lisp)\n", encoding="utf-8")
+    state = _accepted_state(
+        workspace=workspace,
+        entry_path=importer,
+        closure=frozenset({importer.resolve(), saved_path.resolve()}),
+        revision_paths=(importer, saved_path),
+    )
+    state = _accepted_state(
+        workspace=workspace,
+        entry_path=diagnostic_owner,
+        closure=frozenset({diagnostic_owner.resolve()}),
+        revision_paths=(diagnostic_owner,),
+        contribution_target_uris=(saved_path.as_uri(),),
+        initial_state=state,
+    )
+    state = _accepted_state(
+        workspace=workspace,
+        entry_path=saved_path,
+        closure=frozenset({saved_path.resolve()}),
+        revision_paths=(saved_path,),
+        initial_state=state,
+    )
+    changed_text = "(workflow-lisp changed)\n"
+    dirty = change_entry(
+        state,
+        document_uri=saved_path.as_uri(),
+        editor_text=changed_text,
+    )
+    saved_path.write_text(changed_text, encoding="utf-8")
+
+    saved = save_observed_entry(
+        dirty.state,
+        document_uri=saved_path.as_uri(),
+        observed_snapshot=probe_disk_source(saved_path),
+    )
+
+    assert tuple(entry.generation for entry in saved.state.entries) == (2, 2, 3)
+    assert saved.effects == StateEffects(
+        scheduled_generations=(
+            (importer.resolve(), 2),
+            (diagnostic_owner.resolve(), 2),
+            (saved_path.resolve(), 3),
+        ),
+    )
+
+
+@pytest.mark.parametrize("saved_state", ("dirty", "unavailable"))
+def test_changed_dirty_or_unavailable_save_still_schedules_importer(
+    tmp_path: Path,
+    saved_state: str,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    importer = workspace / "importer.orc"
+    saved_path = workspace / "saved.orc"
+    for path in (importer, saved_path):
+        path.write_text("(workflow-lisp)\n", encoding="utf-8")
+    state = _accepted_state(
+        workspace=workspace,
+        entry_path=importer,
+        closure=frozenset({importer.resolve(), saved_path.resolve()}),
+        revision_paths=(importer, saved_path),
+    )
+    state = _accepted_state(
+        workspace=workspace,
+        entry_path=saved_path,
+        closure=frozenset({saved_path.resolve()}),
+        revision_paths=(saved_path,),
+        initial_state=state,
+    )
+    dirty = change_entry(
+        state,
+        document_uri=saved_path.as_uri(),
+        editor_text="editor text\n",
+    )
+    if saved_state == "dirty":
+        saved_path.write_text("different disk text\n", encoding="utf-8")
+    else:
+        saved_path.unlink()
+
+    saved = save_observed_entry(
+        dirty.state,
+        document_uri=saved_path.as_uri(),
+        observed_snapshot=probe_disk_source(saved_path),
+    )
+
+    by_path = {entry.path: entry for entry in saved.state.entries}
+    assert by_path[importer.resolve()].generation == 2
+    assert by_path[importer.resolve()].pending_generation == 2
+    assert by_path[saved_path.resolve()].generation == 3
+    assert by_path[saved_path.resolve()].buffer_status == saved_state
+    assert by_path[saved_path.resolve()].pending_generation is None
+    assert saved.effects == StateEffects(
+        scheduled_generations=((importer.resolve(), 2),),
+    )
+
+
+def test_changed_save_with_unknown_closure_cancels_pending_and_schedules_clean(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    unknown = workspace / "unknown.orc"
+    saved_path = workspace / "saved.orc"
+    for path in (unknown, saved_path):
+        path.write_text("(workflow-lisp)\n", encoding="utf-8")
+    state = _accepted_state(
+        workspace=workspace,
+        entry_path=unknown,
+        closure=None,
+        revision_paths=(unknown,),
+        language_error=True,
+    )
+    opened = open_entry(
+        state,
+        document_uri=saved_path.as_uri(),
+        editor_text="(workflow-lisp)\n",
+        disk_snapshot=probe_disk_source(saved_path),
+    )
+    saved_path.write_text("(workflow-lisp changed)\n", encoding="utf-8")
+
+    saved = save_observed_entry(
+        opened.state,
+        document_uri=saved_path.as_uri(),
+        observed_snapshot=probe_disk_source(saved_path),
+    )
+
+    assert tuple(entry.generation for entry in saved.state.entries) == (2, 2)
+    assert saved.effects == StateEffects(
+        scheduled_generations=((unknown.resolve(), 2),),
+        canceled_generations=((saved_path.resolve(), 1),),
     )
 
 
