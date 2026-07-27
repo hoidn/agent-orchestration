@@ -243,6 +243,21 @@ Before Task 1:
   Record the plan-gate `HEAD`, tree, totals, and any exact failures in this
   plan before Task 1.
 
+### Pre-L2 Focused Control
+
+Captured before Task 1:
+
+- `HEAD`: `60edd53744d2aad48cbc467ec326e072a67f0738`
+- tree: `2d694804a6cf66605aea707c9509841e7094e796`
+- selector result: **283 passed in 79.09s**, with zero failures, errors, or
+  skips
+- dirty-tree inventory: 301 `git status --short` rows already present in the
+  shared workspace (`250 ??`, `1 D`, `35 M`, `15 MM`), normalized SHA-256
+  `3d92f2b2f8bee9ee06d7ca59f3e12df8ced2e70e231e4bdc60fd4012c8c2f0cd`
+- L2 production paths had no unstaged worktree diff against this `HEAD`;
+  unrelated index/worktree state remains protected and is not part of the
+  control.
+
 ## Task 1: Freeze One Shared Form Completion Catalog
 
 **Outcome:** Successful initialization captures one immutable target-neutral
