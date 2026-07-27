@@ -1,0 +1,4 @@
+{
+  "prompts.design-docs.review": "prompts/workflows/review_revise_design_docs/review.md",
+  "prompts.design-docs.fix": "prompts/workflows/review_revise_design_docs/fix.md"
+}

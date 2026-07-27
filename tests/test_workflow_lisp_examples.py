@@ -245,7 +245,7 @@ def test_review_revise_parametric_design_docs_example_remains_one_off_source_sha
 
 
 def test_review_revise_design_docs_example_validates_with_parameterized_context_docs(tmp_path: Path) -> None:
-    assert DESIGN_DOCS_REVIEW_PROMPT.is_file()
+    assert not DESIGN_DOCS_REVIEW_PROMPT.exists()
     assert DESIGN_DOCS_FIX_PROMPT.is_file()
 
     workflow_source = DESIGN_DOCS_REVIEW_EXAMPLE.read_text(encoding="utf-8")
@@ -260,7 +260,6 @@ def test_review_revise_design_docs_example_validates_with_parameterized_context_
             "providers.design-docs.fix": "codex",
         },
         prompt_externs={
-            "prompts.design-docs.review": DESIGN_DOCS_REVIEW_PROMPT.relative_to(REPO_ROOT).as_posix(),
             "prompts.design-docs.fix": DESIGN_DOCS_FIX_PROMPT.relative_to(REPO_ROOT).as_posix(),
         },
         validate_shared=True,
@@ -295,7 +294,6 @@ def test_review_revise_design_docs_runtime_private_collection_lane(tmp_path: Pat
             "providers.design-docs.fix": "codex",
         },
         prompt_externs={
-            "prompts.design-docs.review": DESIGN_DOCS_REVIEW_PROMPT.relative_to(REPO_ROOT).as_posix(),
             "prompts.design-docs.fix": DESIGN_DOCS_FIX_PROMPT.relative_to(REPO_ROOT).as_posix(),
         },
         validate_shared=True,
