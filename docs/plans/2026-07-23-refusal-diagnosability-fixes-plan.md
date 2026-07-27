@@ -61,12 +61,56 @@ plus one selection-free and one selected compile of
 example's two build-artifact tests and README compile command to the selected
 form if desired (optional follow-up, not required by this plan).
 
+**Status: blocked on a design question — not implemented.** Drafted the
+literal change (export-based `_entry_bootstrap_name_gate_denial`, reusing a
+new `_exported_workflow_names` helper) and both tests, then ran the full
+focused selector set before committing. One pre-existing test regressed:
+`tests/test_workflow_lisp_lowering.py::test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_unrelated_exported_sibling_in_item_ctx_proof_module`
+(fixture: `item_ctx_child_phase_reuse_leak_probe`, entry_workflow
+`unrelated-phase-entry`) went from a required raise to a clean compile.
+That fixture explicitly exports an unrelated sibling workflow specifically
+to prove that *selecting* it as the compile entrypoint must still be denied
+hidden-context bootstrap, even though it is exported — i.e. an existing test
+encodes "exported is necessary but not sufficient for a selected entry to
+qualify," which directly contradicts this task's literal instruction
+("a selected exported entry qualifies," full stop). Both readings have a
+textual source (the task's own wording vs. this pre-existing regression
+test), so this is a real policy fork, not a mechanical detail — reverted the
+draft change (`git restore`) rather than pick a side. Options for whoever
+resolves this: (a) implement literally as specified and update/retire the
+"unrelated sibling" test's expectation to match the new, intentionally
+broader rule; (b) narrow the declared property so export alone is
+insufficient — e.g. require the callee's hidden-context requirement to
+independently mark `allows_entry_bootstrap`, or require membership in the
+route-readiness registry's promoted set, in addition to being exported; (c)
+keep the name allowlist for now and only land Task 1's diagnostic naming
+(no rule change). Not resolved here.
+
 ## Task 3: Verify no identity drift
 
 The gate change must not alter generated hidden-input identities for the
 already-promoted routes (`drain`, the retained public entries). Compare
 compiled boundary projections for the two promoted `.orc` ports before and
 after; byte-identical hidden-input contracts are the acceptance bar.
+
+**Status: done, against Task 1's change** (Task 2 is unimplemented, so
+"before/after" here brackets Task 1 only). Compiled
+`workflows/library/verified_iteration_drain/drain.orc`
+(`verified_iteration_drain/drain::drain`) and
+`workflows/library/lisp_frontend_design_delta/drain.orc`
+(`lisp_frontend_design_delta/drain::drain`) with `validate_shared=True`,
+pulled each `workflow_boundary_projection` from `validated_bundles_by_name`,
+and serialized both deterministically (`PYTHONHASHSEED=0`, sorted sets) once
+against the current tree and once with
+`orchestrator/workflow_lisp/{workflows.py,typecheck_calls.py,typecheck_context.py,lowering/context.py,lowering/workflow_calls.py}`
+checked out to their pre-Task-1 commit (`ad5474c7`, immediately restored
+afterward). The two dumps are byte-identical (matching MD5). Expected: Task 1
+only threads a diagnostic note through the existing accept/deny decision and
+does not change the gate's logic, so both `drain` routes' hidden-input
+contracts were never at risk; this closes the loop with a runnable check
+rather than inspection alone. Re-run this comparison once Task 2 lands,
+since Task 2's rule change is the one that can actually alter which
+workflows qualify.
 
 ## Non-goals
 
