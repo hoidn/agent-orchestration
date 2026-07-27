@@ -469,7 +469,25 @@ def test_v2_canonicalization_rejects_resealed_payload_schema_claim_mismatch(
         )
 
 
-def test_v2_terminal_validation_accepts_only_explicit_trusted_schema_context(
+def test_v2_terminal_validation_derives_persisted_scope_schema_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.workflow.prompt_dependency_evidence import (
+        validate_terminal_evidence,
+    )
+
+    _record, manager = _actual_v2_schema_record_and_manager(
+        tmp_path,
+        monkeypatch,
+    )
+    result = validate_terminal_evidence(manager.run_root, manager.state_file)
+    assert result.index["publications"][0]["record_kind"] == (
+        "prompt_snapshot"
+    )
+
+
+def test_v2_terminal_validation_rejects_missing_scope_schema_authority(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -483,7 +501,11 @@ def test_v2_terminal_validation_accepts_only_explicit_trusted_schema_context(
     )
     state = manager._read_state_from_disk()
     allocation = next(iter(state.provider_attempt_allocations.values()))
-    runtime_step_id = allocation["scope"]["runtime_step_id"]
+    allocation.pop("prompt_fragment_identity_schema_version")
+    manager.state_file.write_text(
+        json.dumps(state.to_dict(), indent=2),
+        encoding="utf-8",
+    )
 
     with pytest.raises(
         ValueError,
@@ -491,19 +513,42 @@ def test_v2_terminal_validation_accepts_only_explicit_trusted_schema_context(
     ):
         validate_terminal_evidence(manager.run_root, manager.state_file)
 
-    result = validate_terminal_evidence(
-        manager.run_root,
-        manager.state_file,
-        compiler_fragment_identity_schema_versions={
-            runtime_step_id: "compiled_prompt_fragment_identity.v2",
-        },
-    )
-    assert result.index["publications"][0]["record_kind"] == (
-        "prompt_snapshot"
+
+def test_v2_terminal_validation_rejects_conflicting_scope_schema_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.workflow.prompt_dependency_evidence import (
+        validate_terminal_evidence,
     )
 
+    _record, manager = _actual_v2_schema_record_and_manager(
+        tmp_path,
+        monkeypatch,
+    )
+    state = manager._read_state_from_disk()
+    allocation = next(iter(state.provider_attempt_allocations.values()))
+    allocation["prompt_fragment_identity_schema_version"] = (
+        "compiled_prompt_fragment_identity.v1"
+    )
+    manager.state_file.write_text(
+        json.dumps(state.to_dict(), indent=2),
+        encoding="utf-8",
+    )
 
-def _runtime_q3_fixture(tmp_path: Path, *, target_dsl: str = "2.22"):
+    with pytest.raises(
+        ValueError,
+        match="prompt_attempt_identity_role_invalid",
+    ):
+        validate_terminal_evidence(manager.run_root, manager.state_file)
+
+
+def _runtime_q3_fixture(
+    tmp_path: Path,
+    *,
+    target_dsl: str = "2.22",
+    with_output_position: bool | None = None,
+):
     from tests.test_workflow_lisp_prompt_calculus_runtime import (
         _compile_runtime_fragment,
         _runtime_fragment_manager,
@@ -513,7 +558,11 @@ def _runtime_q3_fixture(tmp_path: Path, *, target_dsl: str = "2.22"):
         tmp_path,
         lowering_route="wcc_m4" if target_dsl == "2.22" else "legacy",
         target_dsl=target_dsl,
-        with_output_position=target_dsl == "2.22",
+        with_output_position=(
+            target_dsl == "2.22"
+            if with_output_position is None
+            else with_output_position
+        ),
     )
     manager = _runtime_fragment_manager(
         tmp_path,
@@ -522,6 +571,142 @@ def _runtime_q3_fixture(tmp_path: Path, *, target_dsl: str = "2.22"):
         run_id=f"prompt-identity-runtime-{target_dsl.replace('.', '')}",
     )
     return bundle, manager
+
+
+@pytest.mark.parametrize(
+    ("with_output_position", "expected_schema_version"),
+    (
+        (False, "compiled_prompt_fragment_identity.v1"),
+        (True, "compiled_prompt_fragment_identity.v2"),
+    ),
+)
+def test_target_222_allocation_persists_compiler_fragment_schema_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    with_output_position: bool,
+    expected_schema_version: str,
+) -> None:
+    from orchestrator.providers.executor import ProviderExecutor
+    from orchestrator.workflow.executor import WorkflowExecutor
+
+    bundle, manager = _runtime_q3_fixture(
+        tmp_path,
+        with_output_position=with_output_position,
+    )
+    monkeypatch.setattr(
+        ProviderExecutor,
+        "prepare_invocation",
+        lambda _self, *_args, **kwargs: (
+            _prepared_invocation(
+                kwargs["prompt_content"],
+                kwargs.get("env") or {},
+            ),
+            None,
+        ),
+    )
+    monkeypatch.setattr(
+        ProviderExecutor,
+        "execute",
+        lambda _self, invocation, **_kwargs: _successful_execution(
+            tmp_path,
+            invocation,
+        ),
+    )
+
+    result = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        manager,
+        retry_delay_ms=0,
+    ).execute(on_error="stop")
+
+    assert result["status"] == "completed"
+    state = manager._read_state_from_disk()
+    allocation = next(iter(state.provider_attempt_allocations.values()))
+    record = _published_record(manager)
+    assert allocation["prompt_fragment_identity_schema_version"] == (
+        expected_schema_version
+    )
+    assert record["prompt_attempt_identity"]["roles"]["fragment_program"][
+        "payload"
+    ]["identity_schema_version"] == expected_schema_version
+
+
+def test_target_222_preparation_failure_retains_allocation_schema_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.providers.executor import ProviderExecutor
+    from orchestrator.workflow.executor import WorkflowExecutor
+
+    bundle, manager = _runtime_q3_fixture(tmp_path)
+    monkeypatch.setattr(
+        ProviderExecutor,
+        "prepare_invocation",
+        lambda *_args, **_kwargs: (
+            None,
+            {"type": "substitution_error", "message": "unresolved"},
+        ),
+    )
+
+    result = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        manager,
+        retry_delay_ms=0,
+    ).execute(on_error="stop")
+
+    assert result["status"] == "failed"
+    state = manager._read_state_from_disk()
+    allocation = next(iter(state.provider_attempt_allocations.values()))
+    record = _published_record(manager)
+    assert allocation["prompt_fragment_identity_schema_version"] == (
+        "compiled_prompt_fragment_identity.v2"
+    )
+    assert record["fragment"]["identity_schema_version"] == allocation[
+        "prompt_fragment_identity_schema_version"
+    ]
+
+
+def test_legacy_fragment_execution_does_not_add_schema_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.providers.executor import ProviderExecutor
+    from orchestrator.workflow.executor import WorkflowExecutor
+
+    bundle, manager = _runtime_q3_fixture(tmp_path, target_dsl="2.21")
+    monkeypatch.setattr(
+        ProviderExecutor,
+        "prepare_invocation",
+        lambda _self, *_args, **kwargs: (
+            _prepared_invocation(
+                kwargs["prompt_content"],
+                kwargs.get("env") or {},
+            ),
+            None,
+        ),
+    )
+    monkeypatch.setattr(
+        ProviderExecutor,
+        "execute",
+        lambda _self, invocation, **_kwargs: _successful_execution(
+            tmp_path,
+            invocation,
+        ),
+    )
+
+    result = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        manager,
+        retry_delay_ms=0,
+    ).execute(on_error="stop")
+
+    assert result["status"] == "completed"
+    state = manager._read_state_from_disk()
+    allocation = next(iter(state.provider_attempt_allocations.values()))
+    assert "prompt_fragment_identity_schema_version" not in allocation
 
 
 def _prepared_invocation(prompt: str, env: dict[str, str]):
@@ -662,9 +847,9 @@ def test_target_222_allocates_before_output_position_and_all_typed_resolution(
         WorkflowExecutor._resolve_typed_prompt_input_value
     )
 
-    def allocate(self, scope):
+    def allocate(self, scope, **kwargs):
         order.append("allocate")
-        return actual_allocate(self, scope)
+        return actual_allocate(self, scope, **kwargs)
 
     def output_position(self, **kwargs):
         order.append("output_position")
@@ -803,9 +988,9 @@ def test_target_222_retry_repeats_all_attempt_scoped_resolution_after_allocation
     actual_render = workflow_executor.render_prompt_fragment_base
     launches = 0
 
-    def allocate(self, scope):
+    def allocate(self, scope, **kwargs):
         events.append("allocate")
-        return actual_allocate(self, scope)
+        return actual_allocate(self, scope, **kwargs)
 
     def output_position(self, **kwargs):
         events.append("output_position")
@@ -1139,6 +1324,11 @@ def test_target_222_preparation_failure_publishes_exact_failure_and_never_launch
         "preparation": True,
         "execution": False,
     }
+    terminal = evidence.validate_terminal_evidence(
+        manager.run_root,
+        manager.state_file,
+    )
+    assert terminal.index["publications"][0]["record_kind"] == "failure"
 
 
 def test_target_222_publication_failure_leaves_allocation_only_and_never_launches(

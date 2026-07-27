@@ -15,6 +15,14 @@ from .identity import STEP_ID_PATTERN
 from .resume_projection_integrity import ResumeScopePath
 
 
+PROMPT_FRAGMENT_IDENTITY_SCHEMA_VERSIONS = frozenset(
+    {
+        "compiled_prompt_fragment_identity.v1",
+        "compiled_prompt_fragment_identity.v2",
+    }
+)
+
+
 @dataclass(frozen=True)
 class AggregateRunOwner:
     """Validated terminal owner and reached leaf for one runtime manager."""
@@ -562,11 +570,34 @@ def validate_provider_attempt_allocations(value: Any) -> dict[str, Any]:
     for key, raw_entry in value.items():
         if not isinstance(key, str):
             raise ValueError("provider attempt allocation key must be a string")
+        entry_keys = {"scope", "last_allocated_ordinal", "events"}
+        if (
+            isinstance(raw_entry, Mapping)
+            and "prompt_fragment_identity_schema_version" in raw_entry
+        ):
+            entry_keys.add("prompt_fragment_identity_schema_version")
         entry = _closed_mapping(
             raw_entry,
-            {"scope", "last_allocated_ordinal", "events"},
+            entry_keys,
             "provider attempt allocation entry",
         )
+        prompt_fragment_identity_schema_version = entry.get(
+            "prompt_fragment_identity_schema_version"
+        )
+        if (
+            "prompt_fragment_identity_schema_version" in entry
+            and (
+                not isinstance(
+                    prompt_fragment_identity_schema_version,
+                    str,
+                )
+                or prompt_fragment_identity_schema_version
+                not in PROMPT_FRAGMENT_IDENTITY_SCHEMA_VERSIONS
+            )
+        ):
+            raise ValueError(
+                "provider attempt prompt fragment identity schema is invalid"
+            )
         try:
             scope = ProviderAttemptScope.from_dict(entry["scope"])
         except (TypeError, ValueError) as exc:
@@ -661,9 +692,14 @@ def validate_provider_attempt_allocations(value: Any) -> dict[str, Any]:
                 canonical_events.append(publication)
         if events != canonical_events:
             raise ValueError("provider attempt allocation events are not canonical")
-        normalized[key] = {
+        normalized_entry = {
             "scope": scope.to_dict(),
             "last_allocated_ordinal": last_ordinal,
             "events": events,
         }
+        if prompt_fragment_identity_schema_version is not None:
+            normalized_entry["prompt_fragment_identity_schema_version"] = (
+                prompt_fragment_identity_schema_version
+            )
+        normalized[key] = normalized_entry
     return normalized

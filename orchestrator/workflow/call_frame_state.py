@@ -211,13 +211,24 @@ class _CallFrameStateManager:
         """Delegate checksum calculation so nested call frames can nest again."""
         return self.parent_manager.calculate_checksum(workflow_path)
 
-    def allocate_provider_attempt(self, scope: Any) -> int:
+    def allocate_provider_attempt(
+        self,
+        scope: Any,
+        *,
+        prompt_fragment_identity_schema_version: str | None = None,
+    ) -> int:
         """Delegate one attempt allocation through the aggregate root owner."""
 
         from .provider_attempts import resolve_aggregate_run_owner
 
         owner = resolve_aggregate_run_owner(self)
-        return owner.root_manager._allocate_provider_attempt_from(self, scope)
+        return owner.root_manager._allocate_provider_attempt_from(
+            self,
+            scope,
+            prompt_fragment_identity_schema_version=(
+                prompt_fragment_identity_schema_version
+            ),
+        )
 
     def record_provider_attempt_publication(
         self,

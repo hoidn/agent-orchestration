@@ -237,6 +237,403 @@ def _prepare_direct_scope_root(tmp_path: Path, run_id: str = "scope-root") -> St
     return root
 
 
+def _allocation_entry(
+    scope,
+    *,
+    prompt_fragment_identity_schema_version: object = ...,
+) -> dict:
+    entry = {
+        "scope": scope.to_dict(),
+        "last_allocated_ordinal": 1,
+        "events": [{"ordinal": 1, "event": "allocated"}],
+    }
+    if prompt_fragment_identity_schema_version is not ...:
+        entry["prompt_fragment_identity_schema_version"] = (
+            prompt_fragment_identity_schema_version
+        )
+    return entry
+
+
+def test_pre_q3_allocator_entry_round_trips_without_prompt_schema_authority(
+    tmp_path: Path,
+) -> None:
+    attempts = _attempt_module()
+    root = _prepare_direct_scope_root(tmp_path, run_id="legacy-authority-roundtrip")
+    scope = attempts.ProviderAttemptScope.from_dict(_direct_scope_payload(root))
+    allocations = {scope.key: _allocation_entry(scope)}
+
+    assert attempts.validate_provider_attempt_allocations(allocations) == allocations
+    assert "prompt_fragment_identity_schema_version" not in allocations[scope.key]
+
+
+@pytest.mark.parametrize(
+    "schema_version",
+    (
+        "compiled_prompt_fragment_identity.v1",
+        "compiled_prompt_fragment_identity.v2",
+    ),
+)
+def test_allocator_entry_accepts_exact_scope_bound_prompt_schema_authority(
+    tmp_path: Path,
+    schema_version: str,
+) -> None:
+    attempts = _attempt_module()
+    root = _prepare_direct_scope_root(tmp_path, run_id=f"authority-{schema_version[-2:]}")
+    scope = attempts.ProviderAttemptScope.from_dict(_direct_scope_payload(root))
+    allocations = {
+        scope.key: _allocation_entry(
+            scope,
+            prompt_fragment_identity_schema_version=schema_version,
+        )
+    }
+
+    assert attempts.validate_provider_attempt_allocations(allocations) == allocations
+
+
+@pytest.mark.parametrize(
+    "schema_version",
+    (None, True, "", "compiled_prompt_fragment_identity.v3"),
+)
+def test_allocator_entry_rejects_malformed_prompt_schema_authority(
+    tmp_path: Path,
+    schema_version: object,
+) -> None:
+    attempts = _attempt_module()
+    root = _prepare_direct_scope_root(tmp_path, run_id="malformed-authority")
+    scope = attempts.ProviderAttemptScope.from_dict(_direct_scope_payload(root))
+
+    with pytest.raises(ValueError, match="provider attempt allocation entry|schema"):
+        attempts.validate_provider_attempt_allocations(
+            {
+                scope.key: _allocation_entry(
+                    scope,
+                    prompt_fragment_identity_schema_version=schema_version,
+                )
+            }
+        )
+
+
+def test_allocator_entry_rejects_unknown_member_with_prompt_schema_authority(
+    tmp_path: Path,
+) -> None:
+    attempts = _attempt_module()
+    root = _prepare_direct_scope_root(tmp_path, run_id="open-authority-entry")
+    scope = attempts.ProviderAttemptScope.from_dict(_direct_scope_payload(root))
+    entry = _allocation_entry(
+        scope,
+        prompt_fragment_identity_schema_version=(
+            "compiled_prompt_fragment_identity.v1"
+        ),
+    )
+    entry["extra"] = None
+
+    with pytest.raises(ValueError, match="closed object"):
+        attempts.validate_provider_attempt_allocations({scope.key: entry})
+
+
+def test_prompt_schema_authority_cannot_be_misbound_to_another_scope_key(
+    tmp_path: Path,
+) -> None:
+    attempts = _attempt_module()
+    root = _prepare_direct_scope_root(tmp_path, run_id="misbound-authority")
+    scope = attempts.ProviderAttemptScope.from_dict(_direct_scope_payload(root))
+    entry = _allocation_entry(
+        scope,
+        prompt_fragment_identity_schema_version=(
+            "compiled_prompt_fragment_identity.v2"
+        ),
+    )
+
+    with pytest.raises(ValueError, match="key contradicts scope"):
+        attempts.validate_provider_attempt_allocations(
+            {"sha256:" + "0" * 64: entry}
+        )
+
+    changed = json.loads(json.dumps(entry))
+    changed["scope"]["run_id"] = "different-run"
+    with pytest.raises(ValueError, match="key contradicts scope"):
+        attempts.validate_provider_attempt_allocations({scope.key: changed})
+
+
+def test_q3_allocation_persists_scope_authority_in_the_same_state_write(
+    tmp_path: Path,
+) -> None:
+    root = _prepare_direct_scope_root(tmp_path, run_id="q3-atomic-authority")
+    root._write_state()
+    scope = _attempt_module().ProviderAttemptScope.from_dict(
+        _direct_scope_payload(root)
+    )
+
+    assert root.allocate_provider_attempt(
+        scope,
+        prompt_fragment_identity_schema_version=(
+            "compiled_prompt_fragment_identity.v2"
+        ),
+    ) == 1
+
+    persisted = json.loads(root.state_file.read_bytes())
+    assert persisted["provider_attempt_allocations"][scope.key] == (
+        _allocation_entry(
+            scope,
+            prompt_fragment_identity_schema_version=(
+                "compiled_prompt_fragment_identity.v2"
+            ),
+        )
+    )
+
+
+def test_pre_q3_allocation_preserves_legacy_entry_bytes(tmp_path: Path) -> None:
+    root = _prepare_direct_scope_root(tmp_path, run_id="legacy-entry-bytes")
+    root._write_state()
+    scope = _attempt_module().ProviderAttemptScope.from_dict(
+        _direct_scope_payload(root)
+    )
+
+    assert root.allocate_provider_attempt(scope) == 1
+
+    persisted = json.loads(root.state_file.read_bytes())
+    assert persisted["provider_attempt_allocations"][scope.key] == (
+        _allocation_entry(scope)
+    )
+
+
+def test_bound_q3_scope_requires_the_same_authority_on_retry(
+    tmp_path: Path,
+) -> None:
+    root = _prepare_direct_scope_root(tmp_path, run_id="q3-same-authority")
+    root._write_state()
+    scope = _attempt_module().ProviderAttemptScope.from_dict(
+        _direct_scope_payload(root)
+    )
+    schema_version = "compiled_prompt_fragment_identity.v2"
+
+    assert root.allocate_provider_attempt(
+        scope,
+        prompt_fragment_identity_schema_version=schema_version,
+    ) == 1
+    assert root.allocate_provider_attempt(
+        scope,
+        prompt_fragment_identity_schema_version=schema_version,
+    ) == 2
+
+
+def test_bound_q3_scope_rejects_conflicting_authority_before_allocating(
+    tmp_path: Path,
+) -> None:
+    root = _prepare_direct_scope_root(tmp_path, run_id="q3-conflicting-authority")
+    root._write_state()
+    scope = _attempt_module().ProviderAttemptScope.from_dict(
+        _direct_scope_payload(root)
+    )
+    assert root.allocate_provider_attempt(
+        scope,
+        prompt_fragment_identity_schema_version=(
+            "compiled_prompt_fragment_identity.v2"
+        ),
+    ) == 1
+    before = root.state_file.read_bytes()
+
+    for conflicting in (
+        None,
+        "compiled_prompt_fragment_identity.v1",
+        "compiled_prompt_fragment_identity.v3",
+    ):
+        kwargs = (
+            {}
+            if conflicting is None
+            else {
+                "prompt_fragment_identity_schema_version": conflicting
+            }
+        )
+        with pytest.raises(ValueError, match="schema|authority"):
+            root.allocate_provider_attempt(scope, **kwargs)
+        assert root.state_file.read_bytes() == before
+
+
+def test_legacy_scope_cannot_be_rebound_as_q3(tmp_path: Path) -> None:
+    root = _prepare_direct_scope_root(tmp_path, run_id="legacy-no-upgrade")
+    root._write_state()
+    scope = _attempt_module().ProviderAttemptScope.from_dict(
+        _direct_scope_payload(root)
+    )
+    assert root.allocate_provider_attempt(scope) == 1
+    before = root.state_file.read_bytes()
+
+    with pytest.raises(ValueError, match="schema|authority"):
+        root.allocate_provider_attempt(
+            scope,
+            prompt_fragment_identity_schema_version=(
+                "compiled_prompt_fragment_identity.v2"
+            ),
+        )
+
+    assert root.state_file.read_bytes() == before
+
+
+def test_failed_q3_authority_bind_leaves_durable_state_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _prepare_direct_scope_root(tmp_path, run_id="q3-bind-write-failure")
+    root._write_state()
+    scope = _attempt_module().ProviderAttemptScope.from_dict(
+        _direct_scope_payload(root)
+    )
+    before = root.state_file.read_bytes()
+    monkeypatch.setattr(
+        root,
+        "_persist_state_durably",
+        lambda: (_ for _ in ()).throw(OSError("authority write failed")),
+    )
+
+    with pytest.raises(OSError, match="authority write failed"):
+        root.allocate_provider_attempt(
+            scope,
+            prompt_fragment_identity_schema_version=(
+                "compiled_prompt_fragment_identity.v2"
+            ),
+        )
+
+    assert root.state_file.read_bytes() == before
+
+
+def test_prompt_schema_authority_distinguishes_dynamic_loop_scopes(
+    tmp_path: Path,
+) -> None:
+    attempts = _attempt_module()
+    root = _prepare_direct_scope_root(tmp_path, run_id="q3-loop-authority")
+    assert root.state is not None
+    root.state.step_visits = {"Loop": 2}
+    root.state.current_step = {
+        "name": "Loop",
+        "step_id": "LoopStep",
+        "visit_count": 2,
+    }
+    root.state.for_each["Loop"] = ForEachState(items=["a", "b"], current_index=0)
+    scopes = []
+    for iteration, schema_version in enumerate(
+        (
+            "compiled_prompt_fragment_identity.v1",
+            "compiled_prompt_fragment_identity.v2",
+        )
+    ):
+        root.state.for_each["Loop"] = ForEachState(
+            items=["a", "b"],
+            current_index=iteration,
+        )
+        payload = _direct_scope_payload(root)
+        payload["runtime_step_id"] = f"LoopStep#{iteration}.BodyProvider"
+        payload["enclosing_step"] = {
+            "step_name": "Loop",
+            "step_id": "LoopStep",
+            "visit_count": 2,
+        }
+        payload["loop_iteration"] = {
+            "kind": "for_each",
+            "loop_step_id": "LoopStep",
+            "iteration": iteration,
+        }
+        scope = attempts.ProviderAttemptScope.from_dict(payload)
+        root._write_state()
+        assert root.allocate_provider_attempt(
+            scope,
+            prompt_fragment_identity_schema_version=schema_version,
+        ) == 1
+        scopes.append(scope)
+
+    persisted = json.loads(root.state_file.read_bytes())[
+        "provider_attempt_allocations"
+    ]
+    assert scopes[0].key != scopes[1].key
+    assert persisted[scopes[0].key][
+        "prompt_fragment_identity_schema_version"
+    ] == "compiled_prompt_fragment_identity.v1"
+    assert persisted[scopes[1].key][
+        "prompt_fragment_identity_schema_version"
+    ] == "compiled_prompt_fragment_identity.v2"
+
+
+def test_prompt_schema_authority_distinguishes_equal_runtime_ids_in_call_frames(
+    tmp_path: Path,
+) -> None:
+    attempts = _attempt_module()
+    root = StateManager(tmp_path, run_id="q3-call-frame-authority")
+    root_state = root.initialize(_workflow(tmp_path))
+    children = []
+    for frame_id in ("first", "second"):
+        scope_path = ResumeScopePath.root(root_state.workflow_file).child(frame_id)
+        child_root = (
+            root.run_root
+            / "call_frames"
+            / _path_safe_frame_scope_token(frame_id)
+        )
+        child = _actual_nested_manager(
+            root,
+            frame_id,
+            _nested_state(root.run_id, f"{frame_id}.orc", child_root),
+            scope_path,
+        )
+        child.state.step_visits = {"Provider": 1}
+        child.state.current_step = {
+            "name": "Provider",
+            "step_id": "NestedProvider",
+            "visit_count": 1,
+        }
+        root_state.call_frames[frame_id] = {
+            "call_frame_id": frame_id,
+            "state": child.state.to_dict(),
+        }
+        children.append(child)
+    root._write_state()
+
+    scopes = []
+    for child, schema_version in zip(
+        children,
+        (
+            "compiled_prompt_fragment_identity.v1",
+            "compiled_prompt_fragment_identity.v2",
+        ),
+        strict=True,
+    ):
+        scope = attempts.ProviderAttemptScope.from_dict(
+            {
+                "run_id": root.run_id,
+                "resume_scope": {
+                    "root_workflow_file": root_state.workflow_file,
+                    "call_frame_ids": [child.frame_id],
+                },
+                "runtime_step_id": "NestedProvider",
+                "enclosing_step": {
+                    "step_name": "Provider",
+                    "step_id": "NestedProvider",
+                    "visit_count": 1,
+                },
+                "loop_iteration": None,
+                "adjudication_subject": None,
+            }
+        )
+        assert child.allocate_provider_attempt(
+            scope,
+            prompt_fragment_identity_schema_version=schema_version,
+        ) == 1
+        scopes.append(scope)
+
+    persisted = json.loads(root.state_file.read_bytes())[
+        "provider_attempt_allocations"
+    ]
+    assert scopes[0].runtime_step_id == scopes[1].runtime_step_id
+    assert scopes[0].key != scopes[1].key
+    assert children[0].state.provider_attempt_allocations == {}
+    assert children[1].state.provider_attempt_allocations == {}
+    assert {
+        persisted[scope.key]["prompt_fragment_identity_schema_version"]
+        for scope in scopes
+    } == {
+        "compiled_prompt_fragment_identity.v1",
+        "compiled_prompt_fragment_identity.v2",
+    }
+
+
 def test_old_state_omits_allocator_member_on_round_trip() -> None:
     old = {
         "schema_version": "2.1",

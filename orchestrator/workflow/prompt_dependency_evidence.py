@@ -1153,14 +1153,23 @@ def _build_terminal_index(
     state: RunState,
     projection: Mapping[str, Any],
     root: Path,
-    *,
-    compiler_fragment_identity_schema_versions: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
+    allocations = validate_provider_attempt_allocations(
+        state.provider_attempt_allocations
+    )
     publications: list[dict[str, Any]] = []
     gaps: list[dict[str, Any]] = []
     claimed_paths: set[str] = set()
     for entry in projection["scopes"]:
         scope = ProviderAttemptScope.from_dict(entry["scope"])
+        allocation = allocations.get(scope.key)
+        if (
+            allocation is None
+            or allocation["scope"] != entry["scope"]
+        ):
+            raise ValueError(
+                "allocator projection scope lacks exact persisted authority"
+            )
         if scope.run_id != state.run_id or scope.resume_scope.root_workflow_file != state.workflow_file:
             raise ValueError("allocator scope contradicts terminal run")
         visit_key = scope.key[7:31]
@@ -1190,11 +1199,9 @@ def _build_terminal_index(
                 root / expected_path,
                 event["record_kind"],
                 compiler_fragment_identity_schema_version=(
-                    compiler_fragment_identity_schema_versions.get(
-                        scope.runtime_step_id
+                    allocation.get(
+                        "prompt_fragment_identity_schema_version"
                     )
-                    if compiler_fragment_identity_schema_versions is not None
-                    else None
                 ),
             )
             file_digest = _sha(payload)
@@ -1301,9 +1308,6 @@ def validate_terminal_evidence(
     aggregate_root: str | Path,
     state_file: str | Path,
     *,
-    compiler_fragment_identity_schema_versions: (
-        Mapping[str, str] | None
-    ) = None,
     _after_initial_read: Any = None,
     _after_index_publish: Any = None,
 ) -> TerminalValidationResult:
@@ -1311,16 +1315,6 @@ def validate_terminal_evidence(
 
     root = Path(aggregate_root)
     state_path = Path(state_file)
-    if (
-        compiler_fragment_identity_schema_versions is not None
-        and not isinstance(
-            compiler_fragment_identity_schema_versions,
-            Mapping,
-        )
-    ):
-        raise TypeError(
-            "compiler_fragment_identity_schema_versions must be a mapping"
-        )
     if state_path.absolute() != (root / "state.json").absolute():
         raise ValueError("state_file must be the authoritative aggregate-root state.json")
     with provider_attempt_process_locks(root):
@@ -1336,9 +1330,6 @@ def validate_terminal_evidence(
             state,
             projection,
             root,
-            compiler_fragment_identity_schema_versions=(
-                compiler_fragment_identity_schema_versions
-            ),
         )
         payload = _canonical_bytes(index)
         before_link, before_state = _read_terminal_state(state_path)

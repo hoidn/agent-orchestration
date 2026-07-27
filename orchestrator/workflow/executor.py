@@ -6497,7 +6497,22 @@ class WorkflowExecutor:
                             step_name=step_name,
                             runtime_step_id=runtime_step_id or self._step_id(step),
                         )
-                        ordinal = self.state_manager.allocate_provider_attempt(scope)
+                        if q3_fragment_enabled:
+                            assert fragment_identity_schema_version is not None
+                            ordinal = (
+                                self.state_manager.allocate_provider_attempt(
+                                    scope,
+                                    prompt_fragment_identity_schema_version=(
+                                        fragment_identity_schema_version
+                                    ),
+                                )
+                            )
+                        else:
+                            ordinal = (
+                                self.state_manager.allocate_provider_attempt(
+                                    scope
+                                )
+                            )
                     except (TypeError, ValueError, OSError) as exc:
                         return self._contract_violation_result(
                             "Provider prompt composition failed",

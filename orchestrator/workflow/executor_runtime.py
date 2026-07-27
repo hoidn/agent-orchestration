@@ -75,7 +75,12 @@ class ParentCallStateManager(CallStateManager, Protocol):
     @property
     def workspace(self) -> Path: ...
 
-    def allocate_provider_attempt(self, scope: Any) -> int: ...
+    def allocate_provider_attempt(
+        self,
+        scope: Any,
+        *,
+        prompt_fragment_identity_schema_version: str | None = None,
+    ) -> int: ...
 
     def record_provider_attempt_publication(
         self,

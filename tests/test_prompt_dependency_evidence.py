@@ -933,6 +933,131 @@ def test_terminal_validation_builds_immutable_index_and_discloses_gap(tmp_path: 
     assert validate_terminal_evidence(root, state_file).created is False
 
 
+def test_terminal_validation_preserves_pre_q3_v1_snapshot_without_schema_authority(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.prompt_dependency_evidence import (
+        validate_terminal_evidence,
+    )
+
+    root = tmp_path / "run"
+    root.mkdir()
+    state = _terminal_state(root)
+    _install_published_record(root, state)
+    state_file = root / "state.json"
+    state_file.write_text(json.dumps(state.to_dict()), encoding="utf-8")
+
+    result = validate_terminal_evidence(root, state_file)
+
+    assert (
+        "prompt_fragment_identity_schema_version"
+        not in state.provider_attempt_allocations[_scope().key]
+    )
+    assert result.index["publications"][0]["record_kind"] == "prompt_snapshot"
+
+
+def test_terminal_validation_does_not_alias_equal_runtime_step_ids_across_scopes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.workflow import prompt_dependency_evidence as evidence
+
+    root = tmp_path / "run"
+    root.mkdir()
+    root_scope = _scope()
+    call_scope_node = root_scope.to_dict()
+    call_scope_node["resume_scope"]["call_frame_ids"] = ["frame-a"]
+    call_scope = ProviderAttemptScope.from_dict(call_scope_node)
+    authorities = {
+        root_scope.key: "compiled_prompt_fragment_identity.v1",
+        call_scope.key: "compiled_prompt_fragment_identity.v2",
+    }
+    scopes_by_path: dict[str, ProviderAttemptScope] = {}
+    payloads: dict[str, bytes] = {}
+    state = _run_state(root)
+    state.status = "completed"
+    state.provider_attempt_allocations = {}
+    for scope in (root_scope, call_scope):
+        relative = str(evidence.evidence_relative_path(scope, 1))
+        scopes_by_path[relative] = scope
+        payload = f"record:{scope.key}".encode("ascii")
+        payloads[relative] = payload
+        state.provider_attempt_allocations[scope.key] = {
+            "scope": scope.to_dict(),
+            "last_allocated_ordinal": 1,
+            "events": [
+                {"ordinal": 1, "event": "allocated"},
+                {
+                    "ordinal": 1,
+                    "event": "evidence_published",
+                    "relative_path": relative,
+                    "file_sha256": _sha(payload),
+                    "record_kind": "prompt_snapshot",
+                },
+            ],
+            "prompt_fragment_identity_schema_version": authorities[
+                scope.key
+            ],
+        }
+    state_file = root / "state.json"
+    state_file.write_text(json.dumps(state.to_dict()), encoding="utf-8")
+    observed: dict[str, str | None] = {}
+
+    def read_record(
+        path: Path,
+        kind: str,
+        *,
+        compiler_fragment_identity_schema_version: str | None = None,
+    ):
+        relative = str(path.relative_to(root))
+        scope = scopes_by_path[relative]
+        observed[scope.key] = compiler_fragment_identity_schema_version
+        return (
+            {
+                "record_kind": kind,
+                "run": evidence._state_run(state),
+                "attempt": evidence._attempt(scope, 1),
+                "record_sha256": _sha(f"record:{scope.key}".encode("ascii")),
+            },
+            payloads[relative],
+        )
+
+    monkeypatch.setattr(evidence, "_read_manifest_record", read_record)
+
+    evidence.validate_terminal_evidence(root, state_file)
+
+    assert observed == authorities
+    assert root_scope.runtime_step_id == call_scope.runtime_step_id
+
+
+def test_terminal_validation_rejects_misbound_scope_authority(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.prompt_dependency_evidence import (
+        validate_terminal_evidence,
+    )
+
+    root = tmp_path / "run"
+    root.mkdir()
+    state = _terminal_state(root)
+    scope = _scope()
+    state.provider_attempt_allocations[scope.key][
+        "prompt_fragment_identity_schema_version"
+    ] = "compiled_prompt_fragment_identity.v2"
+    misbound_key = "sha256:" + "0" * 64
+    state.provider_attempt_allocations[misbound_key] = (
+        state.provider_attempt_allocations.pop(scope.key)
+    )
+    state_file = root / "state.json"
+    state_file.write_text(json.dumps(state.to_dict()), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match="terminal state file is invalid",
+    ):
+        validate_terminal_evidence(root, state_file)
+
+
 def test_index_rejects_conflicting_runtime_step_for_same_scope(tmp_path: Path) -> None:
     from orchestrator.workflow.prompt_dependency_evidence import (
         validate_index,

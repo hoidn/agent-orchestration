@@ -377,13 +377,31 @@ class StateManager:
             self.PROVIDER_ATTEMPT_REPAIR_BARRIER_BYTES,
         )
 
-    def allocate_provider_attempt(self, scope: Any) -> int:
+    def allocate_provider_attempt(
+        self,
+        scope: Any,
+        *,
+        prompt_fragment_identity_schema_version: str | None = None,
+    ) -> int:
         """Allocate and durably persist one root-owned provider attempt ordinal."""
 
-        return self._allocate_provider_attempt_from(self, scope)
+        return self._allocate_provider_attempt_from(
+            self,
+            scope,
+            prompt_fragment_identity_schema_version=(
+                prompt_fragment_identity_schema_version
+            ),
+        )
 
-    def _allocate_provider_attempt_from(self, origin_manager: Any, scope: Any) -> int:
+    def _allocate_provider_attempt_from(
+        self,
+        origin_manager: Any,
+        scope: Any,
+        *,
+        prompt_fragment_identity_schema_version: str | None = None,
+    ) -> int:
         from .workflow.provider_attempts import (
+            PROMPT_FRAGMENT_IDENTITY_SCHEMA_VERSIONS,
             ProviderAttemptScope,
             resolve_aggregate_run_owner,
             validate_provider_attempt_allocations,
@@ -392,9 +410,30 @@ class StateManager:
 
         if not isinstance(scope, ProviderAttemptScope):
             raise TypeError("ProviderAttemptScope required")
+        if (
+            prompt_fragment_identity_schema_version is not None
+            and (
+                not isinstance(
+                    prompt_fragment_identity_schema_version,
+                    str,
+                )
+                or prompt_fragment_identity_schema_version
+                not in PROMPT_FRAGMENT_IDENTITY_SCHEMA_VERSIONS
+            )
+        ):
+            raise ValueError(
+                "provider attempt prompt fragment identity schema authority "
+                "is invalid"
+            )
         owner = resolve_aggregate_run_owner(origin_manager)
         if owner.root_manager is not self:
-            return owner.root_manager._allocate_provider_attempt_from(origin_manager, scope)
+            return owner.root_manager._allocate_provider_attempt_from(
+                origin_manager,
+                scope,
+                prompt_fragment_identity_schema_version=(
+                    prompt_fragment_identity_schema_version
+                ),
+            )
         self.enable_durable_state_writes()
         with provider_attempt_process_locks(self.run_root):
             with self._lock:
@@ -414,8 +453,29 @@ class StateManager:
                         "last_allocated_ordinal": ordinal,
                         "events": [{"ordinal": ordinal, "event": "allocated"}],
                     }
+                    if prompt_fragment_identity_schema_version is not None:
+                        entry[
+                            "prompt_fragment_identity_schema_version"
+                        ] = prompt_fragment_identity_schema_version
                     allocations[scope.key] = entry
                 else:
+                    retained_schema_version = entry.get(
+                        "prompt_fragment_identity_schema_version"
+                    )
+                    if retained_schema_version is None:
+                        if prompt_fragment_identity_schema_version is not None:
+                            raise ValueError(
+                                "legacy provider attempt scope cannot acquire "
+                                "prompt fragment identity schema authority"
+                            )
+                    elif (
+                        prompt_fragment_identity_schema_version
+                        != retained_schema_version
+                    ):
+                        raise ValueError(
+                            "provider attempt prompt fragment identity schema "
+                            "authority conflicts with the bound scope"
+                        )
                     ordinal = entry["last_allocated_ordinal"] + 1
                     entry["last_allocated_ordinal"] = ordinal
                     entry["events"].append({"ordinal": ordinal, "event": "allocated"})
