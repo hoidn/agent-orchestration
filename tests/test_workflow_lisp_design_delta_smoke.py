@@ -7,6 +7,7 @@ import pytest
 
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.family_profiles import (
     load_workflow_family_profile_catalog,
 )
@@ -29,6 +30,13 @@ DESIGN_DELTA_PARENT_DRAIN_PROMPTS = (
 )
 WORKFLOW_LISP_VALID_FIXTURES = (
     REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "valid"
+)
+WORKFLOW_LISP_INVALID_FIXTURES = (
+    REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "invalid"
+)
+LET_PROC_WITHOUT_CONTEXT_SOURCE_INVALID_FIXTURE = (
+    WORKFLOW_LISP_INVALID_FIXTURES
+    / "derived_phase_context_let_proc_without_context_source_invalid.orc"
 )
 DESIGN_DELTA_LIBRARY_ROOT = (
     REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta"
@@ -91,6 +99,14 @@ DESIGN_DELTA_DIRECT_FIXTURE_CASES = (
         "design_delta_item_ctx_child_phase_reuse_proc_ref.orc",
         "design_delta_item_ctx_child_phase_reuse_proc_ref::run-entry",
     ),
+    (
+        "design_delta_item_ctx_child_phase_reuse_let_proc.orc",
+        "design_delta_item_ctx_child_phase_reuse_let_proc::run-entry",
+    ),
+    (
+        "design_delta_item_ctx_child_phase_reuse_let_proc_in_proc.orc",
+        "design_delta_item_ctx_child_phase_reuse_let_proc_in_proc::run-entry",
+    ),
 )
 DESIGN_DELTA_DIRECT_FIXTURE_IDS = (
     "loop-promoted-hook",
@@ -98,6 +114,8 @@ DESIGN_DELTA_DIRECT_FIXTURE_IDS = (
     "parent-work-item",
     "item-ctx-proc",
     "item-ctx-proc-ref",
+    "item-ctx-let-proc",
+    "item-ctx-let-proc-in-proc",
 )
 DESIGN_DELTA_MIRROR_MODULES = (
     "bootstrap.orc",
@@ -287,6 +305,47 @@ def test_registered_design_delta_fixture_compiles_directly(
 
     assert result.entry_result.lowering_schema_version == 2
     assert expected_workflow in result.validated_bundles_by_name
+
+
+def test_let_proc_without_context_source_rejects_at_typecheck_like_authored_twin(
+    tmp_path: Path,
+) -> None:
+    # `run-selection-only`'s generated `let-proc` equivalent has the same
+    # payload-only params as its authored top-level `defproc` twin
+    # (`derived_phase_context_proc_without_context_source_invalid.orc`), so
+    # both must fail the derived-child hidden-context gate for the same
+    # reason and at the same compile stage: neither carries an `item-ctx`
+    # source param, so omitting `run-plan-phase`'s hidden `phase-ctx` binding
+    # is never eligible (let-proc equivalence contract,
+    # docs/design/workflow_lisp_let_proc_local_proc_refs.md).
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            LET_PROC_WITHOUT_CONTEXT_SOURCE_INVALID_FIXTURE,
+            source_roots=(
+                WORKFLOW_LISP_INVALID_FIXTURES,
+                REPO_ROOT / "workflows" / "library",
+            ),
+            provider_externs=json.loads(
+                DESIGN_DELTA_PARENT_DRAIN_PROVIDERS.read_text(encoding="utf-8")
+            ),
+            prompt_externs=json.loads(
+                DESIGN_DELTA_PARENT_DRAIN_PROMPTS.read_text(encoding="utf-8")
+            ),
+            command_boundaries=_design_delta_direct_fixture_command_boundaries(
+                LET_PROC_WITHOUT_CONTEXT_SOURCE_INVALID_FIXTURE.name
+            ),
+            validate_shared=True,
+            workspace_root=tmp_path,
+            lowering_route=DEFAULT_LOWERING_ROUTE,
+            family_profile_catalog=load_workflow_family_profile_catalog(
+                (_write_smoke_family_profile(tmp_path),)
+            ),
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_signature_mismatch"
+    assert diagnostic.phase == "typecheck"
+    assert "phase-ctx" in diagnostic.message
 
 
 @pytest.mark.parametrize("module_name", DESIGN_DELTA_MIRROR_MODULES)

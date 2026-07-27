@@ -1248,6 +1248,21 @@ def _typecheck_let_proc_expr_impl(
     local_value_env.update(dict(residual_signature_params))
     previous_proc_ref_env = session_state.proc_ref_value_env
     session_state.proc_ref_value_env = local_proc_ref_env
+    previous_workflow_signature = session_state.workflow_signature
+    previous_hidden_context_signature = session_state.procedure_hidden_context_signature
+    # A `let-proc` local's generated defproc-equivalent must typecheck under
+    # the same hidden-context gate an authored top-level `defproc` body gets:
+    # the generated signature's own params decide derived-private-child
+    # eligibility, not whatever `defworkflow`/enclosing-`defproc` gate was
+    # active at the `let-proc` call site (let-proc equivalence contract,
+    # docs/design/workflow_lisp_let_proc_local_proc_refs.md; mirrors the
+    # per-definition proc body gate above).
+    session_state.workflow_signature = None
+    session_state.procedure_hidden_context_signature = (
+        generated_signature
+        if eligible_private_context_source_param_names(generated_signature)
+        else None
+    )
     try:
         typed_local_body = _typecheck_owner(
             local_body_expr,
@@ -1266,6 +1281,8 @@ def _typecheck_let_proc_expr_impl(
         )
     finally:
         session_state.proc_ref_value_env = previous_proc_ref_env
+        session_state.workflow_signature = previous_workflow_signature
+        session_state.procedure_hidden_context_signature = previous_hidden_context_signature
     if not type_refs_compatible(return_type_ref, typed_local_body.type_ref):
         _raise_error(
             (
