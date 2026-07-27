@@ -77,7 +77,7 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | complete — implementation through `d0bb9a1d`; clean Task-7 closure after exact `a40b536c`/`4e2c4911` boundary repair; ordered final reviews accepted |
 | Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | next — accepted design and [reviewed implementation plan](2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md); implementation not started |
 | Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | blocked by Q3 completion |
-| Q5 | Phased contract delivery | accepted design (`docs/design/workflow_lisp_phased_contract_delivery.md`); Q1 fragments and target-2.17 turn queue landed (both are); no Q3/Q4 dependency | opt-in two-turn delivery for fragment-backed session calls with derived cut rule, materialization-only retry with named diagnostics, byte-identical composed fallback, and the review consumer migrated with unchanged result authority | blocked by table order; owner may advance it ahead of Q4 by explicit reordering amendment |
+| Q5 | Phased contract delivery | proposed target-2.23 design pending independent specification review; implemented Q1/Q2 plus landed/accepted Q3 attempt-identity/evidence are cumulative inputs; Q5 has no Q4 judgment dependency and its design review may run beside Q3 implementation; implementation planning requires accepted Q3 plus the closed-outcome deadline-aware production-adapter/target-2.17 compatibility and real same-client adapter probe | explicit `:delivery :phased` plus bounded literal materialization attempts; exact `T1 || T2 == C` cut; identity-v2/evidence-v3 and report-v2 distinction between canonical `C`, legacy final-prompt identity, and ordered actual deliveries; proof-authoritative failed-start T0 with one handle-free Q5 cleanup-evidence union and exact active-handle validation before projecting unchanged adapter proofs; inert pre-start binding/locator values and post-start endpoint binding; T2 cleanup-pending/finished closure with one ingress outcome; full Q2 authority with no early publication; total reason projection with non-null reason-equal summaries; ledger-only digest validation; truthful terminal resource evidence; byte-identical omitted/composed path; real review consumer | proposed — specification review pending, then quality review; no implementation plan until Q3 is landed/accepted and the closed-outcome deadline-aware production adapter compatibility/feasibility probe passes; coordinator invalid-then-valid, report, cleanup/endpoint, and post-join evidence are implementation completion gates |
 
 ### L-Series: Language-Server Debugging Utility
 
@@ -90,7 +90,14 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and a diagnostic-currentness policy are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | blocked by L3 |
 | L5 | Authored reference navigation | accepted design at `b8a41172`; Q1 catalog and L1 index landed; read-only feasibility gates admit prompt heads and only final unexpanded direct-retained `proc-ref` occurrences in non-generated, non-specialized authored owners; macro heads defer shape-wide; no L3/L4 dependency — selected under the owner-reordering rule | exact authored prompt-head and admitted proc-ref-name definition hits; macro-consumed, erased, generated-owner, specialized-owner proc-refs and every macro head remain null; existing direct procedure/`(call ...)` hits regression-locked; WCC/generated calls excluded; every hit uses the full common preflight; real stdio resolves the review workflow prompt head while its macro/proc-ref tokens remain null and its direct call stays exact | plan gate — [proposed implementation plan](2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md) awaits ordered specification then quality review; implementation not authorized |
 
-The Q-series stages execute in Q-table order. Q0, Q1, and Q2 are complete.
+The Q-series implementation stages execute in Q-table order. Q5 design review
+may proceed in parallel with Q3 because review can close the Q5 delta against
+the accepted Q3 contract. Target 2.23 is nevertheless cumulative: Q5
+implementation planning and implementation require the Q3
+attempt-identity/evidence substrate to have landed and passed its ordered
+acceptance gates. This exception does not select Q5 implementation planning or
+implementation. Q5 has no Q4 judgment dependency. Q0, Q1, and Q2 are
+complete.
 Q3's target design is accepted after ordered `Q3_DESIGN_SPEC_APPROVED` then
 `Q3_DESIGN_QUALITY_APPROVED`. Its
 [reviewed implementation plan](2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md)
@@ -109,12 +116,14 @@ claim that every adjacent stage has a compiler dependency on its predecessor;
 it executes in L-table order unless the owner explicitly reorders it. At most
 one L stage is active at a time.
 
-One Q stage and one L stage may proceed concurrently only after their component
-plans record disjoint behavioral ownership. Shared routing files—including
-this roadmap, `docs/index.md`, `docs/design/README.md`, and
-`docs/capability_status_matrix.md`—must be updated serially at each stage gate.
-A later stage may be narrowed by its accepted design, but may not absorb a
-deferred language mechanism merely because it is adjacent.
+One Q implementation stage and one L stage may proceed concurrently only after
+their component plans record disjoint behavioral ownership. The explicit Q5
+design-review exception above does not authorize a second Q component plan.
+Shared routing files—including this roadmap, `docs/index.md`,
+`docs/design/README.md`, and `docs/capability_status_matrix.md`—must be updated
+serially at each stage gate. A later stage may be narrowed by its accepted
+design, but may not absorb a deferred language mechanism merely because it is
+adjacent.
 
 A parallel substrate track
 (`docs/plans/2026-07-26-substrate-maintenance-track.md`) runs beside this
@@ -260,25 +269,99 @@ mapping.
 
 Authority target:
 `docs/design/workflow_lisp_phased_contract_delivery.md` (proposed;
-independent design review required before planning).
+independent specification review, then quality review, required before
+planning).
 
-Deliver a fragment-backed provider call's composed prompt as two successive
-session turns — task prose first, derived contract tail at the turn
-boundary — so judgment runs before serialization obligations arrive
-(principle 30's sequencing corollary), and a contract-validation failure
-re-elicits only the materialization turn, never the task phase. The cut
-between phases is derived from the declaration (authored template prose
-versus machinery-rendered contract), never authored per slot. Composition
-on non-session providers, and on calls that do not opt in, remains
-byte-identical to the single-prompt rendering.
+Deliver a fragment-backed provider call's one canonical composed prompt as two
+successive turns inside one interactive provider attempt, with bounded
+materialization-only correction. Target 2.23 adds explicit
+`:delivery :phased` and a literal `:materialization-attempts` total in the
+closed range `1..3` (default `2` when phased). Omitted delivery remains
+composed. Explicit phased delivery requires the exact
+`interactive_terminal_turn_queue.v1` capability and fails with named
+diagnostics when it is absent or malformed; there is no capability-based
+fallback.
 
-Q5 depends only on landed substrate (Q1 fragments; the target-2.17
-turn-boundary queue) and has no semantic dependency on Q3 or Q4; it sits
-last in table order, and advancing it ahead of Q4 requires only an explicit
-reordering amendment to this table. Required order per this roadmap's
-standard: independent design review, reviewed implementation plan, TDD
-implementation, byte-accounting and retry-containment fixtures, one real
-phased run of the review consumer, ordered final reviews.
+Q5 owns a new single-attempt `PhasedProviderAttemptCoordinator`. It reuses only
+the implemented interactive adapter's `start`, `offer`, `offer_close`, `join`,
+and `abort` primitives plus the structural capability. It does not reuse or
+claim ordinary-call support from the target-2.17 peer-group coordinator,
+ledger, or `peer-finish`. Before Q5 planning, the shared production adapter
+must accept the caller's whole-attempt deadline and return one closed
+`InteractiveTerminalStartOutcome`: successful start carries the exact handle;
+failed start carries `none|possible_or_allocated`, exact
+`not_required|completed|incomplete` cleanup, provider-zero-survivor truth, and
+the exact no-allocation or failed-cleanup proof. A missing handle proves
+nothing. Production `interactive_terminal_start_cleanup_incomplete` maps to
+possible-or-allocated/incomplete/false and truthful T0 failure. The extension
+must preserve target-2.17 peer behavior and prove initial, retry, and close
+offers when remaining budget is below the configured adapter timeout.
+
+The coordinator partitions one canonical composed rendering as exact byte
+slices `T1 || T2 == C`, accounts for runtime protocol/submit/diagnostic frames
+outside `C`, validates the Q2 expected artifacts and structured bundle jointly
+on every submit, retries only the materialization turn within the same provider
+attempt, freezes the valid candidate, closes and joins naturally, then
+publishes once. Invalid submissions embed complete content-free candidate
+digest manifests and clear only preflight-absent bound candidate paths.
+After natural join the lifecycle enters `JOINED_PENDING_COMMIT`; restoration
+or state-commit failure ends failed without aborting the terminal handle and
+retains candidates only as non-authoritative evidence. Receipt of a validated
+natural proof is the irreversible in-memory transition before
+`join_succeeded` evidence. Submit ingress is disabled, drained, closed, and
+joined before join/publication. The closed T0–T4 terminalizer splits T2 into
+cleanup-pending T2a and cleanup-already-finished T2b, emits exactly one cleanup
+outcome overall, and permits at most one ingress start plus one finished-or-
+failed outcome. `ingress_shutdown_failed` truthfully records incomplete
+endpoint proof; post-proof failure makes zero abort/cleanup calls.
+
+Before provider start, the opaque submit binding and candidate endpoint
+locator are immutable inert process-local values only: they reserve no
+address and create no socket, listener, worker, or endpoint resource. T0
+discards them with zero coordinator-owned endpoint resources. Actual address
+binding and endpoint allocation begin only after successful start; an address
+race remains `submit_endpoint_allocation_failed` and follows the post-start
+endpoint terminalizer. The ledger's one `provider_cleanup_proof` slot is
+exactly
+`null|NoBackendAllocationProof|PhasedFailedCleanupEvidence`, with
+status-selected handle-free members and null limited to enumerated post-start
+no-projection or invalid-handle-proof cases. Failed start constructs the
+handle-free evidence directly because no handle exists. Post-start abort still
+returns the unchanged handle-bound target-2.17 `FailedCleanupProof`; the
+coordinator validates exact active handle identity before projecting its five
+content-free fields, and missing/mismatched proof identity fails closed without
+becoming ledger evidence.
+
+Q5 preserves compiled Q1/Q2 fragment identities and composed-call Q3
+attempt-identity-v1/functional-v2 evidence. Target 2.23 phased calls require
+the landed/accepted Q3 substrate and add attempt identity v2 plus functional
+evidence v3: canonical `C` is separate from exact ordered
+task/materialization/retry delivery rows, and the fixed report-v2 amendment
+uses explicit version and nullable legacy/canonical/actual-delivery fields
+without calling `C` a delivered prompt.
+
+One closed content-free `provider_prompt_phase_ledger.v1` sidecar records
+canonical JSONL lifecycle rows, embedded complete candidate manifests, closed
+validator precedence, before/during deadline diagnostics, and total
+reason/value/source projection. Every diagnostic summary is the exact reason
+token and is never null. Offline digest validation partitions every field into
+a ledger-recomputable seal or opaque equality/order-bound reference and never
+opens external bytes. The ledger and new attempt evidence are neither result
+nor resume authority. Interrupted nonterminal visits use current sticky
+quarantine semantics.
+
+Q5 specification review may proceed in parallel with Q3. Before implementation
+planning, Q3 must be landed and accepted; the closed-outcome deadline-aware
+adapter extension plus target-2.17 compatibility proof must land; and a
+production-adapter real-provider probe must prove successful start, all three
+failed-start proof combinations, two successive offers, normal close/join,
+smaller-than-configured remaining budget, and zero outliving operations in one
+client. It must not implement or claim the Q5 coordinator. Later implementation
+completion requires invalid-then-valid coordinator, report-v2, ledger,
+before/during timeout, T0–T4 including T2a/T2b and terminalizing-ingress
+failure, diagnostic bijection/summary-null sweep, digest-category,
+natural-proof/ledger-failure, post-join publication-failure,
+composed-compatibility, real-consumer, and ordered-review evidence.
 
 ## Stage L0: Reliability And Diagnostic Actionability
 
@@ -489,7 +572,12 @@ specification then quality approval before TDD execution.
   diagnostic instead of instructed-and-rejected (today's consumers: the
   relpath-spelling and schema-version guidance lines) — is eligible under
   design principle 30 (provider-attention conservation) and enters only
-  via its own design act.
+  via its own design act. Selection trigger: post-ML re-spend evidence
+  attributing provider re-attempts to normalizable near-misses in three or
+  more distinct runs, re-read under Q5 phased delivery. Q5 contains retry
+  re-spend but does not remove the missing normalization, exact-literal, or
+  referenced-artifact validation mechanisms and must not be credited as
+  retiring this debt.
 - Runtime prompt values, fragment-reference collections, type-parameterized
   fragments, semantic prompt checking, same-turn steering, and optimization
   remain outside this roadmap.

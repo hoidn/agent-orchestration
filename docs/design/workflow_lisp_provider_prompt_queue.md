@@ -7,7 +7,14 @@
   surface decisions (atomic step, static length, per-turn exit success,
   provider-form parameter) selected by the user on 2026-07-10
 - **Created:** 2026-07-10
-- **Last material update:** 2026-07-10
+- **Last material update:** 2026-07-27 (coordination boundary clarified;
+  sequencing repointed from the historical procedure-first amendment path)
+- **Coordination (2026-07-27):** this proposal and language-quality roadmap
+  Stage Q5 (`docs/design/workflow_lisp_phased_contract_delivery.md`) are
+  separate. Q5 uses `interactive_terminal_turn_queue.v1` through its own
+  single-process phase coordinator. This proposal owns any authored
+  process-per-turn session-resume loop and session-id contract. Neither
+  proposal implements, satisfies, or depends on the other.
 - **Related docs / plans:**
   - `docs/design/workflow_lisp_frontend_specification.md` (parent language contract)
   - `docs/design/workflow_language_design_principles.md`
@@ -18,10 +25,13 @@
     authority, prompt extern semantics)
   - `docs/plans/2026-04-20-adjudicated-provider-step-design.md` (precedent:
     multi-invocation single step)
+  - `docs/design/workflow_lisp_phased_contract_delivery.md` (separate Stage
+    Q5 interactive-turn proposal; each proposal owns a separate mechanism and
+    neither depends on the other)
   - `specs/providers.md`, `specs/io.md`, `specs/versioning.md`
-- **Implementation target:** not scheduled; requires an explicit Stage-5
-  amendment to `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
-  (see Dependencies And Sequencing)
+- **Implementation target:** unscheduled. Q5 neither schedules nor implements
+  this proposal. Selection requires an independent roadmap action; the former
+  procedure-first Stage-5 amendment path is historical.
 
 ## Summary
 
@@ -64,7 +74,9 @@ Verified implementation behavior this design builds on (2026-07-10 checkout):
   "one step vs N steps" does not change what the provider actually executes.
 - **Cross-step session chaining already exists in YAML v2.10.**
   `provider_session: {mode: resume, session_id_from: <artifact>}` with
-  loader-time validation (`orchestrator/loader.py:4004-4043`) and provider-session
+  loader-time validation (historical `orchestrator/loader.py:4004-4043`,
+  deleted with the YAML parser; the validation owner is now
+  `orchestrator/workflow/validation.py:4840-4899`) and provider-session
   test coverage.
   This design deliberately does not extend that YAML surface (see Non-Goals).
 - **Per-invocation contract suppression exists.**
@@ -218,8 +230,9 @@ Rules:
   type error with a dedicated diagnostic code.
 - When arity > 1, the resolved provider template must declare
   `session_support` with a `resume_command`. This is validated at
-  compile/load time (mirroring the loader-time validation precedent at
-  `orchestrator/loader.py:4004`), not discovered at runtime. With the builtin
+  compile/load time (mirroring the validation precedent now owned by
+  `orchestrator/workflow/validation.py:4840-4899`; the originally cited
+  `orchestrator/loader.py` is deleted), not discovered at runtime. With the builtin
   registry this admits `codex`/`codex_gpt55` and rejects `claude`/`gemini`
   until their templates gain session support.
 
@@ -306,12 +319,12 @@ step-execution mode, not inside `ProviderExecutor`.
   builtin templates lack `session_support`; queues over those providers are
   compile-time rejected until their templates gain session commands and a
   metadata mode. Adding one is independent work.
-- **Sequencing:** implementation is gated behind the semantic-migration
-  freeze (drain Gate S3/P4) and belongs after the native-transportable-
-  returns wave, since the final turn renders whatever return contract that
-  design owns. Scheduling requires an explicit amendment to the procedure-
-  first roadmap's Stage-5 wave list; this document does not by itself make
-  the feature selectable.
+- **Sequencing:** implementation is unscheduled. The former procedure-first
+  sequencing route is complete historical provenance and cannot select this
+  proposal. The prompt queue remains unavailable until a separate owner
+  selection act, an updated independent design review against then-current
+  provider/session contracts, and a reviewed implementation plan explicitly
+  schedule it. Q5 selection, review, or implementation does none of those.
 - Work that can proceed independently: independent design review of this
   document; the `claude` session-template prerequisite; a scripted
   session-capable fixture provider for tests.
