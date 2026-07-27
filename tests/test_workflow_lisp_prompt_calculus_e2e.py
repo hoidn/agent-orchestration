@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import re
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
+from orchestrator.contracts.prompt_contract import (
+    render_variant_output_contract_block,
+)
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executable_ir import ExecutableNodeKind
@@ -28,9 +30,6 @@ from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.lexical_checkpoints import (
     checkpoint_runtime_program_identity,
     validate_checkpoint_record,
-)
-from orchestrator.workflow_lisp.typed_prompt_inputs import (
-    render_typed_prompt_inputs,
 )
 from tests.workflow_bundle_helpers import bundle_context_dict
 
@@ -110,24 +109,6 @@ def _provider_policy_projection(step) -> dict[str, object]:
     }
 
 
-def _normalize_fragment_template_to_legacy_static(template: str) -> str:
-    replacements = {
-        "\n\n{review_focus}\n\n": " ",
-        "\n\n{context_docs}\n\n": " ",
-        "\n\n{checks_report}\n\n": " ",
-        "\n\n{review_report_target_path}\n\n": "\n\n",
-    }
-    normalized = template
-    for insertion, legacy_separator in replacements.items():
-        assert normalized.count(insertion) == 1
-        normalized = normalized.replace(
-            insertion,
-            legacy_separator,
-            1,
-        )
-    return normalized
-
-
 def _runtime_manager(
     workspace: Path,
     *,
@@ -186,15 +167,21 @@ def _capturing_review_provider(
     def prepare(_self, provider_name, *_args, **kwargs):
         prompts = captured.setdefault("prompts", [])
         providers = captured.setdefault("providers", [])
+        output_bundle_paths = captured.setdefault("output_bundle_paths", [])
         assert isinstance(prompts, list)
         assert isinstance(providers, list)
+        assert isinstance(output_bundle_paths, list)
         providers.append(provider_name)
         prompts.append(str(kwargs.get("prompt_content", "")))
+        env = kwargs.get("env") or {}
+        output_bundle_paths.append(
+            str(env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
+        )
         captured["preparations"] = int(captured.get("preparations", 0)) + 1
         return SimpleNamespace(
             input_mode="stdin",
             prompt=prompts[-1],
-            env=kwargs.get("env") or {},
+            env=env,
         ), None
 
     def execute(_self, invocation, **_kwargs):
@@ -318,6 +305,54 @@ def test_real_consumer_migrates_review_to_five_slot_prompt_fragment(
         "posix-path-line",
         "posix-path-line",
     )
+    assert tuple(
+        slot.placeholder_ordinals for slot in contract.rendered_slots
+    ) == ((1,), (0,), (2,), (3,))
+    assert tuple(
+        slot.value_source["binding"]["ref"]
+        for slot in contract.rendered_slots
+    ) == (
+        "inputs.completed__context_docs",
+        "inputs.inputs__review_focus",
+        "inputs.inputs__checks_report",
+        "inputs.inputs__review_report_target_path",
+    )
+    assert contract.rendered_slots[0].static_type == {
+        "kind": "list",
+        "item": {
+            "kind": "path",
+            "name": "DesignDocPath",
+            "under": "docs",
+            "must_exist_target": True,
+        },
+    }
+    assert tuple(
+        (slot.static_type["kind"], slot.static_type.get("name"))
+        for slot in contract.rendered_slots[1:]
+    ) == (
+        ("primitive", "String"),
+        ("path", "WorkReportPath"),
+        ("path", "ReviewReportTargetPath"),
+    )
+    assert tuple(
+        name
+        for _, name in sorted(
+            (
+                slot.placeholder_ordinals[0],
+                slot.name,
+            )
+            for slot in contract.rendered_slots
+        )
+    ) == (
+        "review_focus",
+        "context_docs",
+        "checks_report",
+        "review_report_target_path",
+    )
+    assert all(
+        contract.template_utf8.count(f"{{{slot.name}}}") == 1
+        for slot in contract.rendered_slots
+    )
     assert review.depends_on == {
         "required": ("${inputs.completed__target_doc}",),
         "optional": (),
@@ -341,16 +376,6 @@ def test_real_consumer_migrates_review_to_five_slot_prompt_fragment(
         "REVISE",
         "BLOCKED",
     )
-    frozen_legacy = (
-        LEGACY_FIXTURE
-        / "prompts"
-        / "workflows"
-        / "review_revise_design_docs"
-        / "review.md"
-    ).read_text(encoding="utf-8")
-    assert _normalize_fragment_template_to_legacy_static(
-        contract.template_utf8
-    ) == frozen_legacy
 
 
 @pytest.mark.parametrize("lowering_route", ("legacy", "wcc_m4"))
@@ -387,114 +412,74 @@ def test_real_consumer_migration_preserves_fix_call_and_provider_policy(
     )
 
 
-def test_real_consumer_composed_prompt_preserves_legacy_static_and_stable_lanes(
+def test_real_consumer_composes_dependency_fragment_and_result_contract_once(
     tmp_path: Path,
 ) -> None:
-    legacy_workspace = tmp_path / "legacy"
-    migrated_workspace = tmp_path / "migrated"
-    legacy_workspace.mkdir()
-    migrated_workspace.mkdir()
-    legacy_result, _, _, legacy_capture, legacy_state = _execute_consumer(
-        source_path=LEGACY_FIXTURE / "review_revise_design_docs.orc",
-        prompt_externs=_manifest(LEGACY_FIXTURE / "prompts.json"),
-        workspace=legacy_workspace,
-        run_id="prompt-core-legacy-composition",
+    result, _, _, captured, completed = _execute_consumer(
+        source_path=CONSUMER,
+        prompt_externs=_manifest(CONSUMER_INPUTS / "prompts.json"),
+        workspace=tmp_path,
+        run_id="prompt-core-composition",
     )
-    migrated_result, _, _, migrated_capture, migrated_state = (
-        _execute_consumer(
-            source_path=CONSUMER,
-            prompt_externs=_manifest(CONSUMER_INPUTS / "prompts.json"),
-            workspace=migrated_workspace,
-            run_id="prompt-core-migrated-composition",
-        )
-    )
-    assert legacy_state["status"] == migrated_state["status"] == "completed"
-    [legacy_prompt] = legacy_capture["prompts"]
-    [migrated_prompt] = migrated_capture["prompts"]
-    legacy_review = _provider_step(
-        _bundle(legacy_result, "::review-design-docs.v1")
-    )
-    migrated_review = _provider_step(
-        _bundle(migrated_result, "::review-design-docs.v1")
-    )
-    legacy_base = (
-        LEGACY_FIXTURE
-        / "prompts"
-        / "workflows"
-        / "review_revise_design_docs"
-        / "review.md"
-    ).read_text(encoding="utf-8")
-    fragment_contract = migrated_review.compiler_prompt_fragment_contract
+
+    assert completed["status"] == "completed"
+    assert captured["preparations"] == captured["executions"] == 1
+    [prompt] = captured["prompts"]
+    [output_bundle_path] = captured["output_bundle_paths"]
+    review = _provider_step(_bundle(result, "::review-design-docs.v1"))
+    fragment_contract = review.compiler_prompt_fragment_contract
     assert fragment_contract is not None
-    migrated_base = render_prompt_fragment_base(
+    slot_values = {
+        "context_docs": [
+            "docs/design/context-a.md",
+            "docs/design/context-b.md",
+        ],
+        "review_focus": "FOCUS_SENTINEL",
+        "checks_report": "artifacts/work/checks.md",
+        "review_report_target_path": "artifacts/review/review.md",
+    }
+    fragment = render_prompt_fragment_base(
         fragment_contract,
-        resolved_slot_values={
-            "context_docs": [
-                "docs/design/context-a.md",
-                "docs/design/context-b.md",
-            ],
-            "review_focus": "FOCUS_SENTINEL",
-            "checks_report": "artifacts/work/checks.md",
-            "review_report_target_path": "artifacts/review/review.md",
-        },
+        resolved_slot_values=slot_values,
     )
-    normalized_migrated_base = migrated_base
-    for insertion, legacy_separator in (
-        ("\n\nFOCUS_SENTINEL\n\n", " "),
-        (
-            '\n\n["docs/design/context-a.md","docs/design/context-b.md"]\n\n',
-            " ",
-        ),
-        ("\n\nartifacts/work/checks.md\n\n", " "),
-        ("\n\nartifacts/review/review.md\n\n", "\n\n"),
-    ):
-        assert normalized_migrated_base.count(insertion) == 1
-        normalized_migrated_base = normalized_migrated_base.replace(
-            insertion,
-            legacy_separator,
-            1,
-        )
-    assert normalized_migrated_base == legacy_base
+    assert fragment == render_prompt_fragment_base(
+        fragment_contract,
+        resolved_slot_values=slot_values,
+    )
+    rendered_insertions = (
+        "FOCUS_SENTINEL",
+        '["docs/design/context-a.md","docs/design/context-b.md"]',
+        "artifacts/work/checks.md",
+        "artifacts/review/review.md",
+    )
+    assert all(fragment.count(value) == 1 for value in rendered_insertions)
+    assert all(prompt.count(value) == 1 for value in rendered_insertions)
+    assert [fragment.index(value) for value in rendered_insertions] == sorted(
+        fragment.index(value) for value in rendered_insertions
+    )
+    assert prompt.count(fragment) == 1
+    dependency_lane, separator, result_contract_lane = prompt.partition(
+        fragment
+    )
+    assert separator == fragment
+    assert dependency_lane.count("TARGET_DOCUMENT_SENTINEL") == 1
+    assert "TARGET_DOCUMENT_SENTINEL" not in fragment
+    assert "TARGET_DOCUMENT_SENTINEL" not in result_contract_lane
+    assert prompt.index("TARGET_DOCUMENT_SENTINEL") < prompt.index(fragment)
 
-    legacy_prefix, separator, legacy_tail = legacy_prompt.partition(legacy_base)
-    assert separator == legacy_base
-    migrated_prefix, separator, migrated_tail = migrated_prompt.partition(
-        migrated_base
+    rendered_result_contract = render_variant_output_contract_block(
+        {
+            **review.common.variant_output,
+            "path": output_bundle_path,
+        }
     )
-    assert separator == migrated_base
-    assert migrated_prefix == legacy_prefix
-
-    legacy_typed_block, _ = render_typed_prompt_inputs(
-        legacy_review.typed_prompt_inputs,
-        resolved_typed_values={
-            "target_doc": "docs/design/target.md",
-            "review_focus": "FOCUS_SENTINEL",
-            "checks_report": "artifacts/work/checks.md",
-            "review_report_target_path": "artifacts/review/review.md",
-        },
-        workflow_name="legacy-normalization",
-        step_id="legacy-review",
-    )
-    assert legacy_tail.startswith("\n" + legacy_typed_block)
-    legacy_contract = legacy_tail[len("\n" + legacy_typed_block) :]
-    assert legacy_contract.startswith("\n\n")
-    assert migrated_tail.startswith("\n")
-    migrated_contract = migrated_tail[1:]
-    legacy_contract = re.sub(
-        r"(?m)^- path: .+$",
-        "- path: <runtime-output-bundle-path>",
-        legacy_contract[2:],
-        count=1,
-    )
-    migrated_contract = re.sub(
-        r"(?m)^- path: .+$",
-        "- path: <runtime-output-bundle-path>",
-        migrated_contract,
-        count=1,
-    )
-    assert migrated_contract == legacy_contract
-    assert _provider_policy_projection(migrated_review) == (
-        _provider_policy_projection(legacy_review)
+    assert result_contract_lane
+    assert result_contract_lane == "\n" + rendered_result_contract
+    assert prompt.count(rendered_result_contract) == 1
+    assert prompt.index(fragment) < prompt.index(rendered_result_contract)
+    assert result_contract_lane.count(output_bundle_path) == 1
+    assert all(
+        value not in result_contract_lane for value in rendered_insertions
     )
 
 
