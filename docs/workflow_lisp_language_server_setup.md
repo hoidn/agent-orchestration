@@ -108,6 +108,17 @@ registry membership only; it does not impose or infer a nominal type taxonomy.
 Generated, expanded, specialized, or span-ambiguous definitions do not become
 best-effort symbols.
 
+The accepted, not-yet-implemented L2 amendment narrows that completion rule to
+a three-way surface. A current successful snapshot keeps the full callable and
+form list with `isIncomplete=false`. Valid dirty, current-pending,
+language-failed, or server-failed open entries receive only the
+**process-frozen form registry** with `isIncomplete=true` and **no stale
+callable** rows. Configuration-stale, unavailable, closed, unassociated,
+malformed, and index-failed entries remain empty. Definition and document
+symbols stay closed outside current success. Until the reviewed L2
+implementation lands, the current L1 null/empty behavior above remains the
+runtime truth.
+
 ## Freshness And Restart Rules
 
 Every accepted result is bound to exact raw-byte SHA-256 revisions for the
@@ -129,13 +140,14 @@ unlatch it; restart the language server.
 ## Current Limits
 
 The implemented v1/L0/L1 surface intentionally has no unsaved-buffer analysis,
-recovery-safe incomplete completion,
+and the accepted L2 process-frozen recovery completion remains implementation
+pending. The combined surface has no
 multi-diagnostic recovery,
 hover/type sidecar, compile cache or incrementality, rename, formatting, code
 actions, semantic tokens, multi-root workspace support, or non-default compile
-policy. These are not partial server features. L2's design-amendment/review
-gate is next; no L2 design is accepted. The frontend prerequisites P1–P5 and
-any other successor work remain separately designed and scheduled.
+policy. These are not partial server features. L2's reviewed implementation
+plan is the next gate. The frontend prerequisites P1–P5 and any other successor
+work remain separately designed and scheduled.
 
 For the owning contract and rationale, see
 [Workflow Lisp Language Server](design/workflow_lisp_language_server.md) and

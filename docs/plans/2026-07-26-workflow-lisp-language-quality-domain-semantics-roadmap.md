@@ -84,15 +84,15 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | --- | --- | --- | --- | --- |
 | L0 | Reliability and diagnostic actionability | Gate S8 complete; current v1 behavior characterized | no-watcher `didSave` reverse invalidation, intentional structured initialization failures, visible compiler-owned notes/expansion provenance, and a content-keyed pure-projection source cache pass focused state/driver/stdio/diagnostic/cache tests plus one real stdio E2E without changing diagnostic identity | complete — reviewed implementation closes the four bounded corrections and watcher-disabled real-stdio gate |
 | L1 | Authored symbols and callable signatures | L0 complete; closed navigation/completion amendment accepted | authored type/resource/transition symbols and namespace-preserving procedure/workflow signature completion use existing compiler spans/catalogs, exclude generated shapes, and retain fail-closed freshness | complete — implemented, reviewed, and repository-real stdio closure gate passed |
-| L2 | Recovery-safe static completion | L1 complete; two-tier completion amendment/review pending | dirty/pending/invalidated/failed open entries receive only deterministic compiler-registry form heads as an incomplete list; stale callables remain closed and stale/closed/unassociated entries remain empty | next — design amendment/review required; no L2 design is accepted |
+| L2 | Recovery-safe static completion | L1 complete; two-tier completion design accepted | dirty/pending/invalidated/failed open entries receive only the process-frozen form registry as an incomplete list; stale callables remain closed and stale/closed/unassociated entries remain empty | active — design accepted; reviewed implementation plan is next |
 | L3 | Per-source entry selection | L2 complete; immutable initialization-schema amendment accepted; compile-path reentrancy proven (substrate MR-4 complete, or an equivalent accepted reentrancy fixture) | one canonical workspace process can select an exported workflow for a named application source while compiling library entries with no selection, with exact CLI request parity and restart semantics | blocked by L2 |
 | L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and a diagnostic-currentness policy are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | blocked by L3 |
 
 The Q-series stages execute in Q-table order. Q0, Q1, and Q2 are complete.
 Q3's separate design-and-ordered-review gate is next; no Q3 design or
 implementation plan is accepted.
-L0 and L1 are complete. L2's design-amendment/review gate is next; no L2
-design or implementation plan is accepted.
+L0 and L1 are complete. L2's design is accepted after ordered independent
+reviews; its implementation-plan gate is next.
 The L-series is an owner-selected
 priority queue rather than a
 claim that every adjacent stage has a compiler dependency on its predecessor;
@@ -321,19 +321,22 @@ details from compiler catalogs rather than LSP-owned copies.
 
 ## Stage L2: Recovery-Safe Static Completion
 
-Authority target: an accepted two-tier completion amendment to the language
+Authority target: the accepted two-tier completion amendment in the language
 server design, frontend specification §76.1, setup guide, and drafting guide.
 
-**Status:** next at the design-amendment/review gate. No L2 design or
-implementation plan is accepted.
+**Status:** active at the implementation-plan gate. The design passed
+independent specification review `L2_DESIGN_SPEC_APPROVED` followed by
+independent quality review `L2_DESIGN_QUALITY_APPROVED`; no implementation
+plan is accepted yet.
 
-For an open associated `.orc` entry under live initialization, deterministic
-compiler-registry form heads may remain available while the entry is dirty,
-pending, dependency-invalidated, superseded, language-failed, or
-server-failed. That response is explicitly incomplete and contains no local or
-imported callable from a prior snapshot. Clean/current/successful entries keep
-the full implemented completion union. Configuration-stale, closed,
-unassociated, and unavailable entries remain empty.
+For an open associated `.orc` entry under live initialization, the
+process-frozen, target-neutral compiler-registry form heads remain available
+while the entry is in a valid dirty-idle, current-pending,
+dependency-invalidated, superseded, language-failed, or server-failed state.
+That response is explicitly `isIncomplete=true` and contains no stale callable
+from a prior snapshot. Clean/current/successful entries keep the full
+implemented completion union. Configuration-stale, closed, unassociated,
+unavailable, clean-idle, malformed, and index-failed entries remain empty.
 
 Definition and document-symbol freshness do not change. L2 must not parse the
 buffer, reuse a last-good callable index, schedule an unsaved compile, add

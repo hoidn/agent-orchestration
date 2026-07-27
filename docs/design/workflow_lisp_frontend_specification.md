@@ -4477,8 +4477,9 @@ changing compiler authority:
 This amendment remains save-driven full compilation. It does not select source
 overlays, diagnostic recovery, type sidecars, general compile caching, or
 incremental compilation. L1 authored symbols and callable signatures are now
-implemented without changing the L0 boundary. L2's design-amendment/review
-gate is next.
+implemented without changing the L0 boundary. L2's recovery-safe static
+completion design is accepted; its reviewed implementation-plan gate is next,
+and current runtime behavior remains L1 until that implementation lands.
 
 ### Accepted L1 Authored Symbol And Completion Compatibility
 
@@ -4546,8 +4547,8 @@ protocol kinds remain `CompletionItemKind.Function`, and form remains
 L1 changes only the complete index of a current successful snapshot. Current
 success remains `isIncomplete=false`; dirty, pending, invalidated, failed,
 superseded, closed, configuration-stale, source/configuration-stale, and
-unassociated documents retain the implemented null/empty behavior. L2 alone
-owns recovery-safe incomplete completion. Definition freshness, P1-P5,
+unassociated documents retain the implemented null/empty behavior until the
+accepted L2 amendment below is implemented. Definition freshness, P1-P5,
 nominal/type-directed filtering, hover, type-token definition, references,
 rename, signature inference, snippets, and insertion rewriting remain
 unchanged or deferred.
@@ -4556,6 +4557,50 @@ Acceptance requires both-direction compiler-projection, exact-range,
 generated/specialized exclusion, mismatch, alias/namespace, signature/effect,
 ordering, freshness/null, and repository-real stdio LSP evidence before an
 implementation status change.
+
+### Accepted L2 Recovery-Safe Static Completion Compatibility
+
+L2 is an accepted editor-consumer amendment, not a compiler-language feature.
+After successful production initialization, the server captures one
+**process-frozen form registry** from
+`registered_form_heads(target_dsl_version=None)`. The tuple must be unique and
+lexicographically ordered, is immutable for that server lifetime, and supplies
+the identical form rows used by full and recovery completion. The request path
+must not re-read the registry, parse source, derive a target version, consult a
+stale navigation index, or invent additional labels.
+
+After the existing configuration-currentness preflight, completion selects one
+closed result:
+
+- a clean current successful snapshot whose navigation index builds returns
+  the complete L1 callable-plus-form union with `isIncomplete=false`;
+- an associated open entry in a valid dirty-idle, current-pending,
+  current-language-error, or current-server-error state returns exactly the
+  frozen form rows with `isIncomplete=true`; and
+- configuration-stale, unavailable, closed, unassociated, clean-idle,
+  malformed or contradictory state, non-current pending state, and
+  navigation-index failure return `items=()` with `isIncomplete=false`.
+
+The recovery response uses `CompletionItemKind.Keyword`, `detail="form"`, and
+`sortText=head` for every lexicographically ordered row. It contains **no stale
+callable**, signature, import label, source-derived target filter, generated
+symbol, snippet, or last-good index value. A prior accepted snapshot does not
+authorize any recovery callable. Unknown or contradictory state fails closed
+to the empty branch.
+
+Definition and document-symbol freshness remain unchanged. L2 adds no parser,
+partial AST, overlay compilation, compile trigger, target inference,
+cursor/type filtering, general cache, diagnostic recovery, hover, rename,
+formatting, or P1–P5 prerequisite. Compile scheduling, single-writer generation
+acceptance, diagnostic ownership, restart-on-configuration-drift, and the
+single canonical workspace root remain unchanged.
+
+Acceptance requires both-direction state/driver/navigation/server evidence for
+all three branches, frozen-snapshot stability, no stale callable leakage,
+malformed-state and index-failure closure, plus one repository-real stdio
+transition from recovery-static completion to current full completion. The
+design is accepted; implementation remains gated on its reviewed component
+plan.
 
 ## Part XIII. CLI
 

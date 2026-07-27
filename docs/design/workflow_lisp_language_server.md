@@ -46,7 +46,8 @@
   `docs/plans/2026-07-26-workflow-lisp-language-server-l1-implementation-plan.md`
   through `f1eecf65`, `ec2328dd`, `d174faf2`, and `66163dc0` plus its reviewed
   repository-real stdio/status closure. L2's design-amendment/review gate is
-  next; no L2 design is accepted.
+  complete under the accepted recovery-safe static completion amendment below;
+  its implementation-plan gate is next.
 
 ## Summary
 
@@ -1211,7 +1212,8 @@ observation, unsaved-buffer analysis, multi-diagnostic recovery, full
 
 The accepted boundary is implemented. L1 authored symbols and callable
 signatures are also implemented and retain this L0 reliability boundary. L2's
-separate design-amendment/review gate is next.
+recovery-safe static completion design is accepted below; implementation
+remains separately plan-gated.
 
 ## Accepted L1 Authored Symbols And Callable Signatures Amendment
 
@@ -1381,8 +1383,105 @@ evidence belongs in compiler definition/projection tests,
 `tests/test_workflow_lisp_lsp_integration.py`,
 `tests/test_workflow_lisp_lsp_stdio.py`, and
 `tests/test_workflow_lisp_lsp_e2e.py`. That evidence is implemented under the
-reviewed L1 plan. The next route is L2's separate design-amendment/review gate;
-no L2 behavior or accepted design is implied here.
+reviewed L1 plan.
+
+## Accepted L2 Recovery-Safe Static Completion Amendment
+
+**Amendment status:** accepted after independent specification review
+`L2_DESIGN_SPEC_APPROVED` and independent quality review
+`L2_DESIGN_QUALITY_APPROVED`. Implementation remains gated on a separately
+reviewed L2 plan. Until that implementation lands, the implemented L1
+null/empty behavior remains authoritative for every non-success state.
+
+L2 adds one recovery-only completion source without weakening compiler,
+snapshot, or freshness authority. The server captures a **process-frozen form
+registry** exactly once after production initialization has succeeded:
+
+```text
+static_form_heads = tuple(registered_form_heads(target_dsl_version=None))
+```
+
+The capture must already be unique and lexicographically ordered. Each head is
+projected once to the existing immutable form completion shape
+`(label=head, kind=form, canonical_target=head, detail=form)`. The frozen tuple
+is retained for the server lifetime and is shared by both full completion
+construction and recovery completion. A request must not call the registry
+again, parse source text, derive a target version, or augment the tuple from a
+last-good navigation index. Capturing with no target is deliberate: an
+eligible recovery state has no accepted source-derived target authority, and
+the existing full L1 form list is likewise target-neutral. A future
+target-aware recovery surface requires a new immutable initialization
+contract; L2 does not guess.
+
+### Closed Three-Way Selector
+
+Every completion request first performs the existing immutable-configuration
+preflight. Configuration drift latches `configuration_stale` and selects the
+empty branch. With live configuration, the request classifies exactly one
+associated open entry into `full`, `static-incomplete`, or `empty`:
+
+| Entry state after preflight | Selection | Rationale |
+| --- | --- | --- |
+| clean, current successful snapshot, and successful navigation-index construction | `full` | Return the complete L1 callable-plus-form union with `isIncomplete=false`. |
+| dirty with the normal idle/no-pending shape | `static-incomplete` | The editor has no current compiled callable authority. |
+| clean with exactly the current generation pending, including dependency invalidation or supersession | `static-incomplete` | A current compile may later replace this provisional list. |
+| clean current `language_error` or `server_error`, with no accepted success snapshot or pending generation | `static-incomplete` | Recovery forms remain useful, but failed output supplies no callable authority. |
+| configuration-stale, unavailable/unreadable, closed, unassociated, clean-idle, malformed/internally inconsistent, or current-success index failure | `empty` | Fail closed; do not reinterpret an impossible state or conceal an index defect with fallback data. |
+
+The classifier validates the complete admitted state shape, not only one
+status field. In particular, an absent or non-current pending generation,
+an accepted snapshot in a recovery row, an unknown status value, or any
+contradictory buffer/compile combination selects `empty`. A late result cannot
+change the classification unless the existing single-writer coordinator first
+accepts it into current state.
+
+The `static-incomplete` response contains exactly the process-frozen form
+rows, in lexicographic label order, with `CompletionItemKind.Keyword`,
+`detail="form"`, `sortText=head`, and `isIncomplete=true`. It contains **no
+stale callable**, signature, import binding, generated symbol, source-derived
+target filter, snippet, or prior navigation-index row. The `empty` response
+retains the current closed shape `items=()` and `isIncomplete=false`.
+
+### Authority And Non-Goals
+
+Full completion continues through the existing source/configuration
+currentness checks and successful compiler-derived navigation index. Recovery
+completion is only a frozen compiler-registry view; it does not claim that a
+head is valid at the cursor, in the current target version, or in the
+unfinished buffer. Definition and document-symbol requests keep their existing
+null behavior outside a current successful snapshot.
+
+L2 does not add a parser, partial AST, overlay compile, saved-source compile
+trigger, cursor/prefix/type filtering, callable cache, last-good fallback,
+target inference, general compile cache, diagnostic recovery, hover, rename,
+formatting, or any P1–P5 prerequisite. It does not change compile scheduling,
+generation acceptance, diagnostic ownership, configuration restart rules, or
+the one-root model.
+
+### L2 Acceptance Boundary
+
+Implementation evidence must prove both directions:
+
+- the frozen tuple is captured only after successful initialization, is used
+  by both full and recovery rows, and is unaffected by later registry mutation;
+- dirty-idle, current-pending (including invalidated/superseded),
+  language-error, and server-error open entries return the exact frozen form
+  rows with `isIncomplete=true`;
+- a current successful entry still returns the complete namespace-preserving
+  L1 union with `isIncomplete=false`;
+- configuration-stale, unavailable, closed, unassociated, clean-idle,
+  malformed, missing/non-current pending, and navigation-index-failed states
+  return the exact empty response;
+- recovery rows contain no procedure/workflow labels or signature details,
+  even when an earlier accepted snapshot existed; and
+- one repository-real stdio check demonstrates static recovery followed by a
+  successful full completion replacement without changing definition or
+  document-symbol freshness.
+
+The direct implementation owners are `orchestrator/lsp/state.py`,
+`orchestrator/lsp/compile_driver.py`, `orchestrator/lsp/navigation.py`, and
+`orchestrator/lsp/server.py`, with focused evidence in the corresponding LSP
+state, driver, navigation, integration, stdio, and end-to-end test modules.
 
 ## Verification Strategy
 

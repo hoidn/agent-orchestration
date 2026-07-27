@@ -1188,10 +1188,10 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "| L2 |",
     )
     normalized_l2_row = _normalized_routing_text(l2_row)
-    assert "next" in normalized_l2_row
-    assert "design amendment" in normalized_l2_row
-    assert "review" in normalized_l2_row
-    assert "no l2 design is accepted" in normalized_l2_row
+    assert "active" in normalized_l2_row
+    assert "design accepted" in normalized_l2_row
+    assert "implementation plan" in normalized_l2_row
+    assert "no l2 design is accepted" not in normalized_l2_row
     for stage, blocker in (
         ("L3", "blocked by l2"),
         ("L4", "blocked by l3"),
@@ -1225,12 +1225,14 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "l1 authored symbols/signatures are implemented" in (
         normalized_language_server_router_row
     )
-    assert "l2 design amendment/review gate is next" in (
+    assert "l2 recovery safe static completion design is accepted" in (
         normalized_language_server_router_row
     )
+    assert "implementation plan" in normalized_language_server_router_row
     normalized_index = _normalized_routing_text(index)
     assert "l1 authored symbols/signatures are complete" in normalized_index
-    assert "l2 design amendment/review gate is next" in normalized_index
+    assert "l2 recovery safe static completion design is accepted" in normalized_index
+    assert "implementation plan" in normalized_index
     assert "p1 diagnostic accumulation" in normalized_successor
     assert "p5 compile caching/incrementality" in normalized_successor
     assert "runtime debugging surface" in normalized_successor
@@ -1352,9 +1354,10 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "l1 authored symbols/signatures are complete" in (
         normalized_successor_index
     )
-    assert "l2 design amendment/review gate is next" in (
+    assert "l2 recovery safe static completion design is accepted" in (
         normalized_successor_index
     )
+    assert "implementation plan" in normalized_successor_index
     assert "do not select e0" in normalized_successor_index
 
     prompt_design_row = _markdown_table_row(
@@ -1559,9 +1562,10 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     assert "l1 authored symbols/signatures are complete" in (
         active_roadmap_index
     )
-    assert "l2 design amendment/review gate is next" in (
+    assert "l2 recovery safe static completion design is accepted" in (
         active_roadmap_index
     )
+    assert "implementation plan" in active_roadmap_index
 
 
 def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> None:
@@ -2760,3 +2764,57 @@ def test_final_yaml_holdout_is_retired_and_authored_workflow_estate_is_empty() -
         for path in (REPO_ROOT / "workflows").rglob("*")
         if path.is_file() and path.suffix.lower() in {".yaml", ".yml"}
     ) == []
+
+
+def test_language_server_l2_design_is_accepted_and_routed_to_planning() -> None:
+    roadmap = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md"
+    ).read_text(encoding="utf-8")
+    design = (
+        REPO_ROOT / "docs" / "design" / "workflow_lisp_language_server.md"
+    ).read_text(encoding="utf-8")
+    frontend = (
+        REPO_ROOT
+        / "docs"
+        / "design"
+        / "workflow_lisp_frontend_specification.md"
+    ).read_text(encoding="utf-8")
+    setup = (
+        REPO_ROOT / "docs" / "workflow_lisp_language_server_setup.md"
+    ).read_text(encoding="utf-8")
+    drafting = (
+        REPO_ROOT / "docs" / "lisp_workflow_drafting_guide.md"
+    ).read_text(encoding="utf-8")
+
+    l2_row = next(
+        line
+        for line in roadmap.splitlines()
+        if line.startswith("| L2 |")
+    )
+    assert "design accepted" in _normalized_routing_text(l2_row)
+    assert "implementation plan" in _normalized_routing_text(l2_row)
+    for label, surface in {
+        "language-server design": design,
+        "frontend specification": frontend,
+        "setup guide": setup,
+        "drafting guide": drafting,
+    }.items():
+        normalized = _normalized_routing_text(surface)
+        assert "process frozen form registry" in normalized, label
+        assert "isincomplete=true" in normalized, label
+        assert "configuration stale" in normalized, label
+        assert "no stale callable" in normalized, label
+
+    stale_routing = (
+        "l2's design amendment/review gate is next",
+        "l2 begins only with its separate design amendment and review gate",
+        "must not be read back into this setup guide",
+    )
+    for stale in stale_routing:
+        assert stale not in _normalized_routing_text(frontend)
+        assert stale not in _normalized_routing_text(
+            (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+        )
