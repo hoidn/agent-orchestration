@@ -851,15 +851,15 @@ task's ordered reviews before rebuilding the Task 3 candidate.
 
   Classify every non-pass against the pre-MR-4 control and task ownership.
   Never repair excluded security/safety/secrets/provider-isolation work.
-- [ ] **Step 11: Build the exact closure candidate.**
+- [x] **Step 11: Build the exact closure candidate.**
   Update this plan only with factual task commits, fresh checks, and review
   outcomes. Stage Task 3 tests plus this factual record; run
   `git diff --cached --check`, inspect names, and read the complete diff.
-- [ ] **Step 12: Obtain ordered final reviews.**
+- [x] **Step 12: Obtain ordered final reviews.**
   First obtain independent holistic specification-compliance review against
   MR-4 and all three commits. Only after approval, obtain a distinct holistic
   implementation-quality review. Any byte change restarts both in order.
-- [ ] **Step 13: Commit and verify exact reviewed closure.**
+- [x] **Step 13: Commit and verify exact reviewed closure.**
   Commit without post-review edits. Rerun the focused session/reentrancy tests,
   grep gates, and pure-projection cache test from the committed tree.
 
@@ -870,12 +870,11 @@ server; no mutable compile-path phase global remains; the pure-projection cache
 and serialized compiler artifacts are unchanged; broad non-security evidence
 and ordered holistic reviews approve the exact final tree.
 
-## Factual Execution Record Before Task 3 Reviews
+## Factual Execution Record
 
-This record describes the uncommitted Task 3 closure candidate on 2026-07-28.
-Task 3 Steps 11–13 remain open until the exact candidate is staged, receives
-ordered holistic specification then quality approval, and is committed without
-post-review edits.
+This record describes the completed MR-4 closure on 2026-07-28. The exact
+Task 3 candidate was staged, received ordered holistic specification then
+quality approval, and was committed without post-review edits.
 
 ### Bound commits
 
@@ -949,6 +948,20 @@ post-review edits.
 - Every command above used the plan's explicit security, safety, secrets, and
   provider-isolation exclusions. No excluded module, test, or behavior entered
   the candidate.
+
+### Final reviews, commit, and post-commit verification
+
+- The exact staged three-file candidate had SHA-256
+  `7e7b0c152b1cd9ecaf8e4479fb72681e3cbc88df4f7d61fe14257379c84f3619`.
+- Ordered independent reviews returned `MR4_TASK3_SPEC_APPROVED` and then
+  `MR4_TASK3_QUALITY_APPROVED`; no byte changed between those verdicts and the
+  commit.
+- The reviewed Task 3 closure is
+  `632980cd3fa6afc2972a361178a26c966270c7d0`, tree
+  `a7f4e77698a5081ea112c4b186170b3da00f14f1`.
+- From that committed tree, the focused session/reentrancy selector passed
+  31 tests with 8 deselected. The combined pure-projection cache and roadmap
+  routing selector passed 65 tests. The working tree was clean.
 
 ## Handoff To L3
 
