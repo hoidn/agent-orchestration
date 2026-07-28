@@ -1484,6 +1484,7 @@ def _resolve_stage3_procedure_lowering(
 
 def _lower_workflows_for_route(
     *,
+    compiler_session: CompilerSession | None = None,
     lowering_route: LoweringRoute,
     typed_workflows: tuple[TypedWorkflowDef, ...],
     typed_procedures: tuple[TypedProcedureDef, ...],
@@ -1500,6 +1501,7 @@ def _lower_workflows_for_route(
     target_dsl_version: str = "2.14",
     source_read_trace: SourceReadTrace | None = None,
 ):
+    compiler_session = compiler_session or CompilerSession()
     resolved_procedures_by_name = MappingProxyType(
         {procedure.definition.name: procedure for procedure in typed_procedures}
     )
@@ -1582,6 +1584,7 @@ def _lower_workflows_for_route(
             type_env=type_env,
             target_dsl_version=target_dsl_version,
             source_read_trace=source_read_trace,
+            lowering_session=compiler_session.lowering,
         )
     return lower_workflow_definitions(
         typed_workflows,
@@ -1596,6 +1599,7 @@ def _lower_workflows_for_route(
         type_env=type_env,
         target_dsl_version=target_dsl_version,
         source_read_trace=source_read_trace,
+        lowering_session=compiler_session.lowering,
     )
 
 
@@ -1822,6 +1826,7 @@ def _run_stage3_validation_pipeline(
 
     def lowering_surface_pass(state: ValidationPipelineState) -> ValidationPipelineState:
         lowered_workflows = _lower_workflows_for_route(
+            compiler_session=compiler_session,
             lowering_route=normalized_lowering_route,
             typed_workflows=state.typed_workflows,
             typed_procedures=state.typed_procedures,
@@ -2672,6 +2677,7 @@ def _compile_stage3_graph(
             workflow_catalog=workflow_catalog,
         )
         lowered_workflows = _lower_workflows_for_route(
+            compiler_session=compiler_session,
             lowering_route=normalized_lowering_route,
             typed_workflows=typed_workflows,
             typed_procedures=resolved_combined_procedures,

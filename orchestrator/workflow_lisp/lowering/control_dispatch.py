@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from ..compiler_session import LoweringSessionState
 from ..conditionals import classify_condition_expr, render_condition_predicate
 from ..expressions import (
     BindProcExpr,
@@ -70,34 +71,45 @@ from .values import (
 )
 
 
-_INTRINSIC_FORM_LOWERING_COUNTS: dict[str, int] = {}
-
-
-def record_intrinsic_form_lowering(form_name: str) -> None:
+def record_intrinsic_form_lowering(
+    form_name: str,
+    lowering_session: LoweringSessionState,
+) -> None:
     """Record one compatibility-lane intrinsic lowering hit for test evidence."""
 
-    _INTRINSIC_FORM_LOWERING_COUNTS[form_name] = _INTRINSIC_FORM_LOWERING_COUNTS.get(form_name, 0) + 1
+    counts = lowering_session.intrinsic_form_lowering_counts
+    counts[form_name] = counts.get(form_name, 0) + 1
 
 
-def intrinsic_form_lowering_counts() -> dict[str, int]:
+def intrinsic_form_lowering_counts(
+    lowering_session: LoweringSessionState,
+) -> dict[str, int]:
     """Return a snapshot of intrinsic compatibility-lane lowering counts."""
 
-    return dict(_INTRINSIC_FORM_LOWERING_COUNTS)
+    return dict(lowering_session.intrinsic_form_lowering_counts)
 
 
-def reset_intrinsic_form_lowering_counts() -> None:
+def reset_intrinsic_form_lowering_counts(
+    lowering_session: LoweringSessionState,
+) -> None:
     """Clear intrinsic compatibility-lane lowering counts."""
 
-    _INTRINSIC_FORM_LOWERING_COUNTS.clear()
+    lowering_session.intrinsic_form_lowering_counts.clear()
 
 
 def _lower_with_phase(*args, **kwargs):
-    record_intrinsic_form_lowering("with-phase")
+    record_intrinsic_form_lowering(
+        "with-phase",
+        kwargs["context"].lowering_session,
+    )
     return _phase_scope_lower_with_phase(*args, **kwargs)
 
 
 def _lower_finalize_selected_item(*args, **kwargs):
-    record_intrinsic_form_lowering("finalize-selected-item")
+    record_intrinsic_form_lowering(
+        "finalize-selected-item",
+        kwargs["context"].lowering_session,
+    )
     return _phase_resource_lower_finalize_selected_item(*args, **kwargs)
 
 

@@ -71,6 +71,7 @@ from .compiler import (
     Stage3ValidationProfile,
     compile_stage3_entrypoint,
 )
+from .compiler_session import CompilerSession
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .lints import LINT_PROFILE_DEFAULT
 from .reader import SourceReadRecord, SourceReadTrace
@@ -919,6 +920,7 @@ def _compile_entry(
     pipeline): `compile_stage3_entrypoint` + `_select_entry_workflow`.
     """
 
+    compiler_session = CompilerSession()
     compile_result = compile_stage3_entrypoint(
         compile_request_capture.source_path,
         source_roots=compile_request_capture.source_roots,
@@ -934,6 +936,7 @@ def _compile_entry(
         lint_profile=compile_request_capture.lint_profile,
         lowering_route=compile_request_capture.lowering_route,
         source_read_trace=source_read_trace,
+        compiler_session=compiler_session,
     )
 
     export_surface = compile_result.graph.export_surfaces_by_name[

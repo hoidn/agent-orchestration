@@ -269,20 +269,30 @@ def _validate_runtime_proof_mutation(result, mutated, *, tmp_path: Path) -> None
 def test_dedicated_runtime_proof_profile_builds_validated_entry_bundle_for_imported_stdlib_drain(
     tmp_path: Path,
 ) -> None:
+    from orchestrator.workflow_lisp.compiler_session import CompilerSession
+
     dispatch = _control_dispatch_module()
-    dispatch.reset_intrinsic_form_lowering_counts()
+    compiler_session = CompilerSession()
+    dispatch.reset_intrinsic_form_lowering_counts(compiler_session.lowering)
 
     result = _compile_linked_fixture(
         DRAIN_STDLIB_FIXTURE,
         tmp_path=tmp_path,
         validation_profile="DEDICATED_RUNTIME_PROOF",
+        compiler_session=compiler_session,
     )
 
     assert result.entry_result.validation_profile.name == "DEDICATED_RUNTIME_PROOF"
     bundle = result.entry_result.validated_bundles[ENTRY_WORKFLOW_NAME]
     validate_executable_workflow(bundle.ir)
     assert result.validated_bundles_by_name[ENTRY_WORKFLOW_NAME] is bundle
-    assert dispatch.intrinsic_form_lowering_counts().get("backlog-drain", 0) == 0
+    assert (
+        dispatch.intrinsic_form_lowering_counts(compiler_session.lowering).get(
+            "backlog-drain",
+            0,
+        )
+        == 0
+    )
 
 
 def test_shared_callable_profile_keeps_generated_structured_branch_guard_active(

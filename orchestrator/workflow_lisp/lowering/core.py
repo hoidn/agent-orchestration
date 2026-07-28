@@ -55,6 +55,7 @@ from orchestrator.workflow.state_layout import (
 from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind
 
 from ..conditionals import classify_condition_expr, render_condition_predicate
+from ..compiler_session import LoweringSessionState
 from ..definitions import elaborate_definition_module
 from ..contracts import (
     GeneratedInternalInput,
@@ -727,6 +728,7 @@ def lower_workflow_definitions(
     type_env: FrontendTypeEnvironment | None = None,
     target_dsl_version: str = "2.14",
     source_read_trace: SourceReadTrace | None = None,
+    lowering_session: LoweringSessionState | None = None,
 ) -> tuple[LoweredWorkflow, ...]:
     """Lower typechecked frontend workflows into shared workflow dictionaries.
 
@@ -738,6 +740,7 @@ def lower_workflow_definitions(
 
     from .procedures import _private_workflow_from_procedure, _validate_resolved_procedure_mapping
 
+    lowering_session = lowering_session or LoweringSessionState()
     resolved_procedures = _validate_resolved_procedure_mapping(
         typed_procedures,
         resolved_procedures_by_name,
@@ -875,6 +878,7 @@ def lower_workflow_definitions(
             specialize_workflow=specialize_workflow,
             target_dsl_version=target_dsl_version,
             source_read_trace=source_read_trace,
+            lowering_session=lowering_session,
         )
         lowered_by_name[workflow_name] = lowered
         visiting.remove(workflow_name)
@@ -1010,6 +1014,7 @@ def _lower_one_workflow(
     specialize_workflow: Any,
     target_dsl_version: str = "2.14",
     source_read_trace: SourceReadTrace | None = None,
+    lowering_session: LoweringSessionState,
 ) -> LoweredWorkflow:
     """Lower one typed workflow body and assemble its shared mapping.
 
@@ -1047,6 +1052,7 @@ def _lower_one_workflow(
         ensure_workflow_lowered=ensure_workflow_lowered,
         specialize_workflow=specialize_workflow,
         type_env=type_env,
+        lowering_session=lowering_session,
         step_spans={},
         generated_input_spans=origin_inputs,
         authored_generated_inputs=set(authored_inputs),

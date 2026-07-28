@@ -80,7 +80,11 @@ class TypecheckSessionState:
 
 @dataclass
 class LoweringSessionState:
-    """Mutable lowering state; Task 2 adds the counter owner."""
+    """Mutable lowering evidence owned by one compile."""
+
+    intrinsic_form_lowering_counts: dict[str, int] = field(
+        default_factory=dict
+    )
 
 
 @dataclass

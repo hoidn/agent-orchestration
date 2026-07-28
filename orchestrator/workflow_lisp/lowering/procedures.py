@@ -888,6 +888,7 @@ def _lower_procedure_call(
             procedure_type_envs=context.procedure_type_envs,
             default=context.type_env,
         ),
+        lowering_session=context.lowering_session,
         generated_private_workflow_type_envs=context.generated_private_workflow_type_envs,
         step_spans=context.step_spans,
         generated_input_spans=context.generated_input_spans,

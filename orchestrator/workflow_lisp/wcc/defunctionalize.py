@@ -12,6 +12,7 @@ from types import MappingProxyType, SimpleNamespace
 from typing import Any
 
 from ..contracts import GeneratedInternalInput, derive_workflow_signature_contracts
+from ..compiler_session import LoweringSessionState
 from ..conditionals import PureExprCondition, render_condition_predicate
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expression_traversal import iter_child_exprs
@@ -387,6 +388,7 @@ def lower_wcc_m4_workflow_definitions(
     type_env,
     target_dsl_version: str = "2.14",
     source_read_trace: SourceReadTrace | None = None,
+    lowering_session: LoweringSessionState | None = None,
 ) -> tuple[lowering_core.LoweredWorkflow, ...]:
     """Lower bounded loop workflows through WCC M4."""
 
@@ -407,6 +409,7 @@ def lower_wcc_m4_workflow_definitions(
         route_schema_version="wcc_m4",
         target_dsl_version=target_dsl_version,
         source_read_trace=source_read_trace,
+        lowering_session=lowering_session,
     )
 
 
@@ -428,9 +431,11 @@ def _lower_wcc_workflow_definitions(
     route_schema_version: str,
     target_dsl_version: str = "2.14",
     source_read_trace: SourceReadTrace | None = None,
+    lowering_session: LoweringSessionState | None = None,
 ) -> tuple[lowering_core.LoweredWorkflow, ...]:
     """Lower WCC workflows through one route-selected normalized program shape."""
 
+    lowering_session = lowering_session or LoweringSessionState()
     resolved_procedures = _validate_resolved_procedure_mapping(
         typed_procedures,
         resolved_procedures_by_name,
@@ -567,6 +572,7 @@ def _lower_wcc_workflow_definitions(
             route_schema_version=route_schema_version,
             target_dsl_version=target_dsl_version,
             source_read_trace=source_read_trace,
+            lowering_session=lowering_session,
         )
         lowered_by_name[workflow_name] = lowered
         lowered_order.append(workflow_name)
@@ -614,6 +620,7 @@ def _lower_one_wcc_workflow(
     route_schema_version: str,
     target_dsl_version: str = "2.14",
     source_read_trace: SourceReadTrace | None = None,
+    lowering_session: LoweringSessionState,
 ) -> lowering_core.LoweredWorkflow:
     inputs, outputs, boundary_projection = derive_workflow_signature_contracts(typed_workflow.signature)
     authored_inputs = {name: dict(contract.definition) for name, contract in inputs.items()}
@@ -648,6 +655,7 @@ def _lower_one_wcc_workflow(
         ensure_workflow_lowered=ensure_workflow_lowered,
         specialize_workflow=specialize_workflow,
         type_env=type_env,
+        lowering_session=lowering_session,
         generated_private_workflow_type_envs=generated_private_workflow_type_envs,
         procedure_type_envs=procedure_type_envs,
         step_spans={},

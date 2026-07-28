@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
+from orchestrator.workflow_lisp.compiler_session import CompilerSession
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import (
     CertifiedAdapterBinding,
@@ -236,7 +237,12 @@ def _command_boundary_environment(
     )
 
 
-def _compile_module_fixture(path: Path, *, tmp_path: Path):
+def _compile_module_fixture(
+    path: Path,
+    *,
+    tmp_path: Path,
+    compiler_session: CompilerSession | None = None,
+):
     source = path.read_text(encoding="utf-8")
     module_match = re.search(r"\(defmodule\s+([^\s)]+)\)", source)
     assert module_match is not None, f"fixture is missing defmodule: {path}"
@@ -250,10 +256,18 @@ def _compile_module_fixture(path: Path, *, tmp_path: Path):
         command_boundaries=_command_boundary_environment().bindings_by_name,
         validate_shared=False,
         workspace_root=tmp_path,
+        compiler_session=compiler_session,
     )
 
 
-def _compile_inline_module(source: str, *, module_name: str, tmp_path: Path, lowering_route: str | None = None):
+def _compile_inline_module(
+    source: str,
+    *,
+    module_name: str,
+    tmp_path: Path,
+    lowering_route: str | None = None,
+    compiler_session: CompilerSession | None = None,
+):
     module_path = (tmp_path / Path(*module_name.split("/"))).with_suffix(".orc")
     module_path.parent.mkdir(parents=True, exist_ok=True)
     module_path.write_text(source, encoding="utf-8")
@@ -264,20 +278,33 @@ def _compile_inline_module(source: str, *, module_name: str, tmp_path: Path, low
         validate_shared=False,
         workspace_root=tmp_path,
         lowering_route=lowering_route,
+        compiler_session=compiler_session,
     )
 
 
 def test_intrinsic_form_route_accounting_api_starts_empty_and_is_deterministic() -> None:
     dispatch = _control_dispatch_module()
+    compiler_session = CompilerSession()
 
+    record_count = getattr(dispatch, "record_intrinsic_form_lowering", None)
     reset_counts = getattr(dispatch, "reset_intrinsic_form_lowering_counts", None)
     read_counts = getattr(dispatch, "intrinsic_form_lowering_counts", None)
 
+    assert callable(record_count)
     assert callable(reset_counts)
     assert callable(read_counts)
 
-    reset_counts()
-    assert read_counts() == {}
+    reset_counts(compiler_session.lowering)
+    assert read_counts(compiler_session.lowering) == {}
+    record_count("with-phase", compiler_session.lowering)
+    record_count("with-phase", compiler_session.lowering)
+    record_count("finalize-selected-item", compiler_session.lowering)
+    assert read_counts(compiler_session.lowering) == {
+        "finalize-selected-item": 1,
+        "with-phase": 2,
+    }
+    reset_counts(compiler_session.lowering)
+    assert read_counts(compiler_session.lowering) == {}
 
 
 def test_g8_marks_resource_registry_head_as_compatibility_only() -> None:
@@ -337,13 +364,14 @@ def test_imported_stdlib_with_phase_still_compiles_without_intrinsic_accounting(
     tmp_path: Path,
 ) -> None:
     dispatch = _control_dispatch_module()
+    compiler_session = CompilerSession()
     reset_counts = getattr(dispatch, "reset_intrinsic_form_lowering_counts", None)
     read_counts = getattr(dispatch, "intrinsic_form_lowering_counts", None)
 
     assert callable(reset_counts)
     assert callable(read_counts)
 
-    reset_counts()
+    reset_counts(compiler_session.lowering)
     result = _compile_inline_module(
         """(workflow-lisp
   (:language "0.1")
@@ -364,21 +392,23 @@ def test_imported_stdlib_with_phase_still_compiles_without_intrinsic_accounting(
         :state_root phase-ctx.state-root))))""",
         module_name="imported_with_phase_fixture",
         tmp_path=tmp_path,
+        compiler_session=compiler_session,
     )
 
     assert result.entry_result.typed_workflows
-    assert read_counts() == {}
+    assert read_counts(compiler_session.lowering) == {}
 
 
 def test_bare_with_phase_uses_compatibility_intrinsic_accounting(tmp_path: Path) -> None:
     dispatch = _control_dispatch_module()
+    compiler_session = CompilerSession()
     reset_counts = getattr(dispatch, "reset_intrinsic_form_lowering_counts", None)
     read_counts = getattr(dispatch, "intrinsic_form_lowering_counts", None)
 
     assert callable(reset_counts)
     assert callable(read_counts)
 
-    reset_counts()
+    reset_counts(compiler_session.lowering)
     result = _compile_inline_module(
         """(workflow-lisp
   (:language "0.1")
@@ -399,26 +429,40 @@ def test_bare_with_phase_uses_compatibility_intrinsic_accounting(tmp_path: Path)
         module_name="bare_with_phase_fixture",
         tmp_path=tmp_path,
         lowering_route="legacy",
+        compiler_session=compiler_session,
     )
 
     assert result.entry_result.typed_workflows
-    assert read_counts().get("with-phase") == 1
+    assert read_counts(compiler_session.lowering).get("with-phase") == 1
 
 
 def test_imported_binding_precedence_prefers_stdlib_form_routes_over_intrinsic_heads(tmp_path: Path) -> None:
     dispatch = _control_dispatch_module()
+    compiler_session = CompilerSession()
     reset_counts = getattr(dispatch, "reset_intrinsic_form_lowering_counts", None)
     read_counts = getattr(dispatch, "intrinsic_form_lowering_counts", None)
 
     assert callable(reset_counts)
     assert callable(read_counts)
 
-    reset_counts()
-    _compile_module_fixture(PHASE_SCOPE_STDLIB_FIXTURE, tmp_path=tmp_path / "phase")
-    _compile_module_fixture(RESOURCE_STDLIB_FIXTURE, tmp_path=tmp_path / "resource")
-    _compile_module_fixture(DRAIN_STDLIB_FIXTURE, tmp_path=tmp_path / "drain")
+    reset_counts(compiler_session.lowering)
+    _compile_module_fixture(
+        PHASE_SCOPE_STDLIB_FIXTURE,
+        tmp_path=tmp_path / "phase",
+        compiler_session=compiler_session,
+    )
+    _compile_module_fixture(
+        RESOURCE_STDLIB_FIXTURE,
+        tmp_path=tmp_path / "resource",
+        compiler_session=compiler_session,
+    )
+    _compile_module_fixture(
+        DRAIN_STDLIB_FIXTURE,
+        tmp_path=tmp_path / "drain",
+        compiler_session=compiler_session,
+    )
 
-    assert read_counts() == {}
+    assert read_counts(compiler_session.lowering) == {}
 
 
 def test_finalize_selected_item_stdlib_vector_compiles_on_promoted_route(tmp_path: Path) -> None:
@@ -435,23 +479,28 @@ def test_backlog_drain_stdlib_vector_compiles_on_promoted_route(tmp_path: Path) 
 
 def test_legacy_resource_fixture_uses_compatibility_intrinsic_accounting(tmp_path: Path) -> None:
     dispatch = _control_dispatch_module()
+    compiler_session = CompilerSession()
     reset_counts = getattr(dispatch, "reset_intrinsic_form_lowering_counts", None)
     read_counts = getattr(dispatch, "intrinsic_form_lowering_counts", None)
 
     assert callable(reset_counts)
     assert callable(read_counts)
 
-    reset_counts()
+    reset_counts(compiler_session.lowering)
     result = compile_stage3_module(
         RESOURCE_INTRINSIC_FIXTURE,
         command_boundaries=_command_boundary_environment().bindings_by_name,
         validate_shared=False,
         workspace_root=tmp_path / RESOURCE_INTRINSIC_FIXTURE.stem,
         lowering_route="legacy",
+        compiler_session=compiler_session,
     )
 
     assert result.typed_workflows
-    assert read_counts().get("finalize-selected-item") == 1
+    assert (
+        read_counts(compiler_session.lowering).get("finalize-selected-item")
+        == 1
+    )
 
 
 @pytest.mark.parametrize(

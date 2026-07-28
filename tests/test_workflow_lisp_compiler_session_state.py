@@ -1073,3 +1073,275 @@ def test_pure_projection_only_labels_registered_loop_carriers_private() -> None:
         _nominal_descriptor_name(type_ref, type_env=type_env)
         == "workflow_lisp/private::loop-state-carrier"
     )
+
+
+def test_lowering_contexts_preserve_explicit_session_in_legacy_and_wcc_m4(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.workflow_lisp.compiler import ExternalToolBinding
+    from orchestrator.workflow_lisp.compiler_session import CompilerSession
+    from orchestrator.workflow_lisp.lowering import core as lowering_core
+    from orchestrator.workflow_lisp.wcc import defunctionalize
+
+    workflow_path = tmp_path / "lowering_session.orc"
+    _write_module(
+        workflow_path,
+        """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.15")
+  (defrecord Result (value String))
+  (defproc echo () -> Result
+    :effects ((uses-command run_echo))
+    :lowering inline
+    (command-result run_echo
+      :argv ("python" "scripts/echo.py")
+      :returns Result))
+  (defworkflow run () -> Result (echo)))
+""",
+    )
+    seen_contexts: dict[int, list[object]] = {}
+    active_compile: list[int] = []
+    lower_expression = lowering_core._lower_expression
+    defunctionalize_body = defunctionalize._defunctionalize_body
+
+    def capture_context(*args, **kwargs):
+        [compile_index] = active_compile
+        seen_contexts.setdefault(compile_index, []).append(kwargs["context"])
+        return lower_expression(*args, **kwargs)
+
+    def capture_wcc_context(*args, **kwargs):
+        [compile_index] = active_compile
+        seen_contexts.setdefault(compile_index, []).append(kwargs["context"])
+        return defunctionalize_body(*args, **kwargs)
+
+    monkeypatch.setattr(lowering_core, "_lower_expression", capture_context)
+    monkeypatch.setattr(
+        defunctionalize,
+        "_defunctionalize_body",
+        capture_wcc_context,
+    )
+    sessions = [CompilerSession() for _ in range(4)]
+    routes = ("legacy", "wcc_m4", "legacy", "wcc_m4")
+
+    for compile_index, (route, compiler_session) in enumerate(
+        zip(routes, sessions, strict=True)
+    ):
+        active_compile[:] = [compile_index]
+        compile_stage3_module(
+            workflow_path,
+            command_boundaries={
+                "run_echo": ExternalToolBinding(
+                    name="run_echo",
+                    stable_command=("python", "scripts/echo.py"),
+                )
+            },
+            validate_shared=False,
+            workspace_root=tmp_path,
+            lowering_route=route,
+            compiler_session=compiler_session,
+        )
+
+    assert set(seen_contexts) == {0, 1, 2, 3}
+    for compile_index, compiler_session in enumerate(sessions):
+        contexts = seen_contexts[compile_index]
+        assert contexts
+        assert len({id(context) for context in contexts}) >= 2
+        assert {
+            id(context.lowering_session)
+            for context in contexts
+        } == {id(compiler_session.lowering)}
+    assert len({id(session.lowering) for session in sessions}) == 4
+
+
+def test_intrinsic_counts_are_session_local_and_do_not_change_artifacts(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp.compiler_session import CompilerSession
+    from orchestrator.workflow_lisp.lowering.control_dispatch import (
+        intrinsic_form_lowering_counts,
+    )
+
+    workflow_path = tmp_path / "intrinsic_artifact.orc"
+    _write_module(
+        workflow_path,
+        """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14")
+  (defmodule intrinsic_artifact)
+  (import std/context :only (PhaseCtx))
+  (defrecord Result
+    (phase_name Symbol)
+    (state_root Path.state-root))
+  (defworkflow run
+    ((phase-ctx PhaseCtx))
+    -> Result
+    (with-phase phase-ctx session-phase
+      (record Result
+        :phase_name phase-ctx.phase-name
+        :state_root phase-ctx.state-root))))
+""",
+    )
+    first_session = CompilerSession()
+    second_session = CompilerSession()
+
+    first = compile_stage3_module(
+        workflow_path,
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="legacy",
+        compiler_session=first_session,
+    )
+    assert intrinsic_form_lowering_counts(first_session.lowering) == {
+        "with-phase": 1
+    }
+    assert intrinsic_form_lowering_counts(second_session.lowering) == {}
+
+    second = compile_stage3_module(
+        workflow_path,
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="legacy",
+        compiler_session=second_session,
+    )
+
+    assert intrinsic_form_lowering_counts(first_session.lowering) == {
+        "with-phase": 1
+    }
+    assert intrinsic_form_lowering_counts(second_session.lowering) == {
+        "with-phase": 1
+    }
+    assert [
+        lowered.authored_mapping for lowered in first.lowered_workflows
+    ] == [
+        lowered.authored_mapping for lowered in second.lowered_workflows
+    ]
+
+
+def test_direct_module_compile_uses_fresh_lowering_session_after_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.workflow_lisp import compiler
+    from orchestrator.workflow_lisp.compiler import ExternalToolBinding
+    from orchestrator.workflow_lisp.compiler_session import CompilerSession
+
+    class InjectedLoweringFailure(Exception):
+        pass
+
+    workflow_path = tmp_path / "direct_fresh_lowering.orc"
+    _write_module(
+        workflow_path,
+        """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.15")
+  (defrecord Result (value String))
+  (defworkflow run () -> Result
+    (command-result run_value
+      :argv ("python" "scripts/value.py")
+      :returns Result)))
+""",
+    )
+    seen_sessions: list[CompilerSession] = []
+    lower_workflows_for_route = compiler._lower_workflows_for_route
+
+    def capture_session(*, compiler_session: CompilerSession, **kwargs):
+        seen_sessions.append(compiler_session)
+        if len(seen_sessions) == 1:
+            raise InjectedLoweringFailure
+        return lower_workflows_for_route(
+            compiler_session=compiler_session,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(
+        compiler,
+        "_lower_workflows_for_route",
+        capture_session,
+    )
+
+    with pytest.raises(InjectedLoweringFailure):
+        compile_stage3_module(
+            workflow_path,
+            command_boundaries={
+                "run_value": ExternalToolBinding(
+                    name="run_value",
+                    stable_command=("python", "scripts/value.py"),
+                )
+            },
+            validate_shared=False,
+            workspace_root=tmp_path,
+            lowering_route="legacy",
+        )
+    compile_stage3_module(
+        workflow_path,
+        command_boundaries={
+            "run_value": ExternalToolBinding(
+                name="run_value",
+                stable_command=("python", "scripts/value.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="legacy",
+    )
+
+    assert len(seen_sessions) == 2
+    assert seen_sessions[0] is not seen_sessions[1]
+    assert seen_sessions[0].lowering is not seen_sessions[1].lowering
+
+
+def test_build_compile_entry_uses_fresh_session_after_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from orchestrator.workflow_lisp import build
+    from orchestrator.workflow_lisp.compiler import Stage3ValidationProfile
+    from orchestrator.workflow_lisp.compiler_session import CompilerSession
+    from orchestrator.workflow_lisp.wcc.route import LoweringRoute
+
+    class InjectedBuildCompileFailure(Exception):
+        pass
+
+    capture = build.FrontendCompileRequestCapture(
+        source_path=tmp_path / "entry.orc",
+        workspace_root=tmp_path,
+        source_roots=(tmp_path,),
+        entry_workflow=None,
+        validation_profile=Stage3ValidationProfile.FRONTEND_ONLY,
+        lint_profile="default",
+        lowering_route=LoweringRoute.LEGACY,
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        imported_workflow_bundles={},
+    )
+    seen_sessions: list[CompilerSession | None] = []
+
+    def capture_compile(*args, **kwargs):
+        seen_sessions.append(kwargs.get("compiler_session"))
+        if len(seen_sessions) == 1:
+            raise InjectedBuildCompileFailure
+        return SimpleNamespace(
+            graph=SimpleNamespace(
+                entry_module_name="entry",
+                export_surfaces_by_name={
+                    "entry": SimpleNamespace(workflows_by_name={})
+                },
+            )
+        )
+
+    monkeypatch.setattr(build, "compile_stage3_entrypoint", capture_compile)
+
+    with pytest.raises(InjectedBuildCompileFailure):
+        build._compile_entry(capture)
+    _, entry_selection = build._compile_entry(capture)
+
+    assert all(isinstance(session, CompilerSession) for session in seen_sessions)
+    assert seen_sessions[0] is not seen_sessions[1]
+    assert entry_selection is None

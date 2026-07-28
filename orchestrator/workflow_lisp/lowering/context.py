@@ -13,6 +13,7 @@ from orchestrator.workflow.state_layout import GeneratedPathAllocation
 from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 
 from ..contracts import WorkflowBoundaryProjection
+from ..compiler_session import LoweringSessionState
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..phase import PhaseScope
 from ..procedures import TypedProcedureDef
@@ -77,6 +78,7 @@ class _LoweringContext:
     ensure_workflow_lowered: Any
     specialize_workflow: Any
     type_env: FrontendTypeEnvironment
+    lowering_session: LoweringSessionState
     step_spans: dict[str, LoweringOrigin]
     generated_input_spans: dict[str, LoweringOrigin]
     authored_generated_inputs: set[str]
