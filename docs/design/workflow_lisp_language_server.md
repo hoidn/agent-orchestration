@@ -50,7 +50,10 @@
   repository-real stdio/status closure. L2 recovery-safe static completion is
   implemented through `70b83f32`, `b399c041`, `ee213a43`, and `10e3ccc3`
   under its reviewed five-task implementation plan, then closed by ordered
-  `L2_FINAL_SPEC_APPROVED` and `L2_FINAL_QUALITY_APPROVED`.
+  `L2_FINAL_SPEC_APPROVED` and `L2_FINAL_QUALITY_APPROVED`. L5 authored
+  reference navigation is implemented through `95e05c01`, `042c0bc3`,
+  `870f7db2`, `7233138a`, and `041754e6` under
+  `docs/plans/2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md`.
 
 ## Summary
 
@@ -76,7 +79,10 @@ deferred. Trace-read `.orc` dependencies may additionally live under the exact
 canonical compiler-owned `_builtin_stdlib_source_root()` injected by
 `_effective_source_roots`; that fixed dependency allowance is not another
 workspace or caller source root. Direct-call navigation uses optional
-compiler-owned authored-callee provenance, not LSP parsing.
+compiler-owned authored-callee provenance, not LSP parsing. L5 extends the
+same read-only index to exact authored prompt-application heads and only final
+unexpanded direct-retained `proc-ref` name tokens in authored non-generated,
+non-specialized owners.
 Capabilities P1-P5 (hover types, multi-diagnostic error recovery,
 as-you-type checking, and incrementality) remain wholly deferred.
 
@@ -776,9 +782,39 @@ categories:
 | --- | --- | --- |
 | go-to-definition | non-null exact `authored_callee_span` of a direct local or imported `ProcedureCallExpr` | defining `defproc` span |
 | go-to-definition | non-null exact `authored_callee_span` of a direct local or imported workflow `CallExpr` | defining `defworkflow` span |
+| go-to-definition | exact authored head token of one final unexpanded `PromptApplicationExpr` uniquely joined by whole span and canonical identity to original syntax and the prompt catalog | defining `defprompt` span |
+| go-to-definition | exact authored name token of one final unexpanded direct-retained `ProcRefLiteralExpr` in an authored non-generated, non-specialized procedure/workflow owner, uniquely joined by whole span and canonical identity to original syntax and the procedure catalog | defining `defproc` span |
 | document symbols | `defmodule`, `defproc`, `defworkflow` definitions in the requested document | exactly those symbols and authored spans |
 | completion | visible local/imported procedure names, visible local/imported workflow names, and form heads from the compiler registry | exactly that set, deterministically ordered |
-| any other node, identifier, definition kind, field, variant, type, prompt, extern, or position | unsupported in v1 | null / no item |
+| any other node, identifier, definition kind, field, variant, type, macro head, erased/expanded/generated-owner/specialized-owner `proc-ref`, extern, or position | unsupported | null / no item |
+
+Every definition edge is one immutable five-field row:
+
+```text
+(reference_kind, reference_span, canonical_target, target_kind, definition_span)
+```
+
+`reference_kind` keeps procedure calls, workflow calls, prompt applications,
+and proc-refs distinct. The reference span is the exact authored token; the
+canonical target and definition span come only from the compiler result.
+Prompt and proc-ref projection require exactly one matching original-syntax
+list of the expected kind at the same whole span and exactly one matching
+compiler-catalog definition. Missing, duplicate, kind-mismatched,
+identity-mismatched, span-mismatched, generated, or conflicting facts fail the
+whole navigation index. No best-effort row, whole-form fallback, source-text
+parse, or server-side name resolution is allowed.
+
+Every new L5 row enters through the same current-success definition preflight
+as direct calls. It therefore remains null for unavailable, unreadable, dirty,
+compile-pending, dependency-invalidated, language-failed, server-failed,
+superseded, closed, unassociated, configuration-stale, source-stale,
+source/configuration-stale, clean-idle, malformed, internally inconsistent,
+or navigation-index-failed state. Macro heads remain null shape-wide because
+the retained expansion facts do not prove a canonical/module-qualified
+own-definition identity. Macro-consumed, erased, expanded, generated-owner,
+and specialized-owner proc-refs likewise remain null. Existing direct
+procedure/workflow behavior is unchanged, and WCC-reconstructed/generated
+calls remain excluded.
 
 The metadata seam is exact:
 
@@ -1286,10 +1322,11 @@ source_ordinal)` order. Their protocol presentation is fixed:
 | `resource` | `Object` |
 | `transition` | `Event` |
 
-This table is presentation, not a nominal subtype hierarchy. L1 still does not
-add go-to-definition for type tokens, schemas, resources, transitions, fields,
-variants, or arbitrary identifiers. Existing exact direct procedure/workflow
-call-head definition behavior is unchanged.
+This table is presentation, not a nominal subtype hierarchy. The implemented
+L5 amendment still does not add go-to-definition for type tokens, schemas,
+resources, transitions, fields, variants, arbitrary identifiers, or macro
+heads. Existing exact direct procedure/workflow call-head definition behavior
+is unchanged.
 
 ### Namespace-Preserving Completion Rows
 
@@ -1858,6 +1895,13 @@ The implementation completed the following independently tested phases:
    configuration-stale/failed/stale null-result tests.
 3. **Packaging and docs** — `lsp` extra, editor-setup documentation,
    capability matrix and routing updates, end-to-end check.
+4. **L5 authored reference navigation** — collision-safe five-field definition
+   rows; exact original-syntax/compiler-catalog joins for authored prompt heads
+   and final direct-retained proc-ref names; common-preflight, visibility,
+   collision-refusal, and null-matrix coverage; and a repository-real stdio
+   check that resolves the review workflow prompt head while keeping its
+   macro-consumed proc-refs and macro head null and its direct workflow call
+   exact. No compiler/frontend or non-navigation production file changed.
 
 Likely-touched modules: new files under `orchestrator/lsp/`;
 `orchestrator/workflow_lisp/build.py`

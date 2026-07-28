@@ -77,9 +77,12 @@ root as described in the
 
 The server compiles only clean disk-equal opens and saves through the
 production full-Stage-3 path. It provides compiler diagnostics, exact direct
-procedure/workflow call definition, and document symbols for the ten directly
-authored module, procedure, workflow, enum, path, record, union, schema,
-resource, and transition kinds. Completion preserves separate
+procedure/workflow call definition, exact authored prompt-application-head
+definition, and exact final unexpanded direct-retained `proc-ref` name
+definition in authored non-generated, non-specialized owners. It also provides
+document symbols for the ten directly authored module, procedure, workflow,
+enum, path, record, union, schema, resource, and transition kinds. Completion
+preserves separate
 procedure/workflow/form namespaces and renders callable parameters, returns,
 and declared procedure effects from compiler signatures. Save the buffer
 before expecting refreshed results. Definition and document symbols remain
@@ -89,6 +92,13 @@ additionally provides content-keyed
 reuse of pure-projection exports, one-probe saves with reverse-dependency
 invalidation, structured compiler-initialization failures, and visible ordered
 note/expansion roles. The server writes no workspace files.
+
+Navigation is authored-to-authored and exact-token only. Macro heads remain
+null shape-wide, and macro-consumed, erased, expanded, generated-owner, or
+specialized-owner proc-refs remain null. Existing direct-call behavior is
+unchanged and WCC/generated calls stay excluded. Do not infer broader support
+from a same-spelled token: the server never parses or resolves source text to
+fill a missing compiler join.
 
 Implemented L2 adds a recovery-only, **process-frozen form registry**. A valid
 dirty, current-pending, language-failed, or server-failed open entry receives

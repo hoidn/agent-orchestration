@@ -86,9 +86,11 @@ The implemented v1 surface is:
   document diagnostic;
 - visible ordered compiler notes and structured macro/helper expansion labels
   without changing diagnostic identity or aggregation;
-- go-to-definition only when the cursor is inside an exact
-  compiler-provenanced direct procedure or workflow call head, including
-  visible imported and standard-library calls;
+- go-to-definition only when the cursor is inside an exact compiler-provenanced
+  direct procedure/workflow call head, authored prompt-application head, or
+  final unexpanded direct-retained `proc-ref` name token in an authored
+  non-generated, non-specialized owner, including compiler-visible imported
+  targets;
 - document symbols for directly authored `defmodule`, `defproc`,
   `defworkflow`, `defenum`, `defpath`, `defrecord`, `defunion`, `defschema`,
   `defresource`, and `deftransition` definitions, with full-form ranges and
@@ -102,11 +104,14 @@ The implemented v1 surface is:
 Definition and document symbols are deliberately closed: they return null for
 dirty, compile-pending, dependency-invalidated, language-failed, server-failed,
 configuration-stale, superseded, closed, or unassociated documents. They also
-return null for generated or ambiguous calls, arguments outside the exact
-callee span, and unsupported definition kinds. Completion uses visibility and
-registry membership only; it does not impose or infer a nominal type taxonomy.
-Generated, expanded, specialized, or span-ambiguous definitions do not become
-best-effort symbols.
+return null outside the exact admitted reference token and for generated or
+ambiguous calls, every macro head, macro-consumed/erased/expanded/
+generated-owner/specialized-owner proc-refs, and unsupported definition kinds.
+A failed or conflicting original-syntax/compiler-catalog join fails the whole
+navigation index rather than yielding a best-effort row. Completion uses
+visibility and registry membership only; it does not impose or infer a nominal
+type taxonomy. Generated, expanded, specialized, or span-ambiguous definitions
+do not become best-effort symbols.
 
 Implemented L2 completion has a three-way surface. A current successful
 snapshot keeps the full callable and form list with `isIncomplete=false`.
@@ -137,13 +142,14 @@ unlatch it; restart the language server.
 
 ## Current Limits
 
-The implemented v1/L0/L1/L2 surface intentionally has no unsaved-buffer
+The implemented v1/L0/L1/L2/L5 surface intentionally has no unsaved-buffer
 analysis. It has no multi-diagnostic recovery,
 hover/type sidecar, compile cache or incrementality, rename, formatting, code
 actions, semantic tokens, multi-root workspace support, or non-default compile
 policy. These are not partial server features. L3 per-source entry selection
-is the next L-series design gate; the frontend prerequisites P1–P5 and any
-other successor work remain separately designed and scheduled.
+remains gated on MR-4 or an equivalent accepted compile-path reentrancy fixture;
+the frontend prerequisites P1–P5 and any other successor work remain separately
+designed and scheduled.
 
 For the owning contract and rationale, see
 [Workflow Lisp Language Server](design/workflow_lisp_language_server.md) and

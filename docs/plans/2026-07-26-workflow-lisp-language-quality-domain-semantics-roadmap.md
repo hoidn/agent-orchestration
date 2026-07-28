@@ -86,9 +86,9 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | L0 | Reliability and diagnostic actionability | Gate S8 complete; current v1 behavior characterized | no-watcher `didSave` reverse invalidation, intentional structured initialization failures, visible compiler-owned notes/expansion provenance, and a content-keyed pure-projection source cache pass focused state/driver/stdio/diagnostic/cache tests plus one real stdio E2E without changing diagnostic identity | complete — reviewed implementation closes the four bounded corrections and watcher-disabled real-stdio gate |
 | L1 | Authored symbols and callable signatures | L0 complete; closed navigation/completion amendment accepted | authored type/resource/transition symbols and namespace-preserving procedure/workflow signature completion use existing compiler spans/catalogs, exclude generated shapes, and retain fail-closed freshness | complete — implemented, reviewed, and repository-real stdio closure gate passed |
 | L2 | Recovery-safe static completion | L1 complete; two-tier completion design and component plan accepted | dirty/pending/invalidated/failed open entries receive only the process-frozen form registry as an incomplete list; stale callables remain closed and stale/closed/unassociated entries remain empty | complete — implementation through `10e3ccc3`; ordered `L2_FINAL_SPEC_APPROVED` then `L2_FINAL_QUALITY_APPROVED` |
-| L3 | Per-source entry selection | L2 complete; immutable initialization-schema amendment accepted; compile-path reentrancy proven (substrate MR-4 complete, or an equivalent accepted reentrancy fixture) | one canonical workspace process can select an exported workflow for a named application source while compiling library entries with no selection, with exact CLI request parity and restart semantics | queued after the owner-reordered L5 plan gate; separate design and ordered review required, and compile-path reentrancy remains an entry gate |
+| L3 | Per-source entry selection | L2 complete; immutable initialization-schema amendment accepted; compile-path reentrancy proven (substrate MR-4 complete, or an equivalent accepted reentrancy fixture) | one canonical workspace process can select an exported workflow for a named application source while compiling library entries with no selection, with exact CLI request parity and restart semantics | queued after completed L5; separate design and ordered review required, and compile-path reentrancy remains an unsatisfied entry gate |
 | L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and a diagnostic-currentness policy are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | blocked by L3 |
-| L5 | Authored reference navigation | accepted design at `b8a41172`; Q1 catalog and L1 index landed; read-only feasibility gates admit prompt heads and only final unexpanded direct-retained `proc-ref` occurrences in non-generated, non-specialized authored owners; macro heads defer shape-wide; no L3/L4 dependency — selected under the owner-reordering rule | exact authored prompt-head and admitted proc-ref-name definition hits; macro-consumed, erased, generated-owner, specialized-owner proc-refs and every macro head remain null; existing direct procedure/`(call ...)` hits regression-locked; WCC/generated calls excluded; every hit uses the full common preflight; real stdio resolves the review workflow prompt head while its macro/proc-ref tokens remain null and its direct call stays exact | plan gate — [proposed implementation plan](2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md) awaits ordered specification then quality review; implementation not authorized |
+| L5 | Authored reference navigation | accepted design at `b8a41172`; Q1 catalog and L1 index landed; read-only feasibility gates admitted prompt heads and only final unexpanded direct-retained `proc-ref` occurrences in non-generated, non-specialized authored owners; macro heads defer shape-wide; no L3/L4 dependency — selected under the owner-reordering rule | exact authored prompt-head and admitted proc-ref-name definition hits; macro-consumed, erased, expanded, generated-owner, specialized-owner proc-refs and every macro head remain null; existing direct procedure/`(call ...)` hits regression-locked; WCC/generated calls excluded; every hit uses the full common preflight; real stdio resolves the review workflow prompt head while its macro/proc-ref tokens remain null and its direct call stays exact | complete — implementation through `95e05c01`, `042c0bc3`, `870f7db2`, `7233138a`, and `041754e6`; durable incorporation and closure under the [reviewed implementation plan](2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md) |
 
 The Q-series implementation stages execute in Q-table order. Q5 design review
 may proceed in parallel with Q3 because review can close the Q5 delta against
@@ -105,14 +105,14 @@ is accepted at `ad5474c7`; implementation landed through compiler carriage
 pure identity `4b03b317`, prelaunch runtime `d3e5031c`, persisted authority
 `1e3b32dc`, and report projection `63eefda5`, followed by Task-7 compatibility,
 documentation, and closure gates.
-L0, L1, and L2 are complete. L2 implementation landed through `70b83f32`,
+L0, L1, L2, and L5 are complete. L2 implementation landed through `70b83f32`,
 `b399c041`, `ee213a43`, and `10e3ccc3`, followed by ordered
-`L2_FINAL_SPEC_APPROVED` then `L2_FINAL_QUALITY_APPROVED`. L5 is selected under
-the owner-reordering rule: its accepted design and feasibility gates admit
-only prompt heads plus the narrow direct-retained proc-ref shape, and its
-proposed implementation plan awaits ordered review. L3 remains queued with its
-compile-path reentrancy precondition unsatisfied until MR-4 or an equivalent
-accepted fixture proves it.
+`L2_FINAL_SPEC_APPROVED` then `L2_FINAL_QUALITY_APPROVED`. L5 completed under
+the owner-reordering rule: its accepted design, reviewed implementation plan,
+and landed implementation ship only prompt heads plus the narrow
+direct-retained proc-ref shape. L3 remains queued with its compile-path
+reentrancy precondition unsatisfied until MR-4 or an equivalent accepted
+fixture proves it; L5 completion does not bypass that gate.
 The L-series is an owner-selected
 priority queue rather than a
 claim that every adjacent stage has a compiler dependency on its predecessor;
@@ -524,17 +524,18 @@ session reporting.
 
 Authority target:
 `docs/design/workflow_lisp_lsp_authored_reference_navigation.md` (accepted at
-`b8a41172`; shipped content folds into the language-server design as the owning
-amendment).
+`b8a41172` and incorporated into the language-server design as the owning
+implemented amendment).
 
-Extend the definition index with exact authored prompt-application heads by
+The implementation extends the definition index with exact authored
+prompt-application heads by
 joining already-retained original syntax to the typed prompt identity and
 authored `defprompt` span. The projection is unique, whole-span-and-kind
 checked, authored-token exact, canonical-target keyed, and fail-closed on a
 missing, multiple, kind, identity, or span mismatch. It does not parse text or
 resolve names in the LSP.
 
-Read-only feasibility probes admit only final unexpanded direct-retained
+Read-only feasibility probes admitted only final unexpanded direct-retained
 `ProcRefLiteralExpr` occurrences inside non-generated, non-specialized
 authored owners. Their original exact `(proc-ref NAME)` syntax and procedure
 catalog complete the canonical authored-definition join across local,
@@ -545,8 +546,8 @@ Macro heads defer shape-wide because current expansion/export facts do not
 retain canonical/module-qualified own-definition identity; L5 does not ship a
 partial local-only macro route.
 
-The review workflow's direct `(call ...)` callee already resolves over a
-successful live stdio session. L5 adds no direct-call behavior: direct
+The review workflow's direct `(call ...)` callee still resolves over a
+successful live stdio session. L5 added no direct-call behavior: direct
 procedure and workflow calls remain regression coverage, while
 WCC-reconstructed/generated calls remain excluded. Every new hit enters only
 through the existing successful-current-snapshot preflight; unavailable,
@@ -555,12 +556,12 @@ superseded, closed, unassociated, configuration-stale, source-stale,
 source/configuration-stale, clean-idle, malformed, index-failed, unsupported,
 ambiguous, generated, and outside-token requests remain silent null.
 
-L5 depends only on the Q1 catalog and L1 index, has no L3/L4 dependency, and is
-selected under the L-series owner-reordering rule while L3 awaits substrate
-MR-4. Ordered design reviews and feasibility gates are complete. The
-[proposed implementation plan](2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md)
-is limited to the admitted shapes and must receive ordered independent
-specification then quality approval before TDD execution.
+L5 depended only on the Q1 catalog and L1 index, had no L3/L4 dependency, and
+completed under the L-series owner-reordering rule while L3 awaits substrate
+MR-4. Ordered design/plan reviews, feasibility gates, TDD, the real-stdio gate,
+and durable incorporation are recorded in the
+[reviewed implementation plan](2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md).
+The completed surface remains limited to the admitted shapes.
 
 ## Explicitly Unselected Work
 

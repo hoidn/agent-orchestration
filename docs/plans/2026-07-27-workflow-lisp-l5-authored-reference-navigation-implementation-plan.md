@@ -29,9 +29,13 @@ over stdio.
 `dad87132477a8e17635d55ee3aaf794b14bae7ea`, after ordered independent
 specification review then independent quality review.
 
-**Planning status:** proposed for ordered `L5_PLAN_SPEC_APPROVED` then distinct
-`L5_PLAN_QUALITY_APPROVED`. Implementation is not authorized until both plan
-reviews approve this exact snapshot and its routing gate lands.
+**Implementation status:** the plan passed ordered `L5_PLAN_SPEC_APPROVED`
+then distinct `L5_PLAN_QUALITY_APPROVED`; Tasks 1–5 are implemented and
+committed. Task 6's exact durable-baseline/routing candidate and fresh control
+are assembled below, and its post-candidate broad comparison has zero failed-
+node delta from that control. Ordered `L5_FINAL_SPEC_APPROVED` then distinct
+`L5_FINAL_QUALITY_APPROVED`, the reviewed closure commit, and postcommit
+verification remain pending.
 
 ---
 
@@ -345,24 +349,24 @@ for private/ambiguous source failures.
 
 Before Task 1:
 
-- [ ] Obtain `L5_PLAN_SPEC_APPROVED` against this exact plan, accepted design,
+- [x] Obtain `L5_PLAN_SPEC_APPROVED` against this exact plan, accepted design,
       admitted/deferred feasibility result, and proposed routing.
-- [ ] Resolve every specification finding in the plan and repeat spec review.
-- [ ] Obtain distinct `L5_PLAN_QUALITY_APPROVED`.
-- [ ] Record accepted-for-execution status and both ordered tokens without
+- [x] Resolve every specification finding in the plan and repeat spec review.
+- [x] Obtain distinct `L5_PLAN_QUALITY_APPROVED`.
+- [x] Record accepted-for-execution status and both ordered tokens without
       changing scope.
-- [ ] Rebase the exact L5 plan/routing hunks onto the then-current shared
+- [x] Rebase the exact L5 plan/routing hunks onto the then-current shared
       baseline, preserving concurrent Q and owner changes.
-- [ ] Update only exact L5 plan-gate routing expectations and run:
+- [x] Update only exact L5 plan-gate routing expectations and run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py
   ```
 
-- [ ] Obtain final ordered specification then quality reaffirmation against
+- [x] Obtain final ordered specification then quality reaffirmation against
       the exact plan/status/routing snapshot.
-- [ ] Commit those reviewed bytes before production changes.
-- [ ] Capture a fresh pre-L5 control:
+- [x] Commit those reviewed bytes before production changes.
+- [x] Capture a fresh pre-L5 control:
 
   ```bash
   pytest -q \
@@ -375,7 +379,7 @@ Before Task 1:
     tests/test_workflow_lisp_drain_roadmap_routing.py
   ```
 
-- [ ] Record plan-gate `HEAD`, tree, totals, and exact failures in this plan.
+- [x] Record plan-gate `HEAD`, tree, totals, and exact failures in this plan.
 
 ## Task 1: Collision-Safe Five-Field Reference Rows
 
@@ -388,41 +392,41 @@ explicitly rejected rather than overwritten.
 - Modify: `orchestrator/lsp/navigation.py`
 - Modify: `tests/test_workflow_lisp_lsp_navigation.py`
 
-- [ ] Run and record the mandatory collision/consumer audit command from
+- [x] Run and record the mandatory collision/consumer audit command from
       "Collision And Identity Contract."
-- [ ] Add `test_definition_links_are_frozen_five_field_semantic_rows` and
+- [x] Add `test_definition_links_are_frozen_five_field_semantic_rows` and
       assert exact direct procedure/workflow values plus immutability.
-- [ ] Add
+- [x] Add
       `test_definition_link_rejects_unknown_reference_and_target_kinds`,
       parameterized over one unknown `reference_kind` and one unknown
       `target_kind`. Construct the frozen row directly and require `ValueError`
       from its constructor before passing the row to any index helper.
-- [ ] Add
+- [x] Add
       `test_reference_projection_collapses_only_identical_duplicate_facts`
       for duplicate target facts and duplicate rows.
-- [ ] Add
+- [x] Add
       `test_reference_projection_rejects_target_and_occurrence_collisions`
       covering different definition spans, target kinds, and canonical
       targets at one kind-aware occurrence key.
-- [ ] Add
+- [x] Add
       `test_reference_projection_rejects_cross_kind_assertions_at_one_span`
       proving two different `reference_kind` assertions at the same canonical
       path/start/end span fail the whole index.
-- [ ] Add
+- [x] Add
       `test_reference_projection_preserves_same_spelling_across_namespaces_at_distinct_spans`
       proving prompt/procedure/workflow labels and target keys do not merge
       when their authored occurrences have different spans.
-- [ ] Run the new nodes and confirm RED because the current row has only
+- [x] Run the new nodes and confirm RED because the current row has only
       `callee_span` and `definition_span` and silently assigned definition-map
       entries are unaudited.
-- [ ] Replace `DefinitionLink` with the closed five-field row; update direct
+- [x] Replace `DefinitionLink` with the closed five-field row; update direct
       call projection, sorting, lookup, and collision-safe insertion only.
       Put closed-domain validation in `DefinitionLink.__post_init__` (or its
       exact immutable-constructor equivalent), not in
       `_insert_unique_reference_link`.
-- [ ] Keep direct call selection and returned definition locations byte-for-
+- [x] Keep direct call selection and returned definition locations byte-for-
       byte equivalent at the protocol boundary.
-- [ ] Run GREEN:
+- [x] Run GREEN:
 
   ```bash
   pytest -q \
@@ -437,7 +441,7 @@ explicitly rejected rather than overwritten.
     tests/test_workflow_lisp_lsp_navigation.py::test_null_or_generated_call_provenance_is_never_indexed
   ```
 
-- [ ] Obtain `L5_TASK1_SPEC_APPROVED`, then distinct
+- [x] Obtain `L5_TASK1_SPEC_APPROVED`, then distinct
       `L5_TASK1_QUALITY_APPROVED`, and commit only the exact reviewed two-file
       snapshot.
 
@@ -467,33 +471,33 @@ raw label and include direct prompt applications spelled:
 It must also retain same-label procedure/workflow direct-call controls without
 requiring runtime execution.
 
-- [ ] Add `test_prompt_application_heads_project_exact_semantic_rows` and
+- [x] Add `test_prompt_application_heads_project_exact_semantic_rows` and
       assert every five-field row, canonical prompt target, and exact authored
       `defprompt` span.
-- [ ] Add
+- [x] Add
       `test_prompt_application_navigation_supports_local_alias_canonical_and_only_spellings`
       and assert all spellings reach the one canonical target without
       cross-family substitution.
-- [ ] Add
+- [x] Add
       `test_prompt_application_navigation_is_exactly_head_token_bounded` with
       first and last token code units positive and opening delimiter, end
       boundary, adjacent whitespace, fill keyword/value, and closing delimiter
       null.
-- [ ] Add
+- [x] Add
       `test_prompt_application_projection_fails_closed_on_join_drift`,
       parameterized over missing syntax match, duplicate syntax match, wrong
       syntax kind, whole-span mismatch, canonical identity mismatch, absent
       prompt catalog target, differing definition span, expanded occurrence,
       and generated/expanded definition.
-- [ ] Add
+- [x] Add
       `test_original_prompt_syntax_without_final_application_is_not_discovered`
       by removing the final typed assertion while retaining original syntax.
-- [ ] Confirm the positive tests RED because no prompt rows exist; ensure
+- [x] Confirm the positive tests RED because no prompt rows exist; ensure
       pre-existing direct-call controls remain GREEN.
-- [ ] Implement the recursive original-syntax view and prompt projection
+- [x] Implement the recursive original-syntax view and prompt projection
       exactly as specified, without changing shared traversal or frontend
       files.
-- [ ] Run GREEN:
+- [x] Run GREEN:
 
   ```bash
   pytest -q \
@@ -505,7 +509,7 @@ requiring runtime execution.
     tests/test_workflow_lisp_lsp_navigation.py::test_definition_has_no_whole_form_or_other_identifier_fallback
   ```
 
-- [ ] Run fixture/compiler adjacency without changing it:
+- [x] Run fixture/compiler adjacency without changing it:
 
   ```bash
   pytest -q \
@@ -513,7 +517,7 @@ requiring runtime execution.
     tests/test_workflow_lisp_modules.py
   ```
 
-- [ ] Obtain `L5_TASK2_SPEC_APPROVED`, then distinct
+- [x] Obtain `L5_TASK2_SPEC_APPROVED`, then distinct
       `L5_TASK2_QUALITY_APPROVED`, and commit only exact reviewed navigation,
       test, and valid-fixture paths.
 
@@ -529,52 +533,52 @@ canonical authored `defproc`.
 - Modify: `tests/test_workflow_lisp_lsp_navigation.py`
 - Reuse the Task-2 valid L5 fixture.
 
-- [ ] Extend the fixture with retained proc-ref occurrences using the local,
+- [x] Extend the fixture with retained proc-ref occurrences using the local,
       unqualified import, alias-qualified, canonical-qualified, and `:only`
       spellings listed in Task 2.
-- [ ] Add `test_retained_proc_ref_names_project_exact_semantic_rows` and assert
+- [x] Add `test_retained_proc_ref_names_project_exact_semantic_rows` and assert
       exact row fields, canonical procedure targets, and authored `defproc`
       spans.
-- [ ] Add
+- [x] Add
       `test_retained_proc_ref_navigation_supports_local_alias_canonical_and_only_spellings`.
-- [ ] Add `test_retained_proc_ref_navigation_is_exactly_name_token_bounded`
+- [x] Add `test_retained_proc_ref_navigation_is_exactly_name_token_bounded`
       with first/last in-token positions positive and opening delimiter,
       `proc-ref` head, whitespace, exact name end, and closing delimiter null.
-- [ ] Add
+- [x] Add
       `test_proc_ref_projection_rejects_missing_multiple_kind_identity_and_span_mismatch`
       covering absent and duplicate original lists, non-`proc-ref` head,
       non-identifier/missing name, extra item, authored-name mismatch,
       canonical-target mismatch, missing procedure definition, differing
       definition span, and invalid token containment.
-- [ ] Add
+- [x] Add
       `test_proc_ref_projection_rejects_expanded_matching_original_syntax`.
       Give the otherwise exact matching original `(proc-ref NAME)` list a
       non-empty expansion stack and require navigation-index construction to
       raise rather than omit or accept the retained occurrence.
-- [ ] Add
+- [x] Add
       `test_proc_ref_projection_rejects_generated_or_expanded_catalog_definition`,
       parameterized over a matching procedure-catalog target whose definition
       has `generated_local_procedure` set and one whose definition has a
       non-empty `expansion_stack`. Each retained occurrence must fail the whole
       index rather than become null through a silently missing target.
-- [ ] Add
+- [x] Add
       `test_proc_ref_projection_excludes_erased_expanded_generated_and_specialized_occurrences`.
       Prove independently: original syntax with no final occurrence; non-empty
       occurrence expansion stack; generated local-procedure owner; expanded
       owner; specialized procedure owner; and specialized workflow owner.
-- [ ] Add
+- [x] Add
       `test_macro_consumed_proc_refs_and_macro_heads_have_no_l5_rows` using the
       real `review_revise_design_docs.orc` compile result. Assert both
       macro-consumed proc-ref tokens and the macro head remain absent while its
       direct call control remains present.
-- [ ] Confirm the retained positive tests RED and all excluded-shape tests
+- [x] Confirm the retained positive tests RED and all excluded-shape tests
       GREEN before implementation. Confirm the two malformed-join tests above
       are RED because the current index does not yet reject those inconsistent
       retained facts, then GREEN only after fail-closed validation lands.
-- [ ] Implement the proc-ref projection only in the existing authored-owner
+- [x] Implement the proc-ref projection only in the existing authored-owner
       traversal after owner filters. Do not scan syntax for occurrences and do
       not add macro support.
-- [ ] Run GREEN:
+- [x] Run GREEN:
 
   ```bash
   pytest -q \
@@ -589,7 +593,7 @@ canonical authored `defproc`.
     tests/test_workflow_lisp_lsp_navigation.py::test_null_or_generated_call_provenance_is_never_indexed
   ```
 
-- [ ] Run unchanged compiler adjacency:
+- [x] Run unchanged compiler adjacency:
 
   ```bash
   pytest -q \
@@ -597,7 +601,7 @@ canonical authored `defproc`.
     tests/test_workflow_lisp_macros.py
   ```
 
-- [ ] Obtain `L5_TASK3_SPEC_APPROVED`, then distinct
+- [x] Obtain `L5_TASK3_SPEC_APPROVED`, then distinct
       `L5_TASK3_QUALITY_APPROVED`, and commit only exact reviewed navigation,
       test, and valid-fixture hunks.
 
@@ -623,30 +627,30 @@ definition availability branch applies identically to prompt/proc-ref rows.
 - Modify production only if this task exposes a Task-1/2/3 defect; route the
   fix back through that owning task's fresh TDD and ordered reviews.
 
-- [ ] Add
+- [x] Add
       `test_l5_same_visible_label_never_cross_substitutes_prompt_procedure_or_workflow`
       over the valid fixture.
-- [ ] Add
+- [x] Add
       `test_l5_private_and_ambiguous_imports_fail_through_compiler_authority`
       over both invalid fixture roots; assert compiler diagnostic, no accepted
       current snapshot, and definition null rather than an LSP-resolved target.
-- [ ] Add
+- [x] Add
       `test_l5_definition_rows_share_the_complete_current_snapshot_preflight`,
       parameterized across `prompt-application` and `proc-ref` and every state
       in "Common Availability And Null Matrix." Reuse production state
       transitions/probes; do not handwave several states into one label.
-- [ ] Add
+- [x] Add
       `test_l5_navigation_index_failure_is_logged_once_and_all_definition_shapes_are_null`
       by forcing a collision/join failure after current compile success. Assert
       no diagnostics mutation, no fallback index, no workspace write, and
       direct call/prompt/proc-ref all null.
-- [ ] Add
+- [x] Add
       `test_l5_unsupported_generated_and_outside_token_requests_are_null`
       to close the remaining non-state null categories.
-- [ ] These integration-shaped tests should begin GREEN after Tasks 1–3. If
+- [x] These integration-shaped tests should begin GREEN after Tasks 1–3. If
       any is RED, identify the owning defect and return it to that earlier task
       instead of patching around the preflight.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q \
@@ -655,7 +659,7 @@ definition availability branch applies identically to prompt/proc-ref rows.
     tests/test_workflow_lisp_lsp_compile_driver.py
   ```
 
-- [ ] Obtain `L5_TASK4_SPEC_APPROVED`, then distinct
+- [x] Obtain `L5_TASK4_SPEC_APPROVED`, then distinct
       `L5_TASK4_QUALITY_APPROVED`, and commit only exact reviewed test/fixture
       paths unless an owning-task correction completed its own review cycle.
 
@@ -672,10 +676,10 @@ writes no source, build, run, or artifact state.
   `tests/test_workflow_lisp_lsp_integration.py`
 - Modify production only by routing a genuine defect back to Tasks 1–3.
 
-- [ ] Define repository constants for
+- [x] Define repository constants for
       `workflows/examples/review_revise_design_docs.orc` and its checked-in
       provider/prompt manifest paths.
-- [ ] Add
+- [x] Add
       `test_real_repository_l5_authored_reference_navigation_is_read_only`.
       Launch the real stdio server with the workflow's actual source root,
       provider externs, and prompt externs in the server's supported null-entry
@@ -683,26 +687,26 @@ writes no source, build, run, or artifact state.
       that activates the independent whole-callable-closure bootstrap policy,
       which is outside L5's authored-navigation contract and rejects this
       repository example before navigation becomes observable.
-- [ ] Request definition inside `review-design-doc` at its fragment
+- [x] Request definition inside `review-design-doc` at its fragment
       application head and assert the returned location range is the full
       authored `defprompt` declaration `definition_span`, exactly as stored in
       the five-field row. Separately assert the request succeeds only inside
       the source application head's exact `reference_span`; the target is not
       a `defprompt` name-token selection range.
-- [ ] Request at the `review-revise-loop` macro head and both
+- [x] Request at the `review-revise-loop` macro head and both
       macro-consumed `(proc-ref review-design-docs)` /
       `(proc-ref fix-design-doc)` name tokens; assert all three results are
       null.
-- [ ] Request the existing direct `(call build-review-runtime-owned)` callee
+- [x] Request the existing direct `(call build-review-runtime-owned)` callee
       and assert its authored `defworkflow` location remains exact.
-- [ ] Probe opening delimiters, exact token ends, adjacent arguments, and one
+- [x] Probe opening delimiters, exact token ends, adjacent arguments, and one
       fill keyword to ensure stdio exposes no whole-form fallback.
-- [ ] Snapshot source/manifests/prompt assets and `.orchestrate/build` before
+- [x] Snapshot source/manifests/prompt assets and `.orchestrate/build` before
       launch; after shutdown assert byte identity, unchanged build-tree digest,
       and no new run/artifact state.
-- [ ] This gate should begin GREEN after Tasks 1–4. Route any failure back to
+- [x] This gate should begin GREEN after Tasks 1–4. Route any failure back to
       its owner and repeat TDD/reviews.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q \
@@ -711,7 +715,7 @@ writes no source, build, run, or artifact state.
     tests/test_workflow_lisp_lsp_stdio.py
   ```
 
-- [ ] Obtain `L5_TASK5_SPEC_APPROVED`, then distinct
+- [x] Obtain `L5_TASK5_SPEC_APPROVED`, then distinct
       `L5_TASK5_QUALITY_APPROVED`, and commit only exact reviewed E2E/integration
       test paths unless an owning-task correction completed separately.
 
@@ -742,33 +746,33 @@ broad, and ordered review evidence closes L5.
   `tests/test_workflow_lisp_drain_roadmap_routing.py`
 - Modify factual evidence/status after all gates: this plan
 
-- [ ] Refresh and record the current baseline `HEAD`, tree, shared-file diff,
+- [x] Refresh and record the current baseline `HEAD`, tree, shared-file diff,
       and Q/owner routing state. Merge/reapply only exact reviewed L5 hunks;
       never replace a shared file wholesale with an older task snapshot.
-- [ ] Before closure edits, run the focused selector below and confirm the
+- [x] Before closure edits, run the focused selector below and confirm the
       landed Tasks 1–5 plus existing routing are GREEN. A behavioral failure
       routes back to its owning Task 1–3; Task 6 does not absorb it.
-- [ ] Update exact routing expectations and their owning docs together for
+- [x] Update exact routing expectations and their owning docs together for
       shipped L5 behavior, the prompt/direct-retained-proc-ref boundary,
       shape-wide macro deferment, erased/specialized proc-ref exclusion,
       preserved direct calls, accepted final review tokens, and the correct
       next L-series selector. Do not manufacture a routing RED as a Task-6
       milestone; the closure selector must remain GREEN.
-- [ ] Merge durable semantics, not tranche chronology, into
+- [x] Merge durable semantics, not tranche chronology, into
       `workflow_lisp_language_server.md`: five-field row, exact original-
       syntax/compiler-catalog joins, common preflight, collision refusal,
       authored-to-authored targets, and exclusions.
-- [ ] Update frontend §76.1 only to reflect that the read-only LSP consumes
+- [x] Update frontend §76.1 only to reflect that the read-only LSP consumes
       retained syntax/catalog facts; do not define a second compiler contract.
-- [ ] Mark the L5 target doc implemented/incorporated while retaining macro
+- [x] Mark the L5 target doc implemented/incorporated while retaining macro
       identity and erased/specialized proc-ref shapes as explicit future
       retention gaps.
-- [ ] Update setup/drafting docs with only user-observable exact prompt-head
+- [x] Update setup/drafting docs with only user-observable exact prompt-head
       and retained-proc-ref navigation. Do not imply all macros or all proc-refs
       navigate.
-- [ ] Keep principles 29 and 30 intact: no type-taxonomy advice and no prompt
+- [x] Keep principles 29 and 30 intact: no type-taxonomy advice and no prompt
       prose/provider obligation.
-- [ ] Run collection and focused gates:
+- [x] Run collection and focused gates:
 
   ```bash
   pytest --collect-only -q \
@@ -787,7 +791,7 @@ broad, and ordered review evidence closes L5.
     tests/test_workflow_lisp_drain_roadmap_routing.py
   ```
 
-- [ ] Run the active roadmap's exact broad non-security command in tmux:
+- [x] Run the active roadmap's exact broad non-security command in tmux:
 
   ```bash
   pytest -q -n 16 --dist=worksteal \
@@ -815,10 +819,10 @@ broad, and ordered review evidence closes L5.
     -k 'not security and not secret and not isolation and not safety'
   ```
 
-- [ ] Record collection/pass/failure/error/skip totals and classify every
+- [x] Record collection/pass/failure/error/skip totals and classify every
       retained failure against the fresh pre-L5 control. Do not repair,
       rebaseline, or waive unrelated failures under L5.
-- [ ] Run `git diff --check` and search exact L5 routes for stale
+- [x] Run `git diff --check` and search exact L5 routes for stale
       proposed/review-pending/conditional-macro wording.
 - [ ] Obtain `L5_FINAL_SPEC_APPROVED` against the exact implementation,
       evidence, baseline, and routing snapshot.
@@ -828,6 +832,57 @@ broad, and ordered review evidence closes L5.
       and behavioral-test commits remain the implementation record.
 - [ ] Verify the commit tree and rerun focused routing plus the repository-real
       L5 E2E from committed `HEAD`.
+
+### Pre-Review Task 6 Execution Record
+
+This record is factual through the exact pre-review Task 6 candidate. The
+post-candidate broad comparison is complete. Ordered final reviews, the
+reviewed closure commit, and postcommit verification remain pending.
+
+- The Task 6 baseline is commit
+  `ba7bc148db9e95ebe0b48ddc6ff23e0ec6c80610`, tree
+  `1c3b24f08c511c902d379ef205eb76daa907a6ab`. Task 6 changes only the eleven
+  paths named above and preserves the Q3 closure, Q5 plan, owner, and lean-pilot
+  bytes already present in that tree.
+- Tasks 1–5 landed as collision-safe reference rows `95e05c01`, authored
+  prompt heads `042c0bc3`, direct-retained proc-ref navigation `870f7db2`,
+  visibility/preflight and repository-real preflight coverage `7233138a`, the
+  real-stdio compile-profile plan correction `52930d09`, and repository-real
+  stdio navigation `041754e6`.
+- The fresh pre-L5 control collection selected 9,944 of 9,962 nodes with 18
+  deselected; its log SHA-256 is
+  `3126cb7a58e589809f1f5d9fbe210cebde6c12a261d164d5e93986ee4ebceca1`.
+  The bound broad control completed in 155.03 seconds with 9,885 passed, 38
+  failed, 21 skipped, zero errors, and 33 warnings; its log SHA-256 is
+  `88f7760414abcc18391ffbc07b87cd2c9e080bff810b462b68c99aa725c344c7`.
+  The 38 failures are the same retained set as the immediately preceding Q3
+  comparison, including its already-isolated xdist-only LSP race.
+- Task 6 introduces no compiler/frontend, runtime, prompt, provider,
+  completion, symbol, or non-navigation production change. The durable
+  baseline now records immutable five-field rows, exact original-syntax/
+  compiler-catalog joins, collision refusal, common-preflight ownership,
+  authored-to-authored targets, and the admitted/deferred shape boundary.
+- The exact four-module collection selected 212 tests in 2.13 seconds. The
+  exact seven-module focused selector passed 479 tests in 47.12 seconds,
+  including 60/60 active-roadmap routing tests after replacing the stale L5
+  plan-gate expectations with the completed-stage and still-gated-L3 contract.
+- The immutable preliminary Task 6 candidate is
+  `57fb43beda71fa1661e6ff8af0ae0a7bdf2a8c4f`, tree
+  `4333d42bf21a7079ebe18c0aac4cd13585481ec8`, with the bound baseline as its
+  exact parent. Post-candidate collection selected 9,944 of 9,962 nodes with
+  18 deselected in 14.73 seconds; its log SHA-256 is
+  `7fb9ab6fee1f3baf00a00100a22188d6f7a0feb9b0c066a15f2649a5091a0b27`.
+  The post-candidate broad suite completed in 154.14 seconds with 9,885 passed,
+  38 failed, 21 skipped, zero errors, and 33 warnings; its log SHA-256 is
+  `ec7822993d64e818531f0f289c26d64f85609e0298be43511168239268a1d210`.
+  The exact sorted `FAILED` node set has zero difference from the bound pre-L5
+  control, so L5 introduces zero new broad failures. This broad evidence binds
+  the preliminary behavior/routing candidate. The replacement changes exactly
+  two documentation paths: this factual plan/status record and
+  `docs/design/workflow_lisp_lsp_authored_reference_navigation.md` for the
+  final-spec prompt-only/macro-deferment correction. Neither correction changes
+  a test or behavior blob; the other nine Task 6 paths remain byte-identical to
+  the preliminary candidate.
 
 ## Completion Gate
 

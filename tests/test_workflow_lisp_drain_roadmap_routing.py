@@ -1298,7 +1298,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     normalized_l3_row = _normalized_routing_text(l3_row)
     assert "queued" in normalized_l3_row
-    assert "owner reordered l5 plan gate" in normalized_l3_row
+    assert "queued after completed l5" in normalized_l3_row
+    assert "reentrancy remains an unsatisfied entry gate" in normalized_l3_row
     assert "design" in normalized_l3_row
     assert "compile path reentrancy" in normalized_l3_row
     assert "blocked by l2" not in normalized_l3_row
@@ -1336,11 +1337,11 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "l2_final_spec_approved" in normalized_language_server_router_row
     assert "l2_final_quality_approved" in normalized_language_server_router_row
-    assert "l1 authored symbols/signatures, and l2 recovery safe static completion are complete" in (
+    assert "owner reordered l5 authored reference navigation are complete" in (
         normalized_index
     )
-    assert "owner reordered l5 has an accepted design" in normalized_index
-    assert "l3 remains queued behind that plan gate" in normalized_index
+    assert "l5 completion does not satisfy l3" in normalized_index
+    assert "mr 4 or an equivalent accepted fixture" in normalized_index
     assert "p1 diagnostic accumulation" in normalized_successor
     assert "p5 compile caching/incrementality" in normalized_successor
     assert "runtime debugging surface" in normalized_successor
@@ -1472,13 +1473,13 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "q3 closes under its reviewed plan" in normalized_successor_index
     assert "q4 still needs its concrete consumer" in normalized_successor_index
     assert Path(PROMPT_IDENTITY_PLAN_PATH).name in index
-    assert "l1 authored symbols/signatures, and l2 recovery safe static completion are complete" in (
+    assert "owner reordered l5 authored reference navigation are complete" in (
         normalized_successor_index
     )
-    assert "owner reordered l5 has an accepted design" in (
+    assert "l5 completion does not satisfy l3" in (
         normalized_successor_index
     )
-    assert "l3 remains queued behind that plan gate" in (
+    assert "mr 4 or an equivalent accepted fixture" in (
         normalized_successor_index
     )
     assert "### [Workflow Lisp Language Server L2 Implementation Plan]" in index
@@ -1706,13 +1707,12 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     assert "q0 q3 are implemented" in active_roadmap_index
     assert "q3 closes under its reviewed plan" in active_roadmap_index
     assert "q4 still needs its concrete consumer" in active_roadmap_index
-    assert "l1 authored symbols/signatures, and l2 recovery safe static completion are complete" in (
+    assert "owner reordered l5 authored reference navigation are complete" in (
         active_roadmap_index
     )
-    assert "owner reordered l5 has an accepted design" in (
+    assert "l3 remains queued on its separate mr 4 or equivalent" in (
         active_roadmap_index
     )
-    assert "l3 remains queued behind that plan gate" in active_roadmap_index
 
 
 def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> None:
@@ -3040,7 +3040,7 @@ def test_final_yaml_holdout_is_retired_and_authored_workflow_estate_is_empty() -
     ) == []
 
 
-def test_language_server_l2_is_complete_and_owner_reordered_l5_plan_gate_queues_l3() -> None:
+def test_language_server_l2_and_l5_are_complete_while_l3_remains_gated() -> None:
     roadmap = (
         REPO_ROOT
         / "docs"
@@ -3080,7 +3080,8 @@ def test_language_server_l2_is_complete_and_owner_reordered_l5_plan_gate_queues_
     )
     normalized_l3_row = _normalized_routing_text(l3_row)
     assert "queued" in normalized_l3_row
-    assert "owner reordered l5 plan gate" in normalized_l3_row
+    assert "queued after completed l5" in normalized_l3_row
+    assert "reentrancy remains an unsatisfied entry gate" in normalized_l3_row
     assert "design" in normalized_l3_row
     assert "compile path reentrancy" in normalized_l3_row
     l2_plan = (
@@ -3124,7 +3125,7 @@ def test_language_server_l2_is_complete_and_owner_reordered_l5_plan_gate_queues_
         )
 
 
-def test_language_server_l5_routes_only_admitted_shapes_to_plan_review() -> None:
+def test_language_server_l5_routes_shipped_admitted_shapes_and_closes_stage() -> None:
     roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH
     design_path = (
         REPO_ROOT
@@ -3143,29 +3144,26 @@ def test_language_server_l5_routes_only_admitted_shapes_to_plan_review() -> None
     assert "prompt heads" in normalized_l5_row
     assert "final unexpanded direct retained proc ref" in normalized_l5_row
     assert "non generated, non specialized authored owners" in normalized_l5_row
-    assert "macro heads defer shape wide" in normalized_l5_row
-    assert "plan gate" in normalized_l5_row
-    assert "implementation not authorized" in normalized_l5_row
+    assert "every macro head remain null" in normalized_l5_row
+    assert "complete" in normalized_l5_row
+    assert "041754e6" in normalized_l5_row
     assert Path(LANGUAGE_SERVER_L5_PLAN_PATH).name in l5_row
 
     design = design_path.read_text(encoding="utf-8")
     normalized_design_status = _normalized_routing_text(
         "\n".join(design.splitlines()[:20])
     )
-    assert "status: accepted for implementation planning" in (
-        normalized_design_status
-    )
-    assert "b8a41172" in normalized_design_status
-    assert "macro heads defer shape wide" in normalized_design_status
+    assert "status: implemented and incorporated" in normalized_design_status
+    assert "95e05c01" in normalized_design_status
+    assert "041754e6" in normalized_design_status
+    assert "macro heads still defer shape wide" in normalized_design_status
     assert Path(LANGUAGE_SERVER_L5_PLAN_PATH).name in design
 
     design_router_row = _markdown_table_row(
         design_router_path,
         "workflow_lisp_lsp_authored_reference_navigation.md",
     )
-    assert "| Accepted design (implementation-plan review pending) |" in (
-        design_router_row
-    )
+    assert "| Implemented and incorporated |" in design_router_row
     assert Path(LANGUAGE_SERVER_L5_PLAN_PATH).name in design_router_row
 
     capability_row = _markdown_table_row(
@@ -3173,9 +3171,10 @@ def test_language_server_l5_routes_only_admitted_shapes_to_plan_review() -> None
         "Workflow Lisp language server L5 authored reference navigation",
     )
     normalized_capability_row = _normalized_routing_text(capability_row)
-    assert "| Designed |" in capability_row
-    assert "accepted extension is not implemented" in normalized_capability_row
-    assert "macro heads defer shape wide" in normalized_capability_row
+    assert "| Implemented |" in capability_row
+    assert "optional read only authored to authored" in normalized_capability_row
+    assert "macro heads remain null shape wide" in normalized_capability_row
+    assert "compiler catalog joins ship" in normalized_capability_row
     assert Path(LANGUAGE_SERVER_L5_PLAN_PATH).name in capability_row
 
     plan = plan_path.read_text(encoding="utf-8")
@@ -3183,9 +3182,13 @@ def test_language_server_l5_routes_only_admitted_shapes_to_plan_review() -> None
     assert "# Workflow Lisp L5 Authored Reference Navigation Implementation Plan" in (
         plan
     )
-    assert "planning status: proposed" in normalized_plan
+    assert "pre review task 6 execution record" in normalized_plan
     assert "l5_plan_spec_approved" in normalized_plan
     assert "l5_plan_quality_approved" in normalized_plan
+    assert "95e05c01" in normalized_plan
+    assert "041754e6" in normalized_plan
+    assert "post candidate broad comparison" in normalized_plan
+    assert "pending" in normalized_plan
     assert "no compiler/frontend or non navigation production file changed" in (
         normalized_plan
     )
@@ -3197,6 +3200,10 @@ def test_language_server_l5_routes_only_admitted_shapes_to_plan_review() -> None
     )
     assert Path(LANGUAGE_SERVER_L5_PLAN_PATH).name in index
     normalized_index = _normalized_routing_text(index)
-    assert "implementation awaits l5_plan_spec_approved then l5_plan_quality_approved" in (
-        normalized_index
-    )
+    assert "shipped execution and closure record" in normalized_index
+    assert "l5 completion does not satisfy l3" in normalized_index
+
+    l3_row = _markdown_table_row(roadmap_path, "| L3 |")
+    normalized_l3_row = _normalized_routing_text(l3_row)
+    assert "queued after completed l5" in normalized_l3_row
+    assert "reentrancy remains an unsatisfied entry gate" in normalized_l3_row

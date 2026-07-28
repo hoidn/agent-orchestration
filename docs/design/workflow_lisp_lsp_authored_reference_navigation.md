@@ -1,14 +1,16 @@
 # Workflow Lisp LSP Authored Reference Navigation
 
-- **Status:** accepted for implementation planning after ordered independent
-  specification then quality review at commit `b8a41172`; the 2026-07-27
-  read-only feasibility gate admits prompt heads and only direct-retained,
-  unexpanded `proc-ref` occurrences in authored non-generated,
-  non-specialized owners. Macro heads defer shape-wide. The proposed
+- **Status:** implemented and incorporated into
+  `docs/design/workflow_lisp_language_server.md` after the ordered design and
+  plan reviews. The implementation landed collision-safe rows at `95e05c01`,
+  prompt heads at `042c0bc3`, the direct-retained proc-ref shape at
+  `870f7db2`, visibility/preflight coverage at `7233138a`, and repository-real
+  stdio coverage at `041754e6`; the
   [implementation plan](../plans/2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md)
-  still requires ordered plan review before execution. Shipped content folds
-  into `docs/design/workflow_lisp_language_server.md` as the owning amendment,
-  per the L-series convention.
+  owns the complete execution and closure record. Macro heads still defer
+  shape-wide, and erased, macro-consumed, generated-owner, and
+  specialized-owner proc-refs remain retention gaps rather than partial
+  navigation.
 - **Kind:** L-series language-server amendment — definition-index extension
   over already-retained compiler structure
 - **Owner:** `orchestrator/lsp` navigation index; read-only consumer of
@@ -75,23 +77,23 @@ distinct. `reference_span` is the exact half-open authored token span.
 `canonical_target` and `definition_span` come from compiler semantic
 authority, never from the spelling of that token.
 
-For prompt and admitted macro heads, the navigation projection:
+For prompt application heads, the navigation projection:
 
-1. consumes the retained typed prompt application or compiler expansion
-   assertion, including its source and exact whole-form/call span;
+1. consumes the retained typed prompt application, including its source and
+   exact whole-application span;
 2. matches that assertion to exactly one original-syntax list of the expected
    semantic kind at the identical source and whole span;
 3. takes only that list's exact authored head-token span;
-4. requires one compiler-owned canonical target of the expected target kind
-   and one authored definition span; and
+4. requires one prompt-catalog canonical target and one authored `defprompt`
+   span; and
 5. emits the row only after all required facts agree.
 
-Repeated byte-for-byte-identical compiler assertions may collapse to one
-assertion. Conflicting assertions at one source/span are ambiguous and fail
-the projection. A missing original-syntax match, multiple matches, wrong
-syntax or target kind, absent canonical target, absent/invalid definition
-span, or generated target fails navigation-index construction; it never
-produces a partial row or a whole-form fallback.
+Repeated byte-for-byte-identical typed prompt assertions may collapse to one
+assertion. Conflicting prompt assertions at one source/span are ambiguous and
+fail the projection. A missing original-syntax match, multiple matches, wrong
+syntax kind, absent or mismatched canonical prompt target, absent/invalid
+`defprompt` span, or generated target fails navigation-index construction; it
+never produces a partial row or a whole-form fallback.
 
 The conditional direct-retained `proc-ref` projection follows the same rule,
 except that its typed `ProcRefLiteralExpr` supplies the whole form and canonical
@@ -211,11 +213,11 @@ a best-effort subset.
 
 ## Sequencing
 
-Single L-series stage (L5 in the language-quality roadmap). Entry needs
-only landed structure: Q1 catalog and L1 index infrastructure. It has no
-dependency on L3 or L4. Ordered design reviews and read-only feasibility gates
-are complete. The proposed L5 implementation plan contains only prompt heads
-and the narrowly admitted direct-retained proc-ref shape; macro heads remain
-deferred. Implementation selection requires ordered plan specification then
-quality approval, followed by TDD, real stdio E2E, durable baseline
-incorporation, and ordered final reviews.
+Single L-series stage (L5 in the language-quality roadmap). It depended only
+on the landed Q1 catalog and L1 index infrastructure, not on L3 or L4. Ordered
+design and plan reviews, read-only feasibility gates, TDD, real stdio E2E, and
+durable baseline incorporation are complete under the implementation plan.
+L5 ships prompt heads and the narrowly admitted direct-retained proc-ref shape;
+macro heads and the unretained proc-ref shapes above remain deferred. L3 is
+still gated on MR-4 or an equivalent accepted compile-path reentrancy fixture;
+L5 completion does not satisfy or bypass that entry condition.

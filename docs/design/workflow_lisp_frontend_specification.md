@@ -4463,13 +4463,15 @@ Compiler outputs should support:
   effects, report parsing, pointer-as-authority, manual state paths, unproved
   variant references, and command adapters without typed contracts.
 
-The implemented Workflow Lisp language-server v1 plus L0 and L1 consumes those
-shared surfaces for:
+The implemented Workflow Lisp language-server v1 plus L0, L1, L2, and L5
+consumes those shared surfaces for:
 
 - compiler diagnostics on clean disk-equal open/save through one serialized
   full Stage-3 compile;
 - go-to-definition for exact compiler-provenanced direct procedure/workflow
-  call heads;
+  call heads, authored prompt-application heads, and only final unexpanded
+  direct-retained `proc-ref` name tokens in authored non-generated,
+  non-specialized owners;
 - document symbols for authored modules, procedures, workflows, enums, paths,
   records, unions, schemas, resources, and transitions; and
 - namespace-preserving procedure/workflow completion with compiler-rendered
@@ -4482,6 +4484,17 @@ drift, returns null navigation for dirty/pending/failed/invalidated/stale
 documents, and writes no workspace files. It uses the fixed production compile
 policy and does not infer a nominal type taxonomy. See
 `docs/workflow_lisp_language_server_setup.md`.
+
+L5 is a read-only consumer of already-retained original syntax, typed prompt
+or proc-ref occurrences, and compiler prompt/procedure catalogs. Each admitted
+edge joins one exact authored token to one canonical compiler target and one
+authored definition span, and every edge uses the existing current-success
+definition preflight. A missing, duplicate, kind-, identity-, or
+span-mismatched join fails the whole navigation index. Macro heads remain null
+shape-wide, as do macro-consumed, erased, expanded, generated-owner, and
+specialized-owner proc-refs. Existing direct-call behavior remains unchanged,
+and WCC-reconstructed/generated calls remain excluded. These navigation rules
+do not define a second syntax, resolution, catalog, or compiler contract.
 
 Still-deferred tooling may include:
 
