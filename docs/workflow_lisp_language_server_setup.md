@@ -40,7 +40,7 @@ The optional `initializationOptions` object accepts only these fields:
 | Field | Value | Purpose |
 | --- | --- | --- |
 | `source_roots` | ordered list of paths contained by the workspace | The same explicit caller roots that an equivalent CLI compile would receive. The workspace root is not added implicitly. |
-| `entry_workflow` | non-empty string or `null` | Select an exported workflow; leave `null` for a library-only Stage-3 compile. |
+| `entry_workflow` | non-empty string or `null` | Current shipped scalar selection. Select an exported workflow; leave `null` for a library-only Stage-3 compile. |
 | `provider_externs_path` | path or `null` | Production provider-extern bundle. |
 | `prompt_externs_path` | path or `null` | Production prompt-extern bundle. |
 | `command_boundaries_path` | path or `null` | Production command-boundary bundle. |
@@ -66,6 +66,31 @@ the `initializationOptions` object. Do not add lint, lowering, validation, or
 completion-type options. V1 fixes validation to the production shared-callable
 policy and lint/lowering to the unchanged production defaults; unsupported
 options fail initialization.
+
+### L3 target initialization (accepted, not yet shipped)
+
+The L3 target replaces the scalar with:
+
+```json
+{
+  "initializationOptions": {
+    "source_roots": ["workflows"],
+    "entry_workflows": {
+      "workflows/apps/review.orc": "review"
+    }
+  }
+}
+```
+
+`entry_workflows` is immutable for the server lifetime. Keys that escape the
+workspace, malformed keys or values, and canonical duplicate paths fail
+initialization. An unlisted source request carries no requested workflow; the
+production compiler still applies its unchanged zero/one/many-export selection
+rules. The server never infers a request from the active editor. Rename/move
+or selection changes require a server restart with updated initialization
+options. The former process-wide
+`entry_workflow` scalar becomes unsupported when L3 ships. Until then, use the
+current scalar schema in the table above.
 
 ## Editing Model
 
@@ -146,10 +171,11 @@ The implemented v1/L0/L1/L2/L5 surface intentionally has no unsaved-buffer
 analysis. It has no multi-diagnostic recovery,
 hover/type sidecar, compile cache or incrementality, rename, formatting, code
 actions, semantic tokens, multi-root workspace support, or non-default compile
-policy. These are not partial server features. L3 per-source entry selection
-remains gated on MR-4 or an equivalent accepted compile-path reentrancy fixture;
-the frontend prerequisites P1–P5 and any other successor work remain separately
-designed and scheduled.
+policy. These are not partial server features. MR-4 has closed L3's
+compile-path reentrancy prerequisite; the L3 per-source entry-selection design
+is accepted, implementation planning is next, and the target is not yet
+shipped. The frontend prerequisites P1–P5 and any other successor work remain
+separately designed and scheduled.
 
 For the owning contract and rationale, see
 [Workflow Lisp Language Server](design/workflow_lisp_language_server.md) and

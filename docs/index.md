@@ -157,14 +157,14 @@ document owns the answer.
 **Use this when:** Auditing the completed numbered stages or the provenance of the post-Stage-8 handoff. Do not use this historical roadmap or the parked evolution proposal to select current work.
 
 ### [Workflow Lisp Language Quality And Domain Semantics Roadmap](plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md)
-**Description:** Active post-Stage-8 selector with two bounded series: Q0–Q3 are implemented and Q3 closes under its reviewed plan; Q4 still needs its concrete consumer before design, while Q5 retains its separate gates. In the parallel L-series, L0 reliability/actionability, L1 authored symbols/signatures, L2 recovery-safe static completion, and owner-reordered L5 authored reference navigation are complete; L3 remains queued on its separate MR-4-or-equivalent compile-path-reentrancy gate and L4 remains sequenced behind L3.
+**Description:** Active post-Stage-8 selector with two bounded series: Q0–Q3 are implemented and Q3 closes under its reviewed plan; Q4 still needs its concrete consumer, while Q5 retains its separate gates. In the parallel L-series, L0 reliability/actionability, L1 authored symbols/signatures, L2 recovery-safe static completion, and owner-reordered L5 authored reference navigation are complete; MR-4 closed L3's compile-path-reentrancy prerequisite and the immutable per-source-selection design is accepted, so L3 implementation planning is next and L4 remains sequenced behind it.
 **Keywords:** workflow-lisp, active-roadmap, value, prompt-calculus, prompt-identity, judgments, lsp, diagnostics, navigation, editor-tooling, principle-29
-**Use this when:** Selecting or sequencing current post-Stage-8 work. Q3's implemented target-2.22 surface and closure record are linked here; Q4 remains gated on a bound concrete consumer rather than on missing Q3 mechanics. In L, L5 completion does not satisfy L3's compile-path-reentrancy condition; do not start L3 until MR-4 or an equivalent accepted fixture proves it. Do not select E0, the parked evolution roadmap, shelved parsimony candidates, or P1–P5 from this route.
+**Use this when:** Selecting or sequencing current post-Stage-8 work. Q4 remains gated on a bound concrete consumer. In L, L5 completion does not satisfy L3 by itself; completed MR-4 supplies the missing reentrancy evidence, and the accepted language-server L3 amendment governs implementation planning. L4 waits for L3. Do not select E0, the parked evolution roadmap, shelved parsimony candidates, or P1–P5 from this route.
 
 ### [Workflow Lisp Compiler Session State Implementation Plan](plans/2026-07-27-workflow-lisp-compiler-session-state-implementation-plan.md)
 **Description:** Reviewed MR-4 component plan for replacing mutable compiler-phase globals with one explicit per-compile session and proving direct-module, linked LEGACY/WCC_M4, and real-process LSP reentrancy.
 **Keywords:** workflow-lisp, compiler, session-state, reentrancy, lsp, mr-4
-**Use this when:** Executing or reviewing the MR-4 prerequisite for L3. The plan does not select L3 or change per-source entry-selection policy.
+**Use this when:** Auditing the completed MR-4 prerequisite for L3. L3 selection and per-source entry policy live in the active roadmap and language-server design.
 
 ### [Workflow Lisp Evolution Follow-On Roadmap](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md)
 **Description:** Parked, non-active E0-E5 historical proposal whose durable program-search boundaries were extracted; none of its tranches is selectable.

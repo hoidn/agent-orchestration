@@ -86,7 +86,7 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | L0 | Reliability and diagnostic actionability | Gate S8 complete; current v1 behavior characterized | no-watcher `didSave` reverse invalidation, intentional structured initialization failures, visible compiler-owned notes/expansion provenance, and a content-keyed pure-projection source cache pass focused state/driver/stdio/diagnostic/cache tests plus one real stdio E2E without changing diagnostic identity | complete — reviewed implementation closes the four bounded corrections and watcher-disabled real-stdio gate |
 | L1 | Authored symbols and callable signatures | L0 complete; closed navigation/completion amendment accepted | authored type/resource/transition symbols and namespace-preserving procedure/workflow signature completion use existing compiler spans/catalogs, exclude generated shapes, and retain fail-closed freshness | complete — implemented, reviewed, and repository-real stdio closure gate passed |
 | L2 | Recovery-safe static completion | L1 complete; two-tier completion design and component plan accepted | dirty/pending/invalidated/failed open entries receive only the process-frozen form registry as an incomplete list; stale callables remain closed and stale/closed/unassociated entries remain empty | complete — implementation through `10e3ccc3`; ordered `L2_FINAL_SPEC_APPROVED` then `L2_FINAL_QUALITY_APPROVED` |
-| L3 | Per-source entry selection | L2 complete; immutable initialization-schema amendment accepted; compile-path reentrancy proven (substrate MR-4 complete, or an equivalent accepted reentrancy fixture) | one canonical workspace process can select an exported workflow for a named application source while compiling library entries with no selection, with exact CLI request parity and restart semantics | queued after completed L5; separate design and ordered review required, and compile-path reentrancy remains an unsatisfied entry gate |
+| L3 | Per-source entry selection | L2 complete; immutable initialization-schema amendment accepted; compile-path reentrancy proven by completed substrate MR-4 | one canonical workspace process can select an exported workflow for a named application source while compiling library entries with no selection, with exact CLI request parity and restart semantics | accepted target after ordered `L3_DESIGN_SPEC_APPROVED` then `L3_DESIGN_QUALITY_APPROVED`; implementation plan is next |
 | L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and a diagnostic-currentness policy are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | blocked by L3 |
 | L5 | Authored reference navigation | accepted design at `b8a41172`; Q1 catalog and L1 index landed; read-only feasibility gates admitted prompt heads and only final unexpanded direct-retained `proc-ref` occurrences in non-generated, non-specialized authored owners; macro heads defer shape-wide; no L3/L4 dependency — selected under the owner-reordering rule | exact authored prompt-head and admitted proc-ref-name definition hits; macro-consumed, erased, expanded, generated-owner, specialized-owner proc-refs and every macro head remain null; existing direct procedure/`(call ...)` hits regression-locked; WCC/generated calls excluded; every hit uses the full common preflight; real stdio resolves the review workflow prompt head while its macro/proc-ref tokens remain null and its direct call stays exact | complete — implementation through `95e05c01`, `042c0bc3`, `870f7db2`, `7233138a`, and `041754e6`; durable incorporation and closure under the [reviewed implementation plan](2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md) |
 
@@ -110,9 +110,11 @@ L0, L1, L2, and L5 are complete. L2 implementation landed through `70b83f32`,
 `L2_FINAL_SPEC_APPROVED` then `L2_FINAL_QUALITY_APPROVED`. L5 completed under
 the owner-reordering rule: its accepted design, reviewed implementation plan,
 and landed implementation ship only prompt heads plus the narrow
-direct-retained proc-ref shape. L3 remains queued with its compile-path
-reentrancy precondition unsatisfied until MR-4 or an equivalent accepted
-fixture proves it; L5 completion does not bypass that gate.
+direct-retained proc-ref shape. L3 is selected after MR-4 closed its
+compile-path-reentrancy prerequisite at `836721ce`. Its immutable per-source
+initialization target passed ordered `L3_DESIGN_SPEC_APPROVED` then
+`L3_DESIGN_QUALITY_APPROVED`; component planning is next. L5 completion did
+not bypass that gate.
 The L-series is an owner-selected
 priority queue rather than a
 claim that every adjacent stage has a compiler dependency on its predecessor;
@@ -499,12 +501,11 @@ its selected workflow; the library request carries no selection; both compile
 through the unchanged production Stage-3 entry point. This stage does not add
 multi-root workspace support or infer an entry selection from editor focus.
 
-Entry additionally requires proven compile-path reentrancy: the substrate
-track's MR-4 (compiler session state) complete, or an equivalent accepted
-fixture demonstrating sequential multi-entry compiles in one process with no
-module-global state bleed. L3's minimum fixture is exactly the workload that
-hazard threatens, so the precondition is structural, not scheduling
-preference.
+Entry additionally requires proven compile-path reentrancy. The substrate
+track's MR-4 compiler-session-state plan closed at `836721ce`, including
+sequential multi-entry and real-LSP failure-recovery proofs with no
+module-global state bleed. The structural prerequisite is therefore
+satisfied; L3 must consume it without reopening that substrate.
 
 ## Stage L4: Diagnostic Lifecycle And Compile Progress
 
@@ -564,9 +565,9 @@ source/configuration-stale, clean-idle, malformed, index-failed, unsupported,
 ambiguous, generated, and outside-token requests remain silent null.
 
 L5 depended only on the Q1 catalog and L1 index, had no L3/L4 dependency, and
-completed under the L-series owner-reordering rule while L3 awaits substrate
-MR-4. Ordered design/plan reviews, feasibility gates, TDD, the real-stdio gate,
-and durable incorporation are recorded in the
+completed under the L-series owner-reordering rule before MR-4 closed. MR-4
+now satisfies L3's substrate gate. Ordered design/plan reviews, feasibility
+gates, TDD, the real-stdio gate, and durable incorporation are recorded in the
 [reviewed implementation plan](2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md).
 The completed surface remains limited to the admitted shapes.
 

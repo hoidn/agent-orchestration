@@ -1303,9 +1303,10 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "| L3 |",
     )
     normalized_l3_row = _normalized_routing_text(l3_row)
-    assert "queued" in normalized_l3_row
-    assert "queued after completed l5" in normalized_l3_row
-    assert "reentrancy remains an unsatisfied entry gate" in normalized_l3_row
+    assert "accepted target after ordered" in normalized_l3_row
+    assert "l3_design_spec_approved" in normalized_l3_row
+    assert "l3_design_quality_approved" in normalized_l3_row
+    assert "implementation plan is next" in normalized_l3_row
     assert "design" in normalized_l3_row
     assert "compile path reentrancy" in normalized_l3_row
     assert "blocked by l2" not in normalized_l3_row
@@ -1343,11 +1344,22 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "l2_final_spec_approved" in normalized_language_server_router_row
     assert "l2_final_quality_approved" in normalized_language_server_router_row
+    l3_capability_row = _markdown_table_row(
+        capability_matrix_path,
+        "Workflow Lisp language server L3 per-source entry selection",
+    )
+    normalized_l3_capability_row = _normalized_routing_text(l3_capability_row)
+    assert "| Designed |" in l3_capability_row
+    assert "entry_workflows" in l3_capability_row
+    assert "l3_design_spec_approved" in normalized_l3_capability_row
+    assert "l3_design_quality_approved" in normalized_l3_capability_row
     assert "owner reordered l5 authored reference navigation are complete" in (
         normalized_index
     )
     assert "l5 completion does not satisfy l3" in normalized_index
-    assert "mr 4 or an equivalent accepted fixture" in normalized_index
+    assert "completed mr 4 supplies the missing reentrancy evidence" in (
+        normalized_index
+    )
     assert "p1 diagnostic accumulation" in normalized_successor
     assert "p5 compile caching/incrementality" in normalized_successor
     assert "runtime debugging surface" in normalized_successor
@@ -1485,7 +1497,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "l5 completion does not satisfy l3" in (
         normalized_successor_index
     )
-    assert "mr 4 or an equivalent accepted fixture" in (
+    assert "completed mr 4 supplies the missing reentrancy evidence" in (
         normalized_successor_index
     )
     assert "### [Workflow Lisp Language Server L2 Implementation Plan]" in index
@@ -1716,7 +1728,10 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     assert "owner reordered l5 authored reference navigation are complete" in (
         active_roadmap_index
     )
-    assert "l3 remains queued on its separate mr 4 or equivalent" in (
+    assert "mr 4 closed l3's compile path reentrancy prerequisite" in (
+        active_roadmap_index
+    )
+    assert "immutable per source selection design is accepted" in (
         active_roadmap_index
     )
 
@@ -3046,7 +3061,7 @@ def test_final_yaml_holdout_is_retired_and_authored_workflow_estate_is_empty() -
     ) == []
 
 
-def test_language_server_l2_and_l5_are_complete_while_l3_remains_gated() -> None:
+def test_language_server_l2_l5_and_mr4_select_l3_implementation_planning() -> None:
     roadmap = (
         REPO_ROOT
         / "docs"
@@ -3085,9 +3100,10 @@ def test_language_server_l2_and_l5_are_complete_while_l3_remains_gated() -> None
         if line.startswith("| L3 |")
     )
     normalized_l3_row = _normalized_routing_text(l3_row)
-    assert "queued" in normalized_l3_row
-    assert "queued after completed l5" in normalized_l3_row
-    assert "reentrancy remains an unsatisfied entry gate" in normalized_l3_row
+    assert "accepted target after ordered" in normalized_l3_row
+    assert "l3_design_spec_approved" in normalized_l3_row
+    assert "l3_design_quality_approved" in normalized_l3_row
+    assert "implementation plan is next" in normalized_l3_row
     assert "design" in normalized_l3_row
     assert "compile path reentrancy" in normalized_l3_row
     l2_plan = (
@@ -3116,6 +3132,25 @@ def test_language_server_l2_and_l5_are_complete_while_l3_remains_gated() -> None
         assert "implemented" in normalized, label
         assert "definition" in normalized, label
         assert "document symbol" in normalized, label
+
+    stale_l3_routing = (
+        "l3 awaits substrate mr-4",
+        "l3 per-source entry selection remains gated on mr-4",
+        "global pipeline state forbids concurrency",
+        "compiles are strictly serialized within the server process "
+        "(pipeline global state)",
+    )
+    for label, surface in {
+        "language-server design": design,
+        "active roadmap": roadmap,
+        "setup guide": setup,
+    }.items():
+        normalized = _normalized_routing_text(surface)
+        for stale in stale_l3_routing:
+            assert _normalized_routing_text(stale) not in normalized, (
+                label,
+                stale,
+            )
 
     stale_routing = (
         "l2's design amendment/review gate is next",
@@ -3211,8 +3246,10 @@ def test_language_server_l5_routes_shipped_admitted_shapes_and_closes_stage() ->
 
     l3_row = _markdown_table_row(roadmap_path, "| L3 |")
     normalized_l3_row = _normalized_routing_text(l3_row)
-    assert "queued after completed l5" in normalized_l3_row
-    assert "reentrancy remains an unsatisfied entry gate" in normalized_l3_row
+    assert "accepted target after ordered" in normalized_l3_row
+    assert "l3_design_spec_approved" in normalized_l3_row
+    assert "l3_design_quality_approved" in normalized_l3_row
+    assert "implementation plan is next" in normalized_l3_row
 
 
 def test_phased_contract_delivery_routes_reviewed_plan_to_prerequisite_gates() -> None:

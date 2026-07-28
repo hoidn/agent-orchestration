@@ -1,6 +1,6 @@
 # Workflow Lisp Language Server
 
-- **Status:** implemented
+- **Status:** implemented through L2/L5; L3 target accepted, implementation pending
 - **Kind:** feature / developer tooling architecture decision
 - **Owner:** Workflow Lisp frontend (tooling consumer)
 - **Reviewers:** independent specification rereview
@@ -9,9 +9,11 @@
   review `L1_DESIGN_SPEC_APPROVED`, then independent quality review
   `L1_DESIGN_QUALITY_APPROVED` (2026-07-26); L2 final specification review
   `L2_FINAL_SPEC_APPROVED`, then independent final quality review
-  `L2_FINAL_QUALITY_APPROVED` (2026-07-27)
+  `L2_FINAL_QUALITY_APPROVED` (2026-07-27); L3 independent specification review
+  `L3_DESIGN_SPEC_APPROVED`, then independent quality review
+  `L3_DESIGN_QUALITY_APPROVED` (2026-07-28)
 - **Created:** 2026-07-13
-- **Last material update:** 2026-07-27
+- **Last material update:** 2026-07-28
 - **Review history:** earlier design and quality changes-required rounds,
   including the F2 source-root, payload-based read-only build, and optional
   authored-call-provenance corrections, are incorporated. The latest quality
@@ -23,7 +25,9 @@
   while retaining raw-byte digest/editor identity. Ordered final rereviews
   approved the exact amended design:
   `STAGE8_DESIGN_SPEC_APPROVED`, then
-  `STAGE8_DESIGN_QUALITY_APPROVED`.
+  `STAGE8_DESIGN_QUALITY_APPROVED`. The L3 immutable per-source-selection
+  amendment then passed ordered `L3_DESIGN_SPEC_APPROVED` and
+  `L3_DESIGN_QUALITY_APPROVED`.
 - **Related docs / plans:**
   - `docs/design/workflow_lisp_frontend_specification.md` §76.1 "Editor And
     Lint Tooling Compatibility" (parent authority for this design)
@@ -54,6 +58,11 @@
   reference navigation is implemented through `95e05c01`, `042c0bc3`,
   `870f7db2`, `7233138a`, and `041754e6` under
   `docs/plans/2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md`.
+  L3 per-source entry selection is the next target after compiler-session
+  reentrancy closed under
+  `docs/plans/2026-07-27-workflow-lisp-compiler-session-state-implementation-plan.md`;
+  the target below is not implemented until its separate reviewed component
+  plan closes.
 
 ## Summary
 
@@ -85,6 +94,135 @@ unexpanded direct-retained `proc-ref` name tokens in authored non-generated,
 non-specialized owners.
 Capabilities P1-P5 (hover types, multi-diagnostic error recovery,
 as-you-type checking, and incrementality) remain wholly deferred.
+
+## L3 Target Amendment: Immutable Per-Source Entry Selection
+
+L3 replaces the process-wide `initializationOptions.entry_workflow` scalar
+with one immutable `initializationOptions.entry_workflows` object:
+
+```json
+{
+  "entry_workflows": {
+    "apps/review.orc": "review",
+    "apps/publish.orc": "publish"
+  }
+}
+```
+
+Each object key is a workspace-relative or absolute source path. Each value is
+a non-empty exported-workflow name passed unchanged to the production
+`FrontendBuildRequest.entry_workflow` field. Relative keys resolve from the
+one canonical workspace root. Every key must canonicalize to a `.orc` path
+contained by that root. Initialization rejects a non-object value, an
+empty key, a non-string or empty mapped value, an uncontained path, or two
+distinct spellings of the same canonical path. File existence is checked at
+the ordinary open/save compile boundary, not during option normalization.
+
+Normalization does not trim, case-fold, Unicode-normalize, parse, or check
+that a configured export exists. Shape/suffix failures use
+`lsp_initialization_option_invalid`; containment and canonical-alias
+collisions use `lsp_entry_workflow_path_uncontained` and
+`lsp_entry_workflow_path_duplicate`, respectively. The removed scalar uses
+`lsp_initialization_option_unsupported`.
+
+Every L3 initialization refusal is returned as `InvalidParams` with this
+closed `data` object; message prose is not an API:
+
+```json
+{
+  "schema": "workflow_lisp_lsp_initialization_error.v1",
+  "code": "lsp_initialization_option_invalid",
+  "field": "entry_workflows",
+  "rule": "entry_value_nonempty_string_required",
+  "rejected_value": null,
+  "entry_key": "apps/review.orc"
+}
+```
+
+`schema`, `code`, `field`, `rule`, and `rejected_value` are always present.
+`LspInitializationError` owns this data and the server forwards it unchanged
+into `JsonRpcInvalidParams.data`. The closed variants are:
+
+| Rule | Code | Field | `rejected_value` source | Conditional fields |
+| --- | --- | --- | --- | --- |
+| `unsupported_field` | `lsp_initialization_option_unsupported` | `entry_workflow` | the old scalar's exact JSON value | none |
+| `mapping_required` | `lsp_initialization_option_invalid` | `entry_workflows` | the whole supplied field value | none |
+| `key_nonempty_string_required` | `lsp_initialization_option_invalid` | `entry_workflows` | the empty raw key | none |
+| `entry_value_nonempty_string_required` | `lsp_initialization_option_invalid` | `entry_workflows` | the raw mapped value | `entry_key` |
+| `orc_suffix_required` | `lsp_initialization_option_invalid` | `entry_workflows` | the raw key | `entry_key`, `canonical_path` |
+| `workspace_containment_required` | `lsp_entry_workflow_path_uncontained` | `entry_workflows` | the raw key | `entry_key`, `canonical_path` |
+| `canonical_path_unique` | `lsp_entry_workflow_path_duplicate` | `entry_workflows` | the lexically second raw spelling | `entry_key`, `canonical_path`, `conflicting_entry_key` (the lexically first spelling) |
+
+The LSP and `initialize_lsp_state` contract for this field is JSON-compatible
+input only: object keys are strings and every `rejected_value` above is
+therefore an exact JSON value. A non-JSON programmatic input is outside this
+embedding contract and raises `TypeError` before L3 option normalization; the
+design does not serialize arbitrary Python objects or unstable `repr` output.
+
+Validation order is deterministic. Generic unsupported-option validation runs
+first in lexical field-name order; if `entry_workflow` is the selected
+unsupported field, the first row above applies. Then `entry_workflows` is
+checked for object shape. Its entries are processed in lexical raw-key order,
+with rules applied in table order from key shape through containment. After
+all individual entries pass, canonical paths are grouped in canonical-path
+order; within a duplicate group, lexical raw-key order selects the first
+spelling as `conflicting_entry_key` and the second as the rejected
+`entry_key`. The first failing rule terminates initialization.
+
+Acceptance tests bind every code/rule/conditional-field variant at the state
+boundary and through real stdio initialization. They assert structured data,
+not message phrasing.
+
+The normalized value is a canonical-path-sorted immutable tuple of
+`(source_path, exported_workflow)` pairs. A compile request performs one exact
+canonical-path lookup. A listed source receives its configured workflow; an
+unlisted source request carries `entry_workflow=None`. That value does not
+disable production selection: the unchanged Stage-3 compiler returns no
+selection for zero exported workflows, auto-selects one exported workflow, or
+reports `entry_workflow_required` for multiple exported workflows.
+There is no default workflow, basename match, directory inheritance,
+source-content inference, or editor-focus inference.
+
+The old scalar is removed from the accepted initialization schema rather than
+retained as a competing default. Supplying `entry_workflow` therefore follows
+the existing unsupported-option failure path. This makes mixed application
+and library operation unambiguous and keeps one source of request policy.
+
+The mapping is process-lifetime initialization state and no notification
+mutates it. Moving or renaming a listed source makes the new canonical path
+unlisted in the running process; changing the intended export has no effect
+until client reinitialization. Neither event invents a mutable configuration
+watcher or by itself latches `configuration_stale`. This intentionally
+preserves exact request reproducibility at the cost of hot configuration and
+focus-driven convenience.
+
+The production CLI remains the parity authority per request. For a listed
+source, the parity CLI uses the same source and explicit
+`--entry-workflow <name>`; for an unlisted source it uses the same source with
+no entry-workflow flag. Both comparisons use the existing normalized F2
+pre-selection request capture and must agree before selection/input binding.
+For the zero-export library case, parity binds that attached capture even
+though the persistent CLI subsequently rejects the non-runnable build; it
+does not claim successful CLI artifact parity. L3 adds no compiler mode,
+selection algorithm, prompt instruction, nominal source type, per-entry extern
+configuration, or second workspace process.
+
+The minimum same-process proof initializes one mapping, opens a multi-export
+application source and a library-only source under the same root, and executes
+their serialized Stage-3 requests in both orders. It proves:
+
+1. the application request alone carries its configured workflow;
+2. the library request carries `None`;
+3. each request exactly matches an independently captured production CLI
+   request with the corresponding presence/absence of the entry flag;
+4. each accepted result and diagnostic sequence matches its isolated-process
+   peer; and
+5. canonical-alias duplicates, malformed mappings, uncontained paths, and the
+   removed scalar fail closed.
+
+MR-4 supplies the accepted compile-path-reentrancy prerequisite for this
+workload. L3 consumes that substrate but does not reopen compiler-session
+state, parallelize the single worker, or add multi-root ownership.
 
 ## Context And Authority
 
@@ -154,10 +292,11 @@ refreshed 2026-07-25):
   validation pipeline stops after the first blocking failure
   (`validation.py`, `run_validation_pipeline`). In the common case one compile
   yields one diagnostic.
-- **Compiles use module-global state.** `compile_stage3_entrypoint` calls
-  `reset_loop_state_metadata()` (`compiler.py:607`; `loop_state.py:82`) to
-  clear module-global carrier metadata per run. Concurrent compiles in one
-  process are unsafe; a server must serialize them.
+- **Compile-phase mutable state is session-scoped.** MR-4 threads one
+  `CompilerSession` through elaboration, typecheck, and lowering and proves
+  sequential multi-entry/recovery reentrancy. The language server retains one
+  serialized worker as its deterministic v1 scheduling contract, not because
+  compile-phase registries require a module-global reset.
 - **Sub-expression types are not retained.** Typecheck persists `typed_body`
   roots on definitions but discards intermediate `TypedExpr` results during
   dispatch; there is no span→type table to power hover.
@@ -276,7 +415,7 @@ LSP messages.
 
 - **Chosen approach:** pure-consumer server (per §76.1); clean-open/save-driven
   full Stage-3 compile model reading from disk; single serialized compile
-  worker (global pipeline state forbids concurrency); pygls as the LSP
+  worker as the deterministic v1 scheduling contract; pygls as the LSP
   transport library, isolated under a new `lsp` optional-dependency extra
   (the project already uses the extras pattern for `dev`); v1 capability set
   = diagnostics plus the closed navigation matrix below; reverse-dependency
@@ -379,11 +518,12 @@ LSP messages.
   other external path. Its presence only in production effective roots
   preserves exact CLI parity and never changes the caller `source_roots`
   tuple.
-- `initializationOptions` may additionally supply a selected entry workflow
-  (optional/null for a library-only source) and paths for provider externs,
-  prompt externs, command boundaries, and imported workflow bundles. The
-  server passes them to the shared in-memory core, which resolves paths and
-  invokes the production loaders before compilation.
+- `initializationOptions` may additionally supply the immutable
+  `entry_workflows` source-to-export object defined by the L3 amendment and
+  paths for provider externs, prompt externs, command boundaries, and imported
+  workflow bundles. The server resolves exactly one selection by canonical
+  compile-entry path and passes it to the shared in-memory core, which resolves
+  context paths and invokes the production loaders before compilation.
 - V1 `initializationOptions` **must not expose** `lint_profile` or
   `lowering_route`. The server fixes both to the exact production defaults
   used by unchanged `run --dry-run`, then records their normalized values in
@@ -427,15 +567,17 @@ LSP messages.
 - Requests are debounced and coalesced per compile-entry URI (latest
   generation wins). Here "entry" means the `source_path` submitted to
   `compile_stage3_entrypoint`, not necessarily a workflow definition; a
-  library-only source is an entry with `entry_workflow=null`. A **single
-  worker** executes every compile strictly serially because the pipeline
-  resets module-global state per run.
+  source with no configured selection is an entry with
+  `entry_workflow=null`. A **single worker** executes every compile strictly
+  serially. Compiler state is session-scoped under MR-4; serialization remains
+  the v1 scheduling contract rather than a state-safety workaround.
 - The driver calls the shared read-only in-memory build core defined below.
   Each generation allocates one fresh `SourceReadTrace` collector and passes
   it through the core. That core invokes `compile_stage3_entrypoint` exactly
   once with the collector. The source path must be a valid Stage-3 source;
-  `entry_workflow` is either the selected workflow or null for a library-only
-  module. There is no import or call of `compile_stage1_entrypoint`, no
+  `entry_workflow` is either the workflow mapped to the exact canonical source
+  path or null when that path is absent from the map. There is no import or
+  call of `compile_stage1_entrypoint`, no
   fallback, and no first/second-phase diagnostic publication.
 - `LispFrontendCompileError` is caught and its structured diagnostics
   translated as the failed result of the current generation. Any other
@@ -673,7 +815,8 @@ selection and input binding:
 3. canonical, ordered caller `source_roots`, containing exactly
    `initializationOptions.source_roots` on the LSP side and the one-for-one
    ordered explicit `--source-root` values on the CLI side;
-4. `entry_workflow`, including null for a library-only source;
+4. the per-request `entry_workflow` resolved by exact canonical-path lookup,
+   including null for an unlisted source;
 5. `validation_profile=SHARED_CALLABLE`;
 6. normalized `lint_profile`, fixed to unchanged `run --dry-run`'s production
    default;
@@ -981,10 +1124,10 @@ Invariants that must hold after implementation:
    compiler entry-point result (§76.1). Outside the compiler's metadata-only
    exact-byte read trace, the server owns only coordinate conversion,
    preflight raw-byte hashing, and equality checks.
-2. **Compiles are strictly serialized** within the server process (pipeline
-   global state), and each goes through the shared read-only build core and its
-   single full Stage-3 entry point, which performs the per-run state reset.
-   Stage 1 is never imported or invoked.
+2. **Compiles are strictly serialized** within the server process as the v1
+   scheduling contract. Each receives a fresh MR-4 compiler session and goes
+   through the shared read-only build core and its single full Stage-3 entry
+   point. Stage 1 is never imported or invoked.
 3. **Published diagnostics derive only from structured
    `LispFrontendDiagnostic` objects** — never from parsing rendered log
    strings. Raw start/end spans, not the lossy serialized envelope, drive LSP
