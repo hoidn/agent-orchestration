@@ -1,4 +1,4 @@
-"""Write-only physical encoding for one phased provider-attempt ledger."""
+"""Physical encoding and offline validation for one provider-attempt ledger."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ from .diagnostics import (
     DiagnosticSpan,
     PhasedDeliveryDiagnostic,
     RejectedValue,
+    diagnostic_definition,
 )
 from .models import (
     AdapterReceiptProjection,
@@ -995,6 +996,1608 @@ def encode_event(
             ),
             "payload": projected_payload,
         }
+    )
+
+
+_VALIDATION_SCHEMA_VERSION = "provider_prompt_phase_ledger_validation.v1"
+_HEADER_KEYS = frozenset(
+    {
+        "schema_version",
+        "record_kind",
+        "seq",
+        "attempt",
+        "target_dsl",
+        "delivery",
+        "materialization_attempts",
+        "prompt_attempt_identity_version",
+        "protocol_schema_version",
+        "canonical_composed",
+        "task_slice",
+        "materialization_slice",
+        "created_at",
+    }
+)
+_EVENT_KEYS = frozenset(
+    {
+        "schema_version",
+        "record_kind",
+        "seq",
+        "event",
+        "attempt",
+        "observed_at",
+        "payload",
+    }
+)
+_EMPTY_SUBMIT_KEYS_SHA256 = (
+    "sha256:"
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+)
+_START_TIMEOUT_ERROR = "start_timeout"
+_START_CLEANUP_INCOMPLETE_ERROR = (
+    "interactive_terminal_start_cleanup_incomplete"
+)
+_EVENT_DIAGNOSTIC_REASONS = {
+    "task_start_failed": frozenset(
+        {
+            "adapter_start_failed",
+            "deadline_exhausted_before_start",
+            "deadline_exhausted_during_start",
+        }
+    ),
+    "close_offer_failed": frozenset(
+        {
+            "close_offer_failed",
+            "deadline_exhausted_before_close_offer",
+            "deadline_exhausted_during_close_offer",
+        }
+    ),
+    "ingress_shutdown_failed": frozenset(
+        {
+            "ingress_shutdown_failed",
+            "deadline_exhausted_before_ingress_shutdown",
+            "deadline_exhausted_during_ingress_shutdown",
+        }
+    ),
+    "join_failed": frozenset(
+        {
+            "natural_join_failed",
+            "deadline_exhausted_before_join",
+            "deadline_exhausted_during_join",
+        }
+    ),
+    "publication_failed": frozenset(
+        {
+            "deadline_exhausted_before_evidence_publication",
+            "deadline_exhausted_during_evidence_publication",
+            "deadline_exhausted_before_frozen_restoration",
+            "deadline_exhausted_during_frozen_restoration",
+            "deadline_exhausted_before_frozen_verification",
+            "deadline_exhausted_during_frozen_verification",
+            "deadline_exhausted_before_state_commit",
+            "deadline_exhausted_during_state_commit_preparation",
+            "evidence_publication_failed",
+            "frozen_restoration_failed",
+            "frozen_verification_failed",
+            "workflow_state_commit_failed",
+        }
+    ),
+}
+_INITIAL_OFFER_DIAGNOSTIC_REASONS = frozenset(
+    {
+        "initial_offer_failed",
+        "deadline_exhausted_before_initial_offer",
+        "deadline_exhausted_during_initial_offer",
+    }
+)
+_RETRY_OFFER_DIAGNOSTIC_REASONS = frozenset(
+    {
+        "retry_offer_failed",
+        "deadline_exhausted_before_retry_offer",
+        "deadline_exhausted_during_retry_offer",
+    }
+)
+_VALIDATION_DIAGNOSTIC_SEQUENCES = frozenset(
+    {
+        ("output_validation_failed",),
+        ("structured_result_validation_failed",),
+        (
+            "output_validation_failed",
+            "structured_result_validation_failed",
+        ),
+    }
+)
+
+
+class _DuplicateJsonKey(ValueError):
+    pass
+
+
+class _OversizedJsonInteger:
+    __slots__ = ("text",)
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+def _object_without_duplicate_keys(
+    pairs: list[tuple[str, Any]],
+) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateJsonKey(key)
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-JSON constant: {value}")
+
+
+def _parse_json_integer(value: str) -> int | _OversizedJsonInteger:
+    digits = value[1:] if value.startswith("-") else value
+    if len(digits) <= 19:
+        return int(value)
+    return _OversizedJsonInteger(value)
+
+
+def _canonical_decoded_json(value: object) -> str:
+    if type(value) is _OversizedJsonInteger:
+        return value.text
+    if isinstance(value, Mapping):
+        return (
+            "{"
+            + ",".join(
+                json.dumps(
+                    key,
+                    ensure_ascii=True,
+                    allow_nan=False,
+                )
+                + ":"
+                + _canonical_decoded_json(value[key])
+                for key in sorted(value)
+            )
+            + "}"
+        )
+    if isinstance(value, list):
+        return (
+            "["
+            + ",".join(_canonical_decoded_json(item) for item in value)
+            + "]"
+        )
+    return json.dumps(
+        value,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def _canonical_decoded_jsonl(value: object) -> bytes:
+    return (_canonical_decoded_json(value) + "\n").encode("ascii")
+
+
+def _validation_result(
+    *,
+    status: str,
+    reason: str,
+    row_count: int,
+    last_contiguous_seq: int | None,
+    terminal_event: str | None,
+) -> dict[str, object]:
+    return {
+        "schema_version": _VALIDATION_SCHEMA_VERSION,
+        "status": status,
+        "reason": reason,
+        "row_count": row_count,
+        "last_contiguous_seq": last_contiguous_seq,
+        "terminal_event": terminal_event,
+    }
+
+
+def _decoded_byte_projection(
+    value: object,
+    *,
+    field: str,
+) -> ByteDigestProjection:
+    node = _closed(value, {"bytes", "sha256"}, field=field)
+    return ByteDigestProjection(
+        bytes=_u63(node["bytes"], field=f"{field}.bytes"),
+        sha256=_digest(node["sha256"], field=f"{field}.sha256"),
+    )
+
+
+def _decoded_count_projection(
+    value: object,
+    *,
+    field: str,
+) -> CountDigestProjection:
+    node = _closed(value, {"count", "sha256"}, field=field)
+    return CountDigestProjection(
+        count=_u63(node["count"], field=f"{field}.count"),
+        sha256=_digest(node["sha256"], field=f"{field}.sha256"),
+    )
+
+
+def _decoded_turn(
+    value: object,
+    *,
+    normalize_task_seal: bool,
+) -> tuple[TurnProjection, str | None]:
+    node = _closed(
+        value,
+        {
+            "delivery_ordinal",
+            "phase",
+            "submission_ordinal",
+            "protocol_frame",
+            "canonical_slice",
+            "delivered_turn",
+            "submit_keys",
+        },
+        field="turn",
+    )
+    submit_keys = _decoded_count_projection(
+        node["submit_keys"],
+        field="turn.submit_keys",
+    )
+    recorded_task_seal: str | None = None
+    if node["phase"] == "task" and normalize_task_seal:
+        recorded_task_seal = submit_keys.sha256
+        submit_keys = CountDigestProjection(
+            count=submit_keys.count,
+            sha256=_EMPTY_SUBMIT_KEYS_SHA256,
+        )
+    return (
+        TurnProjection(
+            delivery_ordinal=_u63(
+                node["delivery_ordinal"],
+                field="turn.delivery_ordinal",
+            ),
+            phase=node["phase"],
+            submission_ordinal=node["submission_ordinal"],
+            protocol_frame=_decoded_byte_projection(
+                node["protocol_frame"],
+                field="turn.protocol_frame",
+            ),
+            canonical_slice=_decoded_byte_projection(
+                node["canonical_slice"],
+                field="turn.canonical_slice",
+            ),
+            delivered_turn=_decoded_byte_projection(
+                node["delivered_turn"],
+                field="turn.delivered_turn",
+            ),
+            submit_keys=submit_keys,
+        ),
+        recorded_task_seal,
+    )
+
+
+def _decoded_receipt(value: object) -> AdapterReceiptProjection:
+    node = _closed(
+        value,
+        {"status", "handle_id_sha256"},
+        field="receipt",
+    )
+    return AdapterReceiptProjection(
+        status=node["status"],
+        handle_id_sha256=_digest(
+            node["handle_id_sha256"],
+            field="receipt.handle_id_sha256",
+        ),
+    )
+
+
+def _decoded_span(value: object) -> DiagnosticSpan:
+    node = _closed(
+        value,
+        {"start_line", "start_column", "end_line", "end_column"},
+        field="diagnostic.span",
+    )
+    return DiagnosticSpan(
+        start_line=node["start_line"],
+        start_column=node["start_column"],
+        end_line=node["end_line"],
+        end_column=node["end_column"],
+    )
+
+
+def _decoded_source(value: object) -> DiagnosticSource:
+    node = _closed(
+        value,
+        {"kind", "owner", "path", "span"},
+        field="diagnostic.source",
+    )
+    return DiagnosticSource(
+        kind=node["kind"],
+        owner=node["owner"],
+        path=node["path"],
+        span=None if node["span"] is None else _decoded_span(node["span"]),
+    )
+
+
+def _decoded_diagnostic(value: object) -> PhasedDeliveryDiagnostic:
+    node = _closed(
+        value,
+        {
+            "schema_version",
+            "code",
+            "reason",
+            "rejected_value",
+            "primary_source",
+            "related_sources",
+        },
+        field="diagnostic",
+    )
+    if node["schema_version"] != "provider_phased_delivery_diagnostic.v1":
+        raise ValueError("diagnostic schema is invalid")
+    rejected = _closed(
+        node["rejected_value"],
+        {"type", "canonical_value", "summary"},
+        field="diagnostic.rejected_value",
+    )
+    related = node["related_sources"]
+    if not isinstance(related, list):
+        raise TypeError("diagnostic.related_sources must be an array")
+    return PhasedDeliveryDiagnostic(
+        code=node["code"],
+        reason=node["reason"],
+        rejected_value=RejectedValue(
+            type=rejected["type"],
+            canonical_value=rejected["canonical_value"],
+            summary=rejected["summary"],
+        ),
+        primary_source=_decoded_source(node["primary_source"]),
+        related_sources=tuple(_decoded_source(item) for item in related),
+    )
+
+
+def _decoded_cleanup_proof(
+    value: object,
+) -> NoBackendAllocationProof | PhasedFailedCleanupEvidence | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise TypeError("cleanup proof must be an object or null")
+    if set(value) == {
+        "disposition",
+        "backend_resource_allocated",
+        "proof_complete",
+    }:
+        return NoBackendAllocationProof(
+            disposition=value["disposition"],
+            backend_resource_allocated=value[
+                "backend_resource_allocated"
+            ],
+            proof_complete=value["proof_complete"],
+        )
+    if set(value) == {
+        "disposition",
+        "pane_absent",
+        "server_absent",
+        "cleanup_complete",
+        "error_code",
+    }:
+        return PhasedFailedCleanupEvidence(
+            disposition=value["disposition"],
+            pane_absent=value["pane_absent"],
+            server_absent=value["server_absent"],
+            cleanup_complete=value["cleanup_complete"],
+            error_code=value["error_code"],
+        )
+    raise ValueError("cleanup proof shape is invalid")
+
+
+def _decoded_start_failure(
+    value: object,
+) -> InteractiveTerminalStartOutcome:
+    node = _closed(
+        value,
+        {
+            "status",
+            "error_code",
+            "backend_allocation",
+            "cleanup_status",
+            "provider_zero_survivor_proven",
+            "proof",
+        },
+        field="start_failure_outcome",
+    )
+    return InteractiveTerminalStartOutcome(
+        status=node["status"],
+        error_code=node["error_code"],
+        backend_allocation=node["backend_allocation"],
+        cleanup_status=node["cleanup_status"],
+        provider_zero_survivor_proven=node[
+            "provider_zero_survivor_proven"
+        ],
+        proof=_decoded_cleanup_proof(node["proof"]),
+    )
+
+
+def _decoded_manifest(
+    value: object,
+) -> tuple[CandidateDigestManifest, str]:
+    node = _closed(
+        value,
+        {
+            "schema_version",
+            "submission_ordinal",
+            "disposition",
+            "rows",
+            "manifest_sha256",
+        },
+        field="candidate_manifest",
+    )
+    if (
+        node["schema_version"]
+        != "provider_phased_candidate_digest_manifest.v1"
+        or not isinstance(node["rows"], list)
+    ):
+        raise ValueError("candidate manifest shape is invalid")
+    rows: list[CandidateDigestRow] = []
+    for raw_row in node["rows"]:
+        row = _closed(
+            raw_row,
+            {
+                "contract_ordinal",
+                "role",
+                "logical_name",
+                "workspace_relative_path",
+                "presence",
+                "byte_length",
+                "sha256",
+            },
+            field="candidate_manifest.row",
+        )
+        rows.append(
+            CandidateDigestRow(
+                contract_ordinal=row["contract_ordinal"],
+                role=row["role"],
+                logical_name=row["logical_name"],
+                workspace_relative_path=row["workspace_relative_path"],
+                presence=row["presence"],
+                byte_length=row["byte_length"],
+                sha256=row["sha256"],
+            )
+        )
+    recorded = _digest(
+        node["manifest_sha256"],
+        field="candidate_manifest.manifest_sha256",
+    )
+    expected = CandidateDigestManifest.create(
+        submission_ordinal=node["submission_ordinal"],
+        disposition=node["disposition"],
+        rows=tuple(rows),
+    )
+    return expected, recorded
+
+
+def _decoded_close_projection(value: object) -> dict[str, object]:
+    node = _closed(
+        value,
+        {"close_text", "submit_keys"},
+        field="close_projection",
+    )
+    return {
+        "close_text": _decoded_byte_projection(
+            node["close_text"],
+            field="close_projection.close_text",
+        ),
+        "submit_keys": _decoded_count_projection(
+            node["submit_keys"],
+            field="close_projection.submit_keys",
+        ),
+    }
+
+
+def _validate_event_diagnostic_semantics(
+    event: str,
+    payload: Mapping[str, Any],
+) -> None:
+    if event == "validation_rejected":
+        diagnostics = payload["diagnostics"]
+        if not isinstance(diagnostics, list):
+            raise TypeError("validation diagnostics must be an array")
+        reasons = tuple(item["reason"] for item in diagnostics)
+        if reasons not in _VALIDATION_DIAGNOSTIC_SEQUENCES:
+            raise ValueError(
+                "validation diagnostics do not follow the closed sequence"
+            )
+        return
+    if event == "turn_offer_failed":
+        turn = payload["turn"]
+        diagnostic = payload["diagnostic"]
+        allowed = (
+            _INITIAL_OFFER_DIAGNOSTIC_REASONS
+            if turn["phase"] == "initial_materialization"
+            else _RETRY_OFFER_DIAGNOSTIC_REASONS
+        )
+        if diagnostic["reason"] not in allowed:
+            raise ValueError(
+                "turn-offer diagnostic contradicts the turn phase"
+            )
+        return
+    if event == "task_start_failed":
+        diagnostic_reason = payload["diagnostic"]["reason"]
+        outcome = payload["start_failure_outcome"]
+        error_code = outcome["error_code"]
+        backend_allocation = outcome["backend_allocation"]
+        cleanup_status = outcome["cleanup_status"]
+
+        if cleanup_status == "incomplete":
+            proof = outcome["proof"]
+            if (
+                backend_allocation != "possible_or_allocated"
+                or error_code != _START_CLEANUP_INCOMPLETE_ERROR
+                or proof["error_code"]
+                != _START_CLEANUP_INCOMPLETE_ERROR
+                or diagnostic_reason
+                not in {
+                    "adapter_start_failed",
+                    "deadline_exhausted_during_start",
+                }
+            ):
+                raise ValueError(
+                    "incomplete start cleanup contradicts the start result"
+                )
+            return
+
+        if diagnostic_reason == "deadline_exhausted_before_start":
+            valid = (
+                error_code == _START_TIMEOUT_ERROR
+                and backend_allocation == "none"
+                and cleanup_status == "not_required"
+            )
+        elif diagnostic_reason == "deadline_exhausted_during_start":
+            valid = (
+                error_code == _START_TIMEOUT_ERROR
+                and backend_allocation == "possible_or_allocated"
+                and cleanup_status == "completed"
+            )
+        elif diagnostic_reason == "adapter_start_failed":
+            valid = (
+                error_code
+                not in {
+                    _START_TIMEOUT_ERROR,
+                    _START_CLEANUP_INCOMPLETE_ERROR,
+                }
+            )
+        else:
+            valid = False
+        if not valid:
+            raise ValueError(
+                "start diagnostic contradicts the adapter outcome"
+            )
+        return
+    allowed = _EVENT_DIAGNOSTIC_REASONS.get(event)
+    if allowed is not None and payload["diagnostic"]["reason"] not in allowed:
+        raise ValueError("event diagnostic reason is invalid")
+
+
+def _decoded_payload(
+    event: str,
+    value: object,
+) -> tuple[dict[str, object], list[tuple[str, str]]]:
+    keys = _EVENT_PAYLOAD_KEYS[event]
+    node = _closed(value, keys, field=event)
+    typed: dict[str, object] = dict(node)
+    recomputable: list[tuple[str, str]] = []
+
+    if "turn" in node:
+        turn, task_seal = _decoded_turn(
+            node["turn"],
+            normalize_task_seal=True,
+        )
+        typed["turn"] = turn
+        if task_seal is not None:
+            recomputable.append((task_seal, _EMPTY_SUBMIT_KEYS_SHA256))
+    if "receipt" in node:
+        typed["receipt"] = _decoded_receipt(node["receipt"])
+    if "diagnostic" in node:
+        typed["diagnostic"] = _decoded_diagnostic(node["diagnostic"])
+    if "diagnostics" in node:
+        diagnostics = node["diagnostics"]
+        if not isinstance(diagnostics, list):
+            raise TypeError("diagnostics must be an array")
+        decoded_diagnostics = tuple(
+            _decoded_diagnostic(item) for item in diagnostics
+        )
+        precedences = tuple(
+            diagnostic_definition(item.reason).precedence
+            for item in decoded_diagnostics
+        )
+        if precedences != tuple(sorted(precedences)):
+            raise ValueError("diagnostics are not in fixed precedence order")
+        typed["diagnostics"] = decoded_diagnostics
+    if "start_failure_outcome" in node:
+        typed["start_failure_outcome"] = _decoded_start_failure(
+            node["start_failure_outcome"]
+        )
+    if "candidate_manifest" in node:
+        manifest, recorded = _decoded_manifest(node["candidate_manifest"])
+        typed["candidate_manifest"] = manifest
+        recomputable.append((recorded, manifest.manifest_sha256))
+    if "close_projection" in node:
+        typed["close_projection"] = _decoded_close_projection(
+            node["close_projection"]
+        )
+    if "provider_cleanup_proof" in node:
+        typed["provider_cleanup_proof"] = _decoded_cleanup_proof(
+            node["provider_cleanup_proof"]
+        )
+    if node.get("cleanup_diagnostic") is not None:
+        typed["cleanup_diagnostic"] = _decoded_diagnostic(
+            node["cleanup_diagnostic"]
+        )
+
+    projected = _project_payload(event, typed)
+    normalized = dict(node)
+    if "turn" in projected and recomputable:
+        normalized["turn"] = projected["turn"]
+    if "candidate_manifest" in projected:
+        normalized["candidate_manifest"] = projected["candidate_manifest"]
+    if projected != normalized:
+        raise ValueError("payload projection is not canonical")
+    _validate_event_diagnostic_semantics(event, projected)
+    return projected, recomputable
+
+
+def _validated_header(
+    row: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[tuple[str, str]]]:
+    if (
+        row["schema_version"] != LEDGER_SCHEMA_VERSION
+        or row["record_kind"] != "header"
+        or row["target_dsl"] != "2.23"
+        or row["delivery"] != "phased"
+        or row["prompt_attempt_identity_version"]
+        != "workflow_prompt_attempt_identity.v2"
+        or row["protocol_schema_version"]
+        != "provider_phased_protocol_frame.v1"
+    ):
+        raise ValueError("header literal is invalid")
+    attempts = _u63(
+        row["materialization_attempts"],
+        field="materialization_attempts",
+        positive=True,
+    )
+    if attempts not in {1, 2, 3}:
+        raise ValueError("materialization_attempts is invalid")
+    _timestamp(row["created_at"], field="created_at")
+    composed = _decoded_byte_projection(
+        row["canonical_composed"],
+        field="canonical_composed",
+    )
+    task = _decoded_byte_projection(row["task_slice"], field="task_slice")
+    materialization = _decoded_byte_projection(
+        row["materialization_slice"],
+        field="materialization_slice",
+    )
+    if (
+        materialization.bytes == 0
+        or composed.bytes != task.bytes + materialization.bytes
+    ):
+        raise ValueError("header byte projections are invalid")
+
+    attempt_node = row["attempt"]
+    if not isinstance(attempt_node, Mapping):
+        raise TypeError("attempt must be an object")
+    attempt = _closed(
+        attempt_node,
+        {"scope", "scope_sha256", "step_key", "visit_key", "ordinal"},
+        field="attempt",
+    )
+    ordinal = _u63(
+        attempt["ordinal"],
+        field="attempt.ordinal",
+        positive=True,
+    )
+    _digest(attempt["scope_sha256"], field="attempt.scope_sha256")
+    scope = ProviderAttemptScope.from_dict(attempt["scope"])
+    expected_attempt = _attempt(scope, ordinal)
+    normalized_attempt = dict(expected_attempt)
+    normalized_attempt["scope_sha256"] = attempt["scope_sha256"]
+    if dict(attempt) != normalized_attempt:
+        raise ValueError("attempt metadata contradicts scope")
+    expected_scope_sha = expected_attempt["scope_sha256"]
+    return (
+        {
+            "attempt": dict(attempt),
+            "materialization_attempts": attempts,
+            "task_slice": {
+                "bytes": task.bytes,
+                "sha256": task.sha256,
+            },
+            "materialization_slice": {
+                "bytes": materialization.bytes,
+                "sha256": materialization.sha256,
+            },
+        },
+        [(attempt["scope_sha256"], expected_scope_sha)],
+    )
+
+
+class _LedgerGrammar:
+    def __init__(self, header: Mapping[str, Any]) -> None:
+        self.phase = "header"
+        self.header = header
+        self.cleanup: Mapping[str, Any] | None = None
+        self.start_failure: Mapping[str, Any] | None = None
+        self.ingress = "not_allocated"
+        self.provider_live = False
+        self.ingress_mode: str | None = None
+        self.current_submit: int | None = None
+        self.pending_turn: Mapping[str, Any] | None = None
+        self.pending_close: Mapping[str, Any] | None = None
+        self.handle_digest: str | None = None
+        self.natural_proof: Mapping[str, Any] | None = None
+        self.request_ids: set[str] = set()
+        self.turn_digests: dict[
+            tuple[int, str, int | None], Mapping[str, Any]
+        ] = {}
+        self.close_digests: Mapping[str, Any] | None = None
+        self.manifest_binding: tuple[tuple[object, ...], ...] | None = None
+        self.primary_failure_diagnostic: Mapping[str, Any] | None = None
+
+    @staticmethod
+    def _turn_key(turn: Mapping[str, Any]) -> tuple[int, str, int | None]:
+        return (
+            turn["delivery_ordinal"],
+            turn["phase"],
+            turn["submission_ordinal"],
+        )
+
+    @staticmethod
+    def _opaque_turn_fields(turn: Mapping[str, Any]) -> tuple[str, ...]:
+        return (
+            turn["protocol_frame"]["sha256"],
+            turn["canonical_slice"]["sha256"],
+            turn["delivered_turn"]["sha256"],
+            turn["submit_keys"]["sha256"],
+        )
+
+    def _opaque_turn_reason(
+        self,
+        expected: Mapping[str, Any],
+        actual: Mapping[str, Any],
+    ) -> str | None:
+        scalar_fields = (
+            "delivery_ordinal",
+            "phase",
+            "submission_ordinal",
+        )
+        if any(actual[field] != expected[field] for field in scalar_fields):
+            raise ValueError("turn scalar mismatch")
+        for field in (
+            "protocol_frame",
+            "canonical_slice",
+            "delivered_turn",
+            "submit_keys",
+        ):
+            scalar = "count" if field == "submit_keys" else "bytes"
+            if actual[field][scalar] != expected[field][scalar]:
+                raise ValueError("turn projection scalar mismatch")
+        actual_values = self._opaque_turn_fields(actual)
+        expected_values = self._opaque_turn_fields(expected)
+        if actual_values == expected_values:
+            return None
+        for field_index, (actual_digest, expected_digest) in enumerate(
+            zip(actual_values, expected_values, strict=True)
+        ):
+            if actual_digest == expected_digest:
+                continue
+            same_field_values = {
+                self._opaque_turn_fields(turn)[field_index]
+                for turn in self.turn_digests.values()
+            }
+            if actual_digest in same_field_values:
+                return "opaque_digest_order_mismatch"
+            return "opaque_digest_equality_mismatch"
+        return None
+
+    def _check_turn_header_binding(
+        self,
+        turn: Mapping[str, Any],
+    ) -> str | None:
+        expected_projection = (
+            self.header["task_slice"]
+            if turn["phase"] == "task"
+            else self.header["materialization_slice"]
+        )
+        if (
+            turn["canonical_slice"]["bytes"]
+            != expected_projection["bytes"]
+        ):
+            raise ValueError("turn canonical-slice byte binding is invalid")
+        expected = expected_projection["sha256"]
+        actual = turn["canonical_slice"]["sha256"]
+        if actual == expected:
+            return None
+        other = (
+            self.header["materialization_slice"]["sha256"]
+            if turn["phase"] == "task"
+            else self.header["task_slice"]["sha256"]
+        )
+        if actual == other:
+            return "opaque_digest_order_mismatch"
+        return "opaque_digest_equality_mismatch"
+
+    def _check_receipt(self, receipt: Mapping[str, Any]) -> str | None:
+        digest = receipt["handle_id_sha256"]
+        if self.handle_digest is None:
+            self.handle_digest = digest
+            return None
+        if digest != self.handle_digest:
+            return "opaque_digest_equality_mismatch"
+        return None
+
+    def _manifest_shape(
+        self,
+        manifest: Mapping[str, Any],
+    ) -> tuple[tuple[object, ...], ...]:
+        return tuple(
+            (
+                row["contract_ordinal"],
+                row["role"],
+                row["logical_name"],
+                row["workspace_relative_path"],
+            )
+            for row in manifest["rows"]
+        )
+
+    def _check_payload_relations(
+        self,
+        event: str,
+        payload: Mapping[str, Any],
+    ) -> str | None:
+        turn = payload.get("turn")
+        if isinstance(turn, Mapping):
+            binding_reason = self._check_turn_header_binding(turn)
+            if binding_reason is not None:
+                return binding_reason
+        if event in {"task_started", "turn_offered", "close_offered"}:
+            receipt = payload["receipt"]
+            assert isinstance(receipt, Mapping)
+            receipt_reason = self._check_receipt(receipt)
+            if receipt_reason is not None:
+                return receipt_reason
+        if event in {"task_started", "task_start_failed", "turn_offered", "turn_offer_failed"}:
+            if self.pending_turn is None or not isinstance(turn, Mapping):
+                raise ValueError("turn outcome has no request")
+            reason = self._opaque_turn_reason(self.pending_turn, turn)
+            if reason is not None:
+                return reason
+        if event in {"task_start_requested", "turn_offer_requested"}:
+            assert isinstance(turn, Mapping)
+            key = self._turn_key(turn)
+            prior = self.turn_digests.get(key)
+            if prior is not None:
+                reason = self._opaque_turn_reason(prior, turn)
+                if reason is not None:
+                    return reason
+            self.pending_turn = turn
+            self.turn_digests[key] = turn
+        if event == "retry_queued":
+            assert isinstance(turn, Mapping)
+            self.pending_turn = turn
+            self.turn_digests[self._turn_key(turn)] = turn
+        if event == "submit_received":
+            if (
+                payload["configured_total"]
+                != self.header["materialization_attempts"]
+                or payload["submission_ordinal"]
+                != (1 if self.current_submit is None else self.current_submit + 1)
+                or payload["client_request_id_sha256"] in self.request_ids
+            ):
+                raise ValueError("submit scalar relation is invalid")
+            self.request_ids.add(payload["client_request_id_sha256"])
+            self.current_submit = payload["submission_ordinal"]
+        if event in {
+            "validation_rejected",
+            "candidate_reset",
+            "candidate_frozen",
+            "close_offer_requested",
+            "close_offered",
+            "close_offer_failed",
+            "join_started",
+            "join_succeeded",
+            "join_failed",
+            "publication_started",
+            "publication_succeeded",
+            "publication_failed",
+        }:
+            if payload["submission_ordinal"] != self.current_submit:
+                raise ValueError("submission ordinal relation is invalid")
+        if event in {"validation_rejected", "candidate_frozen"}:
+            manifest = payload["candidate_manifest"]
+            assert isinstance(manifest, Mapping)
+            shape = self._manifest_shape(manifest)
+            if self.manifest_binding is None:
+                self.manifest_binding = shape
+            elif shape != self.manifest_binding:
+                raise ValueError("candidate manifest binding changed")
+        if event == "retry_queued":
+            if self.current_submit is None:
+                raise ValueError("retry has no rejected submission")
+            if (
+                payload["rejected_submission_ordinal"] != self.current_submit
+                or payload["next_submission_ordinal"]
+                != self.current_submit + 1
+                or payload["next_submission_ordinal"]
+                > self.header["materialization_attempts"]
+            ):
+                raise ValueError("retry ordinal relation is invalid")
+        if event in {"close_offer_requested", "close_offered", "close_offer_failed"}:
+            close = payload["close_projection"]
+            assert isinstance(close, Mapping)
+            if event == "close_offer_requested":
+                self.pending_close = close
+            elif self.pending_close is None:
+                raise ValueError("close outcome has no request")
+            else:
+                for field in ("close_text", "submit_keys"):
+                    scalar = "count" if field == "submit_keys" else "bytes"
+                    if close[field][scalar] != self.pending_close[field][scalar]:
+                        raise ValueError("close scalar mismatch")
+                    if (
+                        close[field]["sha256"]
+                        != self.pending_close[field]["sha256"]
+                    ):
+                        return "opaque_digest_equality_mismatch"
+        return None
+
+    def _check_cross_event_scalars(
+        self,
+        event: str,
+        payload: Mapping[str, Any],
+    ) -> bool:
+        turn = payload.get("turn")
+        if isinstance(turn, Mapping):
+            expected_slice = (
+                self.header["task_slice"]
+                if turn["phase"] == "task"
+                else self.header["materialization_slice"]
+            )
+            if (
+                turn["canonical_slice"]["bytes"]
+                != expected_slice["bytes"]
+            ):
+                return False
+        if event == "turn_offer_requested" and isinstance(turn, Mapping):
+            if self.phase == "task_started":
+                if (
+                    turn["phase"] != "initial_materialization"
+                    or turn["submission_ordinal"] != 1
+                    or turn["delivery_ordinal"] != 1
+                ):
+                    return False
+            elif self.phase == "retry":
+                if self.pending_turn is None:
+                    return False
+                for field in (
+                    "delivery_ordinal",
+                    "phase",
+                    "submission_ordinal",
+                ):
+                    if turn[field] != self.pending_turn[field]:
+                        return False
+                for field in (
+                    "protocol_frame",
+                    "canonical_slice",
+                    "delivered_turn",
+                    "submit_keys",
+                ):
+                    scalar = "count" if field == "submit_keys" else "bytes"
+                    if (
+                        turn[field][scalar]
+                        != self.pending_turn[field][scalar]
+                    ):
+                        return False
+        if (
+            event
+            in {
+                "task_started",
+                "task_start_failed",
+                "turn_offered",
+                "turn_offer_failed",
+            }
+            and self.pending_turn is not None
+            and isinstance(turn, Mapping)
+        ):
+            for field in (
+                "delivery_ordinal",
+                "phase",
+                "submission_ordinal",
+            ):
+                if turn[field] != self.pending_turn[field]:
+                    return False
+            for field in (
+                "protocol_frame",
+                "canonical_slice",
+                "delivered_turn",
+                "submit_keys",
+            ):
+                scalar = "count" if field == "submit_keys" else "bytes"
+                if (
+                    turn[field][scalar]
+                    != self.pending_turn[field][scalar]
+                ):
+                    return False
+        if event == "submit_received":
+            expected_submission = (
+                1 if self.current_submit is None else self.current_submit + 1
+            )
+            if (
+                payload["configured_total"]
+                != self.header["materialization_attempts"]
+                or payload["submission_ordinal"] != expected_submission
+                or payload["client_request_id_sha256"] in self.request_ids
+            ):
+                return False
+        if (
+            event
+            in {
+                "validation_rejected",
+                "candidate_reset",
+                "candidate_frozen",
+                "close_offer_requested",
+                "close_offered",
+                "close_offer_failed",
+                "join_started",
+                "join_succeeded",
+                "join_failed",
+                "publication_started",
+                "publication_succeeded",
+                "publication_failed",
+            }
+            and self.current_submit is not None
+            and payload["submission_ordinal"] != self.current_submit
+        ):
+            return False
+        if event == "retry_queued":
+            if (
+                payload["next_submission_ordinal"]
+                > self.header["materialization_attempts"]
+            ):
+                return False
+            if self.current_submit is not None and (
+                payload["rejected_submission_ordinal"]
+                != self.current_submit
+                or payload["next_submission_ordinal"]
+                != self.current_submit + 1
+            ):
+                return False
+        if (
+            event in {"close_offered", "close_offer_failed"}
+            and self.pending_close is not None
+        ):
+            close = payload["close_projection"]
+            assert isinstance(close, Mapping)
+            for field in ("close_text", "submit_keys"):
+                scalar = "count" if field == "submit_keys" else "bytes"
+                if (
+                    close[field][scalar]
+                    != self.pending_close[field][scalar]
+                ):
+                    return False
+        if event in {"validation_rejected", "candidate_frozen"}:
+            manifest = payload["candidate_manifest"]
+            assert isinstance(manifest, Mapping)
+            if (
+                self.manifest_binding is not None
+                and self._manifest_shape(manifest) != self.manifest_binding
+            ):
+                return False
+        if (
+            event
+            in {"ingress_shutdown_finished", "ingress_shutdown_failed"}
+            and self.current_submit is not None
+            and payload["active_requests_drained"] < 1
+        ):
+            return False
+        return True
+
+    def _event_order(self, event: str, payload: Mapping[str, Any]) -> bool:
+        allowed: dict[str, set[str]] = {
+            "header": {"task_start_requested", "cleanup_finished"},
+            "task_requested": {
+                "task_started",
+                "task_start_failed",
+                "cleanup_finished",
+            },
+            "task_failed": {"cleanup_finished"},
+            "task_started": {"turn_offer_requested", "cleanup_finished"},
+            "turn_requested": {
+                "turn_offered",
+                "turn_offer_failed",
+                "cleanup_finished",
+            },
+            "turn_failed": {"cleanup_finished"},
+            "turn_offered": {"submit_received", "cleanup_finished"},
+            "submitted": {
+                "validation_rejected",
+                "candidate_frozen",
+                "cleanup_finished",
+            },
+            "rejected": {"candidate_reset", "cleanup_finished"},
+            "reset": {"retry_queued", "cleanup_finished"},
+            "retry": {"turn_offer_requested", "cleanup_finished"},
+            "frozen": {"close_offer_requested", "cleanup_finished"},
+            "close_requested": {
+                "close_offered",
+                "close_offer_failed",
+                "cleanup_finished",
+            },
+            "close_failed": {"cleanup_finished"},
+            "close_offered": {"ingress_shutdown_started", "cleanup_finished"},
+            "ingress_started_normal": {
+                "ingress_shutdown_finished",
+                "cleanup_finished",
+            },
+            "ingress_finished_normal": {"join_started", "cleanup_finished"},
+            "join_started": {
+                "join_succeeded",
+                "join_failed",
+                "cleanup_finished",
+                "terminal_failed",
+            },
+            "join_failed": {"cleanup_finished"},
+            "join_succeeded": {
+                "publication_started",
+                "terminal_failed",
+            },
+            "publication_started": {
+                "publication_succeeded",
+                "publication_failed",
+                "terminal_failed",
+            },
+            "publication_failed": {"terminal_failed"},
+            "cleanup_not_allocated": {"terminal_failed"},
+            "cleanup_unresolved": {
+                "ingress_shutdown_started",
+                "terminal_failed",
+            },
+            "cleanup_not_started": {"ingress_shutdown_started"},
+            "cleanup_started": {
+                "ingress_shutdown_finished",
+                "ingress_shutdown_failed",
+            },
+            "cleanup_complete": {"terminal_failed"},
+            "cleanup_incomplete": {"terminal_failed"},
+            "ingress_started_terminal": {
+                "ingress_shutdown_finished",
+                "ingress_shutdown_failed",
+            },
+            "ingress_finished_terminal": {"terminal_failed"},
+            "ingress_failed_terminal": {"terminal_failed"},
+            "terminal": set(),
+        }
+        return event in allowed[self.phase]
+
+    def accept(
+        self,
+        event: str,
+        payload: Mapping[str, Any],
+    ) -> str | None:
+        if not self._check_cross_event_scalars(event, payload):
+            return "payload_invalid"
+        if not self._event_order(event, payload):
+            return "event_order_invalid"
+        try:
+            opaque_reason = self._check_payload_relations(event, payload)
+        except (TypeError, ValueError):
+            return "payload_invalid"
+        if opaque_reason is not None:
+            return opaque_reason
+
+        if event == "task_start_requested":
+            self.phase = "task_requested"
+        elif event == "task_started":
+            self.phase = "task_started"
+            self.provider_live = True
+            self.ingress = "unresolved"
+        elif event == "task_start_failed":
+            self.phase = "task_failed"
+            self.start_failure = payload["start_failure_outcome"]
+            self.primary_failure_diagnostic = payload["diagnostic"]
+        elif event == "turn_offer_requested":
+            self.phase = "turn_requested"
+            if self.ingress == "unresolved":
+                self.ingress = "not_started"
+        elif event == "turn_offered":
+            self.phase = "turn_offered"
+        elif event == "turn_offer_failed":
+            self.phase = "turn_failed"
+            self.primary_failure_diagnostic = payload["diagnostic"]
+        elif event == "submit_received":
+            self.phase = "submitted"
+        elif event == "validation_rejected":
+            self.phase = "rejected"
+        elif event == "candidate_reset":
+            self.phase = "reset"
+        elif event == "retry_queued":
+            self.phase = "retry"
+        elif event == "candidate_frozen":
+            self.phase = "frozen"
+        elif event == "close_offer_requested":
+            self.phase = "close_requested"
+        elif event == "close_offered":
+            self.phase = "close_offered"
+        elif event == "close_offer_failed":
+            self.phase = "close_failed"
+            self.primary_failure_diagnostic = payload["diagnostic"]
+        elif event == "ingress_shutdown_started":
+            if self.cleanup is None:
+                self.ingress_mode = "normal"
+                self.phase = "ingress_started_normal"
+            else:
+                self.ingress_mode = "terminal"
+                self.phase = "ingress_started_terminal"
+            self.ingress = "started"
+        elif event == "ingress_shutdown_finished":
+            self.ingress = "complete"
+            self.phase = (
+                "ingress_finished_normal"
+                if self.cleanup is None
+                else "ingress_finished_terminal"
+            )
+        elif event == "ingress_shutdown_failed":
+            self.ingress = "incomplete"
+            self.phase = "ingress_failed_terminal"
+            if self.primary_failure_diagnostic is None:
+                self.primary_failure_diagnostic = payload["diagnostic"]
+        elif event == "join_started":
+            self.phase = "join_started"
+        elif event == "join_succeeded":
+            self.natural_proof = payload["natural_shutdown_proof"]
+            self.phase = "join_succeeded"
+        elif event == "join_failed":
+            self.phase = "join_failed"
+            self.primary_failure_diagnostic = payload["diagnostic"]
+        elif event == "publication_started":
+            self.phase = "publication_started"
+        elif event == "publication_failed":
+            self.phase = "publication_failed"
+            self.primary_failure_diagnostic = payload["diagnostic"]
+        elif event == "cleanup_finished":
+            if self.cleanup is not None:
+                return "event_order_invalid"
+            if not self._validate_cleanup(payload):
+                return "payload_invalid"
+            self.cleanup = payload
+            self.phase = {
+                "not_allocated": "cleanup_not_allocated",
+                "unresolved": "cleanup_unresolved",
+                "not_started": "cleanup_not_started",
+                "started": "cleanup_started",
+                "complete": "cleanup_complete",
+                "incomplete": "cleanup_incomplete",
+            }[self.ingress]
+        elif event == "terminal_failed":
+            if not self._validate_terminal(payload):
+                return "payload_invalid"
+            self.phase = "terminal"
+        elif event == "publication_succeeded":
+            self.phase = "terminal"
+        return None
+
+    def _validate_cleanup(self, payload: Mapping[str, Any]) -> bool:
+        if self.start_failure is not None:
+            expected_status = self.start_failure["cleanup_status"]
+            if expected_status == "completed":
+                expected_status = "complete"
+            valid = (
+                payload["cleanup_status"] == expected_status
+                and payload["abort_calls"] == 0
+                and payload["provider_cleanup_proof"]
+                == self.start_failure["proof"]
+                and payload["provider_zero_survivor_proven"]
+                == self.start_failure["provider_zero_survivor_proven"]
+            )
+            if (
+                valid
+                and expected_status == "incomplete"
+                and payload["cleanup_diagnostic"]["reason"]
+                != "adapter_start_cleanup_incomplete"
+            ):
+                return False
+            return valid
+        status = payload["cleanup_status"]
+        abort_calls = payload["abort_calls"]
+        proof = payload["provider_cleanup_proof"]
+        diagnostic = payload["cleanup_diagnostic"]
+        if not self.provider_live:
+            return (
+                status == "not_required"
+                and abort_calls == 0
+                and isinstance(proof, Mapping)
+                and proof.get("disposition") == "no_backend_allocation"
+                and diagnostic is None
+                and payload["provider_zero_survivor_proven"] is True
+            )
+        if status == "complete":
+            return abort_calls == 1
+        if status != "incomplete" or not isinstance(diagnostic, Mapping):
+            return False
+        reason = diagnostic["reason"]
+        if proof is None:
+            return (
+                abort_calls == 0
+                and reason == "deadline_exhausted_before_adapter_cleanup"
+            ) or (
+                abort_calls == 1
+                and reason
+                in {
+                    "deadline_exhausted_during_adapter_cleanup",
+                    "adapter_cleanup_failed",
+                }
+            )
+        if not isinstance(proof, Mapping) or abort_calls != 1:
+            return False
+        expected_reason = (
+            "adapter_cleanup_failed"
+            if proof["error_code"] is not None
+            else "provider_zero_survivor_unproven"
+        )
+        return reason == expected_reason
+
+    def _validate_terminal(self, payload: Mapping[str, Any]) -> bool:
+        if (
+            self.primary_failure_diagnostic is not None
+            and payload["diagnostic"] != self.primary_failure_diagnostic
+        ):
+            return False
+        if self.natural_proof is not None or self.phase == "join_started":
+            natural = payload["natural_shutdown_proof"]
+            return (
+                payload["cleanup_status"] == "not_permitted"
+                and payload["cleanup_diagnostic"] is None
+                and payload["endpoint_shutdown_status"] == "complete"
+                and natural is not None
+                and (
+                    self.natural_proof is None
+                    or natural == self.natural_proof
+                )
+            )
+        if self.cleanup is None:
+            return False
+        expected_endpoint = {
+            "not_allocated": "not_allocated",
+            "unresolved": "not_allocated",
+            "complete": "complete",
+            "incomplete": "incomplete",
+        }.get(self.ingress)
+        return (
+            expected_endpoint is not None
+            and payload["cleanup_status"]
+            == self.cleanup["cleanup_status"]
+            and payload["cleanup_diagnostic"]
+            == self.cleanup["cleanup_diagnostic"]
+            and payload["endpoint_shutdown_status"] == expected_endpoint
+            and payload["natural_shutdown_proof"] is None
+        )
+
+
+def validate_ledger_bytes(ledger_bytes: bytes) -> dict[str, object]:
+    """Validate one ledger from supplied bytes without reading runtime state."""
+
+    if type(ledger_bytes) is not bytes:
+        raise TypeError("ledger_bytes must be exact bytes")
+    complete_lines: list[bytes]
+    truncated = bool(ledger_bytes) and not ledger_bytes.endswith(b"\n")
+    parts = ledger_bytes.split(b"\n")
+    complete_lines = [
+        part + b"\n"
+        for part in (parts[:-1] if truncated else parts[:-1])
+    ]
+    decoded: list[object] = []
+    last_contiguous: int | None = None
+    terminal_event: str | None = None
+    header_state: dict[str, Any] | None = None
+    grammar: _LedgerGrammar | None = None
+
+    for row_index, line in enumerate(complete_lines):
+        try:
+            text = line[:-1].decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            return _validation_result(
+                status="malformed",
+                reason="invalid_utf8",
+                row_count=len(decoded),
+                last_contiguous_seq=last_contiguous,
+                terminal_event=terminal_event,
+            )
+        try:
+            row = json.loads(
+                text,
+                object_pairs_hook=_object_without_duplicate_keys,
+                parse_constant=_reject_json_constant,
+                parse_int=_parse_json_integer,
+            )
+        except (json.JSONDecodeError, RecursionError, TypeError, ValueError):
+            return _validation_result(
+                status="malformed",
+                reason="invalid_json",
+                row_count=len(decoded),
+                last_contiguous_seq=last_contiguous,
+                terminal_event=terminal_event,
+            )
+        decoded.append(row)
+        try:
+            canonical = _canonical_decoded_jsonl(row)
+        except (RecursionError, TypeError, ValueError, UnicodeEncodeError):
+            canonical = None
+        if canonical != line:
+            return _validation_result(
+                status="malformed",
+                reason="noncanonical_json",
+                row_count=len(decoded),
+                last_contiguous_seq=last_contiguous,
+                terminal_event=terminal_event,
+            )
+        if row_index == 0:
+            if (
+                not isinstance(row, Mapping)
+                or row.get("record_kind") != "header"
+            ):
+                reason = "missing_header"
+            elif set(row) != _HEADER_KEYS:
+                reason = "unknown_key"
+            else:
+                reason = None
+            if reason is not None:
+                return _validation_result(
+                    status="malformed",
+                    reason=reason,
+                    row_count=len(decoded),
+                    last_contiguous_seq=None,
+                    terminal_event=None,
+                )
+            if type(row["seq"]) is not int or row["seq"] != 0:
+                return _validation_result(
+                    status="malformed",
+                    reason="sequence_invalid",
+                    row_count=len(decoded),
+                    last_contiguous_seq=None,
+                    terminal_event=None,
+                )
+            try:
+                header_state, header_seals = _validated_header(row)
+            except (TypeError, ValueError, KeyError):
+                return _validation_result(
+                    status="malformed",
+                    reason="payload_invalid",
+                    row_count=len(decoded),
+                    last_contiguous_seq=None,
+                    terminal_event=None,
+                )
+            last_contiguous = 0
+            grammar = _LedgerGrammar(header_state)
+            if any(actual != expected for actual, expected in header_seals):
+                return _validation_result(
+                    status="malformed",
+                    reason="digest_mismatch",
+                    row_count=len(decoded),
+                    last_contiguous_seq=last_contiguous,
+                    terminal_event=None,
+                )
+            continue
+
+        assert header_state is not None
+        assert grammar is not None
+        if not isinstance(row, Mapping) or set(row) != _EVENT_KEYS:
+            reason = "unknown_key"
+        elif (
+            not isinstance(row.get("event"), str)
+            or row["event"] not in _EVENT_PAYLOAD_KEYS
+        ):
+            reason = "unknown_event"
+        else:
+            reason = None
+        if reason is not None:
+            return _validation_result(
+                status="malformed",
+                reason=reason,
+                row_count=len(decoded),
+                last_contiguous_seq=last_contiguous,
+                terminal_event=terminal_event,
+            )
+        seq = row["seq"]
+        if (
+            isinstance(seq, bool)
+            or not isinstance(seq, int)
+            or seq < 1
+            or seq > _U63_MAX
+            or last_contiguous is None
+            or seq != last_contiguous + 1
+        ):
+            return _validation_result(
+                status="malformed",
+                reason="sequence_invalid",
+                row_count=len(decoded),
+                last_contiguous_seq=last_contiguous,
+                terminal_event=terminal_event,
+            )
+        if row["attempt"] != header_state["attempt"]:
+            return _validation_result(
+                status="malformed",
+                reason="attempt_mismatch",
+                row_count=len(decoded),
+                last_contiguous_seq=last_contiguous,
+                terminal_event=terminal_event,
+            )
+        try:
+            if (
+                row["schema_version"] != LEDGER_SCHEMA_VERSION
+                or row["record_kind"] != "event"
+            ):
+                raise ValueError("event literal is invalid")
+            _timestamp(row["observed_at"], field="observed_at")
+            payload, seals = _decoded_payload(
+                row["event"],
+                row["payload"],
+            )
+        except (TypeError, ValueError, KeyError):
+            return _validation_result(
+                status="malformed",
+                reason="payload_invalid",
+                row_count=len(decoded),
+                last_contiguous_seq=last_contiguous,
+                terminal_event=terminal_event,
+            )
+        grammar_reason = grammar.accept(row["event"], payload)
+        if grammar_reason is not None:
+            return _validation_result(
+                status="malformed",
+                reason=grammar_reason,
+                row_count=len(decoded),
+                last_contiguous_seq=last_contiguous,
+                terminal_event=terminal_event,
+            )
+        if any(actual != expected for actual, expected in seals):
+            return _validation_result(
+                status="malformed",
+                reason="digest_mismatch",
+                row_count=len(decoded),
+                last_contiguous_seq=last_contiguous,
+                terminal_event=terminal_event,
+            )
+        last_contiguous = seq
+        if row["event"] in _TERMINAL_EVENTS:
+            terminal_event = row["event"]
+
+    if truncated:
+        return _validation_result(
+            status="truncated",
+            reason="truncated_final_row",
+            row_count=len(decoded),
+            last_contiguous_seq=last_contiguous,
+            terminal_event=terminal_event,
+        )
+    if not decoded:
+        return _validation_result(
+            status="malformed",
+            reason="missing_header",
+            row_count=0,
+            last_contiguous_seq=None,
+            terminal_event=None,
+        )
+    if terminal_event is None:
+        return _validation_result(
+            status="valid_prefix",
+            reason="nonterminal_prefix",
+            row_count=len(decoded),
+            last_contiguous_seq=last_contiguous,
+            terminal_event=None,
+        )
+    return _validation_result(
+        status="complete",
+        reason="complete",
+        row_count=len(decoded),
+        last_contiguous_seq=last_contiguous,
+        terminal_event=terminal_event,
     )
 
 
