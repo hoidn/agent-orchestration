@@ -309,6 +309,93 @@ def _library_source(symbol_name: str) -> str:
     )
 
 
+def _stateful_recompile_source(
+    *,
+    record_name: str,
+    helper_name: str,
+    value: str,
+    invalid: bool = False,
+) -> str:
+    final_value = "missing-after-state" if invalid else "transformed"
+    return (
+        "(workflow-lisp\n"
+        '  (:language "0.1")\n'
+        '  (:target-dsl "2.15")\n'
+        "  (defmodule entry)\n"
+        f"  (export {record_name} {helper_name} run)\n"
+        f"  (defrecord {record_name} (value String))\n"
+        f"  (defproc {helper_name}\n"
+        "    ((value String))\n"
+        "    -> String\n"
+        "    :effects ()\n"
+        "    :lowering inline\n"
+        "    value)\n"
+        f"  (defworkflow run () -> {record_name}\n"
+        f'    (let* ((state (loop-state (value String "{value}")))\n'
+        f"           (transformed ({helper_name} state.value)))\n"
+        f"      (record {record_name} :value {final_value}))))\n"
+    )
+
+
+def _current_document_surface(
+    process: _LspProcess,
+    *,
+    source_path: Path,
+    request_id_prefix: str,
+    expected_helper_name: str,
+) -> dict[str, object]:
+    symbols, symbol_observed = _request_until(
+        process,
+        request_id=f"{request_id_prefix}-symbols",
+        method="textDocument/documentSymbol",
+        params={"textDocument": {"uri": source_path.as_uri()}},
+        result_predicate=lambda result: (
+            isinstance(result, list)
+            and expected_helper_name
+            in {
+                item.get("name")
+                for item in result
+                if isinstance(item, dict)
+            }
+        ),
+    )
+    completion, completion_observed = _request_until(
+        process,
+        request_id=f"{request_id_prefix}-completion",
+        method="textDocument/completion",
+        params={
+            "textDocument": {"uri": source_path.as_uri()},
+            "position": {"line": 0, "character": 0},
+        },
+        result_predicate=lambda result: (
+            isinstance(result, dict)
+            and expected_helper_name
+            in {
+                item.get("label")
+                for item in result.get("items", ())
+                if isinstance(item, dict)
+            }
+        ),
+    )
+    published_diagnostics = [
+        item["params"]["diagnostics"]
+        for item in (*symbol_observed, *completion_observed)
+        if (
+            item.get("method") == "textDocument/publishDiagnostics"
+            and item["params"]["uri"] == source_path.as_uri()
+        )
+    ]
+    return {
+        "diagnostics": (
+            published_diagnostics[-1]
+            if published_diagnostics
+            else []
+        ),
+        "symbols": symbols["result"],
+        "completion": completion["result"],
+    }
+
+
 def _wait_for_path(path: Path, *, timeout: float = 3.0) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -787,6 +874,145 @@ def test_real_stdio_recovery_to_full_transition_and_cleanup_write_nothing(
 
     assert _tree_snapshot(workspace) == before
     assert not (workspace / ".orchestrate").exists()
+
+
+def test_real_stdio_sequential_recompile_matches_fresh_server_state(
+    tmp_path: Path,
+) -> None:
+    initial_text = _stateful_recompile_source(
+        record_name="FirstResult",
+        helper_name="first-helper",
+        value="first",
+    )
+    invalid_text = _stateful_recompile_source(
+        record_name="BrokenResult",
+        helper_name="broken-helper",
+        value="broken",
+        invalid=True,
+    )
+    final_text = _stateful_recompile_source(
+        record_name="FinalResult",
+        helper_name="final-helper",
+        value="final",
+    )
+    options: dict[str, object]
+
+    sequential_workspace = (tmp_path / "sequential").resolve()
+    sequential_workspace.mkdir()
+    sequential_path = sequential_workspace / "entry.orc"
+    sequential_path.write_text(initial_text, encoding="utf-8")
+    options = {
+        "source_roots": [str(sequential_workspace)],
+        "entry_workflow": "run",
+    }
+    sequential = _LspProcess(sequential_workspace)
+    try:
+        _initialize(
+            sequential,
+            workspace=sequential_workspace,
+            initialization_options=options,
+        )
+        _open(
+            sequential,
+            source_path=sequential_path,
+            text=initial_text,
+        )
+        _current_document_surface(
+            sequential,
+            source_path=sequential_path,
+            request_id_prefix="initial",
+            expected_helper_name="first-helper",
+        )
+
+        sequential_path.write_text(invalid_text, encoding="utf-8")
+        _change(
+            sequential,
+            source_path=sequential_path,
+            text=invalid_text,
+            version=2,
+        )
+        failed_diagnostics = _save_and_wait_for_diagnostics(
+            sequential,
+            source_path=sequential_path,
+        )
+        assert failed_diagnostics["params"]["diagnostics"]
+        assert {
+            diagnostic["code"]
+            for diagnostic in failed_diagnostics["params"]["diagnostics"]
+        } == {"name_unknown"}
+
+        sequential_path.write_text(final_text, encoding="utf-8")
+        _change(
+            sequential,
+            source_path=sequential_path,
+            text=final_text,
+            version=3,
+        )
+        final_diagnostics = _save_and_wait_for_diagnostics(
+            sequential,
+            source_path=sequential_path,
+        )
+        assert final_diagnostics["params"]["diagnostics"] == []
+        sequential_surface = _current_document_surface(
+            sequential,
+            source_path=sequential_path,
+            request_id_prefix="sequential-final",
+            expected_helper_name="final-helper",
+        )
+        sequential.shutdown()
+    finally:
+        sequential.close()
+
+    fresh_workspace = (tmp_path / "fresh").resolve()
+    fresh_workspace.mkdir()
+    fresh_path = fresh_workspace / "entry.orc"
+    fresh_path.write_text(final_text, encoding="utf-8")
+    fresh = _LspProcess(fresh_workspace)
+    try:
+        _initialize(
+            fresh,
+            workspace=fresh_workspace,
+            initialization_options={
+                "source_roots": [str(fresh_workspace)],
+                "entry_workflow": "run",
+            },
+        )
+        _open(
+            fresh,
+            source_path=fresh_path,
+            text=final_text,
+        )
+        fresh_surface = _current_document_surface(
+            fresh,
+            source_path=fresh_path,
+            request_id_prefix="fresh-initial",
+            expected_helper_name="final-helper",
+        )
+        assert fresh_surface["diagnostics"] == []
+        fresh.shutdown()
+    finally:
+        fresh.close()
+
+    assert {
+        **sequential_surface,
+        "diagnostics": final_diagnostics["params"]["diagnostics"],
+    } == fresh_surface
+    serialized = json.dumps(
+        {
+            **sequential_surface,
+            "diagnostics": final_diagnostics["params"]["diagnostics"],
+        },
+        sort_keys=True,
+    )
+    assert "FinalResult" in serialized
+    assert "final-helper" in serialized
+    assert "FirstResult" not in serialized
+    assert "first-helper" not in serialized
+    assert "BrokenResult" not in serialized
+    assert "broken-helper" not in serialized
+    assert "missing-after-state" not in serialized
+    assert "%loop-state." not in serialized
+    assert "%parametric_call." not in serialized
 
 
 def test_real_stdio_dependency_invalidation_and_rapid_saves_keep_latest_state(

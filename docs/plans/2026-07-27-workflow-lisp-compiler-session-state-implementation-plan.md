@@ -358,22 +358,22 @@ them in focused selectors.
 
 Before Task 1:
 
-- [ ] Obtain independent specification review of this exact plan; resolve every
+- [x] Obtain independent specification review of this exact plan; resolve every
   finding and repeat.
-- [ ] Obtain distinct implementation-quality review of the same plan bytes.
-- [ ] Patch-stage only this plan, the governing MR-4 paragraph, and its
+- [x] Obtain distinct implementation-quality review of the same plan bytes.
+- [x] Patch-stage only this plan, the governing MR-4 paragraph, and its
   `docs/index.md` route; run `git diff --cached --check`, inspect the complete
   staged documentation delta, and commit exact reviewed bytes.
-- [ ] Bind the completed M0 range through `7dcd177c`, perform the collision
+- [x] Bind the completed M0 range through `7dcd177c`, perform the collision
   audit above, and confirm no M0 agent remains active on typecheck owners.
-- [ ] Confirm exact disjointness from active Q work.
-- [ ] Record the current blob hash of the pure-projection cache block and run:
+- [x] Confirm exact disjointness from active Q work.
+- [x] Record the current blob hash of the pure-projection cache block and run:
 
   ```bash
   pytest -q tests/test_workflow_lisp_pure_projection_cache.py
   ```
 
-- [ ] Run the Task 3 broad non-security command in tmux as the pre-MR-4
+- [x] Run the Task 3 broad non-security command in tmux as the pre-MR-4
   control. Record commit/tree, collected node IDs, totals, failing node IDs,
   and dirty-tree inventory.
 
@@ -408,7 +408,7 @@ Before Task 1:
 - Create: `tests/test_workflow_lisp_compiler_session_state.py`
 - Modify: `tests/test_workflow_lisp_expressions.py`
 
-- [ ] **Step 1: Confirm M0 serialization and recapture collided files.**
+- [x] **Step 1: Confirm M0 serialization and recapture collided files.**
   Verify the completed M0 gate and derive/read the complete landed M0 diff,
   then reconcile every overlap, including `workflows.py`,
   `typecheck_context.py`, and `typecheck_calls.py`, against its first-touch
@@ -416,7 +416,7 @@ Before Task 1:
   bytes; preserve the adjacent `lowering/workflow_calls.py` and
   `tests/test_workflow_lisp_lowering.py` M0 work without claiming either path
   for Task 1. Recensus the five Q5-touched MR-4 seams against `bceb03e4`.
-- [ ] **Step 2: Write the smallest behavioral RED and explicit-session
+- [x] **Step 2: Write the smallest behavioral RED and explicit-session
   structural tests.**
   First add
   `test_direct_module_sequential_edit_does_not_reuse_loop_carrier_metadata`.
@@ -435,20 +435,20 @@ Before Task 1:
   globals: a carrier registered in the active typecheck session keeps the
   private nominal descriptor, while a merely prefix-shaped unregistered
   record does not.
-- [ ] **Step 3: Write census-root RED tests.**
+- [x] **Step 3: Write census-root RED tests.**
   Parse the named compile-path modules with `ast` and reject module-level
   mutable phase roots. Add exact negative assertions for `_ACTIVE_*`,
   `_SESSION_STATE`, `_CARRIER_METADATA_BY_NAME`,
   `_CARRIER_METADATA_BY_EXPR_KEY`, and
   `_ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS`. Allow only reviewed immutable
   registries and existing macro ContextVars.
-- [ ] **Step 4: Write elaboration isolation RED tests.**
+- [x] **Step 4: Write elaboration isolation RED tests.**
   In one process and one test, elaborate expressions under different function,
   procedure, workflow, local-proc, loop-depth, let-proc, guidance, target, and
   prompt-catalog inputs. Nest one elaboration call and inject one failure.
   Assert outer state restores inside the same session and a new session sees
   defaults for all ten fields.
-- [ ] **Step 5: Write typecheck/loop/specialization isolation RED tests.**
+- [x] **Step 5: Write typecheck/loop/specialization isolation RED tests.**
   Populate all ten current `TypecheckSessionState` fields, both loop metadata
   maps, generated local procedures, let-proc rewrites, and parametric
   specialization requests. Exercise success and exception paths. Assert
@@ -463,7 +463,7 @@ Before Task 1:
   their diagnostic origins differ; retain the completed request and its
   last-writer origin so existing diagnostics and materialization semantics
   remain unchanged.
-- [ ] **Step 6: Prove RED is intentional.**
+- [x] **Step 6: Prove RED is intentional.**
 
   ```bash
   pytest --collect-only -q \
@@ -476,7 +476,7 @@ Before Task 1:
 
   Expected: new structural and isolation cases fail on the census globals;
   unrelated expression/typecheck controls remain green.
-- [ ] **Step 7: Add the smallest session model.**
+- [x] **Step 7: Add the smallest session model.**
   Define dataclasses only for mutable compile-lifetime state. Keep diagnostic
   tables, immutable catalogs, macro ContextVars, source read traces, and the
   pure-projection cache outside it. Use direct fields rather than a registry or
@@ -484,13 +484,13 @@ Before Task 1:
   catalogs, expressions, signatures, carriers, capabilities, and
   specialization requests; use heterogeneous types only where the stored
   values are genuinely private and structurally mixed.
-- [ ] **Step 8: Thread elaboration state explicitly.**
+- [x] **Step 8: Thread elaboration state explicitly.**
   Replace the ten `expressions.py` active globals with an
   `ElaborationSessionState` passed through `elaborate_expression`, recursive
   `_elaborate` owners, and callers in definitions/functions/result-guidance/
   procedures/workflows. Nested calls snapshot/restore that object only when
   required by their lexical semantics.
-- [ ] **Step 9: Thread typecheck state explicitly.**
+- [x] **Step 9: Thread typecheck state explicitly.**
   Remove `_SESSION_STATE`, `get_session_state`, and module-root
   snapshot/restore. Make `TypecheckContext` and `ProcedureTypecheckContext`
   carry the concrete typecheck sub-session. Pass it through dispatch, resume,
@@ -499,7 +499,7 @@ Before Task 1:
   fresh local `CompilerSession`. Generated-procedure consume/reset operations
   require the active typecheck session and have no detached no-argument
   fallback.
-- [ ] **Step 10: Move loop and specialization maps into the session.**
+- [x] **Step 10: Move loop and specialization maps into the session.**
   Make all carrier lookup/register functions and specialization
   consume/reset operations require the active typecheck session. Remove
   production reset-at-entry cleanup: freshness now comes from session
@@ -512,7 +512,7 @@ Before Task 1:
   the Task 1 green/artifact contract cannot run after global removal without
   them; change no lowering decision or artifact, and keep the complete
   pure-projection cache block frozen.
-- [ ] **Step 11: Run GREEN and adjacent typecheck regressions.**
+- [x] **Step 11: Run GREEN and adjacent typecheck regressions.**
 
   ```bash
   pytest -q \
@@ -526,7 +526,7 @@ Before Task 1:
     tests/test_workflow_lisp_build_in_memory.py
   ```
 
-- [ ] **Step 12: Run the first exact grep gates.**
+- [x] **Step 12: Run the first exact grep gates.**
 
   ```bash
   if rg -n \
@@ -547,7 +547,7 @@ Before Task 1:
   fi
   ```
 
-- [ ] **Step 13: Review and commit.**
+- [x] **Step 13: Review and commit.**
   Stage only Task 1 paths/hunks, preserving every M0 hunk. Obtain ordered
   specification then quality approval, commit exact reviewed bytes, and rerun
   the selector.
@@ -579,7 +579,7 @@ unchanged; no mutable compile-phase global remains in Task 1 owners.
 - Modify: `tests/test_workflow_lisp_stdlib_form_migration.py`
 - Modify: `tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py`
 
-- [ ] **Step 1: Reconfirm current path ownership.**
+- [x] **Step 1: Reconfirm current path ownership.**
   Recheck active Q/M work and current file hashes. Before the first MR-4 edit
   to `lowering/context.py`, reconcile its M0 refusal-diagnosability hunk
   against the complete landed M0 diff and its first-touch baseline; later stage
@@ -589,23 +589,23 @@ unchanged; no mutable compile-phase global remains in Task 1 owners.
   Task 2 must not modify or recreate them. The only permitted Task 2 WCC edit
   is the top-level context-construction carrier hunk in
   `wcc/defunctionalize.py`; do not refactor WCC middle-end algorithms.
-- [ ] **Step 2: Write lowering-session RED tests.**
+- [x] **Step 2: Write lowering-session RED tests.**
   Compile two LEGACY workflows and two WCC_M4 workflows in alternating order
   with explicit sessions. Assert `_LoweringContext` always exposes the current
   lowering sub-session, child procedure contexts preserve its object identity,
   and no context from compile A is reachable from compile B.
-- [ ] **Step 3: Write intrinsic-count RED tests.**
+- [x] **Step 3: Write intrinsic-count RED tests.**
   Exercise each existing compatibility-lane counter. Counts aggregate inside
   one lowering session, begin empty for a second session, and do not affect
   emitted workflow bytes. Replace reset/read test helpers with explicit
   session-taking APIs or direct immutable snapshots; no no-argument global
   fallback is allowed.
-- [ ] **Step 4: Write build-seam RED tests.**
+- [x] **Step 4: Write build-seam RED tests.**
   Observe `build._compile_entry -> compile_stage3_entrypoint` and prove one
   fresh session per `_compile_entry` call, including a compile that raises.
   Prove direct `compile_stage3_module` gets the same fresh-session behavior and
   no longer depends on the linked-entry loop reset.
-- [ ] **Step 5: Prove RED is intentional.**
+- [x] **Step 5: Prove RED is intentional.**
 
   ```bash
   pytest -q \
@@ -615,17 +615,17 @@ unchanged; no mutable compile-phase global remains in Task 1 owners.
     -k 'lowering_session or intrinsic or compile_entry or direct_module'
   ```
 
-- [ ] **Step 6: Carry lowering state through the production seam.**
+- [x] **Step 6: Carry lowering state through the production seam.**
   Have each public compile/build attempt create or receive one
   `CompilerSession`; pass its lowering sub-session through
   `_lower_workflows_for_route` into the LEGACY and WCC_M4 top-level lowering
   entries and `_LoweringContext`. Child contexts preserve it through
   `dataclasses.replace` and explicit construction.
-- [ ] **Step 7: Remove global intrinsic counts.**
+- [x] **Step 7: Remove global intrinsic counts.**
   Store counts on the lowering sub-session and make record/read/reset helpers
   require that session. Keep counts observational and absent from artifacts,
   identities, diagnostics, and compiler results.
-- [ ] **Step 8: Reverify Task 1's frozen carrier-reader prerequisites.**
+- [x] **Step 8: Reverify Task 1's frozen carrier-reader prerequisites.**
   Prove the bound Task 1 hunks in `lowering/core.py`,
   `lowering/pure_projection.py`, and `wcc/elaborate.py` still read loop
   metadata from the compile-local typecheck session and still pass the
@@ -633,7 +633,7 @@ unchanged; no mutable compile-phase global remains in Task 1 owners.
   Task 2 owns only lowering-session/counter/build-seam carriage; its new
   lowering contexts must preserve the enclosing compiler-session identity
   without changing Task 1's carrier lookup, WCC calculus, or artifacts.
-- [ ] **Step 9: Prove the pure-projection cache is untouched.**
+- [x] **Step 9: Prove the pure-projection cache is untouched.**
   Compare the frozen cache-block hash and run:
 
   ```bash
@@ -642,7 +642,7 @@ unchanged; no mutable compile-phase global remains in Task 1 owners.
 
   The content-addressed process-wide cache must remain behaviorally and
   textually unchanged.
-- [ ] **Step 10: Run GREEN and adjacent lowering regressions.**
+- [x] **Step 10: Run GREEN and adjacent lowering regressions.**
 
   ```bash
   pytest -q \
@@ -657,7 +657,7 @@ unchanged; no mutable compile-phase global remains in Task 1 owners.
     tests/test_workflow_lisp_build_in_memory.py
   ```
 
-- [ ] **Step 11: Run exact lowering grep gates.**
+- [x] **Step 11: Run exact lowering grep gates.**
 
   ```bash
   if rg -n \
@@ -676,7 +676,7 @@ unchanged; no mutable compile-phase global remains in Task 1 owners.
 
   Inspect every carrier hit; no hidden module lookup or target-specific
   fallback is permitted.
-- [ ] **Step 12: Review and commit.**
+- [x] **Step 12: Review and commit.**
   Stage only Task 2 exact paths/hunks. Prove the cache block and all unowned
   WCC hunks are absent, and prove Task 1's three frozen carrier-reader hunks
   are byte-unchanged. Obtain ordered specification then quality approval,
@@ -701,26 +701,26 @@ Task 3 is expected to be test-and-record only. If a test exposes a production
 defect, reopen the owning Task 1 or Task 2 files, fix with TDD, and repeat that
 task's ordered reviews before rebuilding the Task 3 candidate.
 
-- [ ] **Step 1: Write LEGACY failure-to-success reentrancy test.**
+- [x] **Step 1: Write LEGACY failure-to-success reentrancy test.**
   In one Python process, compile a source that populates elaboration,
   typecheck, loop-carrier, specialization, and intrinsic-count state, then
   inject a sentinel failure after those owners have run. Restore only the
   injected seam—not compiler state—and compile a distinct valid source under
   LEGACY. Compare its diagnostics, typed artifacts, lowered JSON, source map,
   executable IR, and runtime plan with a fresh-process/fresh-session control.
-- [ ] **Step 2: Write WCC_M4 failure-to-success reentrancy test.**
+- [x] **Step 2: Write WCC_M4 failure-to-success reentrancy test.**
   Repeat the same sequence through WCC_M4. Prove the successful second compile
   equals its isolated control and contains no names, generated carrier types,
   specialization requests, prompt catalog entries, or intrinsic counts from
   the failed first compile.
-- [ ] **Step 3: Write application-entry to library-no-entry test.**
+- [x] **Step 3: Write application-entry to library-no-entry test.**
   Call `build_frontend_bundle_in_memory` twice in one process: first with a
   multi-export application and explicit selected workflow, then with a
   library-only source and no selection. Assert the second result has
   `entry_selection=None`, `selected_workflow_name=None`, no runnable bundle,
   and only its own diagnostics/artifacts. Reverse the order as a negative
   control.
-- [ ] **Step 4: Write real LSP-process sequential-recompile test.**
+- [x] **Step 4: Write real LSP-process sequential-recompile test.**
   Extend the existing real-process integration owner rather than the transport
   protocol module. Start one `_LspProcess` over stdio. Compile a valid source,
   edit it to a failure that exercises stateful compiler paths, observe the
@@ -729,7 +729,7 @@ task's ordered reviews before rebuilding the Task 3 candidate.
   completion surface with a fresh-server control for those exact final bytes.
   Assert no first-generation names, generated carriers, diagnostics, or
   callable entries survive. Do not add or change LSP entry-selection behavior.
-- [ ] **Step 5: Run collection and focused reentrancy gates.**
+- [x] **Step 5: Run collection and focused reentrancy gates.**
 
   ```bash
   pytest --collect-only -q \
@@ -740,7 +740,7 @@ task's ordered reviews before rebuilding the Task 3 candidate.
     -k 'compiler_session or reentrancy or sequential_recompile'
   ```
 
-- [ ] **Step 6: Run the complete affected compiler/LSP gate in tmux.**
+- [x] **Step 6: Run the complete affected compiler/LSP gate in tmux.**
 
   ```bash
   pytest -q \
@@ -759,7 +759,7 @@ task's ordered reviews before rebuilding the Task 3 candidate.
     tests/test_workflow_lisp_lsp_integration.py
   ```
 
-- [ ] **Step 7: Run final mutable-global structural and grep gates.**
+- [x] **Step 7: Run final mutable-global structural and grep gates.**
   Run the AST structural test over every compile-path module. Then run:
 
   ```bash
@@ -787,11 +787,11 @@ task's ordered reviews before rebuilding the Task 3 candidate.
 
   Review the AST allowlist: only immutable registries and existing macro
   ContextVars may remain. No mutable compile-path phase state is allowlisted.
-- [ ] **Step 8: Reverify cache and artifact parity.**
+- [x] **Step 8: Reverify cache and artifact parity.**
   Recheck the pure-projection cache block hash, rerun its focused test, and
   compare representative pre/post LEGACY and WCC_M4 artifacts. Session object
   identity and counters must not appear in serialized output.
-- [ ] **Step 9: Run broad non-security collection in tmux.**
+- [x] **Step 9: Run broad non-security collection in tmux.**
   Save collected node IDs and compare them with the pre-MR-4 control,
   explaining every added/removed node.
 
@@ -821,7 +821,7 @@ task's ordered reviews before rebuilding the Task 3 candidate.
     -k 'not security and not secret and not isolation and not safety'
   ```
 
-- [ ] **Step 10: Run broad non-security suite in tmux.**
+- [x] **Step 10: Run broad non-security suite in tmux.**
 
   ```bash
   pytest -q -n 16 --dist=worksteal \
@@ -869,6 +869,86 @@ compile; one real LSP process recovers to the same current result as a fresh
 server; no mutable compile-path phase global remains; the pure-projection cache
 and serialized compiler artifacts are unchanged; broad non-security evidence
 and ordered holistic reviews approve the exact final tree.
+
+## Factual Execution Record Before Task 3 Reviews
+
+This record describes the uncommitted Task 3 closure candidate on 2026-07-28.
+Task 3 Steps 11–13 remain open until the exact candidate is staged, receives
+ordered holistic specification then quality approval, and is committed without
+post-review edits.
+
+### Bound commits
+
+- The reviewed execution-readiness amendment is
+  `3bfe89adc850d12b4731a9f9081bcfb760e076c7`, tree
+  `a19755b08c9034f16717a63fe1bbfbf70869c7a4`.
+- Task 1 is
+  `bad145cd8e334784c689e13832e1235021812c1e`, tree
+  `4a8b7cbb4482fd7dd271341027215e270542a301`.
+- Task 2 is
+  `33d01003c0711458233667a71e923759d471d8f5`, tree
+  `101459456baf88fb145f11fbf7e4411832ff4543`.
+- Task 3's first broad run exposed six new standalone-helper compatibility
+  failures, so Task 1 reopened rather than weakening or editing those tests.
+  The reviewed corrective commit is
+  `155ffe19d8c11240e477d5ba274089987eb5f163`, tree
+  `66a4db567c40aca851e13092ce8faa9e099f8dc7`. It restores a fresh local
+  `CompilerSession` default at both validation-pipeline helper boundaries
+  while preserving explicitly supplied sessions.
+
+### Task 3 candidate and focused evidence
+
+- The candidate modifies only
+  `tests/test_workflow_lisp_compiler_session_state.py`,
+  `tests/test_workflow_lisp_lsp_integration.py`, and this plan. Before this
+  factual record, the two test-file SHA-256 digests were respectively
+  `8abe53508675ab55ae22c7b57adcb85d6bf18c81807b7fe62793eec7e27a53d9`
+  and
+  `c776a3210e6cbc502da53a69f1a62bfacf109c3a35d6a7a884e2ab4c3f23aa5b`.
+- The compiler-session module collects 30 tests. The required focused selector
+  passes 31 tests with 8 deselected, including LEGACY and WCC_M4
+  failure-after-state parity against isolated subprocess controls,
+  application-to-library selection isolation with the reverse control, and
+  the real `_LspProcess` valid→stateful-failure→different-valid comparison
+  against a fresh server.
+- The affected compiler/LSP gate records 736 passed and the same six failing
+  golden/identity nodes present before MR-4. Its log is
+  `/tmp/mr4-task3-affected-r2.log`, SHA-256
+  `bb89d2955677a49d11dabc8d349544d2c587c5a25dcd373c535a39c54522b23f`.
+- Five AST mutable-root cases pass; both exact mutable-global grep gates return
+  no hits; the pure-projection cache suite passes 4 tests; and the cache
+  definition is byte-unchanged. The only MR-4 difference in that module is the
+  reviewed compile-local loop-carrier lookup. The roadmap-routing suite passes
+  61 tests.
+
+### Collection and broad comparison
+
+- The pre-MR-4 non-security control at the amendment commit recorded 10,733
+  passed, 41 failed, 21 skipped, and 33 warnings in
+  `/tmp/mr4-control.log`, SHA-256
+  `78d58a0ae7d24ee1bbb1be779d4bc04f24582782c74c13ffdf6b71a049ea0744`.
+  A collection-only reconstruction from an archive of that exact commit
+  collected 10,795 selected nodes out of 10,814, with 19 deselected.
+- The post-correction collection gate collected 10,826 selected nodes out of
+  10,845, with 19 deselected. Its log is
+  `/tmp/mr4-task3-collect-r2.log`, SHA-256
+  `19ed0f7867901aba70102013b45b282ccfc3c92bb38bcf82ca0d098ada13ae69`.
+  Exact node comparison has 32 additions and one removal: 30 new
+  compiler-session tests, one real-LSP test, and a one-for-one rename of the
+  existing failed-compile generated-state test. The added and removed lists are
+  `/tmp/mr4-task3-added-nodeids.txt` (SHA-256
+  `aac409792c3288a29bb4cdb01b2341347155109d904aee6e943b8ec7d030e2a1`)
+  and `/tmp/mr4-task3-removed-nodeids.txt` (SHA-256
+  `04358e6d0d9e566776fb43acedaccd9719415288858501d5c9d269a07e9a116a`).
+- The final broad non-security gate records 10,764 passed, 41 failed, 21
+  skipped, and 33 warnings in 157.20 seconds. Its log is
+  `/tmp/mr4-task3-suite-r3.log`, SHA-256
+  `a730ea7d03c2c7aa1c8d8c44633e59ab212c8de4bc188617f6b49bf1d08ad565`.
+  Both exact set differences against the 41 pre-MR-4 failing node IDs are
+  empty. The previously observed six helper-signature failures are absent.
+- Every command above used the plan's explicit security, safety, secrets, and
+  provider-isolation exclusions. No excluded module, test, or behavior entered
+  the candidate.
 
 ## Handoff To L3
 

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import ast
 import inspect
+import json
 from pathlib import Path
+import subprocess
+import sys
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -67,6 +70,98 @@ def _session_type_env(compiler_session: CompilerSession):
         {"String": PrimitiveTypeRef(name="String")},
         session_state=compiler_session.typecheck,
     )
+
+
+def _final_application_source(*, value: str = "final") -> str:
+    return f"""\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.15")
+  (defmodule final_application)
+  (export FinalResult final-output)
+  (defrecord FinalResult (value String))
+  (defworkflow final-output () -> FinalResult
+    (command-result final-command
+      :argv ("python" "scripts/final.py" "{value}")
+      :returns FinalResult)))
+"""
+
+
+def _compiled_artifact_snapshot(
+    source_path: Path,
+    workspace_root: Path,
+    lowering_route: str,
+) -> dict[str, object]:
+    """Return every serialized compiler surface covered by MR-4 parity."""
+
+    from orchestrator.workflow_lisp import build
+
+    command_boundaries_path = source_path.parent / "final_commands.json"
+    result = build.build_frontend_bundle_in_memory(
+        build.FrontendBuildRequest(
+            source_path=source_path,
+            source_roots=(source_path.parent,),
+            entry_workflow="final-output",
+            workspace_root=workspace_root,
+            lowering_route=lowering_route,
+            command_boundaries_path=(
+                command_boundaries_path
+                if command_boundaries_path.exists()
+                else None
+            ),
+        )
+    )
+    assert result.entry_selection is not None
+    return {
+        "diagnostics": [
+            build._json_data(diagnostic)
+            for diagnostic in result.diagnostics
+        ],
+        "typed_artifacts": build._serialize_typed_frontend_ast(
+            result.compile_result
+        ),
+        "lowered_json": build._serialize_lowered_workflows(
+            result.compile_result
+        ),
+        "source_map": result.source_map_payload,
+        "executable_ir": result.executable_ir_payload,
+        "runtime_plan": result.runtime_plan_payload,
+    }
+
+
+def _isolated_compiled_artifact_snapshot(
+    source_path: Path,
+    workspace_root: Path,
+    lowering_route: str,
+) -> dict[str, object]:
+    script = "\n".join(
+        (
+            "import json",
+            "from pathlib import Path",
+            "import sys",
+            "from tests.test_workflow_lisp_compiler_session_state import (",
+            "    _compiled_artifact_snapshot,",
+            ")",
+            "print(json.dumps(_compiled_artifact_snapshot(",
+            "    Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]",
+            "), sort_keys=True))",
+        )
+    )
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(source_path),
+            str(workspace_root),
+            lowering_route,
+        ],
+        cwd=Path.cwd(),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return cast("dict[str, object]", json.loads(completed.stdout))
 
 
 def test_compiler_session_owns_distinct_compile_phase_state() -> None:
@@ -942,6 +1037,10 @@ def test_compiler_session_annotations_use_stable_concrete_types() -> None:
             "orchestrator/workflow_lisp/procedure_typecheck.py",
             {"_ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS"},
         ),
+        (
+            "orchestrator/workflow_lisp/lowering/control_dispatch.py",
+            {"_INTRINSIC_FORM_LOWERING_COUNTS"},
+        ),
     ],
 )
 def test_task1_owners_have_no_module_level_mutable_phase_roots(
@@ -1345,3 +1444,299 @@ def test_build_compile_entry_uses_fresh_session_after_failure(
     assert all(isinstance(session, CompilerSession) for session in seen_sessions)
     assert seen_sessions[0] is not seen_sessions[1]
     assert entry_selection is None
+
+
+class _InjectedPostLoweringFailure(RuntimeError):
+    pass
+
+
+def _assert_failure_then_success_matches_isolated_control(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    lowering_route: str,
+) -> None:
+    from orchestrator.workflow_lisp import (
+        compiler,
+        expressions,
+        procedure_typecheck,
+    )
+    from orchestrator.workflow_lisp.compiler_session import CompilerSession
+    from tests.workflow_lisp_command_boundaries import (
+        validate_review_findings_v1_binding,
+    )
+
+    failed_source = (
+        Path("tests")
+        / "fixtures"
+        / "workflow_lisp"
+        / "valid"
+        / "phase_stdlib_review_loop.orc"
+    )
+    final_source = tmp_path / "final_application.orc"
+    _write_module(final_source, _final_application_source())
+    _write_module(
+        tmp_path / "final_commands.json",
+        json.dumps(
+            {
+                "final-command": {
+                    "kind": "external_tool",
+                    "stable_command": ["python", "scripts/final.py"],
+                }
+            },
+            sort_keys=True,
+        )
+        + "\n",
+    )
+    elaboration_state_ids: set[int] = set()
+    specialization_names: set[str] = set()
+    original_elaborate = expressions._elaborate
+    original_consume = (
+        procedure_typecheck.consume_parametric_specialization_requests
+    )
+    original_lower = compiler._lower_workflows_for_route
+    failed_session: CompilerSession | None = None
+
+    def observe_elaboration(*args, **kwargs):
+        state = kwargs["session_state"]
+        elaboration_state_ids.add(id(state))
+        assert state.prompt_catalog is not None
+        return original_elaborate(*args, **kwargs)
+
+    def observe_specializations(session_state):
+        specialization_names.update(
+            session_state.parametric_specialization_requests
+        )
+        return original_consume(session_state)
+
+    def fail_after_stateful_lowering(**kwargs):
+        nonlocal failed_session
+        lowered = original_lower(**kwargs)
+        if not kwargs["typed_workflows"]:
+            return lowered
+        failed_session = kwargs["compiler_session"]
+        assert failed_session.typecheck.loop_carrier_metadata_by_name
+        assert failed_session.typecheck.loop_carrier_metadata_by_expr_key
+        assert any(
+            procedure.specialization is not None
+            for procedure in kwargs["typed_procedures"]
+        )
+        if lowering_route == "legacy":
+            assert (
+                failed_session.lowering.intrinsic_form_lowering_counts[
+                    "with-phase"
+                ]
+                == 1
+            )
+        else:
+            assert (
+                failed_session.lowering.intrinsic_form_lowering_counts == {}
+            )
+        assert lowered
+        raise _InjectedPostLoweringFailure(lowering_route)
+
+    monkeypatch.setattr(expressions, "_elaborate", observe_elaboration)
+    monkeypatch.setattr(
+        procedure_typecheck,
+        "consume_parametric_specialization_requests",
+        observe_specializations,
+    )
+    monkeypatch.setattr(
+        compiler,
+        "_lower_workflows_for_route",
+        fail_after_stateful_lowering,
+    )
+
+    with pytest.raises(_InjectedPostLoweringFailure):
+        compile_stage3_module(
+            failed_source,
+            provider_externs={
+                "providers.review": "fake-review",
+                "providers.fix": "fake-fix",
+            },
+            prompt_externs={
+                "prompts.implementation.review": (
+                    "prompts/implementation/review.md"
+                ),
+                "prompts.implementation.fix": (
+                    "prompts/implementation/fix.md"
+                ),
+            },
+            command_boundaries={
+                "validate_review_findings_v1": (
+                    validate_review_findings_v1_binding()
+                )
+            },
+            validate_shared=False,
+            workspace_root=tmp_path,
+            lowering_route=lowering_route,
+        )
+
+    assert failed_session is not None
+    assert len(elaboration_state_ids) == 1
+    assert specialization_names
+
+    # Restore the injected failure seam, but deliberately retain no compiler
+    # state cleanup between the failed compile and the next public build.
+    monkeypatch.setattr(
+        compiler,
+        "_lower_workflows_for_route",
+        original_lower,
+    )
+    actual = _compiled_artifact_snapshot(
+        final_source,
+        tmp_path,
+        lowering_route,
+    )
+    isolated = _isolated_compiled_artifact_snapshot(
+        final_source,
+        tmp_path,
+        lowering_route,
+    )
+
+    assert actual == isolated
+    serialized = json.dumps(actual, sort_keys=True)
+    assert "phase_stdlib_review_loop" not in serialized
+    assert "review-revise-loop" not in serialized
+    assert "%loop-state." not in serialized
+    assert "%parametric_call." not in serialized
+    assert "with-phase" not in serialized
+    assert "CompilerSession" not in serialized
+    assert "intrinsic_form_lowering_counts" not in serialized
+    assert (
+        failed_session.lowering.intrinsic_form_lowering_counts
+        == (
+            {"with-phase": 1}
+            if lowering_route == "legacy"
+            else {}
+        )
+    )
+
+
+def test_legacy_failure_reentrancy_matches_isolated_success_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _assert_failure_then_success_matches_isolated_control(
+        tmp_path,
+        monkeypatch,
+        lowering_route="legacy",
+    )
+
+
+def test_wcc_m4_failure_reentrancy_matches_isolated_success_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _assert_failure_then_success_matches_isolated_control(
+        tmp_path,
+        monkeypatch,
+        lowering_route="wcc_m4",
+    )
+
+
+def _library_only_source(procedure_name: str) -> str:
+    return f"""\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.15")
+  (defmodule library_only)
+  (export {procedure_name})
+  (defproc {procedure_name}
+    ((value String))
+    -> String
+    :effects ()
+    :lowering inline
+    value))
+"""
+
+
+def _multi_export_application_source() -> str:
+    return """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.15")
+  (defmodule multi_export)
+  (export first selected)
+  (defworkflow first () -> String "first")
+  (defworkflow selected () -> String "selected"))
+"""
+
+
+def test_application_selection_reentrancy_does_not_bleed_into_library_build(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp import build
+
+    application_path = tmp_path / "multi_export.orc"
+    library_path = tmp_path / "library_only.orc"
+    _write_module(application_path, _multi_export_application_source())
+    _write_module(library_path, _library_only_source("library-helper"))
+    application_request = build.FrontendBuildRequest(
+        source_path=application_path,
+        source_roots=(tmp_path,),
+        entry_workflow="selected",
+        workspace_root=tmp_path,
+    )
+    library_request = build.FrontendBuildRequest(
+        source_path=library_path,
+        source_roots=(tmp_path,),
+        workspace_root=tmp_path,
+    )
+
+    library_reverse_control = build.build_frontend_bundle_in_memory(
+        library_request
+    )
+    application_after_library = build.build_frontend_bundle_in_memory(
+        application_request
+    )
+    application = build.build_frontend_bundle_in_memory(application_request)
+    library_after_application = build.build_frontend_bundle_in_memory(
+        library_request
+    )
+
+    assert application.entry_selection is not None
+    assert application.entry_selection.requested_name == "selected"
+    assert application.entry_selection.selected_name == (
+        "multi_export::selected"
+    )
+    assert application.selected_workflow_name == "multi_export::selected"
+    for library in (library_after_application, library_reverse_control):
+        assert library.entry_selection is None
+        assert library.selected_workflow_name is None
+        assert library.validated_bundle is None
+        assert library.fingerprint is None
+        assert library.source_map_payload is None
+        assert library.semantic_ir_payload is None
+        assert library.executable_ir_payload is None
+        assert library.runtime_plan_payload is None
+        assert library.diagnostics == ()
+        assert set(library.compile_result.compiled_results_by_name) == {
+            "library_only"
+        }
+        assert set(
+            library.compile_result.entry_result
+            .procedure_catalog.signatures_by_name
+        ) == {
+            "library-helper",
+            "library_only::library-helper",
+        }
+        assert (
+            library.compile_result.entry_result
+            .workflow_catalog.signatures_by_name
+            == {}
+        )
+    assert (
+        build._serialize_typed_frontend_ast(
+            library_after_application.compile_result
+        )
+        == build._serialize_typed_frontend_ast(
+            library_reverse_control.compile_result
+        )
+    )
+    assert application_after_library.entry_selection == (
+        application.entry_selection
+    )
+    assert application_after_library.selected_workflow_name == (
+        "multi_export::selected"
+    )
