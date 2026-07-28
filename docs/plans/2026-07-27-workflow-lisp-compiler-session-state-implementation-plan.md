@@ -29,6 +29,16 @@ LSP JSON-RPC stdio, pytest/pytest-xdist, and tmux for long gates.
 
 ## Authority And Plan Status
 
+The original component plan passed ordered review and landed at `95c5dced`
+(restored byte-identically after a concurrent-index race at `b344350d`).
+This execution-readiness amendment reconciles the governing MR-4 paragraph
+with L0's earlier content-addressed cache correction, adds two omitted
+loop-carrier consumers, relocates the real-process proof to its owning
+integration module, and rebases the collision record through completed M0 and
+Q5. Production work may begin only after these exact amended bytes pass a new
+ordered independent specification review followed by a distinct quality
+review.
+
 This component plan implements only MR-4 from:
 
 - `docs/plans/2026-07-26-provider-at-least-once-loosening-amendment.md`
@@ -185,6 +195,8 @@ Per-compile session and elaboration/typecheck owners:
 - `orchestrator/workflow_lisp/typecheck_resume.py`
 - `orchestrator/workflow_lisp/procedure_typecheck.py`
 - `orchestrator/workflow_lisp/loop_state.py`
+- `orchestrator/workflow_lisp/type_env.py` — explicit carrier lookup only
+- `orchestrator/workflow_lisp/procedures.py` — explicit carrier lookup only
 
 Lowering carrier owners:
 
@@ -212,16 +224,16 @@ Primary tests:
 - Modify: `tests/test_workflow_lisp_expressions.py`
 - Modify: `tests/test_workflow_lisp_stdlib_form_migration.py`
 - Modify: `tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py`
-- Modify: `tests/test_workflow_lisp_lsp_stdio.py`
+- Modify: `tests/test_workflow_lisp_lsp_integration.py`
 
 Adjacent regression suites are named in each task and need not be edited merely
 to be run.
 
 ## M0 And Concurrent-Edit Entry Gate
 
-M0 is executing concurrently and owns the typecheck-family repair surface.
-No MR-4 task may edit, stage, or commit any of these files until M0 is recorded
-complete:
+M0's typecheck-family repairs landed through `7dcd177c`; the final overlapping
+change is `6182ae48`. MR-4 must treat the following files as
+collision-owned history rather than as an active parallel edit:
 
 ```text
 orchestrator/workflow_lisp/procedure_typecheck.py
@@ -238,8 +250,7 @@ and any other adjacent typecheck owner changed by M0
 ```
 
 The collision gate covers the complete landed M0 diff, not merely its
-typecheck-family subset. At plan drafting, the in-flight
-refusal-diagnosability work includes:
+typecheck-family subset. The completed refusal-diagnosability work includes:
 
 ```text
 orchestrator/workflow_lisp/workflows.py
@@ -255,8 +266,16 @@ adjacent M0 behavior/test owners and must be preserved even though this plan
 does not currently authorize MR-4 edits to them. This census is a lower bound,
 not a substitute for deriving the final landed inventory.
 
-After M0 completion and before Task 1, bind M0's recorded predecessor and final
-commits and enumerate every path in the complete landed M0 range:
+Q5 later changed direct MR-4 seams at `bceb03e4`: `expressions.py`,
+`typecheck_context.py`, `typecheck_effects.py`, `wcc/defunctionalize.py`, and
+`wcc/elaborate.py`. Those committed provider-result paths are current baseline
+behavior. Before touching any of them, recensus the post-Q5 bytes and prove
+session threading preserves every added provider-result field, diagnostic, and
+lowering path. The stopped Task-13 working files do not overlap MR-4
+production owners.
+
+Before Task 1, bind M0's recorded predecessor and final commits and enumerate
+every path in the complete landed M0 range:
 
 ```bash
 git diff --name-status <m0-predecessor>..<m0-final>
@@ -284,7 +303,8 @@ path. MR-4 stages only exact sessionization hunks; no whole-file staging is
 permitted on a collided path. Immediately before each staged candidate, compare
 the current blob and working-file hashes with that first-touch baseline and
 inspect the exact staged hunk to prove every M0 byte remains. If M0 changes a
-planned seam materially, amend and re-review this plan before production edits.
+planned seam materially, or if Q5 changed the seam beyond the recensus above,
+amend and re-review this plan before production edits.
 
 MR-4 may overlap active Q work only after the parent executors confirm exact
 behavioral and file ownership is disjoint. Q1 is complete, satisfying the
@@ -339,10 +359,11 @@ Before Task 1:
 - [ ] Obtain independent specification review of this exact plan; resolve every
   finding and repeat.
 - [ ] Obtain distinct implementation-quality review of the same plan bytes.
-- [ ] Patch-stage only this new file, run `git diff --cached --check`, inspect
-  the complete staged plan, and commit exact reviewed bytes.
-- [ ] Wait for M0 completion, perform the collision audit above, and confirm no
-  M0 agent remains active on typecheck owners.
+- [ ] Patch-stage only this plan, the governing MR-4 paragraph, and its
+  `docs/index.md` route; run `git diff --cached --check`, inspect the complete
+  staged documentation delta, and commit exact reviewed bytes.
+- [ ] Bind the completed M0 range through `7dcd177c`, perform the collision
+  audit above, and confirm no M0 agent remains active on typecheck owners.
 - [ ] Confirm exact disjointness from active Q work.
 - [ ] Record the current blob hash of the pure-projection cache block and run:
 
@@ -371,18 +392,30 @@ Before Task 1:
 - Modify: `orchestrator/workflow_lisp/typecheck_resume.py`
 - Modify: `orchestrator/workflow_lisp/procedure_typecheck.py`
 - Modify: `orchestrator/workflow_lisp/loop_state.py`
+- Modify only explicit loop-carrier lookup seams:
+  `orchestrator/workflow_lisp/type_env.py`
+- Modify only explicit loop-carrier lookup seams:
+  `orchestrator/workflow_lisp/procedures.py`
 - Create: `tests/test_workflow_lisp_compiler_session_state.py`
 - Modify: `tests/test_workflow_lisp_expressions.py`
 
 - [ ] **Step 1: Confirm M0 serialization and recapture collided files.**
-  Do not edit until the M0 gate is satisfied. Derive and read the complete
-  landed M0 diff, then reconcile every overlap, including `workflows.py`,
+  Verify the completed M0 gate and derive/read the complete landed M0 diff,
+  then reconcile every overlap, including `workflows.py`,
   `typecheck_context.py`, and `typecheck_calls.py`, against its first-touch
   HEAD/working-file baseline. Define exact MR-4 hunks against those current
   bytes; preserve the adjacent `lowering/workflow_calls.py` and
   `tests/test_workflow_lisp_lowering.py` M0 work without claiming either path
-  for Task 1.
-- [ ] **Step 2: Write explicit-session structural RED tests.**
+  for Task 1. Recensus the five Q5-touched MR-4 seams against `bceb03e4`.
+- [ ] **Step 2: Write the smallest behavioral RED and explicit-session
+  structural tests.**
+  First add
+  `test_direct_module_sequential_edit_does_not_reuse_loop_carrier_metadata`.
+  In one process, compile one source through direct `compile_stage3_module`
+  so it generates a loop carrier, rewrite the same path to a distinct source
+  that references the old generated name without defining it, and require
+  `type_unknown`. This must fail on the current direct-module path, which does
+  not reset the global carrier maps.
   Require one `CompilerSession` with distinct elaboration/typecheck/lowering
   sub-state. Require `compile_stage3_entrypoint` and direct
   `compile_stage3_module` to create fresh sessions by default, while every
@@ -444,6 +477,8 @@ Before Task 1:
   consume/reset operations require the active typecheck session. Remove
   production reset-at-entry cleanup: freshness now comes from session
   construction, while within-compile consume/reset semantics stay exact.
+  Include the existing carrier readers in `type_env.py` and `procedures.py`;
+  neither may retain a hidden global fallback.
 - [ ] **Step 11: Run GREEN and adjacent typecheck regressions.**
 
   ```bash
@@ -613,7 +648,7 @@ unchanged; the pure-projection cache is untouched.
 **Files:**
 
 - Modify: `tests/test_workflow_lisp_compiler_session_state.py`
-- Modify: `tests/test_workflow_lisp_lsp_stdio.py`
+- Modify: `tests/test_workflow_lisp_lsp_integration.py`
 - Modify:
   `docs/plans/2026-07-27-workflow-lisp-compiler-session-state-implementation-plan.md`
 
@@ -641,13 +676,14 @@ task's ordered reviews before rebuilding the Task 3 candidate.
   and only its own diagnostics/artifacts. Reverse the order as a negative
   control.
 - [ ] **Step 4: Write real LSP-process sequential-recompile test.**
-  Start one `_LspProcess` over stdio. Compile a valid source, edit it to a
-  failure that exercises stateful compiler paths, observe the current failure,
-  then edit it to a different valid source and observe a successful current
-  generation. Compare the last diagnostics/symbol/completion surface with a
-  fresh-server control for that final source. Assert no first-generation names,
-  generated carriers, diagnostics, or callable entries survive. Do not add or
-  change LSP entry-selection behavior.
+  Extend the existing real-process integration owner rather than the transport
+  protocol module. Start one `_LspProcess` over stdio. Compile a valid source,
+  edit it to a failure that exercises stateful compiler paths, observe the
+  current failure, then edit it to a different valid source and observe a
+  successful current generation. Compare the last diagnostics/symbol/
+  completion surface with a fresh-server control for those exact final bytes.
+  Assert no first-generation names, generated carriers, diagnostics, or
+  callable entries survive. Do not add or change LSP entry-selection behavior.
 - [ ] **Step 5: Run collection and focused reentrancy gates.**
 
   ```bash
@@ -655,7 +691,7 @@ task's ordered reviews before rebuilding the Task 3 candidate.
     tests/test_workflow_lisp_compiler_session_state.py
   pytest -q \
     tests/test_workflow_lisp_compiler_session_state.py \
-    tests/test_workflow_lisp_lsp_stdio.py \
+    tests/test_workflow_lisp_lsp_integration.py \
     -k 'compiler_session or reentrancy or sequential_recompile'
   ```
 
@@ -793,9 +829,10 @@ and ordered holistic reviews approve the exact final tree.
 
 This component closes MR-4 only. After the exact final commit, the parent
 roadmap executor may separately and serially update routing authorities to
-record the compile-path reentrancy prerequisite as satisfied. This plan does
-not accept an L3 design, change initialization schema, or start per-source
-entry-selection implementation.
+record the compile-path reentrancy prerequisite as satisfied and replace the
+language-server design's module-global serialization rationale with the
+implemented session contract. This plan does not accept an L3 design, change
+initialization schema, or start per-source entry-selection implementation.
 
 ## Final Completion Checklist
 

@@ -420,13 +420,18 @@ payloads (grep gate); call-frame and resume suites green.
 ### MR-4 — Compiler session state (Q-track-coordinated)
 
 Replace module-global compile-phase registers with an explicit per-compile
-session: elaborator actives (`workflow_lisp/expressions.py:759-826`, nine
-save/mutate/restore globals), carrier metadata (`loop_state.py:42-85`),
-specialization requests (`procedure_typecheck.py:108-122`), intrinsic
-lowering counts (`lowering/control_dispatch.py:73`), and the unbounded
-`lru_cache` over file content (`lowering/pure_projection.py:485-487`) move
-onto session/context objects. Closes a live reentrancy/staleness hazard for
-the long-lived LSP server.
+session: elaborator actives (`workflow_lisp/expressions.py:784-853`, ten
+save/mutate/restore globals after Q1), carrier metadata
+(`loop_state.py:42-143`), specialization requests
+(`procedure_typecheck.py:109-124`), and intrinsic lowering counts
+(`lowering/control_dispatch.py:73-91`) move onto session/context objects.
+Closes a live reentrancy/staleness hazard for the long-lived LSP server.
+The fifth originally scoped item — the path-keyed `lru_cache` over file
+content in `lowering/pure_projection.py` — was confirmed as a live staleness
+bug and fixed ahead of this tranche by L0 (`0549625e`, content-keyed cache
+with both-direction tests). MR-4 inherits that cache as already
+content-correct and does not relocate it merely to make process-local cache
+lifetime match compile-session lifetime.
 
 Entry: scheduled only in coordination with the Q-track and L-series
 owners; not concurrent with Q1 elaboration churn; must complete before or

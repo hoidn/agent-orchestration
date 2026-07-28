@@ -161,6 +161,11 @@ document owns the answer.
 **Keywords:** workflow-lisp, active-roadmap, value, prompt-calculus, prompt-identity, judgments, lsp, diagnostics, navigation, editor-tooling, principle-29
 **Use this when:** Selecting or sequencing current post-Stage-8 work. Q3's implemented target-2.22 surface and closure record are linked here; Q4 remains gated on a bound concrete consumer rather than on missing Q3 mechanics. In L, L5 completion does not satisfy L3's compile-path-reentrancy condition; do not start L3 until MR-4 or an equivalent accepted fixture proves it. Do not select E0, the parked evolution roadmap, shelved parsimony candidates, or P1–P5 from this route.
 
+### [Workflow Lisp Compiler Session State Implementation Plan](plans/2026-07-27-workflow-lisp-compiler-session-state-implementation-plan.md)
+**Description:** Reviewed MR-4 component plan for replacing mutable compiler-phase globals with one explicit per-compile session and proving direct-module, linked LEGACY/WCC_M4, and real-process LSP reentrancy.
+**Keywords:** workflow-lisp, compiler, session-state, reentrancy, lsp, mr-4
+**Use this when:** Executing or reviewing the MR-4 prerequisite for L3. The plan does not select L3 or change per-source entry-selection policy.
+
 ### [Workflow Lisp Evolution Follow-On Roadmap](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md)
 **Description:** Parked, non-active E0-E5 historical proposal whose durable program-search boundaries were extracted; none of its tranches is selectable.
 **Keywords:** workflow-lisp, evolution, variants, trials, genetic-search, prompt-evolution, roadmap
