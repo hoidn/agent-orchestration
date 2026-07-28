@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+import hashlib
 import inspect
+import json
 from pathlib import Path
 
 import pytest
@@ -12,6 +14,7 @@ from orchestrator.providers.interactive_terminal import (
     NoBackendAllocationProof,
     PhasedFailedCleanupEvidence,
 )
+from orchestrator.workflow.prompting import CanonicalPromptCut
 from orchestrator.workflow.provider_phased_delivery.models import (
     AdapterReceiptProjection,
     ByteDigestProjection,
@@ -26,12 +29,25 @@ from orchestrator.workflow.provider_phased_delivery.models import (
     TurnProjection,
     validated_start_outcome,
 )
+from orchestrator.workflow.provider_phased_delivery.diagnostics import (
+    DiagnosticSource,
+    PhasedDeliveryDiagnostic,
+    RejectedValue,
+    diagnostic_definition,
+)
+from orchestrator.workflow.provider_phased_delivery.frames import (
+    RenderedProtocolTurn,
+    render_initial_materialization_turn,
+    render_retry_materialization_turn,
+    render_task_turn,
+)
 
 
 _EMPTY_KEYS_SHA256 = (
     "sha256:"
     "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
 )
+_PROTOCOL_FRAME_SCHEMA_VERSION = "provider_phased_protocol_frame.v1"
 
 
 def _digest(token: str = "a") -> str:
@@ -735,3 +751,360 @@ def test_foundational_record_constructor_surfaces_are_exact_and_closed() -> None
             missing.pop(required)
             with pytest.raises(TypeError):
                 record_type(**missing)
+
+
+def _projection(payload: bytes) -> ByteDigestProjection:
+    return ByteDigestProjection(
+        bytes=len(payload),
+        sha256=f"sha256:{hashlib.sha256(payload).hexdigest()}",
+    )
+
+
+def _composition(
+    task_slice: bytes,
+    materialization_slice: bytes,
+) -> CompositionProjection:
+    return CompositionProjection(
+        canonical_composed=_projection(task_slice + materialization_slice),
+        task_slice=_projection(task_slice),
+        materialization_slice=_projection(materialization_slice),
+    )
+
+
+def _cut(
+    task_slice: bytes = b"task",
+    materialization_slice: bytes = b"\n\ncontract",
+) -> CanonicalPromptCut:
+    return CanonicalPromptCut(
+        task_slice=task_slice,
+        materialization_slice=materialization_slice,
+        canonical_composed=task_slice + materialization_slice,
+        projection=_composition(task_slice, materialization_slice),
+    )
+
+
+def _canonical_frame(payload: dict[str, object]) -> bytes:
+    return (
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("utf-8", errors="strict")
+        + b"\n\n"
+    )
+
+
+def _validation_diagnostic(
+    reason: str,
+    validation_code: str,
+) -> PhasedDeliveryDiagnostic:
+    definition = diagnostic_definition(reason)
+    return PhasedDeliveryDiagnostic(
+        code=definition.code,
+        reason=reason,
+        rejected_value=RejectedValue(
+            type="validation_code",
+            canonical_value=validation_code,
+            summary=reason,
+        ),
+        primary_source=DiagnosticSource(
+            kind="runtime_attempt",
+            owner="q2_output_contract",
+            path=None,
+            span=None,
+        ),
+        related_sources=(
+            DiagnosticSource(
+                kind="runtime_attempt",
+                owner="runtime_step",
+                path=None,
+                span=None,
+            ),
+            DiagnosticSource(
+                kind="runtime_attempt",
+                owner="candidate_set",
+                path=None,
+                span=None,
+            ),
+            DiagnosticSource(
+                kind="runtime_attempt",
+                owner="phase_lifecycle",
+                path=None,
+                span=None,
+            ),
+        ),
+    )
+
+
+def test_task_protocol_frame_accounts_exact_bytes_without_changing_c() -> None:
+    task_slice = "Inspect café.".encode("utf-8", errors="strict")
+    materialization_slice = b"\n\n<contract/>"
+    cut = _cut(task_slice, materialization_slice)
+    expected_frame = _canonical_frame(
+        {
+            "phase": "task",
+            "protocol_schema_version": _PROTOCOL_FRAME_SCHEMA_VERSION,
+            "task_action": "execute_once",
+            "transition": "await_materialization_turn",
+        }
+    )
+
+    rendered = render_task_turn(cut=cut)
+
+    assert type(rendered) is RenderedProtocolTurn
+    assert rendered.protocol_frame == expected_frame
+    assert rendered.canonical_slice == task_slice
+    assert rendered.delivered_turn == expected_frame + task_slice
+    assert rendered.projection.delivery_ordinal == 0
+    assert rendered.projection.submission_ordinal is None
+    assert rendered.projection.protocol_frame == _projection(expected_frame)
+    assert rendered.projection.canonical_slice == cut.projection.task_slice
+    assert rendered.projection.delivered_turn == _projection(
+        expected_frame + task_slice
+    )
+    assert rendered.projection.submit_keys == CountDigestProjection(
+        count=0,
+        sha256=_EMPTY_KEYS_SHA256,
+    )
+    assert cut.projection.canonical_composed == _projection(
+        task_slice + materialization_slice
+    )
+
+
+def test_initial_materialization_frame_accounts_submit_keys_and_exact_t2() -> None:
+    task_slice = b"task"
+    materialization_slice = b"\n\ncontract"
+    cut = _cut(task_slice, materialization_slice)
+    submit_keys = ("ENTER",)
+    expected_frame = _canonical_frame(
+        {
+            "candidate_action": "recreate_all_bound_outputs",
+            "phase": "initial_materialization",
+            "protocol_schema_version": _PROTOCOL_FRAME_SCHEMA_VERSION,
+            "submission_ordinal": 1,
+            "submit_command": "orchestrator provider-materialization-submit",
+        }
+    )
+
+    rendered = render_initial_materialization_turn(
+        cut=cut,
+        submit_keys=submit_keys,
+    )
+
+    assert rendered.protocol_frame == expected_frame
+    assert rendered.canonical_slice == materialization_slice
+    assert rendered.delivered_turn == expected_frame + materialization_slice
+    assert rendered.projection.delivery_ordinal == 1
+    assert rendered.projection.phase == "initial_materialization"
+    assert rendered.projection.submission_ordinal == 1
+    assert rendered.projection.protocol_frame == _projection(expected_frame)
+    assert rendered.projection.canonical_slice == (
+        cut.projection.materialization_slice
+    )
+    assert rendered.projection.delivered_turn == _projection(
+        expected_frame + materialization_slice
+    )
+    submit_key_payload = json.dumps(
+        list(submit_keys),
+        separators=(",", ":"),
+    ).encode("utf-8")
+    assert rendered.projection.submit_keys == CountDigestProjection(
+        count=1,
+        sha256=f"sha256:{hashlib.sha256(submit_key_payload).hexdigest()}",
+    )
+
+
+def test_retry_frame_contains_bounded_named_diagnostics_and_reuses_t2() -> None:
+    task_slice = b"task"
+    materialization_slice = b"\n\ncontract"
+    cut = _cut(task_slice, materialization_slice)
+    diagnostics = (
+        _validation_diagnostic(
+            "output_validation_failed",
+            "missing_output_file",
+        ),
+        _validation_diagnostic(
+            "structured_result_validation_failed",
+            "invalid_integer",
+        ),
+    )
+    expected_frame = _canonical_frame(
+        {
+            "candidate_action": "recreate_all_bound_outputs",
+            "diagnostics": [
+                {
+                    "code": diagnostic.code,
+                    "reason": diagnostic.reason,
+                    "rejected_value": {
+                        "canonical_value": (
+                            diagnostic.rejected_value.canonical_value
+                        ),
+                        "type": diagnostic.rejected_value.type,
+                    },
+                }
+                for diagnostic in diagnostics
+            ],
+            "phase": "retry_materialization",
+            "protocol_schema_version": _PROTOCOL_FRAME_SCHEMA_VERSION,
+            "submission_ordinal": 2,
+            "submit_command": "orchestrator provider-materialization-submit",
+        }
+    )
+
+    rendered = render_retry_materialization_turn(
+        cut=cut,
+        submission_ordinal=2,
+        diagnostics=diagnostics,
+        submit_keys=("TAB",),
+    )
+
+    assert rendered.protocol_frame == expected_frame
+    assert rendered.canonical_slice == materialization_slice
+    assert rendered.delivered_turn == expected_frame + materialization_slice
+    assert rendered.projection.delivery_ordinal == 2
+    assert rendered.projection.phase == "retry_materialization"
+    assert rendered.projection.submission_ordinal == 2
+    assert rendered.projection.canonical_slice == (
+        cut.projection.materialization_slice
+    )
+    assert cut.projection.canonical_composed == _projection(
+        task_slice + materialization_slice
+    )
+    assert rendered.protocol_frame not in task_slice + materialization_slice
+
+
+@pytest.mark.parametrize(
+    "factory",
+    (
+        lambda cut: render_task_turn(
+            cut=object(),  # type: ignore[arg-type]
+        ),
+        lambda cut: render_initial_materialization_turn(
+            cut=cut,
+            submit_keys=(),
+        ),
+        lambda cut: render_initial_materialization_turn(
+            cut=cut,
+            submit_keys=(1,),  # type: ignore[arg-type]
+        ),
+        lambda cut: render_retry_materialization_turn(
+            cut=cut,
+            submission_ordinal=1,
+            diagnostics=(
+                _validation_diagnostic(
+                    "output_validation_failed",
+                    "missing_output_file",
+                ),
+            ),
+            submit_keys=("ENTER",),
+        ),
+        lambda cut: render_retry_materialization_turn(
+            cut=cut,
+            submission_ordinal=4,
+            diagnostics=(
+                _validation_diagnostic(
+                    "output_validation_failed",
+                    "missing_output_file",
+                ),
+            ),
+            submit_keys=("ENTER",),
+        ),
+        lambda cut: render_initial_materialization_turn(
+            cut=cut,
+            submit_keys=("SPACE",),
+        ),
+        lambda cut: render_retry_materialization_turn(
+            cut=cut,
+            submission_ordinal=2,
+            diagnostics=(
+                _validation_diagnostic(
+                    "structured_result_validation_failed",
+                    "invalid_integer",
+                ),
+                _validation_diagnostic(
+                    "output_validation_failed",
+                    "missing_output_file",
+                ),
+            ),
+            submit_keys=("ENTER",),
+        ),
+        lambda cut: render_retry_materialization_turn(
+            cut=cut,
+            submission_ordinal=2,
+            diagnostics=(),
+            submit_keys=("ENTER",),
+        ),
+        lambda cut: render_retry_materialization_turn(
+            cut=cut,
+            submission_ordinal=2,
+            diagnostics=(
+                _validation_diagnostic(
+                    "output_validation_failed",
+                    "missing_output_file",
+                ),
+                _validation_diagnostic(
+                    "output_validation_failed",
+                    "invalid_relpath",
+                ),
+            ),
+            submit_keys=("ENTER",),
+        ),
+    ),
+)
+def test_protocol_frame_inputs_fail_closed(factory) -> None:
+    with pytest.raises((TypeError, ValueError)):
+        factory(_cut())
+
+
+@pytest.mark.parametrize(
+    "factory",
+    (
+        lambda cut: render_initial_materialization_turn(
+            cut=cut,
+            submit_keys=("ENTER",),
+        ),
+        lambda cut: render_retry_materialization_turn(
+            cut=cut,
+            submission_ordinal=2,
+            diagnostics=(
+                _validation_diagnostic(
+                    "output_validation_failed",
+                    "missing_output_file",
+                ),
+            ),
+            submit_keys=("ENTER",),
+        ),
+    ),
+)
+def test_materialization_frames_reject_empty_t2(factory) -> None:
+    with pytest.raises(ValueError, match="contract suffix"):
+        factory(_cut(materialization_slice=b""))
+
+
+def test_rendered_protocol_turn_is_factory_only() -> None:
+    with pytest.raises(TypeError):
+        RenderedProtocolTurn()
+
+    with pytest.raises(TypeError):
+        RenderedProtocolTurn(
+            protocol_frame=b"not-a-canonical-protocol-frame",
+            canonical_slice=b"task",
+            delivered_turn=b"not-a-canonical-protocol-frametask",
+            projection=TurnProjection(
+                delivery_ordinal=0,
+                phase="task",
+                submission_ordinal=None,
+                protocol_frame=_projection(
+                    b"not-a-canonical-protocol-frame"
+                ),
+                canonical_slice=_projection(b"task"),
+                delivered_turn=_projection(
+                    b"not-a-canonical-protocol-frametask"
+                ),
+                submit_keys=CountDigestProjection(
+                    count=0,
+                    sha256=_EMPTY_KEYS_SHA256,
+                ),
+            ),
+        )

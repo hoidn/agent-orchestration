@@ -2,7 +2,7 @@
 
 import json
 import hashlib
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 
@@ -16,7 +16,15 @@ from orchestrator.contracts.prompt_contract import (
 from orchestrator.deps.content_snapshot import build_content_snapshot
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.prompting import PromptComposer
+from orchestrator.workflow.prompting import (
+    CanonicalPromptCut,
+    PromptComposer,
+    RuntimeContributionComposition,
+)
+from orchestrator.workflow.provider_phased_delivery.models import (
+    ByteDigestProjection,
+    CompositionProjection,
+)
 from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from tests.prompt_contract_test_helpers import parse_prompt_contract_document
@@ -65,6 +73,320 @@ def _expected_output_contract_rows(prompt_block: str) -> list[dict[str, str]]:
             key, value = line.strip().split(": ", 1)
             rows[-1][key] = value
     return rows
+
+
+def _q5_structured_contract(*, with_guidance: bool = False) -> dict[str, object]:
+    field: dict[str, object] = {
+        "name": "approved",
+        "json_pointer": "/approved",
+        "type": "bool",
+    }
+    if with_guidance:
+        field.update(
+            {
+                "description": "Field-specific semantic context.",
+                "format_hint": "A canonical JSON Boolean.",
+                "example": True,
+            }
+        )
+    return {
+        "path": "state/result.json",
+        "fields": [field],
+    }
+
+
+@pytest.mark.parametrize("prompt", ("", "task", "task\n"))
+@pytest.mark.parametrize("contract_level", ("q1", "q2"))
+def test_phased_canonical_cut_partitions_the_existing_single_render(
+    tmp_path: Path,
+    prompt: str,
+    contract_level: str,
+) -> None:
+    structured_contract = _q5_structured_contract()
+    step: dict[str, object] = {"output_bundle": structured_contract}
+    blocks = [render_output_bundle_contract_block(structured_contract)]
+    if contract_level == "q2":
+        expected_outputs = [
+            {
+                "name": "report",
+                "path": "artifacts/report.md",
+                "type": "relpath",
+            }
+        ]
+        step["expected_outputs"] = expected_outputs
+        blocks.insert(0, render_output_contract_block(expected_outputs))
+    block = "\n\n".join(blocks)
+    separator = "" if not prompt else ("\n" if prompt.endswith("\n") else "\n\n")
+    expected_suffix = (separator + block).encode("utf-8", errors="strict")
+
+    cut = PromptComposer(
+        workspace=tmp_path,
+        asset_resolver=None,
+    ).apply_output_contract_prompt_suffix_with_cut(step, prompt)
+
+    assert type(cut) is CanonicalPromptCut
+    assert cut.task_slice == prompt.encode("utf-8", errors="strict")
+    assert cut.materialization_slice == expected_suffix
+    assert cut.canonical_composed == cut.task_slice + cut.materialization_slice
+    assert cut.canonical_composed.decode("utf-8", errors="strict") == (
+        prompt + separator + block
+    )
+    assert cut.projection.task_slice.bytes == len(cut.task_slice)
+    assert cut.projection.materialization_slice.bytes == len(
+        cut.materialization_slice
+    )
+    assert cut.projection.canonical_composed.bytes == len(
+        cut.canonical_composed
+    )
+    for payload, projection in (
+        (cut.task_slice, cut.projection.task_slice),
+        (cut.materialization_slice, cut.projection.materialization_slice),
+        (cut.canonical_composed, cut.projection.canonical_composed),
+    ):
+        assert projection.sha256 == f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
+@pytest.mark.parametrize("with_guidance", (False, True))
+def test_phased_canonical_cut_retains_structured_contract_variants_in_t2(
+    tmp_path: Path,
+    with_guidance: bool,
+) -> None:
+    contract = _q5_structured_contract(with_guidance=with_guidance)
+    prompt = "rendered-fragment"
+    expected_block = render_output_bundle_contract_block(contract)
+
+    cut = PromptComposer(
+        workspace=tmp_path,
+        asset_resolver=None,
+    ).apply_output_contract_prompt_suffix_with_cut(
+        {"output_bundle": contract},
+        prompt,
+    )
+
+    assert cut.task_slice == prompt.encode("utf-8")
+    assert cut.materialization_slice == f"\n\n{expected_block}".encode("utf-8")
+    assert cut.canonical_composed == cut.task_slice + cut.materialization_slice
+
+
+@pytest.mark.parametrize(
+    ("variant", "base_prompt"),
+    (
+        ("disabled", "rendered-fragment"),
+        ("empty", ""),
+        ("prepend", "rendered-fragment"),
+        ("append", "rendered-fragment"),
+    ),
+)
+def test_phased_canonical_cut_keeps_actual_consumed_artifact_variants_in_t1(
+    tmp_path: Path,
+    variant: str,
+    base_prompt: str,
+) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+    step: dict[str, object] = {
+        "consumes": [{"artifact": "context"}],
+        "output_bundle": _q5_structured_contract(),
+    }
+    resolved = {"root.review": {"context": "retained-value"}}
+    if variant == "disabled":
+        step["inject_consumes"] = False
+    elif variant == "empty":
+        resolved = {}
+    else:
+        step["consumes_injection_position"] = variant
+    prompt = composer.apply_consumes_prompt_injection(
+        step,
+        base_prompt,
+        resolved_consumes=resolved,
+        step_name="Review",
+        consume_identity="root.review",
+        uses_qualified_identities=True,
+    )
+    contract = _q5_structured_contract()
+
+    cut = composer.apply_output_contract_prompt_suffix_with_cut(
+        {"output_bundle": contract},
+        prompt,
+    )
+
+    assert cut.task_slice == prompt.encode("utf-8", errors="strict")
+    assert cut.canonical_composed == cut.task_slice + cut.materialization_slice
+
+
+def test_phased_canonical_cut_renders_contract_contributions_once(
+    tmp_path: Path,
+) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+    calls = 0
+    original = composer._output_contract_contributions
+
+    def counted(step):
+        nonlocal calls
+        calls += 1
+        return original(step)
+
+    composer._output_contract_contributions = counted  # type: ignore[method-assign]
+
+    cut = composer.apply_output_contract_prompt_suffix_with_cut(
+        {"output_bundle": _q5_structured_contract()},
+        "task",
+    )
+
+    assert calls == 1
+    assert cut.canonical_composed == cut.task_slice + cut.materialization_slice
+
+
+@pytest.mark.parametrize("prompt", ("", "task", "task\n"))
+@pytest.mark.parametrize("contract_level", ("q1", "q2"))
+def test_traced_and_untraced_suffix_owners_are_byte_identical(
+    tmp_path: Path,
+    prompt: str,
+    contract_level: str,
+) -> None:
+    step: dict[str, object] = {
+        "output_bundle": _q5_structured_contract(),
+    }
+    if contract_level == "q2":
+        step["expected_outputs"] = [
+            {
+                "name": "report",
+                "path": "artifacts/report.md",
+                "type": "relpath",
+            }
+        ]
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+
+    ordinary = composer.apply_output_contract_prompt_suffix(step, prompt)
+    traced = composer.apply_output_contract_prompt_suffix_with_trace(
+        step,
+        RuntimeContributionComposition(
+            base_prompt=prompt,
+            prompt=prompt,
+        ),
+    )
+    cut = composer.apply_output_contract_prompt_suffix_with_cut(step, prompt)
+
+    assert traced.prompt == ordinary
+    assert cut.canonical_composed == ordinary.encode("utf-8", errors="strict")
+    assert b"".join(segment.segment for segment in traced.segments) == (
+        cut.materialization_slice
+    )
+
+
+def test_phased_canonical_cut_rejects_non_utf8_prompt_before_contract_render(
+    tmp_path: Path,
+) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+
+    with pytest.raises(UnicodeEncodeError):
+        composer.apply_output_contract_prompt_suffix_with_cut(
+            {"output_bundle": _q5_structured_contract()},
+            "\ud800",
+        )
+
+
+def _valid_direct_cut() -> CanonicalPromptCut:
+    task = b"task"
+    materialization = b"\n\ncontract"
+    composed = task + materialization
+    return CanonicalPromptCut(
+        task_slice=task,
+        materialization_slice=materialization,
+        canonical_composed=composed,
+        projection=CompositionProjection(
+            canonical_composed=ByteDigestProjection(
+                bytes=len(composed),
+                sha256=f"sha256:{hashlib.sha256(composed).hexdigest()}",
+            ),
+            task_slice=ByteDigestProjection(
+                bytes=len(task),
+                sha256=f"sha256:{hashlib.sha256(task).hexdigest()}",
+            ),
+            materialization_slice=ByteDigestProjection(
+                bytes=len(materialization),
+                sha256=(
+                    f"sha256:{hashlib.sha256(materialization).hexdigest()}"
+                ),
+            ),
+        ),
+    )
+
+
+def test_phased_canonical_cut_is_frozen() -> None:
+    cut = _valid_direct_cut()
+
+    with pytest.raises(FrozenInstanceError):
+        cut.task_slice = b"changed"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    (
+        {
+            "task_slice": "task",
+            "materialization_slice": b"\n\ncontract",
+            "canonical_composed": b"task\n\ncontract",
+        },
+        {
+            "task_slice": b"\xff",
+            "materialization_slice": b"\n\ncontract",
+            "canonical_composed": b"\xff\n\ncontract",
+        },
+        {
+            "task_slice": b"task",
+            "materialization_slice": b"\n\ncontract",
+            "canonical_composed": b"different",
+        },
+    ),
+)
+def test_phased_canonical_cut_rejects_invalid_direct_bytes(kwargs) -> None:
+    with pytest.raises((TypeError, ValueError, UnicodeDecodeError)):
+        CanonicalPromptCut(
+            **kwargs,
+            projection=_valid_direct_cut().projection,
+        )
+
+
+def test_phased_canonical_cut_rejects_wrong_projection_type() -> None:
+    with pytest.raises(TypeError, match="CompositionProjection"):
+        CanonicalPromptCut(
+            task_slice=b"task",
+            materialization_slice=b"\n\ncontract",
+            canonical_composed=b"task\n\ncontract",
+            projection=object(),  # type: ignore[arg-type]
+        )
+
+
+def test_phased_canonical_cut_rejects_mismatched_direct_projection() -> None:
+    with pytest.raises(ValueError, match="projection"):
+        CanonicalPromptCut(
+            task_slice=b"task",
+            materialization_slice=b"\n\ncontract",
+            canonical_composed=b"task\n\ncontract",
+            projection=CompositionProjection(
+                canonical_composed=ByteDigestProjection(
+                    bytes=15,
+                    sha256=(
+                        "sha256:"
+                        "0000000000000000000000000000000000000000000000000000000000000000"
+                    ),
+                ),
+                task_slice=ByteDigestProjection(
+                    bytes=4,
+                    sha256=(
+                        "sha256:"
+                        "0000000000000000000000000000000000000000000000000000000000000000"
+                    ),
+                ),
+                materialization_slice=ByteDigestProjection(
+                    bytes=11,
+                    sha256=(
+                        "sha256:"
+                        "0000000000000000000000000000000000000000000000000000000000000000"
+                    ),
+                ),
+            ),
+        )
 
 
 @pytest.mark.parametrize("structured_contract_name", ("output_bundle", "variant_output"))

@@ -32,6 +32,10 @@ from .prompt_fragment_contract import (
     validate_compiler_prompt_attempt_binding_plan,
     validate_compiler_prompt_fragment_contract,
 )
+from .provider_phased_delivery.models import (
+    ByteDigestProjection,
+    CompositionProjection,
+)
 from .pure_expr import canonical_json_for_pure_value
 from .view_renderer import (
     ViewRendererError,
@@ -155,6 +159,56 @@ class RuntimeContributionComposition:
     base_prompt: str
     prompt: str
     segments: tuple[RuntimeContributionSegment, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalPromptCut:
+    """The exact strict-UTF-8 partition of one canonical prompt rendering."""
+
+    task_slice: bytes
+    materialization_slice: bytes
+    canonical_composed: bytes
+    projection: CompositionProjection
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "task_slice",
+            "materialization_slice",
+            "canonical_composed",
+        ):
+            payload = getattr(self, field_name)
+            if type(payload) is not bytes:
+                raise TypeError(f"{field_name} must be exact bytes")
+            payload.decode("utf-8", errors="strict")
+        if self.canonical_composed != (
+            self.task_slice + self.materialization_slice
+        ):
+            raise ValueError(
+                "canonical_composed must equal task_slice plus "
+                "materialization_slice"
+            )
+        if type(self.projection) is not CompositionProjection:
+            raise TypeError("projection must be an exact CompositionProjection")
+        for payload, projected in (
+            (self.task_slice, self.projection.task_slice),
+            (
+                self.materialization_slice,
+                self.projection.materialization_slice,
+            ),
+            (
+                self.canonical_composed,
+                self.projection.canonical_composed,
+            ),
+        ):
+            if projected != _prompt_byte_projection(payload):
+                raise ValueError("projection does not describe canonical bytes")
+
+
+def _prompt_byte_projection(payload: bytes) -> ByteDigestProjection:
+    return ByteDigestProjection(
+        bytes=len(payload),
+        sha256=f"sha256:{sha256(payload).hexdigest()}",
+    )
 
 
 def validate_runtime_contribution_composition(
@@ -691,18 +745,63 @@ class PromptComposer:
 
     def apply_output_contract_prompt_suffix(self, step: RuntimeStepInput, prompt: str) -> str:
         """Append deterministic output contract instructions to provider prompts."""
-        contract_blocks = self._output_contract_contributions(step)
-        if not contract_blocks:
-            return prompt
-        contract_block = "\n\n".join(
-            block for _kind, block in contract_blocks
+        insertions = self._output_contract_insertions(
+            prompt,
+            self._output_contract_contributions(step),
+        )
+        return prompt + "".join(
+            inserted for _kind, inserted in insertions
         )
 
-        if not prompt:
-            return contract_block
-        if prompt.endswith("\n"):
-            return f"{prompt}\n{contract_block}"
-        return f"{prompt}\n\n{contract_block}"
+    @staticmethod
+    def _output_contract_insertions(
+        prompt: str,
+        contributions: list[tuple[str, str]],
+    ) -> list[tuple[str, str]]:
+        """Return separator-inclusive insertions for the canonical suffix."""
+
+        insertions: list[tuple[str, str]] = []
+        for index, (kind, block) in enumerate(contributions):
+            if index:
+                separator = "\n\n"
+            elif not prompt:
+                separator = ""
+            elif prompt.endswith("\n"):
+                separator = "\n"
+            else:
+                separator = "\n\n"
+            insertions.append((kind, separator + block))
+        return insertions
+
+    def apply_output_contract_prompt_suffix_with_cut(
+        self,
+        step: RuntimeStepInput,
+        prompt: str,
+    ) -> CanonicalPromptCut:
+        """Render once and expose the exact Q5 task/materialization byte cut."""
+
+        task_slice = prompt.encode("utf-8", errors="strict")
+        canonical_composed = self.apply_output_contract_prompt_suffix(
+            step,
+            prompt,
+        ).encode("utf-8", errors="strict")
+        if not canonical_composed.startswith(task_slice):
+            raise ValueError(
+                "output contract suffix owner changed the task prefix"
+            )
+        materialization_slice = canonical_composed[len(task_slice):]
+        return CanonicalPromptCut(
+            task_slice=task_slice,
+            materialization_slice=materialization_slice,
+            canonical_composed=canonical_composed,
+            projection=CompositionProjection(
+                canonical_composed=_prompt_byte_projection(canonical_composed),
+                task_slice=_prompt_byte_projection(task_slice),
+                materialization_slice=_prompt_byte_projection(
+                    materialization_slice
+                ),
+            ),
+        )
 
     @staticmethod
     def _output_contract_contributions(
@@ -747,15 +846,11 @@ class PromptComposer:
         validate_runtime_contribution_composition(composition)
         prompt = composition.prompt
         segments = list(composition.segments)
-        for kind, block in self._output_contract_contributions(step):
-            if not block:
-                continue
-            if not prompt:
-                inserted = block
-            elif prompt.endswith("\n"):
-                inserted = f"\n{block}"
-            else:
-                inserted = f"\n\n{block}"
+        insertions = self._output_contract_insertions(
+            prompt,
+            self._output_contract_contributions(step),
+        )
+        for kind, inserted in insertions:
             segment = RuntimeContributionSegment(
                 kind=kind,
                 position="append",
