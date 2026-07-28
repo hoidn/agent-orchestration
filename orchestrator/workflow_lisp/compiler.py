@@ -1279,8 +1279,10 @@ def _run_stage3_entrypoint_validation_pipeline(
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
     source_read_trace: SourceReadTrace | None = None,
     _module_graph_read_attempt_id: int | None = None,
-    compiler_session: CompilerSession,
+    compiler_session: CompilerSession | None = None,
 ) -> tuple[LinkedStage3CompileResult | None, tuple[object, ...]]:
+    if compiler_session is None:
+        compiler_session = CompilerSession()
     normalized_validation_profile = _normalize_stage3_validation_profile(
         validate_shared=validate_shared,
         validation_profile=validation_profile,
@@ -1636,8 +1638,10 @@ def _run_stage3_validation_pipeline(
     lowering_route: LoweringRoute | str | None = None,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
     source_read_trace: SourceReadTrace | None = None,
-    compiler_session: CompilerSession,
+    compiler_session: CompilerSession | None = None,
 ) -> tuple[ValidationPipelineState, tuple[object, ...]]:
+    if compiler_session is None:
+        compiler_session = CompilerSession()
     normalized_validation_profile = _normalize_stage3_validation_profile(
         validate_shared=validate_shared,
         validation_profile=validation_profile,
