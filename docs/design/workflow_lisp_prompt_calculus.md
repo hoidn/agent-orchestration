@@ -1,12 +1,13 @@
 # Workflow Lisp Prompt Calculus
 
-- **Status:** accepted and implemented Q1 and Q2 designs
+- **Status:** accepted and implemented Q1, Q2, and Q3 designs
 - **Kind:** language design — typed, compositional provider prompts
 - **Owner:** Workflow Lisp frontend plus the existing provider prompt pipeline
-- **Selected tranches:** Q1 prompt core and Q2 output positions are implemented;
-  the Q3 design is accepted and its implementation-plan gate is next
+- **Selected tranches:** Q1 prompt core, Q2 output positions, and Q3
+  prompt-attempt identity/diagnostics are implemented
 - **Minimum targets:** Q1 `(:target-dsl "2.20")`; Q2 additive syntax
-  `(:target-dsl "2.21")`
+  `(:target-dsl "2.21")`; Q3 evidence/runtime behavior
+  `(:target-dsl "2.22")`
 - **Q2 design reviews:** independent specification rereview
   `Q2_DESIGN_SPEC_REAPPROVED`, then independent quality review
   `Q2_DESIGN_QUALITY_APPROVED` (2026-07-26)
@@ -843,6 +844,9 @@ Q2 adds no:
 - change to Q1-only rendering, identity bytes, evidence schema, or resume; or
 - security/provider-isolation behavior.
 
-The accepted Q3 role-separated identity/diagnostics target design now routes
-next to its reviewed implementation-plan gate. Its acceptance does not expose
-Q3 runtime behavior or pre-accept Q4.
+The accepted Q3 role-separated identity/diagnostics target is implemented for
+direct fragment-backed target-2.22 calls. The compiler-owned
+identity-version/binding-plan pair, one-render traces, content-free five-role
+functional-v2 evidence, prelaunch publication, fixed-order comparison, and
+additive `prompt_context` report projection are shipped. They remain
+provenance only and do not pre-accept Q4 judgment views.

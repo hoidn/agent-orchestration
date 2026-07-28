@@ -22,7 +22,7 @@ snippets are structural notation for that mapping, not accepted fresh workflow
 source.
 
 - Top-level workflow keys
-  - `version`: string (supported revisions extend through `"2.21"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (supported revisions extend through `"2.22"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -537,6 +537,34 @@ source.
       `prompt_output_positions_require_dsl_2_21`. A prompt application without
       `:out` retains the exact target-2.20 v1 identity, carrier, diagnostics,
       and behavior even when compiled at target 2.21.
+
+  - Workflow Lisp prompt-attempt identity and diagnostics (target 2.22):
+    - Every direct fragment-backed `provider-result` carries the exact pair
+      `prompt_attempt_identity_version =
+      "workflow_prompt_attempt_identity.v1"` and
+      `compiler_prompt_attempt_binding_plan.v1`. Targets 2.20 and 2.21 omit
+      both fields byte-for-byte.
+    - The compiler-owned binding plan is declaration ordered and agrees
+      exactly with the existing document, rendered-slot, renderer, refinement,
+      and output-position carriers. Runtime never reconstructs it from source.
+    - Missing, malformed, or disagreeing version/plan carriers fail before
+      provider preparation with the exact diagnostics
+      `prompt_attempt_identity_version_missing`,
+      `prompt_attempt_identity_version_invalid`,
+      `prompt_attempt_identity_version_mismatch`,
+      `prompt_attempt_binding_plan_missing`,
+      `prompt_attempt_binding_plan_invalid`, or
+      `prompt_attempt_binding_plan_mismatch`.
+    - The remaining closed runtime diagnostics are
+      `prompt_attempt_identity_role_invalid`,
+      `prompt_attempt_identity_policy_invalid`,
+      `prompt_attempt_identity_final_prompt_mismatch`,
+      `prompt_attempt_identity_composition_invalid`, and
+      `prompt_identity_composition_mismatch`.
+    - These carriers and records are compiler/runtime evidence surfaces, not
+      caller-authored fields, workflow values, result contracts, checkpoint
+      results, or resume guards. Coordinated-provider and non-fragment calls
+      are outside target 2.22 Q3.
 
   - reusable-call contract boundary:
     - Task 10 reserves `imports`, `call`, `with`, `asset_file`, and `asset_depends_on` semantics before execution support lands.

@@ -1285,6 +1285,21 @@ An application containing `:out` uses
 It also uses the closed `compiler_prompt_fragment_contract.v2` carrier defined
 in Section 22.7; Q1-only applications retain the exact v1 carrier bytes.
 
+### 8.7.3 Implemented Prompt-Attempt Identity (Target 2.22)
+
+Q3 adds no authored form. Selecting target 2.22 for a direct fragment-backed
+`provider-result` requires the compiler/runtime carrier pair
+`workflow_prompt_attempt_identity.v1` and
+`compiler_prompt_attempt_binding_plan.v1`. The binding plan retains exact
+declaration order and existing dependency, renderer, refinement, and output
+role authority; runtime never reconstructs it from source. Targets 2.20 and
+2.21 omit the pair and preserve their existing bytes.
+
+The detailed record, role, comparison, failure, report, and compatibility
+contract is `workflow_lisp_prompt_identity_diagnostics.md`. This target does
+not add prompt values, judgments, coordinated-provider fragments, or identity
+for arbitrary provider calls.
+
 ### 8.8 `defproc`
 
 Defines reusable effectful workflow procedure.
@@ -2618,6 +2633,32 @@ a general correspondence between output slots and arbitrary result fields.
 Q2 excludes arbitrary file content schemas, optional files, directories, globs,
 dynamic output names or sets, call-site overrides, implicit result-field
 mapping, new runtime channels, and any change to Q1-only identities or behavior.
+
+### 22.8 Implemented Prompt-Attempt Identity And Diagnostics (Target 2.22)
+
+The unchanged Q1/Q2 compiled fragment digest supplies the `fragment_program`
+role. One declaration-ordered binding plan and the existing render,
+dependency, composition, and invocation owners supply four additional closed
+roles: `resolved_bindings`, `injected_dependencies`,
+`runtime_contributions`, and `provider_policy`. Q3 seals their digests with
+the exact prepared final-prompt digest and composition digest without
+persisting prompt bodies, values, dependency content, commands, environment,
+or ambient workspace identity.
+
+The successful order is allocate, render/snapshot/compose once, prepare the
+exact invocation and policy, validate and publish
+`workflow_prompt_fragment_snapshot.functional.v2`, then launch. Preparation
+failure publishes the closed Q3 failure record; publication failure leaves an
+ordinary allocation-only gap; neither launches a provider.
+
+The pure comparator reports unchanged context or fixed-order instruction,
+input, dependency-content, runtime-prelude, and provider-policy drift. Equal
+role digests with unequal final-prompt digests fail closed. JSON and Markdown
+reports expose the content-free result under additive `prompt_context`,
+including running attempts, but never become execution, result, checkpoint,
+retry, or resume authority. Target-2.20/2.21 compiler, checkpoint, runtime,
+functional-v1 evidence, provider, result, and completed-boundary reuse remain
+compatible.
 
 ## 23. Command Result
 
@@ -5474,11 +5515,10 @@ identity carriage, runtime rendering through the existing prompt composer,
 schema-2.1 fragment snapshots, and compatible completed-boundary resume.
 
 The migrated `review-design-docs` review call is the current real consumer.
-Its fix call remains extern-backed. Q2 output positions are implemented. The
-accepted Q3 target design covers role-separated identity/comparison, but Q3
-remains unimplemented pending its reviewed implementation-plan gate. Q4
-judgment views remain a separate successor tranche. Accepted target-design
-text is not evidence of shipped syntax.
+Its fix call remains extern-backed. Q2 output positions and Q3
+prompt-attempt identity/diagnostics are implemented. Q3 adds no authored
+syntax beyond selecting target 2.22 for the direct fragment-backed call. Q4
+judgment views remain a separate successor tranche.
 
 ## 105.7 Implemented Prompt Output Positions
 
@@ -5498,6 +5538,18 @@ for missing file versus invalid bundle; checkpoint/resume reuse and drift
 checks; and a real `review-design-docs` E2E. The E2E must show one authored
 target fill drives both prompt rendering and the required-file postcondition
 without weakening the prompt-owned `ReviewDecision`.
+
+## 105.8 Implemented Prompt-Attempt Identity And Diagnostics
+
+Q3 is implemented at target 2.22 through the exact carrier/binding-plan
+carriage, one-render fragment and typed-evidence reuse, pure closed roles and
+comparison, functional-v2/preparation-failure evidence, prelaunch publication,
+and allocator-derived JSON/Markdown reporting described in Sections 8.7.3 and
+22.8. Deterministic retry evidence proves independent input, dependency,
+runtime-contribution, and provider-policy drift in fixed order; target-2.20 and
+2.21 controls preserve their execution bytes and project validated v1 evidence
+as `legacy_snapshot`. The surface remains direct-fragment-only and
+non-authoritative.
 
 ## Part XIX. Resolved Design Decisions
 

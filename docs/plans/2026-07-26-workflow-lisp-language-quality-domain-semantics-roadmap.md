@@ -75,8 +75,8 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | Q0 | Transportable `Value` prerequisite | Stage 8 complete; owner prerequisite decision recorded | accepted design; reviewed implementation plan; target-2.19 implementation with direct-root, loader, runtime, resume, classic/WCC, docs, and broad non-security evidence | complete — reviewed target-2.19 implementation and evidence gate closed at `020c6138` |
 | Q1 | Prompt core | Q0 complete; prompt-calculus design corrected and accepted | target-gated `defprompt`, imports, closed slot kinds, fully applied named fills, exact discharge/placeholder diagnostics, prompt-carried result derivation, deterministic flattening through existing prompt composition, one migrated real consumer | complete — implementation through `af45c4f1`; exact-tree gates and ordered final reviews accepted |
 | Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | complete — implementation through `d0bb9a1d`; clean Task-7 closure after exact `a40b536c`/`4e2c4911` boundary repair; ordered final reviews accepted |
-| Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | next — accepted design and [reviewed implementation plan](2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md); implementation not started |
-| Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | blocked by Q3 completion |
+| Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | complete — target-2.22 carrier, one-render trace, content-free five-role evidence, prelaunch publication, fixed comparison, additive reports, compatibility E2E, and closure under the [reviewed implementation plan](2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md) |
+| Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | blocked on binding the concrete generic-reviewer/panel consumer; Q3 prerequisite complete |
 | Q5 | Phased contract delivery | proposed target-2.23 design pending independent specification review; implemented Q1/Q2 plus landed/accepted Q3 attempt-identity/evidence are cumulative inputs; Q5 has no Q4 judgment dependency and its design review may run beside Q3 implementation; implementation planning requires accepted Q3 plus the closed-outcome deadline-aware production-adapter/target-2.17 compatibility and real same-client adapter probe | explicit `:delivery :phased` plus bounded literal materialization attempts; exact `T1 || T2 == C` cut; identity-v2/evidence-v3 and report-v2 distinction between canonical `C`, legacy final-prompt identity, and ordered actual deliveries; proof-authoritative failed-start T0 with one handle-free Q5 cleanup-evidence union and exact active-handle validation before projecting unchanged adapter proofs; inert pre-start binding/locator values and post-start endpoint binding; T2 cleanup-pending/finished closure with one ingress outcome; full Q2 authority with no early publication; total reason projection with non-null reason-equal summaries; ledger-only digest validation; truthful terminal resource evidence; byte-identical omitted/composed path; real review consumer | proposed — specification review pending, then quality review; no implementation plan until Q3 is landed/accepted and the closed-outcome deadline-aware production adapter compatibility/feasibility probe passes; coordinator invalid-then-valid, report, cleanup/endpoint, and post-join evidence are implementation completion gates |
 
 ### L-Series: Language-Server Debugging Utility
@@ -96,12 +96,15 @@ the accepted Q3 contract. Target 2.23 is nevertheless cumulative: Q5
 implementation planning and implementation require the Q3
 attempt-identity/evidence substrate to have landed and passed its ordered
 acceptance gates. This exception does not select Q5 implementation planning or
-implementation. Q5 has no Q4 judgment dependency. Q0, Q1, and Q2 are
-complete.
+implementation. Q5 has no Q4 judgment dependency. Q0–Q3 are complete.
 Q3's target design is accepted after ordered `Q3_DESIGN_SPEC_APPROVED` then
 `Q3_DESIGN_QUALITY_APPROVED`. Its
 [reviewed implementation plan](2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md)
-is accepted at `ad5474c7`; Q3 implementation is next and has not started.
+is accepted at `ad5474c7`; implementation landed through compiler carriage
+`507e4b58`, persistence/checkpoint `a4304c91`, one-render trace `f29aab84`,
+pure identity `4b03b317`, prelaunch runtime `d3e5031c`, persisted authority
+`1e3b32dc`, and report projection `63eefda5`, followed by Task-7 compatibility,
+documentation, and closure gates.
 L0, L1, and L2 are complete. L2 implementation landed through `70b83f32`,
 `b399c041`, `ee213a43`, and `10e3ccc3`, followed by ordered
 `L2_FINAL_SPEC_APPROVED` then `L2_FINAL_QUALITY_APPROVED`. L5 is selected under
@@ -231,8 +234,10 @@ ordered `Q3_DESIGN_SPEC_APPROVED` then `Q3_DESIGN_QUALITY_APPROVED` over
 immutable snapshot `fdf16f362f93eae89c05600e6954a118270fe7b7` and landed in
 accepted-design commit `9b2aa7ac`. The
 [Q3 implementation plan](2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md)
-is reviewed and accepted at `ad5474c7`; implementation is next, has not
-started, and remains the prerequisite for Q4.
+is reviewed and accepted at `ad5474c7`. Q3 is implemented for direct
+fragment-backed target-2.22 calls and its Task-7 record owns the compatibility,
+documentation, broad non-security, and ordered closure gates. Q4's remaining
+entry gate is its concrete consumer, not missing Q3 machinery.
 
 Q3 is the sole roadmap owner of the E4P role-separation and diagnostic delta.
 The predecessor's separate E4P list item is absorbed here and must not be

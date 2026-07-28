@@ -239,6 +239,30 @@
   This additive contract does not change state schema `2.1` or create another
   result, artifact, checkpoint, snapshot, or recovery channel.
 
+## Target 2.22 Prompt-Attempt Identity State And Resume
+
+- The optional identity-version and compiler binding-plan carriers participate
+  in ordinary target-2.22 program/configuration and lexical-checkpoint
+  compatibility. A direct fragment-backed target-2.22 boundary requires the
+  exact pair through persisted provider configuration and `RuntimeStep`.
+- The root-owned provider-attempt allocation remains the sole ordinal/event
+  authority. Each successfully prepared attempt publishes one closed
+  `workflow_prompt_fragment_snapshot.functional.v2` before launch. A provider
+  policy that cannot be prepared publishes the closed Q3 preparation-failure
+  record; failed publication leaves an ordinary allocation-only gap.
+- The v2 snapshot retains and validates the complete v1 projection, then adds
+  the five-role attempt identity with exact cross-field equality for final
+  prompt, compiled fragment, document rows, shown groups, and injection.
+  Content-addressed publication and report-time loading both fail closed on a
+  malformed, open, tampered, or mismatched record.
+- Attempt identity records, role digests, comparisons, and `prompt_context`
+  reports are non-authoritative. Compatible completed-result reuse uses the
+  existing source, root, call-frame, bound-input, checkpoint,
+  result-contract, and completed-boundary guards without reading Q3 evidence.
+  A pending or failed boundary allocates a fresh attempt and evidence record.
+- Target-2.20/2.21 state, checkpoints, functional-v1 evidence, and reuse stay
+  byte-compatible. Q3 does not change state schema `2.1`.
+
 ## Workflow Lisp Typed Prompt-Input Evidence
 
 - Each provider invocation's prompt composition returns one closed, validated

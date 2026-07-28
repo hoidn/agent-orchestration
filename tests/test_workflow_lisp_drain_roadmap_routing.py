@@ -1186,10 +1186,12 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "| Q3 |",
     )
     normalized_q3_row = _normalized_routing_text(q3_row)
-    assert "next" in normalized_q3_row
-    assert "accepted design" in normalized_q3_row
+    assert "complete" in normalized_q3_row
+    assert "target 2.22 carrier" in normalized_q3_row
+    assert "content free five role evidence" in normalized_q3_row
+    assert "prelaunch publication" in normalized_q3_row
+    assert "compatibility e2e" in normalized_q3_row
     assert "reviewed implementation plan" in normalized_q3_row
-    assert "implementation not started" in normalized_q3_row
     assert Path(PROMPT_IDENTITY_PLAN_PATH).name in q3_row
     assert "no q3 design is accepted" not in normalized_q3_row
     assert "blocked by q2" not in normalized_q3_row
@@ -1197,7 +1199,11 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
         "| Q4 |",
     )
-    assert "blocked by q3 completion" in _normalized_routing_text(q4_row)
+    normalized_q4_row = _normalized_routing_text(q4_row)
+    assert "q3 prerequisite complete" in normalized_q4_row
+    assert "blocked on binding the concrete generic reviewer/panel consumer" in (
+        normalized_q4_row
+    )
     normalized_q3_design_status = _normalized_routing_text(
         "\n".join(q3_design.splitlines()[:24])
     )
@@ -1213,17 +1219,21 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     normalized_q3_design_router_row = _normalized_routing_text(
         q3_design_router_row
     )
-    assert "| Accepted design |" in q3_design_router_row
-    assert "implementation is next" in normalized_q3_design_router_row
+    assert "| Implemented |" in q3_design_router_row
+    assert "functional v2" in normalized_q3_design_router_row
+    assert "prelaunch publication" in normalized_q3_design_router_row
     assert Path(PROMPT_IDENTITY_PLAN_PATH).name in q3_design_router_row
     q3_capability_row = _markdown_table_row(
         capability_matrix_path,
         "Workflow Lisp prompt identity diagnostics Q3",
     )
     normalized_q3_capability_row = _normalized_routing_text(q3_capability_row)
-    assert "| Designed |" in q3_capability_row
-    assert "not implemented" in normalized_q3_capability_row
-    assert "not implemented or authoring guidance" in normalized_q3_capability_row
+    assert "| Implemented |" in q3_capability_row
+    assert "direct fragment backed target 2.22" in (
+        normalized_q3_capability_row
+    )
+    assert "functional v2" in normalized_q3_capability_row
+    assert "fixed order comparison" in normalized_q3_capability_row
     assert Path(PROMPT_IDENTITY_PLAN_PATH).name in q3_capability_row
     normalized_index = _normalized_routing_text(index)
     prompt_identity_index = _normalized_routing_text(
@@ -1232,11 +1242,9 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
             "### [Workflow Lisp Prompt Identity Diagnostics]",
         )
     )
-    assert "accepted target 2.22 q3 design" in prompt_identity_index
-    assert "reviewed implementation plan" in prompt_identity_index
-    assert "accepted" in prompt_identity_index
-    assert "implementation is next" in prompt_identity_index
-    assert "q3 remains unimplemented" in prompt_identity_index
+    assert "implemented target 2.22 q3 design" in prompt_identity_index
+    assert "content free" in prompt_identity_index
+    assert "direct fragment only" in prompt_identity_index
     assert Path(PROMPT_IDENTITY_PLAN_PATH).name in index
     assert "# Workflow Lisp Prompt Identity And Diagnostics Implementation Plan" in (
         q3_plan
@@ -1245,7 +1253,10 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         REPO_ROOT / "docs" / "design" / "workflow_lisp_prompt_calculus.md"
     ).read_text(encoding="utf-8")
     normalized_prompt_calculus = _normalized_routing_text(prompt_calculus)
-    assert "q3 design is accepted" in normalized_prompt_calculus
+    assert "q3 prompt attempt identity/diagnostics are implemented" in (
+        normalized_prompt_calculus
+    )
+    assert 'target dsl "2.22"' in normalized_prompt_calculus
     frontend = (
         REPO_ROOT
         / "docs"
@@ -1253,8 +1264,10 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         / "workflow_lisp_frontend_specification.md"
     ).read_text(encoding="utf-8")
     normalized_frontend = _normalized_routing_text(frontend)
-    assert "accepted q3 target design" in normalized_frontend
-    assert "q3 remains unimplemented" in normalized_frontend
+    assert "implemented prompt attempt identity and diagnostics" in (
+        normalized_frontend
+    )
+    assert "functional v2" in normalized_frontend
     q2_capability_row = _markdown_table_row(
         capability_matrix_path,
         "Workflow Lisp prompt calculus Q2 output positions",
@@ -1455,12 +1468,9 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         )
     )
     assert "active post stage 8 selector" in normalized_successor_index
-    assert "q0, q1, and q2 are complete" in normalized_successor_index
-    assert "q3 design" in normalized_successor_index
-    assert "reviewed implementation plan" in normalized_successor_index
-    assert "accepted" in normalized_successor_index
-    assert "q3 implementation is next" in normalized_successor_index
-    assert "q3 remains unimplemented" in normalized_successor_index
+    assert "q0 q3 are implemented" in normalized_successor_index
+    assert "q3 closes under its reviewed plan" in normalized_successor_index
+    assert "q4 still needs its concrete consumer" in normalized_successor_index
     assert Path(PROMPT_IDENTITY_PLAN_PATH).name in index
     assert "l1 authored symbols/signatures, and l2 recovery safe static completion are complete" in (
         normalized_successor_index
@@ -1480,18 +1490,20 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     normalized_prompt_design_row = _normalized_routing_text(prompt_design_row)
     assert "| Implemented |" in prompt_design_row
-    assert "bounded q1 and q2 surfaces" in normalized_prompt_design_row
-    assert "target 2.21" in normalized_prompt_design_row
+    assert "bounded q1 q3 surfaces" in normalized_prompt_design_row
+    assert "target 2.22" in normalized_prompt_design_row
     normalized_prompt_index = _normalized_routing_text(
         _markdown_heading_section(
             index,
             "### [Workflow Lisp Prompt Calculus]",
         )
     )
-    assert "implemented target 2.20 q1 prompt core and target 2.21 q2 output positions" in (
+    assert "implemented target 2.20 q1 prompt core, target 2.21 q2 output positions, and target 2.22 q3 prompt attempt identity/diagnostics" in (
         normalized_prompt_index
     )
-    assert "available for authoring" in normalized_prompt_index
+    assert "authoring or reviewing the bounded q1 q3 surfaces" in (
+        normalized_prompt_index
+    )
     assert "partial application" in normalized_prompt_index
     assert "excludes" in normalized_prompt_index
 
@@ -1504,6 +1516,26 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "implemented target 2.19" in normalized_value_index
     assert "available for authoring" in normalized_value_index
     assert "not yet available" not in normalized_value_index
+
+
+def test_historical_q2_index_routes_current_selection_to_remaining_entry_gates() -> None:
+    index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    q2_section = _markdown_heading_section(
+        index,
+        "### [Workflow Lisp Prompt Output Positions Implementation Plan]",
+    )
+    normalized_q2_section = _normalized_routing_text(q2_section)
+
+    assert "q3" in normalized_q2_section
+    assert "closed" in normalized_q2_section
+    assert Path(LANGUAGE_QUALITY_ROADMAP_PATH).name in q2_section
+    assert "active" in normalized_q2_section
+    assert "language quality roadmap" in normalized_q2_section
+    assert "remaining entry gates" in normalized_q2_section
+    assert (
+        "current q series selection starts with q3 implementation"
+        not in normalized_q2_section
+    )
 
 
 def test_transportable_value_normative_owners_close_the_public_contract() -> None:
@@ -1662,7 +1694,7 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
         )
     )
     assert "implemented target 2.20" in prompt_index
-    assert "available for authoring" in prompt_index
+    assert "authoring or reviewing the bounded q1 q3 surfaces" in prompt_index
     assert "implementation plan next" not in prompt_index
 
     active_roadmap_index = _normalized_routing_text(
@@ -1671,12 +1703,9 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
             "### [Workflow Lisp Language Quality And Domain Semantics Roadmap]",
         )
     )
-    assert "q0, q1, and q2 are complete" in active_roadmap_index
-    assert "q3 design" in active_roadmap_index
-    assert "reviewed implementation plan" in active_roadmap_index
-    assert "accepted" in active_roadmap_index
-    assert "q3 implementation is next" in active_roadmap_index
-    assert "q3 remains unimplemented" in active_roadmap_index
+    assert "q0 q3 are implemented" in active_roadmap_index
+    assert "q3 closes under its reviewed plan" in active_roadmap_index
+    assert "q4 still needs its concrete consumer" in active_roadmap_index
     assert "l1 authored symbols/signatures, and l2 recovery safe static completion are complete" in (
         active_roadmap_index
     )
@@ -1791,6 +1820,133 @@ def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> N
     assert "review design docs" in normalized_guide
     assert "one structured result" in normalized_guide
     assert "q3" in normalized_guide
+
+
+def test_prompt_identity_normative_and_authoring_surfaces_ship_q3() -> None:
+    master = (REPO_ROOT / "specs/index.md").read_text(encoding="utf-8")
+    versioning = (REPO_ROOT / "specs/versioning.md").read_text(
+        encoding="utf-8"
+    )
+    dsl = (REPO_ROOT / "specs/dsl.md").read_text(encoding="utf-8")
+    io = (REPO_ROOT / "specs/io.md").read_text(encoding="utf-8")
+    providers = (REPO_ROOT / "specs/providers.md").read_text(
+        encoding="utf-8"
+    )
+    state = (REPO_ROOT / "specs/state.md").read_text(encoding="utf-8")
+    frontend = (
+        REPO_ROOT
+        / "docs"
+        / "design"
+        / "workflow_lisp_frontend_specification.md"
+    ).read_text(encoding="utf-8")
+    prompt_design = (
+        REPO_ROOT / "docs" / "design" / "workflow_lisp_prompt_calculus.md"
+    ).read_text(encoding="utf-8")
+    guide = (REPO_ROOT / "docs/lisp_workflow_drafting_guide.md").read_text(
+        encoding="utf-8"
+    )
+    capability = (
+        REPO_ROOT / "docs/capability_status_matrix.md"
+    ).read_text(encoding="utf-8")
+
+    normalized_master = _normalized_routing_text(master)
+    assert "v1.1 through v2.22" in normalized_master
+    assert "v2.22 adds direct fragment prompt attempt identity" in (
+        normalized_master
+    )
+
+    version_rows = [
+        line
+        for line in versioning.splitlines()
+        if line.startswith("| 2.22 |")
+    ]
+    assert len(version_rows) == 1
+    normalized_version_row = _normalized_routing_text(version_rows[0])
+    assert "functional v2 evidence" in normalized_version_row
+    assert "additive prompt context reports" in normalized_version_row
+    assert "target 2.20/2.21" in normalized_version_row
+
+    normalized_dsl = _normalized_routing_text(dsl)
+    assert "workflow lisp prompt attempt identity and diagnostics" in (
+        normalized_dsl
+    )
+    assert "workflow_prompt_attempt_identity.v1" in dsl
+    assert "compiler_prompt_attempt_binding_plan.v1" in dsl
+    for diagnostic in (
+        "prompt_attempt_identity_version_missing",
+        "prompt_attempt_identity_version_invalid",
+        "prompt_attempt_identity_version_mismatch",
+        "prompt_attempt_binding_plan_missing",
+        "prompt_attempt_binding_plan_invalid",
+        "prompt_attempt_binding_plan_mismatch",
+        "prompt_attempt_identity_role_invalid",
+        "prompt_attempt_identity_policy_invalid",
+        "prompt_attempt_identity_final_prompt_mismatch",
+        "prompt_attempt_identity_composition_invalid",
+        "prompt_identity_composition_mismatch",
+    ):
+        assert diagnostic in dsl
+
+    normalized_io = _normalized_routing_text(io)
+    assert "workflow lisp prompt attempt evidence and report io" in (
+        normalized_io
+    )
+    assert "after successful invocation preparation and before provider launch" in (
+        normalized_io
+    )
+    assert "prompt_context" in io
+
+    normalized_providers = _normalized_routing_text(providers)
+    assert "workflow lisp prompt attempt identity and diagnostics" in (
+        normalized_providers
+    )
+    assert "fragment_program" in providers
+    assert "resolved_bindings" in providers
+    assert "injected_dependencies" in providers
+    assert "runtime_contributions" in providers
+    assert "provider_policy" in providers
+    assert "fixed drift order" in normalized_providers
+
+    normalized_state = _normalized_routing_text(state)
+    assert "target 2.22 prompt attempt identity state and resume" in (
+        normalized_state
+    )
+    assert "state schema 2.1" in normalized_state
+    assert "non authoritative" in normalized_state
+    assert "compatible completed result reuse" in normalized_state
+
+    normalized_frontend = _normalized_routing_text(frontend)
+    assert "implemented prompt attempt identity (target 2.22)" in (
+        normalized_frontend
+    )
+    assert "implemented prompt attempt identity and diagnostics (target 2.22)" in (
+        normalized_frontend
+    )
+    assert "allocator derived json/markdown reporting" in normalized_frontend
+
+    normalized_prompt_design = _normalized_routing_text(prompt_design)
+    assert "accepted and implemented q1, q2, and q3 designs" in (
+        normalized_prompt_design
+    )
+    assert "functional v2 evidence" in normalized_prompt_design
+    assert "provenance only" in normalized_prompt_design
+
+    normalized_guide = _normalized_routing_text(guide)
+    assert "inspecting prompt attempt identity target 2.22" in normalized_guide
+    assert "there is no new call keyword" in normalized_guide
+    assert "legacy_snapshot" in guide
+    assert "coordinated provider and extern backed calls do not gain q3" in (
+        normalized_guide
+    )
+
+    q3_capability = _markdown_table_row(
+        REPO_ROOT / "docs/capability_status_matrix.md",
+        "Workflow Lisp prompt identity diagnostics Q3",
+    )
+    assert "| Implemented |" in q3_capability
+    assert "target-2.22" in q3_capability
+    assert "tests/test_workflow_lisp_prompt_identity_e2e.py" in q3_capability
+    assert "Q4 judgments remain excluded" in q3_capability
 
 
 def test_stage_6_numbered_sequence_closes_task_7_after_completed_queues() -> None:

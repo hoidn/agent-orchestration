@@ -25,6 +25,10 @@ from orchestrator.workflow.prompt_dependency_evidence import (
     validate_fragment_success_evidence,
     validate_terminal_evidence,
 )
+from orchestrator.workflow.prompt_context_report import (
+    PROMPT_CONTEXT_REPORT_SCHEMA,
+    project_prompt_context,
+)
 from orchestrator.workflow.prompt_fragment_contract import (
     COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA,
     COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
@@ -284,7 +288,7 @@ def _execute_consumer(
 def test_target_2_20_q1_fixture_clean_run_freezes_v1_carrier_and_artifacts(
     tmp_path: Path,
 ) -> None:
-    result, _, _, captured, completed = _execute_consumer(
+    result, _, manager, captured, completed = _execute_consumer(
         source_path=Q1_RESUME_FIXTURE,
         prompt_externs=_manifest(CONSUMER_INPUTS / "prompts.json"),
         workspace=tmp_path,
@@ -322,6 +326,23 @@ def test_target_2_20_q1_fixture_clean_run_freezes_v1_carrier_and_artifacts(
             encoding="utf-8"
         )
     ) == {"items": []}
+    prompt_context = project_prompt_context(
+        manager._read_state_from_disk().to_dict(),
+        manager.run_root,
+    )
+    assert prompt_context["schema_version"] == (
+        PROMPT_CONTEXT_REPORT_SCHEMA
+    )
+    assert len(prompt_context["attempts"]) == 1
+    [attempt] = prompt_context["attempts"]
+    assert attempt["record_status"] == "legacy_snapshot"
+    assert attempt["identity"] is None
+    assert attempt["comparison"] == {
+        "status": "unavailable",
+        "previous_attempt_ordinal": None,
+        "classifications": [],
+        "reason": "legacy_snapshot_only",
+    }
 
 
 @pytest.mark.parametrize("lowering_route", ("legacy", "wcc_m4"))
@@ -700,6 +721,18 @@ def test_real_consumer_runtime_validates_prompt_owned_result_and_snapshot(
     assert [row["record_kind"] for row in terminal.index["publications"]] == [
         "prompt_snapshot"
     ]
+    prompt_context = project_prompt_context(
+        manager._read_state_from_disk().to_dict(),
+        manager.run_root,
+    )
+    assert prompt_context["schema_version"] == (
+        PROMPT_CONTEXT_REPORT_SCHEMA
+    )
+    assert len(prompt_context["attempts"]) == 1
+    [attempt] = prompt_context["attempts"]
+    assert attempt["record_status"] == "legacy_snapshot"
+    assert attempt["identity"] is None
+    assert attempt["comparison"]["reason"] == "legacy_snapshot_only"
     assert completed["workflow_outputs"]["return__variant"] == "APPROVED"
     assert (
         completed["workflow_outputs"]["return__review_report"]

@@ -91,6 +91,23 @@
     - The output-position row requires one UTF-8 string file at the exact
       resolved path. Existing `invalid_output_path` and
       `missing_output_file` violations remain the runtime failure surface.
+  - Workflow Lisp prompt-attempt evidence and report IO (target 2.22):
+    - A direct fragment-backed attempt renders each slot and each runtime
+      contribution exactly once. Immutable in-memory traces identify only
+      canonical values, selected bytes, ordering, and digests; prompt bodies,
+      resolved values, dependency content, argv, and environment are not
+      persisted in Q3 evidence.
+    - After successful invocation preparation and before provider launch, the
+      attempt publishes one closed
+      `workflow_prompt_fragment_snapshot.functional.v2` record. Invocation
+      preparation failure publishes the closed
+      `workflow_prompt_fragment_preparation_failure.functional.v1` record;
+      either publication failure launches no provider.
+    - `orchestrator report` JSON always includes the additive top-level
+      `prompt_context` object, including for older targets and unqualified
+      runs. Its Markdown projection contains status labels, role digests, and
+      fixed comparison classifications only; neither report projection is a
+      provider result or execution/resume input.
   - Provider-supervision IO (v2.16):
     - Provider stdin/stdout/stderr, the selected metadata codec, and validated
       output bundles remain the execution and result transports. Observation

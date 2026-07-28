@@ -316,6 +316,26 @@
     behavior, and compatible completed-result reuse remain unchanged.
     State schema remains `2.1`.
 
+- v2.22 additions (Workflow Lisp prompt-attempt identity and diagnostics)
+  - Direct fragment-backed `provider-result` calls require the exact
+    `workflow_prompt_attempt_identity.v1` version carrier and
+    `compiler_prompt_attempt_binding_plan.v1` declaration-ordered plan.
+    Targets 2.20 and 2.21 omit both fields.
+  - Each successfully prepared attempt publishes closed
+    `workflow_prompt_fragment_snapshot.functional.v2` evidence before launch,
+    separating fragment program, resolved bindings, injected dependencies,
+    runtime contributions, and prepared provider policy. The exact prepared
+    final-prompt and composition digests close the record without persisting
+    prompt or role bytes.
+  - A pure fixed-order comparator and the additive `prompt_context` JSON and
+    Markdown report projections remain provenance only. The report key is
+    present for every target; older valid fragment snapshots project as
+    `legacy_snapshot`, and unqualified runs project an empty attempt list.
+  - Compiled fragment identities/contracts remain v1 or v2 according to the
+    existing Q1/Q2 shape. Target-2.20/2.21 compiler, runtime, checkpoint,
+    provider, evidence, and completed-result reuse bytes remain unchanged.
+    State schema remains `2.1`.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -345,6 +365,7 @@
   - `v2.19`: exact opaque transportable `Value`
   - `v2.20`: Workflow Lisp prompt fragments
   - `v2.21`: Workflow Lisp prompt output positions
+  - `v2.22`: Workflow Lisp prompt-attempt identity and diagnostics
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -483,5 +504,6 @@ Planned acceptance:
 | 2.19 | Compiler-owned exact `Value`, `type: value`, and public `kind: value` | Adds an opaque strict-JSON transport contract with exact source compatibility, sole direct-root `__result__` carriage and no envelope, recursive failure paths, description/format-hint guidance without examples, and unchanged state schema `2.1`. Classic/WCC, state, checkpoint, and resume preserve the declared type rather than payload shape; targets below 2.19 reject it. |
 | 2.20 | Workflow Lisp `defprompt`, closed fragment slots, and prompt-owned structured returns | Adds fully applied importable fragments, exact v1 fragment identity/carriage, schema-2.1 prompt snapshots, and compatible completed-boundary reuse. |
 | 2.21 | Workflow Lisp `(slot :path :out [PathType])`, `compiled_prompt_fragment_identity.v2`, and `compiler_prompt_fragment_contract.v2` | One authored path fill drives rendering plus one required UTF-8 file contract. The generated file contract composes with exactly one prompt-owned structured result in fixed order, rejects name/destination collisions before launch, and commits both artifact maps state-atomically. |
+| 2.22 | Workflow Lisp direct-fragment prompt-attempt identity, functional-v2 evidence, and additive prompt-context reports | Requires the compiler-owned identity-version/binding-plan pair, seals five content-free roles plus exact prepared-prompt composition after invocation preparation and before launch, classifies retry drift in fixed order, and preserves target-2.20/2.21 execution and evidence bytes. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

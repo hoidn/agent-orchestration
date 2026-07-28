@@ -408,6 +408,35 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     Q1-only applications retain exact v1 bytes and behavior at targets 2.20
     and 2.21.
 
+- Workflow Lisp prompt-attempt identity and diagnostics (target 2.22)
+  - The surface is limited to a direct fragment-backed `provider-result`.
+    It adds no authored prompt syntax, coordinated-provider support, or
+    identity for arbitrary provider calls.
+  - The unchanged compiled fragment identity is the `fragment_program` role.
+    Four additional closed roles identify declaration-ordered resolved
+    bindings (`resolved_bindings`), exact shown dependency material
+    (`injected_dependencies`), exact runtime contribution segments
+    (`runtime_contributions`), and the effective prepared provider policy
+    (`provider_policy`). The record also seals the exact prepared final-prompt
+    bytes and the five-role composition.
+  - Provider policy is projected from the exact prepared invocation as
+    provider name, canonical model/effort, timeout, and input mode. It is
+    never parsed from argv and contains no command or environment values.
+  - Target 2.22 renders fragment and contribution owners once, successfully
+    prepares the invocation, validates/seals
+    `workflow_prompt_fragment_snapshot.functional.v2`, publishes it through
+    the ordinary attempt allocator, and only then launches the provider.
+    Preparation or publication failure launches no provider.
+  - The fixed drift order is `instruction_drift`, `input_drift`,
+    `dependency_content_drift`, `runtime_prelude_drift`, then
+    `provider_policy_drift`; equality emits
+    `prompt_context_unchanged`. Equal role digests with unequal final-prompt
+    digests fail closed as `prompt_identity_composition_mismatch`.
+  - Records and comparisons are content-free provenance only. They do not
+    select providers, settle attempts, validate business results, or
+    participate in checkpoint/resume compatibility. Targets 2.20 and 2.21
+    preserve their existing invocation and functional-v1 evidence bytes.
+
 - Workflow Lisp live-provider supervision (v2.16)
   - `with-live-providers` is a `.orc`-only form with exactly two bindings and
     exactly one `:observes` edge. The observer is the supervisor and its peer

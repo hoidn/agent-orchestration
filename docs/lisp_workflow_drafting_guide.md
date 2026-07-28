@@ -381,6 +381,8 @@ The currently implemented authoring surface includes:
   `provider-result :prompt` applications
 - target-2.21 `:path :out` prompt slots for one required UTF-8 output file
   composed with the prompt-owned structured result
+- target-2.22 content-free prompt-attempt identity and drift reports for direct
+  fragment-backed calls, with no additional authored call fields
 - modules, imports, and exports
 - `let*`
 - `if`, including computed pure `Bool` conditions
@@ -1390,9 +1392,33 @@ result second; neither artifact mapping enters state unless both pass.
 
 Target 2.20 remains the compatibility route for fragments without `:out`.
 Target 2.21 does not add optional files, directories, globs, dynamic output
-sets, arbitrary file schemas, or a second result channel. Q3 role-separated
-prompt identity/diagnostics and Q4 judgment views are not current authoring
-surfaces.
+sets, arbitrary file schemas, or a second result channel. Q3
+role-separated prompt identity/diagnostics are implemented at target 2.22;
+Q4 judgment views are not a current authoring surface.
+
+### Inspecting Prompt-Attempt Identity - Target 2.22
+
+Choose target 2.22 when a direct fragment-backed `provider-result` needs
+content-free retry provenance. There is no new call keyword: the compiler and
+runtime supply the identity-version carrier and declaration-ordered binding
+plan, publish one validated functional-v2 snapshot after invocation
+preparation and before launch, and expose role digests and fixed-order drift
+classifications in `orchestrator report`.
+
+The five report roles distinguish fragment-program, resolved-binding,
+dependency-content, runtime-contribution, and prepared provider-policy
+changes. Treat those rows as diagnostics only. They do not prove dispatch,
+remote receipt, model attention, correctness, or provider liveness, and they
+must not be used to decide workflow values, result validity, retry, checkpoint,
+or resume. Prompt bodies, resolved values, dependency contents, argv, and
+environment do not appear in the Q3 projection.
+
+Use targets 2.20/2.21 when this evidence is not needed; their compiler,
+provider, checkpoint, result, and functional-v1 evidence behavior remains
+unchanged. Reports still have the additive `prompt_context` key: a validated
+older fragment snapshot appears as `legacy_snapshot`, while an unqualified
+run has an empty attempt list. Coordinated-provider and extern-backed calls do
+not gain Q3 identity by implication.
 
 ## 8A. Bounded Live Provider Supervision
 

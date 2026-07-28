@@ -957,7 +957,10 @@ not depend on report validation.
   Execute representative target-2.20 Q1 and target-2.21 Q2 fragments; compare
   frozen compiled fragment identities/contracts, persisted graphs, checkpoints,
   v1 evidence, provider prompts/calls, results, and completed-boundary reuse.
-  Their reports intentionally gain only the additive empty `prompt_context`.
+  Their reports intentionally gain only the additive `prompt_context` API
+  effect: a strictly validated v1 fragment snapshot projects as
+  `legacy_snapshot`, while the empty projection remains the exact control for
+  a run with no qualified fragment-backed attempt.
 - [ ] **Step 4: Prove RED is intentional.**
 
   ```bash
@@ -1081,6 +1084,54 @@ attribution and report projection; target-2.20/2.21 compatibility is fresh and
 byte-specific; normative/authoring/routing surfaces agree; broad non-security
 results are recorded and classified; and ordered holistic specification then
 quality review approves the exact final tree.
+
+### Pre-Review Execution Record
+
+This record is factual through the exact pre-review closure candidate. Final
+ordered review and the reviewed closure commit remain pending.
+
+- Tasks 1–6 landed as `507e4b58`, `a4304c91`, `f29aab84`, `4b03b317`,
+  `d3e5031c`, the persisted-authority correction `1e3b32dc`, and
+  `63eefda5`.
+- The Task 7 deterministic retry E2E and the target-2.20/2.21 compatibility
+  controls pass. The compatibility contract was corrected before closure:
+  a validated v1 fragment snapshot projects as `legacy_snapshot`; only a run
+  without a qualified fragment-backed attempt projects the empty control.
+- The first exact broad candidate exposed twelve deterministic Q3
+  compatibility failures. Both-direction replay passed all twelve at the
+  bound pre-Q3 control `bf5d7758` and failed them at the Q3 candidate.
+  Auditable bisects attributed the stale target control to `507e4b58`, the
+  stale persisted-schema controls to `a4304c91`, and legacy fractional-timeout
+  rejection to `d3e5031c`.
+- The landed minimal generic seven-path correction is
+  `d9e038ef3d1528308b9b6368e5c0a6ba2923c70a`, tree
+  `3a52dfa377e0f614253be889b4b7b6192cba7a52`, with parent
+  `45468c550e1e195e82b54ed1199cd20edd6fee59`. It advances only stale unknown
+  target/schema controls and accepts exact positive integers, including huge
+  integers without float conversion, plus finite positive floats. Booleans,
+  non-finite values, and nonpositive values still fail closed. Ordered
+  `Q3_TIMEOUT` specification then quality review approved the exact
+  correction, and its six affected modules passed 615 tests.
+- The exact focused Task 7 selector passed 793 tests against the repaired
+  pre-record candidate.
+- The final pre-record closure candidate is
+  `f3f2efef3d4552c2712f6574129cfb7761375ba6`, tree
+  `4531e10d4d8d9987073c03be1e26cbc0d4211f9a`. Collection selected 9,943 of
+  9,961 nodes with 18 deselected. Against the bound 9,435-node pre-Q3 control,
+  the raw delta is 555 additions and 47 removals. Its complete semantic
+  partition is Q3 +377/-2 (two versioned-sentinel renames; normalized +375
+  genuine), L5/current-parent +74/-1 (one routing rename; normalized +73),
+  and lean/current-parent +104/-44 (43 parameter-ID renames and one genuine
+  replaced test; normalized +61/-1), with zero unexplained rows.
+- The exact broad suite completed in 156.05 seconds with 9,884 passed, 38
+  failed, 21 skipped, zero errors, and 33 warnings. Against the 101 pre-Q3
+  nonpasses, 37 are common and 64 resolved. The remaining new row was an
+  xdist-only LSP build-digest race that passed its clean isolated replay 1/1
+  in 3.71 seconds, leaving zero new deterministic nonpasses.
+- The collection log SHA-256 is
+  `1ce6cf898eeb3f237866c3c0125682cb13475de9966c028d60589cfabb00671f`;
+  the suite log SHA-256 is
+  `b1728fcbcb2358c80b931a0fe572b0a44679f562d2ca554cfc2e212f06ab93aa`.
 
 ## Final Completion Checklist
 
