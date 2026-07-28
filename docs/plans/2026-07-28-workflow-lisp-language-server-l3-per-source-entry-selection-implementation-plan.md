@@ -32,6 +32,15 @@ and real framed JSON-RPC over stdio.
 `L3_DESIGN_FINAL_SPEC_APPROVED`, then
 `L3_DESIGN_FINAL_QUALITY_APPROVED`.
 
+**Corrective design amendment:** commit
+`509212c70a1f3be366c6aacdde4bd017aea2e644`, tree
+`0a0cabb36b08542ec9d0aa4342b05d8a73e3df79`, after ordered
+`L3_CANONICAL_PATH_DESIGN_SPEC_APPROVED` then
+`L3_CANONICAL_PATH_DESIGN_QUALITY_APPROVED`. It closes the
+implementation-discovered case where a JSON string cannot be canonicalized
+as a filesystem path; the new closed `canonical_path_required` row is ordered
+after entry-value validation and before suffix validation.
+
 **Execution status:** accepted for execution after independent
 `L3_PLAN_SPEC_APPROVED` then distinct `L3_PLAN_QUALITY_APPROVED`. The exact
 plan/routing snapshot is in final ordered reaffirmation; no production change
@@ -236,6 +245,14 @@ Before Task 1:
 
 ## Task 1: Atomically Normalize The Map And Build Per-Source Requests
 
+**Corrective gate:** Task 1 quality review exposed the accepted design's
+missing refusal for a JSON string whose filesystem path cannot be
+canonicalized. The design correction above is committed. This exact plan
+correction received ordered
+`L3_CANONICAL_PATH_PLAN_SPEC_APPROVED` then
+`L3_CANONICAL_PATH_PLAN_QUALITY_APPROVED`; it must commit before Task 1
+implementation resumes.
+
 **Outcome:** Initialization accepts only the immutable map, every refusal has
 the accepted structured data and deterministic first-failure behavior, the old
 scalar is unsupported, and each prepared request receives only its exact
@@ -268,18 +285,20 @@ source-path selection.
       initialization. The unknown export may fail only when the ordinary
       compile boundary consumes the prepared request.
 - [ ] Write one RED parameterized state matrix for all accepted refusal rows:
-      old scalar, non-object, empty key, invalid/empty value, wrong suffix,
-      uncontained path, and canonical alias duplicate. Assert the exact
-      `schema`, `code`, `field`, `rule`, `rejected_value`, and precisely
-      present/absent `entry_key`, `canonical_path`, and
+      old scalar, non-object, empty key, invalid/empty value,
+      uncanonicalizable path, wrong suffix, uncontained path, and canonical
+      alias duplicate. Assert the exact `schema`, `code`, `field`, `rule`,
+      `rejected_value`, and precisely present/absent `entry_key`,
+      `canonical_path`, and
       `conflicting_entry_key`.
 - [ ] Write RED precedence tests: unsupported fields before map validation,
       with lexical selection among multiple unsupported field names; the old
       scalar's structured `unsupported_field` row when it is lexically
       selected; map shape/entry validation before `source_roots` or
       configuration-path validation; lexical raw-key order; key then value
-      then suffix then containment; and canonical-path/lexical-spelling
-      duplicate selection. Assert first failure only.
+      then canonicalization then suffix then containment; and
+      canonical-path/lexical-spelling duplicate selection. Assert first
+      failure only.
 - [ ] Write RED JSON-domain tests: JSON-native wrong values receive structured
       refusals, while non-JSON programmatic keys/values raise `TypeError`
       before L3 normalization and never use `repr`.
@@ -289,6 +308,10 @@ source-path selection.
 - [ ] Write RED real-stdio initialization cases for every JSON-deliverable
       refusal row. Assert JSON-RPC `-32602`, exact `error.data`, and
       conditional-field presence/absence; assert no message phrasing.
+- [ ] Prove the `canonical_path_required` row at both state and real-stdio
+      boundaries with a JSON NUL-bearing path key. Catch filesystem
+      canonicalization exceptions generically, include only the raw
+      `rejected_value` and `entry_key`, and never invent `canonical_path`.
 - [ ] Write RED driver tests with two canonical source paths proving the mapped
       path receives its exact name, the unlisted path receives `None`, request
       order does not matter, and no basename/ancestor/default lookup occurs.
