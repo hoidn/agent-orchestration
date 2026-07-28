@@ -22,6 +22,7 @@ from ...providers.interactive_terminal import (
     FailedCleanupProof,
     InteractiveMemberHandle,
     InteractiveMemberInvocation,
+    InteractiveTerminalStartOutcome,
     InteractiveTerminalTurnQueueAdapter,
     NaturalShutdownProof,
     OfferReceipt,
@@ -360,15 +361,25 @@ class PeerInteractiveAdapter(Protocol):
     """The exact provider-neutral interactive operations used by a group."""
 
     def start(
-        self, invocation: InteractiveMemberInvocation
-    ) -> InteractiveMemberHandle: ...
+        self,
+        invocation: InteractiveMemberInvocation,
+        *,
+        deadline: float,
+    ) -> InteractiveTerminalStartOutcome: ...
 
     def offer(
-        self, handle: InteractiveMemberHandle, literal_message: str
+        self,
+        handle: InteractiveMemberHandle,
+        literal_message: str,
+        *,
+        deadline: float,
     ) -> OfferReceipt: ...
 
     def offer_close(
-        self, handle: InteractiveMemberHandle
+        self,
+        handle: InteractiveMemberHandle,
+        *,
+        deadline: float,
     ) -> CloseOfferReceipt: ...
 
     def join(

@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 from types import MappingProxyType
-from typing import Sequence
+from typing import Callable, Sequence
 
 import orchestrator.providers as provider_api
 from orchestrator.providers import interactive_terminal as interactive_terminal_module
@@ -740,6 +740,8 @@ class _FakeInteractiveBackend:
         self.key_offers: list[tuple[str, tuple[str, ...]]] = []
         self.close_pane_calls: list[str] = []
         self.close_server_calls = 0
+        self.actions: list[tuple[str, float]] = []
+        self.after_action: dict[str, Callable[[], None]] = {}
         self.start_error: InteractiveTerminalError | None = None
         self.start_pane_error: InteractiveTerminalError | None = None
         self.literal_error: InteractiveTerminalError | None = None
@@ -761,7 +763,11 @@ class _FakeInteractiveBackend:
         env: dict[str, str],
         timeout_sec: float,
     ) -> None:
-        del socket_path, session_name, timeout_sec
+        del socket_path, session_name
+        self.actions.append(("start_server", timeout_sec))
+        callback = self.after_action.get("start_server")
+        if callback is not None:
+            callback()
         if self.start_error is not None:
             raise self.start_error
         self.server_started = True
@@ -778,7 +784,11 @@ class _FakeInteractiveBackend:
         exit_status_path: Path,
         timeout_sec: float,
     ) -> str:
-        del socket_path, exit_status_path, timeout_sec
+        del socket_path, exit_status_path
+        self.actions.append(("start_pane", timeout_sec))
+        callback = self.after_action.get("start_pane")
+        if callback is not None:
+            callback()
         if self.start_pane_error is not None:
             raise self.start_pane_error
         self.started_commands.append(
@@ -794,7 +804,11 @@ class _FakeInteractiveBackend:
         *,
         timeout_sec: float,
     ) -> PaneProcessStatus:
-        del socket_path, timeout_sec
+        del socket_path
+        self.actions.append(("pane_process_status", timeout_sec))
+        callback = self.after_action.get("pane_process_status")
+        if callback is not None:
+            callback()
         if self.pane_status_errors:
             error = self.pane_status_errors.pop(0)
             if error is not None:
@@ -812,7 +826,11 @@ class _FakeInteractiveBackend:
         *,
         timeout_sec: float,
     ) -> bool:
-        del socket_path, session_name, timeout_sec
+        del socket_path, session_name
+        self.actions.append(("server_alive", timeout_sec))
+        callback = self.after_action.get("server_alive")
+        if callback is not None:
+            callback()
         if self.server_alive_errors:
             error = self.server_alive_errors.pop(0)
             if error is not None:
@@ -827,7 +845,11 @@ class _FakeInteractiveBackend:
         *,
         timeout_sec: float,
     ) -> None:
-        del socket_path, timeout_sec
+        del socket_path
+        self.actions.append(("offer_literal", timeout_sec))
+        callback = self.after_action.get("offer_literal")
+        if callback is not None:
+            callback()
         if self.literal_error is not None:
             raise self.literal_error
         self.literal_offers.append((target, literal_text))
@@ -840,7 +862,11 @@ class _FakeInteractiveBackend:
         *,
         timeout_sec: float,
     ) -> None:
-        del socket_path, timeout_sec
+        del socket_path
+        self.actions.append(("offer_keys", timeout_sec))
+        callback = self.after_action.get("offer_keys")
+        if callback is not None:
+            callback()
         if self.key_error is not None:
             raise self.key_error
         self.key_offers.append((target, tuple(keys)))
@@ -852,7 +878,11 @@ class _FakeInteractiveBackend:
         *,
         timeout_sec: float,
     ) -> None:
-        del socket_path, timeout_sec
+        del socket_path
+        self.actions.append(("close_pane", timeout_sec))
+        callback = self.after_action.get("close_pane")
+        if callback is not None:
+            callback()
         self.close_pane_calls.append(target)
         if self.close_pane_error is not None:
             raise self.close_pane_error
@@ -864,7 +894,11 @@ class _FakeInteractiveBackend:
         *,
         timeout_sec: float,
     ) -> None:
-        del socket_path, timeout_sec
+        del socket_path
+        self.actions.append(("close_server", timeout_sec))
+        callback = self.after_action.get("close_server")
+        if callback is not None:
+            callback()
         self.close_server_calls += 1
         if self.close_server_error is not None:
             raise self.close_server_error
@@ -918,6 +952,414 @@ def _interactive_adapter(
     )
 
 
+def _p1_type(name: str) -> type[object]:
+    value = getattr(interactive_terminal_module, name, None)
+    assert isinstance(value, type), f"{name} must be implemented"
+    return value
+
+
+def _started_handle(
+    adapter: InteractiveTerminalTurnQueueAdapter,
+    invocation: InteractiveMemberInvocation,
+    *,
+    deadline: float,
+) -> InteractiveMemberHandle:
+    outcome = adapter.start(invocation, deadline=deadline)
+    start_outcome_type = _p1_type("InteractiveTerminalStartOutcome")
+    assert type(outcome) is start_outcome_type
+    assert outcome.status == "started"
+    assert isinstance(outcome.handle, InteractiveMemberHandle)
+    return outcome.handle
+
+
+def test_interactive_adapter_start_outcome_is_closed_and_immutable(
+    tmp_path: Path,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    adapter = _interactive_adapter(tmp_path, backend)
+
+    outcome = adapter.start(
+        _interactive_invocation(tmp_path),
+        deadline=100.25,
+    )
+
+    start_outcome_type = _p1_type("InteractiveTerminalStartOutcome")
+    assert type(outcome) is start_outcome_type
+    assert outcome.status == "started"
+    assert isinstance(outcome.handle, InteractiveMemberHandle)
+    assert outcome.to_dict() == {
+        "status": "started",
+        "handle": outcome.handle,
+    }
+    with pytest.raises(FrozenInstanceError):
+        outcome.status = "failed"
+
+
+def test_interactive_adapter_start_outcome_before_deadline_proves_no_allocation(
+    tmp_path: Path,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    adapter = _interactive_adapter(tmp_path, backend)
+
+    outcome = adapter.start(
+        _interactive_invocation(tmp_path),
+        deadline=100.0,
+    )
+
+    no_allocation_type = _p1_type("NoBackendAllocationProof")
+    assert outcome.to_dict() == {
+        "status": "failed",
+        "error_code": "start_timeout",
+        "backend_allocation": "none",
+        "cleanup_status": "not_required",
+        "provider_zero_survivor_proven": True,
+        "proof": no_allocation_type(
+            disposition="no_backend_allocation",
+            backend_resource_allocated=False,
+            proof_complete=True,
+        ),
+    }
+    assert backend.actions == []
+
+
+def test_interactive_adapter_start_outcome_complete_cleanup_is_handle_free(
+    tmp_path: Path,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    backend.start_pane_error = InteractiveTerminalError("pane_start_failed")
+    adapter = _interactive_adapter(tmp_path, backend)
+
+    outcome = adapter.start(
+        _interactive_invocation(tmp_path),
+        deadline=100.5,
+    )
+
+    cleanup_type = _p1_type("PhasedFailedCleanupEvidence")
+    assert outcome.status == "failed"
+    assert outcome.error_code == "pane_start_failed"
+    assert outcome.backend_allocation == "possible_or_allocated"
+    assert outcome.cleanup_status == "completed"
+    assert outcome.provider_zero_survivor_proven is True
+    assert type(outcome.proof) is cleanup_type
+    assert outcome.proof == cleanup_type(
+        disposition="failed_cleanup",
+        pane_absent=True,
+        server_absent=True,
+        cleanup_complete=True,
+        error_code=None,
+    )
+    assert "handle" not in outcome.to_dict()
+    assert not isinstance(outcome.proof, FailedCleanupProof)
+
+
+def test_interactive_adapter_start_outcome_incomplete_cleanup_maps_production_token(
+    tmp_path: Path,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    backend.start_pane_error = InteractiveTerminalError("pane_start_failed")
+    backend.close_server_error = InteractiveTerminalError(
+        "server_teardown_failed"
+    )
+    adapter = _interactive_adapter(tmp_path, backend)
+
+    outcome = adapter.start(
+        _interactive_invocation(tmp_path),
+        deadline=100.5,
+    )
+
+    cleanup_type = _p1_type("PhasedFailedCleanupEvidence")
+    assert outcome.error_code == (
+        "interactive_terminal_start_cleanup_incomplete"
+    )
+    assert outcome.backend_allocation == "possible_or_allocated"
+    assert outcome.cleanup_status == "incomplete"
+    assert outcome.provider_zero_survivor_proven is False
+    assert outcome.proof == cleanup_type(
+        disposition="failed_cleanup",
+        pane_absent=False,
+        server_absent=False,
+        cleanup_complete=False,
+        error_code="interactive_terminal_start_cleanup_incomplete",
+    )
+    assert "handle" not in outcome.to_dict()
+    assert not isinstance(outcome.proof, FailedCleanupProof)
+
+
+def test_interactive_adapter_start_outcome_rejects_missing_handle_inference() -> None:
+    start_outcome_type = _p1_type("InteractiveTerminalStartOutcome")
+    no_allocation_type = _p1_type("NoBackendAllocationProof")
+
+    with pytest.raises(ValueError):
+        start_outcome_type(
+            status="failed",
+            error_code="pane_start_failed",
+            backend_allocation="possible_or_allocated",
+            cleanup_status="not_required",
+            provider_zero_survivor_proven=True,
+            proof=no_allocation_type(
+                disposition="no_backend_allocation",
+                backend_resource_allocated=False,
+                proof_complete=True,
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    "deadline",
+    (True, float("nan"), float("inf"), float("-inf")),
+)
+@pytest.mark.parametrize(
+    "operation",
+    ("start", "offer", "close", "join", "abort"),
+)
+def test_interactive_adapter_deadline_requires_finite_absolute_timestamp(
+    tmp_path: Path,
+    operation: str,
+    deadline: float,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    adapter = _interactive_adapter(tmp_path, backend)
+    if operation == "start":
+        with pytest.raises(ValueError, match="monotonic timestamp"):
+            adapter.start(
+                _interactive_invocation(tmp_path),
+                deadline=deadline,
+            )
+        assert backend.actions == []
+        return
+
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
+    backend.actions.clear()
+    with pytest.raises(ValueError, match="monotonic timestamp"):
+        if operation == "offer":
+            adapter.offer(handle, "message", deadline=deadline)
+        elif operation == "close":
+            adapter.offer_close(handle, deadline=deadline)
+        elif operation == "join":
+            adapter.join(handle, deadline=deadline)
+        else:
+            adapter.abort(handle, deadline=deadline)
+    assert backend.actions == []
+
+
+def test_project_phased_failed_cleanup_proof_requires_exact_active_handle() -> None:
+    cleanup_type = _p1_type("PhasedFailedCleanupEvidence")
+    project = getattr(
+        interactive_terminal_module,
+        "project_phased_failed_cleanup_evidence",
+        None,
+    )
+    assert callable(project)
+    proof = FailedCleanupProof(
+        disposition="failed_cleanup",
+        handle_id="active-handle",
+        pane_absent=True,
+        server_absent=True,
+        cleanup_complete=True,
+        error_code=None,
+    )
+
+    assert project(
+        proof,
+        active_handle_id="active-handle",
+    ) == cleanup_type(
+        disposition="failed_cleanup",
+        pane_absent=True,
+        server_absent=True,
+        cleanup_complete=True,
+        error_code=None,
+    )
+
+
+@pytest.mark.parametrize(
+    "proof,active_handle_id",
+    (
+        (
+            {
+                "disposition": "failed_cleanup",
+                "handle_id": "active-handle",
+                "pane_absent": True,
+                "server_absent": True,
+                "cleanup_complete": True,
+                "error_code": None,
+            },
+            "active-handle",
+        ),
+        (
+            {
+                "disposition": "failed_cleanup",
+                "handle_id": "active-handle",
+                "pane_absent": True,
+                "server_absent": True,
+                "cleanup_complete": True,
+                "error_code": None,
+                "extra": True,
+            },
+            "active-handle",
+        ),
+        (
+            FailedCleanupProof(
+                disposition="failed_cleanup",
+                handle_id="active-handle",
+                pane_absent=1,
+                server_absent=True,
+                cleanup_complete=True,
+                error_code=None,
+            ),
+            "active-handle",
+        ),
+        (
+            FailedCleanupProof(
+                disposition="failed_cleanup",
+                handle_id="active-handle",
+                pane_absent=False,
+                server_absent=False,
+                cleanup_complete=False,
+                error_code="unknown_cleanup_token",
+            ),
+            "active-handle",
+        ),
+        (
+            FailedCleanupProof(
+                disposition="failed_cleanup",
+                handle_id="other-handle",
+                pane_absent=True,
+                server_absent=True,
+                cleanup_complete=True,
+                error_code=None,
+            ),
+            "active-handle",
+        ),
+    ),
+)
+def test_project_phased_failed_cleanup_proof_fails_closed(
+    proof: object,
+    active_handle_id: str,
+) -> None:
+    project = getattr(
+        interactive_terminal_module,
+        "project_phased_failed_cleanup_evidence",
+        None,
+    )
+    assert callable(project)
+
+    assert project(proof, active_handle_id=active_handle_id) is None
+
+
+@pytest.mark.parametrize(
+    ("operation", "expected_code"),
+    (
+        ("offer", "offer_timeout"),
+        ("close", "close_offer_timeout"),
+    ),
+)
+def test_interactive_adapter_offer_deadline_expiry_starts_zero_backend_actions(
+    tmp_path: Path,
+    operation: str,
+    expected_code: str,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    adapter = _interactive_adapter(tmp_path, backend)
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=100.5,
+    )
+    backend.actions.clear()
+
+    with pytest.raises(InteractiveTerminalError) as exc_info:
+        if operation == "offer":
+            adapter.offer(handle, "message", deadline=100.0)
+        else:
+            adapter.offer_close(handle, deadline=100.0)
+
+    assert exc_info.value.code == expected_code
+    assert backend.actions == []
+
+
+@pytest.mark.parametrize("operation", ("start", "offer", "close"))
+def test_interactive_adapter_deadline_limits_every_selected_backend_action(
+    tmp_path: Path,
+    operation: str,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    clock = _ManualClock()
+    adapter = _interactive_adapter(tmp_path, backend, clock)
+    if operation == "start":
+        outcome = adapter.start(
+            _interactive_invocation(tmp_path),
+            deadline=100.125,
+        )
+        assert outcome.status == "started"
+    else:
+        handle = _started_handle(
+            adapter,
+            _interactive_invocation(tmp_path),
+            deadline=100.5,
+        )
+        backend.actions.clear()
+        if operation == "offer":
+            adapter.offer(handle, "message", deadline=100.125)
+        else:
+            adapter.offer_close(handle, deadline=100.125)
+
+    assert backend.actions
+    assert all(0.0 < timeout <= 0.125 for _, timeout in backend.actions)
+
+
+@pytest.mark.parametrize(
+    ("operation", "expiring_action", "expected_code"),
+    (
+        ("start", "start_server", "interactive_terminal_start_cleanup_incomplete"),
+        ("offer", "server_alive", "offer_timeout"),
+        ("close", "server_alive", "close_offer_timeout"),
+    ),
+)
+def test_interactive_adapter_during_operation_deadline_starts_no_later_action(
+    tmp_path: Path,
+    operation: str,
+    expiring_action: str,
+    expected_code: str,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    clock = _ManualClock()
+    adapter = _interactive_adapter(tmp_path, backend, clock)
+    if operation != "start":
+        handle = _started_handle(
+            adapter,
+            _interactive_invocation(tmp_path),
+            deadline=100.5,
+        )
+        backend.actions.clear()
+    backend.after_action[expiring_action] = lambda: setattr(
+        clock,
+        "value",
+        100.125,
+    )
+
+    if operation == "start":
+        outcome = adapter.start(
+            _interactive_invocation(tmp_path),
+            deadline=100.125,
+        )
+        assert outcome.status == "failed"
+        assert outcome.error_code == expected_code
+    else:
+        with pytest.raises(InteractiveTerminalError) as exc_info:
+            if operation == "offer":
+                adapter.offer(handle, "message", deadline=100.125)
+            else:
+                adapter.offer_close(handle, deadline=100.125)
+        assert exc_info.value.code == expected_code
+
+    action_names = [name for name, _ in backend.actions]
+    assert action_names == [expiring_action]
+
+
 def test_interactive_adapter_separates_short_socket_from_runtime_artifacts(
     tmp_path: Path,
 ) -> None:
@@ -936,7 +1378,11 @@ def test_interactive_adapter_separates_short_socket_from_runtime_artifacts(
             for _ in range(2)
         )
         handles = tuple(
-            adapter.start(_interactive_invocation(tmp_path))
+            _started_handle(
+                adapter,
+                _interactive_invocation(tmp_path),
+                deadline=time.monotonic() + 5.0,
+            )
             for adapter in adapters
         )
 
@@ -985,7 +1431,11 @@ def test_interactive_adapter_starts_exact_attempt_bound_handle(
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
 
-    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
 
     assert isinstance(handle, InteractiveMemberHandle)
     assert handle.invocation_id == "invocation-1"
@@ -1005,10 +1455,14 @@ def test_interactive_adapter_preserves_literal_multiline_utf8_and_declared_keys(
 ) -> None:
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
     message = "first line\nλ second line\n"
 
-    receipt = adapter.offer(handle, message)
+    receipt = adapter.offer(handle, message, deadline=101.0)
 
     assert isinstance(receipt, OfferReceipt)
     assert receipt.status == "offered"
@@ -1022,9 +1476,13 @@ def test_interactive_adapter_offers_declared_natural_close_without_forcing(
 ) -> None:
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
 
-    receipt = adapter.offer_close(handle)
+    receipt = adapter.offer_close(handle, deadline=101.0)
 
     assert isinstance(receipt, CloseOfferReceipt)
     assert receipt.status == "close_offered"
@@ -1037,8 +1495,12 @@ def test_interactive_adapter_join_requires_zero_natural_exit_and_full_cleanup(
 ) -> None:
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
-    adapter.offer_close(handle)
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
+    adapter.offer_close(handle, deadline=101.0)
     backend.pane_status = PaneProcessStatus(
         state="exited",
         return_code=0,
@@ -1060,9 +1522,13 @@ def test_interactive_adapter_natural_join_removes_owned_socket_after_absence(
 ) -> None:
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
     handle.socket_path.touch()
-    adapter.offer_close(handle)
+    adapter.offer_close(handle, deadline=101.0)
     backend.pane_status = PaneProcessStatus(
         state="exited",
         return_code=0,
@@ -1080,9 +1546,13 @@ def test_interactive_adapter_natural_join_types_socket_unlink_failure(
 ) -> None:
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
     handle.socket_path.mkdir()
-    adapter.offer_close(handle)
+    adapter.offer_close(handle, deadline=101.0)
     backend.pane_status = PaneProcessStatus(
         state="exited",
         return_code=0,
@@ -1281,8 +1751,12 @@ def test_interactive_adapter_join_waits_for_recorded_exit_status(
 ) -> None:
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
-    adapter.offer_close(handle)
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
+    adapter.offer_close(handle, deadline=101.0)
     backend.pane_status_sequence = [
         PaneProcessStatus(state="exited_pending", return_code=None),
         PaneProcessStatus(state="exited", return_code=0),
@@ -1298,8 +1772,12 @@ def test_interactive_adapter_join_is_idempotent_after_natural_shutdown(
 ) -> None:
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
-    adapter.offer_close(handle)
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
+    adapter.offer_close(handle, deadline=101.0)
     backend.pane_status = PaneProcessStatus(
         state="exited",
         return_code=0,
@@ -1327,8 +1805,12 @@ def test_interactive_adapter_join_rejects_missing_or_failed_process(
 ) -> None:
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
-    adapter.offer_close(handle)
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
+    adapter.offer_close(handle, deadline=101.0)
     backend.pane_status = status
 
     with pytest.raises(InteractiveTerminalError) as exc_info:
@@ -1343,8 +1825,12 @@ def test_interactive_adapter_join_times_out_without_screen_authority(
     backend = _FakeInteractiveBackend()
     clock = _ManualClock()
     adapter = _interactive_adapter(tmp_path, backend, clock)
-    handle = adapter.start(_interactive_invocation(tmp_path))
-    adapter.offer_close(handle)
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
+    adapter.offer_close(handle, deadline=101.0)
 
     with pytest.raises(InteractiveTerminalError) as exc_info:
         adapter.join(handle, deadline=100.02)
@@ -1373,10 +1859,14 @@ def test_interactive_adapter_offer_failures_are_typed(
         InteractiveTerminalError(expected_code),
     )
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
 
     with pytest.raises(InteractiveTerminalError) as exc_info:
-        adapter.offer(handle, "message")
+        adapter.offer(handle, "message", deadline=101.0)
 
     assert exc_info.value.code == expected_code
 
@@ -1387,10 +1877,14 @@ def test_interactive_adapter_close_failure_is_typed(
     backend = _FakeInteractiveBackend()
     backend.key_error = InteractiveTerminalError("key_offer_failed")
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
 
     with pytest.raises(InteractiveTerminalError) as exc_info:
-        adapter.offer_close(handle)
+        adapter.offer_close(handle, deadline=101.0)
 
     assert exc_info.value.code == "key_offer_failed"
 
@@ -1410,7 +1904,11 @@ def test_interactive_adapter_offer_operations_share_one_deadline(
     backend = _FakeInteractiveBackend()
     clock = _ManualClock()
     adapter = _interactive_adapter(tmp_path, backend, clock)
-    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
 
     def consume_remaining_budget(
         socket_path: Path,
@@ -1426,9 +1924,9 @@ def test_interactive_adapter_offer_operations_share_one_deadline(
 
     with pytest.raises(InteractiveTerminalError) as exc_info:
         if operation == "offer":
-            adapter.offer(handle, "message")
+            adapter.offer(handle, "message", deadline=100.5)
         else:
-            adapter.offer_close(handle)
+            adapter.offer_close(handle, deadline=100.5)
 
     assert exc_info.value.code == expected_code
     assert backend.key_offers == []
@@ -1451,13 +1949,17 @@ def test_interactive_adapter_types_backend_offer_timeouts(
         "backend_operation_timeout"
     )
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
 
     with pytest.raises(InteractiveTerminalError) as exc_info:
         if operation == "offer":
-            adapter.offer(handle, "message")
+            adapter.offer(handle, "message", deadline=101.0)
         else:
-            adapter.offer_close(handle)
+            adapter.offer_close(handle, deadline=101.0)
 
     assert exc_info.value.code == expected_code
 
@@ -1490,12 +1992,16 @@ def test_interactive_adapter_offer_rejects_lost_process_boundary(
 ) -> None:
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
     backend.server_live = server_live
     backend.pane_status = pane_status
 
     with pytest.raises(InteractiveTerminalError) as exc_info:
-        adapter.offer(handle, "message")
+        adapter.offer(handle, "message", deadline=101.0)
 
     assert exc_info.value.code == expected_code
     assert backend.literal_offers == []
@@ -1511,10 +2017,14 @@ def test_interactive_adapter_start_failure_closes_private_server(
     adapter = _interactive_adapter(tmp_path, backend)
     adapter._socket_path.touch()
 
-    with pytest.raises(InteractiveTerminalError) as exc_info:
-        adapter.start(_interactive_invocation(tmp_path))
+    outcome = adapter.start(
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
 
-    assert exc_info.value.code == "pane_start_failed"
+    assert outcome.status == "failed"
+    assert outcome.error_code == "pane_start_failed"
+    assert outcome.cleanup_status == "completed"
     assert backend.close_server_calls == 1
     assert backend.server_live is False
     assert not adapter._socket_path.exists()
@@ -1537,11 +2047,15 @@ def test_interactive_adapter_start_failure_requires_complete_socket_cleanup(
     adapter._socket_path.mkdir()
 
     try:
-        with pytest.raises(InteractiveTerminalError) as exc_info:
-            adapter.start(_interactive_invocation(tmp_path))
-        assert exc_info.value.code == (
+        outcome = adapter.start(
+            _interactive_invocation(tmp_path),
+            deadline=101.0,
+        )
+        assert outcome.status == "failed"
+        assert outcome.error_code == (
             "interactive_terminal_start_cleanup_incomplete"
         )
+        assert outcome.cleanup_status == "incomplete"
         assert backend.server_live is False
         assert adapter._socket_path.is_dir()
         assert adapter._natural_proof is None
@@ -1558,16 +2072,20 @@ def test_interactive_adapter_rejects_foreign_and_stale_handles(
     second_backend = _FakeInteractiveBackend()
     first = _interactive_adapter(tmp_path / "first", first_backend)
     second = _interactive_adapter(tmp_path / "second", second_backend)
-    handle = first.start(_interactive_invocation(tmp_path / "first"))
+    handle = _started_handle(
+        first,
+        _interactive_invocation(tmp_path / "first"),
+        deadline=101.0,
+    )
 
     with pytest.raises(InteractiveTerminalError) as foreign:
-        second.offer(handle, "message")
+        second.offer(handle, "message", deadline=101.0)
     assert foreign.value.code == "foreign_handle"
 
     proof = first.abort(handle, deadline=101.0)
     assert isinstance(proof, FailedCleanupProof)
     with pytest.raises(InteractiveTerminalError) as stale:
-        first.offer(handle, "later")
+        first.offer(handle, "later", deadline=101.0)
     assert stale.value.code == "handle_terminal"
 
 
@@ -1576,7 +2094,11 @@ def test_interactive_adapter_abort_is_cleanup_only_and_reports_failure(
 ) -> None:
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
     handle.socket_path.touch()
 
     proof = adapter.abort(handle, deadline=101.0)
@@ -1595,7 +2117,11 @@ def test_interactive_adapter_abort_reports_owned_socket_unlink_failure(
 ) -> None:
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
     handle.socket_path.mkdir()
 
     try:
@@ -1618,7 +2144,11 @@ def test_interactive_adapter_abort_surfaces_incomplete_cleanup(
         "server_teardown_failed"
     )
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
 
     proof = adapter.abort(handle, deadline=101.0)
 
@@ -1641,7 +2171,11 @@ def test_interactive_adapter_abort_returns_proof_when_final_probe_fails(
 ) -> None:
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
     if boundary == "final_pane_probe":
         backend.pane_status_errors = [
             None,
@@ -1679,7 +2213,11 @@ def test_interactive_adapter_abort_attempts_teardown_after_initial_probe_failure
 ) -> None:
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
     if boundary == "initial_pane_probe":
         backend.pane_status_errors = [
             InteractiveTerminalError(expected_code),
@@ -1704,7 +2242,11 @@ def test_interactive_adapter_abort_at_expired_deadline_is_total(
 ) -> None:
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
 
     proof = adapter.abort(handle, deadline=100.0)
 
@@ -1722,8 +2264,12 @@ def test_interactive_adapter_abort_after_failed_join_remains_cleanup_only(
 ) -> None:
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
-    adapter.offer_close(handle)
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
+    adapter.offer_close(handle, deadline=101.0)
     backend.pane_status = PaneProcessStatus(
         state="exited",
         return_code=7,
@@ -1773,9 +2319,13 @@ def test_interactive_adapter_never_uses_v1_control_or_observation_surfaces(
     )
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
-    handle = adapter.start(_interactive_invocation(tmp_path))
-    adapter.offer(handle, "queued")
-    adapter.offer_close(handle)
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=101.0,
+    )
+    adapter.offer(handle, "queued", deadline=101.0)
+    adapter.offer_close(handle, deadline=101.0)
     backend.pane_status = PaneProcessStatus(
         state="exited",
         return_code=0,

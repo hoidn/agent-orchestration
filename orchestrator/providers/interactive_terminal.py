@@ -24,6 +24,39 @@ from .types import (
 
 
 _MAX_ENCODED_UNIX_SOCKET_PATH_BYTES = 103
+_INTERACTIVE_TERMINAL_ERROR_CODES = frozenset(
+    {
+        "adapter_already_started",
+        "backend_operation_timeout",
+        "cleanup_backend_error",
+        "cleanup_timeout",
+        "close_not_offered",
+        "close_offer_timeout",
+        "foreign_handle",
+        "handle_terminal",
+        "interactive_terminal_socket_cleanup_failed",
+        "interactive_terminal_start_cleanup_incomplete",
+        "key_offer_failed",
+        "literal_offer_failed",
+        "natural_shutdown_timeout",
+        "offer_timeout",
+        "pane_lost",
+        "pane_start_failed",
+        "pane_status_invalid",
+        "pane_teardown_failed",
+        "pane_teardown_incomplete",
+        "process_failed",
+        "process_not_live",
+        "recorded_exit_status_invalid",
+        "recorded_exit_status_unreadable",
+        "server_lost",
+        "server_start_failed",
+        "server_teardown_failed",
+        "server_teardown_incomplete",
+        "start_timeout",
+        "tmux_unavailable",
+    }
+)
 
 
 class InteractiveTerminalError(RuntimeError):
@@ -235,6 +268,210 @@ class FailedCleanupProof:
     server_absent: bool
     cleanup_complete: bool
     error_code: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class NoBackendAllocationProof:
+    """Explicit proof that start selected no backend action."""
+
+    disposition: str
+    backend_resource_allocated: bool
+    proof_complete: bool
+
+    def __post_init__(self) -> None:
+        if self.disposition != "no_backend_allocation":
+            raise ValueError("no-allocation disposition is invalid")
+        if self.backend_resource_allocated is not False:
+            raise ValueError("no-allocation proof must deny backend allocation")
+        if self.proof_complete is not True:
+            raise ValueError("no-allocation proof must be complete")
+
+
+@dataclass(frozen=True, slots=True)
+class PhasedFailedCleanupEvidence:
+    """Handle-free cleanup observations admitted by phased delivery."""
+
+    disposition: str
+    pane_absent: bool
+    server_absent: bool
+    cleanup_complete: bool
+    error_code: str | None
+
+    def __post_init__(self) -> None:
+        if self.disposition != "failed_cleanup":
+            raise ValueError("failed cleanup disposition is invalid")
+        for field_name in (
+            "pane_absent",
+            "server_absent",
+            "cleanup_complete",
+        ):
+            if not isinstance(getattr(self, field_name), bool):
+                raise ValueError(
+                    f"failed cleanup {field_name} must be boolean"
+                )
+        if self.error_code is not None and (
+            not isinstance(self.error_code, str)
+            or self.error_code not in _INTERACTIVE_TERMINAL_ERROR_CODES
+        ):
+            raise ValueError("failed cleanup error_code is invalid")
+        complete = (
+            self.pane_absent is True
+            and self.server_absent is True
+            and self.error_code is None
+        )
+        if self.cleanup_complete is not complete:
+            raise ValueError("failed cleanup completeness is inconsistent")
+
+
+def project_phased_failed_cleanup_evidence(
+    proof: object,
+    *,
+    active_handle_id: str,
+) -> PhasedFailedCleanupEvidence | None:
+    """Project an exact active-handle proof without side effects or inference."""
+
+    if (
+        type(proof) is not FailedCleanupProof
+        or not isinstance(active_handle_id, str)
+        or not active_handle_id
+        or proof.handle_id != active_handle_id
+        or proof.disposition != "failed_cleanup"
+        or not isinstance(proof.handle_id, str)
+        or not proof.handle_id
+        or any(
+            not isinstance(getattr(proof, field_name), bool)
+            for field_name in (
+                "pane_absent",
+                "server_absent",
+                "cleanup_complete",
+            )
+        )
+        or (
+            proof.error_code is not None
+            and (
+                not isinstance(proof.error_code, str)
+                or proof.error_code not in _INTERACTIVE_TERMINAL_ERROR_CODES
+            )
+        )
+    ):
+        return None
+    try:
+        return PhasedFailedCleanupEvidence(
+            disposition=proof.disposition,
+            pane_absent=proof.pane_absent,
+            server_absent=proof.server_absent,
+            cleanup_complete=proof.cleanup_complete,
+            error_code=proof.error_code,
+        )
+    except ValueError:
+        return None
+
+
+@dataclass(frozen=True, slots=True)
+class InteractiveTerminalStartOutcome:
+    """Closed success-or-proof result for one adapter start boundary."""
+
+    status: str
+    handle: InteractiveMemberHandle | None = None
+    error_code: str | None = None
+    backend_allocation: str | None = None
+    cleanup_status: str | None = None
+    provider_zero_survivor_proven: bool | None = None
+    proof: NoBackendAllocationProof | PhasedFailedCleanupEvidence | None = None
+
+    def __post_init__(self) -> None:
+        if self.status == "started":
+            if type(self.handle) is not InteractiveMemberHandle:
+                raise ValueError("started outcome requires an exact handle")
+            if any(
+                value is not None
+                for value in (
+                    self.error_code,
+                    self.backend_allocation,
+                    self.cleanup_status,
+                    self.provider_zero_survivor_proven,
+                    self.proof,
+                )
+            ):
+                raise ValueError("started outcome forbids failure fields")
+            return
+        if self.status != "failed" or self.handle is not None:
+            raise ValueError("start outcome variant is invalid")
+        if (
+            not isinstance(self.error_code, str)
+            or self.error_code not in _INTERACTIVE_TERMINAL_ERROR_CODES
+            or not isinstance(self.provider_zero_survivor_proven, bool)
+        ):
+            raise ValueError("failed start outcome fields are invalid")
+        if (
+            self.backend_allocation == "none"
+            and self.cleanup_status == "not_required"
+            and self.provider_zero_survivor_proven is True
+            and type(self.proof) is NoBackendAllocationProof
+        ):
+            return
+        if (
+            self.backend_allocation == "possible_or_allocated"
+            and self.cleanup_status == "completed"
+            and self.provider_zero_survivor_proven is True
+            and type(self.proof) is PhasedFailedCleanupEvidence
+            and self.proof.cleanup_complete is True
+        ):
+            return
+        if (
+            self.backend_allocation == "possible_or_allocated"
+            and self.cleanup_status == "incomplete"
+            and self.provider_zero_survivor_proven is False
+            and type(self.proof) is PhasedFailedCleanupEvidence
+            and self.proof.cleanup_complete is False
+        ):
+            return
+        raise ValueError("failed start outcome combination is invalid")
+
+    def to_dict(self) -> dict[str, object]:
+        if self.status == "started":
+            assert self.handle is not None
+            return {"status": "started", "handle": self.handle}
+        assert self.error_code is not None
+        assert self.backend_allocation is not None
+        assert self.cleanup_status is not None
+        assert self.provider_zero_survivor_proven is not None
+        assert self.proof is not None
+        return {
+            "status": "failed",
+            "error_code": self.error_code,
+            "backend_allocation": self.backend_allocation,
+            "cleanup_status": self.cleanup_status,
+            "provider_zero_survivor_proven": (
+                self.provider_zero_survivor_proven
+            ),
+            "proof": self.proof,
+        }
+
+
+def _failed_start_outcome(
+    error_code: str,
+    proof: PhasedFailedCleanupEvidence,
+) -> InteractiveTerminalStartOutcome:
+    if proof.cleanup_complete is not True:
+        error_code = "interactive_terminal_start_cleanup_incomplete"
+        proof = PhasedFailedCleanupEvidence(
+            disposition="failed_cleanup",
+            pane_absent=proof.pane_absent,
+            server_absent=proof.server_absent,
+            cleanup_complete=False,
+            error_code=error_code,
+        )
+    return InteractiveTerminalStartOutcome(
+        status="failed",
+        error_code=error_code,
+        backend_allocation="possible_or_allocated",
+        cleanup_status=(
+            "completed" if proof.cleanup_complete else "incomplete"
+        ),
+        provider_zero_survivor_proven=proof.cleanup_complete,
+        proof=proof,
+    )
 
 
 class _InteractiveTerminalBackend(Protocol):
@@ -677,22 +914,28 @@ class InteractiveTerminalTurnQueueAdapter:
     def start(
         self,
         invocation: InteractiveMemberInvocation,
-    ) -> InteractiveMemberHandle:
+        *,
+        deadline: float,
+    ) -> InteractiveTerminalStartOutcome:
         if not isinstance(invocation, InteractiveMemberInvocation):
             raise TypeError("invocation must be an InteractiveMemberInvocation")
+        self._validate_deadline(deadline)
         with self._lock:
             if self._state != "created":
                 raise InteractiveTerminalError("adapter_already_started")
-            deadline = self._operation_deadline()
+            target: str | None = None
+            backend_action_started = False
             try:
+                start_server_timeout = self._remaining(
+                    deadline,
+                    timeout_code="start_timeout",
+                )
+                backend_action_started = True
                 self._backend.start_server(
                     self._socket_path,
                     self._session_name,
                     env=dict(invocation.env),
-                    timeout_sec=self._remaining(
-                        deadline,
-                        timeout_code="start_timeout",
-                    ),
+                    timeout_sec=start_server_timeout,
                 )
                 target = self._backend.start_pane(
                     self._socket_path,
@@ -727,22 +970,40 @@ class InteractiveTerminalTurnQueueAdapter:
                     raise InteractiveTerminalError("pane_start_failed")
             except InteractiveTerminalError as exc:
                 self._state = "failed"
-                try:
-                    self._cleanup_start_failure()
-                except InteractiveTerminalError as cleanup_exc:
-                    raise cleanup_exc from exc
-                if exc.code == "backend_operation_timeout":
-                    raise InteractiveTerminalError(
-                        "start_timeout"
-                    ) from exc
-                raise
-            except (OSError, RuntimeError) as exc:
+                if exc.code == "start_timeout" and not backend_action_started:
+                    return InteractiveTerminalStartOutcome(
+                        status="failed",
+                        error_code="start_timeout",
+                        backend_allocation="none",
+                        cleanup_status="not_required",
+                        provider_zero_survivor_proven=True,
+                        proof=NoBackendAllocationProof(
+                            disposition="no_backend_allocation",
+                            backend_resource_allocated=False,
+                            proof_complete=True,
+                        ),
+                    )
+                failure_code = (
+                    "start_timeout"
+                    if exc.code == "backend_operation_timeout"
+                    else (
+                        exc.code
+                        if exc.code in _INTERACTIVE_TERMINAL_ERROR_CODES
+                        else "pane_start_failed"
+                    )
+                )
+                proof = self._cleanup_start_failure(
+                    deadline=deadline,
+                    target=target,
+                )
+                return _failed_start_outcome(failure_code, proof)
+            except Exception:
                 self._state = "failed"
-                try:
-                    self._cleanup_start_failure()
-                except InteractiveTerminalError as cleanup_exc:
-                    raise cleanup_exc from exc
-                raise InteractiveTerminalError("pane_start_failed") from exc
+                proof = self._cleanup_start_failure(
+                    deadline=deadline,
+                    target=target,
+                )
+                return _failed_start_outcome("pane_start_failed", proof)
 
             handle = InteractiveMemberHandle(
                 adapter_instance_id=self._adapter_instance_id,
@@ -757,20 +1018,25 @@ class InteractiveTerminalTurnQueueAdapter:
             self._handle = handle
             self._support = invocation.support
             self._state = "live"
-            return handle
+            return InteractiveTerminalStartOutcome(
+                status="started",
+                handle=handle,
+            )
 
     def offer(
         self,
         handle: InteractiveMemberHandle,
         literal_message: str,
+        *,
+        deadline: float,
     ) -> OfferReceipt:
         if not isinstance(literal_message, str):
             raise TypeError("literal_message must be a string")
+        self._validate_deadline(deadline)
         with self._lock:
             self._require_handle(handle)
             if self._state != "live":
                 raise InteractiveTerminalError("handle_terminal")
-            deadline = self._operation_deadline()
             try:
                 self._require_live_process(
                     handle,
@@ -821,12 +1087,14 @@ class InteractiveTerminalTurnQueueAdapter:
     def offer_close(
         self,
         handle: InteractiveMemberHandle,
+        *,
+        deadline: float,
     ) -> CloseOfferReceipt:
+        self._validate_deadline(deadline)
         with self._lock:
             self._require_handle(handle)
             if self._state != "live":
                 raise InteractiveTerminalError("handle_terminal")
-            deadline = self._operation_deadline()
             try:
                 self._require_live_process(
                     handle,
@@ -1155,48 +1423,115 @@ class InteractiveTerminalTurnQueueAdapter:
             self._state = "failed"
             raise InteractiveTerminalError("process_not_live")
 
-    def _cleanup_start_failure(self) -> None:
-        deadline = self._operation_deadline()
+    def _cleanup_start_failure(
+        self,
+        *,
+        deadline: float,
+        target: str | None,
+    ) -> PhasedFailedCleanupEvidence:
+        pane_absent = False
+        server_absent = False
+        cleanup_error = False
+
+        def remaining() -> float | None:
+            nonlocal cleanup_error
+            value = deadline - self._monotonic()
+            if value <= 0:
+                cleanup_error = True
+                return None
+            return min(value, self._operation_timeout_sec)
+
+        if target is not None:
+            try:
+                timeout_sec = remaining()
+                if timeout_sec is not None:
+                    pane_absent = (
+                        self._backend.pane_process_status(
+                            self._socket_path,
+                            target,
+                            timeout_sec=timeout_sec,
+                        ).state
+                        == "missing"
+                    )
+            except Exception:
+                cleanup_error = True
+            if not pane_absent:
+                try:
+                    timeout_sec = remaining()
+                    if timeout_sec is not None:
+                        self._backend.close_pane(
+                            self._socket_path,
+                            target,
+                            timeout_sec=timeout_sec,
+                        )
+                except Exception:
+                    cleanup_error = True
+                try:
+                    timeout_sec = remaining()
+                    if timeout_sec is not None:
+                        pane_absent = (
+                            self._backend.pane_process_status(
+                                self._socket_path,
+                                target,
+                                timeout_sec=timeout_sec,
+                            ).state
+                            == "missing"
+                        )
+                except Exception:
+                    cleanup_error = True
+
         try:
-            server_absent = not self._backend.server_alive(
-                self._socket_path,
-                self._session_name,
-                timeout_sec=self._remaining(
-                    deadline,
-                    timeout_code="start_timeout",
-                ),
-            )
-            if not server_absent:
-                self._backend.close_server(
-                    self._socket_path,
-                    timeout_sec=self._remaining(
-                        deadline,
-                        timeout_code="start_timeout",
-                    ),
-                )
+            timeout_sec = remaining()
+            if timeout_sec is not None:
                 server_absent = not self._backend.server_alive(
                     self._socket_path,
                     self._session_name,
-                    timeout_sec=self._remaining(
-                        deadline,
-                        timeout_code="start_timeout",
-                    ),
+                    timeout_sec=timeout_sec,
                 )
-            if not server_absent:
-                raise InteractiveTerminalError(
-                    "interactive_terminal_start_cleanup_incomplete"
-                )
-            self._remove_socket_after_server_absent()
-        except Exception as exc:
-            if (
-                isinstance(exc, InteractiveTerminalError)
-                and exc.code
-                == "interactive_terminal_start_cleanup_incomplete"
-            ):
-                raise
-            raise InteractiveTerminalError(
-                "interactive_terminal_start_cleanup_incomplete"
-            ) from exc
+        except Exception:
+            cleanup_error = True
+        if not server_absent:
+            try:
+                timeout_sec = remaining()
+                if timeout_sec is not None:
+                    self._backend.close_server(
+                        self._socket_path,
+                        timeout_sec=timeout_sec,
+                    )
+            except Exception:
+                cleanup_error = True
+            try:
+                timeout_sec = remaining()
+                if timeout_sec is not None:
+                    server_absent = not self._backend.server_alive(
+                        self._socket_path,
+                        self._session_name,
+                        timeout_sec=timeout_sec,
+                    )
+            except Exception:
+                cleanup_error = True
+        if server_absent and target is None:
+            pane_absent = True
+        if server_absent:
+            try:
+                self._remove_socket_after_server_absent()
+            except Exception:
+                cleanup_error = True
+
+        cleanup_complete = (
+            pane_absent and server_absent and not cleanup_error
+        )
+        return PhasedFailedCleanupEvidence(
+            disposition="failed_cleanup",
+            pane_absent=pane_absent,
+            server_absent=server_absent,
+            cleanup_complete=cleanup_complete,
+            error_code=(
+                None
+                if cleanup_complete
+                else "interactive_terminal_start_cleanup_incomplete"
+            ),
+        )
 
     def _remove_socket_after_server_absent(self) -> None:
         try:
@@ -1214,9 +1549,6 @@ class InteractiveTerminalTurnQueueAdapter:
                 "interactive_terminal_socket_cleanup_failed"
             )
 
-    def _operation_deadline(self) -> float:
-        return self._monotonic() + self._operation_timeout_sec
-
     def _remaining(
         self,
         deadline: float,
@@ -1233,5 +1565,6 @@ class InteractiveTerminalTurnQueueAdapter:
         if (
             isinstance(deadline, bool)
             or not isinstance(deadline, (int, float))
+            or not math.isfinite(deadline)
         ):
             raise ValueError("deadline must be a monotonic timestamp")

@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+import orchestrator.providers.interactive_terminal as interactive_terminal_module
 from orchestrator.cli.commands.run import run_workflow
 from orchestrator.providers.interactive_terminal import (
     CloseOfferReceipt,
@@ -957,7 +958,10 @@ class _ControlledPeerAdapter:
     def start(
         self,
         invocation: InteractiveMemberInvocation,
-    ) -> InteractiveMemberHandle:
+        *,
+        deadline: float,
+    ) -> object:
+        assert deadline > time.monotonic()
         endpoint_path, _sender_binding = _decode_active_peer_binding(
             invocation.env
         )
@@ -966,8 +970,25 @@ class _ControlledPeerAdapter:
             self.harness.failure_mode == "launch"
             and self.member_id == self.harness.member_ids[0]
         ):
-            raise InteractiveTerminalError(
-                "injected_launch_failure",
+            start_outcome_type = getattr(
+                interactive_terminal_module,
+                "InteractiveTerminalStartOutcome",
+            )
+            no_allocation_type = getattr(
+                interactive_terminal_module,
+                "NoBackendAllocationProof",
+            )
+            return start_outcome_type(
+                status="failed",
+                error_code="pane_start_failed",
+                backend_allocation="none",
+                cleanup_status="not_required",
+                provider_zero_survivor_proven=True,
+                proof=no_allocation_type(
+                    disposition="no_backend_allocation",
+                    backend_resource_allocated=False,
+                    proof_complete=True,
+                ),
             )
         handle = InteractiveMemberHandle(
             adapter_instance_id=f"controlled-adapter:{self.member_id}",
@@ -989,14 +1010,21 @@ class _ControlledPeerAdapter:
             daemon=True,
         )
         self.thread.start()
-        return handle
+        start_outcome_type = getattr(
+            interactive_terminal_module,
+            "InteractiveTerminalStartOutcome",
+        )
+        return start_outcome_type(status="started", handle=handle)
 
     def offer(
         self,
         handle: InteractiveMemberHandle,
         literal_message: str,
+        *,
+        deadline: float,
     ) -> OfferReceipt:
         assert handle == self.handle
+        assert deadline > time.monotonic()
         self.harness.offered_targets.append(self.member_id)
         if (
             self.harness.failure_mode == "offer"
@@ -1024,8 +1052,11 @@ class _ControlledPeerAdapter:
     def offer_close(
         self,
         handle: InteractiveMemberHandle,
+        *,
+        deadline: float,
     ) -> CloseOfferReceipt:
         assert handle == self.handle
+        assert deadline > time.monotonic()
         return CloseOfferReceipt(
             status="close_offered",
             handle_id=handle.handle_id,

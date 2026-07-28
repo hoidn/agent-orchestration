@@ -22,6 +22,7 @@ from ...providers.interactive_terminal import (
     FailedCleanupProof,
     InteractiveMemberHandle,
     InteractiveTerminalError,
+    InteractiveTerminalStartOutcome,
     NaturalShutdownProof,
     OfferReceipt,
 )
@@ -504,7 +505,20 @@ class ProviderPeerGroupCoordinator:
         handles: list[InteractiveMemberHandle] = []
         for member in members:
             self._transition(member, PeerMemberLifecycle.STARTING)
-            handle = member.adapter.start(member.allocation.invocation)
+            outcome = member.adapter.start(
+                member.allocation.invocation,
+                deadline=member.deadline,
+            )
+            if type(outcome) is not InteractiveTerminalStartOutcome:
+                raise _CoordinatorFailure(
+                    "provider_peer_group_start_outcome_invalid",
+                    "member adapter start outcome is invalid",
+                )
+            if outcome.status == "failed":
+                assert outcome.error_code is not None
+                raise InteractiveTerminalError(outcome.error_code)
+            handle = outcome.handle
+            assert handle is not None
             self._require_matching_handle(member, handle)
             member.handle = handle
             handles.append(handle)
@@ -747,6 +761,7 @@ class ProviderPeerGroupCoordinator:
             offered = target.adapter.offer(
                 target.handle,
                 frame.render(),
+                deadline=target.deadline,
             )
             self._require_offer_receipt(
                 target,
@@ -898,6 +913,7 @@ class ProviderPeerGroupCoordinator:
         sender.close_future = joins.submit(
             sender.adapter.offer_close,
             sender.handle,
+            deadline=sender.deadline,
         )
         try:
             close_receipt = sender.close_future.result(

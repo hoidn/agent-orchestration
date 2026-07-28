@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
 import hashlib
+import inspect
 import json
 from pathlib import Path
 from types import MappingProxyType
@@ -14,6 +15,9 @@ import pytest
 from orchestrator.providers.interactive_terminal import (
     FailedCleanupProof,
     NaturalShutdownProof,
+)
+from orchestrator.workflow.provider_peer_group.bindings import (
+    PeerInteractiveAdapter,
 )
 from orchestrator.workflow.provider_peer_group.ledger import (
     PeerMessageLedger,
@@ -44,6 +48,22 @@ from orchestrator.workflow.provider_peer_group.paths import (
     preflight_provider_peer_group_paths,
     realize_provider_peer_group_paths,
 )
+
+
+def test_peer_interactive_adapter_deadline_contract_is_explicit() -> None:
+    for operation in ("start", "offer", "offer_close"):
+        deadline = inspect.signature(
+            getattr(PeerInteractiveAdapter, operation)
+        ).parameters.get("deadline")
+        assert deadline is not None
+        assert deadline.kind is inspect.Parameter.KEYWORD_ONLY
+
+    for operation in ("join", "abort"):
+        deadline = inspect.signature(
+            getattr(PeerInteractiveAdapter, operation)
+        ).parameters.get("deadline")
+        assert deadline is not None
+        assert deadline.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
 
 
 def _visit() -> PeerGroupVisitIdentity:

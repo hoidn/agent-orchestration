@@ -18,6 +18,7 @@ from uuid import uuid4
 
 import pytest
 
+import orchestrator.providers.interactive_terminal as interactive_terminal_module
 import orchestrator.workflow.provider_peer_group.bindings as peer_bindings
 from orchestrator.providers.interactive_terminal import (
     CloseOfferReceipt,
@@ -217,18 +218,66 @@ class _FakeAdapter:
         self.on_start: Callable[[], None] | None = None
         self.on_offer: Callable[[str], None] | None = None
         self.on_close: Callable[[], None] | None = None
+        self.deadlines: list[tuple[str, float]] = []
 
     def start(
         self,
         invocation: InteractiveMemberInvocation,
-    ) -> InteractiveMemberHandle:
+        *,
+        deadline: float,
+    ) -> object:
         self.calls.append(("start", invocation))
+        self.deadlines.append(("start", deadline))
         self.start_entered.set()
         if not self.start_gate.wait(_WAIT_SECONDS):
             raise RuntimeError("test start gate timed out")
         if self.on_start is not None:
             self.on_start()
         if self.start_error is not None:
+            start_outcome_type = getattr(
+                interactive_terminal_module,
+                "InteractiveTerminalStartOutcome",
+            )
+            if (
+                isinstance(self.start_error, InteractiveTerminalError)
+                and self.start_error.code
+                == "interactive_terminal_start_cleanup_incomplete"
+            ):
+                cleanup_type = getattr(
+                    interactive_terminal_module,
+                    "PhasedFailedCleanupEvidence",
+                )
+                return start_outcome_type(
+                    status="failed",
+                    error_code=self.start_error.code,
+                    backend_allocation="possible_or_allocated",
+                    cleanup_status="incomplete",
+                    provider_zero_survivor_proven=False,
+                    proof=cleanup_type(
+                        disposition="failed_cleanup",
+                        pane_absent=False,
+                        server_absent=False,
+                        cleanup_complete=False,
+                        error_code=self.start_error.code,
+                    ),
+                )
+            if isinstance(self.start_error, InteractiveTerminalError):
+                no_allocation_type = getattr(
+                    interactive_terminal_module,
+                    "NoBackendAllocationProof",
+                )
+                return start_outcome_type(
+                    status="failed",
+                    error_code=self.start_error.code,
+                    backend_allocation="none",
+                    cleanup_status="not_required",
+                    provider_zero_survivor_proven=True,
+                    proof=no_allocation_type(
+                        disposition="no_backend_allocation",
+                        backend_resource_allocated=False,
+                        proof_complete=True,
+                    ),
+                )
             raise self.start_error
         handle = InteractiveMemberHandle(
             adapter_instance_id=f"adapter-{self.member_id}",
@@ -243,14 +292,21 @@ class _FakeAdapter:
             ),
         )
         self.handle = handle
-        return handle
+        start_outcome_type = getattr(
+            interactive_terminal_module,
+            "InteractiveTerminalStartOutcome",
+        )
+        return start_outcome_type(status="started", handle=handle)
 
     def offer(
         self,
         handle: InteractiveMemberHandle,
         literal_message: str,
+        *,
+        deadline: float,
     ) -> OfferReceipt:
         assert handle == self.handle
+        self.deadlines.append(("offer", deadline))
         self.calls.append(("offer", literal_message))
         self.offered_literals.append(literal_message)
         if self.on_offer is not None:
@@ -270,8 +326,11 @@ class _FakeAdapter:
     def offer_close(
         self,
         handle: InteractiveMemberHandle,
+        *,
+        deadline: float,
     ) -> CloseOfferReceipt:
         assert handle == self.handle
+        self.deadlines.append(("offer_close", deadline))
         self.calls.append(("offer_close", handle.handle_id))
         self.close_entered.set()
         self.close_gate.wait()
@@ -848,7 +907,7 @@ def test_start_cleanup_incomplete_propagates_after_cleanup_without_terminal(
     with pytest.raises(InteractiveTerminalError) as exc_info:
         coordinator.run()
 
-    assert exc_info.value is startup_error
+    assert exc_info.value.code == startup_error.code
     assert listener.closed.is_set()
     assert listener.workers_joined is True
     assert cleanup_order[0] == "endpoint"
@@ -1017,6 +1076,45 @@ def test_ready_is_one_group_barrier(tmp_path: Path) -> None:
         assert isinstance(third.result(_WAIT_SECONDS), PeerReadyReceipt)
         group.finish_all()
         assert group.outcome.result(_WAIT_SECONDS)["status"] == "completed"
+
+
+def test_peer_coordinator_passes_one_member_deadline_to_start_offer_and_close(
+    tmp_path: Path,
+) -> None:
+    with _running_group(tmp_path) as group:
+        group.ready()
+        sent = group.listener.submit(
+            PeerSendRequest(
+                "deadline-send",
+                group.sender("writer"),
+                "reviewer",
+                "deadline-preserving message",
+            )
+        ).result(_WAIT_SECONDS)
+        assert isinstance(sent, PeerSendReceipt)
+        acknowledged = group.listener.submit(
+            PeerAcknowledgeRequest(
+                "deadline-ack",
+                group.sender("reviewer"),
+                sent.message_id,
+            )
+        ).result(_WAIT_SECONDS)
+        assert isinstance(acknowledged, PeerAcknowledgeReceipt)
+        group.finish_all()
+        assert group.outcome.result(_WAIT_SECONDS)["status"] == "completed"
+
+        for adapter in group.bindings.adapters.values():
+            assert adapter.deadlines
+            [deadline] = {
+                value for _operation, value in adapter.deadlines
+            }
+            assert deadline > time.monotonic()
+        reviewer_deadlines = [
+            operation
+            for operation, _deadline
+            in group.bindings.adapters["reviewer"].deadlines
+        ]
+        assert reviewer_deadlines == ["start", "offer", "offer_close"]
 
 
 def test_ready_barrier_publishes_no_mixed_active_snapshot(
