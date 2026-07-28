@@ -19,6 +19,9 @@ from .peer import (
     peer_ready_workflow,
     peer_send_workflow,
 )
+from .provider_materialization import (
+    provider_materialization_submit_workflow,
+)
 
 __all__ = [
     'compile_workflow',
@@ -36,4 +39,5 @@ __all__ = [
     'peer_finish_workflow',
     'peer_ready_workflow',
     'peer_send_workflow',
+    'provider_materialization_submit_workflow',
 ]

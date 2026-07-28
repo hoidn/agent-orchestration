@@ -546,6 +546,10 @@ def create_parser() -> argparse.ArgumentParser:
         'peer-finish',
         help='Request cooperative natural close for this member',
     )
+    subparsers.add_parser(
+        'provider-materialization-submit',
+        help='Submit the current phased materialization candidate',
+    )
 
     provider_manifest_parser = subparsers.add_parser(
         'provider-isolation-environment-manifest',
@@ -638,6 +642,11 @@ def main(args: Optional[list] = None) -> int:
     elif parsed_args.command == 'peer-finish':
         from orchestrator.cli.commands import peer_finish_workflow
         return peer_finish_workflow()
+    elif parsed_args.command == 'provider-materialization-submit':
+        from orchestrator.cli.commands import (
+            provider_materialization_submit_workflow,
+        )
+        return provider_materialization_submit_workflow()
     elif parsed_args.command == 'provider-isolation-environment-manifest':
         from orchestrator.cli.commands import (
             provider_isolation_environment_manifest_workflow,
