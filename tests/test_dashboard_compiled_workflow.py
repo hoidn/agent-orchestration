@@ -56,7 +56,7 @@ def test_persisted_surface_anchor_rejects_unknown_schema() -> None:
     with pytest.raises(PersistedCompiledWorkflowError, match="unsupported"):
         _closed_anchor(
             {
-                "schema_version": "persisted_workflow_surface_graph.v3",
+                "schema_version": "persisted_workflow_surface_graph.v4",
                 "path": f"build/{FINGERPRINT}/persisted_workflow_surface.json",
                 "entry_workflow": ENTRY_WORKFLOW,
                 "sha256": "sha256:" + "a" * 64,

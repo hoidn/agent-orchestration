@@ -334,7 +334,7 @@ def test_record_compiled_frontend_surface_omits_malformed_digest(
     [
         (
             "0123456789abcdef",
-            "persisted_workflow_surface_graph.v3",
+            "persisted_workflow_surface_graph.v4",
             "build/0123456789abcdef/persisted_workflow_surface.json",
             "example::run",
         ),

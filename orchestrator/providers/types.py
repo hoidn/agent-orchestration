@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
+import math
 import re
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -559,7 +560,7 @@ class PreparedProviderPolicy:
     provider_name: str
     model: Optional[str]
     effort: Optional[str]
-    timeout_sec: Optional[int]
+    timeout_sec: Optional[float]
     input_mode: str
 
     def __post_init__(self) -> None:
@@ -573,12 +574,19 @@ class PreparedProviderPolicy:
                 raise ValueError(
                     f"prepared provider {field_name} must be non-empty text"
                 )
-        if self.timeout_sec is not None and (
-            type(self.timeout_sec) is not int or self.timeout_sec <= 0
-        ):
-            raise ValueError(
-                "prepared provider timeout must be a positive integer"
+        if self.timeout_sec is not None:
+            timeout_sec = self.timeout_sec
+            timeout_is_valid = (
+                type(timeout_sec) is int and timeout_sec > 0
+            ) or (
+                type(timeout_sec) is float
+                and math.isfinite(timeout_sec)
+                and timeout_sec > 0
             )
+            if not timeout_is_valid:
+                raise ValueError(
+                    "prepared provider timeout must be finite positive seconds"
+                )
         if self.input_mode not in {InputMode.ARGV.value, InputMode.STDIN.value}:
             raise ValueError("prepared provider input mode is invalid")
 

@@ -606,6 +606,14 @@ def test_prepared_provider_policy_does_not_infer_undeclared_values_from_argv(
         {"provider_name": "provider", "model": None, "effort": None,
          "timeout_sec": 0, "input_mode": "stdin"},
         {"provider_name": "provider", "model": None, "effort": None,
+         "timeout_sec": -0.1, "input_mode": "stdin"},
+        {"provider_name": "provider", "model": None, "effort": None,
+         "timeout_sec": float("inf"), "input_mode": "stdin"},
+        {"provider_name": "provider", "model": None, "effort": None,
+         "timeout_sec": float("nan"), "input_mode": "stdin"},
+        {"provider_name": "provider", "model": None, "effort": None,
+         "timeout_sec": True, "input_mode": "stdin"},
+        {"provider_name": "provider", "model": None, "effort": None,
          "timeout_sec": None, "input_mode": "file"},
     ),
 )
@@ -614,6 +622,37 @@ def test_prepared_provider_policy_rejects_invalid_closed_fields(kwargs) -> None:
 
     with pytest.raises((TypeError, ValueError)):
         PreparedProviderPolicy(**kwargs)
+
+
+def test_prepared_provider_policy_preserves_positive_fractional_timeout() -> None:
+    from orchestrator.providers.types import PreparedProviderPolicy
+
+    policy = PreparedProviderPolicy(
+        provider_name="provider",
+        model=None,
+        effort=None,
+        timeout_sec=0.1,
+        input_mode="stdin",
+    )
+
+    assert policy.to_dict()["timeout_sec"] == 0.1
+
+
+def test_prepared_provider_policy_preserves_huge_positive_exact_int_timeout() -> None:
+    from orchestrator.providers.types import PreparedProviderPolicy
+
+    huge_timeout = 10**309
+    policy = PreparedProviderPolicy(
+        provider_name="provider",
+        model=None,
+        effort=None,
+        timeout_sec=huge_timeout,
+        input_mode="stdin",
+    )
+
+    preserved = policy.to_dict()["timeout_sec"]
+    assert type(preserved) is int
+    assert preserved == huge_timeout
 
 
 def test_prepare_invocation_reports_invalid_effective_policy_without_raising(

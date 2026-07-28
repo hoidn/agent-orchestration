@@ -795,6 +795,29 @@ def test_provider_policy_preserves_nullable_and_relative_slash_identifiers() -> 
     )
 
 
+def test_provider_policy_preserves_positive_fractional_timeout() -> None:
+    module = _identity_module()
+
+    role = module.build_provider_policy_role(
+        _provider_policy(timeout_sec=0.1)
+    )
+
+    assert role["payload"]["timeout_sec"] == 0.1
+
+
+def test_provider_policy_builder_preserves_huge_positive_exact_int_timeout() -> None:
+    module = _identity_module()
+    huge_timeout = 10**309
+
+    role = module.build_provider_policy_role(
+        _provider_policy(timeout_sec=huge_timeout)
+    )
+
+    preserved = role["payload"]["timeout_sec"]
+    assert type(preserved) is int
+    assert preserved == huge_timeout
+
+
 def test_resolved_bindings_follow_plan_order_and_owned_trace_projections() -> None:
     module = _identity_module()
     plan = _plan()

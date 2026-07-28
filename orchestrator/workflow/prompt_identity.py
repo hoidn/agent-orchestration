@@ -665,11 +665,18 @@ def _validate_provider_policy_payload(
                     "provider policy must not contain absolute paths"
                 )
     if payload["timeout_sec"] is not None:
-        _role_integer(
-            payload["timeout_sec"],
-            context="provider timeout",
-            minimum=1,
+        timeout_sec = payload["timeout_sec"]
+        timeout_is_valid = (
+            type(timeout_sec) is int and timeout_sec > 0
+        ) or (
+            type(timeout_sec) is float
+            and math.isfinite(timeout_sec)
+            and timeout_sec > 0
         )
+        if not timeout_is_valid:
+            raise _role_invalid(
+                "provider timeout must be finite positive seconds"
+            )
     if payload["input_mode"] not in {"argv", "stdin"}:
         raise _role_invalid("provider input mode is invalid")
     return payload
