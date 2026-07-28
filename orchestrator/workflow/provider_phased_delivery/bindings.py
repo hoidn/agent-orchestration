@@ -777,6 +777,48 @@ class AtomicSuccessCommitReceipt:
 
 
 @dataclass(frozen=True, slots=True)
+class PreparedSuccessCommit:
+    allocation: AttemptAllocation
+    output: OutputPositionValidation
+    structured: StructuredResultValidation
+    frozen: FrozenCandidate
+    evidence: FunctionalEvidencePublication
+    verification: FrozenCandidateVerification
+
+    def __post_init__(self) -> None:
+        expected = (
+            (self.allocation, AttemptAllocation),
+            (self.output, OutputPositionValidation),
+            (self.structured, StructuredResultValidation),
+            (self.frozen, FrozenCandidate),
+            (self.evidence, FunctionalEvidencePublication),
+            (self.verification, FrozenCandidateVerification),
+        )
+        if any(type(value) is not kind for value, kind in expected):
+            raise TypeError("prepared success commit fields must be exact")
+
+
+@dataclass(frozen=True, slots=True)
+class SerializedAttemptEvent:
+    kind: str
+    submit: SubmitEndpointEvent | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in {
+            "submit",
+            "provider_exit",
+            "interrupted",
+            "deadline",
+        }:
+            raise ValueError("serialized attempt event kind is invalid")
+        if self.kind == "submit":
+            if type(self.submit) is not SubmitEndpointEvent:
+                raise TypeError("submit event requires exact payload")
+        elif self.submit is not None:
+            raise ValueError("control event forbids submit payload")
+
+
+@dataclass(frozen=True, slots=True)
 class PhasedProviderAttemptSuccess:
     allocation: AttemptAllocation
     lifecycle: PhasedLifecycleState
@@ -1042,15 +1084,24 @@ class PhasedProviderAttemptCoordinatorBindings(Protocol):
 
     def observed_at(self) -> str: ...
 
+    def monotonic_now(self) -> float: ...
+
     def prestart_no_backend_allocation_proof(
         self,
     ) -> NoBackendAllocationProof: ...
 
     def allocate_attempt(self) -> AttemptAllocation: ...
 
+    def derive_attempt_deadline(
+        self,
+        allocation: AttemptAllocation,
+    ) -> float: ...
+
     def compose_attempt(
         self,
         allocation: AttemptAllocation,
+        *,
+        deadline: float,
     ) -> AttemptComposition: ...
 
     def preflight_candidates(
@@ -1068,6 +1119,14 @@ class PhasedProviderAttemptCoordinatorBindings(Protocol):
         self,
         composition: AttemptComposition,
     ) -> SubmitEndpoint: ...
+
+    def receive_attempt_event(
+        self,
+        *,
+        boundary: str,
+        endpoint: SubmitEndpoint,
+        deadline: float,
+    ) -> SerializedAttemptEvent | None: ...
 
     def snapshot_candidates(
         self,
@@ -1114,7 +1173,7 @@ class PhasedProviderAttemptCoordinatorBindings(Protocol):
         restoration: FrozenCandidateRestoration,
     ) -> FrozenCandidateVerification: ...
 
-    def atomic_success_commit(
+    def prepare_success_commit(
         self,
         *,
         allocation: AttemptAllocation,
@@ -1123,6 +1182,13 @@ class PhasedProviderAttemptCoordinatorBindings(Protocol):
         frozen: FrozenCandidate,
         evidence: FunctionalEvidencePublication,
         verification: FrozenCandidateVerification,
+    ) -> PreparedSuccessCommit: ...
+
+    def atomic_success_commit(
+        self,
+        prepared: PreparedSuccessCommit,
+        *,
+        deadline: float,
     ) -> AtomicSuccessCommitReceipt: ...
 
     def finalize_failure(
@@ -1151,6 +1217,8 @@ __all__ = [
     "PhasedNaturalShutdownEvidence",
     "PhasedProviderAttemptFailure",
     "PhasedProviderAttemptSuccess",
+    "PreparedSuccessCommit",
+    "SerializedAttemptEvent",
     "PhasedProviderAttemptCoordinatorBindings",
     "PhaseLedger",
     "StructuredResultValidation",

@@ -7,7 +7,7 @@ from dataclasses import FrozenInstanceError, replace
 import hashlib
 import json
 from pathlib import Path
-from threading import Thread
+from threading import Lock, Thread
 import time
 from typing import cast, Mapping
 
@@ -48,6 +48,8 @@ from orchestrator.workflow.provider_phased_delivery.bindings import (
     PhasedProviderAttemptCoordinatorBindings,
     PhasedProviderAttemptFailure,
     PhasedProviderAttemptSuccess,
+    PreparedSuccessCommit,
+    SerializedAttemptEvent,
     StructuredResultValidation,
     SubmitEndpoint,
     ValidatedArtifact,
@@ -58,6 +60,7 @@ from orchestrator.workflow.provider_phased_delivery.coordinator import (
     _NeedsTerminalization,
 )
 from orchestrator.workflow.provider_phased_delivery.diagnostics import (
+    DEADLINE_OPERATION_REGISTRY,
     DiagnosticSource,
     PhasedDeliveryDiagnostic,
     RejectedValue,
@@ -671,6 +674,9 @@ class RecordingBindings(PhasedProviderAttemptCoordinatorBindings):
     def observed_at(self) -> str:
         return "2026-07-28T12:00:00Z"
 
+    def monotonic_now(self) -> float:
+        return 0.0
+
     def prestart_no_backend_allocation_proof(
         self,
     ) -> NoBackendAllocationProof:
@@ -685,13 +691,40 @@ class RecordingBindings(PhasedProviderAttemptCoordinatorBindings):
         self.actions.append("bindings.allocate")
         return self.allocation
 
+    def derive_attempt_deadline(
+        self,
+        allocation: AttemptAllocation,
+    ) -> float:
+        assert allocation == self.allocation
+        self.actions.append("bindings.derive_deadline")
+        return self.composition.deadline
+
     def compose_attempt(
         self,
         allocation: AttemptAllocation,
+        *,
+        deadline: float,
     ) -> AttemptComposition:
         assert allocation == self.allocation
+        assert deadline == self.composition.deadline
         self.actions.append("bindings.compose")
         return self.composition
+
+    def receive_attempt_event(
+        self,
+        *,
+        boundary: str,
+        endpoint: SubmitEndpoint,
+        deadline: float,
+    ) -> SerializedAttemptEvent | None:
+        assert deadline == self.composition.deadline
+        if boundary != "AWAITING_SUBMIT":
+            self.actions.append(f"bindings.control_event.{boundary}.none")
+            return None
+        return SerializedAttemptEvent(
+            kind="submit",
+            submit=endpoint.receive_event(deadline=deadline),
+        )
 
     def preflight_candidates(
         self,
@@ -814,7 +847,7 @@ class RecordingBindings(PhasedProviderAttemptCoordinatorBindings):
             verified=True,
         )
 
-    def atomic_success_commit(
+    def prepare_success_commit(
         self,
         *,
         allocation: AttemptAllocation,
@@ -823,15 +856,34 @@ class RecordingBindings(PhasedProviderAttemptCoordinatorBindings):
         frozen: FrozenCandidate,
         evidence: FunctionalEvidencePublication,
         verification: FrozenCandidateVerification,
-    ) -> AtomicSuccessCommitReceipt:
-        self.committed_material = (
-            allocation,
-            output,
-            structured,
-            frozen,
-            evidence,
-            verification,
+    ) -> PreparedSuccessCommit:
+        self.actions.append("bindings.prepare_commit")
+        return PreparedSuccessCommit(
+            allocation=allocation,
+            output=output,
+            structured=structured,
+            frozen=frozen,
+            evidence=evidence,
+            verification=verification,
         )
+
+    def atomic_success_commit(
+        self,
+        prepared: PreparedSuccessCommit,
+        *,
+        deadline: float,
+    ) -> AtomicSuccessCommitReceipt:
+        assert deadline == self.composition.deadline
+        self.committed_material = (
+            prepared.allocation,
+            prepared.output,
+            prepared.structured,
+            prepared.frozen,
+            prepared.evidence,
+            prepared.verification,
+        )
+        evidence = prepared.evidence
+        frozen = prepared.frozen
         self.actions.append("bindings.atomic_commit")
         return AtomicSuccessCommitReceipt(
             evidence_sha256=evidence.evidence_sha256,
@@ -1020,6 +1072,7 @@ def test_one_submit_happy_path_records_before_actions_and_commits_once() -> None
     ]
     assert bindings.actions == [
         "bindings.allocate",
+        "bindings.derive_deadline",
         "bindings.compose",
         "bindings.preflight",
         "ledger.header",
@@ -1029,6 +1082,7 @@ def test_one_submit_happy_path_records_before_actions_and_commits_once() -> None
         "bindings.endpoint",
         "endpoint.start",
         "endpoint.open_initial",
+        "bindings.control_event.BEFORE_INITIAL_OFFER.none",
         "ledger.turn_offer_requested",
         "adapter.offer.initial_materialization",
         "ledger.turn_offered",
@@ -1039,6 +1093,7 @@ def test_one_submit_happy_path_records_before_actions_and_commits_once() -> None
         "bindings.validate_structured",
         "bindings.freeze",
         "ledger.candidate_frozen",
+        "bindings.control_event.VALID_FROZEN.none",
         "ledger.close_offer_requested",
         "adapter.offer_close",
         "ledger.close_offered",
@@ -1050,10 +1105,12 @@ def test_one_submit_happy_path_records_before_actions_and_commits_once() -> None
         "ledger.join_started",
         "adapter.join",
         "ledger.join_succeeded",
+        "bindings.control_event.JOINED_PENDING_COMMIT.none",
         "ledger.publication_started",
         "bindings.publish_evidence",
         "bindings.restore",
         "bindings.verify",
+        "bindings.prepare_commit",
         "bindings.atomic_commit",
         "ledger.publication_succeeded",
         "ledger.close",
@@ -1750,8 +1807,9 @@ class TerminalBoundaryBindings(RecordingBindings):
         fail_at: str,
         cleanup_mode: str = "complete",
         ledger_fail_at: str | None = None,
+        force_retry: bool = False,
     ) -> None:
-        retry = fail_at in {"retry_materialization", "reset"}
+        retry = force_retry or fail_at in {"retry_materialization", "reset"}
         super().__init__(
             materialization_attempts=2 if retry else 1,
             outcomes=(
@@ -1876,13 +1934,9 @@ class TerminalBoundaryBindings(RecordingBindings):
 
     def atomic_success_commit(
         self,
+        prepared: PreparedSuccessCommit,
         *,
-        allocation: AttemptAllocation,
-        output: OutputPositionValidation,
-        structured: StructuredResultValidation,
-        frozen: FrozenCandidate,
-        evidence: FunctionalEvidencePublication,
-        verification: FrozenCandidateVerification,
+        deadline: float,
     ) -> AtomicSuccessCommitReceipt:
         if self.fail_at == "commit":
             self.actions.append("bindings.atomic_commit")
@@ -1890,12 +1944,8 @@ class TerminalBoundaryBindings(RecordingBindings):
                 _diagnostic("workflow_state_commit_failed")
             )
         return super().atomic_success_commit(
-            allocation=allocation,
-            output=output,
-            structured=structured,
-            frozen=frozen,
-            evidence=evidence,
-            verification=verification,
+            prepared,
+            deadline=deadline,
         )
 
 
@@ -1905,6 +1955,7 @@ class RealTerminalBoundaryBindings(TerminalBoundaryBindings):
         self.run_root = tmp_path / f"run-{fail_at}"
         self.run_root.mkdir()
         self.ledger_path: Path | None = None
+        self.real_ledger: ProviderPromptPhaseLedgerWriter | None = None
 
     def create_ledger(
         self,
@@ -1921,7 +1972,972 @@ class RealTerminalBoundaryBindings(TerminalBoundaryBindings):
             created_at=self.observed_at(),
         )
         self.ledger_path = writer.path
+        self.real_ledger = writer
         return writer
+
+
+class DeadlineMatrixBindings(TerminalBoundaryBindings):
+    def __init__(self, *, operation: str, phase: str) -> None:
+        force_retry = operation in {"retry_offer", "candidate_reset"}
+        super().__init__(
+            fail_at=(
+                "initial_materialization"
+                if operation == "adapter_cleanup"
+                else "none"
+            ),
+            force_retry=force_retry,
+        )
+        self.deadline_operation = operation
+        self.deadline_phase = phase
+        self.clock_probes: list[tuple[str, str]] = []
+        self.deadline_expired = False
+
+    def monotonic_now(self) -> float:
+        coordinator = self.coordinator
+        probe = (
+            None
+            if coordinator is None
+            else getattr(coordinator._session, "deadline_probe", None)
+        )
+        if probe is not None:
+            self.clock_probes.append(probe)
+        if probe == (self.deadline_operation, self.deadline_phase):
+            self.deadline_expired = True
+        if self.deadline_expired:
+            return self.composition.deadline
+        return self.composition.deadline - 1.0
+
+
+class ComposeFailureBindings(TerminalBoundaryBindings):
+    def __init__(self, *, crosses_deadline: bool) -> None:
+        super().__init__(fail_at="none")
+        self.crosses_deadline = crosses_deadline
+
+    def monotonic_now(self) -> float:
+        coordinator = self.coordinator
+        probe = (
+            None
+            if coordinator is None
+            else getattr(coordinator._session, "deadline_probe", None)
+        )
+        if self.crosses_deadline and probe == ("preparation", "during"):
+            return self.composition.deadline
+        return self.composition.deadline - 1.0
+
+    def compose_attempt(
+        self,
+        allocation: AttemptAllocation,
+        *,
+        deadline: float,
+    ) -> AttemptComposition:
+        assert allocation == self.allocation
+        assert deadline == self.composition.deadline
+        self.actions.append("bindings.compose")
+        raise PhasedOperationFailure(_diagnostic("preparation_failed"))
+
+
+class InvalidDeadlineBindings(RecordingBindings):
+    def __init__(self, deadline: object) -> None:
+        super().__init__()
+        self.invalid_deadline = deadline
+
+    def derive_attempt_deadline(
+        self,
+        allocation: AttemptAllocation,
+    ) -> float:
+        assert allocation == self.allocation
+        self.actions.append("bindings.derive_deadline")
+        return cast(float, self.invalid_deadline)
+
+
+class InvalidMonotonicBindings(RecordingBindings):
+    def __init__(self, now: object) -> None:
+        super().__init__()
+        self.invalid_now = now
+
+    def monotonic_now(self) -> float:
+        return cast(float, self.invalid_now)
+
+
+class RealDeadlineHeaderBindings(RealTerminalBoundaryBindings):
+    def __init__(self, tmp_path: Path) -> None:
+        super().__init__(tmp_path, fail_at="none")
+        self.deadline_expired = False
+
+    def monotonic_now(self) -> float:
+        coordinator = self.coordinator
+        probe = (
+            None
+            if coordinator is None
+            else getattr(coordinator._session, "deadline_probe", None)
+        )
+        if probe == ("ledger_append", "during"):
+            self.deadline_expired = True
+        if self.deadline_expired:
+            return self.composition.deadline
+        return self.composition.deadline - 1.0
+
+
+class MalformedStartAdapter(TerminalBoundaryAdapter):
+    def start(
+        self,
+        invocation: InteractiveMemberInvocation,
+        *,
+        deadline: float,
+    ) -> InteractiveTerminalStartOutcome:
+        self.owner.actions.append("adapter.start")
+        return cast(InteractiveTerminalStartOutcome, object())
+
+
+class MalformedIngressEndpoint(TerminalBoundaryEndpoint):
+    def __init__(
+        self,
+        owner: "MalformedOperationBindings",
+        requests: tuple[SubmitRequest, ...],
+    ) -> None:
+        super().__init__(owner, requests)
+        self.return_malformed_once = True
+
+    def shutdown(
+        self,
+        *,
+        deadline: float | None = None,
+    ) -> SubmitEndpointShutdownOutcome:
+        outcome = super().shutdown(deadline=deadline)
+        if self.return_malformed_once:
+            self.return_malformed_once = False
+            return cast(SubmitEndpointShutdownOutcome, object())
+        return outcome
+
+
+class MalformedOperationBindings(TerminalBoundaryBindings):
+    def __init__(self, *, operation: str, crosses_deadline: bool) -> None:
+        super().__init__(
+            fail_at="none",
+            force_retry=operation == "candidate_reset",
+        )
+        self.malformed_operation = operation
+        self.deadline_operation = {
+            "submit_snapshot": "submit",
+            "validation_output": "validation",
+            "validation_structured": "validation",
+        }.get(operation, operation)
+        self.crosses_deadline = crosses_deadline
+        if operation == "adapter_start":
+            self.adapter = MalformedStartAdapter(self)
+        if operation == "ingress_shutdown":
+            self.endpoint = MalformedIngressEndpoint(
+                self,
+                tuple(event.request for event in self.endpoint.events),
+            )
+
+    def monotonic_now(self) -> float:
+        coordinator = self.coordinator
+        probe = (
+            None
+            if coordinator is None
+            else getattr(coordinator._session, "deadline_probe", None)
+        )
+        if (
+            self.crosses_deadline
+            and probe == (self.deadline_operation, "during")
+        ):
+            return self.composition.deadline
+        return self.composition.deadline - 1.0
+
+    def receive_attempt_event(
+        self,
+        *,
+        boundary: str,
+        endpoint: SubmitEndpoint,
+        deadline: float,
+    ) -> SerializedAttemptEvent | None:
+        if (
+            self.malformed_operation == "submit"
+            and boundary == "AWAITING_SUBMIT"
+        ):
+            self.actions.append("bindings.control_event.malformed")
+            return cast(SerializedAttemptEvent, object())
+        return super().receive_attempt_event(
+            boundary=boundary,
+            endpoint=endpoint,
+            deadline=deadline,
+        )
+
+    def snapshot_candidates(
+        self,
+        preflight: CandidatePreflight,
+        submission_ordinal: int,
+    ) -> CandidateSnapshot:
+        if self.malformed_operation == "submit_snapshot":
+            self.actions.append("bindings.snapshot")
+            return cast(CandidateSnapshot, object())
+        return super().snapshot_candidates(preflight, submission_ordinal)
+
+    def validate_output_positions(
+        self,
+        snapshot: CandidateSnapshot,
+    ) -> OutputPositionValidation:
+        if self.malformed_operation == "validation_output":
+            self.actions.append("bindings.validate_output")
+            return cast(OutputPositionValidation, object())
+        return super().validate_output_positions(snapshot)
+
+    def validate_structured_result(
+        self,
+        snapshot: CandidateSnapshot,
+    ) -> StructuredResultValidation:
+        if self.malformed_operation == "validation_structured":
+            self.actions.append("bindings.validate_structured")
+            return cast(StructuredResultValidation, object())
+        return super().validate_structured_result(snapshot)
+
+    def reset_candidates(
+        self,
+        snapshot: CandidateSnapshot,
+    ) -> CandidateResetResult:
+        if self.malformed_operation == "candidate_reset":
+            self.actions.append("bindings.reset")
+            return cast(CandidateResetResult, object())
+        return super().reset_candidates(snapshot)
+
+    def freeze_candidate(
+        self,
+        snapshot: CandidateSnapshot,
+        output: OutputPositionValidation,
+        structured: StructuredResultValidation,
+    ) -> FrozenCandidate:
+        if self.malformed_operation == "candidate_freeze":
+            self.actions.append("bindings.freeze")
+            return cast(FrozenCandidate, object())
+        return super().freeze_candidate(snapshot, output, structured)
+
+    def prepare_success_commit(
+        self,
+        *,
+        allocation: AttemptAllocation,
+        output: OutputPositionValidation,
+        structured: StructuredResultValidation,
+        frozen: FrozenCandidate,
+        evidence: FunctionalEvidencePublication,
+        verification: FrozenCandidateVerification,
+    ) -> PreparedSuccessCommit:
+        if self.malformed_operation == "state_commit":
+            self.actions.append("bindings.prepare_commit")
+            return cast(PreparedSuccessCommit, object())
+        return super().prepare_success_commit(
+            allocation=allocation,
+            output=output,
+            structured=structured,
+            frozen=frozen,
+            evidence=evidence,
+            verification=verification,
+        )
+
+
+class NativeHeaderFailureBindings(TerminalBoundaryBindings):
+    def create_ledger(
+        self,
+        allocation: AttemptAllocation,
+        composition: AttemptComposition,
+    ) -> PhaseLedger:
+        assert allocation == self.allocation
+        assert composition == self.composition
+        self.actions.append("ledger.header")
+        raise OSError("synthetic durable-header failure")
+
+
+class ControlEventBindings(TerminalBoundaryBindings):
+    def __init__(
+        self,
+        *,
+        boundary: str,
+        kind: str,
+        force_retry: bool = False,
+    ) -> None:
+        super().__init__(
+            fail_at="none",
+            force_retry=force_retry,
+        )
+        self.control_boundary = boundary
+        self.control_kind = kind
+
+    def receive_attempt_event(
+        self,
+        *,
+        boundary: str,
+        endpoint: SubmitEndpoint,
+        deadline: float,
+    ) -> SerializedAttemptEvent | None:
+        if boundary == self.control_boundary:
+            self.actions.append(
+                f"bindings.control_event.{boundary}.{self.control_kind}"
+            )
+            return SerializedAttemptEvent(kind=self.control_kind)
+        return super().receive_attempt_event(
+            boundary=boundary,
+            endpoint=endpoint,
+            deadline=deadline,
+        )
+
+
+class FinalStateDeadlineBindings(TerminalBoundaryBindings):
+    def __init__(self, *, commit_wins: bool) -> None:
+        super().__init__(fail_at="none")
+        self.commit_wins = commit_wins
+        self.state_lock = Lock()
+        self.final_clock_checks = 0
+        self.deadline_expired = False
+
+    def monotonic_now(self) -> float:
+        if self.deadline_expired:
+            return self.composition.deadline
+        return self.composition.deadline - 1.0
+
+    def atomic_success_commit(
+        self,
+        prepared: PreparedSuccessCommit,
+        *,
+        deadline: float,
+    ) -> AtomicSuccessCommitReceipt:
+        self.actions.append("bindings.atomic_commit")
+        with self.state_lock:
+            self.final_clock_checks += 1
+            if not self.commit_wins:
+                self.deadline_expired = True
+            if self.monotonic_now() >= deadline:
+                raise PhasedOperationFailure(
+                    _diagnostic("deadline_exhausted_before_state_commit")
+                )
+            self.committed_material = (
+                prepared.allocation,
+                prepared.output,
+                prepared.structured,
+                prepared.frozen,
+                prepared.evidence,
+                prepared.verification,
+            )
+            receipt = AtomicSuccessCommitReceipt(
+                evidence_sha256=prepared.evidence.evidence_sha256,
+                frozen_sha256=prepared.frozen.frozen_sha256,
+                status="authoritative_state_committed",
+            )
+        if self.commit_wins:
+            self.deadline_expired = True
+        return receipt
+
+
+class FinalStateInterruptionBindings(TerminalBoundaryBindings):
+    def __init__(self, *, interruption_before_commit: bool) -> None:
+        super().__init__(fail_at="none")
+        self.interruption_before_commit = interruption_before_commit
+        self.state_lock = Lock()
+        self.interruption_observed = False
+
+    def atomic_success_commit(
+        self,
+        prepared: PreparedSuccessCommit,
+        *,
+        deadline: float,
+    ) -> AtomicSuccessCommitReceipt:
+        assert deadline == self.composition.deadline
+        self.actions.append("bindings.atomic_commit")
+        with self.state_lock:
+            if self.interruption_before_commit:
+                self.interruption_observed = True
+                raise PhasedOperationFailure(
+                    _diagnostic("interrupted_nonterminal_visit")
+                )
+            self.committed_material = (
+                prepared.allocation,
+                prepared.output,
+                prepared.structured,
+                prepared.frozen,
+                prepared.evidence,
+                prepared.verification,
+            )
+            receipt = AtomicSuccessCommitReceipt(
+                evidence_sha256=prepared.evidence.evidence_sha256,
+                frozen_sha256=prepared.frozen.frozen_sha256,
+                status="authoritative_state_committed",
+            )
+            self.interruption_observed = True
+            return receipt
+
+
+class TamperedPreparedCommitBindings(TerminalBoundaryBindings):
+    def __init__(self, field: str) -> None:
+        super().__init__(fail_at="none")
+        self.tampered_field = field
+        self.atomic_commit_calls = 0
+
+    def prepare_success_commit(
+        self,
+        *,
+        allocation: AttemptAllocation,
+        output: OutputPositionValidation,
+        structured: StructuredResultValidation,
+        frozen: FrozenCandidate,
+        evidence: FunctionalEvidencePublication,
+        verification: FrozenCandidateVerification,
+    ) -> PreparedSuccessCommit:
+        self.actions.append("bindings.prepare_commit")
+        fake_snapshot = CandidateSnapshot.create(
+            preflight=self.preflight,
+            submission_ordinal=self.snapshots[-1].submission_ordinal + 1,
+            rows=self.snapshots[-1].rows,
+        )
+        replacements = {
+            "allocation": replace(
+                allocation,
+                attempt_ordinal=allocation.attempt_ordinal + 1,
+            ),
+            "output": replace(
+                output,
+                snapshot_sha256=fake_snapshot.snapshot_sha256,
+            ),
+            "structured": replace(
+                structured,
+                snapshot_sha256=fake_snapshot.snapshot_sha256,
+            ),
+            "frozen": FrozenCandidate.create(
+                snapshot=fake_snapshot,
+                files=frozen.files,
+            ),
+            "evidence": replace(
+                evidence,
+                evidence_sha256=_digest(b"substituted-evidence"),
+            ),
+            "verification": replace(
+                verification,
+                frozen_sha256=_digest(b"substituted-verification"),
+            ),
+        }
+        values = {
+            "allocation": allocation,
+            "output": output,
+            "structured": structured,
+            "frozen": frozen,
+            "evidence": evidence,
+            "verification": verification,
+        }
+        values[self.tampered_field] = replacements[self.tampered_field]
+        return PreparedSuccessCommit(
+            allocation=cast(AttemptAllocation, values["allocation"]),
+            output=cast(OutputPositionValidation, values["output"]),
+            structured=cast(StructuredResultValidation, values["structured"]),
+            frozen=cast(FrozenCandidate, values["frozen"]),
+            evidence=cast(FunctionalEvidencePublication, values["evidence"]),
+            verification=cast(
+                FrozenCandidateVerification,
+                values["verification"],
+            ),
+        )
+
+    def atomic_success_commit(
+        self,
+        prepared: PreparedSuccessCommit,
+        *,
+        deadline: float,
+    ) -> AtomicSuccessCommitReceipt:
+        self.atomic_commit_calls += 1
+        return super().atomic_success_commit(
+            prepared,
+            deadline=deadline,
+        )
+
+
+@pytest.mark.parametrize(
+    ("operation", "phase", "expected_reason"),
+    tuple(
+        (
+            row.operation,
+            phase,
+            row.before_reason if phase == "before" else row.during_reason,
+        )
+        for row in DEADLINE_OPERATION_REGISTRY
+        for phase in ("before", "during")
+    ),
+)
+def test_whole_attempt_deadline_matrix(
+    operation: str,
+    phase: str,
+    expected_reason: str,
+) -> None:
+    bindings = DeadlineMatrixBindings(
+        operation=operation,
+        phase=phase,
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    if operation == "adapter_cleanup":
+        assert result.first_diagnostic.reason == "initial_offer_failed"
+        assert result.cleanup_diagnostic is not None
+        assert result.cleanup_diagnostic.reason == expected_reason
+    else:
+        assert result.first_diagnostic.reason == expected_reason
+    assert (operation, phase) in bindings.clock_probes
+    assert bindings.committed_material is None
+    operation_action = {
+        "preparation": "bindings.preflight",
+        "ledger_append": "ledger.header",
+        "adapter_start": "adapter.start",
+        "submit_endpoint_allocation": "bindings.endpoint",
+        "initial_offer": "adapter.offer.initial_materialization",
+        "retry_offer": "adapter.offer.retry_materialization",
+        "submit": "endpoint.receive",
+        "validation": "bindings.validate_output",
+        "candidate_reset": "bindings.reset",
+        "candidate_freeze": "bindings.freeze",
+        "close_offer": "adapter.offer_close",
+        "ingress_shutdown": "endpoint.shutdown",
+        "natural_join": "adapter.join",
+        "evidence_publication": "bindings.publish_evidence",
+        "frozen_restoration": "bindings.restore",
+        "frozen_verification": "bindings.verify",
+        "state_commit": "bindings.prepare_commit",
+        "adapter_cleanup": "adapter.abort",
+    }[operation]
+    calls = bindings.actions.count(operation_action)
+    if operation == "ingress_shutdown" and phase == "before":
+        assert calls == 1
+    else:
+        assert calls == (0 if phase == "before" else 1)
+    if operation == "validation" and phase == "during":
+        assert bindings.actions.count("bindings.validate_structured") == 1
+
+
+@pytest.mark.parametrize(
+    ("crosses_deadline", "expected_reason"),
+    (
+        (False, "preparation_failed"),
+        (True, "deadline_exhausted_during_preparation"),
+    ),
+)
+def test_compose_failure_obeys_preparation_after_check_precedence(
+    crosses_deadline: bool,
+    expected_reason: str,
+) -> None:
+    bindings = ComposeFailureBindings(
+        crosses_deadline=crosses_deadline,
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == expected_reason
+    assert bindings.actions.count("bindings.compose") == 1
+    assert "bindings.preflight" not in bindings.actions
+    assert "ledger.header" not in bindings.actions
+    assert "adapter.start" not in bindings.actions
+
+
+@pytest.mark.parametrize(
+    ("operation", "structural_error"),
+    (
+        ("adapter_start", TypeError),
+        ("submit", TypeError),
+        ("submit_snapshot", ValueError),
+        ("validation_output", ValueError),
+        ("validation_structured", ValueError),
+        ("candidate_reset", ValueError),
+        ("candidate_freeze", ValueError),
+        ("ingress_shutdown", TypeError),
+        ("state_commit", TypeError),
+    ),
+)
+def test_malformed_operation_return_wins_with_positive_budget(
+    operation: str,
+    structural_error: type[Exception],
+) -> None:
+    bindings = MalformedOperationBindings(
+        operation=operation,
+        crosses_deadline=False,
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    with pytest.raises(structural_error):
+        coordinator.run()
+
+    assert bindings.committed_material is None
+
+
+@pytest.mark.parametrize(
+    ("operation", "expected_reason"),
+    (
+        ("adapter_start", "deadline_exhausted_during_start"),
+        ("submit", "deadline_exhausted_during_submit"),
+        ("submit_snapshot", "deadline_exhausted_during_submit"),
+        ("validation_output", "deadline_exhausted_during_validation"),
+        ("validation_structured", "deadline_exhausted_during_validation"),
+        ("candidate_reset", "deadline_exhausted_during_candidate_reset"),
+        ("candidate_freeze", "deadline_exhausted_during_candidate_freeze"),
+        (
+            "ingress_shutdown",
+            "deadline_exhausted_during_ingress_shutdown",
+        ),
+        (
+            "state_commit",
+            "deadline_exhausted_during_state_commit_preparation",
+        ),
+    ),
+)
+def test_crossed_deadline_precedes_malformed_operation_return(
+    operation: str,
+    expected_reason: str,
+) -> None:
+    bindings = MalformedOperationBindings(
+        operation=operation,
+        crosses_deadline=True,
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == expected_reason
+    assert bindings.committed_material is None
+
+
+@pytest.mark.parametrize(
+    "deadline",
+    (True, 1, float("nan"), float("inf"), float("-inf")),
+)
+def test_derived_attempt_deadline_requires_one_exact_finite_float(
+    deadline: object,
+) -> None:
+    bindings = InvalidDeadlineBindings(deadline)
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    with pytest.raises(
+        TypeError,
+        match="derived deadline must be a finite number",
+    ):
+        coordinator.run()
+
+    assert bindings.actions == [
+        "bindings.allocate",
+        "bindings.derive_deadline",
+    ]
+
+
+@pytest.mark.parametrize(
+    "now",
+    (True, 1, float("nan"), float("inf"), float("-inf")),
+)
+def test_monotonic_clock_requires_an_exact_finite_float(now: object) -> None:
+    bindings = InvalidMonotonicBindings(now)
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    with pytest.raises(
+        TypeError,
+        match="monotonic clock must return a finite float",
+    ):
+        coordinator.run()
+
+    assert bindings.actions == [
+        "bindings.allocate",
+        "bindings.derive_deadline",
+    ]
+
+
+def test_during_ledger_header_retains_and_closes_truthful_prefix(
+    tmp_path: Path,
+) -> None:
+    bindings = RealDeadlineHeaderBindings(tmp_path)
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == (
+        "deadline_exhausted_during_ledger_append"
+    )
+    assert bindings.ledger_path is not None
+    validation = validate_ledger_bytes(bindings.ledger_path.read_bytes())
+    assert validation["status"] == "valid_prefix"
+    assert validation["reason"] == "nonterminal_prefix"
+    assert validation["terminal_event"] is None
+    assert bindings.real_ledger is not None
+    assert bindings.real_ledger._closed is True
+    assert "adapter.start" not in bindings.actions
+
+
+def test_native_ledger_header_failure_enters_typed_t0_terminalizer() -> None:
+    bindings = NativeHeaderFailureBindings(fail_at="none")
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == "evidence_append_failed"
+    assert result.terminalization_tier == "T0"
+    assert "adapter.start" not in bindings.actions
+    assert bindings.actions.count("bindings.prestart_proof") == 1
+    assert bindings.actions.count("bindings.finalize_failure") == 1
+    assert coordinator._session.ledger is None
+    assert coordinator._session.ledger_channel == "ABSENT"
+
+
+def test_poisoned_required_ledger_row_blocks_action_and_later_appends() -> None:
+    bindings = TerminalBoundaryBindings(
+        fail_at="ledger_turn_offer_requested",
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == "evidence_append_failed"
+    assert coordinator._session.ledger_channel == "POISONED"
+    assert "adapter.offer.initial_materialization" not in bindings.actions
+    assert tuple(event for event, _payload in bindings.ledger.events)[-1] == (
+        "turn_offer_requested"
+    )
+    assert not any(
+        event in {"cleanup_finished", "terminal_failed"}
+        for event, _payload in bindings.ledger.events
+    )
+    assert bindings.actions.count("adapter.abort") == 1
+    assert bindings.actions.count("endpoint.shutdown") == 1
+
+
+@pytest.mark.parametrize(
+    ("boundary", "force_retry", "forbidden_action"),
+    (
+        (
+            "BEFORE_INITIAL_OFFER",
+            False,
+            "adapter.offer.initial_materialization",
+        ),
+        (
+            "BEFORE_RETRY_OFFER",
+            True,
+            "adapter.offer.retry_materialization",
+        ),
+        ("VALID_FROZEN", False, "adapter.offer_close"),
+    ),
+)
+def test_serialized_preproof_interruption_stops_before_next_action(
+    boundary: str,
+    force_retry: bool,
+    forbidden_action: str,
+) -> None:
+    bindings = ControlEventBindings(
+        boundary=boundary,
+        kind="interrupted",
+        force_retry=force_retry,
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == "interrupted_nonterminal_visit"
+    assert forbidden_action not in bindings.actions
+    assert bindings.actions.count("adapter.abort") == 1
+    assert bindings.committed_material is None
+
+
+def test_serialized_provider_exit_before_submit_maps_exact_boundary() -> None:
+    bindings = ControlEventBindings(
+        boundary="AWAITING_SUBMIT",
+        kind="provider_exit",
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == "provider_exited_before_submit"
+    assert "bindings.snapshot" not in bindings.actions
+    assert bindings.actions.count("adapter.abort") == 1
+
+
+def test_serialized_submit_timer_maps_to_exact_during_reason() -> None:
+    bindings = ControlEventBindings(
+        boundary="AWAITING_SUBMIT",
+        kind="deadline",
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == (
+        "deadline_exhausted_during_submit"
+    )
+    assert "bindings.snapshot" not in bindings.actions
+    assert "bindings.validate_output" not in bindings.actions
+    assert bindings.actions.count("adapter.abort") == 1
+    assert bindings.committed_material is None
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    ("VALID_FROZEN", "JOINED_PENDING_COMMIT"),
+)
+def test_serialized_provider_exit_after_freeze_cannot_bypass_join_or_commit(
+    boundary: str,
+) -> None:
+    bindings = ControlEventBindings(
+        boundary=boundary,
+        kind="provider_exit",
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptSuccess
+    assert bindings.actions.count("adapter.join") == 1
+    assert bindings.actions.count("bindings.atomic_commit") == 1
+    assert bindings.committed_material is not None
+
+
+def test_postjoin_interruption_is_t4_and_never_aborts_or_commits() -> None:
+    bindings = ControlEventBindings(
+        boundary="JOINED_PENDING_COMMIT",
+        kind="interrupted",
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == "interrupted_nonterminal_visit"
+    assert result.terminalization_tier == "T4"
+    assert result.lifecycle.natural_join_proven is True
+    assert bindings.actions.count("adapter.abort") == 0
+    assert "bindings.publish_evidence" not in bindings.actions
+    assert bindings.committed_material is None
+
+
+def test_postjoin_timer_precedes_late_interruption_and_commit() -> None:
+    bindings = ControlEventBindings(
+        boundary="JOINED_PENDING_COMMIT",
+        kind="deadline",
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == (
+        "deadline_exhausted_before_ledger_append"
+    )
+    assert result.terminalization_tier == "T4"
+    assert bindings.actions.count("adapter.abort") == 0
+    assert "bindings.publish_evidence" not in bindings.actions
+    assert bindings.committed_material is None
+
+
+def test_final_state_lock_deadline_check_writes_no_authority() -> None:
+    bindings = FinalStateDeadlineBindings(commit_wins=False)
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == (
+        "deadline_exhausted_before_state_commit"
+    )
+    assert bindings.final_clock_checks == 1
+    assert bindings.committed_material is None
+
+
+def test_atomic_commit_wins_over_later_deadline_sample() -> None:
+    bindings = FinalStateDeadlineBindings(commit_wins=True)
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptSuccess
+    assert bindings.final_clock_checks == 1
+    assert bindings.committed_material is not None
+    assert "ledger.publication_succeeded" not in bindings.actions
+
+
+def test_state_lock_interruption_before_commit_writes_no_authority() -> None:
+    bindings = FinalStateInterruptionBindings(
+        interruption_before_commit=True,
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == "interrupted_nonterminal_visit"
+    assert result.terminalization_tier == "T4"
+    assert bindings.interruption_observed is True
+    assert bindings.committed_material is None
+    assert bindings.actions.count("adapter.abort") == 0
+
+
+def test_state_lock_commit_wins_over_later_interruption() -> None:
+    bindings = FinalStateInterruptionBindings(
+        interruption_before_commit=False,
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptSuccess
+    assert bindings.interruption_observed is True
+    assert bindings.committed_material is not None
+    assert bindings.actions.count(
+        "bindings.control_event.JOINED_PENDING_COMMIT.none"
+    ) == 1
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "allocation",
+        "output",
+        "structured",
+        "frozen",
+        "evidence",
+        "verification",
+    ),
+)
+def test_tampered_exact_prepared_record_cannot_reach_atomic_commit(
+    field: str,
+) -> None:
+    bindings = TamperedPreparedCommitBindings(field)
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    with pytest.raises(
+        ValueError,
+        match="prepared success commit predecessor is invalid",
+    ):
+        coordinator.run()
+
+    assert bindings.atomic_commit_calls == 0
+    assert bindings.committed_material is None
 
 
 @pytest.mark.parametrize(
@@ -1945,10 +2961,10 @@ class RealTerminalBoundaryBindings(TerminalBoundaryBindings):
         (
             "ledger_task_start_requested",
             "evidence_append_failed",
-            "T0",
-            0,
-            0,
-            ("cleanup_finished", "terminal_failed"),
+                "T0",
+                0,
+                0,
+                ("task_start_requested",),
         ),
         (
             "start",
@@ -2308,8 +3324,12 @@ def test_t2b_reuses_failed_endpoint_shutdown_without_duplicate_calls() -> None:
     bindings.coordinator = coordinator
     allocation = bindings.allocate_attempt()
     coordinator._session.allocation = allocation
-    composition = bindings.compose_attempt(allocation)
+    composition = bindings.compose_attempt(
+        allocation,
+        deadline=bindings.composition.deadline,
+    )
     coordinator._session.composition = composition
+    coordinator._session.attempt_deadline = composition.deadline
     coordinator._session.preflight = bindings.preflight_candidates(
         composition
     )
@@ -2317,6 +3337,7 @@ def test_t2b_reuses_failed_endpoint_shutdown_without_duplicate_calls() -> None:
         allocation,
         composition,
     )
+    coordinator._session.ledger_channel = "WRITABLE"
     coordinator._prepare_and_offer_initial()
     first = _diagnostic("submit_lifecycle_invalid")
     coordinator._finish_cleanup_once()
