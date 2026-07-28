@@ -2066,6 +2066,7 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             field_types.append((field.name, field_type))
         metadata = carrier_metadata_for_expr(
             expr,
+            session_state=context.type_env.session_state,
             field_signature=tuple((field_name, field_type.name) for field_name, field_type in field_types),
             field_types=tuple(field_types),
         )
@@ -2075,6 +2076,7 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             metadata.generated_type_name,
             span=expr.span,
             form_path=expr.form_path,
+            session_state=context.type_env.session_state,
         )
     if isinstance(expr, LoopStateUpdateExpr):
         base_type = _resolve_lowering_expr_type(expr.base_expr, context=context)
@@ -2082,7 +2084,15 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             return None
         from ..loop_state import carrier_metadata_for_type
 
-        return base_type if carrier_metadata_for_type(base_type) is not None else None
+        return (
+            base_type
+            if carrier_metadata_for_type(
+                base_type,
+                session_state=context.type_env.session_state,
+            )
+            is not None
+            else None
+        )
     if isinstance(expr, UnionVariantExpr):
         return context.type_env.resolve_type(
             expr.type_name,

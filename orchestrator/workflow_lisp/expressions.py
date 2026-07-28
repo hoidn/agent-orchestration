@@ -15,6 +15,7 @@ from orchestrator.workflow.provider_phased_delivery.diagnostics import (
     PhasedDeliveryDiagnostic,
 )
 
+from .compiler_session import CompilerSession, ElaborationSessionState
 from .diagnostics import (
     LispFrontendCompileError,
     LispFrontendDiagnostic,
@@ -781,19 +782,9 @@ ExprNode = (
 )
 
 
-_ACTIVE_PROCEDURE_NAME_RESOLVER = None
-_ACTIVE_FUNCTION_NAME_RESOLVER = None
-_ACTIVE_WORKFLOW_NAME_RESOLVER = None
-_ACTIVE_FUNCTION_NAMES = frozenset()
-_ACTIVE_LOCAL_PROC_NAMES = frozenset()
-_ACTIVE_LOOP_BODY_DEPTH = 0
-_ACTIVE_LET_PROC_DEPTH = 0
-_ACTIVE_GUIDANCE_EXAMPLE = False
-_ACTIVE_TARGET_DSL_VERSION: str | None = None
-_ACTIVE_PROMPT_CATALOG: PromptCatalog | None = None
 
 _ElaborationRouteHandler = Callable[
-    [SyntaxList, tuple[str, ...], frozenset[str], frozenset[str]],
+    [SyntaxList, tuple[str, ...], frozenset[str], frozenset[str], ElaborationSessionState],
     "ExprNode",
 ]
 
@@ -810,47 +801,51 @@ def elaborate_expression(
     guidance_example: bool = False,
     target_dsl_version: str | None = None,
     prompt_catalog: PromptCatalog | None = None,
+    session_state: ElaborationSessionState | None = None,
 ) -> ExprNode:
     """Elaborate one syntax node into a supported Workflow Lisp expression."""
 
-    global _ACTIVE_FUNCTION_NAME_RESOLVER, _ACTIVE_FUNCTION_NAMES, _ACTIVE_PROCEDURE_NAME_RESOLVER, _ACTIVE_WORKFLOW_NAME_RESOLVER
-    global _ACTIVE_LOCAL_PROC_NAMES, _ACTIVE_LET_PROC_DEPTH, _ACTIVE_GUIDANCE_EXAMPLE, _ACTIVE_TARGET_DSL_VERSION, _ACTIVE_PROMPT_CATALOG
-
-    previous_function_resolver = _ACTIVE_FUNCTION_NAME_RESOLVER
-    previous_function_names = _ACTIVE_FUNCTION_NAMES
-    previous_procedure_resolver = _ACTIVE_PROCEDURE_NAME_RESOLVER
-    previous_workflow_resolver = _ACTIVE_WORKFLOW_NAME_RESOLVER
-    previous_local_proc_names = _ACTIVE_LOCAL_PROC_NAMES
-    previous_let_proc_depth = _ACTIVE_LET_PROC_DEPTH
-    previous_guidance_example = _ACTIVE_GUIDANCE_EXAMPLE
-    previous_target_dsl_version = _ACTIVE_TARGET_DSL_VERSION
-    previous_prompt_catalog = _ACTIVE_PROMPT_CATALOG
-    _ACTIVE_FUNCTION_NAME_RESOLVER = function_name_resolver
-    _ACTIVE_FUNCTION_NAMES = function_names
-    _ACTIVE_PROCEDURE_NAME_RESOLVER = procedure_name_resolver
-    _ACTIVE_WORKFLOW_NAME_RESOLVER = workflow_name_resolver
-    _ACTIVE_LOCAL_PROC_NAMES = frozenset()
-    _ACTIVE_LET_PROC_DEPTH = 0
-    _ACTIVE_GUIDANCE_EXAMPLE = guidance_example
-    _ACTIVE_TARGET_DSL_VERSION = target_dsl_version
-    _ACTIVE_PROMPT_CATALOG = prompt_catalog
+    session_state = session_state or CompilerSession().elaboration
+    previous_state = ElaborationSessionState(
+        procedure_name_resolver=session_state.procedure_name_resolver,
+        function_name_resolver=session_state.function_name_resolver,
+        workflow_name_resolver=session_state.workflow_name_resolver,
+        function_names=session_state.function_names,
+        local_proc_names=session_state.local_proc_names,
+        loop_body_depth=session_state.loop_body_depth,
+        let_proc_depth=session_state.let_proc_depth,
+        guidance_example=session_state.guidance_example,
+        target_dsl_version=session_state.target_dsl_version,
+        prompt_catalog=session_state.prompt_catalog,
+    )
+    session_state.function_name_resolver = function_name_resolver
+    session_state.function_names = function_names
+    session_state.procedure_name_resolver = procedure_name_resolver
+    session_state.workflow_name_resolver = workflow_name_resolver
+    session_state.local_proc_names = frozenset()
+    session_state.let_proc_depth = 0
+    session_state.guidance_example = guidance_example
+    session_state.target_dsl_version = target_dsl_version
+    session_state.prompt_catalog = prompt_catalog
     try:
         return _elaborate(
             syntax_node_datum(node),
             form_path=node.form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         )
     finally:
-        _ACTIVE_FUNCTION_NAME_RESOLVER = previous_function_resolver
-        _ACTIVE_FUNCTION_NAMES = previous_function_names
-        _ACTIVE_PROCEDURE_NAME_RESOLVER = previous_procedure_resolver
-        _ACTIVE_WORKFLOW_NAME_RESOLVER = previous_workflow_resolver
-        _ACTIVE_LOCAL_PROC_NAMES = previous_local_proc_names
-        _ACTIVE_LET_PROC_DEPTH = previous_let_proc_depth
-        _ACTIVE_GUIDANCE_EXAMPLE = previous_guidance_example
-        _ACTIVE_TARGET_DSL_VERSION = previous_target_dsl_version
-        _ACTIVE_PROMPT_CATALOG = previous_prompt_catalog
+        session_state.procedure_name_resolver = previous_state.procedure_name_resolver
+        session_state.function_name_resolver = previous_state.function_name_resolver
+        session_state.workflow_name_resolver = previous_state.workflow_name_resolver
+        session_state.function_names = previous_state.function_names
+        session_state.local_proc_names = previous_state.local_proc_names
+        session_state.loop_body_depth = previous_state.loop_body_depth
+        session_state.let_proc_depth = previous_state.let_proc_depth
+        session_state.guidance_example = previous_state.guidance_example
+        session_state.target_dsl_version = previous_state.target_dsl_version
+        session_state.prompt_catalog = previous_state.prompt_catalog
 
 
 def _elaborate(
@@ -859,6 +854,7 @@ def _elaborate(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ExprNode:
     if isinstance(datum, SyntaxString):
         return LiteralExpr(
@@ -885,7 +881,7 @@ def _elaborate(
             expansion_stack=datum.expansion_stack,
         )
     if isinstance(datum, SyntaxFloat):
-        if _ACTIVE_GUIDANCE_EXAMPLE:
+        if session_state.guidance_example:
             return LiteralExpr(
                 value=datum.value,
                 literal_kind="float",
@@ -907,6 +903,7 @@ def _elaborate(
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         )
     raise TypeError(f"unsupported expression datum: {type(datum)!r}")
 
@@ -960,6 +957,7 @@ def _elaborate_list(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ExprNode:
     if not datum.items:
         _raise_error(
@@ -981,10 +979,10 @@ def _elaborate_list(
         form_spec is not None
         and head.resolved_name in list_traversal_authored_heads()
         and not target_dsl_supports_list_traversal(
-            _ACTIVE_TARGET_DSL_VERSION or ""
+            session_state.target_dsl_version or ""
         )
         and (
-            head.resolved_name in _ACTIVE_FUNCTION_NAMES
+            head.resolved_name in session_state.function_names
             or head.resolved_name in procedure_names
             or head.resolved_name in bound_names
         )
@@ -992,12 +990,12 @@ def _elaborate_list(
         form_spec = None
     if (
         head.resolved_name == "with-live-provider-peers"
-        and _ACTIVE_TARGET_DSL_VERSION is not None
+        and session_state.target_dsl_version is not None
         and not target_dsl_supports_provider_peer_messaging(
-            _ACTIVE_TARGET_DSL_VERSION
+            session_state.target_dsl_version
         )
         and (
-            head.resolved_name in _ACTIVE_FUNCTION_NAMES
+            head.resolved_name in session_state.function_names
             or head.resolved_name in procedure_names
             or head.resolved_name in bound_names
         )
@@ -1027,13 +1025,15 @@ def _elaborate_list(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             )
-    if head.resolved_name in _ACTIVE_FUNCTION_NAMES:
+    if head.resolved_name in session_state.function_names:
         return _elaborate_function_call(
             datum,
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         )
     if head.resolved_name in procedure_names:
         return _elaborate_procedure_call(
@@ -1041,8 +1041,9 @@ def _elaborate_list(
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         )
-    if head.resolved_name in _ACTIVE_LOCAL_PROC_NAMES:
+    if head.resolved_name in session_state.local_proc_names:
         _raise_error(
             f"`{head.display_name}` is a local `let-proc` binding and must be referenced with `proc-ref`",
             code="let_proc_bare_name_invalid",
@@ -1056,6 +1057,7 @@ def _elaborate_list(
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         )
     if _looks_like_pure_operator_head(head.resolved_name):
         _raise_error(
@@ -1081,6 +1083,7 @@ def _dispatch_elaboration_route(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ExprNode:
     handler = _elaboration_route_handlers().get(route_key)
     if handler is None:
@@ -1090,6 +1093,7 @@ def _dispatch_elaboration_route(
         form_path=form_path,
         bound_names=bound_names,
         procedure_names=procedure_names,
+        session_state=session_state,
     )
 
 
@@ -1098,6 +1102,7 @@ def _guard_loop_fn_route(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ExprNode:
     _raise_error(
         "`fn` is valid only as the body form of `loop/recur`",
@@ -1113,8 +1118,9 @@ def _guard_continue_route(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ExprNode:
-    if _ACTIVE_LOOP_BODY_DEPTH <= 0:
+    if session_state.loop_body_depth <= 0:
         _raise_error(
             "`continue` is valid only inside `loop/recur`",
             code="loop_recur_continue_outside_loop",
@@ -1127,6 +1133,7 @@ def _guard_continue_route(
         form_path=form_path,
         bound_names=bound_names,
         procedure_names=procedure_names,
+        session_state=session_state,
     )
 
 
@@ -1135,8 +1142,9 @@ def _guard_done_route(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ExprNode:
-    if _ACTIVE_LOOP_BODY_DEPTH <= 0:
+    if session_state.loop_body_depth <= 0:
         _raise_error(
             "`done` is valid only inside `loop/recur`",
             code="loop_recur_done_outside_loop",
@@ -1149,6 +1157,7 @@ def _guard_done_route(
         form_path=form_path,
         bound_names=bound_names,
         procedure_names=procedure_names,
+        session_state=session_state,
     )
 
 
@@ -1157,8 +1166,9 @@ def _guard_let_proc_route(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ExprNode:
-    if _ACTIVE_LET_PROC_DEPTH > 0:
+    if session_state.let_proc_depth > 0:
         _raise_error(
             "`let-proc` cannot be nested in V1",
             code="let_proc_nested_unsupported",
@@ -1171,6 +1181,7 @@ def _guard_let_proc_route(
         form_path=form_path,
         bound_names=bound_names,
         procedure_names=procedure_names,
+        session_state=session_state,
     )
 
 
@@ -1180,6 +1191,7 @@ def _route_phase_target(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ExprNode:
     del bound_names, procedure_names
     return _elaborate_phase_target(datum, form_path=form_path)
@@ -1191,6 +1203,7 @@ def _route_generated_relpath_seed(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ExprNode:
     del bound_names, procedure_names
     return _elaborate_generated_relpath_seed(datum, form_path=form_path)
@@ -1202,9 +1215,10 @@ def _route_workflow_ref(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ExprNode:
     del bound_names, procedure_names
-    return _elaborate_workflow_ref_literal(datum, form_path=form_path)
+    return _elaborate_workflow_ref_literal(datum, form_path=form_path, session_state=session_state)
 
 
 def _route_proc_ref(
@@ -1213,9 +1227,10 @@ def _route_proc_ref(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ExprNode:
     del bound_names, procedure_names
-    return _elaborate_proc_ref_literal(datum, form_path=form_path)
+    return _elaborate_proc_ref_literal(datum, form_path=form_path, session_state=session_state)
 
 
 def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
@@ -1266,9 +1281,13 @@ def _looks_like_pure_operator_head(name: str) -> bool:
     return name in {"and", "or", "not", "min", "max", "some?", "or-else", "record-update"}
 
 
-def _require_list_traversal_target(datum: SyntaxList) -> None:
+def _require_list_traversal_target(
+    datum: SyntaxList,
+    *,
+    session_state: ElaborationSessionState,
+) -> None:
     if target_dsl_supports_list_traversal(
-        _ACTIVE_TARGET_DSL_VERSION or ""
+        session_state.target_dsl_version or ""
     ):
         return
     _raise_error(
@@ -1289,6 +1308,7 @@ def _elaborate_record(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> RecordExpr:
     if len(datum.items) < 2:
         _raise_error("`record` requires a type name", span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
@@ -1328,6 +1348,7 @@ def _elaborate_record(
                     form_path=form_path,
                     bound_names=bound_names,
                     procedure_names=procedure_names,
+                    session_state=session_state,
                 ),
             )
         )
@@ -1346,12 +1367,13 @@ def _elaborate_pure_op(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> PureOpExpr:
     head = syntax_head(datum)
     assert head is not None
     spec = PURE_EXPR_OPERATOR_CATALOG[head.resolved_name]
     if spec.min_schema_version >= 2:
-        _require_list_traversal_target(datum)
+        _require_list_traversal_target(datum, session_state=session_state)
     return PureOpExpr(
         operator=head.resolved_name,
         args=tuple(
@@ -1360,6 +1382,7 @@ def _elaborate_pure_op(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             )
             for item in datum.items[1:]
         ),
@@ -1375,8 +1398,9 @@ def _elaborate_list_constructor(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ListExpr:
-    _require_list_traversal_target(datum)
+    _require_list_traversal_target(datum, session_state=session_state)
     return ListExpr(
         items=tuple(
             _elaborate(
@@ -1384,6 +1408,7 @@ def _elaborate_list_constructor(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             )
             for item in datum.items[1:]
         ),
@@ -1400,8 +1425,9 @@ def _elaborate_list_map(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ListMapExpr:
-    _require_list_traversal_target(datum)
+    _require_list_traversal_target(datum, session_state=session_state)
     if len(datum.items) != 3:
         _raise_error(
             "`list/map` requires one binder list and one pure body",
@@ -1443,12 +1469,14 @@ def _elaborate_list_map(
         form_path=form_path,
         bound_names=bound_names,
         procedure_names=procedure_names,
+        session_state=session_state,
     )
     body_expr = _elaborate(
         datum.items[2],
         form_path=form_path,
         bound_names=frozenset((*bound_names, binder.resolved_name)),
         procedure_names=procedure_names,
+        session_state=session_state,
     )
     return ListMapExpr(
         binder_name=binder.resolved_name,
@@ -1468,8 +1496,9 @@ def _elaborate_list_map_effect(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ListMapEffectExpr:
-    _require_list_traversal_target(datum)
+    _require_list_traversal_target(datum, session_state=session_state)
     if (
         len(datum.items) != 5
         or not isinstance(datum.items[2], SyntaxKeyword)
@@ -1518,12 +1547,14 @@ def _elaborate_list_map_effect(
         form_path=form_path,
         bound_names=bound_names,
         procedure_names=procedure_names,
+        session_state=session_state,
     )
     body_expr = _elaborate(
         datum.items[4],
         form_path=form_path,
         bound_names=frozenset((*bound_names, binder.resolved_name)),
         procedure_names=procedure_names,
+        session_state=session_state,
     )
     return ListMapEffectExpr(
         binder_name=binder.resolved_name,
@@ -1544,8 +1575,9 @@ def _elaborate_path_join_under(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> PathJoinUnderExpr:
-    _require_list_traversal_target(datum)
+    _require_list_traversal_target(datum, session_state=session_state)
     if len(datum.items) != 3:
         _raise_error(
             "`path/join-under` requires a path type and one child expression",
@@ -1570,6 +1602,7 @@ def _elaborate_path_join_under(
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         ),
         path_type_ref=None,
         span=datum.span,
@@ -1584,6 +1617,7 @@ def _elaborate_record_update(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> RecordUpdateExpr:
     if len(datum.items) < 4:
         _raise_error(
@@ -1619,6 +1653,7 @@ def _elaborate_record_update(
                     form_path=form_path,
                     bound_names=bound_names,
                     procedure_names=procedure_names,
+                    session_state=session_state,
                 ),
             )
         )
@@ -1628,6 +1663,7 @@ def _elaborate_record_update(
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         ),
         overrides=tuple(overrides),
         span=datum.span,
@@ -1642,6 +1678,7 @@ def _elaborate_loop_state(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> LoopStateSeedExpr | LoopStateUpdateExpr:
     if len(datum.items) < 2:
         _raise_error(
@@ -1658,12 +1695,14 @@ def _elaborate_loop_state(
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         )
     return _elaborate_loop_state_seed(
         datum,
         form_path=form_path,
         bound_names=bound_names,
         procedure_names=procedure_names,
+        session_state=session_state,
     )
 
 
@@ -1673,6 +1712,7 @@ def _elaborate_loop_state_seed(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> LoopStateSeedExpr:
     fields: list[LoopStateField] = []
     seen_fields: set[str] = set()
@@ -1714,6 +1754,7 @@ def _elaborate_loop_state_seed(
                     form_path=form_path,
                     bound_names=bound_names,
                     procedure_names=procedure_names,
+                    session_state=session_state,
                 ),
                 span=field_node.span,
                 form_path=form_path,
@@ -1734,6 +1775,7 @@ def _elaborate_loop_state_update(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> LoopStateUpdateExpr:
     if len(datum.items) < 4 or not isinstance(datum.items[1], SyntaxKeyword) or datum.items[1].value != ":like":
         _raise_error(
@@ -1792,6 +1834,7 @@ def _elaborate_loop_state_update(
                     form_path=form_path,
                     bound_names=bound_names,
                     procedure_names=procedure_names,
+                    session_state=session_state,
                 ),
             )
         )
@@ -1801,6 +1844,7 @@ def _elaborate_loop_state_update(
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         ),
         overrides=tuple(overrides),
         span=datum.span,
@@ -1815,6 +1859,7 @@ def _elaborate_variant(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> UnionVariantExpr:
     if len(datum.items) < 3:
         _raise_error(
@@ -1868,6 +1913,7 @@ def _elaborate_variant(
                     form_path=form_path,
                     bound_names=bound_names,
                     procedure_names=procedure_names,
+                    session_state=session_state,
                 ),
             )
         )
@@ -1887,6 +1933,7 @@ def _elaborate_letstar(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> LetStarExpr:
     if len(datum.items) != 3:
         _raise_error(
@@ -1926,6 +1973,7 @@ def _elaborate_letstar(
             form_path=form_path,
             bound_names=frozenset(current_names),
             procedure_names=procedure_names,
+            session_state=session_state,
         )
         bindings.append((name_node.resolved_name, value_expr))
         current_names.add(name_node.resolved_name)
@@ -1934,6 +1982,7 @@ def _elaborate_letstar(
         form_path=form_path,
         bound_names=frozenset(current_names),
         procedure_names=procedure_names,
+        session_state=session_state,
     )
     return LetStarExpr(
         bindings=tuple(bindings),
@@ -1950,6 +1999,7 @@ def _elaborate_match(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> MatchExpr:
     if len(datum.items) < 2:
         _raise_error("`match` requires a subject", span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
@@ -1958,6 +2008,7 @@ def _elaborate_match(
         form_path=form_path,
         bound_names=bound_names,
         procedure_names=procedure_names,
+        session_state=session_state,
     )
     arms: list[MatchArm] = []
     for raw_arm in datum.items[2:]:
@@ -1997,6 +2048,7 @@ def _elaborate_match(
             form_path=form_path,
             bound_names=frozenset(set(bound_names) | {binding_node.resolved_name}),
             procedure_names=procedure_names,
+            session_state=session_state,
         )
         arms.append(
             MatchArm(
@@ -2023,6 +2075,7 @@ def _elaborate_if(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> IfExpr:
     if len(datum.items) != 4:
         _raise_error(
@@ -2038,18 +2091,21 @@ def _elaborate_if(
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         ),
         then_expr=_elaborate(
             datum.items[2],
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         ),
         else_expr=_elaborate(
             datum.items[3],
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         ),
         span=datum.span,
         form_path=form_path,
@@ -2063,6 +2119,7 @@ def _elaborate_loop_recur(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> LoopRecurExpr:
     if len(datum.items) < 6:
         _raise_error(
@@ -2134,6 +2191,7 @@ def _elaborate_loop_recur(
         form_path=form_path,
         bound_names=bound_names,
         procedure_names=procedure_names,
+        session_state=session_state,
     )
     loop_bound_names = frozenset(set(bound_names) | {body_fn.binding_name})
     on_exhausted_node = sections.get(":on-exhausted")
@@ -2143,12 +2201,14 @@ def _elaborate_loop_recur(
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         ),
         initial_state_expr=_elaborate(
             state_node,
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         ),
         binding_name=body_fn.binding_name,
         body_expr=body_fn.body_expr,
@@ -2158,6 +2218,7 @@ def _elaborate_loop_recur(
                 form_path=form_path,
                 bound_names=loop_bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             )
             if on_exhausted_node is not None
             else None
@@ -2174,8 +2235,8 @@ def _elaborate_loop_body_fn(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> LoopBodyFnExpr:
-    global _ACTIVE_LOOP_BODY_DEPTH
 
     if not isinstance(node, SyntaxList) or len(node.items) != 3:
         _raise_error(
@@ -2204,16 +2265,17 @@ def _elaborate_loop_body_fn(
             form_path=form_path,
             expansion_stack=binding_list.expansion_stack,
         )
-    _ACTIVE_LOOP_BODY_DEPTH += 1
+    session_state.loop_body_depth += 1
     try:
         body_expr = _elaborate(
             node.items[2],
             form_path=form_path,
             bound_names=frozenset(set(bound_names) | {binding_node.resolved_name}),
             procedure_names=procedure_names,
+            session_state=session_state,
         )
     finally:
-        _ACTIVE_LOOP_BODY_DEPTH -= 1
+        session_state.loop_body_depth -= 1
     return LoopBodyFnExpr(
         binding_name=binding_node.resolved_name,
         body_expr=body_expr,
@@ -2229,6 +2291,7 @@ def _elaborate_continue(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ContinueExpr:
     if len(datum.items) != 2:
         _raise_error(
@@ -2244,6 +2307,7 @@ def _elaborate_continue(
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         ),
         span=datum.span,
         form_path=form_path,
@@ -2257,6 +2321,7 @@ def _elaborate_done(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> DoneExpr:
     if len(datum.items) != 2:
         _raise_error(
@@ -2272,6 +2337,7 @@ def _elaborate_done(
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         ),
         span=datum.span,
         form_path=form_path,
@@ -2285,6 +2351,7 @@ def _elaborate_call(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> CallExpr:
     if len(datum.items) < 2:
         _raise_error("`call` requires a callee name", span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
@@ -2324,6 +2391,7 @@ def _elaborate_call(
                     form_path=form_path,
                     bound_names=bound_names,
                     procedure_names=procedure_names,
+                    session_state=session_state,
                 ),
             )
         )
@@ -2332,8 +2400,8 @@ def _elaborate_call(
             callee_identifier.resolved_name
             if callee_identifier.resolved_name in bound_names
             else callee_identifier.resolved_name
-            if _ACTIVE_WORKFLOW_NAME_RESOLVER is None
-            else _ACTIVE_WORKFLOW_NAME_RESOLVER(
+            if session_state.workflow_name_resolver is None
+            else session_state.workflow_name_resolver(
                 callee_identifier.resolved_name,
                 callee_identifier.span,
                 form_path,
@@ -2356,17 +2424,18 @@ def _elaborate_function_call(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> FunctionCallExpr:
     callee_identifier = syntax_identifier(datum.items[0])
     assert callee_identifier is not None
     return FunctionCallExpr(
         callee_name=(
-            _ACTIVE_FUNCTION_NAME_RESOLVER(
+            session_state.function_name_resolver(
                 callee_identifier.resolved_name,
                 callee_identifier.span,
                 form_path,
             )
-            if _ACTIVE_FUNCTION_NAME_RESOLVER is not None
+            if session_state.function_name_resolver is not None
             else callee_identifier.resolved_name
         ),
         args=tuple(
@@ -2375,6 +2444,7 @@ def _elaborate_function_call(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             )
             for item in datum.items[1:]
         ),
@@ -2390,18 +2460,19 @@ def _elaborate_procedure_call(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ProcedureCallExpr:
     callee_identifier = syntax_identifier(datum.items[0])
     assert callee_identifier is not None
     callee_name = callee_identifier.resolved_name
     if callee_name not in bound_names:
         callee_name = (
-            _ACTIVE_PROCEDURE_NAME_RESOLVER(
+            session_state.procedure_name_resolver(
                 callee_name,
                 callee_identifier.span,
                 form_path,
             )
-            if _ACTIVE_PROCEDURE_NAME_RESOLVER is not None
+            if session_state.procedure_name_resolver is not None
             else callee_name
         )
     return ProcedureCallExpr(
@@ -2412,6 +2483,7 @@ def _elaborate_procedure_call(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             )
             for item in datum.items[1:]
         ),
@@ -2446,6 +2518,7 @@ def _elaborate_with_phase(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> WithPhaseExpr:
     if len(datum.items) != 4:
         _raise_error(
@@ -2469,6 +2542,7 @@ def _elaborate_with_phase(
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         ),
         phase_name=phase_identifier.resolved_name,
         body=_elaborate(
@@ -2476,6 +2550,7 @@ def _elaborate_with_phase(
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         ),
         span=datum.span,
         form_path=form_path,
@@ -2489,6 +2564,7 @@ def _elaborate_with_live_providers(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> WithLiveProvidersExpr:
     if len(datum.items) != 3:
         _raise_error(
@@ -2622,6 +2698,7 @@ def _elaborate_with_live_providers(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             ),
             observes=(
                 observed_name_node.resolved_name
@@ -2654,6 +2731,7 @@ def _elaborate_with_live_providers(
             form_path=form_path,
             bound_names=frozenset(set(bound_names) | names),
             procedure_names=procedure_names,
+            session_state=session_state,
         ),
         span=datum.span,
         form_path=form_path,
@@ -2667,6 +2745,7 @@ def _elaborate_with_live_provider_peers(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> WithLiveProviderPeersExpr:
     if len(datum.items) != 3:
         _raise_error(
@@ -2741,6 +2820,7 @@ def _elaborate_with_live_provider_peers(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             ),
             name_span=name_node.span,
             span=raw_binding.span,
@@ -2756,6 +2836,7 @@ def _elaborate_with_live_provider_peers(
             form_path=form_path,
             bound_names=frozenset(set(bound_names) | names),
             procedure_names=procedure_names,
+            session_state=session_state,
         ),
         span=datum.span,
         form_path=form_path,
@@ -2767,6 +2848,7 @@ def _elaborate_workflow_ref_literal(
     datum: SyntaxList,
     *,
     form_path: tuple[str, ...],
+    session_state: ElaborationSessionState,
 ) -> WorkflowRefLiteralExpr:
     if len(datum.items) != 2:
         _raise_error(
@@ -2784,12 +2866,12 @@ def _elaborate_workflow_ref_literal(
             expansion_stack=datum.items[1].expansion_stack,
         )
     target_name = (
-        _ACTIVE_WORKFLOW_NAME_RESOLVER(
+        session_state.workflow_name_resolver(
             target_identifier.resolved_name,
             target_identifier.span,
             form_path,
         )
-        if _ACTIVE_WORKFLOW_NAME_RESOLVER is not None
+        if session_state.workflow_name_resolver is not None
         else target_identifier.resolved_name
     )
     return WorkflowRefLiteralExpr(
@@ -2804,6 +2886,7 @@ def _elaborate_proc_ref_literal(
     datum: SyntaxList,
     *,
     form_path: tuple[str, ...],
+    session_state: ElaborationSessionState,
 ) -> ProcRefLiteralExpr:
     if len(datum.items) != 2:
         _raise_error(
@@ -2821,16 +2904,16 @@ def _elaborate_proc_ref_literal(
             expansion_stack=datum.items[1].expansion_stack,
         )
     authored_name = target_identifier.resolved_name
-    if authored_name in _ACTIVE_LOCAL_PROC_NAMES:
+    if authored_name in session_state.local_proc_names:
         target_name = authored_name
     else:
         target_name = (
-            _ACTIVE_PROCEDURE_NAME_RESOLVER(
+            session_state.procedure_name_resolver(
                 authored_name,
                 target_identifier.span,
                 form_path,
             )
-            if _ACTIVE_PROCEDURE_NAME_RESOLVER is not None
+            if session_state.procedure_name_resolver is not None
             else authored_name
         )
     return ProcRefLiteralExpr(
@@ -2848,6 +2931,7 @@ def _elaborate_bind_proc(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> BindProcExpr:
     if len(datum.items) < 4 or len(datum.items[2:]) % 2 != 0:
         _raise_error(
@@ -2861,6 +2945,7 @@ def _elaborate_bind_proc(
         form_path=form_path,
         bound_names=bound_names,
         procedure_names=procedure_names,
+        session_state=session_state,
     )
     bindings: list[BindProcBinding] = []
     raw_bindings = datum.items[2:]
@@ -2882,6 +2967,7 @@ def _elaborate_bind_proc(
                     form_path=form_path,
                     bound_names=bound_names,
                     procedure_names=procedure_names,
+                    session_state=session_state,
                 ),
                 keyword_span=keyword_node.span,
                 keyword_form_path=form_path,
@@ -2903,8 +2989,8 @@ def _elaborate_let_proc(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> LetProcExpr:
-    global _ACTIVE_LOCAL_PROC_NAMES, _ACTIVE_LET_PROC_DEPTH
 
     if len(datum.items) != 3:
         _raise_error(
@@ -3041,26 +3127,28 @@ def _elaborate_let_proc(
         seen_captures.add(capture_name)
         capture_names.append(capture_name)
 
-    previous_local_proc_names = _ACTIVE_LOCAL_PROC_NAMES
-    previous_let_proc_depth = _ACTIVE_LET_PROC_DEPTH
-    _ACTIVE_LOCAL_PROC_NAMES = _ACTIVE_LOCAL_PROC_NAMES | frozenset({name_identifier.resolved_name})
-    _ACTIVE_LET_PROC_DEPTH += 1
+    previous_local_proc_names = session_state.local_proc_names
+    previous_let_proc_depth = session_state.let_proc_depth
+    session_state.local_proc_names = session_state.local_proc_names | frozenset({name_identifier.resolved_name})
+    session_state.let_proc_depth += 1
     try:
         local_body = _elaborate(
             binding_node.items[6],
             form_path=form_path,
             bound_names=frozenset(capture_names) | frozenset(param.name for param in params),
             procedure_names=procedure_names,
+            session_state=session_state,
         )
         body = _elaborate(
             datum.items[2],
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         )
     finally:
-        _ACTIVE_LOCAL_PROC_NAMES = previous_local_proc_names
-        _ACTIVE_LET_PROC_DEPTH = previous_let_proc_depth
+        session_state.local_proc_names = previous_local_proc_names
+        session_state.let_proc_depth = previous_let_proc_depth
 
     return LetProcExpr(
         binding=LetProcBinding(
@@ -3199,6 +3287,7 @@ def _elaborate_provider_result(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ProviderResultExpr:
     if len(datum.items) < 4:
         _raise_error(
@@ -3212,6 +3301,7 @@ def _elaborate_provider_result(
         form_path=form_path,
         bound_names=bound_names,
         procedure_names=procedure_names,
+        session_state=session_state,
     )
     sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`provider-result`")
     allowed_sections = {
@@ -3253,8 +3343,8 @@ def _elaborate_provider_result(
     if (
         prompt_identifier is not None
         and prompt_identifier.resolved_name not in bound_names
-        and _ACTIVE_PROMPT_CATALOG is not None
-        and _ACTIVE_PROMPT_CATALOG.resolve(
+        and session_state.prompt_catalog is not None
+        and session_state.prompt_catalog.resolve(
             prompt_identifier.resolved_name
         )
         is not None
@@ -3262,6 +3352,7 @@ def _elaborate_provider_result(
         _require_prompt_calculus_target(
             prompt_identifier,
             form_path=form_path,
+            session_state=session_state,
         )
         _raise_error(
             "a prompt declaration must be fully applied in `provider-result :prompt`",
@@ -3282,8 +3373,8 @@ def _elaborate_provider_result(
     )
     if (
         prompt_proc_ref_target is not None
-        and _ACTIVE_PROMPT_CATALOG is not None
-        and _ACTIVE_PROMPT_CATALOG.resolve(
+        and session_state.prompt_catalog is not None
+        and session_state.prompt_catalog.resolve(
             prompt_proc_ref_target.resolved_name
         )
         is not None
@@ -3291,6 +3382,7 @@ def _elaborate_provider_result(
         _require_prompt_calculus_target(
             prompt_proc_ref_target,
             form_path=form_path,
+            session_state=session_state,
         )
         _raise_error(
             "a prompt declaration cannot be used through `proc-ref`",
@@ -3305,15 +3397,15 @@ def _elaborate_provider_result(
         else None
     )
     resolved_prompt = (
-        _ACTIVE_PROMPT_CATALOG.resolve(prompt_head.resolved_name)
-        if _ACTIVE_PROMPT_CATALOG is not None and prompt_head is not None
+        session_state.prompt_catalog.resolve(prompt_head.resolved_name)
+        if session_state.prompt_catalog is not None and prompt_head is not None
         else None
     )
     delivery_node = sections.get(":delivery")
     attempts_node = sections.get(":materialization-attempts")
     if delivery_node is not None or attempts_node is not None:
         if not target_dsl_supports_phased_contract_delivery(
-            _ACTIVE_TARGET_DSL_VERSION or ""
+            session_state.target_dsl_version or ""
         ):
             selected = (
                 delivery_node
@@ -3329,7 +3421,7 @@ def _elaborate_provider_result(
                 phased_delivery_diagnostic=(
                     build_authored_phased_delivery_diagnostic(
                         "target_below_2_23",
-                        canonical_value=_ACTIVE_TARGET_DSL_VERSION,
+                        canonical_value=session_state.target_dsl_version,
                         source_spans_by_owner={
                             "delivery_keyword": selected.span,
                             "provider_application": datum.span,
@@ -3482,15 +3574,17 @@ def _elaborate_provider_result(
         _require_prompt_calculus_target(
             prompt_node,
             form_path=form_path,
+            session_state=session_state,
         )
         prompt_application = elaborate_prompt_application(
             prompt_node,
-            catalog=_ACTIVE_PROMPT_CATALOG,
+            catalog=session_state.prompt_catalog,
             elaborate_fill=lambda item: _elaborate(
                 item,
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             ),
             form_path=form_path,
             return_redeclaration_node=returns_node,
@@ -3540,6 +3634,7 @@ def _elaborate_provider_result(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             )
             for item in inputs_node.items
         )
@@ -3553,6 +3648,7 @@ def _elaborate_provider_result(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             )
         ),
         inputs=inputs,
@@ -3566,6 +3662,7 @@ def _elaborate_provider_result(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             )
             if ":model" in sections
             else None
@@ -3576,6 +3673,7 @@ def _elaborate_provider_result(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             )
             if ":effort" in sections
             else None
@@ -3594,6 +3692,7 @@ def _elaborate_provider_result(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             )
             if ":timeout-sec" in sections
             else None
@@ -3634,6 +3733,7 @@ def _elaborate_provider_result(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             )
             if ":prompt-dependencies" in sections
             and prompt_application is None
@@ -3649,6 +3749,7 @@ def _elaborate_prompt_dependencies(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> PromptDependencySpec:
     if not isinstance(datum, SyntaxList) or not datum.items:
         _raise_error(
@@ -3715,6 +3816,7 @@ def _elaborate_prompt_dependencies(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             )
             for item in value.items
         )
@@ -3795,6 +3897,7 @@ def _elaborate_provider_bundle_path(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ProviderBundlePathExpr:
     if len(datum.items) != 4:
         _raise_error(
@@ -3808,6 +3911,7 @@ def _elaborate_provider_bundle_path(
         form_path=form_path,
         bound_names=bound_names,
         procedure_names=procedure_names,
+        session_state=session_state,
     )
     keyword = datum.items[2]
     if not isinstance(keyword, SyntaxKeyword) or keyword.value != ":as":
@@ -3840,6 +3944,7 @@ def _elaborate_command_result(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> CommandResultExpr:
     if len(datum.items) < 5:
         _raise_error(
@@ -3900,6 +4005,7 @@ def _elaborate_command_result(
                     form_path=form_path,
                     bound_names=bound_names,
                     procedure_names=procedure_names,
+                    session_state=session_state,
                 )
                 for item in argv_node.items
             ),
@@ -3974,6 +4080,7 @@ def _elaborate_command_result(
                     form_path=form_path,
                     bound_names=bound_names,
                     procedure_names=procedure_names,
+                    session_state=session_state,
                 ),
             )
         )
@@ -3996,6 +4103,7 @@ def _elaborate_run_provider_phase(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> RunProviderPhaseExpr:
     if len(datum.items) < 7:
         _raise_error(
@@ -4038,10 +4146,10 @@ def _elaborate_run_provider_phase(
         )
     return RunProviderPhaseExpr(
         phase_name=phase_identifier.resolved_name,
-        ctx_expr=_elaborate(ctx_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
-        inputs_expr=_elaborate(inputs_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
-        provider=_elaborate(provider_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
-        prompt=_elaborate(prompt_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        ctx_expr=_elaborate(ctx_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state),
+        inputs_expr=_elaborate(inputs_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state),
+        provider=_elaborate(provider_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state),
+        prompt=_elaborate(prompt_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state),
         returns_type_name=returns_identifier.resolved_name,
         span=datum.span,
         form_path=form_path,
@@ -4055,6 +4163,7 @@ def _elaborate_produce_one_of(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ProduceOneOfExpr:
     if len(datum.items) < 6:
         _raise_error(
@@ -4097,6 +4206,7 @@ def _elaborate_produce_one_of(
         form_path=form_path,
         bound_names=bound_names,
         procedure_names=procedure_names,
+        session_state=session_state,
     )
     if not isinstance(candidates_node, SyntaxList):
         _raise_error(
@@ -4108,7 +4218,7 @@ def _elaborate_produce_one_of(
         )
     return ProduceOneOfExpr(
         returns_type_name=returns_identifier.resolved_name,
-        ctx_expr=_elaborate(ctx_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        ctx_expr=_elaborate(ctx_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state),
         producer=producer,
         candidates=tuple(
             _elaborate_produce_one_of_candidate(
@@ -4116,6 +4226,7 @@ def _elaborate_produce_one_of(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             )
             for candidate_node in candidates_node.items
         ),
@@ -4131,6 +4242,7 @@ def _elaborate_resume_or_start(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ResumeOrStartExpr:
     if len(datum.items) < 6:
         _raise_error(
@@ -4193,10 +4305,10 @@ def _elaborate_resume_or_start(
     )
     return ResumeOrStartExpr(
         resume_name=resume_identifier.resolved_name,
-        ctx_expr=_elaborate(sections[":ctx"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
-        resume_from_expr=_elaborate(sections[":resume-from"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        ctx_expr=_elaborate(sections[":ctx"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state),
+        resume_from_expr=_elaborate(sections[":resume-from"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state),
         valid_when=valid_variants,
-        start_expr=_elaborate(sections[":start"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        start_expr=_elaborate(sections[":start"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state),
         returns_type_name=returns_identifier.resolved_name,
         span=datum.span,
         form_path=form_path,
@@ -4210,6 +4322,7 @@ def _elaborate_resource_transition(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ResourceTransitionExpr:
     if len(datum.items) < 2:
         _raise_error(
@@ -4249,6 +4362,7 @@ def _elaborate_resource_transition(
                         form_path=form_path,
                         bound_names=bound_names,
                         procedure_names=procedure_names,
+                        session_state=session_state,
                     )
                     if sections.get(":expect-version") is not None
                     else None
@@ -4258,6 +4372,7 @@ def _elaborate_resource_transition(
                     form_path=form_path,
                     bound_names=bound_names,
                     procedure_names=procedure_names,
+                    session_state=session_state,
                 ),
             ),
             span=datum.span,
@@ -4303,9 +4418,9 @@ def _elaborate_resource_transition(
         spec=ResourceTransitionSpec(
             mode="legacy_queue_move",
             transition_name=transition_identifier.resolved_name,
-            ctx_expr=_elaborate(sections[":ctx"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+            ctx_expr=_elaborate(sections[":ctx"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state),
             when_expr=(
-                _elaborate(sections[":when"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names)
+                _elaborate(sections[":when"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state)
                 if sections.get(":when") is not None
                 else None
             ),
@@ -4314,10 +4429,11 @@ def _elaborate_resource_transition(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             ),
             from_queue_name=from_identifier.resolved_name,
             to_queue_name=to_identifier.resolved_name,
-            ledger_expr=_elaborate(sections[":ledger"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+            ledger_expr=_elaborate(sections[":ledger"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state),
             event_name=event_identifier.resolved_name,
         ),
         span=datum.span,
@@ -4332,6 +4448,7 @@ def _elaborate_materialize_view(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> MaterializeViewExpr:
     if len(datum.items) < 2:
         _raise_error(
@@ -4391,6 +4508,7 @@ def _elaborate_materialize_view(
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         ),
         renderer_id=renderer_identifier.resolved_name,
         renderer_version=renderer_version.value,
@@ -4400,6 +4518,7 @@ def _elaborate_materialize_view(
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             )
             if sections.get(":target") is not None
             else None
@@ -4417,6 +4536,7 @@ def _elaborate_finalize_selected_item(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> FinalizeSelectedItemExpr:
     sections = _keyword_sections(datum.items[1:], form_path=form_path, label="`finalize-selected-item`")
     required = (":ctx", ":selected", ":queue-transition", ":roadmap", ":plan", ":implementation")
@@ -4429,26 +4549,29 @@ def _elaborate_finalize_selected_item(
         )
     return FinalizeSelectedItemExpr(
         spec=FinalizeSelectedItemSpec(
-            ctx_expr=_elaborate(sections[":ctx"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+            ctx_expr=_elaborate(sections[":ctx"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state),
             selected_expr=_elaborate(
                 sections[":selected"],
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             ),
             queue_transition_expr=_elaborate(
                 sections[":queue-transition"],
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             ),
-            roadmap_expr=_elaborate(sections[":roadmap"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
-            plan_expr=_elaborate(sections[":plan"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+            roadmap_expr=_elaborate(sections[":roadmap"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state),
+            plan_expr=_elaborate(sections[":plan"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state),
             implementation_expr=_elaborate(
                 sections[":implementation"],
                 form_path=form_path,
                 bound_names=bound_names,
                 procedure_names=procedure_names,
+                session_state=session_state,
             ),
         ),
         span=datum.span,
@@ -4463,6 +4586,7 @@ def _elaborate_produce_one_of_producer(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ProduceOneOfProducerSpec:
     head = syntax_head(datum)
     if head is None or head.resolved_name != "provider" or len(datum.items) < 5:
@@ -4486,10 +4610,10 @@ def _elaborate_produce_one_of_producer(
         )
     return ProduceOneOfProducerSpec(
         kind="provider",
-        provider_expr=_elaborate(datum.items[1], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
-        prompt_expr=_elaborate(prompt_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        provider_expr=_elaborate(datum.items[1], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state),
+        prompt_expr=_elaborate(prompt_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state),
         inputs=tuple(
-            _elaborate(item, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names)
+            _elaborate(item, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state)
             for item in inputs_node.items
         ),
     )
@@ -4501,6 +4625,7 @@ def _elaborate_produce_one_of_candidate(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ProduceOneOfCandidateSpec:
     if not isinstance(datum, SyntaxList) or not datum.items:
         _raise_error(
@@ -4525,6 +4650,7 @@ def _elaborate_produce_one_of_candidate(
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+            session_state=session_state,
         )
         for item in datum.items[1:]
     )
@@ -4545,6 +4671,7 @@ def _elaborate_produce_one_of_candidate_field(
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
 ) -> ProduceOneOfCandidateFieldSpec:
     if not isinstance(datum, SyntaxList) or len(datum.items) < 3:
         _raise_error(
@@ -4596,7 +4723,7 @@ def _elaborate_produce_one_of_candidate_field(
     return ProduceOneOfCandidateFieldSpec(
         field_name=field_identifier.resolved_name,
         schema_type_name=schema_identifier.resolved_name,
-        target_expr=_elaborate(target_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        target_expr=_elaborate(target_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names, session_state=session_state),
     )
 
 
@@ -4639,11 +4766,12 @@ def _require_prompt_calculus_target(
     node: object,
     *,
     form_path: tuple[str, ...],
+    session_state: ElaborationSessionState,
 ) -> None:
     if (
-        isinstance(_ACTIVE_TARGET_DSL_VERSION, str)
+        isinstance(session_state.target_dsl_version, str)
         and target_dsl_supports_prompt_calculus(
-            _ACTIVE_TARGET_DSL_VERSION
+            session_state.target_dsl_version
         )
     ):
         return

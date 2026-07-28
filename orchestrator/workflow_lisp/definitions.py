@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 from typing import TYPE_CHECKING
 
+from .compiler_session import CompilerSession
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .result_guidance import ResultGuidance, parse_result_guidance
 from .spans import SourceSpan
@@ -214,15 +215,20 @@ def elaborate_definition_module(
     *,
     import_scope: "ModuleImportScope | None" = None,
     imported_schemas: Mapping[str, SchemaDef] | None = None,
+    compiler_session: CompilerSession | None = None,
 ) -> WorkflowLispModule:
     """Elaborate syntax-layer top-level forms into typed definitions."""
 
+    compiler_session = compiler_session or CompilerSession()
     elaborated_forms: list[_TopLevelForm] = []
     local_schemas: list[SchemaDef] = []
     local_resources: list[ResourceDef] = []
     local_transitions: list[TransitionDef] = []
     for form in module.forms:
-        elaborated = _elaborate_top_level_form(form)
+        elaborated = _elaborate_top_level_form(
+            form,
+            compiler_session=compiler_session,
+        )
         elaborated_forms.append(elaborated)
         if isinstance(elaborated, SchemaDef):
             local_schemas.append(elaborated)
@@ -511,7 +517,11 @@ def _resolve_schema_reference(
     )
 
 
-def _elaborate_top_level_form(form: SyntaxNode) -> _TopLevelForm:
+def _elaborate_top_level_form(
+    form: SyntaxNode,
+    *,
+    compiler_session: CompilerSession,
+) -> _TopLevelForm:
     datum = syntax_node_datum(form)
     if not isinstance(datum, SyntaxList) or not datum.items:
         _raise_error("top-level forms must be non-empty lists", span=form.span, form_path=form.form_path)
@@ -531,7 +541,11 @@ def _elaborate_top_level_form(form: SyntaxNode) -> _TopLevelForm:
     if head.resolved_name == "defresource":
         return _elaborate_defresource(form, datum)
     if head.resolved_name == "deftransition":
-        return _elaborate_deftransition(form, datum)
+        return _elaborate_deftransition(
+            form,
+            datum,
+            compiler_session=compiler_session,
+        )
     _raise_error(
         f"unsupported top-level definition form `{head.display_name}`",
         code="definition_form_unknown",
@@ -716,7 +730,12 @@ def _elaborate_defresource(form: SyntaxNode, datum: SyntaxList) -> ResourceDef:
     )
 
 
-def _elaborate_deftransition(form: SyntaxNode, datum: SyntaxList) -> TransitionDef:
+def _elaborate_deftransition(
+    form: SyntaxNode,
+    datum: SyntaxList,
+    *,
+    compiler_session: CompilerSession,
+) -> TransitionDef:
     from .expressions import elaborate_expression
 
     name = _expect_symbol(datum, 1, "transition name", form_path=form.form_path)
@@ -795,6 +814,7 @@ def _elaborate_deftransition(form: SyntaxNode, datum: SyntaxList) -> TransitionD
                 form_path=form.form_path,
             ),
             bound_names=bound_names,
+            session_state=compiler_session.elaboration,
         )
         for item in preconditions_node.items
     )
@@ -804,6 +824,7 @@ def _elaborate_deftransition(form: SyntaxNode, datum: SyntaxList) -> TransitionD
             module_path=form.module_path,
             form_path=form.form_path,
             bound_names=bound_names,
+            compiler_session=compiler_session,
         )
         for item in updates_node.items
     )
@@ -815,6 +836,7 @@ def _elaborate_deftransition(form: SyntaxNode, datum: SyntaxList) -> TransitionD
             form_path=form.form_path,
         ),
         bound_names=bound_names,
+        session_state=compiler_session.elaboration,
     )
     audit_expr = elaborate_expression(
         SyntaxNode(
@@ -824,6 +846,7 @@ def _elaborate_deftransition(form: SyntaxNode, datum: SyntaxList) -> TransitionD
             form_path=form.form_path,
         ),
         bound_names=bound_names,
+        session_state=compiler_session.elaboration,
     )
     return TransitionDef(
         name=name.resolved_name,
@@ -956,6 +979,7 @@ def _elaborate_transition_update(
     module_path: str,
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
+    compiler_session: CompilerSession,
 ) -> TransitionUpdateDef:
     from .expressions import elaborate_expression
 
@@ -992,6 +1016,7 @@ def _elaborate_transition_update(
                 form_path=form_path,
             ),
             bound_names=bound_names,
+            session_state=compiler_session.elaboration,
         )
     elif len(raw_value.items) != 2:
         _raise_error(

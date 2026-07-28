@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields, is_dataclass, replace
 
+from .compiler_session import CompilerSession, TypecheckSessionState
 from .definitions import RecordField, SyntaxNode, UnionDef, UnionVariant
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import (
@@ -70,7 +71,7 @@ from .type_env import (
     substitute_type_params,
     type_refs_compatible,
 )
-from .typecheck_context import get_session_state, raise_error as _raise_error
+from .typecheck_context import raise_error as _raise_error
 
 
 @dataclass(frozen=True)
@@ -88,8 +89,9 @@ class ProcedureTypecheckContext:
     proc_ref_resolution_context: object | None
     prompt_catalog: object | None
     active_proc_ref_value_env: Mapping[str, ResolvedProcRefValue]
+    compiler_session: CompilerSession
+    session_state: TypecheckSessionState
     generated_local_procedure_state: object | None = None
-    session_state: object | None = None
 
 
 @dataclass(frozen=True)
@@ -106,21 +108,18 @@ class PendingParametricProcedureSpecialization:
     origin_form_path: tuple[str, ...]
 
 
-_ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS: dict[str, PendingParametricProcedureSpecialization] = {}
-
-
-def consume_parametric_specialization_requests() -> tuple[PendingParametricProcedureSpecialization, ...]:
-    global _ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS
-
-    requests = tuple(_ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS.values())
-    _ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS = {}
+def consume_parametric_specialization_requests(
+    session_state: TypecheckSessionState,
+) -> tuple[PendingParametricProcedureSpecialization, ...]:
+    requests = tuple(session_state.parametric_specialization_requests.values())
+    session_state.parametric_specialization_requests = {}
     return requests
 
 
-def reset_parametric_specialization_requests() -> None:
-    global _ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS
-
-    _ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS = {}
+def reset_parametric_specialization_requests(
+    session_state: TypecheckSessionState,
+) -> None:
+    session_state.parametric_specialization_requests = {}
 
 
 def typecheck_procedure_definitions(
@@ -140,11 +139,14 @@ def typecheck_procedure_definitions(
     prompt_catalog: object | None = None,
     proc_ref_resolution_context=None,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
+    compiler_session: CompilerSession | None = None,
 ) -> tuple[TypedProcedureDef, ...]:
     from .typecheck import typecheck_expression
     from .workflows import ExternEnvironment, ProviderExtern
     from .expressions import elaborate_expression
 
+    compiler_session = compiler_session or CompilerSession()
+    session_state = compiler_session.typecheck
     externs = extern_environment or ExternEnvironment(bindings_by_name={})
     typed_procedures: list[TypedProcedureDef] = []
     for procedure_target in procedure_defs:
@@ -153,6 +155,7 @@ def typecheck_procedure_definitions(
                 procedure_target,
                 procedure_type_envs=procedure_type_envs,
                 default=type_env,
+                session_state=session_state,
             )
             if isinstance(procedure_target, TypedProcedureDef)
             else type_env
@@ -171,6 +174,7 @@ def typecheck_procedure_definitions(
 
             register_all_known_carrier_types(
                 current_type_env,
+                session_state=session_state,
                 span=procedure_def.span,
                 form_path=procedure_def.form_path,
             )
@@ -236,10 +240,10 @@ def typecheck_procedure_definitions(
                     current_type_env.target_dsl_version
                 ),
                 prompt_catalog=prompt_catalog,
+                session_state=compiler_session.elaboration,
             )
         else:
             body_expr = procedure_def.body
-        session_state = get_session_state()
         previous_hidden_context_signature = session_state.procedure_hidden_context_signature
         # A defproc body may omit a callee's hidden private phase context under
         # the same derived-private-child eligibility rules as a defworkflow
@@ -270,6 +274,7 @@ def typecheck_procedure_definitions(
                 prompt_catalog=prompt_catalog,
                 shared_union_field_capabilities=shared_union_field_capabilities,
                 expected_type=signature.return_type_ref,
+                compiler_session=compiler_session,
             )
         except LispFrontendCompileError as exc:
             if specialization is None:
@@ -752,7 +757,9 @@ def _typecheck_parametric_procedure_call(
     specialized_name = parametric_specialization_name(signature.name, type_bindings)
     if proc_ref_bindings:
         specialized_name = proc_ref_specialization_name(specialized_name, proc_ref_bindings)
-    _ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS[specialized_name] = PendingParametricProcedureSpecialization(
+    context.session_state.parametric_specialization_requests[
+        specialized_name
+    ] = PendingParametricProcedureSpecialization(
         base_name=signature.name,
         specialized_name=specialized_name,
         type_bindings=dict(type_bindings),
@@ -958,6 +965,7 @@ def typecheck_generated_procedure(
         workflow_effects_by_name=context.workflow_effects_by_name,
         proc_ref_resolution_context=context.proc_ref_resolution_context,
         prompt_catalog=context.prompt_catalog,
+        compiler_session=context.compiler_session,
         expected_type=signature.return_type_ref,
     )
     return TypedProcedureDef(
@@ -1026,6 +1034,8 @@ def typecheck_let_proc_expr(
         workflow_effects_by_name=context.workflow_effects_by_name,
         proc_ref_resolution_context=context.proc_ref_resolution_context,
         prompt_catalog=context.prompt_catalog,
+        session_state=context.session_state,
+        compiler_session=context.compiler_session,
     )
 
 
@@ -1044,8 +1054,9 @@ def _typecheck_let_proc_expr_impl(
     workflow_effects_by_name: Mapping[str, EffectSummary],
     proc_ref_resolution_context: ProcRefResolutionContext | None,
     prompt_catalog: object | None,
+    session_state: TypecheckSessionState,
+    compiler_session: CompilerSession,
 ) -> TypedExpr:
-    session_state = get_session_state()
 
     if procedure_catalog is None:
         raise TypeError("procedure_catalog is required for let-proc expressions")
@@ -1235,6 +1246,7 @@ def _typecheck_let_proc_expr_impl(
         generated_name,
         procedure_catalog=generated_catalog,
         target_dsl_version=type_env.target_dsl_version,
+        compiler_session=compiler_session,
     ):
         _raise_error(
             f"`let-proc` local procedure `{expr.binding.local_name}` escaped its lexical scope",
@@ -1278,6 +1290,8 @@ def _typecheck_let_proc_expr_impl(
             workflow_effects_by_name=workflow_effects_by_name,
             proc_ref_resolution_context=proc_ref_resolution_context,
             prompt_catalog=prompt_catalog,
+            session_state=session_state,
+            compiler_session=compiler_session,
         )
     finally:
         session_state.proc_ref_value_env = previous_proc_ref_env
@@ -1331,6 +1345,8 @@ def _typecheck_let_proc_expr_impl(
             workflow_effects_by_name=workflow_effects_by_name,
             proc_ref_resolution_context=proc_ref_resolution_context,
             prompt_catalog=prompt_catalog,
+            session_state=session_state,
+            compiler_session=compiler_session,
         )
     finally:
         session_state.proc_ref_value_env = previous_proc_ref_env
@@ -1411,6 +1427,7 @@ def _expr_returns_local_proc_value(
     procedure_catalog: ProcedureCatalog | None = None,
     proc_ref_env: Mapping[str, ResolvedProcRefValue] | None = None,
     visited_calls: frozenset[tuple[str, frozenset[str]]] = frozenset(),
+    compiler_session: CompilerSession,
 ) -> bool:
     bindings = dict(value_bindings or {})
     active_proc_ref_env = dict(proc_ref_env or {})
@@ -1425,6 +1442,7 @@ def _expr_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         ):
             return True
         return any(
@@ -1436,6 +1454,7 @@ def _expr_returns_local_proc_value(
                 procedure_catalog=procedure_catalog,
                 proc_ref_env=active_proc_ref_env,
                 visited_calls=visited_calls,
+                compiler_session=compiler_session,
             )
             for binding in expr.bindings
         )
@@ -1450,6 +1469,7 @@ def _expr_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         )
     if type(expr) is FunctionCallExpr:
         return _function_call_returns_local_proc_value(
@@ -1460,6 +1480,7 @@ def _expr_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         )
     if isinstance(expr, RecordExpr):
         return any(
@@ -1471,6 +1492,7 @@ def _expr_returns_local_proc_value(
                 procedure_catalog=procedure_catalog,
                 proc_ref_env=active_proc_ref_env,
                 visited_calls=visited_calls,
+                compiler_session=compiler_session,
             )
             for _field_name, field_expr in expr.fields
         )
@@ -1485,6 +1507,7 @@ def _expr_returns_local_proc_value(
                 procedure_catalog=procedure_catalog,
                 proc_ref_env=active_proc_ref_env,
                 visited_calls=visited_calls,
+                compiler_session=compiler_session,
             )
         return _expr_returns_local_proc_value(
             expr.body,
@@ -1494,6 +1517,7 @@ def _expr_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         )
     if isinstance(expr, IfExpr):
         return _expr_returns_local_proc_value(
@@ -1504,6 +1528,7 @@ def _expr_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         ) or _expr_returns_local_proc_value(
             expr.else_expr,
             generated_name,
@@ -1512,6 +1537,7 @@ def _expr_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         )
     if type(expr) is MatchExpr:
         for arm in expr.arms:
@@ -1525,6 +1551,7 @@ def _expr_returns_local_proc_value(
                 procedure_catalog=procedure_catalog,
                 proc_ref_env=active_proc_ref_env,
                 visited_calls=visited_calls,
+                compiler_session=compiler_session,
             ):
                 return True
         return False
@@ -1537,6 +1564,7 @@ def _expr_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         )
     if isinstance(expr, (WithLiveProvidersExpr, WithLiveProviderPeersExpr)):
         return _expr_returns_local_proc_value(
@@ -1547,6 +1575,7 @@ def _expr_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         )
     if isinstance(expr, ContinueExpr):
         return _expr_returns_local_proc_value(
@@ -1557,6 +1586,7 @@ def _expr_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         )
     if isinstance(expr, DoneExpr):
         result_returns_local = _expr_returns_local_proc_value(
@@ -1567,6 +1597,7 @@ def _expr_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         )
         if result_returns_local or expr.terminal_state_expr is None:
             return result_returns_local
@@ -1578,6 +1609,7 @@ def _expr_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         )
     if isinstance(expr, LoopRecurExpr):
         loop_bindings = dict(bindings)
@@ -1590,6 +1622,7 @@ def _expr_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         ) or _expr_returns_local_proc_value(
             expr.body_expr,
             generated_name,
@@ -1598,6 +1631,7 @@ def _expr_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         )
     if isinstance(expr, ResumeOrStartExpr):
         return _expr_returns_local_proc_value(
@@ -1608,6 +1642,7 @@ def _expr_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         ) or _expr_returns_local_proc_value(
             expr.start_expr,
             generated_name,
@@ -1616,6 +1651,7 @@ def _expr_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=active_proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         )
     return False
 
@@ -1628,6 +1664,7 @@ def _procedure_call_returns_local_proc_value(
     procedure_catalog: ProcedureCatalog | None,
     proc_ref_env: Mapping[str, ResolvedProcRefValue],
     visited_calls: frozenset[tuple[str, frozenset[str]]],
+    compiler_session: CompilerSession,
 ) -> bool:
     if procedure_catalog is None:
         return False
@@ -1654,6 +1691,7 @@ def _procedure_call_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         )
         if isinstance(bound_arg.type_ref, ProcRefTypeRef):
             resolved_bound_arg = resolve_proc_ref_value(
@@ -1679,6 +1717,7 @@ def _procedure_call_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         )
         if isinstance(param_type, ProcRefTypeRef):
             resolved_arg = resolve_proc_ref_value(
@@ -1693,7 +1732,7 @@ def _procedure_call_returns_local_proc_value(
         return False
     body_expr = definition.body
     if isinstance(body_expr, SyntaxNode):
-        function_catalog = get_session_state().function_catalog
+        function_catalog = compiler_session.typecheck.function_catalog
         body_expr = elaborate_expression(
             body_expr,
             bound_names=frozenset(name for name, _ in signature_params),
@@ -1704,6 +1743,7 @@ def _procedure_call_returns_local_proc_value(
                 else frozenset(function_catalog.signatures_by_name)
             ),
             target_dsl_version=target_dsl_version,
+            session_state=compiler_session.elaboration,
         )
     return _expr_returns_local_proc_value(
         body_expr,
@@ -1713,6 +1753,7 @@ def _procedure_call_returns_local_proc_value(
         procedure_catalog=procedure_catalog,
         proc_ref_env=local_proc_ref_env,
         visited_calls=visited_calls | {call_key},
+        compiler_session=compiler_session,
     )
 
 def _function_call_returns_local_proc_value(
@@ -1724,9 +1765,9 @@ def _function_call_returns_local_proc_value(
     procedure_catalog: ProcedureCatalog | None,
     proc_ref_env: Mapping[str, ResolvedProcRefValue],
     visited_calls: frozenset[tuple[str, frozenset[str]]],
+    compiler_session: CompilerSession,
 ) -> bool:
-    session_state = get_session_state()
-    function_catalog = session_state.function_catalog
+    function_catalog = compiler_session.typecheck.function_catalog
     if function_catalog is None:
         return False
     definition = function_catalog.definitions_by_name.get(expr.callee_name)
@@ -1743,6 +1784,7 @@ def _function_call_returns_local_proc_value(
             procedure_catalog=procedure_catalog,
             proc_ref_env=proc_ref_env,
             visited_calls=visited_calls,
+            compiler_session=compiler_session,
         )
     call_key = (
         f"function:{definition.name}",
@@ -1762,6 +1804,7 @@ def _function_call_returns_local_proc_value(
             ),
             function_names=frozenset(function_catalog.signatures_by_name),
             target_dsl_version=target_dsl_version,
+            session_state=compiler_session.elaboration,
         )
     return _expr_returns_local_proc_value(
         body_expr,
@@ -1771,6 +1814,7 @@ def _function_call_returns_local_proc_value(
         procedure_catalog=procedure_catalog,
         proc_ref_env=proc_ref_env,
         visited_calls=visited_calls | {call_key},
+        compiler_session=compiler_session,
     )
 
 def _expr_source_identity(expr: ExprNode) -> str:
@@ -1846,9 +1890,7 @@ def _replace_eliminated_let_procs(
     let_proc_rewrite_results: Mapping[int, ExprNode] | None = None,
 ):
     rewrite_results = (
-        get_session_state().let_proc_rewrite_results
-        if let_proc_rewrite_results is None
-        else let_proc_rewrite_results
+        {} if let_proc_rewrite_results is None else let_proc_rewrite_results
     )
     replacement = rewrite_results.get(id(node))
     if replacement is not None:

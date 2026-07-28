@@ -13,6 +13,7 @@ import orchestrator.workflow_lisp.lowering.procedures as procedure_lowering
 import orchestrator.workflow_lisp.wcc.defunctionalize as wcc_defunctionalize
 from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
+from orchestrator.workflow_lisp.compiler_session import CompilerSession
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _infer_stage3_effect_summaries,
@@ -5637,7 +5638,9 @@ def test_let_proc_generated_names_are_stable_across_workspace_roots(tmp_path: Pa
     assert first_name == second_name
 
 
-def test_compile_clears_generated_local_procedure_state_after_failure(tmp_path: Path) -> None:
+def test_failed_compile_cannot_contaminate_fresh_generated_local_state(
+    tmp_path: Path,
+) -> None:
     path = _write_module(
         tmp_path / "let_proc_state_cleanup.orc",
         [
@@ -5669,7 +5672,9 @@ def test_compile_clears_generated_local_procedure_state_after_failure(tmp_path: 
         _compile(path, tmp_path=tmp_path)
 
     _assert_diagnostic_code(excinfo, "procedure_return_type_invalid")
-    assert consume_generated_local_procedures() == ()
+    assert consume_generated_local_procedures(
+        CompilerSession().typecheck
+    ) == ()
 
 
 def test_stage3_materializes_proc_ref_specializations_before_lowering_and_preserves_effects() -> None:

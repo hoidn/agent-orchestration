@@ -764,7 +764,15 @@ def _nominal_descriptor_name(
     type_env: FrontendTypeEnvironment | None = None,
     source_read_trace: SourceReadTrace | None = None,
 ) -> str:
-    if carrier_metadata_for_type(type_ref) is not None:
+    if (
+        type_env is not None
+        and type_env.session_state is not None
+        and carrier_metadata_for_type(
+            type_ref,
+            session_state=type_env.session_state,
+        )
+        is not None
+    ):
         return "workflow_lisp/private::loop-state-carrier"
     if "::" in type_ref.name:
         return type_ref.name

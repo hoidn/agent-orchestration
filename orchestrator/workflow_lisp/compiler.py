@@ -33,6 +33,7 @@ from .command_boundaries import (
 from .context_classification import (
     classify_structural_private_exec_context,
 )
+from .compiler_session import CompilerSession
 from .contracts import derive_union_workflow_boundary_projection, derive_workflow_signature_contracts
 from .definitions import (
     EnumDef,
@@ -57,7 +58,6 @@ from .diagnostics import (
 from .expression_traversal import iter_child_exprs, walk_expr
 from .family_profiles import WorkflowFamilyProfileCatalog
 from .lints import LINT_PROFILE_DEFAULT, required_lint_diagnostic
-from .loop_state import reset_loop_state_metadata
 from .phase_family_boundary import (
     classify_phase_family_boundary,
     is_structural_pure_projection_effect_summary,
@@ -615,6 +615,7 @@ def compile_stage3_entrypoint(
     lowering_route: LoweringRoute | str | None = None,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
     source_read_trace: SourceReadTrace | None = None,
+    compiler_session: CompilerSession | None = None,
 ) -> LinkedStage3CompileResult:
     """Compile an entrypoint and imports through the executable frontend path.
 
@@ -624,6 +625,7 @@ def compile_stage3_entrypoint(
     and optional shared validation for every reachable module.
     """
 
+    compiler_session = compiler_session or CompilerSession()
     normalized_lowering_route = normalize_lowering_route(lowering_route)
     normalized_validation_profile = _normalize_stage3_validation_profile(
         validate_shared=validate_shared,
@@ -632,7 +634,6 @@ def compile_stage3_entrypoint(
     if normalized_lowering_route in {LoweringRoute.WCC_M2, LoweringRoute.WCC_M3}:
         _raise_wcc_module_graph_unsupported(path, normalized_lowering_route)
 
-    reset_loop_state_metadata()
     module_graph_read_attempt_id = (
         source_read_trace._begin_module_graph_read_attempt(path)
         if source_read_trace is not None
@@ -657,6 +658,7 @@ def compile_stage3_entrypoint(
         family_profile_catalog=family_profile_catalog,
         source_read_trace=source_read_trace,
         _module_graph_read_attempt_id=module_graph_read_attempt_id,
+        compiler_session=compiler_session,
     )
     additional_diagnostics = ()
     if compile_result is not None:
@@ -707,9 +709,11 @@ def compile_stage3_module(
     lowering_route: LoweringRoute | str | None = None,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
     source_read_trace: SourceReadTrace | None = None,
+    compiler_session: CompilerSession | None = None,
 ) -> Stage3CompileResult:
     """Compile one `.orc` file through the executable frontend pipeline."""
 
+    compiler_session = compiler_session or CompilerSession()
     normalized_lowering_route = normalize_lowering_route(lowering_route)
     normalized_validation_profile = _normalize_stage3_validation_profile(
         validate_shared=validate_shared,
@@ -734,6 +738,7 @@ def compile_stage3_module(
             lowering_route=normalized_lowering_route,
             family_profile_catalog=family_profile_catalog,
             source_read_trace=source_read_trace,
+            compiler_session=compiler_session,
         )
         return linked.entry_result
 
@@ -749,6 +754,7 @@ def compile_stage3_module(
         lowering_route=normalized_lowering_route,
         family_profile_catalog=family_profile_catalog,
         source_read_trace=source_read_trace,
+        compiler_session=compiler_session,
     )
     diagnostics = _finalize_stage3_diagnostics(
         results,
@@ -1273,6 +1279,7 @@ def _run_stage3_entrypoint_validation_pipeline(
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
     source_read_trace: SourceReadTrace | None = None,
     _module_graph_read_attempt_id: int | None = None,
+    compiler_session: CompilerSession,
 ) -> tuple[LinkedStage3CompileResult | None, tuple[object, ...]]:
     normalized_validation_profile = _normalize_stage3_validation_profile(
         validate_shared=validate_shared,
@@ -1312,6 +1319,7 @@ def _run_stage3_entrypoint_validation_pipeline(
             lowering_route=normalized_lowering_route,
             family_profile_catalog=family_profile_catalog,
             source_read_trace=source_read_trace,
+            compiler_session=compiler_session,
         )
         compile_result = replace(
             compile_result,
@@ -1624,6 +1632,7 @@ def _run_stage3_validation_pipeline(
     lowering_route: LoweringRoute | str | None = None,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
     source_read_trace: SourceReadTrace | None = None,
+    compiler_session: CompilerSession,
 ) -> tuple[ValidationPipelineState, tuple[object, ...]]:
     normalized_validation_profile = _normalize_stage3_validation_profile(
         validate_shared=validate_shared,
@@ -1653,10 +1662,14 @@ def _run_stage3_validation_pipeline(
 
     def typed_frontend_pass(state: ValidationPipelineState) -> ValidationPipelineState:
         module = elaborate_definition_module(
-            _definition_only_syntax_module(state.expanded_syntax_module)
+            _definition_only_syntax_module(state.expanded_syntax_module),
+            compiler_session=compiler_session,
         )
         _validate_definition_module(module)
-        type_env = FrontendTypeEnvironment.from_module(module)
+        type_env = FrontendTypeEnvironment.from_module(
+            module,
+            session_state=compiler_session.typecheck,
+        )
         prompt_defs = elaborate_prompt_definitions(
             state.expanded_syntax_module
         )
@@ -1679,6 +1692,7 @@ def _run_stage3_validation_pipeline(
             workflow_defs=workflow_defs,
             workspace=workspace_root,
             source_read_trace=source_read_trace,
+            compiler_session=compiler_session,
         )
         workflow_catalog = build_workflow_catalog(
             module,
@@ -1729,6 +1743,7 @@ def _run_stage3_validation_pipeline(
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,
             prompt_catalog=prompt_catalog,
+            compiler_session=compiler_session,
         )
         function_catalog = validate_function_cycles(
             typed_functions,
@@ -1751,6 +1766,7 @@ def _run_stage3_validation_pipeline(
                 ),
                 reusable_state_producer_context=reusable_state_producer_context,
                 selected_entry_workflow_name=None,
+                compiler_session=compiler_session,
             )
         )
         typed_functions_by_name = {
@@ -2245,6 +2261,7 @@ def _compile_stage3_graph(
     lowering_route: LoweringRoute | str | None = None,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
     source_read_trace: SourceReadTrace | None = None,
+    compiler_session: CompilerSession | None = None,
 ) -> LinkedStage3CompileResult:
     """Compile a resolved module graph in dependency order.
 
@@ -2254,6 +2271,7 @@ def _compile_stage3_graph(
     so downstream modules can call them through the existing workflow loader.
     """
 
+    compiler_session = compiler_session or CompilerSession()
     normalized_lowering_route = normalize_lowering_route(lowering_route)
     normalized_validation_profile = _normalize_stage3_validation_profile(
         validate_shared=validate_shared,
@@ -2316,6 +2334,7 @@ def _compile_stage3_graph(
             _definition_only_from_expanded_syntax_module(expanded_syntax),
             import_scope=import_scope,
             imported_schemas=imported_schema_defs,
+            compiler_session=compiler_session,
         )
         _validate_definition_module(definition_module, import_scope=import_scope)
 
@@ -2364,6 +2383,7 @@ def _compile_stage3_graph(
             imported_type_refs=imported_type_refs,
             imported_resource_defs=imported_resource_defs,
             imported_transition_defs=imported_transition_defs,
+            session_state=compiler_session.typecheck,
         )
         imported_prompt_defs = _imported_prompt_definitions(
             import_scope,
@@ -2517,6 +2537,7 @@ def _compile_stage3_graph(
             workflow_defs=workflow_defs,
             workspace=workspace_root,
             source_read_trace=source_read_trace,
+            compiler_session=compiler_session,
         )
         typed_functions = typecheck_function_definitions(
             function_defs,
@@ -2528,6 +2549,7 @@ def _compile_stage3_graph(
             procedure_name_resolver=local_procedure_resolver,
             workflow_name_resolver=local_workflow_resolver,
             prompt_catalog=prompt_catalog,
+            compiler_session=compiler_session,
         )
         function_catalog = validate_function_cycles(
             typed_functions,
@@ -2578,6 +2600,7 @@ def _compile_stage3_graph(
             selected_entry_workflow_name=(
                 entry_workflow if module_name == graph.entry_module_name else None
             ),
+            compiler_session=compiler_session,
         )
         typed_procedures = tuple(
             replace(
@@ -4260,8 +4283,11 @@ def _typecheck_procedure_definitions(
     prompt_catalog: PromptCatalog | None = None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
+    compiler_session: CompilerSession | None = None,
 ) -> tuple[TypedProcedureDef, ...]:
     from .procedure_typecheck import typecheck_procedure_definitions
+
+    compiler_session = compiler_session or CompilerSession()
 
     return typecheck_procedure_definitions(
         procedure_defs,
@@ -4279,6 +4305,7 @@ def _typecheck_procedure_definitions(
         prompt_catalog=prompt_catalog,
         proc_ref_resolution_context=proc_ref_resolution_context,
         procedure_type_envs=procedure_type_envs,
+        compiler_session=compiler_session,
     )
 
 
@@ -4373,17 +4400,20 @@ def _infer_stage3_effect_summaries(
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     reusable_state_producer_context: Mapping[str, object] | None = None,
     selected_entry_workflow_name: str | None = None,
+    compiler_session: CompilerSession | None = None,
 ) -> tuple[tuple[TypedProcedureDef, ...], tuple[object, ...], ProcedureCatalog]:
     """Compute procedure/workflow effect summaries to a fixpoint."""
 
+    compiler_session = compiler_session or CompilerSession()
     from .procedure_typecheck import (
         consume_parametric_specialization_requests,
         reset_parametric_specialization_requests,
     )
     from .specialization_typecheck import materialize_pending_parametric_specialization
 
-    reset_generated_local_procedure_state()
-    reset_parametric_specialization_requests()
+    typecheck_session = compiler_session.typecheck
+    reset_generated_local_procedure_state(typecheck_session)
+    reset_parametric_specialization_requests(typecheck_session)
     try:
         procedure_effects_by_name = dict(procedure_effects_by_name or {})
         workflow_effects_by_name = dict(workflow_effects_by_name or {})
@@ -4413,10 +4443,11 @@ def _infer_stage3_effect_summaries(
                 prompt_catalog=prompt_catalog,
                 proc_ref_resolution_context=proc_ref_resolution_context,
                 procedure_type_envs=procedure_type_envs_by_name,
+                compiler_session=compiler_session,
             )
             generated_from_procedures = {
                 procedure.definition.name: procedure
-                for procedure in consume_generated_local_procedures()
+                for procedure in consume_generated_local_procedures(typecheck_session)
             }
             for procedure in typed_procedures:
                 procedure_type_envs_by_name[procedure.definition.name] = procedure_type_env_for(
@@ -4424,7 +4455,9 @@ def _infer_stage3_effect_summaries(
                     procedure_type_envs=procedure_type_envs_by_name,
                     default=type_env,
                 )
-            pending_parametric_from_procedures = consume_parametric_specialization_requests()
+            pending_parametric_from_procedures = consume_parametric_specialization_requests(
+                typecheck_session
+            )
             if generated_from_procedures:
                 typed_procedures = typed_procedures + tuple(
                     procedure
@@ -4530,12 +4563,15 @@ def _infer_stage3_effect_summaries(
                 proc_ref_resolution_context=proc_ref_resolution_context,
                 reusable_state_producer_context=reusable_state_producer_context,
                 selected_entry_workflow_name=selected_entry_workflow_name,
+                compiler_session=compiler_session,
             )
             generated_from_workflows = {
                 procedure.definition.name: procedure
-                for procedure in consume_generated_local_procedures()
+                for procedure in consume_generated_local_procedures(typecheck_session)
             }
-            pending_parametric_from_workflows = consume_parametric_specialization_requests()
+            pending_parametric_from_workflows = consume_parametric_specialization_requests(
+                typecheck_session
+            )
             if generated_from_workflows:
                 typed_procedures_by_name = {procedure.definition.name: procedure for procedure in typed_procedures}
                 typed_procedures = typed_procedures + tuple(
@@ -4654,10 +4690,11 @@ def _infer_stage3_effect_summaries(
             proc_ref_resolution_context=proc_ref_resolution_context,
             reusable_state_producer_context=reusable_state_producer_context,
             selected_entry_workflow_name=selected_entry_workflow_name,
+            compiler_session=compiler_session,
         )
         generated_from_workflows = {
             procedure.definition.name: procedure
-            for procedure in consume_generated_local_procedures()
+            for procedure in consume_generated_local_procedures(typecheck_session)
         }
         if generated_from_workflows:
             typed_procedures = tuple(
@@ -4671,8 +4708,8 @@ def _infer_stage3_effect_summaries(
             procedure_catalog = _procedure_catalog_with_specializations(procedure_catalog, typed_procedures)
         return typed_procedures, typed_workflows, procedure_catalog
     finally:
-        reset_generated_local_procedure_state()
-        reset_parametric_specialization_requests()
+        reset_generated_local_procedure_state(typecheck_session)
+        reset_parametric_specialization_requests(typecheck_session)
 
 def _validate_procedure_effects_and_cycles(
     typed_procedures: tuple[TypedProcedureDef, ...],

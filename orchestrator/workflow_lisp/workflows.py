@@ -39,6 +39,7 @@ from .expression_traversal import walk_expr
 from .expressions import CallExpr, elaborate_expression
 from .family_profiles import WorkflowFamilyProfileCatalog
 from .lints import required_lint_diagnostic
+from .compiler_session import CompilerSession
 from .macros import collect_macro_catalog, expand_module_forms
 from .phase import (
     PHASE_CONTEXT_NAME,
@@ -2466,9 +2467,11 @@ def typecheck_workflow_definitions(
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     reusable_state_producer_context: Mapping[str, object] | None = None,
     selected_entry_workflow_name: str | None = None,
+    compiler_session: CompilerSession | None = None,
 ) -> tuple[TypedWorkflowDef, ...]:
     """Typecheck workflow parameters and bodies against the registered signatures."""
 
+    compiler_session = compiler_session or CompilerSession()
     externs = extern_environment or ExternEnvironment(bindings_by_name={})
     command_boundaries = command_boundary_environment
     procedure_names = frozenset() if procedure_catalog is None else frozenset(procedure_catalog.signatures_by_name)
@@ -2512,6 +2515,7 @@ def typecheck_workflow_definitions(
                 workflow_name_resolver=workflow_name_resolver,
                 target_dsl_version=type_env.target_dsl_version,
                 prompt_catalog=prompt_catalog,
+                session_state=compiler_session.elaboration,
             )
         else:
             body_expr = workflow_def.body
@@ -2575,8 +2579,11 @@ def typecheck_workflow_definitions(
 
         signature = workflow_catalog.signatures_by_name[workflow_def.name]
         body_expr = elaborated_bodies[workflow_def.name]
-        set_active_workflow_signature(signature)
-        set_active_reusable_state_producer_context(reusable_state_producer_context)
+        set_active_workflow_signature(compiler_session.typecheck, signature)
+        set_active_reusable_state_producer_context(
+            compiler_session.typecheck,
+            reusable_state_producer_context,
+        )
         try:
             typed_body = typecheck_expression(
                 body_expr,
@@ -2592,10 +2599,11 @@ def typecheck_workflow_definitions(
                 proc_ref_resolution_context=proc_ref_resolution_context,
                 prompt_catalog=prompt_catalog,
                 expected_type=signature.return_type_ref,
+                compiler_session=compiler_session,
             )
         finally:
-            clear_active_reusable_state_producer_context()
-            clear_active_workflow_signature()
+            clear_active_reusable_state_producer_context(compiler_session.typecheck)
+            clear_active_workflow_signature(compiler_session.typecheck)
         if not type_refs_compatible(signature.return_type_ref, typed_body.type_ref):
             raise LispFrontendCompileError(
                 (

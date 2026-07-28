@@ -1,22 +1,16 @@
-"""Type and proof checking for Workflow Lisp expressions.
-
-See `../../docs/design/workflow_lisp_type_catalog.md` for the type model and
-`../../docs/design/workflow_lisp_proof_graph.md` for the planned variant-proof model.
-"""
+"""Type and proof checking for Workflow Lisp expressions."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
+from functools import partial
 from typing import TYPE_CHECKING
 
 from .conditionals import classify_condition_expr
+from .compiler_session import CompilerSession, TypecheckSessionState
 from .diagnostics import LispFrontendCompileError
-from .effects import (
-    EMPTY_EFFECT_SUMMARY,
-    EffectSummary,
-    merge_effect_summaries,
-)
+from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary, merge_effect_summaries
 from .expressions import (
     BindProcExpr,
     CallExpr,
@@ -79,7 +73,7 @@ from .typecheck_context import (
     TypecheckContext,
     TypedExpr,
     ValueEnvironment,
-    get_session_state,
+    merge_successful_session_outputs,
     raise_error as _raise_error,
     restore_session_state,
     snapshot_session_state,
@@ -124,19 +118,14 @@ from .type_env import (
     TypeRef,
     UnionTypeRef,
 )
-from .workflow_refs import (
-    resolve_workflow_ref_name,
-    workflow_ref_type_from_signature,
-)
+from .workflow_refs import resolve_workflow_ref_name, workflow_ref_type_from_signature
 
 if TYPE_CHECKING:
     from .functions import FunctionCatalog
     from .procedures import ProcedureCatalog
-    from .workflows import (
-        CommandBoundaryEnvironment,
-        ExternEnvironment,
-        WorkflowCatalog,
-    )
+    from .workflows import CommandBoundaryEnvironment, ExternEnvironment, WorkflowCatalog
+
+
 def typecheck_expression(
     expr: ExprNode,
     *,
@@ -156,13 +145,14 @@ def typecheck_expression(
     prompt_catalog: object | None = None,
     shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...] = (),
     expected_type: TypeRef | None = None,
+    compiler_session: CompilerSession | None = None,
 ) -> TypedExpr:
     """Typecheck one supported Workflow Lisp expression."""
 
     active_proof = proof_scope or ProofScope(facts={})
-    session_state = get_session_state()
-    previous_session_state = snapshot_session_state()
-    previous_generated_local_procedures = dict(previous_session_state.generated_local_procedures)
+    compiler_session = compiler_session or CompilerSession()
+    session_state = compiler_session.typecheck
+    previous_session_state = snapshot_session_state(session_state)
     session_state.function_catalog = function_catalog
     session_state.proc_ref_value_env = dict(proc_ref_value_env or {})
     session_state.value_expr_env = {}
@@ -185,23 +175,27 @@ def typecheck_expression(
             proc_ref_resolution_context=proc_ref_resolution_context,
             prompt_catalog=prompt_catalog,
             expected_type=expected_type,
+            session_state=session_state,
+            compiler_session=compiler_session,
         )
         from .procedure_typecheck import _replace_eliminated_let_procs as _replace_eliminated_let_procs_owner
 
-        return replace(
+        result = replace(
             typed,
             expr=_replace_eliminated_let_procs_owner(
                 typed.expr,
                 let_proc_rewrite_results=session_state.let_proc_rewrite_results,
             ),
         )
-    finally:
-        generated_local_procedures = dict(session_state.generated_local_procedures)
-        restore_session_state(previous_session_state)
-        session_state.generated_local_procedures = {
-            **previous_generated_local_procedures,
-            **generated_local_procedures,
-        }
+        merged_session_state = merge_successful_session_outputs(
+            previous_session_state,
+            snapshot_session_state(session_state),
+        )
+    except BaseException:
+        restore_session_state(session_state, previous_session_state)
+        raise
+    restore_session_state(session_state, merged_session_state)
+    return result
 
 
 def _typecheck(
@@ -220,8 +214,9 @@ def _typecheck(
     proc_ref_resolution_context: ProcRefResolutionContext | None,
     prompt_catalog: object | None,
     expected_type: TypeRef | None = None,
+    session_state: TypecheckSessionState,
+    compiler_session: CompilerSession,
 ) -> TypedExpr:
-    session_state = get_session_state()
     context = TypecheckContext(
         type_env=type_env,
         value_env=value_env,
@@ -236,7 +231,13 @@ def _typecheck(
         proc_ref_resolution_context=proc_ref_resolution_context,
         prompt_catalog=prompt_catalog,
         shared_union_field_capabilities=session_state.shared_union_field_capabilities,
+        compiler_session=compiler_session,
         session_state=session_state,
+    )
+    check = partial(
+        _typecheck,
+        session_state=session_state,
+        compiler_session=compiler_session,
     )
 
     def recurse(
@@ -277,7 +278,7 @@ def _typecheck(
         if recurse_value_expr_env is not None:
             session_state.value_expr_env = recurse_value_expr_env
         try:
-            return _typecheck(
+            return check(
                 node,
                 type_env=type_env,
                 value_env=dict(recurse_value_env),
@@ -564,7 +565,7 @@ def _typecheck(
                     span=field_expr.span,
                     form_path=field_expr.form_path,
                 )
-            typed_field = _typecheck(
+            typed_field = check(
                 field_expr,
                 type_env=type_env,
                 value_env=value_env,
@@ -659,7 +660,7 @@ def _typecheck(
                     span=field_expr.span,
                     form_path=field_expr.form_path,
                 )
-            typed_field = _typecheck(
+            typed_field = check(
                 field_expr,
                 type_env=type_env,
                 value_env=value_env,
@@ -861,7 +862,7 @@ def _typecheck(
             type_label=_type_label,
         )
     if isinstance(expr, IfExpr):
-        typed_condition = _typecheck(
+        typed_condition = check(
             expr.condition_expr,
             type_env=type_env,
             value_env=value_env,
@@ -894,7 +895,7 @@ def _typecheck(
             typed_condition.expr,
             type_ref=typed_condition.type_ref,
         )
-        typed_then = _typecheck(
+        typed_then = check(
             expr.then_expr,
             type_env=type_env,
             value_env=value_env,
@@ -910,7 +911,7 @@ def _typecheck(
             prompt_catalog=prompt_catalog,
             expected_type=expected_type,
         )
-        typed_else = _typecheck(
+        typed_else = check(
             expr.else_expr,
             type_env=type_env,
             value_env=value_env,
@@ -1015,7 +1016,7 @@ def _typecheck(
         exhaustion_summaries: list[EffectSummary] = []
         typed_exhausted_expr = None
         if expr.on_exhausted_result_expr is not None:
-            typed_exhausted = _typecheck(
+            typed_exhausted = check(
                 expr.on_exhausted_result_expr,
                 type_env=type_env,
                 value_env={**value_env, expr.binding_name: typed_state.type_ref},
@@ -1088,6 +1089,7 @@ def _typecheck(
                 prompt_catalog=prompt_catalog,
                 active_proc_ref_value_env=session_state.proc_ref_value_env,
                 generated_local_procedure_state=session_state.let_proc_rewrite_results,
+                compiler_session=compiler_session,
                 session_state=session_state,
             ),
             recurse=recurse,
@@ -1126,7 +1128,7 @@ def _typecheck(
                 span=expr.span,
                 form_path=expr.form_path,
             )
-        typed_context = _typecheck(
+        typed_context = check(
             expr.ctx_expr,
             type_env=type_env,
             value_env=value_env,
@@ -1148,7 +1150,7 @@ def _typecheck(
             span=expr.ctx_expr.span,
             form_path=expr.ctx_expr.form_path,
         )
-        typed_body = _typecheck(
+        typed_body = check(
             expr.body,
             type_env=type_env,
             value_env=value_env,

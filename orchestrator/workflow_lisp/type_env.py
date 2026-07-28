@@ -18,6 +18,7 @@ from .definitions import (
     WorkflowLispModule,
 )
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .compiler_session import TypecheckSessionState
 from .modules import canonical_callable_key
 from .result_guidance import ResultGuidance
 from .spans import SourcePosition, SourceSpan
@@ -284,6 +285,7 @@ class FrontendTypeEnvironment:
         resource_defs: Mapping[str, ResourceDef] | None = None,
         transition_defs: Mapping[str, TransitionDef] | None = None,
         nominal_descriptor_names_by_definition_id: dict[int, str] | None = None,
+        session_state: TypecheckSessionState | None = None,
     ):
         self._type_refs = dict(type_refs)
         self.target_dsl_version = target_dsl_version
@@ -292,6 +294,7 @@ class FrontendTypeEnvironment:
         self._schema_names = frozenset(schema_names)
         self._resource_defs = dict(resource_defs or {})
         self._transition_defs = dict(transition_defs or {})
+        self.session_state = session_state
         self._nominal_descriptor_names_by_definition_id = dict(
             nominal_descriptor_names_by_definition_id or {}
         )
@@ -305,6 +308,7 @@ class FrontendTypeEnvironment:
         imported_type_refs: dict[str, TypeRef] | None = None,
         imported_resource_defs: Mapping[str, ResourceDef] | None = None,
         imported_transition_defs: Mapping[str, TransitionDef] | None = None,
+        session_state: TypecheckSessionState | None = None,
     ) -> "FrontendTypeEnvironment":
         reserved_target_prelude_type_names = (
             prelude_type_names_for_target(module.target_dsl_version)
@@ -489,6 +493,7 @@ class FrontendTypeEnvironment:
                 for definition in module.definitions
                 if isinstance(definition, (RecordDef, UnionDef))
             },
+            session_state=session_state,
         )
 
     def nominal_descriptor_name(self, type_ref: TypeRef) -> str | None:
@@ -507,6 +512,7 @@ class FrontendTypeEnvironment:
         form_path: tuple[str, ...],
         expansion_stack: tuple[object, ...] = (),
         local_type_params: frozenset[str] = frozenset(),
+        session_state: TypecheckSessionState | None = None,
     ) -> TypeRef:
         return self._resolve_inline_type(
             name,
@@ -519,6 +525,7 @@ class FrontendTypeEnvironment:
             form_path=form_path,
             expansion_stack=expansion_stack,
             local_type_params=local_type_params,
+            session_state=session_state,
         )
 
     def record_field(
@@ -686,7 +693,18 @@ class FrontendTypeEnvironment:
         schema_names: frozenset[str] = frozenset(),
         expansion_stack: tuple[object, ...] = (),
         local_type_params: frozenset[str] = frozenset(),
+        session_state: TypecheckSessionState | None = None,
     ) -> TypeRef:
+        if name.startswith("%loop-state.") and session_state is not None:
+            from .loop_state import register_known_carrier_type
+
+            register_known_carrier_type(
+                type_env=type("_TypeEnvProxy", (), {"_type_refs": type_refs})(),
+                session_state=session_state,
+                type_name=name,
+                span=span,
+                form_path=form_path,
+            )
         parsed = parse_type_expression(
             name,
             span=span,
@@ -1017,18 +1035,6 @@ def _resolve_named_type(
             form_path=form_path,
             expansion_stack=expansion_stack,
         )
-    if name.startswith("%loop-state."):
-        from .loop_state import register_known_carrier_type
-
-        if register_known_carrier_type(
-            type_env=type("_TypeEnvProxy", (), {"_type_refs": type_refs})(),
-            type_name=name,
-            span=span,
-            form_path=form_path,
-        ):
-            rebound_ref = type_refs.get(name)
-            if rebound_ref is not None:
-                return rebound_ref
     _raise_error(
         f"unknown type `{name}`",
         code="type_unknown",

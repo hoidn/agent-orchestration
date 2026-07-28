@@ -223,6 +223,7 @@ def procedure_type_env_for(
     *,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None,
     default: FrontendTypeEnvironment,
+    session_state=None,
 ) -> FrontendTypeEnvironment:
     """Resolve the owner type environment for one typed procedure body."""
 
@@ -264,19 +265,22 @@ def procedure_type_env_for(
                         type_name,
                         span=procedure.definition.span,
                         form_path=procedure.definition.form_path,
+                        session_state=session_state,
                     )
             except LispFrontendCompileError:
                 continue
             return candidate_env
-        from .loop_state import register_known_carrier_type
+        if session_state is not None:
+            from .loop_state import register_known_carrier_type
 
-        for type_name in generated_local_types:
-            register_known_carrier_type(
-                default,
-                type_name=type_name,
-                span=procedure.definition.span,
-                form_path=procedure.definition.form_path,
-            )
+            for type_name in generated_local_types:
+                register_known_carrier_type(
+                    default,
+                    session_state=session_state,
+                    type_name=type_name,
+                    span=procedure.definition.span,
+                    form_path=procedure.definition.form_path,
+                )
     return default
 
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from hashlib import sha1
 import re
 
+from .compiler_session import TypecheckSessionState
 from .definitions import RecordDef, RecordField
 from .diagnostics import LispFrontendCompileError
 from .effects import EMPTY_EFFECT_SUMMARY, merge_effect_summaries
@@ -37,13 +38,6 @@ class LoopStateCarrierMetadata:
     field_types: tuple[tuple[str, TypeRef], ...]
     type_ref: RecordTypeRef
     source_kind: str
-
-
-_CARRIER_METADATA_BY_NAME: dict[str, LoopStateCarrierMetadata] = {}
-_CARRIER_METADATA_BY_EXPR_KEY: dict[
-    tuple[str, int, int, tuple[str, ...]],
-    dict[tuple[tuple[str, str], ...], LoopStateCarrierMetadata],
-] = {}
 
 
 def _type_name(type_ref: TypeRef) -> str:
@@ -79,31 +73,36 @@ def _register_generated_record_type(
     )
 
 
-def reset_loop_state_metadata() -> None:
+def reset_loop_state_metadata(session_state: TypecheckSessionState) -> None:
     """Clear generated loop-state carrier metadata between compile sessions."""
 
-    _CARRIER_METADATA_BY_NAME.clear()
-    _CARRIER_METADATA_BY_EXPR_KEY.clear()
+    session_state.loop_carrier_metadata_by_name.clear()
+    session_state.loop_carrier_metadata_by_expr_key.clear()
 
 
-def carrier_metadata_for_type(type_ref: TypeRef) -> LoopStateCarrierMetadata | None:
+def carrier_metadata_for_type(
+    type_ref: TypeRef,
+    *,
+    session_state: TypecheckSessionState,
+) -> LoopStateCarrierMetadata | None:
     """Return loop-state metadata for one generated carrier type, if present."""
 
     if not isinstance(type_ref, RecordTypeRef):
         return None
-    return _CARRIER_METADATA_BY_NAME.get(type_ref.name)
+    return session_state.loop_carrier_metadata_by_name.get(type_ref.name)
 
 
 def register_known_carrier_type(
     type_env,
     *,
+    session_state: TypecheckSessionState,
     type_name: str,
     span,
     form_path: tuple[str, ...],
 ) -> bool:
     """Re-register one generated loop-state carrier into another type env."""
 
-    metadata = _CARRIER_METADATA_BY_NAME.get(type_name)
+    metadata = session_state.loop_carrier_metadata_by_name.get(type_name)
     if metadata is None:
         return False
     if type_env._type_refs.get(type_name) is None:
@@ -114,14 +113,16 @@ def register_known_carrier_type(
 def register_all_known_carrier_types(
     type_env,
     *,
+    session_state: TypecheckSessionState,
     span,
     form_path: tuple[str, ...],
 ) -> None:
     """Hydrate one type env with every generated loop-state carrier seen so far."""
 
-    for type_name in tuple(_CARRIER_METADATA_BY_NAME):
+    for type_name in tuple(session_state.loop_carrier_metadata_by_name):
         register_known_carrier_type(
             type_env,
+            session_state=session_state,
             type_name=type_name,
             span=span,
             form_path=form_path,
@@ -131,12 +132,15 @@ def register_all_known_carrier_types(
 def carrier_metadata_for_expr(
     expr,
     *,
+    session_state: TypecheckSessionState,
     field_signature: tuple[tuple[str, str], ...] | None = None,
     field_types: tuple[tuple[str, TypeRef], ...] | None = None,
 ) -> LoopStateCarrierMetadata | None:
     """Return loop-state metadata for one authored seed expression, if present."""
 
-    metadata_by_signature = _CARRIER_METADATA_BY_EXPR_KEY.get(_expr_metadata_key(expr))
+    metadata_by_signature = session_state.loop_carrier_metadata_by_expr_key.get(
+        _expr_metadata_key(expr)
+    )
     if not metadata_by_signature:
         return None
     if field_signature is not None:
@@ -285,15 +289,17 @@ def _typecheck_loop_state_seed(
         expansion_stack=expr.expansion_stack,
     )
     assert isinstance(record_type, RecordTypeRef)
-    _CARRIER_METADATA_BY_NAME[generated_name] = LoopStateCarrierMetadata(
+    context.session_state.loop_carrier_metadata_by_name[generated_name] = LoopStateCarrierMetadata(
         generated_type_name=generated_name,
         field_names=tuple(name for name, _ in resolved_fields),
         field_types=tuple(resolved_fields),
         type_ref=record_type,
         source_kind="seed",
     )
-    _CARRIER_METADATA_BY_EXPR_KEY.setdefault(_expr_metadata_key(expr), {})[field_signature] = (
-        _CARRIER_METADATA_BY_NAME[generated_name]
+    context.session_state.loop_carrier_metadata_by_expr_key.setdefault(
+        _expr_metadata_key(expr), {}
+    )[field_signature] = (
+        context.session_state.loop_carrier_metadata_by_name[generated_name]
     )
     return typed_factory(
         expr=replace(expr, fields=tuple(rewritten_fields)),
@@ -312,7 +318,10 @@ def _typecheck_loop_state_update(
     type_label,
 ):
     typed_base = recurse(expr.base_expr)
-    metadata = carrier_metadata_for_type(typed_base.type_ref)
+    metadata = carrier_metadata_for_type(
+        typed_base.type_ref,
+        session_state=context.session_state,
+    )
     if metadata is None:
         raise_error(
             "`loop-state :like` requires a loop-state carrier base",

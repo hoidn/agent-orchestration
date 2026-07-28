@@ -4666,6 +4666,7 @@ def _infer_expr_type(
         )
         metadata = carrier_metadata_for_expr(
             expr,
+            session_state=type_env.session_state,
             field_signature=tuple((field_name, field_type.name) for field_name, field_type in field_types),
             field_types=field_types,
         )

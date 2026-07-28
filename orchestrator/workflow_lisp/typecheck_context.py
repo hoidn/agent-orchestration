@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, TypeVar
 
 from orchestrator.workflow.provider_phased_delivery.diagnostics import (
     PhasedDeliveryDiagnostic,
 )
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .compiler_session import CompilerSession, TypecheckSessionState
 from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from .expressions import ExprNode, LiteralExpr
 from .lints import required_lint_diagnostic
@@ -29,6 +30,15 @@ from .type_env import TypeRef, UnionTypeRef, VariantCaseTypeRef, type_refs_compa
 
 if TYPE_CHECKING:
     from .functions import FunctionCatalog
+
+
+_Key = TypeVar("_Key")
+_NestedKey = TypeVar("_NestedKey")
+_Value = TypeVar("_Value")
+
+
+class TypecheckSessionStateCollisionError(RuntimeError):
+    """A nested typecheck produced an ambiguous compile-session output."""
 
 
 @dataclass(frozen=True)
@@ -53,22 +63,6 @@ class LoopTypecheckContext:
     result_type_ref: TypeRef | None = None
 
 
-@dataclass
-class TypecheckSessionState:
-    """Mutable compiler-pass-local typing state."""
-
-    function_catalog: FunctionCatalog | None = None
-    proc_ref_value_env: Mapping[str, ResolvedProcRefValue] = field(default_factory=dict)
-    value_expr_env: Mapping[str, ExprNode] = field(default_factory=dict)
-    loop_context: list[LoopTypecheckContext] = field(default_factory=list)
-    generated_local_procedures: dict[str, TypedProcedureDef] = field(default_factory=dict)
-    let_proc_rewrite_results: dict[int, ExprNode] = field(default_factory=dict)
-    workflow_signature: object | None = None
-    procedure_hidden_context_signature: object | None = None
-    reusable_state_producer_context: Mapping[str, object] | None = None
-    shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...] = ()
-
-
 @dataclass(frozen=True)
 class TypecheckContext:
     """Recursive typecheck inputs carried through dispatch owners."""
@@ -86,18 +80,11 @@ class TypecheckContext:
     proc_ref_resolution_context: object | None
     prompt_catalog: object | None
     shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...]
+    compiler_session: CompilerSession
     session_state: TypecheckSessionState
 
 
-_SESSION_STATE = TypecheckSessionState()
-
-
-def get_session_state() -> TypecheckSessionState:
-    return _SESSION_STATE
-
-
-def snapshot_session_state() -> TypecheckSessionState:
-    state = get_session_state()
+def snapshot_session_state(state: TypecheckSessionState) -> TypecheckSessionState:
     return TypecheckSessionState(
         function_catalog=state.function_catalog,
         proc_ref_value_env=dict(state.proc_ref_value_env),
@@ -113,11 +100,25 @@ def snapshot_session_state() -> TypecheckSessionState:
             else dict(state.reusable_state_producer_context)
         ),
         shared_union_field_capabilities=tuple(state.shared_union_field_capabilities),
+        loop_carrier_metadata_by_name=dict(
+            state.loop_carrier_metadata_by_name
+        ),
+        loop_carrier_metadata_by_expr_key={
+            expr_key: dict(metadata_by_signature)
+            for expr_key, metadata_by_signature in (
+                state.loop_carrier_metadata_by_expr_key.items()
+            )
+        },
+        parametric_specialization_requests=dict(
+            state.parametric_specialization_requests
+        ),
     )
 
 
-def restore_session_state(snapshot: TypecheckSessionState) -> None:
-    state = get_session_state()
+def restore_session_state(
+    state: TypecheckSessionState,
+    snapshot: TypecheckSessionState,
+) -> None:
     state.function_catalog = snapshot.function_catalog
     state.proc_ref_value_env = snapshot.proc_ref_value_env
     state.value_expr_env = snapshot.value_expr_env
@@ -128,47 +129,167 @@ def restore_session_state(snapshot: TypecheckSessionState) -> None:
     state.procedure_hidden_context_signature = snapshot.procedure_hidden_context_signature
     state.reusable_state_producer_context = snapshot.reusable_state_producer_context
     state.shared_union_field_capabilities = tuple(snapshot.shared_union_field_capabilities)
+    state.loop_carrier_metadata_by_name = dict(
+        snapshot.loop_carrier_metadata_by_name
+    )
+    state.loop_carrier_metadata_by_expr_key = {
+        expr_key: dict(metadata_by_signature)
+        for expr_key, metadata_by_signature in (
+            snapshot.loop_carrier_metadata_by_expr_key.items()
+        )
+    }
+    state.parametric_specialization_requests = dict(
+        snapshot.parametric_specialization_requests
+    )
 
 
-def consume_generated_local_procedures() -> tuple[TypedProcedureDef, ...]:
+def _values_match(left: object, right: object) -> bool:
+    if left is right:
+        return True
+    try:
+        comparison = left == right
+        return comparison if isinstance(comparison, bool) else False
+    except Exception:
+        return False
+
+
+def _merge_unique_outputs(
+    root_name: str,
+    outer: Mapping[_Key, _Value],
+    completed: Mapping[_Key, _Value],
+    *,
+    values_match: Callable[[object, object], bool] = _values_match,
+) -> dict[_Key, _Value]:
+    merged = dict(outer)
+    for key, value in completed.items():
+        if key in outer and not values_match(outer[key], value):
+            raise TypecheckSessionStateCollisionError(
+                f"typecheck session output collision in {root_name}: {key!r}"
+            )
+        merged[key] = value
+    return merged
+
+
+def _specialization_requests_match(left: object, right: object) -> bool:
+    semantic_fields = (
+        "base_name",
+        "specialized_name",
+        "type_bindings",
+        "proc_ref_bindings",
+        "shared_union_field_capabilities",
+        "remaining_params",
+    )
+    if not all(
+        hasattr(left, field_name) and hasattr(right, field_name)
+        for field_name in semantic_fields
+    ):
+        return _values_match(left, right)
+    return all(
+        _values_match(
+            getattr(left, field_name),
+            getattr(right, field_name),
+        )
+        for field_name in semantic_fields
+    )
+
+
+def _merge_nested_unique_outputs(
+    root_name: str,
+    outer: Mapping[_Key, Mapping[_NestedKey, _Value]],
+    completed: Mapping[_Key, Mapping[_NestedKey, _Value]],
+) -> dict[_Key, dict[_NestedKey, _Value]]:
+    merged = {key: dict(values) for key, values in outer.items()}
+    for key, completed_values in completed.items():
+        merged[key] = _merge_unique_outputs(
+            root_name,
+            outer.get(key, {}),
+            completed_values,
+        )
+    return merged
+
+
+def merge_successful_session_outputs(
+    outer: TypecheckSessionState,
+    completed: TypecheckSessionState,
+) -> TypecheckSessionState:
+    """Merge persistent nested outputs without changing lexical state."""
+
+    merged = snapshot_session_state(outer)
+    merged.generated_local_procedures = _merge_unique_outputs(
+        "generated_local_procedures",
+        outer.generated_local_procedures,
+        completed.generated_local_procedures,
+    )
+    merged.loop_carrier_metadata_by_name = _merge_unique_outputs(
+        "loop_carrier_metadata_by_name",
+        outer.loop_carrier_metadata_by_name,
+        completed.loop_carrier_metadata_by_name,
+    )
+    merged.loop_carrier_metadata_by_expr_key = (
+        _merge_nested_unique_outputs(
+            "loop_carrier_metadata_by_expr_key",
+            outer.loop_carrier_metadata_by_expr_key,
+            completed.loop_carrier_metadata_by_expr_key,
+        )
+    )
+    merged.parametric_specialization_requests = _merge_unique_outputs(
+        "parametric_specialization_requests",
+        outer.parametric_specialization_requests,
+        completed.parametric_specialization_requests,
+        values_match=_specialization_requests_match,
+    )
+    return merged
+
+
+def consume_generated_local_procedures(
+    state: TypecheckSessionState,
+) -> tuple[TypedProcedureDef, ...]:
     """Return and clear generated `let-proc` procedures from the active pass."""
 
-    state = get_session_state()
     procedures = tuple(state.generated_local_procedures.values())
     state.generated_local_procedures = {}
     return procedures
 
 
-def reset_generated_local_procedure_state() -> None:
+def reset_generated_local_procedure_state(
+    state: TypecheckSessionState,
+) -> None:
     """Clear compiler-pass-local `let-proc` generated state."""
 
-    state = get_session_state()
     state.generated_local_procedures = {}
     state.let_proc_rewrite_results = {}
 
 
-def set_active_workflow_signature(signature) -> None:
+def set_active_workflow_signature(
+    state: TypecheckSessionState,
+    signature,
+) -> None:
     """Record the current workflow signature for nested typecheck helpers."""
 
-    get_session_state().workflow_signature = signature
+    state.workflow_signature = signature
 
 
-def clear_active_workflow_signature() -> None:
+def clear_active_workflow_signature(state: TypecheckSessionState) -> None:
     """Clear the active workflow signature after finishing one workflow body."""
 
-    get_session_state().workflow_signature = None
+    state.workflow_signature = None
 
 
-def set_active_reusable_state_producer_context(context: Mapping[str, object] | None) -> None:
+def set_active_reusable_state_producer_context(
+    state: TypecheckSessionState,
+    context: Mapping[str, object] | None,
+) -> None:
     """Record compiler-owned reuse identity inputs for the active workflow body."""
 
-    get_session_state().reusable_state_producer_context = context
+    state.reusable_state_producer_context = context
 
 
-def clear_active_reusable_state_producer_context() -> None:
+def clear_active_reusable_state_producer_context(
+    state: TypecheckSessionState,
+) -> None:
     """Clear the active compiler-owned reuse identity inputs."""
 
-    get_session_state().reusable_state_producer_context = None
+    state.reusable_state_producer_context = None
 
 
 def raise_required_lint(

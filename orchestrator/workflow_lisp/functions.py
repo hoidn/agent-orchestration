@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import InitVar, dataclass, field, replace
 from typing import TYPE_CHECKING
 
+from .compiler_session import CompilerSession
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .expression_traversal import walk_expr
 from .expressions import (
@@ -236,9 +237,11 @@ def typecheck_function_definitions(
     procedure_name_resolver=None,
     workflow_name_resolver=None,
     prompt_catalog: object | None = None,
+    compiler_session: CompilerSession | None = None,
 ) -> tuple[TypedFunctionDef, ...]:
     """Typecheck helper bodies against the pure expression subset."""
 
+    compiler_session = compiler_session or CompilerSession()
     typed_functions: list[TypedFunctionDef] = []
     procedure_names = (
         frozenset()
@@ -259,6 +262,7 @@ def typecheck_function_definitions(
             workflow_name_resolver=workflow_name_resolver,
             target_dsl_version=type_env.target_dsl_version,
             prompt_catalog=prompt_catalog,
+            session_state=compiler_session.elaboration,
         )
         _validate_pure_function_expr(body_expr, function_def=function_def)
         typed_body = typecheck_expression(
@@ -270,6 +274,7 @@ def typecheck_function_definitions(
             function_catalog=function_catalog,
             prompt_catalog=prompt_catalog,
             expected_type=signature.return_type_ref,
+            compiler_session=compiler_session,
         )
         if not type_refs_compatible(signature.return_type_ref, typed_body.type_ref):
             raise LispFrontendCompileError(

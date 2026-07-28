@@ -222,6 +222,8 @@ Primary tests:
 
 - Create: `tests/test_workflow_lisp_compiler_session_state.py`
 - Modify: `tests/test_workflow_lisp_expressions.py`
+- Modify only generated-state API callers:
+  `tests/test_workflow_lisp_procedures.py`
 - Modify: `tests/test_workflow_lisp_stdlib_form_migration.py`
 - Modify: `tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py`
 - Modify: `tests/test_workflow_lisp_lsp_integration.py`
@@ -396,6 +398,13 @@ Before Task 1:
   `orchestrator/workflow_lisp/type_env.py`
 - Modify only explicit loop-carrier lookup seams:
   `orchestrator/workflow_lisp/procedures.py`
+- Modify only the explicit loop-carrier compatibility lookup seams:
+  `orchestrator/workflow_lisp/lowering/core.py`
+- Modify only the explicit loop-carrier compatibility lookup seam, with the
+  content-addressed cache block frozen:
+  `orchestrator/workflow_lisp/lowering/pure_projection.py`
+- Modify only the explicit loop-carrier compatibility lookup seam:
+  `orchestrator/workflow_lisp/wcc/elaborate.py`
 - Create: `tests/test_workflow_lisp_compiler_session_state.py`
 - Modify: `tests/test_workflow_lisp_expressions.py`
 
@@ -422,6 +431,10 @@ Before Task 1:
   module inside one linked graph sees the same session identity. Require
   standalone `elaborate_expression`/`typecheck_expression` calls to use one
   local session without retaining it globally.
+  Add the both-direction compatibility check required by removing the carrier
+  globals: a carrier registered in the active typecheck session keeps the
+  private nominal descriptor, while a merely prefix-shaped unregistered
+  record does not.
 - [ ] **Step 3: Write census-root RED tests.**
   Parse the named compile-path modules with `ast` and reject module-level
   mutable phase roots. Add exact negative assertions for `_ACTIVE_*`,
@@ -440,7 +453,16 @@ Before Task 1:
   maps, generated local procedures, let-proc rewrites, and parametric
   specialization requests. Exercise success and exception paths. Assert
   nested calls share/restore their explicit current session and a new compile
-  observes none of those values.
+  observes none of those values. Snapshot every session-owned mutable root.
+  On nested success, preserve unambiguous new generated procedures, carrier
+  metadata, and specialization requests for the enclosing compile; on nested
+  failure, restore the complete outer snapshot. Treat a same-key,
+  different-value persistent-output collision as an internal fail-closed
+  contract error before applying any partial merge. Repeated specialization
+  requests with the same materialization payload are idempotent even when
+  their diagnostic origins differ; retain the completed request and its
+  last-writer origin so existing diagnostics and materialization semantics
+  remain unchanged.
 - [ ] **Step 6: Prove RED is intentional.**
 
   ```bash
@@ -458,7 +480,10 @@ Before Task 1:
   Define dataclasses only for mutable compile-lifetime state. Keep diagnostic
   tables, immutable catalogs, macro ContextVars, source read traces, and the
   pure-projection cache outside it. Use direct fields rather than a registry or
-  extensible bag.
+  extensible bag. Retain concrete or forward-referenced types for stable
+  catalogs, expressions, signatures, carriers, capabilities, and
+  specialization requests; use heterogeneous types only where the stored
+  values are genuinely private and structurally mixed.
 - [ ] **Step 8: Thread elaboration state explicitly.**
   Replace the ten `expressions.py` active globals with an
   `ElaborationSessionState` passed through `elaborate_expression`, recursive
@@ -471,14 +496,22 @@ Before Task 1:
   carry the concrete typecheck sub-session. Pass it through dispatch, resume,
   procedure helpers, effect-summary fixpoints, generated local procedures, and
   reusable-state helpers. Standalone compatibility entry points allocate a
-  fresh local `CompilerSession`.
+  fresh local `CompilerSession`. Generated-procedure consume/reset operations
+  require the active typecheck session and have no detached no-argument
+  fallback.
 - [ ] **Step 10: Move loop and specialization maps into the session.**
   Make all carrier lookup/register functions and specialization
   consume/reset operations require the active typecheck session. Remove
   production reset-at-entry cleanup: freshness now comes from session
   construction, while within-compile consume/reset semantics stay exact.
   Include the existing carrier readers in `type_env.py` and `procedures.py`;
-  neither may retain a hidden global fallback.
+  neither may retain a hidden global fallback. Update only the required
+  compatibility readers in `lowering/core.py`,
+  `lowering/pure_projection.py`, and `wcc/elaborate.py` to consult that same
+  compile-local typecheck session. Those three hunks belong to Task 1 because
+  the Task 1 green/artifact contract cannot run after global removal without
+  them; change no lowering decision or artifact, and keep the complete
+  pure-projection cache block frozen.
 - [ ] **Step 11: Run GREEN and adjacent typecheck regressions.**
 
   ```bash
@@ -487,6 +520,8 @@ Before Task 1:
     tests/test_workflow_lisp_expressions.py \
     tests/test_workflow_lisp_loop_state.py \
     tests/test_workflow_lisp_procedures.py \
+    tests/test_workflow_lisp_pure_projection_cache.py \
+    tests/test_workflow_lisp_wcc_m4.py \
     tests/test_workflow_lisp_build_artifacts.py \
     tests/test_workflow_lisp_build_in_memory.py
   ```
@@ -530,12 +565,13 @@ unchanged; no mutable compile-phase global remains in Task 1 owners.
 - Modify: `orchestrator/workflow_lisp/compiler.py`
 - Modify: `orchestrator/workflow_lisp/build.py`
 - Modify: `orchestrator/workflow_lisp/lowering/context.py`
-- Modify: `orchestrator/workflow_lisp/lowering/core.py`
+- Modify: `orchestrator/workflow_lisp/lowering/core.py`, excluding Task 1's
+  frozen loop-carrier compatibility lookup hunks
 - Modify: `orchestrator/workflow_lisp/lowering/procedures.py`
 - Modify: `orchestrator/workflow_lisp/lowering/control_dispatch.py`
-- Modify only the loop-carrier lookup hunk:
-  `orchestrator/workflow_lisp/lowering/pure_projection.py`
-- Modify only the loop-carrier lookup carrier hunk:
+- Inspect only: Task 1's loop-carrier compatibility hunk and the frozen cache
+  block in `orchestrator/workflow_lisp/lowering/pure_projection.py`
+- Inspect only: Task 1's loop-carrier compatibility hunk in
   `orchestrator/workflow_lisp/wcc/elaborate.py`
 - Modify only the top-level context-construction carrier hunk:
   `orchestrator/workflow_lisp/wcc/defunctionalize.py`
@@ -548,8 +584,11 @@ unchanged; no mutable compile-phase global remains in Task 1 owners.
   to `lowering/context.py`, reconcile its M0 refusal-diagnosability hunk
   against the complete landed M0 diff and its first-touch baseline; later stage
   only the exact session-carrier hunk. Freeze the pure-projection cache block
-  hash again. The only permitted WCC edits are the
-  two explicit carrier hunks; do not refactor WCC middle-end algorithms.
+  hash again. Bind and reverify the already-landed Task 1 carrier-reader hunks
+  in `lowering/core.py`, `lowering/pure_projection.py`, and `wcc/elaborate.py`;
+  Task 2 must not modify or recreate them. The only permitted Task 2 WCC edit
+  is the top-level context-construction carrier hunk in
+  `wcc/defunctionalize.py`; do not refactor WCC middle-end algorithms.
 - [ ] **Step 2: Write lowering-session RED tests.**
   Compile two LEGACY workflows and two WCC_M4 workflows in alternating order
   with explicit sessions. Assert `_LoweringContext` always exposes the current
@@ -586,10 +625,14 @@ unchanged; no mutable compile-phase global remains in Task 1 owners.
   Store counts on the lowering sub-session and make record/read/reset helpers
   require that session. Keep counts observational and absent from artifacts,
   identities, diagnostics, and compiler results.
-- [ ] **Step 8: Route loop metadata through lowering contexts.**
-  Pass Task 1's session-owned loop-carrier metadata to LEGACY pure projection/
-  loop lowering and the WCC elaboration boundary. Change no WCC calculus or
-  defunctionalization behavior.
+- [ ] **Step 8: Reverify Task 1's frozen carrier-reader prerequisites.**
+  Prove the bound Task 1 hunks in `lowering/core.py`,
+  `lowering/pure_projection.py`, and `wcc/elaborate.py` still read loop
+  metadata from the compile-local typecheck session and still pass the
+  registered/unregistered both-direction check. Do not edit those hunks.
+  Task 2 owns only lowering-session/counter/build-seam carriage; its new
+  lowering contexts must preserve the enclosing compiler-session identity
+  without changing Task 1's carrier lookup, WCC calculus, or artifacts.
 - [ ] **Step 9: Prove the pure-projection cache is untouched.**
   Compare the frozen cache-block hash and run:
 
@@ -635,13 +678,15 @@ unchanged; no mutable compile-phase global remains in Task 1 owners.
   fallback is permitted.
 - [ ] **Step 12: Review and commit.**
   Stage only Task 2 exact paths/hunks. Prove the cache block and all unowned
-  WCC hunks are absent. Obtain ordered specification then quality approval,
+  WCC hunks are absent, and prove Task 1's three frozen carrier-reader hunks
+  are byte-unchanged. Obtain ordered specification then quality approval,
   commit exact reviewed bytes, and rerun the selector.
 
 **Task 2 completion gate:** The production build seam, direct module compile,
 LEGACY lowering, and WCC_M4 lowering all receive explicit fresh sessions;
-intrinsic counters and loop metadata are session-owned; emitted artifacts are
-unchanged; the pure-projection cache is untouched.
+intrinsic counters are session-owned; Task 1's session-owned loop-metadata
+readers remain byte-unchanged and verified; emitted artifacts are unchanged;
+the pure-projection cache is untouched.
 
 ## Task 3: Reentrancy Closure, Real LSP Process, And Final Gates
 

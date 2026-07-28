@@ -7,6 +7,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from .compiler_session import CompilerSession
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourceSpan
 from .syntax import (
@@ -208,9 +209,11 @@ def validate_result_guidance_example(
     type_env,
     workspace: Path | None = None,
     source_read_trace=None,
+    compiler_session: CompilerSession | None = None,
 ) -> Any | None:
     """Elaborate, typecheck, evaluate, and schema-check one authored example."""
 
+    compiler_session = compiler_session or CompilerSession()
     if guidance is None or guidance.example_expr is None:
         return None
     example_node = guidance.example_expr
@@ -232,6 +235,7 @@ def validate_result_guidance_example(
             example_node,
             bound_names=frozenset(),
             guidance_example=True,
+            session_state=compiler_session.elaboration,
         )
         expr = _contextualize_path_literals(expr, expected_type=expected_type)
     except (LispFrontendCompileError, TypeError, ValueError) as exc:
@@ -254,7 +258,12 @@ def validate_result_guidance_example(
             example_node=example_node,
         )
     try:
-        typed = typecheck_expression(expr, type_env=type_env, value_env={})
+        typed = typecheck_expression(
+            expr,
+            type_env=type_env,
+            value_env={},
+            compiler_session=compiler_session,
+        )
     except LispFrontendCompileError as exc:
         code = exc.diagnostics[0].code if exc.diagnostics else ""
         if code in {"name_unknown", "effect_not_permitted"}:
@@ -341,10 +350,13 @@ def validate_module_result_guidance(
     workflow_defs: tuple[object, ...] = (),
     workspace: Path | None = None,
     source_read_trace=None,
+    compiler_session: CompilerSession | None = None,
 ) -> None:
     """Validate all definition and callable guidance visible in one module."""
 
     from .definitions import RecordDef, SchemaDef, UnionDef
+
+    compiler_session = compiler_session or CompilerSession()
 
     for definition in (*module.schemas, *module.definitions):
         if isinstance(definition, RecordDef):
@@ -371,6 +383,7 @@ def validate_module_result_guidance(
                     type_env=type_env,
                     workspace=workspace,
                     source_read_trace=source_read_trace,
+                    compiler_session=compiler_session,
                 )
 
     for definition in (*function_defs, *procedure_defs, *workflow_defs):
@@ -397,6 +410,7 @@ def validate_module_result_guidance(
             type_env=type_env,
             workspace=workspace,
             source_read_trace=source_read_trace,
+            compiler_session=compiler_session,
         )
 
 

@@ -17,7 +17,6 @@ from .typecheck_context import (
     TypedExpr,
     _require_normative_phase_ctx_type,
     _require_phase_scope_name_match,
-    get_session_state,
     raise_error,
 )
 
@@ -155,8 +154,11 @@ def typecheck_resume_or_start_expr(
         span=expr.span,
         form_path=expr.form_path,
     )
-    public_input_hash_basis = _derive_resume_public_input_hash_basis()
+    public_input_hash_basis = _derive_resume_public_input_hash_basis(
+        context.session_state
+    )
     producer_fingerprint_basis = _derive_resume_producer_fingerprint_basis(
+        session_state=context.session_state,
         return_type_name=expr.returns_type_name,
         structured_contract_kind=structured_contract_kind,
         expected_contract_fingerprint=expected_contract_fingerprint,
@@ -240,10 +242,9 @@ def _derive_resume_metadata(
     )
 
 
-def _derive_resume_public_input_hash_basis() -> tuple[str, ...]:
+def _derive_resume_public_input_hash_basis(session_state) -> tuple[str, ...]:
     from .contracts import derive_reusable_state_public_input_hash_basis
 
-    session_state = get_session_state()
     if session_state.workflow_signature is None:
         return ()
     return derive_reusable_state_public_input_hash_basis(session_state.workflow_signature)
@@ -251,6 +252,7 @@ def _derive_resume_public_input_hash_basis() -> tuple[str, ...]:
 
 def _derive_resume_producer_fingerprint_basis(
     *,
+    session_state,
     return_type_name: str,
     structured_contract_kind: str,
     expected_contract_fingerprint: str,
@@ -259,7 +261,6 @@ def _derive_resume_producer_fingerprint_basis(
 ):
     from .contracts import derive_reusable_state_producer_fingerprint_basis
 
-    session_state = get_session_state()
     if session_state.workflow_signature is None:
         return {
             "workflow_name": "<unknown>",
