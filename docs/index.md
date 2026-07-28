@@ -157,9 +157,9 @@ document owns the answer.
 **Use this when:** Auditing the completed numbered stages or the provenance of the post-Stage-8 handoff. Do not use this historical roadmap or the parked evolution proposal to select current work.
 
 ### [Workflow Lisp Language Quality And Domain Semantics Roadmap](plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md)
-**Description:** Active post-Stage-8 selector with two bounded series: Q0–Q3 are implemented and Q3 closes under its reviewed plan; Q4 still needs its concrete consumer, while Q5 retains its separate gates. In the parallel L-series, L0 reliability/actionability, L1 authored symbols/signatures, L2 recovery-safe static completion, and owner-reordered L5 authored reference navigation are complete; MR-4 closed L3's compile-path-reentrancy prerequisite and the immutable per-source-selection design is accepted, so L3 implementation planning is next and L4 remains sequenced behind it.
+**Description:** Active post-Stage-8 selector with two bounded series: Q0–Q3 are implemented and Q3 closes under its reviewed plan; Q4 still needs its concrete consumer, while Q5 retains its separate gates. In the parallel L-series, L0 reliability/actionability, L1 authored symbols/signatures, L2 recovery-safe static completion, and owner-reordered L5 authored reference navigation are complete; MR-4 closed L3's compile-path-reentrancy prerequisite and the immutable per-source-selection design plus three-task implementation plan are accepted, so L3 Task 1 follows the committed plan gate and L4 remains sequenced behind it.
 **Keywords:** workflow-lisp, active-roadmap, value, prompt-calculus, prompt-identity, judgments, lsp, diagnostics, navigation, editor-tooling, principle-29
-**Use this when:** Selecting or sequencing current post-Stage-8 work. Q4 remains gated on a bound concrete consumer. In L, L5 completion does not satisfy L3 by itself; completed MR-4 supplies the missing reentrancy evidence, and the accepted language-server L3 amendment governs implementation planning. L4 waits for L3. Do not select E0, the parked evolution roadmap, shelved parsimony candidates, or P1–P5 from this route.
+**Use this when:** Selecting or sequencing current post-Stage-8 work. Q4 remains gated on a bound concrete consumer. In L, L5 completion does not satisfy L3 by itself; completed MR-4 supplies the missing reentrancy evidence, and execute L3 under its reviewed plan after the plan-gate commit. L4 waits for L3. Do not select E0, the parked evolution roadmap, shelved parsimony candidates, or P1–P5 from this route.
 
 ### [Workflow Lisp Compiler Session State Implementation Plan](plans/2026-07-27-workflow-lisp-compiler-session-state-implementation-plan.md)
 **Description:** Reviewed MR-4 component plan for replacing mutable compiler-phase globals with one explicit per-compile session and proving direct-module, linked LEGACY/WCC_M4, and real-process LSP reentrancy.
@@ -518,6 +518,17 @@ wiring, a real stdio recovery-to-full transition, and serialized L2 closure.
 reviews. The plan passed `L2_PLAN_SPEC_APPROVED` then
 `L2_PLAN_QUALITY_APPROVED`, landed implementation through `10e3ccc3`, and
 closed with `L2_FINAL_SPEC_APPROVED` then `L2_FINAL_QUALITY_APPROVED`.
+
+### [Workflow Lisp Language Server L3 Per-Source Entry Selection Implementation Plan](plans/2026-07-28-workflow-lisp-language-server-l3-per-source-entry-selection-implementation-plan.md)
+**Description:** Accepted three-task TDD plan for the immutable
+`entry_workflows` map, exact structured initialization refusals and
+source-path lookup, mixed application/library reentrancy, production CLI F2
+capture parity, real stdio proof, and shipped-documentation closure.
+**Keywords:** lisp-frontend, lsp, entry-selection, per-source, implementation-plan, tdd
+**Use this when:** Executing L3 after its plan-gate commit or auditing its
+task-by-task reviews and evidence. The plan passed
+`L3_PLAN_SPEC_APPROVED` then `L3_PLAN_QUALITY_APPROVED`; L3 remains designed,
+not implemented, until the plan closes.
 
 ### [Workflow Lisp Parametric Type System](design/workflow_lisp_parametric_type_system.md)
 **Description:** Single-owner design for the parametric type-system direction: generic `defproc` with `:forall`/`:where`, the structural-constraint vocabulary (including type-parameter constraint field types and subset semantics), the instantiate-then-typecheck specialization pipeline, diagnostics contract, and the permanent-primitive vs migration-destined form classification with the per-form migration test. Supersedes the two 2026-06-02 parametric drafts.

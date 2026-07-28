@@ -61,8 +61,9 @@
   L3 per-source entry selection is the next target after compiler-session
   reentrancy closed under
   `docs/plans/2026-07-27-workflow-lisp-compiler-session-state-implementation-plan.md`;
-  the target below is not implemented until its separate reviewed component
-  plan closes.
+  its accepted three-task component plan is
+  `docs/plans/2026-07-28-workflow-lisp-language-server-l3-per-source-entry-selection-implementation-plan.md`.
+  The target below remains unimplemented until that reviewed plan closes.
 
 ## Summary
 
