@@ -18,6 +18,7 @@ import uuid
 
 from .types import (
     InteractiveSessionSupport,
+    PreparedProviderPolicy,
     extract_provider_command_placeholders,
     validate_interactive_session_support_capability,
 )
@@ -149,6 +150,8 @@ class InteractiveMemberInvocation:
     cwd: Path | None
     env: Mapping[str, str]
     support: InteractiveSessionSupport
+    pre_prompt_command: tuple[str, ...] | None = None
+    prepared_provider_policy: PreparedProviderPolicy | None = None
 
     def __post_init__(self) -> None:
         for field_name in ("invocation_id", "member_id", "attempt_scope_key"):
@@ -169,6 +172,14 @@ class InteractiveMemberInvocation:
             raise ValueError(
                 "invalid interactive session support: "
                 + "; ".join(support_errors)
+            )
+        if (
+            self.prepared_provider_policy is not None
+            and type(self.prepared_provider_policy)
+            is not PreparedProviderPolicy
+        ):
+            raise ValueError(
+                "prepared_provider_policy must be exact when present"
             )
 
         command = self.resolved_command
@@ -196,6 +207,40 @@ class InteractiveMemberInvocation:
             for index, token in enumerate(command)
         ):
             raise ValueError("resolved_command must not contain placeholders")
+
+        pre_prompt_command = self.pre_prompt_command
+        if pre_prompt_command is not None:
+            if isinstance(pre_prompt_command, list):
+                pre_prompt_command = tuple(pre_prompt_command)
+                object.__setattr__(
+                    self,
+                    "pre_prompt_command",
+                    pre_prompt_command,
+                )
+            if (
+                not isinstance(pre_prompt_command, tuple)
+                or not pre_prompt_command
+                or any(
+                    not isinstance(token, str) or not token
+                    for token in pre_prompt_command
+                )
+            ):
+                raise ValueError(
+                    "pre_prompt_command must be a non-empty tuple of "
+                    "non-empty strings"
+                )
+            placeholders = tuple(
+                placeholder
+                for token in pre_prompt_command
+                for placeholder in extract_provider_command_placeholders(
+                    token
+                )
+            )
+            if placeholders != ("PROMPT",):
+                raise ValueError(
+                    "pre_prompt_command requires exactly one unresolved "
+                    "PROMPT placeholder"
+                )
 
         cwd = self.cwd
         if cwd is not None:
@@ -911,6 +956,20 @@ class InteractiveTerminalTurnQueueAdapter:
         self._natural_proof: NaturalShutdownProof | None = None
         self._cleanup_proof: FailedCleanupProof | None = None
 
+    def prove_no_backend_allocation(
+        self,
+    ) -> NoBackendAllocationProof:
+        """Prove from adapter lifecycle that no backend action has begun."""
+
+        with self._lock:
+            if self._state != "created" or self._handle is not None:
+                raise InteractiveTerminalError("handle_terminal")
+            return NoBackendAllocationProof(
+                disposition="no_backend_allocation",
+                backend_resource_allocated=False,
+                proof_complete=True,
+            )
+
     def start(
         self,
         invocation: InteractiveMemberInvocation,
@@ -1022,6 +1081,36 @@ class InteractiveTerminalTurnQueueAdapter:
                 status="started",
                 handle=handle,
             )
+
+    def probe_process_status(
+        self,
+        handle: InteractiveMemberHandle,
+        *,
+        deadline: float,
+    ) -> PaneProcessStatus:
+        """Read process liveness once without joining or changing lifecycle."""
+
+        self._validate_deadline(deadline)
+        with self._lock:
+            self._require_handle(handle)
+            if self._state not in {"live", "closing"}:
+                raise InteractiveTerminalError("handle_terminal")
+            try:
+                status = self._backend.pane_process_status(
+                    self._socket_path,
+                    handle.target,
+                    timeout_sec=self._remaining(
+                        deadline,
+                        timeout_code="backend_operation_timeout",
+                    ),
+                )
+            except InteractiveTerminalError:
+                raise
+            if type(status) is not PaneProcessStatus:
+                raise InteractiveTerminalError("pane_status_invalid")
+            if status.state == "missing":
+                raise InteractiveTerminalError("pane_lost")
+            return status
 
     def offer(
         self,

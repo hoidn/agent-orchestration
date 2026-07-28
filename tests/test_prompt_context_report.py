@@ -688,9 +688,11 @@ def test_execution_and_resume_modules_do_not_import_prompt_context_reporting(
         "orchestrator/cli/commands/report.py",
         "orchestrator/observability/report.py",
     ):
-        assert "project_prompt_context_v2" not in (
+        source = (
             repository_root / relative
         ).read_text(encoding="utf-8")
+        assert "project_prompt_context_v2" in source
+        assert "project_prompt_context(" not in source
 
 
 def test_prompt_context_closed_status_and_nullability_matrix(
@@ -1116,7 +1118,7 @@ def test_loaded_and_state_only_reports_share_exact_prompt_projection(
     state_only = _state_only_snapshot(state, root)
 
     assert loaded["prompt_context"] == state_only["prompt_context"]
-    assert loaded["prompt_context"] == _project(state, root)
+    assert loaded["prompt_context"] == _project_v2(state, root)
 
 
 def test_prompt_context_markdown_is_content_free_and_keeps_closed_data(

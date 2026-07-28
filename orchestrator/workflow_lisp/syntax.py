@@ -29,6 +29,7 @@ SUPPORTED_TARGET_DSL_VERSIONS = frozenset(
         "2.20",
         "2.21",
         "2.22",
+        "2.23",
     }
 )
 PROVIDER_STEERING_DIRECTIVE_TYPE_NAME = "ProviderSteeringDirective"
@@ -39,6 +40,7 @@ VALUE_MIN_TARGET_DSL_VERSION = "2.19"
 PROMPT_CALCULUS_MIN_TARGET_DSL_VERSION = "2.20"
 PROMPT_OUTPUT_POSITIONS_MIN_TARGET_DSL_VERSION = "2.21"
 PROMPT_ATTEMPT_IDENTITY_MIN_TARGET_DSL_VERSION = "2.22"
+PHASED_CONTRACT_DELIVERY_MIN_TARGET_DSL_VERSION = "2.23"
 MAX_STATIC_LIVE_PROVIDER_PEERS = 8
 
 
@@ -156,6 +158,26 @@ def target_dsl_supports_prompt_attempt_identity(
             int(part)
             for part in PROMPT_ATTEMPT_IDENTITY_MIN_TARGET_DSL_VERSION.split(
                 "."
+            )
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
+def target_dsl_supports_phased_contract_delivery(
+    target_dsl_version: str,
+) -> bool:
+    """Return whether a validated target includes phased contract delivery."""
+
+    try:
+        target = tuple(
+            int(part) for part in target_dsl_version.split(".")
+        )
+        minimum = tuple(
+            int(part)
+            for part in (
+                PHASED_CONTRACT_DELIVERY_MIN_TARGET_DSL_VERSION.split(".")
             )
         )
     except (AttributeError, TypeError, ValueError):

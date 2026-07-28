@@ -402,6 +402,51 @@ def test_public_compile_run_resume_uses_call_policy(
     assert default_resume["selection_reason"] == "validated_prior_boundary"
 
 
+def test_public_explicit_composed_keeps_exact_model_effort_translation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    files = _copy_fixture(tmp_path, "codex_unrestricted_workspace")
+    source = files["policy_e2e.orc"].read_text(encoding="utf-8")
+    files["policy_e2e.orc"].write_text(
+        source.replace(
+            '(:target-dsl "2.15")',
+            '(:target-dsl "2.23")',
+        ).replace(
+            "               :effort effort\n",
+            "               :effort effort\n"
+            "               :delivery :composed\n",
+        ),
+        encoding="utf-8",
+    )
+    built = build_frontend_bundle(_build_request(tmp_path, files))
+    config = next(
+        iter(built.validated_bundle.ir.nodes.values())
+    ).execution_config
+    assert config.provider_call_policy is not None
+    assert tuple(config.provider_call_policy) == (
+        "model",
+        "effort",
+        "delivery",
+    )
+
+    _, invocations, _ = _interrupt_public_run(
+        tmp_path,
+        files,
+        monkeypatch,
+    )
+
+    assert len(invocations) == 1
+    command = invocations[0].command
+    assert command[command.index("--model") + 1] == MODEL
+    assert f"reasoning_effort={EFFORT}" in command
+    assert "composed" not in invocations[0].command
+    assert all(
+        "delivery" not in token and "materialization" not in token
+        for token in invocations[0].command
+    )
+
+
 @pytest.mark.parametrize(
     "drift_kind",
     ["literal", "binding", "added_keyword", "removed_keyword"],

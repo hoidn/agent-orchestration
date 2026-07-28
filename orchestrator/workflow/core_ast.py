@@ -9,6 +9,10 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
+from orchestrator.providers.types import (
+    canonical_workflow_call_policy,
+    validate_phased_delivery_carriage,
+)
 
 from .prompt_dependency_contract import CompilerPromptDependencyContract
 from .prompt_fragment_contract import (
@@ -106,7 +110,7 @@ class CoreProviderStep:
     common: Any
     provider: str | None
     provider_params: Any = None
-    provider_call_policy: Mapping[str, str] | None = None
+    provider_call_policy: Mapping[str, object] | None = None
     managed_jobs: Any = None
     input_file: Any = None
     asset_file: Any = None
@@ -156,6 +160,12 @@ class CoreProviderStep:
             fragment_contract=self.compiler_prompt_fragment_contract,
             dependency_contract=self.compiler_prompt_dependency_contract,
             typed_prompt_inputs=self.typed_prompt_inputs,
+        )
+        validate_phased_delivery_carriage(
+            self.provider_call_policy,
+            prompt_attempt_identity_version=(
+                self.prompt_attempt_identity_version
+            ),
         )
 
 
@@ -430,6 +440,13 @@ def validate_core_workflow_ast(
                         statement.compiler_prompt_dependency_contract
                     ),
                     typed_prompt_inputs=statement.typed_prompt_inputs,
+                    target_dsl_version=core_workflow_ast.dsl_version,
+                )
+                validate_phased_delivery_carriage(
+                    statement.provider_call_policy,
+                    prompt_attempt_identity_version=(
+                        statement.prompt_attempt_identity_version
+                    ),
                     target_dsl_version=core_workflow_ast.dsl_version,
                 )
             except (TypeError, ValueError) as exc:
@@ -1237,12 +1254,10 @@ def _meta_to_json(meta: CoreStmtMeta) -> dict[str, Any]:
     }
 
 
-def _serialize_provider_call_policy(policy: Mapping[str, str]) -> dict[str, str]:
-    unexpected = set(policy) - {"model", "effort"}
-    if unexpected:
-        keys = ", ".join(sorted(str(key) for key in unexpected))
-        raise ValueError(f"unexpected provider call policy key(s): {keys}")
-    return {key: policy[key] for key in ("model", "effort") if key in policy}
+def _serialize_provider_call_policy(
+    policy: Mapping[str, object],
+) -> dict[str, object]:
+    return canonical_workflow_call_policy(policy)
 
 
 def _statement_to_json(statement: Any) -> dict[str, Any]:

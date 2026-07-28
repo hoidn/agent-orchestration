@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from .diagnostics import build_authored_phased_delivery_diagnostic
 from .effects import (
     EMPTY_EFFECT_SUMMARY,
     LivePeerMessagingEffect,
@@ -32,9 +33,14 @@ from .syntax import (
     PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
     target_dsl_supports_provider_peer_messaging,
     target_dsl_supports_provider_supervision,
+    target_dsl_supports_phased_contract_delivery,
 )
 from .phase import is_implementation_attempt_result_type
-from .prompts import PromptApplicationExpr, typecheck_prompt_application
+from .prompts import (
+    PromptApplicationExpr,
+    typecheck_prompt_application,
+    with_phased_prompt_attempt_identity,
+)
 from .type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, UnionTypeRef, type_refs_compatible
 from .typecheck_context import raise_error, raise_required_lint
 
@@ -549,6 +555,22 @@ def typecheck_provider_result_expr(
     from .contracts import is_transportable_result_type
     from .workflows import PromptExtern, ProviderExtern
 
+    def phased_diagnostic(
+        reason: str,
+        *,
+        canonical_value: bool | int | str | None,
+        primary_owner: str,
+        primary_span,
+    ):
+        return build_authored_phased_delivery_diagnostic(
+            reason,
+            canonical_value=canonical_value,
+            source_spans_by_owner={
+                primary_owner: primary_span,
+                "provider_application": expr.span,
+            },
+        )
+
     if is_macro_introduced_effect(expr.span, expr.expansion_stack):
         raise_required_lint(
             "macro expansion introduced a hidden provider effect; move the `provider-result` to authored workflow code",
@@ -585,6 +607,144 @@ def typecheck_provider_result_expr(
                 form_path=expr.form_path,
                 expansion_stack=expr.prompt.return_redeclaration_expansion_stack,
             )
+    delivery = (
+        expr.delivery.value
+        if isinstance(expr.delivery, LiteralExpr)
+        and expr.delivery.literal_kind == "string"
+        and isinstance(expr.delivery.value, str)
+        else None
+    )
+    phased = delivery == "phased"
+    if expr.delivery is not None:
+        if not target_dsl_supports_phased_contract_delivery(
+            context.type_env.target_dsl_version
+        ):
+            raise_error(
+                "`provider-result :delivery` requires target DSL 2.23",
+                code="provider_phased_delivery_requires_dsl_2_23",
+                span=expr.delivery.span,
+                form_path=expr.delivery.form_path,
+                expansion_stack=expr.delivery.expansion_stack,
+                phased_delivery_diagnostic=phased_diagnostic(
+                    "target_below_2_23",
+                    canonical_value=context.type_env.target_dsl_version,
+                    primary_owner="delivery_keyword",
+                    primary_span=expr.delivery.span,
+                ),
+            )
+        if delivery not in {"composed", "phased"}:
+            reason = (
+                "delivery_enum_invalid"
+                if isinstance(expr.delivery, LiteralExpr)
+                and expr.delivery.literal_kind == "string"
+                else "delivery_type_invalid"
+            )
+            raise_error(
+                "`provider-result :delivery` must be the literal :composed or :phased",
+                code="provider_phased_delivery_policy_invalid",
+                span=expr.delivery.span,
+                form_path=expr.delivery.form_path,
+                expansion_stack=expr.delivery.expansion_stack,
+                phased_delivery_diagnostic=phased_diagnostic(
+                    reason,
+                    canonical_value=None,
+                    primary_owner="delivery_keyword",
+                    primary_span=expr.delivery.span,
+                ),
+            )
+    attempts = expr.materialization_attempts
+    if attempts is not None:
+        if (
+            not isinstance(attempts, LiteralExpr)
+            or attempts.literal_kind != "int"
+            or isinstance(attempts.value, bool)
+            or not isinstance(attempts.value, int)
+            or attempts.value not in {1, 2, 3}
+        ):
+            if not isinstance(attempts, LiteralExpr):
+                reason = "attempts_literal_required"
+                canonical_attempts = None
+            elif (
+                attempts.literal_kind != "int"
+                or isinstance(attempts.value, bool)
+                or not isinstance(attempts.value, int)
+            ):
+                reason = "attempts_type_invalid"
+                canonical_attempts = None
+            else:
+                reason = "attempts_out_of_range"
+                canonical_attempts = (
+                    attempts.value
+                    if -(2**63) <= attempts.value <= 2**63 - 1
+                    else None
+                )
+            raise_error(
+                "`provider-result :materialization-attempts` requires an integer literal in 1..3",
+                code="provider_phased_delivery_policy_invalid",
+                span=attempts.span,
+                form_path=attempts.form_path,
+                expansion_stack=attempts.expansion_stack,
+                phased_delivery_diagnostic=phased_diagnostic(
+                    reason,
+                    canonical_value=canonical_attempts,
+                    primary_owner="materialization_attempts_keyword",
+                    primary_span=attempts.span,
+                ),
+            )
+        if not phased:
+            raise_error(
+                "`provider-result :materialization-attempts` requires :delivery :phased",
+                code="provider_phased_delivery_policy_invalid",
+                span=attempts.span,
+                form_path=attempts.form_path,
+                expansion_stack=attempts.expansion_stack,
+                phased_delivery_diagnostic=phased_diagnostic(
+                    "attempts_pairing_invalid",
+                    canonical_value=None,
+                    primary_owner="materialization_attempts_keyword",
+                    primary_span=attempts.span,
+                ),
+            )
+    if phased and typed_prompt_application is None:
+        raise_error(
+            "`provider-result :delivery :phased` requires a prompt fragment application",
+            code="provider_phased_delivery_policy_invalid",
+            span=expr.delivery.span,
+            form_path=expr.delivery.form_path,
+            expansion_stack=expr.delivery.expansion_stack,
+            phased_delivery_diagnostic=phased_diagnostic(
+                "fragment_application_required",
+                canonical_value=None,
+                primary_owner="fragment_contract",
+                primary_span=expr.prompt.span,
+            ),
+        )
+    if (
+        phased
+        and isinstance(return_type, RecordTypeRef)
+        and not return_type.field_types
+    ):
+        raise_error(
+            "contract_suffix_required: phased delivery requires a non-empty generated result contract",
+            code="provider_phased_delivery_policy_invalid",
+            span=expr.prompt.span,
+            form_path=expr.prompt.form_path,
+            expansion_stack=expr.prompt.expansion_stack,
+            phased_delivery_diagnostic=phased_diagnostic(
+                "contract_suffix_required",
+                canonical_value=None,
+                primary_owner="result_contract_suffix",
+                primary_span=(
+                    expr.prompt.prompt.declaration.return_spec.span
+                    if isinstance(expr.prompt, PromptApplicationExpr)
+                    else expr.prompt.span
+                ),
+            ),
+        )
+    if phased:
+        typed_prompt_application = with_phased_prompt_attempt_identity(
+            typed_prompt_application
+        )
     from .result_guidance import validate_result_guidance_example
 
     validate_result_guidance_example(

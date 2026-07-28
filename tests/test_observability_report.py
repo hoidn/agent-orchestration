@@ -87,7 +87,7 @@ def test_snapshot_counts_and_infers_running_from_prompt_audit(tmp_path: Path):
 
 @pytest.mark.parametrize(
     "target_label",
-    ("2.20", "2.21", "2.22", "mixed", "no-qualified-attempt"),
+    ("2.20", "2.21", "2.22", "2.23", "mixed", "no-qualified-attempt"),
 )
 def test_prompt_context_loaded_report_has_exact_additive_empty_projection(
     tmp_path: Path,
@@ -105,7 +105,7 @@ def test_prompt_context_loaded_report_has_exact_additive_empty_projection(
         "steps": {},
     }
     workflow = _load_bundle(tmp_path, _sample_workflow_payload())
-    if target_label in {"2.20", "2.21", "2.22"}:
+    if target_label in {"2.20", "2.21", "2.22", "2.23"}:
         from tests.test_workflow_lisp_prompt_calculus_runtime import (
             _compile_runtime_fragment,
         )
@@ -113,10 +113,12 @@ def test_prompt_context_loaded_report_has_exact_additive_empty_projection(
         _source_path, workflow = _compile_runtime_fragment(
             tmp_path,
             lowering_route=(
-                "wcc_m4" if target_label == "2.22" else "legacy"
+                "wcc_m4"
+                if target_label in {"2.22", "2.23"}
+                else "legacy"
             ),
             target_dsl=target_label,
-            with_output_position=target_label == "2.22",
+            with_output_position=target_label in {"2.22", "2.23"},
         )
 
     snapshot = build_status_snapshot(
@@ -127,7 +129,7 @@ def test_prompt_context_loaded_report_has_exact_additive_empty_projection(
 
     assert tuple(snapshot) == ("run", "progress", "steps", "prompt_context")
     assert snapshot["prompt_context"] == {
-        "schema_version": "workflow_prompt_context_report.v1",
+        "schema_version": "workflow_prompt_context_report.v2",
         "attempts": [],
     }
 

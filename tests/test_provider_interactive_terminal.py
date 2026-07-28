@@ -42,6 +42,7 @@ from orchestrator.providers.interactive_terminal import (
     InteractiveTerminalError,
     InteractiveTerminalTurnQueueAdapter,
     NaturalShutdownProof,
+    NoBackendAllocationProof,
     OfferReceipt,
     PaneProcessStatus,
 )
@@ -376,6 +377,10 @@ def test_provider_executor_prepares_exact_interactive_member_invocation(
         attempt_ordinal=3,
         cwd=tmp_path,
         env={"ORCHESTRATOR_ACTIVE_PEER_BINDING": "opaque"},
+        provider_call_policy={
+            "delivery": "phased",
+            "materialization_attempts": 2,
+        },
     )
 
     assert error is None
@@ -386,6 +391,12 @@ def test_provider_executor_prepares_exact_interactive_member_invocation(
         "peer-model",
         "literal prompt\nsecond line",
     )
+    assert invocation.pre_prompt_command == (
+        "interactive",
+        "--model",
+        "peer-model",
+        "${PROMPT}",
+    )
     assert invocation.invocation_id == "invocation-1"
     assert invocation.member_id == "reviewer"
     assert invocation.attempt_scope_key == "sha256:" + "a" * 64
@@ -393,6 +404,57 @@ def test_provider_executor_prepares_exact_interactive_member_invocation(
     assert invocation.cwd == tmp_path
     assert invocation.env["ORCHESTRATOR_ACTIVE_PEER_BINDING"] == "opaque"
     assert invocation.support.schema_version == SCHEMA_VERSION
+
+
+def test_builtin_codex_prepares_policy_resolved_pre_prompt_command(
+    tmp_path: Path,
+) -> None:
+    executor = ProviderExecutor(tmp_path, ProviderRegistry())
+
+    invocation, error = executor.prepare_interactive_invocation(
+        provider_name="codex",
+        params={},
+        context={},
+        prompt_content="task turn",
+        invocation_id="invocation-built-in",
+        member_id="reviewer",
+        attempt_scope_key="sha256:" + "b" * 64,
+        attempt_ordinal=1,
+        cwd=tmp_path,
+        provider_call_policy={
+            "model": "policy-model",
+            "effort": "medium",
+            "delivery": "phased",
+            "materialization_attempts": 2,
+        },
+    )
+
+    assert error is None
+    assert invocation is not None
+    assert invocation.pre_prompt_command[:5] == (
+        "codex",
+        "--model",
+        "policy-model",
+        "--config",
+        "reasoning_effort=medium",
+    )
+    assert invocation.pre_prompt_command[-1:] == (
+        "${PROMPT}",
+    )
+    assert invocation.resolved_command[:5] == (
+        "codex",
+        "--model",
+        "policy-model",
+        "--config",
+        "reasoning_effort=medium",
+    )
+    assert invocation.resolved_command[-1:] == (
+        "task turn",
+    )
+    assert all(
+        "delivery" not in token and "materialization" not in token
+        for token in invocation.pre_prompt_command
+    )
 
 
 def test_provider_executor_preserves_placeholder_syntax_inside_literal_prompt(
@@ -993,6 +1055,61 @@ def test_interactive_adapter_start_outcome_is_closed_and_immutable(
     }
     with pytest.raises(FrozenInstanceError):
         outcome.status = "failed"
+
+
+def test_interactive_adapter_issues_pristine_no_allocation_proof_once(
+    tmp_path: Path,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    adapter = _interactive_adapter(tmp_path, backend)
+
+    proof = adapter.prove_no_backend_allocation()
+
+    assert proof == NoBackendAllocationProof(
+        disposition="no_backend_allocation",
+        backend_resource_allocated=False,
+        proof_complete=True,
+    )
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=100.25,
+    )
+    assert handle is not None
+    with pytest.raises(InteractiveTerminalError, match="handle_terminal"):
+        adapter.prove_no_backend_allocation()
+
+
+@pytest.mark.parametrize(
+    "status",
+    (
+        PaneProcessStatus(state="running", return_code=None),
+        PaneProcessStatus(state="exited_pending", return_code=None),
+        PaneProcessStatus(state="exited", return_code=0),
+        PaneProcessStatus(state="exited", return_code=7),
+    ),
+)
+def test_interactive_adapter_process_probe_is_non_destructive(
+    tmp_path: Path,
+    status: PaneProcessStatus,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    adapter = _interactive_adapter(tmp_path, backend)
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path),
+        deadline=100.25,
+    )
+    backend.pane_status = status
+
+    assert adapter.probe_process_status(
+        handle,
+        deadline=100.25,
+    ) == status
+    assert adapter.probe_process_status(
+        handle,
+        deadline=100.25,
+    ) == status
 
 
 def test_interactive_adapter_start_outcome_before_deadline_proves_no_allocation(

@@ -13,6 +13,14 @@ _PROVIDER_COMMAND_PLACEHOLDER_PATTERN = re.compile(r"\$\{([^}]+)\}")
 _BARE_PROVIDER_PARAM_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 CALL_POLICY_OPTION_ORDER: Tuple[str, ...] = ("model", "effort")
+RUNTIME_CALL_POLICY_OPTION_ORDER: Tuple[str, ...] = (
+    "delivery",
+    "materialization_attempts",
+)
+WORKFLOW_CALL_POLICY_OPTION_ORDER: Tuple[str, ...] = (
+    *CALL_POLICY_OPTION_ORDER,
+    *RUNTIME_CALL_POLICY_OPTION_ORDER,
+)
 INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION = (
     "interactive_terminal_turn_queue.v1"
 )
@@ -32,6 +40,102 @@ _RESERVED_CALL_POLICY_TARGETS = frozenset(
         "root",
     }
 )
+
+
+def canonical_workflow_call_policy(
+    policy: Mapping[str, object],
+) -> Dict[str, object]:
+    """Validate the closed mixed-scalar workflow policy and retain key order."""
+
+    if not isinstance(policy, Mapping):
+        raise TypeError("provider call policy must be a mapping")
+    unknown = set(policy) - set(WORKFLOW_CALL_POLICY_OPTION_ORDER)
+    if unknown:
+        keys = ", ".join(sorted(str(key) for key in unknown))
+        raise ValueError(
+            f"unexpected provider call policy key(s): {keys}"
+        )
+    for key in CALL_POLICY_OPTION_ORDER:
+        if key in policy and (
+            not isinstance(policy[key], str) or not policy[key]
+        ):
+            raise TypeError(f"{key} must be a non-empty string")
+    delivery_present = "delivery" in policy
+    attempts_present = "materialization_attempts" in policy
+    if not delivery_present:
+        if attempts_present:
+            raise ValueError(
+                "materialization_attempts requires explicit phased delivery"
+            )
+    else:
+        delivery = policy["delivery"]
+        if not isinstance(delivery, str):
+            raise TypeError("delivery must be a string")
+        if delivery not in {"composed", "phased"}:
+            raise ValueError("delivery must be composed or phased")
+        if delivery == "composed" and attempts_present:
+            raise ValueError(
+                "composed runtime carriage forbids materialization_attempts"
+            )
+        if delivery == "phased" and not attempts_present:
+            raise ValueError(
+                "phased runtime carriage requires materialization_attempts"
+            )
+    if attempts_present:
+        attempts = policy["materialization_attempts"]
+        if (
+            isinstance(attempts, bool)
+            or not isinstance(attempts, int)
+            or attempts not in {1, 2, 3}
+        ):
+            raise ValueError("materialization_attempts must be in 1..3")
+    return {
+        key: policy[key]
+        for key in WORKFLOW_CALL_POLICY_OPTION_ORDER
+        if key in policy
+    }
+
+
+def validate_phased_delivery_carriage(
+    policy: Mapping[str, object] | None,
+    *,
+    prompt_attempt_identity_version: str | None,
+    target_dsl_version: str | None = None,
+) -> None:
+    """Require exact policy/attempt-identity agreement at every carrier."""
+
+    normalized = (
+        {}
+        if policy is None
+        else canonical_workflow_call_policy(policy)
+    )
+    phased = normalized.get("delivery") == "phased"
+    identity_is_phased = (
+        prompt_attempt_identity_version
+        == "workflow_prompt_attempt_identity.v2"
+    )
+    q5_policy_present = any(
+        key in normalized
+        for key in ("delivery", "materialization_attempts")
+    )
+    if q5_policy_present or identity_is_phased:
+        try:
+            target = tuple(
+                int(part)
+                for part in (target_dsl_version or "").split(".")
+            )
+        except (AttributeError, TypeError, ValueError):
+            target = ()
+        if target_dsl_version is not None and target < (2, 23):
+            raise ValueError(
+                "provider_phased_delivery_carriage_mismatch: "
+                "phased carriage requires target DSL 2.23"
+            )
+    if phased != identity_is_phased:
+        raise ValueError(
+            "provider_phased_delivery_carriage_mismatch: "
+            "call policy and prompt-attempt identity version disagree"
+        )
 
 
 def escape_provider_command_token(token: str) -> str:

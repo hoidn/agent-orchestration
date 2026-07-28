@@ -7,9 +7,10 @@ from the executor toward this leaf module.
 """
 
 from datetime import datetime, timezone
+from copy import deepcopy
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from ..state import ForEachState, RunState, StateManager, StepResult
 from .executable_ir import ManagedJobsConfig, ManagedJobsRoutes
@@ -273,6 +274,164 @@ class _CallFrameStateManager:
         ):
             self.state.current_step = None
         self._persist()
+
+    def _refresh_state_chain_from_root(self) -> None:
+        """Refresh every live call-frame manager after one root-owned commit."""
+
+        chain: list[_CallFrameStateManager] = []
+        cursor: Any = self
+        while isinstance(cursor, _CallFrameStateManager):
+            chain.append(cursor)
+            cursor = cursor.parent_manager
+        if not isinstance(cursor, StateManager) or cursor.state is None:
+            raise RuntimeError("call-frame aggregate root is unavailable")
+        current = cursor.state
+        for child in reversed(chain):
+            frame = current.call_frames.get(child.frame_id)
+            if not isinstance(frame, dict) or not isinstance(
+                frame.get("state"),
+                dict,
+            ):
+                raise RuntimeError("committed call-frame state is unavailable")
+            child.state = RunState.from_dict(deepcopy(frame["state"]))
+            current = child.state
+
+    def _finalize_with_dataflow(
+        self,
+        *,
+        result_key: str,
+        result: StepResult,
+        clear_current_step: bool,
+        artifact_versions: Optional[Dict[str, List[Dict[str, Any]]]],
+        artifact_consumes: Optional[Dict[str, Dict[str, int]]],
+        private_artifact_versions: Optional[
+            Dict[str, List[Dict[str, Any]]]
+        ],
+        private_artifact_consumes: Optional[Dict[str, Dict[str, int]]],
+        expected_step_id: Optional[str],
+        expected_visit_count: Optional[int],
+        expected_step_name: Optional[str],
+        expected_step_type: Optional[str],
+        expected_step_status: Optional[str],
+        commit_guard: Optional[Callable[[], bool]],
+    ) -> None:
+        from .provider_attempts import resolve_aggregate_run_owner
+
+        owner = resolve_aggregate_run_owner(self)
+
+        def authoritative_guard(leaf: RunState) -> bool:
+            current = leaf.current_step
+            matches = (
+                (commit_guard is None or commit_guard() is True)
+                and isinstance(current, dict)
+            )
+            if matches and expected_step_id is not None:
+                matches = current.get("step_id") == expected_step_id
+            if matches and expected_visit_count is not None:
+                matches = (
+                    current.get("visit_count") == expected_visit_count
+                )
+            if matches and expected_step_name is not None:
+                matches = current.get("name") == expected_step_name
+            if matches and expected_step_type is not None:
+                matches = current.get("type") == expected_step_type
+            if matches and expected_step_status is not None:
+                matches = current.get("status") == expected_step_status
+            return bool(matches)
+
+        def mutation(leaf: RunState) -> None:
+            leaf.steps[result_key] = result
+            if artifact_versions is not None:
+                leaf.artifact_versions = artifact_versions
+            if artifact_consumes is not None:
+                leaf.artifact_consumes = artifact_consumes
+            if private_artifact_versions is not None:
+                leaf.private_artifact_versions = private_artifact_versions
+            if private_artifact_consumes is not None:
+                leaf.private_artifact_consumes = private_artifact_consumes
+            if clear_current_step:
+                leaf.current_step = None
+
+        owner.root_manager._mutate_scoped_state(
+            owner.resume_scope_path,
+            commit_guard=authoritative_guard,
+            mutation=mutation,
+        )
+        self._refresh_state_chain_from_root()
+
+    def finalize_step_with_dataflow(
+        self,
+        step_name: str,
+        result: StepResult,
+        *,
+        artifact_versions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        artifact_consumes: Optional[Dict[str, Dict[str, int]]] = None,
+        private_artifact_versions: Optional[
+            Dict[str, List[Dict[str, Any]]]
+        ] = None,
+        private_artifact_consumes: Optional[
+            Dict[str, Dict[str, int]]
+        ] = None,
+        expected_step_id: Optional[str] = None,
+        expected_visit_count: Optional[int] = None,
+        expected_step_name: Optional[str] = None,
+        expected_step_type: Optional[str] = None,
+        expected_step_status: Optional[str] = None,
+        commit_guard: Optional[Callable[[], bool]] = None,
+    ) -> None:
+        self._finalize_with_dataflow(
+            result_key=step_name,
+            result=result,
+            clear_current_step=True,
+            artifact_versions=artifact_versions,
+            artifact_consumes=artifact_consumes,
+            private_artifact_versions=private_artifact_versions,
+            private_artifact_consumes=private_artifact_consumes,
+            expected_step_id=expected_step_id,
+            expected_visit_count=expected_visit_count,
+            expected_step_name=expected_step_name,
+            expected_step_type=expected_step_type,
+            expected_step_status=expected_step_status,
+            commit_guard=commit_guard,
+        )
+
+    def finalize_loop_step_with_dataflow(
+        self,
+        loop_name: str,
+        index: int,
+        step_name: str,
+        result: StepResult,
+        *,
+        artifact_versions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        artifact_consumes: Optional[Dict[str, Dict[str, int]]] = None,
+        private_artifact_versions: Optional[
+            Dict[str, List[Dict[str, Any]]]
+        ] = None,
+        private_artifact_consumes: Optional[
+            Dict[str, Dict[str, int]]
+        ] = None,
+        expected_enclosing_step_id: Optional[str] = None,
+        expected_visit_count: Optional[int] = None,
+        expected_enclosing_step_name: Optional[str] = None,
+        expected_enclosing_step_type: Optional[str] = None,
+        expected_enclosing_step_status: Optional[str] = None,
+        commit_guard: Optional[Callable[[], bool]] = None,
+    ) -> None:
+        self._finalize_with_dataflow(
+            result_key=f"{loop_name}[{index}].{step_name}",
+            result=result,
+            clear_current_step=False,
+            artifact_versions=artifact_versions,
+            artifact_consumes=artifact_consumes,
+            private_artifact_versions=private_artifact_versions,
+            private_artifact_consumes=private_artifact_consumes,
+            expected_step_id=expected_enclosing_step_id,
+            expected_visit_count=expected_visit_count,
+            expected_step_name=expected_enclosing_step_name,
+            expected_step_type=expected_enclosing_step_type,
+            expected_step_status=expected_enclosing_step_status,
+            commit_guard=commit_guard,
+        )
 
     def update_loop_step(self, loop_name: str, index: int, step_name: str, result: StepResult) -> None:
         self.state.steps[f"{loop_name}[{index}].{step_name}"] = result

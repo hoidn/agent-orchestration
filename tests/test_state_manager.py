@@ -242,6 +242,46 @@ steps:
         }
         assert loaded_state.artifact_versions["implementation_session_id"][0]["value"] == "sess-123"
 
+    def test_finalize_step_with_dataflow_guard_rejects_before_any_mutation(
+        self,
+        temp_workspace,
+        workflow_file,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id="guarded-provider-finalize",
+        )
+        manager.initialize(workflow_file)
+        manager.start_step(
+            "Review",
+            0,
+            "provider",
+            step_id="root.review",
+            visit_count=1,
+        )
+
+        with pytest.raises(TimeoutError, match="state commit guard"):
+            manager.finalize_step_with_dataflow(
+                "Review",
+                StepResult(
+                    status="completed",
+                    name="Review",
+                    step_id="root.review",
+                    exit_code=0,
+                    visit_count=1,
+                ),
+                expected_step_id="root.review",
+                expected_visit_count=1,
+                commit_guard=lambda: False,
+            )
+
+        state = StateManager(
+            temp_workspace,
+            run_id=manager.run_id,
+        ).load()
+        assert "Review" not in state.steps
+        assert state.current_step["step_id"] == "root.review"
+
     def test_private_artifact_versions_persist_across_reload(self, temp_workspace, workflow_file):
         """Private artifact lineage persists additively beside the public ledger."""
         manager = StateManager(temp_workspace)

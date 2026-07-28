@@ -123,7 +123,7 @@ def test_prompt_context_state_only_report_has_exact_additive_empty_projection(
     payload = json.loads(capsys.readouterr().out)
     assert tuple(payload) == ("run", "progress", "steps", "prompt_context")
     assert payload["prompt_context"] == {
-        "schema_version": "workflow_prompt_context_report.v1",
+        "schema_version": "workflow_prompt_context_report.v2",
         "attempts": [],
     }
 

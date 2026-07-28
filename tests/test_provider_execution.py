@@ -542,6 +542,59 @@ class TestProviderExecutor:
         assert "reasoning_effort=medium" in overridden_codex.command
         assert "--effort" not in claude.command
 
+    def test_runtime_delivery_policy_never_enters_native_params_or_argv(self):
+        invocation, error = self.executor.prepare_invocation(
+            "codex",
+            ProviderParams(),
+            {},
+            "prompt",
+            provider_call_policy={
+                "model": "policy-model",
+                "effort": "medium",
+                "delivery": "phased",
+                "materialization_attempts": 3,
+            },
+        )
+
+        assert error is None
+        assert invocation is not None
+        assert invocation.command[:6] == [
+            "codex",
+            "exec",
+            "--model",
+            "policy-model",
+            "--config",
+            "reasoning_effort=medium",
+        ]
+        assert invocation.prepared_provider_policy is not None
+        assert invocation.prepared_provider_policy.model == "policy-model"
+        assert invocation.prepared_provider_policy.effort == "medium"
+        assert all("phased" not in token for token in invocation.command)
+        assert all("materialization" not in token for token in invocation.command)
+
+    def test_unknown_mixed_policy_key_fails_at_shared_partition(self):
+        invocation, error = self.executor.prepare_invocation(
+            "codex",
+            ProviderParams(),
+            {},
+            "prompt",
+            provider_call_policy={
+                "delivery": "phased",
+                "materialization_attempts": 2,
+                "future_runtime_key": "closed",
+            },
+        )
+
+        assert invocation is None
+        assert error == {
+            "type": "provider_call_policy_unsupported",
+            "message": "Provider call policy option is not supported",
+            "context": {
+                "provider": "codex",
+                "option": "future_runtime_key",
+            },
+        }
+
     def test_yaml_local_provider_params_keep_native_and_unused_compatibility(self):
         errors = self.registry.register_from_workflow(
             {

@@ -3993,6 +3993,8 @@ def _elaborate_effect_expr_to_binding_value(
         for field_name, field_expr in (
             ("model", expr.model),
             ("effort", expr.effort),
+            ("delivery", expr.delivery),
+            ("materialization_attempts", expr.materialization_attempts),
             ("timeout_sec", expr.timeout_sec),
         ):
             if field_expr is None:

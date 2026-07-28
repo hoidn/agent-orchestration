@@ -11,6 +11,8 @@ from typing import Any, Mapping, NoReturn, Optional, cast
 from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
 from orchestrator.providers.types import (
     INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION,
+    canonical_workflow_call_policy,
+    validate_phased_delivery_carriage,
 )
 
 from .prompt_dependency_contract import (
@@ -64,12 +66,10 @@ PROVIDER_PEER_GROUP_SCHEMA_VERSION = "provider_peer_group.v1"
 PROVIDER_PEER_GROUP_MESSAGING_POLICY = "all_other_members"
 
 
-def _serialize_provider_call_policy(policy: Mapping[str, str]) -> dict[str, str]:
-    unexpected = set(policy) - {"model", "effort"}
-    if unexpected:
-        keys = ", ".join(sorted(str(key) for key in unexpected))
-        raise ValueError(f"unexpected provider call policy key(s): {keys}")
-    return {key: policy[key] for key in ("model", "effort") if key in policy}
+def _serialize_provider_call_policy(
+    policy: Mapping[str, object],
+) -> dict[str, object]:
+    return canonical_workflow_call_policy(policy)
 
 
 class WorkflowRegion(str, Enum):
@@ -246,7 +246,7 @@ class ProviderStepConfig:
     common: StepCommonConfig = field(default_factory=StepCommonConfig)
     provider: str = ""
     provider_params: Any = None
-    provider_call_policy: Mapping[str, str] | None = field(
+    provider_call_policy: Mapping[str, object] | None = field(
         default=None,
         metadata={
             "json_omit_if_none": True,
@@ -309,6 +309,12 @@ class ProviderStepConfig:
             fragment_contract=self.compiler_prompt_fragment_contract,
             dependency_contract=self.compiler_prompt_dependency_contract,
             typed_prompt_inputs=self.typed_prompt_inputs,
+        )
+        validate_phased_delivery_carriage(
+            self.provider_call_policy,
+            prompt_attempt_identity_version=(
+                self.prompt_attempt_identity_version
+            ),
         )
 
 
@@ -681,6 +687,29 @@ class ExecutableWorkflow:
     inputs: Mapping[str, ExecutableContract] = field(default_factory=empty_frozen_mapping)
     outputs: Mapping[str, ExecutableContract] = field(default_factory=empty_frozen_mapping)
     result_guidance: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        for node in self.nodes.values():
+            config = getattr(node, "execution_config", None)
+            if not isinstance(config, ProviderStepConfig):
+                continue
+            validate_compiler_prompt_attempt_pair(
+                config.prompt_attempt_identity_version,
+                config.compiler_prompt_attempt_binding_plan,
+                fragment_contract=config.compiler_prompt_fragment_contract,
+                dependency_contract=(
+                    config.compiler_prompt_dependency_contract
+                ),
+                typed_prompt_inputs=config.typed_prompt_inputs,
+                target_dsl_version=self.version,
+            )
+            validate_phased_delivery_carriage(
+                config.provider_call_policy,
+                prompt_attempt_identity_version=(
+                    config.prompt_attempt_identity_version
+                ),
+                target_dsl_version=self.version,
+            )
 
 
 _LEAF_EXECUTION_CONFIG_TYPES = (

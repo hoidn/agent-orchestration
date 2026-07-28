@@ -14,6 +14,7 @@ from typing import Any, Mapping
 COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA = "compiler_prompt_fragment_contract.v1"
 COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2 = "compiler_prompt_fragment_contract.v2"
 PROMPT_ATTEMPT_IDENTITY_VERSION = "workflow_prompt_attempt_identity.v1"
+PHASED_PROMPT_ATTEMPT_IDENTITY_VERSION = "workflow_prompt_attempt_identity.v2"
 COMPILER_PROMPT_ATTEMPT_BINDING_PLAN_SCHEMA = (
     "compiler_prompt_attempt_binding_plan.v1"
 )
@@ -732,7 +733,10 @@ def validate_compiler_prompt_attempt_pair(
             "prompt_attempt_binding_plan_missing: "
             "identity version and binding plan must be paired"
         )
-    if identity_version != PROMPT_ATTEMPT_IDENTITY_VERSION:
+    if identity_version not in {
+        PROMPT_ATTEMPT_IDENTITY_VERSION,
+        PHASED_PROMPT_ATTEMPT_IDENTITY_VERSION,
+    }:
         raise ValueError(
             "prompt_attempt_identity_version_invalid: "
             "unsupported prompt-attempt identity version"

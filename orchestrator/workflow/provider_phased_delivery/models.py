@@ -13,6 +13,7 @@ from typing import Mapping
 from orchestrator.providers.interactive_terminal import (
     InteractiveTerminalStartOutcome,
 )
+from orchestrator.providers.types import canonical_workflow_call_policy
 from .diagnostics import PhasedDeliveryDiagnostic
 
 
@@ -174,54 +175,22 @@ def partition_provider_call_policy(
 ) -> tuple[ProviderBoundPolicy, PhasedRuntimePolicy | None]:
     """Partition closed call policy without inventing runtime defaults."""
 
-    if not isinstance(policy, Mapping):
-        raise TypeError("policy must be a mapping")
-    copied = dict(policy)
-    allowed = set(PROVIDER_CALL_POLICY_KEYS)
-    unknown = set(copied).difference(allowed)
-    if unknown:
-        raise ValueError("provider call policy contains unknown keys")
-    provider_values: dict[str, str | None] = {
-        "model": None,
-        "effort": None,
+    copied = canonical_workflow_call_policy(policy)
+    provider_values = {
+        "model": copied.get("model"),
+        "effort": copied.get("effort"),
     }
-    for key in ("model", "effort"):
-        if key in copied:
-            provider_values[key] = _require_nonempty_string(
-                copied[key],
-                field=key,
-            )
 
     delivery_present = "delivery" in copied
-    attempts_present = "materialization_attempts" in copied
     if not delivery_present:
-        if attempts_present:
-            raise ValueError(
-                "materialization_attempts requires explicit phased delivery"
-            )
         runtime = None
     else:
         delivery = copied["delivery"]
-        if not isinstance(delivery, str):
-            raise TypeError("delivery must be a string")
-        if delivery == "phased" and not attempts_present:
-            raise ValueError(
-                "phased runtime carriage requires materialization_attempts"
-            )
-        if delivery == "composed" and attempts_present:
-            raise ValueError(
-                "composed runtime carriage forbids materialization_attempts"
-            )
-        attempts: int | None = None
-        if attempts_present:
-            attempts = _require_u63(
-                copied["materialization_attempts"],
-                field="materialization_attempts",
-                positive=True,
-            )
         runtime = PhasedRuntimePolicy(
             delivery=delivery,
-            materialization_attempts=attempts,
+            materialization_attempts=copied.get(
+                "materialization_attempts"
+            ),
         )
     return (
         ProviderBoundPolicy(

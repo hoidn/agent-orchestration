@@ -140,6 +140,13 @@ def _sequence(value: Any) -> Sequence[Any]:
     return value if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)) else ()
 
 
+def _target_dsl_at_least(value: str, minimum: tuple[int, ...]) -> bool:
+    try:
+        return tuple(int(part) for part in value.split(".")) >= minimum
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
 def _point_field(point: Any, name: str, default: Any = None) -> Any:
     if isinstance(point, Mapping):
         return point.get(name, default)
@@ -1398,8 +1405,13 @@ def _q3_provider_configurations(
         return ()
     from orchestrator.workflow.executable_ir import ProviderStepConfig
     from orchestrator.workflow.prompt_fragment_contract import (
+        PHASED_PROMPT_ATTEMPT_IDENTITY_VERSION,
+        PROMPT_ATTEMPT_IDENTITY_VERSION,
         serialize_compiler_prompt_attempt_binding_plan,
         validate_compiler_prompt_attempt_pair,
+    )
+    from orchestrator.workflow.provider_phased_delivery.models import (
+        partition_provider_call_policy,
     )
 
     target_dsl_version = getattr(executable_ir, "version", None)
@@ -1422,30 +1434,89 @@ def _q3_provider_configurations(
                 else None
             ),
         )
-        if config.prompt_attempt_identity_version is None:
+        try:
+            provider_policy, runtime_policy = partition_provider_call_policy(
+                config.provider_call_policy or {}
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "provider_phased_delivery_carriage_mismatch"
+            ) from exc
+        if runtime_policy is None:
+            if (
+                config.prompt_attempt_identity_version
+                == PHASED_PROMPT_ATTEMPT_IDENTITY_VERSION
+            ):
+                raise ValueError(
+                    "provider_phased_delivery_carriage_mismatch"
+                )
+            persisted_policy = None
+        else:
+            if (
+                not isinstance(target_dsl_version, str)
+                or not _target_dsl_at_least(target_dsl_version, (2, 23))
+            ):
+                raise ValueError(
+                    "provider_phased_delivery_carriage_mismatch"
+                )
+            if (
+                runtime_policy.delivery == "phased"
+                and config.prompt_attempt_identity_version
+                != PHASED_PROMPT_ATTEMPT_IDENTITY_VERSION
+            ):
+                raise ValueError(
+                    "provider_phased_delivery_carriage_mismatch"
+                )
+            if (
+                runtime_policy.delivery == "composed"
+                and config.prompt_attempt_identity_version
+                not in {None, PROMPT_ATTEMPT_IDENTITY_VERSION}
+            ):
+                raise ValueError(
+                    "provider_phased_delivery_carriage_mismatch"
+                )
+            persisted_policy = {}
+            if provider_policy.model is not None:
+                persisted_policy["model"] = provider_policy.model
+            if provider_policy.effort is not None:
+                persisted_policy["effort"] = provider_policy.effort
+            persisted_policy["delivery"] = runtime_policy.delivery
+            if runtime_policy.materialization_attempts is not None:
+                persisted_policy["materialization_attempts"] = (
+                    runtime_policy.materialization_attempts
+                )
+        if (
+            config.prompt_attempt_identity_version is None
+            and persisted_policy is None
+        ):
             continue
-        if config.compiler_prompt_attempt_binding_plan is None:
+        if (
+            config.prompt_attempt_identity_version is not None
+            and config.compiler_prompt_attempt_binding_plan is None
+        ):
             raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
-        configurations.append(
-            {
-                "node_id": _require_non_empty_string(
-                    getattr(node, "node_id", None),
-                    DIAGNOSTIC_CODES.program_identity_mismatch,
-                ),
-                "step_id": _require_non_empty_string(
-                    getattr(node, "step_id", None),
-                    DIAGNOSTIC_CODES.program_identity_mismatch,
-                ),
-                "prompt_attempt_identity_version": (
-                    config.prompt_attempt_identity_version
-                ),
-                "compiler_prompt_attempt_binding_plan": (
-                    serialize_compiler_prompt_attempt_binding_plan(
-                        config.compiler_prompt_attempt_binding_plan
-                    )
-                ),
-            }
-        )
+        configuration = {
+            "node_id": _require_non_empty_string(
+                getattr(node, "node_id", None),
+                DIAGNOSTIC_CODES.program_identity_mismatch,
+            ),
+            "step_id": _require_non_empty_string(
+                getattr(node, "step_id", None),
+                DIAGNOSTIC_CODES.program_identity_mismatch,
+            ),
+        }
+        if config.prompt_attempt_identity_version is not None:
+            configuration["prompt_attempt_identity_version"] = (
+                config.prompt_attempt_identity_version
+            )
+            configuration["compiler_prompt_attempt_binding_plan"] = (
+                serialize_compiler_prompt_attempt_binding_plan(
+                    config.compiler_prompt_attempt_binding_plan
+                )
+            )
+        if persisted_policy is not None:
+            configuration["provider_call_policy"] = persisted_policy
+        configurations.append(configuration)
     return tuple(configurations)
 
 

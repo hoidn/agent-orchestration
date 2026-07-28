@@ -2,6 +2,7 @@
 
 import ast
 import builtins
+import copy
 import importlib
 import json
 from pathlib import Path
@@ -612,6 +613,13 @@ def _validate_provider_policy(tmp_path: Path, policy, *, frontend_kind: str | No
         {"model": True},
         {"model": {"nested": "x"}},
         {"effort": ["high"]},
+        {"delivery": True},
+        {"delivery": "unknown"},
+        {"materialization_attempts": 2},
+        {"delivery": "composed", "materialization_attempts": 2},
+        {"delivery": "phased"},
+        {"delivery": "phased", "materialization_attempts": True},
+        {"delivery": "phased", "materialization_attempts": 4},
     ],
 )
 def test_provider_call_policy_rejects_non_closed_or_non_string_mappings(
@@ -641,6 +649,89 @@ def test_provider_call_policy_accepts_closed_string_mapping_for_workflow_lisp(
     assert result.errors == ()
     assert result.bundle is not None
     assert dict(result.bundle.surface.steps[0].provider_call_policy or {}) == policy
+
+
+@pytest.mark.parametrize("delivery", ("composed", "phased"))
+def test_shared_provider_delivery_carriage_requires_target_2_23(
+    tmp_path: Path,
+    delivery: str,
+) -> None:
+    validation = _validation_module()
+    mapping = _provider_policy_mapping(
+        (
+            {"delivery": "composed"}
+            if delivery == "composed"
+            else {
+                "delivery": "phased",
+                "materialization_attempts": 2,
+            }
+        )
+    )
+    mapping["version"] = "2.22"
+
+    result = validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=mapping,
+            workflow_path=tmp_path / "provider-policy.orc",
+            frontend_kind="workflow_lisp",
+        ),
+        options=_default_options(tmp_path),
+    )
+
+    assert result.bundle is None
+    assert any(
+        "provider_phased_delivery_requires_dsl_2_23" in error.message
+        for error in result.errors
+    )
+
+
+def test_shared_phased_delivery_requires_exact_interactive_capability(
+    tmp_path: Path,
+) -> None:
+    validation = _validation_module()
+    policy = {
+        "delivery": "phased",
+        "materialization_attempts": 2,
+    }
+    missing = _provider_policy_mapping(policy)
+    missing["version"] = "2.23"
+    exact = copy.deepcopy(missing)
+    exact["providers"]["impl"]["command"] = ["provider", "${PROMPT}"]
+    exact["providers"]["impl"]["input_mode"] = "argv"
+    exact["providers"]["impl"]["interactive_session_support"] = {
+        "schema_version": "interactive_terminal_turn_queue.v1",
+        "turn_boundary_messages": True,
+        "command": ["provider", "${PROMPT}"],
+        "message_submit_keys": ["ENTER"],
+        "graceful_close_text": "/exit",
+        "graceful_close_submit_keys": ["ENTER"],
+    }
+
+    missing_result = validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=missing,
+            workflow_path=tmp_path / "missing.orc",
+            frontend_kind="workflow_lisp",
+        ),
+        options=_default_options(tmp_path),
+    )
+    exact_result = validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=exact,
+            workflow_path=tmp_path / "exact.orc",
+            frontend_kind="workflow_lisp",
+        ),
+        options=_default_options(tmp_path),
+    )
+
+    assert any(
+        "provider_phased_interactive_capability_missing" in error.message
+        for error in missing_result.errors
+    )
+    assert not any(
+        "provider_phased_interactive_capability" in error.message
+        for error in exact_result.errors
+    )
 
 
 def test_public_mapping_reservation_rejects_internal_provider_call_policy(
@@ -715,16 +806,17 @@ def test_shared_validation_returns_structured_errors(tmp_path: Path) -> None:
     assert "Unsupported version '9.9'" in result.errors[0].message
 
 
-def test_shared_validation_target_dsl_supports_2_22_as_latest_closed_version() -> None:
+def test_shared_validation_target_dsl_supports_2_23_as_latest_closed_version() -> None:
     validation = _validation_module()
 
     assert "2.20" in validation.DEFAULT_SUPPORTED_VERSIONS
     assert "2.21" in validation.DEFAULT_SUPPORTED_VERSIONS
     assert "2.22" in validation.DEFAULT_SUPPORTED_VERSIONS
+    assert "2.23" in validation.DEFAULT_SUPPORTED_VERSIONS
     assert validation.DEFAULT_VERSION_ORDER[-3:] == (
-        "2.20",
         "2.21",
         "2.22",
+        "2.23",
     )
 
 

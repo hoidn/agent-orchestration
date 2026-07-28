@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 from threading import Lock, Thread
 import time
+from types import MethodType
 from typing import cast, Mapping
 
 import pytest
@@ -27,6 +28,7 @@ from orchestrator.providers.interactive_terminal import (
     PhasedFailedCleanupEvidence,
 )
 from orchestrator.workflow.prompting import CanonicalPromptCut
+from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.provider_attempts import ProviderAttemptScope
 from orchestrator.workflow.provider_phased_delivery.bindings import (
     AtomicSuccessCommitReceipt,
@@ -85,6 +87,8 @@ from orchestrator.workflow.provider_phased_delivery.models import (
     CompositionProjection,
     PhasedLifecycleState,
     SubmitReceipt,
+    PhasedRuntimePolicy,
+    ProviderBoundPolicy,
 )
 from orchestrator.workflow.provider_phased_delivery.ledger import (
     ProviderPromptPhaseLedgerWriter,
@@ -97,6 +101,9 @@ from orchestrator.workflow.provider_phased_delivery.protocol import (
     SubmitRequest,
     derive_submit_binding_and_locator,
     send_submit_request,
+)
+from orchestrator.workflow.provider_phased_delivery.runtime_bindings import (
+    _WorkflowPhasedProviderAttemptBindings,
 )
 
 
@@ -2036,6 +2043,65 @@ class ComposeFailureBindings(TerminalBoundaryBindings):
         raise PhasedOperationFailure(_diagnostic("preparation_failed"))
 
 
+class PhysicalOperationalFailureBindings(TerminalBoundaryBindings):
+    def __init__(self, *, operation: str) -> None:
+        super().__init__(
+            fail_at=(
+                operation if operation in {"reset", "freeze"} else "none"
+            ),
+            force_retry=operation == "reset",
+        )
+        self.operation = operation
+        self.closed_result: (
+            PhasedProviderAttemptSuccess
+            | PhasedProviderAttemptFailure
+            | None
+        ) = None
+
+    def compose_attempt(
+        self,
+        allocation: AttemptAllocation,
+        *,
+        deadline: float,
+    ) -> AttemptComposition:
+        if self.operation != "compose":
+            return super().compose_attempt(
+                allocation,
+                deadline=deadline,
+            )
+        assert allocation == self.allocation
+        assert deadline == self.composition.deadline
+        self.actions.append("bindings.compose")
+        raise PhasedOperationFailure(_diagnostic("preparation_failed"))
+
+    def snapshot_candidates(
+        self,
+        preflight: CandidatePreflight,
+        submission_ordinal: int,
+    ) -> CandidateSnapshot:
+        if self.operation != "snapshot":
+            return super().snapshot_candidates(
+                preflight,
+                submission_ordinal,
+            )
+        assert preflight == self.preflight
+        assert submission_ordinal == 1
+        self.actions.append("bindings.snapshot")
+        raise PhasedOperationFailure(
+            _diagnostic("candidate_freeze_failed")
+        )
+
+    def runtime_result(
+        self,
+        result: PhasedProviderAttemptSuccess | PhasedProviderAttemptFailure,
+    ) -> dict[str, object]:
+        self.closed_result = result
+        return _WorkflowPhasedProviderAttemptBindings.runtime_result(
+            self,
+            result,
+        )
+
+
 class InvalidDeadlineBindings(RecordingBindings):
     def __init__(self, deadline: object) -> None:
         super().__init__()
@@ -2536,6 +2602,83 @@ def test_compose_failure_obeys_preparation_after_check_precedence(
     assert "bindings.preflight" not in bindings.actions
     assert "ledger.header" not in bindings.actions
     assert "adapter.start" not in bindings.actions
+
+
+@pytest.mark.parametrize(
+    ("operation", "reason", "code", "tier"),
+    (
+        (
+            "compose",
+            "preparation_failed",
+            "provider_phased_preparation_failed",
+            "T0",
+        ),
+        (
+            "snapshot",
+            "candidate_freeze_failed",
+            "provider_phased_candidate_freeze_failed",
+            "T1",
+        ),
+        (
+            "reset",
+            "candidate_reset_failed",
+            "provider_phased_candidate_reset_failed",
+            "T1",
+        ),
+        (
+            "freeze",
+            "candidate_freeze_failed",
+            "provider_phased_candidate_freeze_failed",
+            "T1",
+        ),
+    ),
+)
+def test_physical_operational_failure_returns_closed_public_result(
+    operation: str,
+    reason: str,
+    code: str,
+    tier: str,
+) -> None:
+    bindings = PhysicalOperationalFailureBindings(operation=operation)
+    executor = object.__new__(WorkflowExecutor)
+    executor._build_phased_provider_attempt_bindings = MethodType(
+        lambda self, **kwargs: bindings,
+        executor,
+    )
+
+    result = executor._execute_phased_provider_with_context(
+        {"name": "Review"},
+        {},
+        {},
+        provider_bound_policy=ProviderBoundPolicy(model="model"),
+        runtime_policy=PhasedRuntimePolicy(
+            delivery="phased",
+            materialization_attempts=2,
+        ),
+    )
+
+    assert result == {
+        "status": "failed",
+        "exit_code": 1,
+        "duration_ms": 0,
+        "error": {
+            "type": code,
+            "message": reason,
+            "context": {
+                "reason": reason,
+                "terminalization_tier": tier,
+                "sticky": False,
+            },
+        },
+    }
+    assert type(bindings.closed_result) is PhasedProviderAttemptFailure
+    assert bindings.closed_result.first_diagnostic == _diagnostic(reason)
+    assert bindings.closed_result.frozen is None
+    assert bindings.closed_result.evidence is None
+    assert bindings.failure_finalization_calls == 1
+    assert bindings.committed_material is None
+    assert "bindings.publish_evidence" not in bindings.actions
+    assert "bindings.atomic_commit" not in bindings.actions
 
 
 @pytest.mark.parametrize(

@@ -23,6 +23,7 @@ from orchestrator.providers import (
     ProviderTemplate,
 )
 from orchestrator.providers.types import (
+    validate_interactive_session_support_capability,
     validate_turn_boundary_resume_capability,
 )
 from orchestrator.workflow.assets import AssetResolutionError, WorkflowAssetResolver
@@ -49,6 +50,9 @@ from orchestrator.workflow.prompt_fragment_contract import (
 )
 from orchestrator.workflow.provider_supervision.contracts import (
     derive_result_bundle_contract,
+)
+from orchestrator.workflow.provider_phased_delivery.models import (
+    partition_provider_call_policy,
 )
 from orchestrator.workflow.state_layout import GeneratedPathAllocation
 from orchestrator.workflow.surface_ast import PrivateExecContextBinding
@@ -92,14 +96,14 @@ DEFAULT_SUPPORTED_VERSIONS = frozenset(
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
         "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8",
         "2.9", "2.10", "2.11", "2.12", "2.13", "2.14", "2.15", "2.16", "2.17",
-        "2.18", "2.19", "2.20", "2.21", "2.22",
+        "2.18", "2.19", "2.20", "2.21", "2.22", "2.23",
     }
 )
 DEFAULT_VERSION_ORDER = (
     "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
     "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8",
     "2.9", "2.10", "2.11", "2.12", "2.13", "2.14", "2.15", "2.16", "2.17",
-    "2.18", "2.19", "2.20", "2.21", "2.22",
+    "2.18", "2.19", "2.20", "2.21", "2.22", "2.23",
 )
 DEFAULT_SUPPORTED_OUTPUT_TYPES = frozenset(
     {"enum", "integer", "float", "bool", "relpath", "string"}
@@ -1487,7 +1491,11 @@ class _WorkflowMappingValidator:
                 self._validate_managed_jobs(step, name, version)
 
             if 'provider_call_policy' in step:
-                self._validate_provider_call_policy(step, name)
+                self._validate_provider_call_policy(
+                    step,
+                    name,
+                    version=version,
+                )
 
             self._validate_prompt_attempt_carriage(
                 step=step,
@@ -3209,7 +3217,13 @@ class _WorkflowMappingValidator:
         if 'assert' in step:
             self._validate_legacy_condition_variable_usage(step['assert'], f"step '{name}' assert")
 
-    def _validate_provider_call_policy(self, step: Dict[str, Any], name: str) -> None:
+    def _validate_provider_call_policy(
+        self,
+        step: Dict[str, Any],
+        name: str,
+        *,
+        version: str,
+    ) -> None:
         context = f"Step '{name}': provider_call_policy"
         if self._frontend_kind != "workflow_lisp":
             self._add_error(
@@ -3228,14 +3242,58 @@ class _WorkflowMappingValidator:
             self._add_error(f"{context} must not be empty")
             return
 
-        allowed = {"model", "effort"}
+        allowed = {
+            "model",
+            "effort",
+            "delivery",
+            "materialization_attempts",
+        }
         unknown = set(policy) - allowed
         if unknown:
             keys = ", ".join(sorted(str(key) for key in unknown))
             self._add_error(f"{context} contains unknown key(s): {keys}")
-        for key in ("model", "effort"):
-            if key in policy and not isinstance(policy[key], str):
-                self._add_error(f"{context}.{key} must be a string")
+            return
+        try:
+            _, runtime_policy = partition_provider_call_policy(policy)
+        except (TypeError, ValueError) as exc:
+            self._add_error(f"{context} is invalid: {exc}")
+            return
+        if (
+            runtime_policy is not None
+            and not self._version_at_least(version, "2.23")
+        ):
+            self._add_error(
+                "provider_phased_delivery_requires_dsl_2_23: "
+                "explicit provider delivery requires target DSL 2.23"
+            )
+            return
+        if (
+            runtime_policy is not None
+            and runtime_policy.delivery == "phased"
+        ):
+            provider_name = step.get("provider")
+            template = (
+                self._provider_registry.get(provider_name)
+                if isinstance(provider_name, str)
+                else None
+            )
+            if template is None:
+                return
+            support = template.interactive_session_support
+            if support is None:
+                self._add_error(
+                    "provider_phased_interactive_capability_missing: "
+                    "provider declares no interactive_session_support"
+                )
+                return
+            capability_errors = (
+                validate_interactive_session_support_capability(support)
+            )
+            if capability_errors:
+                self._add_error(
+                    "provider_phased_interactive_capability_invalid: "
+                    + "; ".join(capability_errors)
+                )
 
     def _validate_prompt_attempt_carriage(
         self,

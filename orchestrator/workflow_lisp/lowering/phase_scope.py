@@ -18,6 +18,7 @@ from orchestrator.workflow.prompt_fragment_contract import (
     CompilerPromptFragmentOutputPosition,
     CompilerPromptFragmentRenderedSlot,
     CompilerPromptAttemptBindingPlan,
+    PHASED_PROMPT_ATTEMPT_IDENTITY_VERSION,
     PROMPT_ATTEMPT_IDENTITY_VERSION,
     freeze_prompt_fragment_json,
     validate_compiler_prompt_attempt_binding_plan,
@@ -1861,7 +1862,10 @@ def _build_compiler_prompt_fragment_contract(
             span=application.span,
             form_path=application.form_path,
         )
-    if q3_required and identity_version != PROMPT_ATTEMPT_IDENTITY_VERSION:
+    if q3_required and identity_version not in {
+        PROMPT_ATTEMPT_IDENTITY_VERSION,
+        PHASED_PROMPT_ATTEMPT_IDENTITY_VERSION,
+    }:
         raise _compile_error(
             code="prompt_attempt_identity_version_invalid",
             message="target-2.22 fragment application has an invalid identity version",

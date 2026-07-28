@@ -504,6 +504,8 @@ def test_call_policy_merge_precedence_and_one_pass_substitution(
         provider_call_policy={
             "effort": "${inputs.effort}",
             "model": "${inputs.model}",
+            "delivery": "phased",
+            "materialization_attempts": 2,
         },
     )
 

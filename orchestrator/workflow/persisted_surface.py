@@ -30,6 +30,8 @@ from orchestrator.workflow.prompt_dependency_contract import (
 from orchestrator.workflow.prompt_fragment_contract import (
     COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA,
     COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
+    PHASED_PROMPT_ATTEMPT_IDENTITY_VERSION,
+    PROMPT_ATTEMPT_IDENTITY_VERSION,
     CompilerPromptAttemptBindingPlan,
     CompilerPromptAttemptBindingPlanRow,
     CompilerPromptFragmentContract,
@@ -41,6 +43,9 @@ from orchestrator.workflow.prompt_fragment_contract import (
     serialize_compiler_prompt_fragment_contract,
     validate_compiler_prompt_attempt_pair,
     validate_compiler_prompt_fragment_pair,
+)
+from orchestrator.workflow.provider_phased_delivery.models import (
+    partition_provider_call_policy,
 )
 from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind
 
@@ -98,6 +103,7 @@ class PersistedSurfaceStep:
     compiler_prompt_attempt_binding_plan: (
         CompilerPromptAttemptBindingPlan | None
     ) = None
+    provider_call_policy: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -414,6 +420,11 @@ def _serialize_step(
         typed_prompt_inputs=step.typed_prompt_inputs,
         target_dsl_version=target_dsl_version,
     )
+    persisted_provider_call_policy = _validate_q5_provider_carriage(
+        step.provider_call_policy,
+        identity_version=step.prompt_attempt_identity_version,
+        target_dsl_version=target_dsl_version,
+    )
     payload = {
         "name": step.name,
         "step_id": step.step_id,
@@ -520,6 +531,8 @@ def _serialize_step(
         payload["compiled_prompt_fragment_identity"] = (
             step.compiled_prompt_fragment_identity
         )
+    if persisted_provider_call_policy is not None:
+        payload["provider_call_policy"] = persisted_provider_call_policy
     return payload
 
 
@@ -567,6 +580,7 @@ def _serialized_nodes_contain_q3(nodes: Mapping[str, Any]) -> bool:
         if (
             "prompt_attempt_identity_version" in step
             or "compiler_prompt_attempt_binding_plan" in step
+            or "provider_call_policy" in step
         ):
             return True
         nested_groups: list[Any] = [
@@ -633,6 +647,7 @@ def _persisted_steps_contain_q3(
         if (
             step.prompt_attempt_identity_version is not None
             or step.compiler_prompt_attempt_binding_plan is not None
+            or step.provider_call_policy is not None
         ):
             return True
         nested = (
@@ -684,6 +699,9 @@ _V3_OPTIONAL_STEP_KEYS = {
     "prompt_attempt_identity_version",
     "compiler_prompt_attempt_binding_plan",
 }
+_Q5_OPTIONAL_STEP_KEYS = {
+    "provider_call_policy",
+}
 _COMMON_KEYS = {
     "publishes",
     "consumes",
@@ -723,6 +741,8 @@ def _optional_step_keys(
         and _target_dsl_at_least(target_dsl_version, (2, 22))
     ):
         keys.update(_V3_OPTIONAL_STEP_KEYS)
+    if schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3:
+        keys.update(_Q5_OPTIONAL_STEP_KEYS)
     return keys
 
 
@@ -892,6 +912,18 @@ def _decode_step(
         if has_q3_plan
         else None
     )
+    decoded_provider_call_policy = _validate_q5_provider_carriage(
+        (
+            _mapping(
+                raw["provider_call_policy"],
+                "persisted provider call policy",
+            )
+            if "provider_call_policy" in raw
+            else None
+        ),
+        identity_version=decoded_q3_version,
+        target_dsl_version=target_dsl_version,
+    )
     decoded = PersistedSurfaceStep(
         name=_non_empty_string(raw["name"], "step name"),
         step_id=_non_empty_string(raw["step_id"], "step id"),
@@ -969,6 +1001,11 @@ def _decode_step(
         compiled_prompt_fragment_identity=decoded_fragment_identity,
         prompt_attempt_identity_version=decoded_q3_version,
         compiler_prompt_attempt_binding_plan=decoded_q3_plan,
+        provider_call_policy=(
+            None
+            if decoded_provider_call_policy is None
+            else MappingProxyType(decoded_provider_call_policy)
+        ),
     )
     validate_compiler_prompt_fragment_pair(
         decoded.compiler_prompt_fragment_contract,
@@ -983,6 +1020,68 @@ def _decode_step(
         target_dsl_version=target_dsl_version,
     )
     return decoded
+
+
+def _validate_q5_provider_carriage(
+    policy: Mapping[str, object] | None,
+    *,
+    identity_version: str | None,
+    target_dsl_version: str,
+) -> dict[str, object] | None:
+    """Validate and normalize only explicit Q5 runtime-policy carriage."""
+
+    try:
+        provider_policy, runtime_policy = partition_provider_call_policy(
+            {} if policy is None else policy
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "provider_phased_delivery_carriage_mismatch: "
+            "persisted provider call policy is invalid"
+        ) from exc
+
+    if runtime_policy is None:
+        if identity_version == PHASED_PROMPT_ATTEMPT_IDENTITY_VERSION:
+            raise ValueError(
+                "provider_phased_delivery_carriage_mismatch: "
+                "identity v2 requires explicit phased delivery"
+            )
+        return None
+    if not _target_dsl_at_least(target_dsl_version, (2, 23)):
+        raise ValueError(
+            "provider_phased_delivery_carriage_mismatch: "
+            "delivery carriage requires target DSL 2.23"
+        )
+
+    if (
+        runtime_policy.delivery == "phased"
+        and identity_version != PHASED_PROMPT_ATTEMPT_IDENTITY_VERSION
+    ):
+        raise ValueError(
+            "provider_phased_delivery_carriage_mismatch: "
+            "delivery and prompt-attempt identity versions disagree"
+        )
+    if (
+        runtime_policy.delivery == "composed"
+        and identity_version
+        not in {None, PROMPT_ATTEMPT_IDENTITY_VERSION}
+    ):
+        raise ValueError(
+            "provider_phased_delivery_carriage_mismatch: "
+            "delivery and prompt-attempt identity versions disagree"
+        )
+
+    normalized: dict[str, object] = {}
+    if provider_policy.model is not None:
+        normalized["model"] = provider_policy.model
+    if provider_policy.effort is not None:
+        normalized["effort"] = provider_policy.effort
+    normalized["delivery"] = runtime_policy.delivery
+    if runtime_policy.materialization_attempts is not None:
+        normalized["materialization_attempts"] = (
+            runtime_policy.materialization_attempts
+        )
+    return normalized
 
 
 def _validate_persisted_prompt_attempt_pair(

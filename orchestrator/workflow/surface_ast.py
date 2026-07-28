@@ -8,6 +8,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
+from orchestrator.providers.types import validate_phased_delivery_carriage
+
 from .prompt_dependency_contract import CompilerPromptDependencyContract
 from .prompt_fragment_contract import (
     CompilerPromptAttemptBindingPlan,
@@ -257,7 +259,7 @@ class SurfaceStep:
     command: Any = ()
     provider: Optional[str] = None
     provider_params: Any = None
-    provider_call_policy: Optional[Mapping[str, str]] = None
+    provider_call_policy: Optional[Mapping[str, object]] = None
     managed_jobs: Optional[SurfaceManagedJobsConfig] = None
     adjudicated_provider: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     input_file: Any = None
@@ -336,6 +338,12 @@ class SurfaceStep:
             dependency_contract=self.compiler_prompt_dependency_contract,
             typed_prompt_inputs=self.typed_prompt_inputs,
         )
+        validate_phased_delivery_carriage(
+            self.provider_call_policy,
+            prompt_attempt_identity_version=(
+                self.prompt_attempt_identity_version
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -383,6 +391,13 @@ class SurfaceWorkflow:
                     step.compiler_prompt_dependency_contract
                 ),
                 typed_prompt_inputs=step.typed_prompt_inputs,
+                target_dsl_version=self.version,
+            )
+            validate_phased_delivery_carriage(
+                step.provider_call_policy,
+                prompt_attempt_identity_version=(
+                    step.prompt_attempt_identity_version
+                ),
                 target_dsl_version=self.version,
             )
 

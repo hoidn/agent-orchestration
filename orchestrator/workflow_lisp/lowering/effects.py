@@ -88,6 +88,8 @@ class LowerableProviderResult:
     model: Any | None = None
     effort: Any | None = None
     timeout_sec: Any | None = None
+    delivery: LiteralExpr | None = None
+    materialization_attempts: LiteralExpr | None = None
     prompt_dependencies: PromptDependencySpec | None = None
     prompt_application: PromptApplicationExpr | None = None
 
@@ -305,6 +307,8 @@ def _lower_provider_result(
             model=expr.model,
             effort=expr.effort,
             timeout_sec=expr.timeout_sec,
+            delivery=expr.delivery,
+            materialization_attempts=expr.materialization_attempts,
             prompt_dependencies=expr.prompt_dependencies,
             prompt_application=(
                 expr.prompt
@@ -373,7 +377,7 @@ def _lower_provider_result_operation(
         "inject_output_contract": True,
         bundle_contract.contract_kind: authored_contract,
     }
-    provider_call_policy: dict[str, str] = {}
+    provider_call_policy: dict[str, object] = {}
     for field_name, field_expr in (
         ("model", provider_result.model),
         ("effort", provider_result.effort),
@@ -383,6 +387,12 @@ def _lower_provider_result_operation(
                 [field_expr],
                 local_values=local_values,
             )[0]
+    if provider_result.delivery is not None:
+        provider_call_policy["delivery"] = provider_result.delivery.value
+    if provider_result.materialization_attempts is not None:
+        provider_call_policy["materialization_attempts"] = (
+            provider_result.materialization_attempts.value
+        )
     if provider_call_policy:
         provider_step["provider_call_policy"] = provider_call_policy
     if provider_result.timeout_sec is not None:

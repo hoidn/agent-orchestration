@@ -6,6 +6,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from orchestrator.workflow.provider_phased_delivery.diagnostics import (
+    PhasedDeliveryDiagnostic,
+)
+
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from .expressions import ExprNode, LiteralExpr
@@ -196,6 +200,7 @@ def raise_error(
     form_path: tuple[str, ...],
     expansion_stack: tuple[object, ...] = (),
     notes: tuple[str, ...] = (),
+    phased_delivery_diagnostic: PhasedDeliveryDiagnostic | None = None,
 ) -> None:
     raise LispFrontendCompileError(
         (
@@ -207,6 +212,7 @@ def raise_error(
                 expansion_stack=expansion_stack,
                 phase="typecheck",
                 notes=notes,
+                phased_delivery_diagnostic=phased_delivery_diagnostic,
             ),
         )
     )

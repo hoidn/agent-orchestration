@@ -23,6 +23,10 @@ from ..providers.executor import ProviderExecutor
 from ..providers.observation import ProviderObservationManager
 from ..providers.registry import ProviderRegistry
 from ..providers.types import ProviderSessionMode, ProviderSessionRequest
+from ..providers.types import (
+    INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION,
+    validate_interactive_session_support_capability,
+)
 from ..managed_jobs.recovery import recover_managed_jobs
 from ..managed_jobs.runtime import ManagedProviderRuntime
 from ..deps.resolver import DependencyResolver
@@ -136,6 +140,7 @@ from .prompt_dependency_evidence import (
     build_fragment_success_evidence_v2,
     build_failure_evidence,
     build_success_evidence,
+    evidence_relative_path,
     publish_evidence_file,
 )
 from .prompt_identity import (
@@ -153,6 +158,13 @@ from .prompt_fragment_contract import (
 from .provider_attempts import (
     ProviderAttemptScope,
     resolve_aggregate_run_owner,
+    validate_provider_attempt_allocations,
+    validate_provider_attempt_scope,
+)
+from .provider_phased_delivery.models import (
+    PhasedRuntimePolicy,
+    ProviderBoundPolicy,
+    partition_provider_call_policy,
 )
 from .provider_supervision.bindings import (
     WorkflowProviderSupervisionBindings,
@@ -1885,6 +1897,403 @@ class WorkflowExecutor:
         provider_session = step.get("provider_session")
         return provider_session if isinstance(provider_session, dict) else None
 
+    def _completed_phased_provider_resume_boundary(
+        self,
+        state: Mapping[str, Any],
+    ) -> Dict[str, Any] | None:
+        """Validate all state-authoritative completed phased boundaries."""
+
+        if state.get("current_step") is not None:
+            return None
+        steps = state.get("steps")
+        step_visits = state.get("step_visits")
+        if not isinstance(steps, Mapping) or not isinstance(
+            step_visits,
+            Mapping,
+        ):
+            return {
+                "kind": "integrity_error",
+                "reason": "completed_phased_state_shape_invalid",
+            }
+        try:
+            owner = resolve_aggregate_run_owner(self.state_manager)
+            persisted_leaf = owner.leaf_state.to_dict()
+            persisted_view = {
+                key: value
+                for key, value in state.items()
+                if not (isinstance(key, str) and key.startswith("_"))
+            }
+            if persisted_view != persisted_leaf:
+                raise ValueError(
+                    "resume state contradicts the aggregate owner"
+                )
+            root_state = owner.root_manager.state
+            if root_state is None:
+                raise ValueError("aggregate root state is missing")
+            allocations = validate_provider_attempt_allocations(
+                root_state.provider_attempt_allocations
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return {
+                "kind": "integrity_error",
+                "reason": "completed_phased_state_authority_invalid",
+                "error": str(exc),
+            }
+
+        candidates: list[Dict[str, Any]] = []
+        for node_id in self.projection.ordered_execution_node_ids():
+            entry = self.projection.entries_by_node_id.get(node_id)
+            if entry is None:
+                continue
+            try:
+                step = self._runtime_step_for_node_id(node_id)
+                _provider_policy, runtime_policy = (
+                    partition_provider_call_policy(
+                        step.get("provider_call_policy") or {}
+                    )
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                return {
+                    "kind": "integrity_error",
+                    "reason": "completed_phased_carriage_invalid",
+                    "node_id": node_id,
+                    "error": str(exc),
+                }
+            if (
+                runtime_policy is None
+                or runtime_policy.delivery != "phased"
+                or self._execution_kind_for_step(step)
+                is not ExecutableNodeKind.PROVIDER
+            ):
+                continue
+
+            step_name = entry.presentation_key
+            result = steps.get(step_name)
+            if result is None:
+                continue
+            if (
+                isinstance(result, Mapping)
+                and result.get("status") == "skipped"
+            ):
+                continue
+            if (
+                not isinstance(result, Mapping)
+                or result.get("status") != "completed"
+            ):
+                return {
+                    "kind": "integrity_error",
+                    "reason": "completed_phased_state_incomplete",
+                    "node_id": node_id,
+                }
+            expected_step_id = self._step_id(
+                step,
+                self._step_node_ids.index(node_id),
+            )
+            visit_count = result.get("visit_count")
+            if (
+                result.get("exit_code") != 0
+                or result.get("name") != step_name
+                or result.get("step_id") != expected_step_id
+                or isinstance(visit_count, bool)
+                or not isinstance(visit_count, int)
+                or visit_count <= 0
+                or step_visits.get(step_name) != visit_count
+                or not isinstance(result.get("artifacts"), Mapping)
+            ):
+                return {
+                    "kind": "integrity_error",
+                    "reason": "completed_phased_result_identity_mismatch",
+                    "node_id": node_id,
+                }
+
+            debug = result.get("debug")
+            phased = (
+                debug.get("phased_delivery")
+                if isinstance(debug, Mapping)
+                else None
+            )
+            if (
+                not isinstance(phased, Mapping)
+                or set(phased)
+                != {"submission_ordinal", "functional_evidence"}
+            ):
+                return {
+                    "kind": "integrity_error",
+                    "reason": "completed_phased_evidence_missing",
+                    "node_id": node_id,
+                }
+            submission_ordinal = phased.get("submission_ordinal")
+            functional_evidence = phased.get("functional_evidence")
+            materialization_attempts = (
+                runtime_policy.materialization_attempts
+            )
+            if (
+                isinstance(submission_ordinal, bool)
+                or not isinstance(submission_ordinal, int)
+                or submission_ordinal <= 0
+                or isinstance(materialization_attempts, bool)
+                or not isinstance(materialization_attempts, int)
+                or submission_ordinal > materialization_attempts
+                or not isinstance(functional_evidence, str)
+                or not functional_evidence
+            ):
+                return {
+                    "kind": "integrity_error",
+                    "reason": "completed_phased_evidence_invalid",
+                    "node_id": node_id,
+                }
+
+            evidence_matches: list[Mapping[str, Any]] = []
+            for allocation in allocations.values():
+                try:
+                    scope = ProviderAttemptScope.from_dict(
+                        allocation["scope"]
+                    )
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if (
+                    scope.resume_scope != owner.resume_scope_path
+                    or scope.runtime_step_id != expected_step_id
+                    or scope.loop_iteration is not None
+                    or scope.adjudication_subject is not None
+                    or scope.enclosing_step.step_name != step_name
+                    or scope.enclosing_step.step_id != expected_step_id
+                    or scope.enclosing_step.visit_count != visit_count
+                    or allocation.get(
+                        "prompt_fragment_identity_schema_version"
+                    )
+                    != "compiled_prompt_fragment_identity.v2"
+                ):
+                    continue
+                try:
+                    validate_provider_attempt_scope(scope, owner)
+                except (TypeError, ValueError):
+                    continue
+                events = allocation.get("events")
+                if not isinstance(events, list):
+                    continue
+                for event in events:
+                    event_ordinal = (
+                        event.get("ordinal")
+                        if isinstance(event, Mapping)
+                        else None
+                    )
+                    if (
+                        isinstance(event, Mapping)
+                        and not isinstance(event_ordinal, bool)
+                        and isinstance(event_ordinal, int)
+                        and event.get("event") == "evidence_published"
+                        and event.get("record_kind") == "prompt_snapshot"
+                        and event.get("relative_path")
+                        == functional_evidence
+                        and event.get("relative_path")
+                        == str(
+                            evidence_relative_path(
+                                scope,
+                                event_ordinal,
+                            )
+                        )
+                    ):
+                        evidence_matches.append(event)
+            if len(evidence_matches) != 1:
+                return {
+                    "kind": "integrity_error",
+                    "reason": (
+                        "completed_phased_evidence_missing"
+                        if not evidence_matches
+                        else "completed_phased_evidence_ambiguous"
+                    ),
+                    "node_id": node_id,
+                    "match_count": len(evidence_matches),
+                }
+            evidence_sha256 = evidence_matches[0].get("file_sha256")
+            if (
+                not isinstance(evidence_sha256, str)
+                or not evidence_sha256.startswith("sha256:")
+                or len(evidence_sha256) != 71
+            ):
+                return {
+                    "kind": "integrity_error",
+                    "reason": "completed_phased_evidence_invalid",
+                    "node_id": node_id,
+                }
+            candidates.append(
+                {
+                    "node_id": node_id,
+                    "step_name": step_name,
+                    "step_id": expected_step_id,
+                    "visit_count": visit_count,
+                    "evidence_sha256": evidence_sha256,
+                }
+            )
+
+        if not candidates:
+            return None
+        return {
+            "kind": "reuse",
+            "boundaries": candidates,
+        }
+
+    def _interrupted_phased_provider_guard(
+        self,
+        state: Mapping[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Detect only an unfinished explicit-phased current provider visit."""
+
+        existing_error = state.get("error")
+        if (
+            isinstance(existing_error, Mapping)
+            and existing_error.get("type")
+            == "provider_phased_interrupted_visit_quarantined"
+        ):
+            return {"kind": "existing_quarantine"}
+        current = state.get("current_step")
+        if not isinstance(current, Mapping):
+            return None
+        index = current.get("index")
+        indexed_node_id = (
+            self._step_node_ids[index]
+            if (
+                not isinstance(index, bool)
+                and isinstance(index, int)
+                and 0 <= index < len(self._step_node_ids)
+            )
+            else None
+        )
+        persisted_step_id = current.get("step_id")
+        persisted_node_index = (
+            self._step_node_ids.index(persisted_step_id)
+            if (
+                isinstance(persisted_step_id, str)
+                and persisted_step_id in self._step_node_ids
+            )
+            else None
+        )
+        persisted_node_id = (
+            self._step_node_ids[persisted_node_index]
+            if persisted_node_index is not None
+            else None
+        )
+        candidates = tuple(
+            dict.fromkeys(
+                node_id
+                for node_id in (indexed_node_id, persisted_node_id)
+                if isinstance(node_id, str)
+            )
+        )
+        phased_candidate: Optional[
+            tuple[str, int, RuntimeStepInput]
+        ] = None
+        for candidate_node_id in candidates:
+            try:
+                candidate_step = self._runtime_step_for_node_id(
+                    candidate_node_id
+                )
+                _provider_policy, candidate_runtime_policy = (
+                    partition_provider_call_policy(
+                        candidate_step.get("provider_call_policy") or {}
+                    )
+                )
+                candidate_index = self._step_node_ids.index(
+                    candidate_node_id
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            if (
+                candidate_runtime_policy is not None
+                and candidate_runtime_policy.delivery == "phased"
+                and self._execution_kind_for_step(candidate_step)
+                is ExecutableNodeKind.PROVIDER
+            ):
+                phased_candidate = (
+                    candidate_node_id,
+                    candidate_index,
+                    candidate_step,
+                )
+                break
+        if phased_candidate is None:
+            return None
+        node_id, expected_index, step = phased_candidate
+        expected_name = step.get("name")
+        expected_step_id = self._step_id(step, expected_index)
+        visit_count = current.get("visit_count")
+        if (
+            index != expected_index
+            or current.get("type") != "provider"
+            or current.get("status") != "running"
+            or not isinstance(expected_name, str)
+            or current.get("name") != expected_name
+            or current.get("step_id") != expected_step_id
+            or isinstance(visit_count, bool)
+            or not isinstance(visit_count, int)
+            or visit_count <= 0
+        ):
+            return {
+                "kind": "integrity_error",
+                "context": {
+                    "expected_name": expected_name,
+                    "expected_step_id": expected_step_id,
+                    "expected_node_id": node_id,
+                    "expected_index": expected_index,
+                    "current_step": dict(current),
+                },
+            }
+        return {
+            "kind": "quarantine",
+            "step_name": current.get("name"),
+            "step_id": current.get("step_id"),
+            "visit_count": current.get("visit_count"),
+            "node_id": node_id,
+        }
+
+    def _quarantine_phased_provider_resume_guard(
+        self,
+        state: Dict[str, Any],
+        guard: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        """Persist one sticky failed result without reading phased sidecars."""
+
+        step_name = guard.get("step_name")
+        step_id = guard.get("step_id")
+        visit_count = guard.get("visit_count")
+        if (
+            not isinstance(step_name, str)
+            or not isinstance(step_id, str)
+            or isinstance(visit_count, bool)
+            or not isinstance(visit_count, int)
+        ):
+            return self._fail_resume_state_integrity(
+                "provider_phased_resume_state_integrity_error",
+                "Phased provider current-step identity is invalid.",
+                {
+                    "step_name": step_name,
+                    "step_id": step_id,
+                    "visit_count": visit_count,
+                },
+            )
+        error = {
+            "type": "provider_phased_interrupted_visit_quarantined",
+            "message": (
+                "An interrupted phased-provider visit was quarantined."
+            ),
+            "context": {
+                "step_name": step_name,
+                "step_id": step_id,
+                "visit_count": visit_count,
+                "node_id": guard.get("node_id"),
+                "sticky": True,
+            },
+        }
+        self.state_manager.fail_run(
+            error,
+            clear_current_step=True,
+            expected_step_id=step_id,
+            expected_visit_count=visit_count,
+        )
+        persisted = self.state_manager.load().to_dict()
+        persisted["status"] = "failed"
+        return persisted
+
     def _prepare_provider_session_visit(
         self,
         step: RuntimeStepInput,
@@ -3060,6 +3469,21 @@ class WorkflowExecutor:
             self.state_manager.update_status('failed')
             return self.state_manager.load().to_dict()
         if resume:
+            phased_guard = self._interrupted_phased_provider_guard(state)
+            if phased_guard is not None:
+                if phased_guard.get("kind") == "existing_quarantine":
+                    state["status"] = "failed"
+                    return state
+                if phased_guard.get("kind") == "integrity_error":
+                    return self._fail_resume_state_integrity(
+                        "provider_phased_resume_state_integrity_error",
+                        "Phased provider current-step identity is invalid.",
+                        dict(phased_guard.get("context", {})),
+                    )
+                return self._quarantine_phased_provider_resume_guard(
+                    state,
+                    phased_guard,
+                )
             session_guard = self.resume_planner.detect_interrupted_provider_session_visit(
                 state,
                 projection=self.projection,
@@ -3194,6 +3618,33 @@ class WorkflowExecutor:
                 if root_guard_result is not None:
                     return root_guard_result
             state = run_state.to_dict()
+            completed_phased_resume_boundary = None
+            if resume:
+                try:
+                    pre_prologue_restart = (
+                        self._determine_resume_restart_node_id(state)
+                    )
+                except ResumeStateIntegrityError:
+                    pre_prologue_restart = False
+                if pre_prologue_restart is None:
+                    completed_phased_resume_boundary = (
+                        self._completed_phased_provider_resume_boundary(
+                            state
+                        )
+                    )
+                    if (
+                        completed_phased_resume_boundary is not None
+                        and completed_phased_resume_boundary.get("kind")
+                        == "integrity_error"
+                    ):
+                        return self._fail_resume_state_integrity(
+                            "provider_phased_resume_state_integrity_error",
+                            (
+                                "Completed phased provider resume authority "
+                                "is invalid."
+                            ),
+                            dict(completed_phased_resume_boundary),
+                        )
             early_result = self._execute_prologue(state, resume=resume)
             if early_result is not None:
                 return early_result
@@ -3203,6 +3654,9 @@ class WorkflowExecutor:
                 resume=resume,
                 on_error=on_error,
                 terminal_status='completed',
+                completed_phased_resume_boundary=(
+                    completed_phased_resume_boundary
+                ),
             )
             if loop_result.early_result is not None:
                 return loop_result.early_result
@@ -3316,6 +3770,7 @@ class WorkflowExecutor:
         resume: bool,
         on_error: str,
         terminal_status: str,
+        completed_phased_resume_boundary: Mapping[str, Any] | None,
     ) -> _ExecuteStepLoopResult:
 
         try:
@@ -3379,7 +3834,15 @@ class WorkflowExecutor:
                 self._lexical_restore_overlay = None
             step_index = 0
             current_node_id = resume_restart_node_id
-            if current_node_id is None:
+            if (
+                current_node_id is None
+                and not (
+                    resume
+                    and completed_phased_resume_boundary is not None
+                    and completed_phased_resume_boundary.get("kind")
+                    == "reuse"
+                )
+            ):
                 current_node_id = self._first_execution_node_id()
             while True:
                 if current_node_id is None:
@@ -5193,6 +5656,31 @@ class WorkflowExecutor:
         else:
             result = {"status": "skipped", "exit_code": 0, "skipped": True}
 
+        phased_commits = getattr(
+            self,
+            "_phased_authoritative_result_ids",
+            None,
+        )
+        if isinstance(phased_commits, set) and id(result) in phased_commits:
+            phased_commits.remove(id(result))
+            iteration_state[nested_name] = result
+            if (
+                result.get("status") == "completed"
+                and loop_step is not None
+                and isinstance(runtime_step_id, str)
+                and runtime_step_id
+            ):
+                self._emit_lexical_checkpoint_shadow_after_nested_step_commit(
+                    step=step,
+                    loop_step=loop_step,
+                    loop_name=resolved_loop_name,
+                    iteration_index=resolved_iteration_index,
+                    runtime_step_id=runtime_step_id,
+                    finalized=result,
+                )
+            self._emit_step_summary(nested_name, step, result)
+            return result
+
         publish_error = self._record_published_artifacts(
             step,
             nested_name,
@@ -5246,6 +5734,14 @@ class WorkflowExecutor:
         state: Dict[str, Any],
         result: Dict[str, Any],
     ) -> Dict[str, Any]:
+        phased_commits = getattr(
+            self,
+            "_phased_authoritative_result_ids",
+            None,
+        )
+        if isinstance(phased_commits, set) and id(result) in phased_commits:
+            phased_commits.remove(id(result))
+            return result
         provider_session = step.get("provider_session")
         if not isinstance(provider_session, dict):
             publish_error = self._record_published_artifacts(step, step_name, result, state)
@@ -5909,6 +6405,218 @@ class WorkflowExecutor:
         except Exception:
             pass
 
+    def _phased_refusal_result(
+        self,
+        reason: str,
+        *,
+        step: RuntimeStepInput,
+        runtime_step_id: str | None = None,
+        canonical_value: bool | int | str | None = None,
+        context: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        from .provider_phased_delivery.diagnostics import (
+            DiagnosticSource,
+            DiagnosticSpan,
+            SOURCE_PROFILES,
+            build_phased_delivery_diagnostic,
+            diagnostic_definition,
+        )
+        from .provider_phased_delivery.protocol import (
+            diagnostic_to_dict,
+        )
+
+        definition = diagnostic_definition(reason)
+        profile = SOURCE_PROFILES[definition.source_profile]
+        if profile.ordered_owner_chain:
+            required_owners = profile.ordered_owner_chain
+            carriage_primary_owner = "runtime_step"
+        else:
+            if profile.primary_owner is None:  # pragma: no cover - registry guard
+                raise RuntimeError("phased diagnostic primary owner is missing")
+            required_owners = (
+                profile.primary_owner,
+                *profile.related_owners,
+            )
+            carriage_primary_owner = None
+
+        authored_location: tuple[str, DiagnosticSpan] | None = None
+
+        def retained_location() -> tuple[str, DiagnosticSpan]:
+            nonlocal authored_location
+            if authored_location is not None:
+                return authored_location
+            step_name = step.get("name", f"step_{self.current_step}")
+            resolved_step_id = runtime_step_id
+            if not isinstance(resolved_step_id, str) or not resolved_step_id:
+                resolved_step_id = (
+                    step.step_id
+                    if isinstance(step, RuntimeStep)
+                    else step.get("step_id")
+                )
+            if not isinstance(resolved_step_id, str) or not resolved_step_id:
+                resolved_step_id = str(step_name)
+            node_id = (
+                step.node_id
+                if isinstance(step, RuntimeStep)
+                else step.get("node_id")
+            )
+            origin = self._compiled_frontend_origin_for_step(
+                str(step_name),
+                resolved_step_id,
+                node_id=node_id if isinstance(node_id, str) else None,
+            )
+            if not isinstance(origin, Mapping):
+                raise ValueError(
+                    "phased-delivery refusal requires retained frontend origin"
+                )
+            raw_path = origin.get("path")
+            if not isinstance(raw_path, str) or not raw_path:
+                raise ValueError(
+                    "phased-delivery refusal origin path is invalid"
+                )
+            source_path = Path(raw_path)
+            if source_path.is_absolute():
+                try:
+                    source_path = source_path.relative_to(Path.cwd())
+                except ValueError:
+                    source_path = Path(source_path.name)
+            normalized_path = source_path.as_posix()
+            def position(field: str) -> int:
+                value = origin.get(field)
+                if (
+                    isinstance(value, bool)
+                    or not isinstance(value, int)
+                    or value < 1
+                ):
+                    raise ValueError(
+                        "phased-delivery refusal origin span is invalid"
+                    )
+                return value
+
+            authored_location = (
+                normalized_path,
+                DiagnosticSpan(
+                    start_line=position("line"),
+                    start_column=position("column"),
+                    end_line=position("end_line"),
+                    end_column=position("end_column"),
+                ),
+            )
+            return authored_location
+
+        def source_for(owner: str) -> DiagnosticSource:
+            if owner in {
+                "delivery_keyword",
+                "materialization_attempts_keyword",
+                "provider_application",
+                "fragment_contract",
+                "result_contract_suffix",
+            }:
+                path, span = retained_location()
+                return DiagnosticSource(
+                    kind="authored_span",
+                    owner=owner,
+                    path=path,
+                    span=span,
+                )
+            if owner == "resolved_provider_template":
+                return DiagnosticSource(
+                    kind="provider_template",
+                    owner=owner,
+                    path=None,
+                    span=None,
+                )
+            if owner in profile.ordered_owner_chain:
+                path, span = retained_location()
+                return DiagnosticSource(
+                    kind="carrier_boundary",
+                    owner=owner,
+                    path=path,
+                    span=span,
+                )
+            if owner == "interactive_adapter":
+                kind = "adapter_operation"
+            elif owner == "workflow_state_commit":
+                kind = "state_commit"
+            else:
+                kind = "runtime_attempt"
+            return DiagnosticSource(
+                kind=kind,
+                owner=owner,
+                path=None,
+                span=None,
+            )
+
+        diagnostic = build_phased_delivery_diagnostic(
+            reason,
+            canonical_value=canonical_value,
+            sources_by_owner={
+                owner: source_for(owner) for owner in required_owners
+            },
+            carriage_primary_owner=carriage_primary_owner,
+        )
+        serialized_diagnostic = diagnostic_to_dict(diagnostic)
+        return {
+            "status": "failed",
+            "exit_code": 2,
+            "error": {
+                "type": definition.code,
+                "message": reason,
+                "context": {
+                    "reason": reason,
+                    "rejected_value": serialized_diagnostic[
+                        "rejected_value"
+                    ],
+                    "diagnostic": serialized_diagnostic,
+                    **({} if context is None else dict(context)),
+                },
+            },
+        }
+
+    @staticmethod
+    def _phased_policy_refusal(
+        raw_policy: object,
+    ) -> tuple[str, bool | int | str | None]:
+        if not isinstance(raw_policy, Mapping):
+            return "call_policy_carriage_mismatch", None
+        unknown = set(raw_policy) - {
+            "model",
+            "effort",
+            "delivery",
+            "materialization_attempts",
+        }
+        if unknown:
+            return "call_policy_carriage_extra", None
+        delivery_present = "delivery" in raw_policy
+        attempts_present = "materialization_attempts" in raw_policy
+        delivery = raw_policy.get("delivery")
+        attempts = raw_policy.get("materialization_attempts")
+        if delivery_present and not isinstance(delivery, str):
+            return "delivery_type_invalid", None
+        if delivery_present and delivery not in {"composed", "phased"}:
+            return "delivery_enum_invalid", None
+        if (
+            attempts_present
+            and (
+                not delivery_present
+                or delivery != "phased"
+            )
+        ) or (delivery == "phased" and not attempts_present):
+            return "attempts_pairing_invalid", None
+        if attempts_present and (
+            isinstance(attempts, bool)
+            or not isinstance(attempts, int)
+        ):
+            return "attempts_type_invalid", None
+        if isinstance(attempts, int) and attempts not in {1, 2, 3}:
+            canonical_attempts = (
+                attempts
+                if -(2**63) <= attempts <= 2**63 - 1
+                else None
+            )
+            return "attempts_out_of_range", canonical_attempts
+        return "call_policy_carriage_mismatch", None
+
     def _execute_provider_with_context(
         self,
         step: RuntimeStepInput,
@@ -5918,6 +6626,204 @@ class WorkflowExecutor:
         parent_steps: Optional[Dict[str, Any]] = None,
         self_steps: Optional[Dict[str, Any]] = None,
         root_steps: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Select the closed ordinary or explicit-phased provider route."""
+
+        raw_policy = step.get("provider_call_policy")
+        if raw_policy is None:
+            raw_policy = {}
+        try:
+            provider_policy, runtime_policy = (
+                partition_provider_call_policy(raw_policy)
+            )
+        except (TypeError, ValueError) as exc:
+            reason, canonical_value = self._phased_policy_refusal(
+                raw_policy
+            )
+            return self._phased_refusal_result(
+                reason,
+                step=step,
+                runtime_step_id=runtime_step_id,
+                canonical_value=canonical_value,
+                context={"error": str(exc)},
+            )
+
+        if runtime_policy is None or runtime_policy.delivery == "composed":
+            return self._execute_composed_provider_with_context(
+                step,
+                context,
+                state,
+                runtime_step_id=runtime_step_id,
+                parent_steps=parent_steps,
+                self_steps=self_steps,
+                root_steps=root_steps,
+                provider_bound_policy=provider_policy,
+            )
+
+        provider_context = self._create_provider_context(
+            context,
+            state,
+            parent_steps=parent_steps,
+            self_steps=self_steps,
+            root_steps=root_steps,
+        )
+        provider_name, provider_error = (
+            self._resolve_provider_name_for_step(step, provider_context)
+        )
+        if provider_error is not None or provider_name is None:
+            return {
+                "status": "failed",
+                "exit_code": 2,
+                "error": provider_error
+                or {
+                    "type": "provider_not_found",
+                    "message": "Provider name could not be resolved",
+                },
+            }
+        provider = self.provider_registry.get(provider_name)
+        support = (
+            getattr(provider, "interactive_session_support", None)
+            if provider is not None
+            else None
+        )
+        if (
+            support is None
+        ):
+            return self._phased_refusal_result(
+                "interactive_capability_absent",
+                step=step,
+                runtime_step_id=runtime_step_id,
+                context={"provider": provider_name},
+            )
+        if (
+            getattr(support, "schema_version", None)
+            != INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION
+        ):
+            return self._phased_refusal_result(
+                "interactive_capability_schema_unsupported",
+                step=step,
+                runtime_step_id=runtime_step_id,
+                context={"provider": provider_name},
+            )
+        capability_errors = validate_interactive_session_support_capability(
+            support
+        )
+        if capability_errors:
+            turn_boundary_false = (
+                getattr(support, "turn_boundary_messages", None) is False
+            )
+            return self._phased_refusal_result(
+                (
+                    "turn_boundary_messages_not_true"
+                    if turn_boundary_false
+                    else "interactive_capability_malformed"
+                ),
+                step=step,
+                runtime_step_id=runtime_step_id,
+                canonical_value=False if turn_boundary_false else None,
+                context={
+                    "provider": provider_name,
+                    "errors": list(capability_errors),
+                },
+            )
+        return self._execute_phased_provider_with_context(
+            step,
+            context,
+            state,
+            runtime_step_id=runtime_step_id,
+            parent_steps=parent_steps,
+            self_steps=self_steps,
+            root_steps=root_steps,
+            provider_bound_policy=provider_policy,
+            runtime_policy=runtime_policy,
+        )
+
+    def _build_phased_provider_attempt_bindings(
+        self,
+        *,
+        step: RuntimeStepInput,
+        context: Dict[str, Any],
+        state: Dict[str, Any],
+        provider_bound_policy: ProviderBoundPolicy,
+        runtime_policy: PhasedRuntimePolicy,
+        runtime_step_id: Optional[str],
+        parent_steps: Optional[Dict[str, Any]],
+        self_steps: Optional[Dict[str, Any]],
+        root_steps: Optional[Dict[str, Any]],
+    ) -> Any:
+        from .provider_phased_delivery.runtime_bindings import (
+            _WorkflowPhasedProviderAttemptBindings,
+        )
+
+        return _WorkflowPhasedProviderAttemptBindings(
+            executor=self,
+            step=step,
+            context=context,
+            state=state,
+            provider_bound_policy=provider_bound_policy,
+            runtime_policy=runtime_policy,
+            runtime_step_id=runtime_step_id,
+            parent_steps=parent_steps,
+            self_steps=self_steps,
+            root_steps=root_steps,
+        )
+
+    def _run_phased_provider_attempt(
+        self,
+        bindings: Any,
+    ) -> Any:
+        from .provider_phased_delivery.coordinator import (
+            PhasedProviderAttemptCoordinator,
+        )
+
+        return PhasedProviderAttemptCoordinator(bindings).run()
+
+    def _execute_phased_provider_with_context(
+        self,
+        step: RuntimeStepInput,
+        context: Dict[str, Any],
+        state: Dict[str, Any],
+        runtime_step_id: Optional[str] = None,
+        parent_steps: Optional[Dict[str, Any]] = None,
+        self_steps: Optional[Dict[str, Any]] = None,
+        root_steps: Optional[Dict[str, Any]] = None,
+        *,
+        provider_bound_policy: ProviderBoundPolicy,
+        runtime_policy: PhasedRuntimePolicy,
+    ) -> Dict[str, Any]:
+        try:
+            bindings = self._build_phased_provider_attempt_bindings(
+                step=step,
+                context=context,
+                state=state,
+                provider_bound_policy=provider_bound_policy,
+                runtime_policy=runtime_policy,
+                runtime_step_id=runtime_step_id,
+                parent_steps=parent_steps,
+                self_steps=self_steps,
+                root_steps=root_steps,
+            )
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            return self._phased_refusal_result(
+                "preparation_failed",
+                step=step,
+                runtime_step_id=runtime_step_id,
+                context={"error": str(exc)},
+            )
+        result = self._run_phased_provider_attempt(bindings)
+        return bindings.runtime_result(result)
+
+    def _execute_composed_provider_with_context(
+        self,
+        step: RuntimeStepInput,
+        context: Dict[str, Any],
+        state: Dict[str, Any],
+        runtime_step_id: Optional[str] = None,
+        parent_steps: Optional[Dict[str, Any]] = None,
+        self_steps: Optional[Dict[str, Any]] = None,
+        root_steps: Optional[Dict[str, Any]] = None,
+        *,
+        provider_bound_policy: ProviderBoundPolicy,
     ) -> Dict[str, Any]:
         """
         Execute a provider step with variable substitution context.
@@ -6767,7 +7673,14 @@ class WorkflowExecutor:
                 env=self._provider_env_with_runtime_output_bundle_path(step, resolved_output_bundle),
                 secrets=step.get('secrets'),
                 timeout_sec=step.get('timeout_sec'),
-                provider_call_policy=step.get('provider_call_policy'),
+                provider_call_policy={
+                    key: value
+                    for key, value in (
+                        ("model", provider_bound_policy.model),
+                        ("effort", provider_bound_policy.effort),
+                    )
+                    if value is not None
+                },
             )
 
             if error or invocation is None:

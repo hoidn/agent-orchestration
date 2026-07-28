@@ -4372,6 +4372,22 @@ def _lower_provider_peer_group_member(
                 if payload.get("effort") is not None
                 else None
             ),
+            delivery=(
+                _frontend_expr_from_wcc_value_with_env(
+                    payload["delivery"],
+                    provider_env,
+                )
+                if payload.get("delivery") is not None
+                else None
+            ),
+            materialization_attempts=(
+                _frontend_expr_from_wcc_value_with_env(
+                    payload["materialization_attempts"],
+                    provider_env,
+                )
+                if payload.get("materialization_attempts") is not None
+                else None
+            ),
             prompt_application=_prompt_application_from_wcc_payload(
                 payload,
                 env=provider_env,
@@ -4609,6 +4625,22 @@ def _lower_provider_supervision_member(
                     provider_env,
                 )
                 if payload.get("effort") is not None
+                else None
+            ),
+            delivery=(
+                _frontend_expr_from_wcc_value_with_env(
+                    payload["delivery"],
+                    provider_env,
+                )
+                if payload.get("delivery") is not None
+                else None
+            ),
+            materialization_attempts=(
+                _frontend_expr_from_wcc_value_with_env(
+                    payload["materialization_attempts"],
+                    provider_env,
+                )
+                if payload.get("materialization_attempts") is not None
                 else None
             ),
             prompt_application=_prompt_application_from_wcc_payload(
@@ -5339,6 +5371,18 @@ def _lower_effectful_binding(
                         if operation_payload.get("effort") is not None
                         else None
                     ),
+                    delivery=(
+                        _frontend_expr_from_wcc_value(operation_payload["delivery"])
+                        if operation_payload.get("delivery") is not None
+                        else None
+                    ),
+                    materialization_attempts=(
+                        _frontend_expr_from_wcc_value(
+                            operation_payload["materialization_attempts"]
+                        )
+                        if operation_payload.get("materialization_attempts") is not None
+                        else None
+                    ),
                     timeout_sec=(
                         _frontend_expr_from_wcc_value(operation_payload["timeout_sec"])
                         if operation_payload.get("timeout_sec") is not None
@@ -5571,6 +5615,8 @@ def _lower_wcc_effect_expr(
                 guidance=expr.return_spec.guidance,
                 model=expr.model,
                 effort=expr.effort,
+                delivery=expr.delivery,
+                materialization_attempts=expr.materialization_attempts,
                 timeout_sec=expr.timeout_sec,
                 prompt_dependencies=expr.prompt_dependencies,
                 prompt_application=(
@@ -6173,6 +6219,18 @@ def _frontend_expr_from_wcc_loop_binding_value(value):
                 effort=(
                     _frontend_expr_from_wcc_value(operation_payload["effort"])
                     if operation_payload.get("effort") is not None
+                    else None
+                ),
+                delivery=(
+                    _frontend_expr_from_wcc_value(operation_payload["delivery"])
+                    if operation_payload.get("delivery") is not None
+                    else None
+                ),
+                materialization_attempts=(
+                    _frontend_expr_from_wcc_value(
+                        operation_payload["materialization_attempts"]
+                    )
+                    if operation_payload.get("materialization_attempts") is not None
                     else None
                 ),
                 timeout_sec=(

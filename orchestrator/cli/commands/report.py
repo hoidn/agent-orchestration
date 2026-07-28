@@ -16,7 +16,7 @@ from orchestrator.observability.report import (
 )
 from orchestrator.runtime_observability import compute_active_runtime
 from orchestrator.workflow.prompt_context_report import (
-    project_prompt_context,
+    project_prompt_context_v2,
 )
 
 
@@ -222,7 +222,7 @@ def _state_only_snapshot(
         "run": run_payload,
         "progress": progress,
         "steps": steps,
-        "prompt_context": project_prompt_context(state, run_dir),
+        "prompt_context": project_prompt_context_v2(state, run_dir),
     }
 
 

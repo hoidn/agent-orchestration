@@ -10,6 +10,7 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
+from orchestrator.providers.types import validate_phased_delivery_carriage
 from ..contracts.prompt_contract import normalize_consume_prompt_policy
 
 from .core_ast import (
@@ -176,6 +177,10 @@ class SemanticPromptSurface:
     workflow_name: str
     statement_id: str
     provider_name: str | None
+    provider_call_policy: Mapping[str, object] | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
     input_file: Any = None
     asset_file: Any = None
     prompt_consumes: tuple[Any, ...] = ()
@@ -234,6 +239,12 @@ class SemanticPromptSurface:
             fragment_contract=self.compiler_prompt_fragment_contract,
             dependency_contract=self.compiler_prompt_dependency_contract,
             typed_prompt_inputs=self.typed_prompt_inputs,
+        )
+        validate_phased_delivery_carriage(
+            self.provider_call_policy,
+            prompt_attempt_identity_version=(
+                self.prompt_attempt_identity_version
+            ),
         )
 
 
@@ -433,6 +444,14 @@ def derive_workflow_semantic_ir(
                 workflow_name=workflow_name,
                 statement_id=statement_id,
                 provider_name=step.provider,
+                provider_call_policy=(
+                    step.provider_call_policy
+                    if (
+                        step.provider_call_policy is not None
+                        and "delivery" in step.provider_call_policy
+                    )
+                    else None
+                ),
                 input_file=step.input_file,
                 asset_file=step.asset_file,
                 prompt_consumes=step.prompt_consumes or (),
@@ -995,6 +1014,13 @@ def validate_workflow_semantic_ir(
                 typed_prompt_inputs=prompt_surface.typed_prompt_inputs,
                 target_dsl_version=ir.version,
             )
+            validate_phased_delivery_carriage(
+                prompt_surface.provider_call_policy,
+                prompt_attempt_identity_version=(
+                    prompt_surface.prompt_attempt_identity_version
+                ),
+                target_dsl_version=ir.version,
+            )
         except (TypeError, ValueError) as exc:
             message = str(exc)
             if not message.startswith(
@@ -1002,6 +1028,7 @@ def validate_workflow_semantic_ir(
                     "prompt_output_position_contract_mismatch",
                     "prompt_attempt_identity_version_",
                     "prompt_attempt_binding_plan_",
+                    "provider_phased_delivery_carriage_mismatch",
                 )
             ):
                 message = (
@@ -1026,6 +1053,11 @@ def validate_workflow_semantic_ir(
             != provider_config.prompt_attempt_identity_version
             or prompt_surface.compiler_prompt_attempt_binding_plan
             != provider_config.compiler_prompt_attempt_binding_plan
+            or (
+                prompt_surface.provider_call_policy is not None
+                and prompt_surface.provider_call_policy
+                != provider_config.provider_call_policy
+            )
         ):
             semantic_contract = prompt_surface.compiler_prompt_fragment_contract
             executable_contract = (

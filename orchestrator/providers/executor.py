@@ -20,6 +20,7 @@ from .types import (
     ProviderParams,
     ProviderSessionMode,
     ProviderSessionRequest,
+    canonical_workflow_call_policy,
     escape_provider_command_token,
     extract_provider_command_placeholders,
     restore_provider_command_token,
@@ -215,7 +216,7 @@ class ProviderExecutor:
         env: Optional[Dict[str, str]] = None,
         secrets: Optional[List[str]] = None,
         timeout_sec: Optional[int] = None,
-        provider_call_policy: Optional[Dict[str, str]] = None,
+        provider_call_policy: Optional[Mapping[str, object]] = None,
     ) -> Tuple[Optional[ProviderInvocation], Optional[Dict[str, Any]]]:
         """
         Prepare a provider invocation.
@@ -228,7 +229,8 @@ class ProviderExecutor:
             env: Additional environment variables
             secrets: List of secret env var names to validate
             timeout_sec: Execution timeout
-            provider_call_policy: Compiler-owned canonical model/effort overrides
+            provider_call_policy: Closed compiler-owned provider/runtime policy;
+                only model and effort are translated into the invocation
 
         Returns:
             Tuple of (invocation, error_dict) - error_dict is None if successful
@@ -245,14 +247,22 @@ class ProviderExecutor:
         translated_policy: Dict[str, str] = {}
         policy_fragments: Dict[str, Tuple[str, ...]] = {}
         if provider_call_policy is not None:
-            for canonical_option in provider_call_policy:
-                if canonical_option not in CALL_POLICY_OPTION_ORDER:
-                    return None, self._unsupported_call_policy_error(
-                        provider_name,
-                        canonical_option,
-                    )
+            try:
+                normalized_policy = canonical_workflow_call_policy(
+                    provider_call_policy
+                )
+            except (TypeError, ValueError):
+                unsupported = sorted(
+                    str(key)
+                    for key in set(provider_call_policy)
+                    - {"model", "effort", "delivery", "materialization_attempts"}
+                )
+                return None, self._unsupported_call_policy_error(
+                    provider_name,
+                    unsupported[0] if unsupported else "provider_call_policy",
+                )
             for canonical_option in CALL_POLICY_OPTION_ORDER:
-                if canonical_option not in provider_call_policy:
+                if canonical_option not in normalized_policy:
                     continue
                 binding = provider.call_policy_bindings.get(canonical_option)
                 if binding is None:
@@ -260,9 +270,9 @@ class ProviderExecutor:
                         provider_name,
                         canonical_option,
                     )
-                translated_policy[binding.target_param] = provider_call_policy[
-                    canonical_option
-                ]
+                translated_policy[binding.target_param] = str(
+                    normalized_policy[canonical_option]
+                )
                 if binding.argv_fragment is not None:
                     policy_fragments[canonical_option] = tuple(binding.argv_fragment)
 
@@ -434,7 +444,8 @@ class ProviderExecutor:
         cwd: Optional[Path],
         env: Optional[Dict[str, str]] = None,
         secrets: Optional[List[str]] = None,
-        provider_call_policy: Optional[Dict[str, str]] = None,
+        timeout_sec: Optional[int] = None,
+        provider_call_policy: Optional[Mapping[str, object]] = None,
     ) -> Tuple[
         Optional[InteractiveMemberInvocation],
         Optional[Dict[str, Any]],
@@ -478,14 +489,22 @@ class ProviderExecutor:
         translated_policy: Dict[str, str] = {}
         policy_fragments: Dict[str, Tuple[str, ...]] = {}
         if provider_call_policy is not None:
-            for canonical_option in provider_call_policy:
-                if canonical_option not in CALL_POLICY_OPTION_ORDER:
-                    return None, self._unsupported_call_policy_error(
-                        provider_name,
-                        canonical_option,
-                    )
+            try:
+                normalized_policy = canonical_workflow_call_policy(
+                    provider_call_policy
+                )
+            except (TypeError, ValueError):
+                unsupported = sorted(
+                    str(key)
+                    for key in set(provider_call_policy)
+                    - {"model", "effort", "delivery", "materialization_attempts"}
+                )
+                return None, self._unsupported_call_policy_error(
+                    provider_name,
+                    unsupported[0] if unsupported else "provider_call_policy",
+                )
             for canonical_option in CALL_POLICY_OPTION_ORDER:
-                if canonical_option not in provider_call_policy:
+                if canonical_option not in normalized_policy:
                     continue
                 binding = provider.call_policy_bindings.get(canonical_option)
                 if binding is None:
@@ -494,7 +513,7 @@ class ProviderExecutor:
                         canonical_option,
                     )
                 translated_policy[binding.target_param] = (
-                    provider_call_policy[canonical_option]
+                    str(normalized_policy[canonical_option])
                 )
                 if binding.argv_fragment is not None:
                     policy_fragments[canonical_option] = tuple(
@@ -546,6 +565,33 @@ class ProviderExecutor:
                     "missing_placeholders": missing_placeholders,
                 },
             }
+        (
+            pre_prompt_command,
+            pre_prompt_missing_placeholders,
+            pre_prompt_invalid_prompt,
+        ) = self._build_command(
+            command_template=command_template,
+            input_mode=InputMode.ARGV,
+            params=substituted_params,
+            context=context,
+            prompt="${PROMPT}",
+        )
+        if pre_prompt_invalid_prompt or pre_prompt_missing_placeholders:
+            return None, {
+                "type": "validation_error",
+                "message": (
+                    "Interactive provider pre-prompt command binding is "
+                    "invalid"
+                ),
+                "context": {
+                    "invalid_prompt_placeholder": (
+                        pre_prompt_invalid_prompt
+                    ),
+                    "missing_placeholders": (
+                        pre_prompt_missing_placeholders
+                    ),
+                },
+            }
 
         secrets_context = self.secrets_manager.resolve_secrets(
             declared_secrets=secrets,
@@ -563,6 +609,28 @@ class ProviderExecutor:
                 },
             }
         try:
+            prepared_provider_policy = PreparedProviderPolicy(
+                provider_name=provider_name,
+                model=self._prepared_canonical_policy_value(
+                    provider,
+                    substituted_params,
+                    "model",
+                ),
+                effort=self._prepared_canonical_policy_value(
+                    provider,
+                    substituted_params,
+                    "effort",
+                ),
+                timeout_sec=timeout_sec,
+                input_mode=provider.input_mode.value,
+            )
+        except (TypeError, ValueError) as exc:
+            return None, {
+                "type": "provider_policy_invalid",
+                "message": "Prepared provider policy is invalid",
+                "context": {"error": str(exc)},
+            }
+        try:
             invocation = InteractiveMemberInvocation(
                 invocation_id=invocation_id,
                 member_id=member_id,
@@ -572,6 +640,8 @@ class ProviderExecutor:
                 cwd=cwd,
                 env=secrets_context.child_env,
                 support=support,
+                pre_prompt_command=tuple(pre_prompt_command),
+                prepared_provider_policy=prepared_provider_policy,
             )
         except (TypeError, ValueError) as exc:
             return None, {

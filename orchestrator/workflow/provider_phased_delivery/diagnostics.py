@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 import re
 from types import MappingProxyType
+from typing import Mapping
 
 
 @dataclass(frozen=True, slots=True)
@@ -982,3 +983,60 @@ class PhasedDeliveryDiagnostic:
             self.primary_source,
             self.related_sources,
         )
+
+
+def build_phased_delivery_diagnostic(
+    reason: str,
+    *,
+    canonical_value: bool | int | str | None,
+    sources_by_owner: Mapping[str, DiagnosticSource],
+    carriage_primary_owner: str | None = None,
+) -> PhasedDeliveryDiagnostic:
+    """Build one exact table-derived diagnostic from complete source owners."""
+
+    definition = diagnostic_definition(reason)
+    profile = SOURCE_PROFILES[definition.source_profile]
+    if profile.ordered_owner_chain:
+        if carriage_primary_owner not in profile.ordered_owner_chain:
+            raise ValueError(
+                "carriage diagnostics require one legal primary owner"
+            )
+        primary_index = profile.ordered_owner_chain.index(
+            carriage_primary_owner
+        )
+        related_owners = profile.ordered_owner_chain[:primary_index]
+        required_owners = (*related_owners, carriage_primary_owner)
+    else:
+        if carriage_primary_owner is not None:
+            raise ValueError(
+                "fixed source profiles forbid a carriage primary owner"
+            )
+        if profile.primary_owner is None:  # pragma: no cover - registry guard
+            raise RuntimeError("fixed source profile has no primary owner")
+        related_owners = profile.related_owners
+        required_owners = (profile.primary_owner, *related_owners)
+
+    if set(sources_by_owner) != set(required_owners):
+        raise ValueError(
+            "diagnostic sources must exactly match the selected profile"
+        )
+    primary_owner = (
+        carriage_primary_owner
+        if profile.ordered_owner_chain
+        else profile.primary_owner
+    )
+    if primary_owner is None:  # pragma: no cover - guarded above
+        raise RuntimeError("diagnostic primary owner is missing")
+    return PhasedDeliveryDiagnostic(
+        code=definition.code,
+        reason=reason,
+        rejected_value=RejectedValue(
+            type=definition.value_type,
+            canonical_value=canonical_value,
+            summary=reason,
+        ),
+        primary_source=sources_by_owner[primary_owner],
+        related_sources=tuple(
+            sources_by_owner[owner] for owner in related_owners
+        ),
+    )

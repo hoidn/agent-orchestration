@@ -7,9 +7,10 @@ import json
 import hashlib
 import shutil
 import threading
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Literal, Mapping
+from typing import Callable, Dict, Any, Optional, List, Literal, Mapping
 from dataclasses import dataclass, asdict, field
 import random
 import string
@@ -1099,11 +1100,48 @@ class StateManager:
         private_artifact_consumes: Optional[Dict[str, Dict[str, int]]] = None,
         expected_step_id: Optional[str] = None,
         expected_visit_count: Optional[int] = None,
+        expected_step_name: Optional[str] = None,
+        expected_step_type: Optional[str] = None,
+        expected_step_status: Optional[str] = None,
+        commit_guard: Optional[Callable[[], bool]] = None,
     ):
         """Persist one step result plus dataflow changes in a single state write."""
         with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
+            current = self.state.current_step
+            guard_matches = (
+                commit_guard is None or commit_guard() is True
+            )
+            if guard_matches and expected_step_name is not None:
+                guard_matches = (
+                    isinstance(current, dict)
+                    and current.get("name") == expected_step_name
+                )
+            if guard_matches and expected_step_type is not None:
+                guard_matches = (
+                    isinstance(current, dict)
+                    and current.get("type") == expected_step_type
+                )
+            if guard_matches and expected_step_status is not None:
+                guard_matches = (
+                    isinstance(current, dict)
+                    and current.get("status") == expected_step_status
+                )
+            if guard_matches and expected_step_id is not None:
+                guard_matches = (
+                    isinstance(current, dict)
+                    and current.get("step_id") == expected_step_id
+                )
+            if guard_matches and expected_visit_count is not None:
+                guard_matches = (
+                    isinstance(current, dict)
+                    and current.get("visit_count") == expected_visit_count
+                )
+            if not guard_matches:
+                raise TimeoutError(
+                    "state commit guard rejected before mutation"
+                )
 
             self.state.steps[step_name] = result
             if artifact_versions is not None:
@@ -1129,6 +1167,138 @@ class StateManager:
                 self.state.current_step = None
 
             self._write_state()
+
+    def finalize_loop_step_with_dataflow(
+        self,
+        loop_name: str,
+        index: int,
+        step_name: str,
+        result: StepResult,
+        *,
+        artifact_versions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        artifact_consumes: Optional[Dict[str, Dict[str, int]]] = None,
+        private_artifact_versions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        private_artifact_consumes: Optional[Dict[str, Dict[str, int]]] = None,
+        expected_enclosing_step_id: Optional[str] = None,
+        expected_visit_count: Optional[int] = None,
+        expected_enclosing_step_name: Optional[str] = None,
+        expected_enclosing_step_type: Optional[str] = None,
+        expected_enclosing_step_status: Optional[str] = None,
+        commit_guard: Optional[Callable[[], bool]] = None,
+    ) -> None:
+        """Persist one nested loop result plus dataflow in one root-state write."""
+
+        with self._state_mutation():
+            if not self.state:
+                raise RuntimeError("State not initialized")
+            current = self.state.current_step
+            guard_matches = (
+                commit_guard is None
+                or commit_guard() is True
+            ) and isinstance(current, dict)
+            if guard_matches and expected_enclosing_step_id is not None:
+                guard_matches = (
+                    current.get("step_id") == expected_enclosing_step_id
+                )
+            if guard_matches and expected_enclosing_step_name is not None:
+                guard_matches = (
+                    current.get("name") == expected_enclosing_step_name
+                )
+            if guard_matches and expected_enclosing_step_type is not None:
+                guard_matches = (
+                    current.get("type") == expected_enclosing_step_type
+                )
+            if guard_matches and expected_enclosing_step_status is not None:
+                guard_matches = (
+                    current.get("status") == expected_enclosing_step_status
+                )
+            if guard_matches and expected_visit_count is not None:
+                guard_matches = (
+                    current.get("visit_count") == expected_visit_count
+                )
+            if not guard_matches:
+                raise TimeoutError(
+                    "state commit guard rejected before mutation"
+                )
+
+            self.state.steps[f"{loop_name}[{index}].{step_name}"] = result
+            if artifact_versions is not None:
+                self.state.artifact_versions = artifact_versions
+            if artifact_consumes is not None:
+                self.state.artifact_consumes = artifact_consumes
+            if private_artifact_versions is not None:
+                self.state.private_artifact_versions = private_artifact_versions
+            if private_artifact_consumes is not None:
+                self.state.private_artifact_consumes = private_artifact_consumes
+            self._write_state()
+
+    def _mutate_scoped_state(
+        self,
+        resume_scope_path: Any,
+        *,
+        commit_guard: Callable[[RunState], bool],
+        mutation: Callable[[RunState], None],
+    ) -> RunState:
+        """Mutate one reached call-frame leaf in one aggregate-root write."""
+
+        with self._state_mutation():
+            if self.state is None:
+                raise RuntimeError("State not initialized")
+            root_workflow_file = getattr(
+                resume_scope_path,
+                "root_workflow_file",
+                None,
+            )
+            frame_ids = getattr(resume_scope_path, "call_frame_ids", None)
+            if (
+                root_workflow_file != self.state.workflow_file
+                or not isinstance(frame_ids, tuple)
+                or not frame_ids
+            ):
+                raise ValueError("scoped state path is invalid")
+
+            candidate_root = RunState.from_dict(
+                deepcopy(self.state.to_dict())
+            )
+            current = candidate_root
+            ancestors: list[
+                tuple[RunState, str, Dict[str, Any]]
+            ] = []
+            for frame_id in frame_ids:
+                if not isinstance(frame_id, str) or not frame_id:
+                    raise ValueError("scoped state frame identity is invalid")
+                frame = current.call_frames.get(frame_id)
+                if (
+                    not isinstance(frame, dict)
+                    or frame.get("call_frame_id") != frame_id
+                    or not isinstance(frame.get("state"), dict)
+                ):
+                    raise ValueError("scoped state call frame is invalid")
+                ancestors.append((current, frame_id, frame))
+                current = RunState.from_dict(
+                    deepcopy(frame["state"])
+                )
+
+            if commit_guard(current) is not True:
+                raise TimeoutError(
+                    "state commit guard rejected before mutation"
+                )
+            mutation(current)
+            committed_leaf = current
+            updated_child = current
+            for parent, frame_id, frame in reversed(ancestors):
+                updated_frame = deepcopy(frame)
+                updated_frame["state"] = updated_child.to_dict()
+                updated_frame["status"] = updated_child.status
+                updated_frame["current_step"] = (
+                    deepcopy(updated_child.current_step)
+                )
+                parent.call_frames[frame_id] = updated_frame
+                updated_child = parent
+
+            self.state = candidate_root
+            self._write_state()
+            return committed_leaf
 
     def update_call_frame(self, frame_id: str, frame_state: Dict[str, Any]):
         """Persist one call-frame snapshot in state.json."""

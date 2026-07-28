@@ -12,6 +12,7 @@ from typing import Any, NoReturn
 
 from orchestrator.workflow.prompt_fragment_contract import (
     COMPILER_PROMPT_ATTEMPT_BINDING_PLAN_SCHEMA,
+    PHASED_PROMPT_ATTEMPT_IDENTITY_VERSION,
     PROMPT_ATTEMPT_IDENTITY_VERSION,
     CompilerPromptAttemptBindingPlan,
     CompilerPromptAttemptBindingPlanRow,
@@ -165,6 +166,21 @@ class PromptCatalog:
         """Resolve one local, imported, alias-qualified, or canonical name."""
 
         return self.definitions_by_name.get(name)
+
+
+def with_phased_prompt_attempt_identity(
+    application: PromptApplicationExpr,
+) -> PromptApplicationExpr:
+    """Select identity v2 without changing the accepted binding-plan schema."""
+
+    if application.compiler_prompt_attempt_binding_plan is None:
+        raise ValueError(
+            "phased prompt identity requires a compiler attempt binding plan"
+        )
+    return replace(
+        application,
+        prompt_attempt_identity_version=PHASED_PROMPT_ATTEMPT_IDENTITY_VERSION,
+    )
 
 
 @dataclass(frozen=True)

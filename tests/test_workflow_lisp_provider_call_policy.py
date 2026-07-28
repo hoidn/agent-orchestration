@@ -786,7 +786,7 @@ def test_keyword_free_provider_result_matches_pre_feature_golden_bytes() -> None
     assert actual == KEYWORD_FREE_BASELINE.read_bytes()
 
 
-def test_provider_call_policy_projection_exclusions_remain_policy_neutral() -> None:
+def test_legacy_provider_call_policy_projection_remains_policy_neutral() -> None:
     result = _compile_validated_policy_fixture()
     bundle = result.validated_bundles["policy"]
     node_id = "root.policy__result"
@@ -818,8 +818,10 @@ def test_provider_call_policy_projection_exclusions_remain_policy_neutral() -> N
         for subject in source_workflow["validation_subjects"]
     )
 
-    for projection in (runtime_plan, semantic_ir, persisted_graph, source_map):
-        assert not _contains_key(projection, "provider_call_policy")
+    assert not _contains_key(runtime_plan, "provider_call_policy")
+    assert not _contains_key(semantic_ir, "provider_call_policy")
+    assert not _contains_key(persisted_graph, "provider_call_policy")
+    assert not _contains_key(source_map, "provider_call_policy")
 
 
 def test_workflow_executor_passes_policy_separately_and_fails_before_launch(

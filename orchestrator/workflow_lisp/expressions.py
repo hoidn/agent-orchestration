@@ -11,8 +11,15 @@ from dataclasses import InitVar, dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
+from orchestrator.workflow.provider_phased_delivery.diagnostics import (
+    PhasedDeliveryDiagnostic,
+)
 
-from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .diagnostics import (
+    LispFrontendCompileError,
+    LispFrontendDiagnostic,
+    build_authored_phased_delivery_diagnostic,
+)
 from .form_registry import (
     FormKind,
     get_form_spec,
@@ -49,6 +56,7 @@ from .syntax import (
     syntax_node_datum,
     target_dsl_supports_list_traversal,
     target_dsl_supports_prompt_calculus,
+    target_dsl_supports_phased_contract_delivery,
     target_dsl_supports_provider_peer_messaging,
 )
 
@@ -508,6 +516,14 @@ class ProviderResultExpr:
         metadata={"json_omit_if_none": True},
     )
     timeout_sec: "ExprNode | None" = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    delivery: "LiteralExpr | None" = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    materialization_attempts: "LiteralExpr | None" = field(
         default=None,
         metadata={"json_omit_if_none": True},
     )
@@ -3205,6 +3221,8 @@ def _elaborate_provider_result(
         ":model",
         ":effort",
         ":timeout-sec",
+        ":delivery",
+        ":materialization-attempts",
         ":prompt-dependencies",
     }
     invalid_section = next((name for name in sections if name not in allowed_sections), None)
@@ -3291,6 +3309,174 @@ def _elaborate_provider_result(
         if _ACTIVE_PROMPT_CATALOG is not None and prompt_head is not None
         else None
     )
+    delivery_node = sections.get(":delivery")
+    attempts_node = sections.get(":materialization-attempts")
+    if delivery_node is not None or attempts_node is not None:
+        if not target_dsl_supports_phased_contract_delivery(
+            _ACTIVE_TARGET_DSL_VERSION or ""
+        ):
+            selected = (
+                delivery_node
+                if delivery_node is not None
+                else attempts_node
+            )
+            _raise_error(
+                "phased provider delivery requires target DSL 2.23",
+                code="provider_phased_delivery_requires_dsl_2_23",
+                span=selected.span,
+                form_path=form_path,
+                expansion_stack=selected.expansion_stack,
+                phased_delivery_diagnostic=(
+                    build_authored_phased_delivery_diagnostic(
+                        "target_below_2_23",
+                        canonical_value=_ACTIVE_TARGET_DSL_VERSION,
+                        source_spans_by_owner={
+                            "delivery_keyword": selected.span,
+                            "provider_application": datum.span,
+                        },
+                    )
+                ),
+            )
+    delivery_value: str | None = None
+    if delivery_node is not None:
+        if not isinstance(delivery_node, SyntaxKeyword):
+            _raise_error(
+                "`provider-result :delivery` must be `:composed` or `:phased`",
+                code="provider_phased_delivery_policy_invalid",
+                span=delivery_node.span,
+                form_path=form_path,
+                expansion_stack=delivery_node.expansion_stack,
+                phased_delivery_diagnostic=(
+                    build_authored_phased_delivery_diagnostic(
+                        "delivery_type_invalid",
+                        canonical_value=None,
+                        source_spans_by_owner={
+                            "delivery_keyword": delivery_node.span,
+                            "provider_application": datum.span,
+                        },
+                    )
+                ),
+            )
+        if delivery_node.value not in {":composed", ":phased"}:
+            _raise_error(
+                "`provider-result :delivery` must be `:composed` or `:phased`",
+                code="provider_phased_delivery_policy_invalid",
+                span=delivery_node.span,
+                form_path=form_path,
+                expansion_stack=delivery_node.expansion_stack,
+                phased_delivery_diagnostic=(
+                    build_authored_phased_delivery_diagnostic(
+                        "delivery_enum_invalid",
+                        canonical_value=None,
+                        source_spans_by_owner={
+                            "delivery_keyword": delivery_node.span,
+                            "provider_application": datum.span,
+                        },
+                    )
+                ),
+            )
+        delivery_value = delivery_node.value[1:]
+    attempts_value: int | None = None
+    if attempts_node is not None:
+        if isinstance(attempts_node, SyntaxBool):
+            _raise_error(
+                "`provider-result :materialization-attempts` must be a literal integer in 1..3",
+                code="provider_phased_delivery_policy_invalid",
+                span=attempts_node.span,
+                form_path=form_path,
+                expansion_stack=attempts_node.expansion_stack,
+                phased_delivery_diagnostic=(
+                    build_authored_phased_delivery_diagnostic(
+                        "attempts_type_invalid",
+                        canonical_value=None,
+                        source_spans_by_owner={
+                            "materialization_attempts_keyword": attempts_node.span,
+                            "provider_application": datum.span,
+                        },
+                    )
+                ),
+            )
+        if not isinstance(attempts_node, SyntaxInt):
+            _raise_error(
+                "`provider-result :materialization-attempts` must be a literal integer in 1..3",
+                code="provider_phased_delivery_policy_invalid",
+                span=attempts_node.span,
+                form_path=form_path,
+                expansion_stack=attempts_node.expansion_stack,
+                phased_delivery_diagnostic=(
+                    build_authored_phased_delivery_diagnostic(
+                        "attempts_literal_required",
+                        canonical_value=None,
+                        source_spans_by_owner={
+                            "materialization_attempts_keyword": attempts_node.span,
+                            "provider_application": datum.span,
+                        },
+                    )
+                ),
+            )
+        if attempts_node.value not in {1, 2, 3}:
+            canonical_attempts = (
+                attempts_node.value
+                if -(2**63) <= attempts_node.value <= 2**63 - 1
+                else None
+            )
+            _raise_error(
+                "`provider-result :materialization-attempts` must be a literal integer in 1..3",
+                code="provider_phased_delivery_policy_invalid",
+                span=attempts_node.span,
+                form_path=form_path,
+                expansion_stack=attempts_node.expansion_stack,
+                phased_delivery_diagnostic=(
+                    build_authored_phased_delivery_diagnostic(
+                        "attempts_out_of_range",
+                        canonical_value=canonical_attempts,
+                        source_spans_by_owner={
+                            "materialization_attempts_keyword": attempts_node.span,
+                            "provider_application": datum.span,
+                        },
+                    )
+                ),
+            )
+        attempts_value = attempts_node.value
+    if attempts_node is not None and delivery_value != "phased":
+        _raise_error(
+            "`provider-result :materialization-attempts` requires explicit phased delivery",
+            code="provider_phased_delivery_policy_invalid",
+            span=attempts_node.span,
+            form_path=form_path,
+            expansion_stack=attempts_node.expansion_stack,
+            phased_delivery_diagnostic=(
+                build_authored_phased_delivery_diagnostic(
+                    "attempts_pairing_invalid",
+                    canonical_value=None,
+                    source_spans_by_owner={
+                        "materialization_attempts_keyword": attempts_node.span,
+                        "provider_application": datum.span,
+                    },
+                )
+            ),
+        )
+    if delivery_value == "phased":
+        if resolved_prompt is None:
+            _raise_error(
+                "phased provider delivery requires a fragment-backed prompt",
+                code="provider_phased_delivery_policy_invalid",
+                span=delivery_node.span,
+                form_path=form_path,
+                expansion_stack=delivery_node.expansion_stack,
+                phased_delivery_diagnostic=(
+                    build_authored_phased_delivery_diagnostic(
+                        "fragment_application_required",
+                        canonical_value=None,
+                        source_spans_by_owner={
+                            "fragment_contract": prompt_node.span,
+                            "provider_application": datum.span,
+                        },
+                    )
+                ),
+            )
+        if attempts_value is None:
+            attempts_value = 2
     prompt_application: PromptApplicationExpr | None = None
     if resolved_prompt is not None:
         _require_prompt_calculus_target(
@@ -3410,6 +3596,36 @@ def _elaborate_provider_result(
                 procedure_names=procedure_names,
             )
             if ":timeout-sec" in sections
+            else None
+        ),
+        delivery=(
+            LiteralExpr(
+                value=delivery_value,
+                literal_kind="string",
+                span=delivery_node.span,
+                form_path=form_path,
+                expansion_stack=delivery_node.expansion_stack,
+            )
+            if delivery_node is not None
+            else None
+        ),
+        materialization_attempts=(
+            LiteralExpr(
+                value=attempts_value,
+                literal_kind="int",
+                span=(
+                    attempts_node.span
+                    if attempts_node is not None
+                    else delivery_node.span
+                ),
+                form_path=form_path,
+                expansion_stack=(
+                    attempts_node.expansion_stack
+                    if attempts_node is not None
+                    else delivery_node.expansion_stack
+                ),
+            )
+            if attempts_value is not None
             else None
         ),
         prompt_dependencies=(
@@ -4447,6 +4663,7 @@ def _raise_error(
     form_path: tuple[str, ...],
     code: str = "frontend_parse_error",
     expansion_stack: ExpansionStack = (),
+    phased_delivery_diagnostic: PhasedDeliveryDiagnostic | None = None,
 ) -> None:
     raise LispFrontendCompileError(
         (
@@ -4456,6 +4673,7 @@ def _raise_error(
                 span=span,
                 form_path=form_path,
                 expansion_stack=expansion_stack,
+                phased_delivery_diagnostic=phased_delivery_diagnostic,
             ),
         )
     )

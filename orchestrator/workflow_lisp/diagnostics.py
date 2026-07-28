@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterable
+
+from orchestrator.workflow.provider_phased_delivery.diagnostics import (
+    DiagnosticSource,
+    DiagnosticSpan,
+    PhasedDeliveryDiagnostic,
+    build_phased_delivery_diagnostic,
+)
+from orchestrator.workflow.provider_phased_delivery.protocol import (
+    diagnostic_to_dict as phased_delivery_diagnostic_to_dict,
+)
 
 from .lints import (
     LINT_PROFILE_DEFAULT,
@@ -253,6 +264,7 @@ class LispFrontendDiagnostic:
     phase: str | None = None
     validation_pass: str | None = None
     authority_layer: str | None = None
+    phased_delivery_diagnostic: PhasedDeliveryDiagnostic | None = None
 
 
 class LispFrontendCompileError(Exception):
@@ -308,7 +320,7 @@ def serialize_diagnostic(
     """Serialize one diagnostic into a machine-readable envelope."""
 
     classified = with_diagnostic_metadata(diagnostic, lint_profile=lint_profile)
-    return {
+    payload: dict[str, object] = {
         "code": classified.code,
         "diagnostic_kind": classified.diagnostic_kind,
         "severity": classified.severity or "error",
@@ -326,6 +338,61 @@ def serialize_diagnostic(
         "validation_pass": classified.validation_pass,
         "authority_layer": classified.authority_layer,
     }
+    if classified.phased_delivery_diagnostic is not None:
+        payload["phased_delivery_diagnostic"] = (
+            phased_delivery_diagnostic_to_dict(
+                classified.phased_delivery_diagnostic
+            )
+        )
+    return payload
+
+
+def build_authored_phased_delivery_diagnostic(
+    reason: str,
+    *,
+    canonical_value: bool | int | str | None,
+    source_spans_by_owner: Mapping[str, SourceSpan],
+) -> PhasedDeliveryDiagnostic:
+    """Build a closed phased diagnostic from exact authored syntax spans."""
+
+    sources = {
+        owner: DiagnosticSource(
+            kind="authored_span",
+            owner=owner,
+            path=_relative_diagnostic_source_path(span.start.path),
+            span=DiagnosticSpan(
+                start_line=span.start.line,
+                start_column=span.start.column,
+                end_line=span.end.line,
+                end_column=span.end.column,
+            ),
+        )
+        for owner, span in source_spans_by_owner.items()
+    }
+    return build_phased_delivery_diagnostic(
+        reason,
+        canonical_value=canonical_value,
+        sources_by_owner=sources,
+    )
+
+
+def _relative_diagnostic_source_path(value: str) -> str:
+    """Normalize a retained compiler path without inventing a source location."""
+
+    path = Path(value)
+    if path.is_absolute():
+        try:
+            path = path.relative_to(Path.cwd())
+        except ValueError:
+            # Standalone source compilation defaults its source root to the
+            # source file's parent, making the file name root-relative.
+            path = Path(path.name)
+    normalized = path.as_posix()
+    if not normalized or normalized.startswith("../") or normalized == "..":
+        raise ValueError(
+            "phased-delivery diagnostic source must be root-relative"
+        )
+    return normalized
 
 
 def serialize_diagnostics(

@@ -6,6 +6,8 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from orchestrator.providers.types import validate_phased_delivery_carriage
+
 from .prompt_dependency_contract import CompilerPromptDependencyContract
 from .prompt_fragment_contract import (
     CompilerPromptAttemptBindingPlan,
@@ -175,6 +177,13 @@ class RuntimeStep(Mapping[str, Any]):
                 fragment_contract=config.compiler_prompt_fragment_contract,
                 dependency_contract=config.compiler_prompt_dependency_contract,
                 typed_prompt_inputs=config.typed_prompt_inputs,
+                target_dsl_version=self.target_dsl_version,
+            )
+            validate_phased_delivery_carriage(
+                config.provider_call_policy,
+                prompt_attempt_identity_version=(
+                    config.prompt_attempt_identity_version
+                ),
                 target_dsl_version=self.target_dsl_version,
             )
 
