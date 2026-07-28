@@ -11,7 +11,9 @@
   `L2_FINAL_SPEC_APPROVED`, then independent final quality review
   `L2_FINAL_QUALITY_APPROVED` (2026-07-27); L3 independent specification review
   `L3_DESIGN_SPEC_APPROVED`, then independent quality review
-  `L3_DESIGN_QUALITY_APPROVED` (2026-07-28)
+  `L3_DESIGN_QUALITY_APPROVED` (2026-07-28); L3 canonical-path refusal
+  correction `L3_CANONICAL_PATH_DESIGN_SPEC_APPROVED`, then independent
+  `L3_CANONICAL_PATH_DESIGN_QUALITY_APPROVED` (2026-07-28)
 - **Created:** 2026-07-13
 - **Last material update:** 2026-07-28
 - **Review history:** earlier design and quality changes-required rounds,
@@ -27,7 +29,10 @@
   `STAGE8_DESIGN_SPEC_APPROVED`, then
   `STAGE8_DESIGN_QUALITY_APPROVED`. The L3 immutable per-source-selection
   amendment then passed ordered `L3_DESIGN_SPEC_APPROVED` and
-  `L3_DESIGN_QUALITY_APPROVED`.
+  `L3_DESIGN_QUALITY_APPROVED`. The implementation-discovered
+  uncanonicalizable-JSON-key correction then passed ordered
+  `L3_CANONICAL_PATH_DESIGN_SPEC_APPROVED` and
+  `L3_CANONICAL_PATH_DESIGN_QUALITY_APPROVED`.
 - **Related docs / plans:**
   - `docs/design/workflow_lisp_frontend_specification.md` §76.1 "Editor And
     Lint Tooling Compatibility" (parent authority for this design)
@@ -115,14 +120,15 @@ a non-empty exported-workflow name passed unchanged to the production
 `FrontendBuildRequest.entry_workflow` field. Relative keys resolve from the
 one canonical workspace root. Every key must canonicalize to a `.orc` path
 contained by that root. Initialization rejects a non-object value, an
-empty key, a non-string or empty mapped value, an uncontained path, or two
-distinct spellings of the same canonical path. File existence is checked at
-the ordinary open/save compile boundary, not during option normalization.
+empty key, a non-string or empty mapped value, a path that cannot be
+canonicalized, an uncontained path, or two distinct spellings of the same
+canonical path. File existence is checked at the ordinary open/save compile
+boundary, not during option normalization.
 
 Normalization does not trim, case-fold, Unicode-normalize, parse, or check
-that a configured export exists. Shape/suffix failures use
-`lsp_initialization_option_invalid`; containment and canonical-alias
-collisions use `lsp_entry_workflow_path_uncontained` and
+that a configured export exists. Shape, path-canonicalization, and suffix
+failures use `lsp_initialization_option_invalid`; containment and
+canonical-alias collisions use `lsp_entry_workflow_path_uncontained` and
 `lsp_entry_workflow_path_duplicate`, respectively. The removed scalar uses
 `lsp_initialization_option_unsupported`.
 
@@ -150,6 +156,7 @@ into `JsonRpcInvalidParams.data`. The closed variants are:
 | `mapping_required` | `lsp_initialization_option_invalid` | `entry_workflows` | the whole supplied field value | none |
 | `key_nonempty_string_required` | `lsp_initialization_option_invalid` | `entry_workflows` | the empty raw key | none |
 | `entry_value_nonempty_string_required` | `lsp_initialization_option_invalid` | `entry_workflows` | the raw mapped value | `entry_key` |
+| `canonical_path_required` | `lsp_initialization_option_invalid` | `entry_workflows` | the raw key whose filesystem path cannot be canonicalized | `entry_key` |
 | `orc_suffix_required` | `lsp_initialization_option_invalid` | `entry_workflows` | the raw key | `entry_key`, `canonical_path` |
 | `workspace_containment_required` | `lsp_entry_workflow_path_uncontained` | `entry_workflows` | the raw key | `entry_key`, `canonical_path` |
 | `canonical_path_unique` | `lsp_entry_workflow_path_duplicate` | `entry_workflows` | the lexically second raw spelling | `entry_key`, `canonical_path`, `conflicting_entry_key` (the lexically first spelling) |
@@ -164,11 +171,14 @@ Validation order is deterministic. Generic unsupported-option validation runs
 first in lexical field-name order; if `entry_workflow` is the selected
 unsupported field, the first row above applies. Then `entry_workflows` is
 checked for object shape. Its entries are processed in lexical raw-key order,
-with rules applied in table order from key shape through containment. After
-all individual entries pass, canonical paths are grouped in canonical-path
-order; within a duplicate group, lexical raw-key order selects the first
-spelling as `conflicting_entry_key` and the second as the rejected
-`entry_key`. The first failing rule terminates initialization.
+with rules applied in table order from key shape through containment. A
+filesystem canonicalization exception is represented only by
+`canonical_path_required`; because no canonical path exists, that row must
+not invent or include `canonical_path`. After all individual entries pass,
+canonical paths are grouped in canonical-path order; within a duplicate
+group, lexical raw-key order selects the first spelling as
+`conflicting_entry_key` and the second as the rejected `entry_key`. The first
+failing rule terminates initialization.
 
 Acceptance tests bind every code/rule/conditional-field variant at the state
 boundary and through real stdio initialization. They assert structured data,
@@ -218,8 +228,8 @@ their serialized Stage-3 requests in both orders. It proves:
    request with the corresponding presence/absence of the entry flag;
 4. each accepted result and diagnostic sequence matches its isolated-process
    peer; and
-5. canonical-alias duplicates, malformed mappings, uncontained paths, and the
-   removed scalar fail closed.
+5. canonical-alias duplicates, malformed mappings, uncanonicalizable or
+   uncontained paths, and the removed scalar fail closed.
 
 MR-4 supplies the accepted compile-path-reentrancy prerequisite for this
 workload. L3 consumes that substrate but does not reopen compiler-session
