@@ -1,0 +1,1812 @@
+"""Private phased-delivery coordinator contracts over synthetic bindings."""
+
+from __future__ import annotations
+
+from concurrent.futures import Future
+from dataclasses import FrozenInstanceError, replace
+import hashlib
+import json
+from pathlib import Path
+from threading import Thread
+import time
+from typing import cast, Mapping
+
+import pytest
+
+from orchestrator.providers.interactive_terminal import (
+    CloseOfferReceipt,
+    InteractiveMemberHandle,
+    InteractiveMemberInvocation,
+    InteractiveSessionSupport,
+    InteractiveTerminalStartOutcome,
+    NaturalShutdownProof,
+    OfferReceipt,
+)
+from orchestrator.workflow.prompting import CanonicalPromptCut
+from orchestrator.workflow.provider_attempts import ProviderAttemptScope
+from orchestrator.workflow.provider_phased_delivery.bindings import (
+    AtomicSuccessCommitReceipt,
+    AttemptAllocation,
+    AttemptComposition,
+    CandidatePathBinding,
+    CandidatePreflight,
+    CandidateResetResult,
+    CandidateSnapshot,
+    FrozenCandidate,
+    FrozenCandidateFile,
+    FrozenCandidateRestoration,
+    FrozenCandidateVerification,
+    FunctionalEvidencePublication,
+    OutputPositionValidation,
+    PhaseLedger,
+    PhasedOperationFailure,
+    PhasedProviderAttemptCoordinatorBindings,
+    PhasedProviderAttemptSuccess,
+    StructuredResultValidation,
+    SubmitEndpoint,
+    ValidatedArtifact,
+    ValidatedStructuredResult,
+)
+from orchestrator.workflow.provider_phased_delivery.coordinator import (
+    PhasedProviderAttemptCoordinator,
+    _NeedsTerminalization,
+)
+from orchestrator.workflow.provider_phased_delivery.diagnostics import (
+    DiagnosticSource,
+    PhasedDeliveryDiagnostic,
+    RejectedValue,
+    SOURCE_PROFILES,
+    diagnostic_definition,
+)
+from orchestrator.workflow.provider_phased_delivery.endpoint import (
+    PhasedSubmitEndpoint,
+    SubmitEndpointEvent,
+    SubmitEndpointShutdownOutcome,
+)
+from orchestrator.workflow.provider_phased_delivery.frames import (
+    RenderedProtocolTurn,
+    render_initial_materialization_turn,
+    render_retry_materialization_turn,
+    render_task_turn,
+)
+from orchestrator.workflow.provider_phased_delivery.models import (
+    AdapterReceiptProjection,
+    ByteDigestProjection,
+    CandidateDigestRow,
+    CompositionProjection,
+    PhasedLifecycleState,
+    SubmitReceipt,
+)
+from orchestrator.workflow.provider_phased_delivery.ledger import (
+    ProviderPromptPhaseLedgerWriter,
+    validate_ledger_bytes,
+)
+from orchestrator.workflow.provider_phased_delivery.protocol import (
+    PHASED_PROVIDER_BINDING_ENV,
+    PhasedSubmitBinding,
+    SubmitEndpointLocator,
+    SubmitRequest,
+    derive_submit_binding_and_locator,
+    send_submit_request,
+)
+
+
+def _digest(payload: bytes) -> str:
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _scope() -> ProviderAttemptScope:
+    return ProviderAttemptScope.from_dict(
+        {
+            "run_id": "20260728T120000Z-q5-coordinator",
+            "resume_scope": {
+                "root_workflow_file": "workflows/review.orc",
+                "call_frame_ids": [],
+            },
+            "runtime_step_id": "Review",
+            "enclosing_step": {
+                "step_name": "Review",
+                "step_id": "Review",
+                "visit_count": 1,
+            },
+            "loop_iteration": None,
+            "adjudication_subject": None,
+        }
+    )
+
+
+def _cut() -> CanonicalPromptCut:
+    task = b"review the supplied design\n"
+    materialization = b"write the bound result bundle\n"
+    canonical = task + materialization
+    return CanonicalPromptCut(
+        task_slice=task,
+        materialization_slice=materialization,
+        canonical_composed=canonical,
+        projection=CompositionProjection(
+            canonical_composed=ByteDigestProjection(
+                bytes=len(canonical),
+                sha256=_digest(canonical),
+            ),
+            task_slice=ByteDigestProjection(
+                bytes=len(task),
+                sha256=_digest(task),
+            ),
+            materialization_slice=ByteDigestProjection(
+                bytes=len(materialization),
+                sha256=_digest(materialization),
+            ),
+        ),
+    )
+
+
+def _support() -> InteractiveSessionSupport:
+    return InteractiveSessionSupport(
+        schema_version="interactive_terminal_turn_queue.v1",
+        turn_boundary_messages=True,
+        command=("provider", "${PROMPT}"),
+        message_submit_keys=("ENTER",),
+        graceful_close_text="/exit",
+        graceful_close_submit_keys=("ENTER",),
+    )
+
+
+def _embedded_prompt_support() -> InteractiveSessionSupport:
+    return InteractiveSessionSupport(
+        schema_version="interactive_terminal_turn_queue.v1",
+        turn_boundary_messages=True,
+        command=(
+            "provider",
+            "--prompt=${PROMPT}",
+            "--model=${MODEL}",
+        ),
+        message_submit_keys=("ENTER",),
+        graceful_close_text="/exit",
+        graceful_close_submit_keys=("ENTER",),
+    )
+
+
+def _invocation(
+    task_turn: RenderedProtocolTurn,
+    submit_binding: PhasedSubmitBinding,
+) -> InteractiveMemberInvocation:
+    return InteractiveMemberInvocation(
+        invocation_id="q5-invocation",
+        member_id="provider",
+        attempt_scope_key=_scope().key,
+        attempt_ordinal=1,
+        resolved_command=(
+            "provider",
+            task_turn.delivered_turn.decode("utf-8"),
+        ),
+        cwd=None,
+        env={
+            PHASED_PROVIDER_BINDING_ENV: submit_binding.opaque_value,
+        },
+        support=_support(),
+    )
+
+
+def _handle() -> InteractiveMemberHandle:
+    return InteractiveMemberHandle(
+        adapter_instance_id="adapter",
+        handle_id="handle",
+        invocation_id="q5-invocation",
+        member_id="provider",
+        attempt_scope_key=_scope().key,
+        attempt_ordinal=1,
+        target="target",
+        socket_path=Path("/tmp/q5-provider.sock"),
+    )
+
+
+def _adapter_receipt(status: str) -> AdapterReceiptProjection:
+    return AdapterReceiptProjection(
+        status=status,
+        handle_id_sha256=_digest(b"handle"),
+    )
+
+
+def _diagnostic(reason: str) -> PhasedDeliveryDiagnostic:
+    definition = diagnostic_definition(reason)
+    profile = SOURCE_PROFILES[definition.source_profile]
+    assert profile.primary_owner is not None
+    canonical_value = (
+        "missing_output_file"
+        if reason == "output_validation_failed"
+        else (
+            "invalid_bundle_field"
+            if reason == "structured_result_validation_failed"
+            else (
+                1 if reason == "materialization_attempts_exhausted" else None
+            )
+        )
+    )
+    return PhasedDeliveryDiagnostic(
+        code=definition.code,
+        reason=reason,
+        rejected_value=RejectedValue(
+            type=definition.value_type,
+            canonical_value=canonical_value,
+            summary=reason,
+        ),
+        primary_source=DiagnosticSource(
+            kind=(
+                "adapter_operation"
+                if profile.primary_owner == "interactive_adapter"
+                else "runtime_attempt"
+            ),
+            owner=profile.primary_owner,
+            path=None,
+            span=None,
+        ),
+        related_sources=tuple(
+            DiagnosticSource(
+                kind=(
+                    "state_commit"
+                    if owner == "workflow_state_commit"
+                    else "runtime_attempt"
+                ),
+                owner=owner,
+                path=None,
+                span=None,
+            )
+            for owner in profile.related_owners
+        ),
+    )
+
+
+def _candidate_preflight() -> CandidatePreflight:
+    return CandidatePreflight.create(
+        bindings=(
+            CandidatePathBinding(
+                contract_ordinal=0,
+                role="expected_output",
+                logical_name="report",
+                workspace_relative_path="artifacts/report.md",
+            ),
+            CandidatePathBinding(
+                contract_ordinal=1,
+                role="structured_bundle",
+                logical_name="__structured_result_bundle__",
+                workspace_relative_path="artifacts/result.json",
+            ),
+        )
+    )
+
+
+def _candidate_snapshot(
+    preflight: CandidatePreflight,
+    *,
+    submission_ordinal: int = 1,
+) -> CandidateSnapshot:
+    report = b"approved\n"
+    result = b'{"decision":"APPROVE"}\n'
+    return CandidateSnapshot.create(
+        preflight=preflight,
+        submission_ordinal=submission_ordinal,
+        rows=(
+            CandidateDigestRow(
+                contract_ordinal=0,
+                role="expected_output",
+                logical_name="report",
+                workspace_relative_path="artifacts/report.md",
+                presence="regular",
+                byte_length=len(report),
+                sha256=_digest(report),
+            ),
+            CandidateDigestRow(
+                contract_ordinal=1,
+                role="structured_bundle",
+                logical_name="__structured_result_bundle__",
+                workspace_relative_path="artifacts/result.json",
+                presence="regular",
+                byte_length=len(result),
+                sha256=_digest(result),
+            ),
+        ),
+    )
+
+
+class RecordingLedger:
+    def __init__(self, owner: "RecordingBindings") -> None:
+        self.owner = owner
+        self.events: list[tuple[str, Mapping[str, object]]] = []
+
+    def append(
+        self,
+        event: str,
+        payload: Mapping[str, object],
+        *,
+        observed_at: str,
+    ) -> None:
+        assert observed_at == "2026-07-28T12:00:00Z"
+        self.events.append((event, payload))
+        self.owner.actions.append(f"ledger.{event}")
+        if event == "join_succeeded":
+            assert self.owner.coordinator is not None
+            assert (
+                self.owner.coordinator.lifecycle.phase
+                == "JOINED_PENDING_COMMIT"
+            )
+
+    def close(self) -> None:
+        self.owner.actions.append("ledger.close")
+
+
+class OneSubmitEndpoint:
+    def __init__(
+        self,
+        owner: "RecordingBindings",
+        requests: tuple[SubmitRequest, ...],
+    ) -> None:
+        self.owner = owner
+        self.binding = owner.composition.submit_binding
+        self.events = tuple(
+            SubmitEndpointEvent(
+                request=request,
+                submission_ordinal=ordinal,
+                _waiter=Future(),
+                _response_sent=Future(),
+            )
+            for ordinal, request in enumerate(requests, start=1)
+        )
+        self.receive_index = 0
+        self.receipts: list[tuple[SubmitReceipt, bool]] = []
+
+    def start(self) -> None:
+        self.owner.actions.append("endpoint.start")
+
+    def open_admission(self, lifecycle: str) -> None:
+        assert lifecycle == "INITIAL_MATERIALIZATION_QUEUED"
+        self.owner.actions.append("endpoint.open_initial")
+
+    def receive_event(
+        self,
+        *,
+        deadline: float | None = None,
+    ) -> SubmitEndpointEvent:
+        assert deadline == self.binding.deadline
+        self.owner.actions.append("endpoint.receive")
+        event = self.events[self.receive_index]
+        self.receive_index += 1
+        return event
+
+    def resolve(
+        self,
+        event: SubmitEndpointEvent,
+        receipt: SubmitReceipt,
+        *,
+        rearm_retry: bool = False,
+    ) -> None:
+        assert event is self.events[len(self.receipts)]
+        if receipt.status == "retry_queued":
+            assert rearm_retry is True
+        self.receipts.append((receipt, rearm_retry))
+        self.owner.actions.append(f"endpoint.resolve.{receipt.status}")
+
+    def stop_admission(self) -> None:
+        self.owner.actions.append("endpoint.stop")
+
+    def shutdown(
+        self,
+        *,
+        deadline: float | None = None,
+    ) -> SubmitEndpointShutdownOutcome:
+        assert deadline == self.binding.deadline
+        self.owner.actions.append("endpoint.shutdown")
+        return SubmitEndpointShutdownOutcome(
+            queued_requests_rejected=0,
+            active_requests_drained=1,
+            listener_closed=True,
+            workers_joined=1,
+            endpoint_zero_survivor_proven=True,
+        )
+
+
+class ScriptedAdapter:
+    def __init__(self, owner: "RecordingBindings") -> None:
+        self.owner = owner
+        self.handle = _handle()
+
+    def start(
+        self,
+        invocation: InteractiveMemberInvocation,
+        *,
+        deadline: float,
+    ) -> InteractiveTerminalStartOutcome:
+        assert invocation == self.owner.composition.invocation
+        assert deadline == self.owner.composition.deadline
+        self.owner.actions.append("adapter.start")
+        return InteractiveTerminalStartOutcome(
+            status="started",
+            handle=self.handle,
+        )
+
+    def offer(
+        self,
+        handle: InteractiveMemberHandle,
+        literal_message: str,
+        *,
+        deadline: float,
+    ) -> OfferReceipt:
+        assert handle == self.handle
+        assert deadline == self.owner.composition.deadline
+        turn = self.owner.offered_turns[len(self.owner.actual_offers)]
+        assert literal_message.encode("utf-8") == turn.delivered_turn
+        self.owner.actual_offers.append(turn)
+        self.owner.actions.append(f"adapter.offer.{turn.projection.phase}")
+        return OfferReceipt(
+            status="offered",
+            handle_id=handle.handle_id,
+            byte_count=len(turn.delivered_turn),
+            content_sha256=_digest(turn.delivered_turn),
+        )
+
+    def offer_close(
+        self,
+        handle: InteractiveMemberHandle,
+        *,
+        deadline: float,
+    ) -> CloseOfferReceipt:
+        assert handle == self.handle
+        assert deadline == self.owner.composition.deadline
+        self.owner.actions.append("adapter.offer_close")
+        return CloseOfferReceipt(
+            status="close_offered",
+            handle_id=handle.handle_id,
+        )
+
+    def join(
+        self,
+        handle: InteractiveMemberHandle,
+        deadline: float,
+    ) -> NaturalShutdownProof:
+        assert handle == self.handle
+        assert deadline == self.owner.composition.deadline
+        self.owner.actions.append("adapter.join")
+        return NaturalShutdownProof(
+            disposition="natural_exit",
+            handle_id=handle.handle_id,
+            return_code=0,
+            pane_absent=True,
+            server_absent=True,
+            proof_complete=True,
+        )
+
+
+class RecordingBindings(PhasedProviderAttemptCoordinatorBindings):
+    def __init__(
+        self,
+        *,
+        materialization_attempts: int = 1,
+        outcomes: tuple[tuple[bool, bool], ...] = ((True, True),),
+    ) -> None:
+        assert len(outcomes) <= materialization_attempts
+        self.actions: list[str] = []
+        self.failure_finalization_calls = 0
+        self.coordinator: PhasedProviderAttemptCoordinator | None = None
+        scope = _scope()
+        self.allocation = AttemptAllocation(
+            scope=scope,
+            attempt_ordinal=1,
+        )
+        cut = _cut()
+        task_turn = render_task_turn(cut=cut)
+        initial_turn = render_initial_materialization_turn(
+            cut=cut,
+            submit_keys=("ENTER",),
+        )
+        submit_binding, endpoint_locator = (
+            derive_submit_binding_and_locator(
+                attempt_scope_sha256=scope.key,
+                socket_root=Path("/tmp"),
+                nonce="q5-coordinator",
+                deadline=1000.0,
+            )
+        )
+        self.composition = AttemptComposition(
+            cut=cut,
+            materialization_attempts=materialization_attempts,
+            task_turn=task_turn,
+            initial_materialization_turn=initial_turn,
+            pre_prompt_command=("provider", "${PROMPT}"),
+            invocation=_invocation(task_turn, submit_binding),
+            submit_binding=submit_binding,
+            endpoint_locator=endpoint_locator,
+            deadline=1000.0,
+        )
+        self.preflight = _candidate_preflight()
+        self.snapshots = tuple(
+            _candidate_snapshot(
+                self.preflight,
+                submission_ordinal=ordinal,
+            )
+            for ordinal in range(1, len(outcomes) + 1)
+        )
+        self.output_validations = tuple(
+            OutputPositionValidation(
+                snapshot_sha256=snapshot.snapshot_sha256,
+                artifacts=(
+                    (
+                        ValidatedArtifact(
+                            logical_name="report",
+                            workspace_relative_path="artifacts/report.md",
+                        ),
+                    )
+                    if output_valid
+                    else ()
+                ),
+                diagnostic=(
+                    None
+                    if output_valid
+                    else _diagnostic("output_validation_failed")
+                ),
+            )
+            for snapshot, (output_valid, _structured_valid) in zip(
+                self.snapshots,
+                outcomes,
+                strict=True,
+            )
+        )
+        self.structured_validations = tuple(
+            StructuredResultValidation(
+                snapshot_sha256=snapshot.snapshot_sha256,
+                result=(
+                    ValidatedStructuredResult(
+                        canonical_bundle=b'{"decision":"APPROVE"}\n',
+                    )
+                    if structured_valid
+                    else None
+                ),
+                diagnostic=(
+                    None
+                    if structured_valid
+                    else _diagnostic(
+                        "structured_result_validation_failed"
+                    )
+                ),
+            )
+            for snapshot, (_output_valid, structured_valid) in zip(
+                self.snapshots,
+                outcomes,
+                strict=True,
+            )
+        )
+        final_snapshot = self.snapshots[-1]
+        self.frozen = FrozenCandidate.create(
+            snapshot=final_snapshot,
+            files=(
+                FrozenCandidateFile(
+                    binding=self.preflight.bindings[0],
+                    content=b"approved\n",
+                ),
+                FrozenCandidateFile(
+                    binding=self.preflight.bindings[1],
+                    content=b'{"decision":"APPROVE"}\n',
+                ),
+            ),
+        )
+        retry_turns: list[RenderedProtocolTurn] = []
+        for ordinal, (output_valid, structured_valid) in enumerate(
+            outcomes[:-1],
+            start=1,
+        ):
+            diagnostics = tuple(
+                diagnostic
+                for diagnostic in (
+                    (
+                        None
+                        if output_valid
+                        else _diagnostic("output_validation_failed")
+                    ),
+                    (
+                        None
+                        if structured_valid
+                        else _diagnostic(
+                            "structured_result_validation_failed"
+                        )
+                    ),
+                )
+                if diagnostic is not None
+            )
+            retry_turns.append(
+                render_retry_materialization_turn(
+                    cut=cut,
+                    submission_ordinal=ordinal + 1,
+                    diagnostics=diagnostics,
+                    submit_keys=("ENTER",),
+                )
+            )
+        self.offered_turns = (
+            self.composition.initial_materialization_turn,
+            *retry_turns,
+        )
+        self.actual_offers: list[RenderedProtocolTurn] = []
+        self.adapter = ScriptedAdapter(self)
+        requests = tuple(
+            SubmitRequest(
+                attempt_scope_sha256=scope.key,
+                endpoint_instance_id=submit_binding.endpoint_instance_id,
+                binding_token=submit_binding.binding_token,
+                client_request_id=f"request-{ordinal}",
+                payload_sha256=_digest(b""),
+            )
+            for ordinal in range(1, len(outcomes) + 1)
+        )
+        self.endpoint = OneSubmitEndpoint(self, requests)
+        self.committed_material = None
+
+    def observed_at(self) -> str:
+        return "2026-07-28T12:00:00Z"
+
+    def allocate_attempt(self) -> AttemptAllocation:
+        self.actions.append("bindings.allocate")
+        return self.allocation
+
+    def compose_attempt(
+        self,
+        allocation: AttemptAllocation,
+    ) -> AttemptComposition:
+        assert allocation == self.allocation
+        self.actions.append("bindings.compose")
+        return self.composition
+
+    def preflight_candidates(
+        self,
+        composition: AttemptComposition,
+    ) -> CandidatePreflight:
+        assert composition == self.composition
+        self.actions.append("bindings.preflight")
+        return self.preflight
+
+    def create_ledger(
+        self,
+        allocation: AttemptAllocation,
+        composition: AttemptComposition,
+    ) -> PhaseLedger:
+        assert allocation == self.allocation
+        assert composition == self.composition
+        self.actions.append("ledger.header")
+        self.ledger = RecordingLedger(self)
+        return self.ledger
+
+    def create_endpoint(
+        self,
+        composition: AttemptComposition,
+    ) -> SubmitEndpoint:
+        assert composition == self.composition
+        self.actions.append("bindings.endpoint")
+        return self.endpoint
+
+    def snapshot_candidates(
+        self,
+        preflight: CandidatePreflight,
+        submission_ordinal: int,
+    ) -> CandidateSnapshot:
+        assert preflight == self.preflight
+        snapshot = self.snapshots[submission_ordinal - 1]
+        self.actions.append("bindings.snapshot")
+        return snapshot
+
+    def validate_output_positions(
+        self,
+        snapshot: CandidateSnapshot,
+    ) -> OutputPositionValidation:
+        index = snapshot.submission_ordinal - 1
+        self.actions.append("bindings.validate_output")
+        return self.output_validations[index]
+
+    def validate_structured_result(
+        self,
+        snapshot: CandidateSnapshot,
+    ) -> StructuredResultValidation:
+        index = snapshot.submission_ordinal - 1
+        self.actions.append("bindings.validate_structured")
+        return self.structured_validations[index]
+
+    def reset_candidates(
+        self,
+        snapshot: CandidateSnapshot,
+    ) -> CandidateResetResult:
+        self.actions.append("bindings.reset")
+        return CandidateResetResult(
+            snapshot_sha256=snapshot.snapshot_sha256,
+            preflight_sha256=snapshot.preflight_sha256,
+            postcondition="all_bound_paths_absent",
+        )
+
+    def freeze_candidate(
+        self,
+        snapshot: CandidateSnapshot,
+        output: OutputPositionValidation,
+        structured: StructuredResultValidation,
+    ) -> FrozenCandidate:
+        assert snapshot == self.snapshots[-1]
+        assert output == self.output_validations[-1]
+        assert structured == self.structured_validations[-1]
+        self.actions.append("bindings.freeze")
+        return self.frozen
+
+    def publish_functional_evidence(
+        self,
+        frozen: FrozenCandidate,
+        actual_deliveries: tuple[RenderedProtocolTurn, ...],
+    ) -> FunctionalEvidencePublication:
+        assert frozen == self.frozen
+        assert actual_deliveries == (
+            self.composition.task_turn,
+            *self.offered_turns,
+        )
+        self.actions.append("bindings.publish_evidence")
+        return FunctionalEvidencePublication.create(
+            frozen=frozen,
+            actual_deliveries=actual_deliveries,
+            relative_path=(
+                "workflow_lisp/prompt_dependencies/review/"
+                "attempt-000001.json"
+            ),
+            evidence_sha256=_digest(b"functional-evidence"),
+        )
+
+    def restore_frozen_candidate(
+        self,
+        frozen: FrozenCandidate,
+    ) -> FrozenCandidateRestoration:
+        assert frozen == self.frozen
+        self.actions.append("bindings.restore")
+        return FrozenCandidateRestoration(
+            frozen_sha256=frozen.frozen_sha256,
+            restored_paths=len(frozen.files),
+        )
+
+    def verify_frozen_candidate(
+        self,
+        frozen: FrozenCandidate,
+        restoration: FrozenCandidateRestoration,
+    ) -> FrozenCandidateVerification:
+        assert frozen == self.frozen
+        assert restoration.frozen_sha256 == frozen.frozen_sha256
+        self.actions.append("bindings.verify")
+        return FrozenCandidateVerification(
+            frozen_sha256=frozen.frozen_sha256,
+            verified=True,
+        )
+
+    def atomic_success_commit(
+        self,
+        *,
+        allocation: AttemptAllocation,
+        output: OutputPositionValidation,
+        structured: StructuredResultValidation,
+        frozen: FrozenCandidate,
+        evidence: FunctionalEvidencePublication,
+        verification: FrozenCandidateVerification,
+    ) -> AtomicSuccessCommitReceipt:
+        self.committed_material = (
+            allocation,
+            output,
+            structured,
+            frozen,
+            evidence,
+            verification,
+        )
+        self.actions.append("bindings.atomic_commit")
+        return AtomicSuccessCommitReceipt(
+            evidence_sha256=evidence.evidence_sha256,
+            frozen_sha256=frozen.frozen_sha256,
+            status="authoritative_state_committed",
+        )
+
+    def finalize_failure(
+        self,
+        first_diagnostic: PhasedDeliveryDiagnostic,
+        lifecycle: PhasedLifecycleState,
+    ) -> None:
+        assert type(first_diagnostic) is PhasedDeliveryDiagnostic
+        assert type(lifecycle) is PhasedLifecycleState
+        self.failure_finalization_calls += 1
+
+
+class RealDriverAdapter(ScriptedAdapter):
+    def __init__(self, owner: "RealIntegrationBindings") -> None:
+        super().__init__(owner)
+        self.owner = owner
+
+    def offer(
+        self,
+        handle: InteractiveMemberHandle,
+        literal_message: str,
+        *,
+        deadline: float,
+    ) -> OfferReceipt:
+        receipt = super().offer(
+            handle,
+            literal_message,
+            deadline=deadline,
+        )
+        if len(self.owner.actual_offers) == 1:
+            self.owner.client_thread = Thread(
+                target=self.owner.run_client,
+                name="q5-real-submit-client",
+            )
+            self.owner.client_thread.start()
+        return receipt
+
+
+class RealIntegrationBindings(RecordingBindings):
+    def __init__(self, tmp_path: Path) -> None:
+        super().__init__(
+            materialization_attempts=2,
+            outcomes=((False, True), (True, True)),
+        )
+        self.run_root = tmp_path / "run"
+        self.run_root.mkdir()
+        deadline = time.monotonic() + 5
+        binding, locator = derive_submit_binding_and_locator(
+            attempt_scope_sha256=self.allocation.scope.key,
+            socket_root=tmp_path,
+            nonce="q5-real-coordinator",
+            deadline=deadline,
+        )
+        self.composition = AttemptComposition(
+            cut=self.composition.cut,
+            materialization_attempts=2,
+            task_turn=self.composition.task_turn,
+            initial_materialization_turn=(
+                self.composition.initial_materialization_turn
+            ),
+            pre_prompt_command=self.composition.pre_prompt_command,
+            invocation=_invocation(self.composition.task_turn, binding),
+            submit_binding=binding,
+            endpoint_locator=locator,
+            deadline=deadline,
+        )
+        self.adapter = RealDriverAdapter(self)
+        self.endpoint = PhasedSubmitEndpoint(
+            binding=binding,
+            locator=locator,
+            configured_total=2,
+        )
+        self.client_receipts: list[SubmitReceipt] = []
+        self.client_thread: Thread | None = None
+        self.ledger_path: Path | None = None
+
+    def run_client(self) -> None:
+        for ordinal in (1, 2):
+            receipt = send_submit_request(
+                SubmitRequest(
+                    attempt_scope_sha256=self.allocation.scope.key,
+                    endpoint_instance_id=(
+                        self.composition.submit_binding.endpoint_instance_id
+                    ),
+                    binding_token=(
+                        self.composition.submit_binding.binding_token
+                    ),
+                    client_request_id=f"real-request-{ordinal}",
+                    payload_sha256=_digest(b""),
+                ),
+                binding=self.composition.submit_binding,
+            )
+            self.client_receipts.append(receipt)
+            if receipt.status != "retry_queued":
+                return
+
+    def create_ledger(
+        self,
+        allocation: AttemptAllocation,
+        composition: AttemptComposition,
+    ) -> ProviderPromptPhaseLedgerWriter:
+        self.actions.append("ledger.header")
+        writer = ProviderPromptPhaseLedgerWriter.create(
+            self.run_root,
+            scope=allocation.scope,
+            ordinal=allocation.attempt_ordinal,
+            cut=composition.cut,
+            materialization_attempts=composition.materialization_attempts,
+            created_at=self.observed_at(),
+        )
+        self.ledger_path = writer.path
+        return writer
+
+    def create_endpoint(
+        self,
+        composition: AttemptComposition,
+    ) -> PhasedSubmitEndpoint:
+        assert composition == self.composition
+        self.actions.append("bindings.endpoint")
+        return self.endpoint
+
+
+def test_real_endpoint_and_ledger_validate_atomic_retry_spine(
+    tmp_path: Path,
+) -> None:
+    bindings = RealIntegrationBindings(tmp_path)
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+    assert bindings.client_thread is not None
+    bindings.client_thread.join(timeout=1)
+
+    assert not bindings.client_thread.is_alive()
+    assert tuple(receipt.status for receipt in bindings.client_receipts) == (
+        "retry_queued",
+        "accepted_closing",
+    )
+    assert result.actual_deliveries == (
+        bindings.composition.task_turn,
+        *bindings.offered_turns,
+    )
+    assert bindings.ledger_path is not None
+    validation = validate_ledger_bytes(bindings.ledger_path.read_bytes())
+    assert validation["status"] == "complete"
+    assert validation["terminal_event"] == "publication_succeeded"
+
+
+def test_one_submit_happy_path_records_before_actions_and_commits_once() -> None:
+    bindings = RecordingBindings()
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert result.lifecycle.phase == "PUBLISHED"
+    assert result.submission_ordinal == 1
+    assert result.actual_deliveries == (
+        bindings.composition.task_turn,
+        bindings.composition.initial_materialization_turn,
+    )
+    assert bindings.committed_material is not None
+    assert bindings.failure_finalization_calls == 0
+    assert bindings.endpoint.receipts == [
+        (
+            SubmitReceipt(
+                status="accepted_closing",
+                attempt_scope_sha256=bindings.allocation.scope.key,
+                client_request_id="request-1",
+                submission_ordinal=1,
+                configured_total=1,
+                remaining_submissions=0,
+                diagnostic=None,
+            ),
+            False,
+        )
+    ]
+    assert bindings.actions == [
+        "bindings.allocate",
+        "bindings.compose",
+        "bindings.preflight",
+        "ledger.header",
+        "ledger.task_start_requested",
+        "adapter.start",
+        "ledger.task_started",
+        "bindings.endpoint",
+        "endpoint.start",
+        "endpoint.open_initial",
+        "ledger.turn_offer_requested",
+        "adapter.offer.initial_materialization",
+        "ledger.turn_offered",
+        "endpoint.receive",
+        "ledger.submit_received",
+        "bindings.snapshot",
+        "bindings.validate_output",
+        "bindings.validate_structured",
+        "bindings.freeze",
+        "ledger.candidate_frozen",
+        "ledger.close_offer_requested",
+        "adapter.offer_close",
+        "ledger.close_offered",
+        "endpoint.resolve.accepted_closing",
+        "ledger.ingress_shutdown_started",
+        "endpoint.stop",
+        "endpoint.shutdown",
+        "ledger.ingress_shutdown_finished",
+        "ledger.join_started",
+        "adapter.join",
+        "ledger.join_succeeded",
+        "ledger.publication_started",
+        "bindings.publish_evidence",
+        "bindings.restore",
+        "bindings.verify",
+        "bindings.atomic_commit",
+        "ledger.publication_succeeded",
+        "ledger.close",
+    ]
+
+
+def _direct_success(
+    bindings: RecordingBindings,
+    *,
+    submission_ordinal: int,
+    actual_deliveries: tuple[RenderedProtocolTurn, ...],
+    evidence: FunctionalEvidencePublication | None = None,
+) -> PhasedProviderAttemptSuccess:
+    evidence = evidence or FunctionalEvidencePublication.create(
+        frozen=bindings.frozen,
+        actual_deliveries=actual_deliveries,
+        relative_path="artifacts/phased-delivery-evidence.json",
+        evidence_sha256=_digest(b"direct-success-evidence"),
+    )
+    return PhasedProviderAttemptSuccess(
+        allocation=bindings.allocation,
+        lifecycle=PhasedLifecycleState(
+            phase="PUBLISHED",
+            provider_cleanup="NOT_REQUIRED",
+            ingress="COMPLETE",
+            natural_join_proven=True,
+            abort_calls=0,
+        ),
+        submission_ordinal=submission_ordinal,
+        actual_deliveries=actual_deliveries,
+        frozen=bindings.frozen,
+        evidence=evidence,
+        commit=AtomicSuccessCommitReceipt(
+            evidence_sha256=evidence.evidence_sha256,
+            frozen_sha256=bindings.frozen.frozen_sha256,
+            status="authoritative_state_committed",
+        ),
+    )
+
+
+def test_success_constructor_accepts_exact_delivery_chain() -> None:
+    bindings = RecordingBindings(
+        materialization_attempts=2,
+        outcomes=((False, True), (True, True)),
+    )
+    deliveries: tuple[RenderedProtocolTurn, ...] = (
+        bindings.composition.task_turn,
+        *bindings.offered_turns,
+    )
+
+    result = _direct_success(
+        bindings,
+        submission_ordinal=2,
+        actual_deliveries=deliveries,
+    )
+
+    assert result.actual_deliveries == deliveries
+
+
+def test_delivery_digest_seals_submit_key_projection() -> None:
+    bindings = RecordingBindings()
+    task = bindings.composition.task_turn
+    enter = render_initial_materialization_turn(
+        cut=bindings.composition.cut,
+        submit_keys=("ENTER",),
+    )
+    tab = render_initial_materialization_turn(
+        cut=bindings.composition.cut,
+        submit_keys=("TAB",),
+    )
+    assert enter.delivered_turn == tab.delivered_turn
+    assert enter.projection != tab.projection
+
+    enter_evidence = FunctionalEvidencePublication.create(
+        frozen=bindings.frozen,
+        actual_deliveries=(task, enter),
+        relative_path="artifacts/enter.json",
+        evidence_sha256=_digest(b"enter-evidence"),
+    )
+    tab_evidence = FunctionalEvidencePublication.create(
+        frozen=bindings.frozen,
+        actual_deliveries=(task, tab),
+        relative_path="artifacts/tab.json",
+        evidence_sha256=_digest(b"tab-evidence"),
+    )
+
+    assert (
+        enter_evidence.actual_deliveries_sha256
+        != tab_evidence.actual_deliveries_sha256
+    )
+
+
+def test_success_constructor_rejects_foreign_delivery_evidence() -> None:
+    bindings = RecordingBindings()
+    task = bindings.composition.task_turn
+    enter = bindings.composition.initial_materialization_turn
+    tab = render_initial_materialization_turn(
+        cut=bindings.composition.cut,
+        submit_keys=("TAB",),
+    )
+    evidence = FunctionalEvidencePublication.create(
+        frozen=bindings.frozen,
+        actual_deliveries=(task, enter),
+        relative_path="artifacts/evidence.json",
+        evidence_sha256=_digest(b"evidence"),
+    )
+
+    with pytest.raises(ValueError, match="deliver"):
+        _direct_success(
+            bindings,
+            submission_ordinal=1,
+            actual_deliveries=(task, tab),
+            evidence=evidence,
+        )
+
+
+def test_success_constructor_rejects_submission_predecessor_mismatch() -> None:
+    bindings = RecordingBindings()
+
+    with pytest.raises(ValueError, match="submission"):
+        _direct_success(
+            bindings,
+            submission_ordinal=2,
+            actual_deliveries=(
+                bindings.composition.task_turn,
+                bindings.composition.initial_materialization_turn,
+            ),
+        )
+
+
+@pytest.mark.parametrize("malformation", ("second_task", "retry_gap"))
+def test_success_constructor_rejects_invalid_delivery_grammar(
+    malformation: str,
+) -> None:
+    bindings = RecordingBindings(
+        materialization_attempts=3,
+        outcomes=((False, True), (False, True), (True, True)),
+    )
+    task = bindings.composition.task_turn
+    initial, retry_two, retry_three = bindings.offered_turns
+    deliveries = (
+        (task, task, retry_two, retry_three)
+        if malformation == "second_task"
+        else (task, initial, retry_three)
+    )
+
+    with pytest.raises(ValueError, match="delivery"):
+        _direct_success(
+            bindings,
+            submission_ordinal=3,
+            actual_deliveries=deliveries,
+        )
+
+
+@pytest.mark.parametrize(
+    "first_outcome",
+    (
+        (False, True),
+        (True, False),
+    ),
+)
+def test_invalid_then_valid_runs_both_validators_and_atomically_rearms_retry(
+    first_outcome: tuple[bool, bool],
+) -> None:
+    bindings = RecordingBindings(
+        materialization_attempts=2,
+        outcomes=(first_outcome, (True, True)),
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    validator_actions = tuple(
+        action
+        for action in bindings.actions
+        if action.startswith("bindings.validate_")
+    )
+    assert validator_actions == (
+        "bindings.validate_output",
+        "bindings.validate_structured",
+        "bindings.validate_output",
+        "bindings.validate_structured",
+    )
+    assert bindings.actions.count("endpoint.open_initial") == 1
+    assert bindings.endpoint.receipts[0][0].status == "retry_queued"
+    assert bindings.endpoint.receipts[0][1] is True
+    assert bindings.endpoint.receipts[1][0].status == "accepted_closing"
+    assert bindings.endpoint.receipts[1][1] is False
+    assert result.actual_deliveries == (
+        bindings.composition.task_turn,
+        *bindings.offered_turns,
+    )
+    assert result.submission_ordinal == 2
+
+    events = bindings.ledger.events
+    event_names = tuple(event for event, _payload in events)
+    assert event_names == (
+        "task_start_requested",
+        "task_started",
+        "turn_offer_requested",
+        "turn_offered",
+        "submit_received",
+        "validation_rejected",
+        "candidate_reset",
+        "retry_queued",
+        "turn_offer_requested",
+        "turn_offered",
+        "submit_received",
+        "candidate_frozen",
+        "close_offer_requested",
+        "close_offered",
+        "ingress_shutdown_started",
+        "ingress_shutdown_finished",
+        "join_started",
+        "join_succeeded",
+        "publication_started",
+        "publication_succeeded",
+    )
+    rejected_payload = events[5][1]
+    assert rejected_payload["candidate_manifest"] == (
+        bindings.snapshots[0].manifest("rejected")
+    )
+    expected_diagnostics = tuple(
+        diagnostic
+        for diagnostic in (
+            bindings.output_validations[0].diagnostic,
+            bindings.structured_validations[0].diagnostic,
+        )
+        if diagnostic is not None
+    )
+    assert rejected_payload["diagnostics"] == expected_diagnostics
+    assert events[7][1]["turn"] == bindings.offered_turns[1].projection
+    frozen_payload = events[11][1]
+    assert frozen_payload["candidate_manifest"] == (
+        bindings.snapshots[1].manifest("frozen")
+    )
+
+
+@pytest.mark.parametrize("cap", (1, 2, 3))
+def test_invalid_submissions_exhaust_exact_cap_without_publication(
+    cap: int,
+) -> None:
+    bindings = RecordingBindings(
+        materialization_attempts=cap,
+        outcomes=((False, False),) * cap,
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    with pytest.raises(_NeedsTerminalization) as caught:
+        coordinator.run()
+
+    assert (
+        caught.value.first_diagnostic.reason
+        == "materialization_attempts_exhausted"
+    )
+    assert caught.value.lifecycle.phase == "VALIDATING"
+    assert bindings.actions.count("bindings.validate_output") == cap
+    assert bindings.actions.count("bindings.validate_structured") == cap
+    assert bindings.actions.count("bindings.reset") == cap
+    assert "bindings.freeze" not in bindings.actions
+    assert "bindings.publish_evidence" not in bindings.actions
+    assert "bindings.atomic_commit" not in bindings.actions
+    assert bindings.failure_finalization_calls == 0
+    assert tuple(
+        (receipt.status, rearm)
+        for receipt, rearm in bindings.endpoint.receipts
+    ) == (
+        *((("retry_queued", True),) * (cap - 1)),
+        ("failed", False),
+    )
+    rejections = tuple(
+        payload
+        for event, payload in bindings.ledger.events
+        if event == "validation_rejected"
+    )
+    assert tuple(
+        payload["candidate_manifest"] for payload in rejections
+    ) == tuple(
+        snapshot.manifest("rejected")
+        for snapshot in bindings.snapshots
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    ("../outside.json", "/absolute.json", "artifacts/../result.json"),
+)
+def test_candidate_binding_rejects_noncontained_paths(path: str) -> None:
+    with pytest.raises(ValueError, match="relative POSIX"):
+        CandidatePathBinding(
+            contract_ordinal=0,
+            role="structured_bundle",
+            logical_name="__structured_result_bundle__",
+            workspace_relative_path=path,
+        )
+
+
+def test_candidate_preflight_rejects_pairwise_collision() -> None:
+    with pytest.raises(ValueError, match="pairwise distinct"):
+        CandidatePreflight.create(
+            bindings=(
+                CandidatePathBinding(
+                    contract_ordinal=0,
+                    role="expected_output",
+                    logical_name="report",
+                    workspace_relative_path="artifacts/shared.json",
+                ),
+                CandidatePathBinding(
+                    contract_ordinal=1,
+                    role="structured_bundle",
+                    logical_name="__structured_result_bundle__",
+                    workspace_relative_path="artifacts/shared.json",
+                ),
+            )
+        )
+
+
+def test_semantic_binding_values_are_frozen_and_predecessor_sealed() -> None:
+    bindings = RecordingBindings()
+
+    with pytest.raises(FrozenInstanceError):
+        bindings.allocation.attempt_ordinal = 2  # type: ignore[misc]
+    with pytest.raises(ValueError, match="preflight"):
+        replace(
+            bindings.snapshots[0],
+            preflight_sha256=_digest(b"different-preflight"),
+        )
+    with pytest.raises(ValueError, match="does not seal"):
+        replace(
+            bindings.frozen,
+            snapshot_sha256=_digest(b"different-snapshot"),
+        )
+
+
+def test_attempt_composition_carries_exact_task_prompt_and_binding() -> None:
+    bindings = RecordingBindings()
+    composition = bindings.composition
+
+    assert composition.invocation.resolved_command[1] == (
+        composition.task_turn.delivered_turn.decode("utf-8")
+    )
+    assert composition.invocation.env[PHASED_PROVIDER_BINDING_ENV] == (
+        composition.submit_binding.opaque_value
+    )
+
+
+def test_attempt_composition_accepts_embedded_prompt_after_other_substitutions(
+) -> None:
+    bindings = RecordingBindings()
+    task_text = bindings.composition.task_turn.delivered_turn.decode("utf-8")
+    invocation = replace(
+        bindings.composition.invocation,
+        support=_embedded_prompt_support(),
+        resolved_command=(
+            "provider",
+            f"--prompt={task_text}",
+            "--model=o3",
+        ),
+    )
+
+    composition = replace(
+        bindings.composition,
+        pre_prompt_command=(
+            "provider",
+            "--prompt=${PROMPT}",
+            "--model=o3",
+        ),
+        invocation=invocation,
+    )
+
+    assert composition.invocation == invocation
+
+
+def test_attempt_composition_rejects_wrong_embedded_prompt() -> None:
+    bindings = RecordingBindings()
+    invocation = replace(
+        bindings.composition.invocation,
+        support=_embedded_prompt_support(),
+        resolved_command=(
+            "provider",
+            "--prompt=foreign task turn",
+            "--model=o3",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="task turn"):
+        replace(
+            bindings.composition,
+            pre_prompt_command=(
+                "provider",
+                "--prompt=${PROMPT}",
+                "--model=o3",
+            ),
+            invocation=invocation,
+        )
+
+
+def test_attempt_composition_rejects_foreign_prompt_carriage() -> None:
+    bindings = RecordingBindings()
+    invocation = replace(
+        bindings.composition.invocation,
+        resolved_command=("provider", "foreign task turn"),
+    )
+
+    with pytest.raises(ValueError, match="task turn"):
+        replace(bindings.composition, invocation=invocation)
+
+
+def test_attempt_composition_seals_initial_submit_keys() -> None:
+    bindings = RecordingBindings()
+    projection = (
+        bindings.composition.initial_materialization_turn.projection.submit_keys
+    )
+
+    assert projection.count == 1
+    assert projection.sha256 == _digest(b'[\"ENTER\"]')
+
+
+def test_attempt_composition_rejects_initial_submit_key_mismatch() -> None:
+    bindings = RecordingBindings()
+    tab_turn = render_initial_materialization_turn(
+        cut=bindings.composition.cut,
+        submit_keys=("TAB",),
+    )
+
+    with pytest.raises(ValueError, match="submit keys"):
+        replace(
+            bindings.composition,
+            initial_materialization_turn=tab_turn,
+        )
+
+
+@pytest.mark.parametrize(
+    "env",
+    (
+        {},
+        {PHASED_PROVIDER_BINDING_ENV: "foreign-binding"},
+    ),
+)
+def test_attempt_composition_rejects_missing_or_foreign_binding_carriage(
+    env: Mapping[str, str],
+) -> None:
+    bindings = RecordingBindings()
+    invocation = replace(bindings.composition.invocation, env=env)
+
+    with pytest.raises(ValueError, match="binding"):
+        replace(bindings.composition, invocation=invocation)
+
+
+def test_snapshot_direct_constructor_rejects_preflight_binding_tamper() -> None:
+    bindings = RecordingBindings()
+    original = bindings.snapshots[0]
+    first = original.rows[0]
+    tampered_rows = (
+        replace(
+            first,
+            workspace_relative_path="artifacts/different-report.md",
+        ),
+        *original.rows[1:],
+    )
+    snapshot_payload = {
+        "preflight_sha256": original.preflight_sha256,
+        "submission_ordinal": original.submission_ordinal,
+        "rows": [row.to_dict() for row in tampered_rows],
+    }
+    snapshot_sha256 = _digest(
+        json.dumps(
+            snapshot_payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("ascii")
+    )
+
+    with pytest.raises(ValueError, match="preflight"):
+        CandidateSnapshot(
+            preflight_sha256=original.preflight_sha256,
+            submission_ordinal=original.submission_ordinal,
+            rows=tampered_rows,
+            snapshot_sha256=snapshot_sha256,
+        )
+
+
+class PreflightFailureBindings(RecordingBindings):
+    def preflight_candidates(
+        self,
+        composition: AttemptComposition,
+    ) -> CandidatePreflight:
+        self.actions.append("bindings.preflight")
+        raise PhasedOperationFailure(_diagnostic("candidate_path_preexisting"))
+
+
+def test_preexisting_candidate_hands_off_before_start_or_publication() -> None:
+    bindings = PreflightFailureBindings()
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    with pytest.raises(_NeedsTerminalization) as caught:
+        coordinator.run()
+
+    assert caught.value.first_diagnostic.reason == "candidate_path_preexisting"
+    assert caught.value.lifecycle.phase == "ALLOCATED"
+    assert "adapter.start" not in bindings.actions
+    assert "bindings.atomic_commit" not in bindings.actions
+    assert bindings.failure_finalization_calls == 0
+
+
+def test_failure_finalization_is_an_explicit_unused_binding_contract() -> None:
+    assert (
+        "finalize_failure"
+        in PhasedProviderAttemptCoordinatorBindings.__dict__
+    )
+
+
+class _BindingLookalike:
+    def __init__(self, binding: PhasedSubmitBinding) -> None:
+        self.attempt_scope_sha256 = binding.attempt_scope_sha256
+        self.endpoint_instance_id = binding.endpoint_instance_id
+        self.binding_token = binding.binding_token
+        self.socket_path = binding.socket_path
+        self.deadline = binding.deadline
+
+
+class ForeignEndpointBindingBindings(RecordingBindings):
+    def __init__(self, *, kind: str) -> None:
+        super().__init__()
+        if kind == "lookalike":
+            self.endpoint.binding = cast(
+                PhasedSubmitBinding,
+                _BindingLookalike(self.composition.submit_binding),
+            )
+            return
+        foreign, _locator = derive_submit_binding_and_locator(
+            attempt_scope_sha256=self.allocation.scope.key,
+            socket_root=Path("/tmp"),
+            nonce="foreign-endpoint",
+            deadline=self.composition.deadline,
+        )
+        self.endpoint.binding = foreign
+
+
+@pytest.mark.parametrize("kind", ("lookalike", "foreign"))
+def test_endpoint_binding_is_exact_and_equal_before_start(kind: str) -> None:
+    bindings = ForeignEndpointBindingBindings(kind=kind)
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    with pytest.raises(ValueError, match="endpoint binding"):
+        coordinator.run()
+
+    assert "endpoint.start" not in bindings.actions
+    assert bindings.failure_finalization_calls == 0
+
+
+class _ResetLookalike:
+    def __init__(self, snapshot: CandidateSnapshot) -> None:
+        self.snapshot_sha256 = snapshot.snapshot_sha256
+        self.preflight_sha256 = snapshot.preflight_sha256
+        self.postcondition = "all_bound_paths_absent"
+
+
+class DuckResetBindings(RecordingBindings):
+    def reset_candidates(
+        self,
+        snapshot: CandidateSnapshot,
+    ) -> CandidateResetResult:
+        self.actions.append("bindings.reset")
+        return cast(CandidateResetResult, _ResetLookalike(snapshot))
+
+
+def test_duck_typed_reset_cannot_reach_publication() -> None:
+    bindings = DuckResetBindings(
+        materialization_attempts=2,
+        outcomes=((False, True), (True, True)),
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    with pytest.raises(ValueError, match="reset predecessor"):
+        coordinator.run()
+
+    assert "ledger.publication_started" not in bindings.actions
+    assert "bindings.atomic_commit" not in bindings.actions
+    assert bindings.failure_finalization_calls == 0
+
+
+class _RestorationLookalike:
+    def __init__(self, frozen: FrozenCandidate) -> None:
+        self.frozen_sha256 = frozen.frozen_sha256
+        self.restored_paths = len(frozen.files)
+
+
+class DuckRestorationBindings(RecordingBindings):
+    def restore_frozen_candidate(
+        self,
+        frozen: FrozenCandidate,
+    ) -> FrozenCandidateRestoration:
+        self.actions.append("bindings.restore")
+        return cast(
+            FrozenCandidateRestoration,
+            _RestorationLookalike(frozen),
+        )
+
+
+def test_duck_typed_restoration_cannot_publish_success() -> None:
+    bindings = DuckRestorationBindings()
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    with pytest.raises(ValueError, match="restoration predecessor"):
+        coordinator.run()
+
+    assert "bindings.atomic_commit" not in bindings.actions
+    assert "ledger.publication_succeeded" not in bindings.actions
+    assert bindings.failure_finalization_calls == 0
+
+
+class _FalseVerificationLookalike:
+    def __init__(self, frozen: FrozenCandidate) -> None:
+        self.frozen_sha256 = frozen.frozen_sha256
+        self.verified = False
+
+
+class FalseVerificationBindings(RecordingBindings):
+    def verify_frozen_candidate(
+        self,
+        frozen: FrozenCandidate,
+        restoration: FrozenCandidateRestoration,
+    ) -> FrozenCandidateVerification:
+        assert restoration.frozen_sha256 == frozen.frozen_sha256
+        self.actions.append("bindings.verify")
+        return cast(
+            FrozenCandidateVerification,
+            _FalseVerificationLookalike(frozen),
+        )
+
+
+def test_duck_typed_false_verification_cannot_publish_success() -> None:
+    bindings = FalseVerificationBindings()
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    with pytest.raises(ValueError, match="verification predecessor"):
+        coordinator.run()
+
+    assert "bindings.atomic_commit" not in bindings.actions
+    assert "ledger.publication_succeeded" not in bindings.actions
+    assert bindings.failure_finalization_calls == 0
+
+
+class ResetFailureBindings(RecordingBindings):
+    def reset_candidates(
+        self,
+        snapshot: CandidateSnapshot,
+    ) -> CandidateResetResult:
+        self.actions.append("bindings.reset")
+        raise PhasedOperationFailure(_diagnostic("candidate_reset_failed"))
+
+
+def test_nonregular_retry_replacement_hands_off_without_retry_offer() -> None:
+    bindings = ResetFailureBindings(
+        materialization_attempts=2,
+        outcomes=((False, True), (True, True)),
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    with pytest.raises(_NeedsTerminalization) as caught:
+        coordinator.run()
+
+    assert caught.value.first_diagnostic.reason == "candidate_reset_failed"
+    assert caught.value.lifecycle.phase == "VALIDATING"
+    assert bindings.endpoint.receipts[0][0].status == "failed"
+    assert bindings.endpoint.receipts[0][1] is False
+    assert "ledger.retry_queued" not in bindings.actions
+    assert "bindings.atomic_commit" not in bindings.actions
+
+
+class FreezeFailureBindings(RecordingBindings):
+    def freeze_candidate(
+        self,
+        snapshot: CandidateSnapshot,
+        output: OutputPositionValidation,
+        structured: StructuredResultValidation,
+    ) -> FrozenCandidate:
+        self.actions.append("bindings.freeze")
+        raise PhasedOperationFailure(_diagnostic("candidate_freeze_failed"))
+
+
+def test_incomplete_recreation_hands_off_without_close_or_publication() -> None:
+    bindings = FreezeFailureBindings()
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    with pytest.raises(_NeedsTerminalization) as caught:
+        coordinator.run()
+
+    assert caught.value.first_diagnostic.reason == "candidate_freeze_failed"
+    assert caught.value.lifecycle.phase == "VALIDATING"
+    assert bindings.endpoint.receipts[0][0].status == "failed"
+    assert "adapter.offer_close" not in bindings.actions
+    assert "bindings.publish_evidence" not in bindings.actions
+
+
+class FailedOfferAdapter(ScriptedAdapter):
+    def __init__(
+        self,
+        owner: "FailedOfferBindings",
+        *,
+        failed_call: int,
+    ) -> None:
+        super().__init__(owner)
+        self.failed_call = failed_call
+        self.calls = 0
+
+    def offer(
+        self,
+        handle: InteractiveMemberHandle,
+        literal_message: str,
+        *,
+        deadline: float,
+    ) -> OfferReceipt:
+        self.calls += 1
+        if self.calls != self.failed_call:
+            return super().offer(
+                handle,
+                literal_message,
+                deadline=deadline,
+            )
+        turn = self.owner.offered_turns[self.calls - 1]
+        assert literal_message.encode("utf-8") == turn.delivered_turn
+        self.owner.actions.append(
+            f"adapter.offer.{turn.projection.phase}"
+        )
+        return OfferReceipt(
+            status="offered",
+            handle_id=handle.handle_id,
+            byte_count=len(turn.delivered_turn),
+            content_sha256=_digest(b"wrong-delivery"),
+        )
+
+
+class FailedOfferBindings(RecordingBindings):
+    def __init__(
+        self,
+        *,
+        failed_call: int,
+        outcomes: tuple[tuple[bool, bool], ...],
+    ) -> None:
+        super().__init__(
+            materialization_attempts=len(outcomes),
+            outcomes=outcomes,
+        )
+        self.adapter = FailedOfferAdapter(
+            self,
+            failed_call=failed_call,
+        )
+
+
+@pytest.mark.parametrize(
+    ("failed_call", "outcomes", "expected_reason", "expected_phases"),
+    (
+        (
+            1,
+            ((True, True),),
+            "initial_offer_failed",
+            ("task",),
+        ),
+        (
+            2,
+            ((False, True), (True, True)),
+            "retry_offer_failed",
+            ("task", "initial_materialization"),
+        ),
+    ),
+)
+def test_failed_offer_is_not_an_actual_delivery(
+    failed_call: int,
+    outcomes: tuple[tuple[bool, bool], ...],
+    expected_reason: str,
+    expected_phases: tuple[str, ...],
+) -> None:
+    bindings = FailedOfferBindings(
+        failed_call=failed_call,
+        outcomes=outcomes,
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    with pytest.raises(_NeedsTerminalization) as caught:
+        coordinator.run()
+
+    assert caught.value.first_diagnostic.reason == expected_reason
+    assert tuple(
+        turn.projection.phase
+        for turn in coordinator._session.actual_deliveries
+    ) == expected_phases
+    assert "bindings.atomic_commit" not in bindings.actions
