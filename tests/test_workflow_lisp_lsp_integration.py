@@ -283,7 +283,7 @@ def _fixture_workspace(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
         entry_path,
         {
             "source_roots": [str(workspace)],
-            "entry_workflow": "orchestrate",
+            "entry_workflows": {str(entry_path): "orchestrate"},
             "provider_externs_path": str(config_root / "providers.json"),
             "prompt_externs_path": str(config_root / "prompts.json"),
             "command_boundaries_path": str(config_root / "commands.json"),
@@ -903,7 +903,7 @@ def test_real_stdio_sequential_recompile_matches_fresh_server_state(
     sequential_path.write_text(initial_text, encoding="utf-8")
     options = {
         "source_roots": [str(sequential_workspace)],
-        "entry_workflow": "run",
+        "entry_workflows": {str(sequential_path): "run"},
     }
     sequential = _LspProcess(sequential_workspace)
     try:
@@ -974,7 +974,7 @@ def test_real_stdio_sequential_recompile_matches_fresh_server_state(
             workspace=fresh_workspace,
             initialization_options={
                 "source_roots": [str(fresh_workspace)],
-                "entry_workflow": "run",
+                "entry_workflows": {str(fresh_path): "run"},
             },
         )
         _open(

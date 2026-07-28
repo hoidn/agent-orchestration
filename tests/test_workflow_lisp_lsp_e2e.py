@@ -84,7 +84,9 @@ def test_real_repository_cycle_guard_editor_session_is_read_only() -> None:
             workspace=REPO_ROOT,
             initialization_options={
                 "source_roots": [str(REPO_ROOT / "workflows" / "examples")],
-                "entry_workflow": "cycle-guard-demo",
+                "entry_workflows": {
+                    str(CYCLE_GUARD_ENTRY): "cycle-guard-demo",
+                },
                 "command_boundaries_path": str(CYCLE_GUARD_COMMANDS),
             },
         )
@@ -191,7 +193,9 @@ def test_real_repository_l2_recovery_to_full_is_read_only() -> None:
                 "source_roots": [
                     str(REPO_ROOT / "workflows" / "examples")
                 ],
-                "entry_workflow": "run-backlog-item",
+                "entry_workflows": {
+                    str(KISS_BACKLOG_ENTRY): "run-backlog-item",
+                },
                 "provider_externs_path": str(KISS_BACKLOG_PROVIDERS),
                 "prompt_externs_path": str(KISS_BACKLOG_PROMPTS),
             },

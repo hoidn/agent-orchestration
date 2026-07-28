@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import math
+import os
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
-import os
 from pathlib import Path
 from typing import Literal
 from urllib.parse import unquote_to_bytes, urlsplit
@@ -16,7 +17,6 @@ from orchestrator.workflow_lisp.wcc.route import LoweringRoute, normalize_loweri
 
 from .diagnostics import DiagnosticContribution
 
-
 _CONFIGURATION_PATH_FIELDS = (
     "provider_externs_path",
     "prompt_externs_path",
@@ -26,10 +26,11 @@ _CONFIGURATION_PATH_FIELDS = (
 _ALLOWED_INITIALIZATION_OPTIONS = frozenset(
     {
         "source_roots",
-        "entry_workflow",
+        "entry_workflows",
         *_CONFIGURATION_PATH_FIELDS,
     }
 )
+_L3_INITIALIZATION_ERROR_SCHEMA = "workflow_lisp_lsp_initialization_error.v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +48,7 @@ class LspInitializationOptions:
     """Normalized caller options and fixed production compile policy."""
 
     source_roots: tuple[Path, ...]
-    entry_workflow: str | None
+    entry_workflows: tuple[tuple[Path, str], ...]
     configuration: LspConfigurationPaths
     validation_profile: Stage3ValidationProfile
     lint_profile: str
@@ -151,8 +152,15 @@ class LspStateTransition:
 class LspInitializationError(ValueError):
     """Coded fail-closed initialization refusal."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        data: dict[str, object] | None = None,
+    ) -> None:
         self.code = code
+        self.data = data
         super().__init__(f"{code}: {message}")
 
 
@@ -184,18 +192,39 @@ def initialize_lsp_state(
         )
     else:
         raw_options = initialization_options
+    if any(not isinstance(key, str) for key in raw_options):
+        raise TypeError("initialization option keys must be JSON strings")
+    for l3_field in ("entry_workflow", "entry_workflows"):
+        if l3_field in raw_options:
+            _require_json_value(
+                raw_options[l3_field],
+                label=l3_field,
+            )
     unsupported_options = tuple(
-        sorted(
-            (key for key in raw_options if key not in _ALLOWED_INITIALIZATION_OPTIONS),
-            key=repr,
-        )
+        sorted(key for key in raw_options if key not in _ALLOWED_INITIALIZATION_OPTIONS)
     )
     if unsupported_options:
+        unsupported_field = unsupported_options[0]
+        data = (
+            _l3_initialization_error_data(
+                code="lsp_initialization_option_unsupported",
+                field="entry_workflow",
+                rule="unsupported_field",
+                rejected_value=raw_options[unsupported_field],
+            )
+            if unsupported_field == "entry_workflow"
+            else None
+        )
         raise LspInitializationError(
             "lsp_initialization_option_unsupported",
-            f"unsupported initialization option(s): {unsupported_options!r}",
+            f"unsupported initialization option: {unsupported_field!r}",
+            data=data,
         )
 
+    entry_workflows = _normalize_entry_workflows(
+        raw_options.get("entry_workflows", {}),
+        workspace_root=workspace_root,
+    )
     source_roots = _canonical_source_roots(
         raw_options.get("source_roots", ()),
         workspace_root=workspace_root,
@@ -227,15 +256,6 @@ def initialize_lsp_state(
         )
         for entry_path in canonical_entry_paths
     )
-    entry_workflow = raw_options.get("entry_workflow")
-    if entry_workflow is not None and (
-        not isinstance(entry_workflow, str) or not entry_workflow
-    ):
-        raise LspInitializationError(
-            "lsp_initialization_option_invalid",
-            "entry_workflow must be absent, null, or a non-empty string",
-        )
-
     return LspState(
         workspace_root=workspace_root,
         builtin_stdlib_source_root=_canonical_path(
@@ -243,7 +263,7 @@ def initialize_lsp_state(
         ),
         options=LspInitializationOptions(
             source_roots=source_roots,
-            entry_workflow=entry_workflow,
+            entry_workflows=entry_workflows,
             configuration=LspConfigurationPaths(
                 provider_externs_path=_canonical_optional_path(
                     raw_options.get("provider_externs_path"),
@@ -272,6 +292,190 @@ def initialize_lsp_state(
         ),
         entries=canonical_entries,
     )
+
+
+def _normalize_entry_workflows(
+    raw_entry_workflows: object,
+    *,
+    workspace_root: Path,
+) -> tuple[tuple[Path, str], ...]:
+    if not isinstance(raw_entry_workflows, dict):
+        raise LspInitializationError(
+            "lsp_initialization_option_invalid",
+            "entry_workflows must be a JSON object",
+            data=_l3_initialization_error_data(
+                code="lsp_initialization_option_invalid",
+                field="entry_workflows",
+                rule="mapping_required",
+                rejected_value=raw_entry_workflows,
+            ),
+        )
+
+    normalized_rows: list[tuple[Path, str, str]] = []
+    for raw_key in sorted(raw_entry_workflows):
+        if not raw_key:
+            raise LspInitializationError(
+                "lsp_initialization_option_invalid",
+                "entry_workflows keys must be non-empty strings",
+                data=_l3_initialization_error_data(
+                    code="lsp_initialization_option_invalid",
+                    field="entry_workflows",
+                    rule="key_nonempty_string_required",
+                    rejected_value=raw_key,
+                ),
+            )
+        raw_value = raw_entry_workflows[raw_key]
+        if not isinstance(raw_value, str) or not raw_value:
+            raise LspInitializationError(
+                "lsp_initialization_option_invalid",
+                "entry_workflows values must be non-empty strings",
+                data=_l3_initialization_error_data(
+                    code="lsp_initialization_option_invalid",
+                    field="entry_workflows",
+                    rule="entry_value_nonempty_string_required",
+                    rejected_value=raw_value,
+                    entry_key=raw_key,
+                ),
+            )
+        path = Path(raw_key)
+        if not path.is_absolute():
+            path = workspace_root / path
+        try:
+            canonical_path = _canonical_path(path)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise LspInitializationError(
+                "lsp_initialization_option_invalid",
+                "entry_workflows keys must canonicalize as filesystem paths",
+                data=_l3_initialization_error_data(
+                    code="lsp_initialization_option_invalid",
+                    field="entry_workflows",
+                    rule="canonical_path_required",
+                    rejected_value=raw_key,
+                    entry_key=raw_key,
+                ),
+            ) from exc
+        if canonical_path.suffix != ".orc":
+            raise LspInitializationError(
+                "lsp_initialization_option_invalid",
+                "entry_workflows keys must canonicalize to .orc paths",
+                data=_l3_initialization_error_data(
+                    code="lsp_initialization_option_invalid",
+                    field="entry_workflows",
+                    rule="orc_suffix_required",
+                    rejected_value=raw_key,
+                    entry_key=raw_key,
+                    canonical_path=canonical_path.as_posix(),
+                ),
+            )
+        try:
+            canonical_path.relative_to(workspace_root)
+        except ValueError as exc:
+            raise LspInitializationError(
+                "lsp_entry_workflow_path_uncontained",
+                "entry_workflows keys must remain inside the workspace",
+                data=_l3_initialization_error_data(
+                    code="lsp_entry_workflow_path_uncontained",
+                    field="entry_workflows",
+                    rule="workspace_containment_required",
+                    rejected_value=raw_key,
+                    entry_key=raw_key,
+                    canonical_path=canonical_path.as_posix(),
+                ),
+            ) from exc
+        normalized_rows.append((canonical_path, raw_value, raw_key))
+
+    rows_by_path: dict[Path, list[tuple[str, str]]] = {}
+    for canonical_path, raw_value, raw_key in normalized_rows:
+        rows_by_path.setdefault(canonical_path, []).append((raw_key, raw_value))
+    for canonical_path in sorted(rows_by_path):
+        rows = sorted(rows_by_path[canonical_path])
+        if len(rows) > 1:
+            conflicting_entry_key = rows[0][0]
+            entry_key = rows[1][0]
+            raise LspInitializationError(
+                "lsp_entry_workflow_path_duplicate",
+                "entry_workflows keys must identify unique canonical paths",
+                data=_l3_initialization_error_data(
+                    code="lsp_entry_workflow_path_duplicate",
+                    field="entry_workflows",
+                    rule="canonical_path_unique",
+                    rejected_value=entry_key,
+                    entry_key=entry_key,
+                    canonical_path=canonical_path.as_posix(),
+                    conflicting_entry_key=conflicting_entry_key,
+                ),
+            )
+    return tuple(
+        (canonical_path, raw_value)
+        for canonical_path, raw_value, _raw_key in sorted(normalized_rows)
+    )
+
+
+def _l3_initialization_error_data(
+    *,
+    code: str,
+    field: str,
+    rule: str,
+    rejected_value: object,
+    entry_key: str | None = None,
+    canonical_path: str | None = None,
+    conflicting_entry_key: str | None = None,
+) -> dict[str, object]:
+    data: dict[str, object] = {
+        "schema": _L3_INITIALIZATION_ERROR_SCHEMA,
+        "code": code,
+        "field": field,
+        "rule": rule,
+        "rejected_value": rejected_value,
+    }
+    if entry_key is not None:
+        data["entry_key"] = entry_key
+    if canonical_path is not None:
+        data["canonical_path"] = canonical_path
+    if conflicting_entry_key is not None:
+        data["conflicting_entry_key"] = conflicting_entry_key
+    return data
+
+
+def _require_json_value(
+    value: object,
+    *,
+    label: str,
+    _active_container_ids: set[int] | None = None,
+) -> None:
+    if value is None or isinstance(value, (str, bool, int)):
+        return
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return
+        raise TypeError(f"{label} must contain only JSON values")
+    if isinstance(value, (list, dict)):
+        active_container_ids = (
+            set()
+            if _active_container_ids is None
+            else _active_container_ids
+        )
+        container_id = id(value)
+        if container_id in active_container_ids:
+            raise TypeError(f"{label} must not contain recursive containers")
+        active_container_ids.add(container_id)
+        try:
+            if isinstance(value, list):
+                items = value
+            else:
+                if any(not isinstance(key, str) for key in value):
+                    raise TypeError(f"{label} object keys must be JSON strings")
+                items = value.values()
+            for item in items:
+                _require_json_value(
+                    item,
+                    label=label,
+                    _active_container_ids=active_container_ids,
+                )
+        finally:
+            active_container_ids.remove(container_id)
+        return
+    raise TypeError(f"{label} must contain only JSON values")
 
 
 def open_entry(

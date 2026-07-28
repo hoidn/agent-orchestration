@@ -2678,6 +2678,408 @@ def test_initialization_accepts_absent_or_empty_mapping_options(
     assert absent.options == supplied_empty.options
 
 
+def test_l3_entry_workflows_normalize_without_boundary_lookups_and_freeze(
+    tmp_path: Path,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir()
+    absolute = workspace / "a" / "missing.orc"
+    literal_relative = " m e\u0301/Flow.orc"
+    relative = "z/missing.orc"
+    exact_absolute_value = "Rún "
+    exact_literal_value = "EXACT"
+    exact_relative_value = "e\u0301"
+
+    absent = initialize_lsp_state(root_uri=workspace.as_uri())
+    configured = initialize_lsp_state(
+        root_uri=workspace.as_uri(),
+        initialization_options={
+            "entry_workflows": {
+                relative: exact_relative_value,
+                literal_relative: exact_literal_value,
+                str(absolute): exact_absolute_value,
+            }
+        },
+    )
+
+    assert absent.options.entry_workflows == ()
+    assert configured.options.entry_workflows == (
+        (workspace / literal_relative, exact_literal_value),
+        (absolute, exact_absolute_value),
+        (workspace / relative, exact_relative_value),
+    )
+    assert not absolute.exists()
+    assert not (workspace / literal_relative).exists()
+    assert not (workspace / relative).exists()
+    with pytest.raises(FrozenInstanceError):
+        configured.options.entry_workflows = ()  # type: ignore[misc]
+    with pytest.raises(TypeError):
+        configured.options.entry_workflows[0] = (  # type: ignore[index]
+            absolute,
+            "other",
+        )
+
+
+@pytest.mark.parametrize(
+    ("initialization_options", "expected_data"),
+    (
+        (
+            {"entry_workflow": "run"},
+            {
+                "schema": "workflow_lisp_lsp_initialization_error.v1",
+                "code": "lsp_initialization_option_unsupported",
+                "field": "entry_workflow",
+                "rule": "unsupported_field",
+                "rejected_value": "run",
+            },
+        ),
+        (
+            {"entry_workflows": None},
+            {
+                "schema": "workflow_lisp_lsp_initialization_error.v1",
+                "code": "lsp_initialization_option_invalid",
+                "field": "entry_workflows",
+                "rule": "mapping_required",
+                "rejected_value": None,
+            },
+        ),
+        (
+            {"entry_workflows": {"": "run"}},
+            {
+                "schema": "workflow_lisp_lsp_initialization_error.v1",
+                "code": "lsp_initialization_option_invalid",
+                "field": "entry_workflows",
+                "rule": "key_nonempty_string_required",
+                "rejected_value": "",
+            },
+        ),
+        (
+            {"entry_workflows": {"flow.orc": None}},
+            {
+                "schema": "workflow_lisp_lsp_initialization_error.v1",
+                "code": "lsp_initialization_option_invalid",
+                "field": "entry_workflows",
+                "rule": "entry_value_nonempty_string_required",
+                "rejected_value": None,
+                "entry_key": "flow.orc",
+            },
+        ),
+        (
+            {"entry_workflows": {"bad\0.orc": "run"}},
+            {
+                "schema": "workflow_lisp_lsp_initialization_error.v1",
+                "code": "lsp_initialization_option_invalid",
+                "field": "entry_workflows",
+                "rule": "canonical_path_required",
+                "rejected_value": "bad\0.orc",
+                "entry_key": "bad\0.orc",
+            },
+        ),
+        (
+            {"entry_workflows": {"flow.txt": "run"}},
+            {
+                "schema": "workflow_lisp_lsp_initialization_error.v1",
+                "code": "lsp_initialization_option_invalid",
+                "field": "entry_workflows",
+                "rule": "orc_suffix_required",
+                "rejected_value": "flow.txt",
+                "entry_key": "flow.txt",
+                "canonical_path": "{workspace}/flow.txt",
+            },
+        ),
+        (
+            {"entry_workflows": {"flow.ORC": "run"}},
+            {
+                "schema": "workflow_lisp_lsp_initialization_error.v1",
+                "code": "lsp_initialization_option_invalid",
+                "field": "entry_workflows",
+                "rule": "orc_suffix_required",
+                "rejected_value": "flow.ORC",
+                "entry_key": "flow.ORC",
+                "canonical_path": "{workspace}/flow.ORC",
+            },
+        ),
+        (
+            {"entry_workflows": {"../outside.orc": "run"}},
+            {
+                "schema": "workflow_lisp_lsp_initialization_error.v1",
+                "code": "lsp_entry_workflow_path_uncontained",
+                "field": "entry_workflows",
+                "rule": "workspace_containment_required",
+                "rejected_value": "../outside.orc",
+                "entry_key": "../outside.orc",
+                "canonical_path": "{outside}/outside.orc",
+            },
+        ),
+        (
+            {
+                "entry_workflows": {
+                    "flow.orc": "first",
+                    "nested/../flow.orc": "second",
+                }
+            },
+            {
+                "schema": "workflow_lisp_lsp_initialization_error.v1",
+                "code": "lsp_entry_workflow_path_duplicate",
+                "field": "entry_workflows",
+                "rule": "canonical_path_unique",
+                "rejected_value": "nested/../flow.orc",
+                "entry_key": "nested/../flow.orc",
+                "canonical_path": "{workspace}/flow.orc",
+                "conflicting_entry_key": "flow.orc",
+            },
+        ),
+    ),
+)
+def test_l3_entry_workflow_refusal_rows_are_closed_and_exact(
+    tmp_path: Path,
+    initialization_options: dict[str, object],
+    expected_data: dict[str, object],
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir()
+    expected_data = {
+        key: (
+            value.format(
+                workspace=workspace.as_posix(),
+                outside=tmp_path.resolve().as_posix(),
+            )
+            if isinstance(value, str)
+            else value
+        )
+        for key, value in expected_data.items()
+    }
+
+    with pytest.raises(LspInitializationError) as raised:
+        initialize_lsp_state(
+            root_uri=workspace.as_uri(),
+            initialization_options=initialization_options,
+        )
+
+    assert raised.value.data == expected_data
+    assert raised.value.code == expected_data["code"]
+
+
+def test_l3_initialization_precedence_is_deterministic(
+    tmp_path: Path,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+
+    with pytest.raises(LspInitializationError) as lexical_unsupported:
+        initialize_lsp_state(
+            root_uri=workspace.as_uri(),
+            initialization_options={
+                "zzz": "later",
+                "aaa": "first",
+                "entry_workflows": None,
+            },
+        )
+    assert lexical_unsupported.value.code == (
+        "lsp_initialization_option_unsupported"
+    )
+    assert "aaa" in str(lexical_unsupported.value)
+    assert "zzz" not in str(lexical_unsupported.value)
+
+    with pytest.raises(LspInitializationError) as old_scalar:
+        initialize_lsp_state(
+            root_uri=workspace.as_uri(),
+            initialization_options={
+                "zzz": "later",
+                "entry_workflow": "run",
+                "entry_workflows": None,
+            },
+        )
+    assert old_scalar.value.data == {
+        "schema": "workflow_lisp_lsp_initialization_error.v1",
+        "code": "lsp_initialization_option_unsupported",
+        "field": "entry_workflow",
+        "rule": "unsupported_field",
+        "rejected_value": "run",
+    }
+
+    with pytest.raises(LspInitializationError) as map_before_paths:
+        initialize_lsp_state(
+            root_uri=workspace.as_uri(),
+            initialization_options={
+                "entry_workflows": None,
+                "source_roots": (outside,),
+                "provider_externs_path": object(),
+            },
+        )
+    assert map_before_paths.value.data["rule"] == "mapping_required"
+
+    with pytest.raises(LspInitializationError) as key_before_value:
+        initialize_lsp_state(
+            root_uri=workspace.as_uri(),
+            initialization_options={
+                "entry_workflows": {"": None},
+            },
+        )
+    assert key_before_value.value.data["rule"] == (
+        "key_nonempty_string_required"
+    )
+
+    with pytest.raises(LspInitializationError) as raw_key_order:
+        initialize_lsp_state(
+            root_uri=workspace.as_uri(),
+            initialization_options={
+                "entry_workflows": {
+                    "z.orc": None,
+                    "a.txt": "run",
+                }
+            },
+        )
+    assert raw_key_order.value.data["rule"] == "orc_suffix_required"
+    assert raw_key_order.value.data["entry_key"] == "a.txt"
+
+    with pytest.raises(LspInitializationError) as value_before_suffix:
+        initialize_lsp_state(
+            root_uri=workspace.as_uri(),
+            initialization_options={
+                "entry_workflows": {"bad.txt": None},
+            },
+        )
+    assert value_before_suffix.value.data["rule"] == (
+        "entry_value_nonempty_string_required"
+    )
+
+    with pytest.raises(LspInitializationError) as value_before_canonicalization:
+        initialize_lsp_state(
+            root_uri=workspace.as_uri(),
+            initialization_options={
+                "entry_workflows": {"bad\0.txt": None},
+            },
+        )
+    assert value_before_canonicalization.value.data["rule"] == (
+        "entry_value_nonempty_string_required"
+    )
+
+    with pytest.raises(LspInitializationError) as canonicalization_before_suffix:
+        initialize_lsp_state(
+            root_uri=workspace.as_uri(),
+            initialization_options={
+                "entry_workflows": {"bad\0.txt": "run"},
+            },
+        )
+    assert canonicalization_before_suffix.value.data["rule"] == (
+        "canonical_path_required"
+    )
+
+    with pytest.raises(LspInitializationError) as suffix_before_containment:
+        initialize_lsp_state(
+            root_uri=workspace.as_uri(),
+            initialization_options={
+                "entry_workflows": {"../bad.txt": "run"},
+            },
+        )
+    assert suffix_before_containment.value.data["rule"] == "orc_suffix_required"
+
+    with pytest.raises(LspInitializationError) as canonical_group_order:
+        initialize_lsp_state(
+            root_uri=workspace.as_uri(),
+            initialization_options={
+                "entry_workflows": {
+                    "z/../z.orc": "z-second",
+                    "a/../a.orc": "a-second",
+                    "z.orc": "z-first",
+                    "a.orc": "a-first",
+                }
+            },
+        )
+    assert canonical_group_order.value.data["canonical_path"] == (
+        workspace / "a.orc"
+    ).as_posix()
+    assert canonical_group_order.value.data["entry_key"] == "a/../a.orc"
+    assert canonical_group_order.value.data["conflicting_entry_key"] == "a.orc"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("entry_workflow", object()),
+        ("entry_workflows", object()),
+        ("entry_workflows", {Path("flow.orc"): "run"}),
+        ("entry_workflows", {"flow.orc": object()}),
+    ),
+)
+def test_l3_non_json_values_raise_type_error_before_option_normalization(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    with pytest.raises(TypeError):
+        initialize_lsp_state(
+            root_uri=(tmp_path / "workspace").as_uri(),
+            initialization_options={
+                "aaa": "unsupported-first",
+                field: value,
+            },
+        )
+
+
+@pytest.mark.parametrize("container_kind", ("dict", "list"))
+def test_l3_recursive_json_containers_raise_type_error_before_normalization(
+    tmp_path: Path,
+    container_kind: str,
+) -> None:
+    if container_kind == "dict":
+        recursive_dict: dict[str, object] = {}
+        recursive_dict["self"] = recursive_dict
+        recursive_value: object = recursive_dict
+    else:
+        recursive_list: list[object] = []
+        recursive_list.append(recursive_list)
+        recursive_value = recursive_list
+
+    with pytest.raises(TypeError):
+        initialize_lsp_state(
+            root_uri=(tmp_path / "workspace").as_uri(),
+            initialization_options={
+                "entry_workflows": recursive_value,
+            },
+        )
+
+
+def test_l3_shared_acyclic_json_container_reaches_structured_normalization(
+    tmp_path: Path,
+) -> None:
+    shared: list[object] = ["leaf"]
+    shared_but_acyclic = [shared, shared]
+
+    with pytest.raises(LspInitializationError) as raised:
+        initialize_lsp_state(
+            root_uri=(tmp_path / "workspace").as_uri(),
+            initialization_options={
+                "entry_workflows": shared_but_acyclic,
+            },
+        )
+
+    assert raised.value.data["rule"] == "mapping_required"
+    assert raised.value.data["rejected_value"] is shared_but_acyclic
+
+
+@pytest.mark.parametrize(
+    "value",
+    (None, False, 0, 1.5, [], {}, ["nested"], ""),
+)
+def test_l3_json_native_wrong_entry_values_use_structured_refusal(
+    tmp_path: Path,
+    value: object,
+) -> None:
+    with pytest.raises(LspInitializationError) as raised:
+        initialize_lsp_state(
+            root_uri=(tmp_path / "workspace").as_uri(),
+            initialization_options={
+                "entry_workflows": {"flow.orc": value},
+            },
+        )
+
+    assert raised.value.data["rule"] == "entry_value_nonempty_string_required"
+    assert raised.value.data["rejected_value"] == value
+
+
 def test_explicit_source_roots_are_canonical_ordered_and_preserve_multiplicity(
     tmp_path: Path,
 ) -> None:
@@ -2781,7 +3183,7 @@ def test_initialization_freezes_fixed_production_policy_and_optional_configurati
     configured = initialize_lsp_state(
         root_uri=workspace.as_uri(),
         initialization_options={
-            "entry_workflow": "main",
+            "entry_workflows": {"entry.orc": "main"},
             "provider_externs_path": "config/providers.json",
             "prompt_externs_path": prompts,
             "command_boundaries_path": commands,
@@ -2789,9 +3191,11 @@ def test_initialization_freezes_fixed_production_policy_and_optional_configurati
         },
     )
 
-    assert absent.options.entry_workflow is None
+    assert absent.options.entry_workflows == ()
     assert absent.options.configuration == LspConfigurationPaths()
-    assert configured.options.entry_workflow == "main"
+    assert configured.options.entry_workflows == (
+        (workspace / "entry.orc", "main"),
+    )
     assert configured.options.configuration == LspConfigurationPaths(
         provider_externs_path=providers,
         prompt_externs_path=prompts,
@@ -2802,7 +3206,7 @@ def test_initialization_freezes_fixed_production_policy_and_optional_configurati
     assert configured.options.lint_profile == LINT_PROFILE_DEFAULT
     assert configured.options.lowering_route is normalize_lowering_route(None)
     with pytest.raises(FrozenInstanceError):
-        configured.options.entry_workflow = "other"  # type: ignore[misc]
+        configured.options.entry_workflows = ()  # type: ignore[misc]
     with pytest.raises(FrozenInstanceError):
         configured.options.configuration.provider_externs_path = None  # type: ignore[misc]
 

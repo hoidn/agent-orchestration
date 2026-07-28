@@ -149,7 +149,9 @@ def _observe_real_cli_and_lsp_captures(
     state = lsp_state.initialize_lsp_state(
         root_uri=workspace.as_uri(),
         initialization_options={
-            "entry_workflow": "entry-publication-runtime",
+            "entry_workflows": {
+                str(entry_path): "entry-publication-runtime",
+            },
             "source_roots": caller_roots,
         },
     )

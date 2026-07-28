@@ -457,6 +457,180 @@ def test_structured_initialization_failure_preserves_order_and_path_fallback(
     assert server.driver is None
 
 
+def test_l3_initialization_error_data_is_forwarded_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lsprotocol import types
+    from pygls.exceptions import JsonRpcInvalidParams
+
+    import orchestrator.lsp.server as server_module
+    from orchestrator.lsp.server import WorkflowLispLanguageServer
+    from orchestrator.lsp.state import LspInitializationError
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    expected_data = {
+        "schema": "workflow_lisp_lsp_initialization_error.v1",
+        "code": "lsp_initialization_option_invalid",
+        "field": "entry_workflows",
+        "rule": "mapping_required",
+        "rejected_value": None,
+    }
+
+    def reject_state(*args: object, **kwargs: object) -> object:
+        raise LspInitializationError(
+            "lsp_initialization_option_invalid",
+            "structured L3 refusal",
+            data=expected_data,
+        )
+
+    monkeypatch.setattr(server_module, "initialize_lsp_state", reject_state)
+    server = WorkflowLispLanguageServer()
+
+    with pytest.raises(JsonRpcInvalidParams) as raised:
+        server.initialize_runtime(
+            types.InitializeParams(
+                capabilities=types.ClientCapabilities(),
+                root_uri=workspace.as_uri(),
+            )
+        )
+
+    assert raised.value.data is expected_data
+    assert server.driver is None
+
+
+@pytest.mark.parametrize(
+    "case",
+    (
+        "old_scalar",
+        "non_object",
+        "empty_key",
+        "invalid_value",
+        "uncanonicalizable",
+        "wrong_suffix",
+        "uncontained",
+        "duplicate",
+    ),
+)
+def test_l3_real_stdio_initialization_refusals_return_closed_data(
+    tmp_path: Path,
+    case: str,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir()
+    canonical_flow = (workspace / "flow.orc").as_posix()
+    if case == "old_scalar":
+        options: dict[str, object] = {"entry_workflow": "run"}
+        expected_data = {
+            "schema": "workflow_lisp_lsp_initialization_error.v1",
+            "code": "lsp_initialization_option_unsupported",
+            "field": "entry_workflow",
+            "rule": "unsupported_field",
+            "rejected_value": "run",
+        }
+    elif case == "non_object":
+        options = {"entry_workflows": None}
+        expected_data = {
+            "schema": "workflow_lisp_lsp_initialization_error.v1",
+            "code": "lsp_initialization_option_invalid",
+            "field": "entry_workflows",
+            "rule": "mapping_required",
+            "rejected_value": None,
+        }
+    elif case == "empty_key":
+        options = {"entry_workflows": {"": "run"}}
+        expected_data = {
+            "schema": "workflow_lisp_lsp_initialization_error.v1",
+            "code": "lsp_initialization_option_invalid",
+            "field": "entry_workflows",
+            "rule": "key_nonempty_string_required",
+            "rejected_value": "",
+        }
+    elif case == "invalid_value":
+        options = {"entry_workflows": {"flow.orc": None}}
+        expected_data = {
+            "schema": "workflow_lisp_lsp_initialization_error.v1",
+            "code": "lsp_initialization_option_invalid",
+            "field": "entry_workflows",
+            "rule": "entry_value_nonempty_string_required",
+            "rejected_value": None,
+            "entry_key": "flow.orc",
+        }
+    elif case == "uncanonicalizable":
+        options = {"entry_workflows": {"bad\0.orc": "run"}}
+        expected_data = {
+            "schema": "workflow_lisp_lsp_initialization_error.v1",
+            "code": "lsp_initialization_option_invalid",
+            "field": "entry_workflows",
+            "rule": "canonical_path_required",
+            "rejected_value": "bad\0.orc",
+            "entry_key": "bad\0.orc",
+        }
+    elif case == "wrong_suffix":
+        options = {"entry_workflows": {"flow.txt": "run"}}
+        expected_data = {
+            "schema": "workflow_lisp_lsp_initialization_error.v1",
+            "code": "lsp_initialization_option_invalid",
+            "field": "entry_workflows",
+            "rule": "orc_suffix_required",
+            "rejected_value": "flow.txt",
+            "entry_key": "flow.txt",
+            "canonical_path": (workspace / "flow.txt").as_posix(),
+        }
+    elif case == "uncontained":
+        options = {"entry_workflows": {"../outside.orc": "run"}}
+        expected_data = {
+            "schema": "workflow_lisp_lsp_initialization_error.v1",
+            "code": "lsp_entry_workflow_path_uncontained",
+            "field": "entry_workflows",
+            "rule": "workspace_containment_required",
+            "rejected_value": "../outside.orc",
+            "entry_key": "../outside.orc",
+            "canonical_path": (tmp_path / "outside.orc").resolve().as_posix(),
+        }
+    else:
+        options = {
+            "entry_workflows": {
+                "flow.orc": "first",
+                "nested/../flow.orc": "second",
+            }
+        }
+        expected_data = {
+            "schema": "workflow_lisp_lsp_initialization_error.v1",
+            "code": "lsp_entry_workflow_path_duplicate",
+            "field": "entry_workflows",
+            "rule": "canonical_path_unique",
+            "rejected_value": "nested/../flow.orc",
+            "entry_key": "nested/../flow.orc",
+            "canonical_path": canonical_flow,
+            "conflicting_entry_key": "flow.orc",
+        }
+
+    process = _LspProcess(workspace)
+    try:
+        process.send(
+            _initialize_request(
+                1,
+                root_uri=workspace.as_uri(),
+                initialization_options=options,
+            )
+        )
+        response, observed = process.read_until(
+            lambda item: item.get("id") == 1
+        )
+
+        assert response["error"]["code"] == -32602
+        assert response["error"]["data"] == expected_data
+        assert not any(
+            item.get("method") == "textDocument/publishDiagnostics"
+            for item in observed
+        )
+        process.exit_without_shutdown()
+    finally:
+        process.close()
+
+
 @pytest.mark.parametrize(
     "unstructured_error",
     (

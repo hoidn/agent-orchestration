@@ -2252,6 +2252,46 @@ def test_library_only_entry_uses_one_full_shared_stage3_build_and_never_stage1(
     assert driver.state.entries[0].compile_status == "success"
 
 
+@pytest.mark.parametrize("listed_first", (True, False))
+def test_l3_build_request_uses_only_exact_per_source_entry_selection(
+    tmp_path: Path,
+    listed_first: bool,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir()
+    listed = workspace / "apps" / "main.orc"
+    unlisted = workspace / "libs" / "library.orc"
+    same_basename = workspace / "other" / "main.orc"
+    descendant = listed / "nested.orc"
+    driver = compile_driver.initialize_compile_driver(
+        lsp_state.initialize_lsp_state(
+            root_uri=workspace.as_uri(),
+            initialization_options={
+                "entry_workflows": {
+                    "apps/main.orc": "selected-exactly",
+                }
+            },
+        )
+    )
+    ordered_paths = (
+        (listed, unlisted)
+        if listed_first
+        else (unlisted, listed)
+    )
+
+    requests = tuple(driver._build_request(path) for path in ordered_paths)
+
+    assert {
+        request.source_path: request.entry_workflow
+        for request in requests
+    } == {
+        listed: "selected-exactly",
+        unlisted: None,
+    }
+    assert driver._build_request(same_basename).entry_workflow is None
+    assert driver._build_request(descendant).entry_workflow is None
+
+
 def test_each_eligible_generation_runs_one_full_shared_stage3_without_cache_or_provisional_phase(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2531,7 +2571,7 @@ def test_driver_translates_raw_diagnostics_with_exact_text_and_generation(
             root_uri=workspace.as_uri(),
             initialization_options={
                 "source_roots": (workspace,),
-                "entry_workflow": "orchestrate",
+                "entry_workflows": {str(entry_path): "orchestrate"},
                 "provider_externs_path": providers,
                 "prompt_externs_path": prompts,
             },
@@ -3416,7 +3456,7 @@ def test_real_recursive_configuration_aba_generic_error_latches_stale(
         root_uri=workspace.as_uri(),
         initialization_options={
             "source_roots": (source_root,),
-            "entry_workflow": "orchestrate",
+            "entry_workflows": {str(entry_path): "orchestrate"},
             "provider_externs_path": provider_path,
             "prompt_externs_path": config_root / "prompts.json",
             "command_boundaries_path": config_root / "commands.json",

@@ -103,7 +103,10 @@ class WorkflowLispLanguageServer(LanguageServer):
                 initialization_options=params.initialization_options,
             )
         except LspInitializationError as error:
-            raise JsonRpcInvalidParams(message=str(error)) from error
+            raise JsonRpcInvalidParams(
+                message=str(error),
+                data=error.data,
+            ) from error
         try:
             if self._build_in_memory is None:
                 driver = initialize_compile_driver(

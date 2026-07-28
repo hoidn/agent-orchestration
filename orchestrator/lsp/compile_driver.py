@@ -808,10 +808,20 @@ class LspCompileDriver:
 
     def _build_request(self, source_path: Path) -> FrontendBuildRequest:
         paths = self.state.options.configuration
+        entry_workflow = next(
+            (
+                workflow_name
+                for configured_path, workflow_name in (
+                    self.state.options.entry_workflows
+                )
+                if configured_path == source_path
+            ),
+            None,
+        )
         return FrontendBuildRequest(
             source_path=source_path,
             source_roots=self.state.options.source_roots,
-            entry_workflow=self.state.options.entry_workflow,
+            entry_workflow=entry_workflow,
             provider_externs_path=paths.provider_externs_path,
             prompt_externs_path=paths.prompt_externs_path,
             imported_workflow_bundles_path=paths.imported_workflow_bundles_path,
