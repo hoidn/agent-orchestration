@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 import time
-from typing import NoReturn
+from typing import Literal, NoReturn
 
 from orchestrator.providers.interactive_terminal import (
     CloseOfferReceipt,
@@ -14,7 +14,10 @@ from orchestrator.providers.interactive_terminal import (
     InteractiveTerminalError,
     InteractiveTerminalStartOutcome,
     NaturalShutdownProof,
+    NoBackendAllocationProof,
     OfferReceipt,
+    PhasedFailedCleanupEvidence,
+    project_phased_failed_cleanup_evidence,
 )
 
 from .bindings import (
@@ -31,7 +34,9 @@ from .bindings import (
     OutputPositionValidation,
     PhaseLedger,
     PhasedOperationFailure,
+    PhasedNaturalShutdownEvidence,
     PhasedProviderAttemptCoordinatorBindings,
+    PhasedProviderAttemptFailure,
     PhasedProviderAttemptSuccess,
     StructuredResultValidation,
     SubmitEndpoint,
@@ -126,7 +131,7 @@ def _validate_natural_shutdown(
     value: object,
     *,
     handle: InteractiveMemberHandle,
-) -> dict[str, object]:
+) -> PhasedNaturalShutdownEvidence:
     if (
         type(value) is not NaturalShutdownProof
         or value.handle_id != handle.handle_id
@@ -137,13 +142,13 @@ def _validate_natural_shutdown(
         or value.proof_complete is not True
     ):
         raise ValueError("natural shutdown proof is invalid")
-    return {
-        "disposition": "natural_exit",
-        "return_code": 0,
-        "pane_absent": True,
-        "server_absent": True,
-        "proof_complete": True,
-    }
+    return PhasedNaturalShutdownEvidence(
+        disposition="natural_exit",
+        return_code=0,
+        pane_absent=True,
+        server_absent=True,
+        proof_complete=True,
+    )
 
 
 def _close_projection(
@@ -227,6 +232,15 @@ def _runtime_diagnostic(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _CleanupOutcome:
+    status: str
+    abort_calls: int
+    proof: NoBackendAllocationProof | PhasedFailedCleanupEvidence | None
+    diagnostic: PhasedDeliveryDiagnostic | None
+    provider_zero_survivor_proven: bool
+
+
 @dataclass(slots=True)
 class _CoordinatorSession:
     lifecycle: PhasedLifecycleState = field(
@@ -250,6 +264,13 @@ class _CoordinatorSession:
     frozen: FrozenCandidate | None = None
     evidence: FunctionalEvidencePublication | None = None
     submission_ordinal: int = 0
+    start_failure_outcome: InteractiveTerminalStartOutcome | None = None
+    cleanup_outcome: _CleanupOutcome | None = None
+    ingress_outcome: SubmitEndpointShutdownOutcome | None = None
+    ingress_shutdown_action: Literal["NOT_STARTED", "STARTED"] = (
+        "NOT_STARTED"
+    )
+    natural_shutdown_proof: PhasedNaturalShutdownEvidence | None = None
 
 
 class _NeedsTerminalization(RuntimeError):
@@ -270,7 +291,7 @@ class _NeedsTerminalization(RuntimeError):
 
 
 class PhasedProviderAttemptCoordinator:
-    """Execute only Task-8's success/retry/publication forward spine."""
+    """Execute the phased attempt spine and its closed terminalizer."""
 
     def __init__(
         self,
@@ -292,6 +313,272 @@ class PhasedProviderAttemptCoordinator:
             payload,
             observed_at=self._bindings.observed_at(),
         )
+
+    def _safe_append(
+        self,
+        event: str,
+        payload: dict[str, object],
+    ) -> bool:
+        if self._session.ledger is None:
+            return False
+        try:
+            self._append(event, payload)
+        except PhasedOperationFailure:
+            return False
+        return True
+
+    def _terminalization_tier(self) -> str:
+        session = self._session
+        lifecycle = session.lifecycle
+        if lifecycle.natural_join_proven:
+            return "T4"
+        if lifecycle.ingress == "COMPLETE":
+            return "T3"
+        if session.ingress_shutdown_action == "STARTED":
+            if session.cleanup_outcome is None:
+                return "T2a"
+            return "T2b"
+        if lifecycle.ingress != "NOT_ALLOCATED":
+            return "T1"
+        return "T0"
+
+    def _start_ingress_shutdown_once(
+        self,
+        *,
+        fail_safe: bool,
+    ) -> None:
+        session = self._session
+        if session.ingress_shutdown_action == "STARTED":
+            return
+        payload: dict[str, object] = {
+            "terminal_response": _terminal_response()
+        }
+        if fail_safe:
+            self._safe_append("ingress_shutdown_started", payload)
+        else:
+            self._append("ingress_shutdown_started", payload)
+        session.ingress_shutdown_action = "STARTED"
+
+    def _finish_cleanup_once(self) -> _CleanupOutcome:
+        session = self._session
+        if session.cleanup_outcome is not None:
+            return session.cleanup_outcome
+        lifecycle = session.lifecycle
+        if lifecycle.natural_join_proven:
+            raise RuntimeError("post-proof cleanup is forbidden")
+        proof: NoBackendAllocationProof | PhasedFailedCleanupEvidence | None
+        diagnostic: PhasedDeliveryDiagnostic | None = None
+        abort_calls = 0
+        if session.handle is None:
+            start_failure = session.start_failure_outcome
+            if start_failure is None:
+                candidate = (
+                    self._bindings.prestart_no_backend_allocation_proof()
+                )
+                if type(candidate) is NoBackendAllocationProof:
+                    status = "not_required"
+                    proof = candidate
+                    zero_survivor = True
+                else:
+                    status = "incomplete"
+                    proof = None
+                    diagnostic = _runtime_diagnostic(
+                        "adapter_cleanup_failed"
+                    )
+                    zero_survivor = False
+            else:
+                proof = start_failure.proof
+                if start_failure.cleanup_status == "not_required":
+                    status = "not_required"
+                    zero_survivor = True
+                elif start_failure.cleanup_status == "completed":
+                    status = "complete"
+                    zero_survivor = True
+                else:
+                    status = "incomplete"
+                    diagnostic = _runtime_diagnostic(
+                        (
+                            "adapter_start_cleanup_incomplete"
+                            if start_failure.error_code
+                            == "interactive_terminal_start_cleanup_incomplete"
+                            else "provider_zero_survivor_unproven"
+                        )
+                    )
+                    zero_survivor = False
+        else:
+            composition = session.composition
+            if composition is None:
+                raise RuntimeError("live cleanup requires attempt composition")
+            abort_calls = 1
+            raw_proof: object | None
+            try:
+                raw_proof = self._bindings.adapter.abort(
+                    session.handle,
+                    composition.deadline,
+                )
+            except InteractiveTerminalError:
+                raw_proof = None
+            projected = project_phased_failed_cleanup_evidence(
+                raw_proof,
+                active_handle_id=session.handle.handle_id,
+            )
+            proof = projected
+            if projected is not None and projected.cleanup_complete:
+                status = "complete"
+                zero_survivor = True
+            else:
+                status = "incomplete"
+                diagnostic = _runtime_diagnostic(
+                    "adapter_cleanup_failed"
+                )
+                zero_survivor = False
+        cleanup_state = {
+            "not_required": "NOT_REQUIRED",
+            "complete": "COMPLETE",
+            "incomplete": "INCOMPLETE",
+        }[status]
+        session.lifecycle = PhasedLifecycleState(
+            phase="TERMINALIZING",
+            provider_cleanup=cleanup_state,
+            ingress=lifecycle.ingress,
+            natural_join_proven=False,
+            abort_calls=abort_calls,
+        )
+        outcome = _CleanupOutcome(
+            status=status,
+            abort_calls=abort_calls,
+            proof=proof,
+            diagnostic=diagnostic,
+            provider_zero_survivor_proven=zero_survivor,
+        )
+        session.cleanup_outcome = outcome
+        self._safe_append(
+            "cleanup_finished",
+            {
+                "cleanup_status": outcome.status,
+                "abort_calls": outcome.abort_calls,
+                "provider_cleanup_proof": outcome.proof,
+                "cleanup_diagnostic": outcome.diagnostic,
+                "provider_zero_survivor_proven": (
+                    outcome.provider_zero_survivor_proven
+                ),
+            },
+        )
+        return outcome
+
+    def _finish_ingress_once(self) -> str:
+        session = self._session
+        lifecycle = session.lifecycle
+        if lifecycle.ingress == "NOT_ALLOCATED":
+            return "not_allocated"
+        if lifecycle.ingress == "COMPLETE":
+            return "complete"
+        if lifecycle.ingress == "INCOMPLETE":
+            return "incomplete"
+        endpoint = session.endpoint
+        composition = session.composition
+        if endpoint is None or composition is None:
+            raise RuntimeError("allocated ingress state is incomplete")
+        terminal_response = _terminal_response()
+        self._start_ingress_shutdown_once(fail_safe=True)
+        outcome = session.ingress_outcome
+        if outcome is None:
+            endpoint.stop_admission()
+            outcome = endpoint.shutdown(deadline=composition.deadline)
+            if type(outcome) is not SubmitEndpointShutdownOutcome:
+                raise TypeError("endpoint shutdown outcome must be exact")
+            session.ingress_outcome = outcome
+        complete = outcome.endpoint_zero_survivor_proven is True
+        ingress_state = "COMPLETE" if complete else "INCOMPLETE"
+        session.lifecycle = PhasedLifecycleState(
+            phase="TERMINALIZING",
+            provider_cleanup=lifecycle.provider_cleanup,
+            ingress=ingress_state,
+            natural_join_proven=False,
+            abort_calls=lifecycle.abort_calls,
+        )
+        payload: dict[str, object] = {
+            "terminal_response": terminal_response,
+            "queued_requests_rejected": outcome.queued_requests_rejected,
+            "active_requests_drained": outcome.active_requests_drained,
+            "listener_closed": outcome.listener_closed,
+            "workers_joined": outcome.workers_joined,
+            "endpoint_zero_survivor_proven": complete,
+        }
+        if complete:
+            self._safe_append("ingress_shutdown_finished", payload)
+            return "complete"
+        payload["diagnostic"] = _runtime_diagnostic(
+            "ingress_shutdown_failed"
+        )
+        self._safe_append("ingress_shutdown_failed", payload)
+        return "incomplete"
+
+    def _terminalize(
+        self,
+        handoff: _NeedsTerminalization,
+    ) -> PhasedProviderAttemptFailure:
+        session = self._session
+        allocation = session.allocation
+        if allocation is None:
+            raise RuntimeError("terminalization requires attempt allocation")
+        tier = self._terminalization_tier()
+        if session.lifecycle.natural_join_proven:
+            cleanup = None
+            endpoint_status = self._finish_ingress_once()
+            cleanup_status = "not_permitted"
+            cleanup_diagnostic = None
+            cleanup_proof = None
+        else:
+            cleanup = self._finish_cleanup_once()
+            endpoint_status = self._finish_ingress_once()
+            cleanup_status = cleanup.status
+            cleanup_diagnostic = cleanup.diagnostic
+            cleanup_proof = cleanup.proof
+        lifecycle = session.lifecycle
+        session.lifecycle = PhasedLifecycleState(
+            phase="FAILED",
+            provider_cleanup=(
+                "NOT_REQUIRED"
+                if lifecycle.natural_join_proven
+                else lifecycle.provider_cleanup
+            ),
+            ingress=lifecycle.ingress,
+            natural_join_proven=lifecycle.natural_join_proven,
+            abort_calls=lifecycle.abort_calls,
+        )
+        natural = session.natural_shutdown_proof
+        self._safe_append(
+            "terminal_failed",
+            {
+                "diagnostic": handoff.first_diagnostic,
+                "cleanup_status": cleanup_status,
+                "cleanup_diagnostic": cleanup_diagnostic,
+                "endpoint_shutdown_status": endpoint_status,
+                "natural_shutdown_proof": (
+                    None if natural is None else natural.to_dict()
+                ),
+            },
+        )
+        failure = PhasedProviderAttemptFailure(
+            allocation=allocation,
+            lifecycle=session.lifecycle,
+            first_diagnostic=handoff.first_diagnostic,
+            cleanup_diagnostic=cleanup_diagnostic,
+            provider_cleanup_proof=cleanup_proof,
+            endpoint_shutdown_status=endpoint_status,
+            natural_shutdown_proof=natural,
+            terminalization_tier=tier,
+            frozen=session.frozen,
+            evidence=session.evidence,
+        )
+        self._bindings.finalize_failure(
+            failure.first_diagnostic,
+            failure.lifecycle,
+        )
+        if session.ledger is not None:
+            session.ledger.close()
+        return failure
 
     def _handoff_active(
         self,
@@ -358,7 +645,20 @@ class PhasedProviderAttemptCoordinator:
             )
         )
         if start.status != "started":
-            raise RuntimeError("Task 9 owns failed-start terminalization")
+            session.start_failure_outcome = start
+            failure = _runtime_diagnostic("adapter_start_failed")
+            self._safe_append(
+                "task_start_failed",
+                {
+                    "turn": composition.task_turn.projection,
+                    "diagnostic": failure,
+                    "start_failure_outcome": start,
+                },
+            )
+            raise _NeedsTerminalization(
+                failure,
+                session.lifecycle,
+            )
         handle = _validate_handle(
             start.handle,
             allocation=allocation,
@@ -384,14 +684,16 @@ class PhasedProviderAttemptCoordinator:
             },
         )
 
-        endpoint = self._bindings.create_endpoint(composition)
-        if (
-            type(endpoint.binding) is not PhasedSubmitBinding
-            or endpoint.binding != composition.submit_binding
-        ):
-            raise ValueError(
-                "endpoint binding must be exact and equal composition binding"
+        try:
+            endpoint = self._bindings.create_endpoint(composition)
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            failure = _runtime_diagnostic(
+                "submit_endpoint_allocation_failed"
             )
+            raise _NeedsTerminalization(
+                failure,
+                session.lifecycle,
+            ) from exc
         session.endpoint = endpoint
         session.lifecycle = PhasedLifecycleState(
             phase="LIVE",
@@ -400,15 +702,34 @@ class PhasedProviderAttemptCoordinator:
             natural_join_proven=False,
             abort_calls=0,
         )
-        endpoint.start()
-        session.lifecycle = PhasedLifecycleState(
-            phase="LIVE",
-            provider_cleanup="PENDING",
-            ingress="STARTED",
-            natural_join_proven=False,
-            abort_calls=0,
-        )
-        endpoint.open_admission("INITIAL_MATERIALIZATION_QUEUED")
+        try:
+            if (
+                type(endpoint.binding) is not PhasedSubmitBinding
+                or endpoint.binding != composition.submit_binding
+            ):
+                raise ValueError(
+                    "endpoint binding must be exact and equal "
+                    "composition binding"
+                )
+            endpoint.start()
+            session.lifecycle = PhasedLifecycleState(
+                phase="LIVE",
+                provider_cleanup="PENDING",
+                ingress="STARTED",
+                natural_join_proven=False,
+                abort_calls=0,
+            )
+            endpoint.open_admission("INITIAL_MATERIALIZATION_QUEUED")
+        except PhasedOperationFailure:
+            raise
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            failure = _runtime_diagnostic(
+                "submit_endpoint_allocation_failed"
+            )
+            raise _NeedsTerminalization(
+                failure,
+                session.lifecycle,
+            ) from exc
         initial = composition.initial_materialization_turn
         session.lifecycle = PhasedLifecycleState(
             phase="INITIAL_MATERIALIZATION_QUEUED",
@@ -434,7 +755,7 @@ class PhasedProviderAttemptCoordinator:
             )
         except (InteractiveTerminalError, TypeError, ValueError) as exc:
             failure = _runtime_diagnostic("initial_offer_failed")
-            self._append(
+            self._safe_append(
                 "turn_offer_failed",
                 {"turn": initial.projection, "diagnostic": failure},
             )
@@ -663,7 +984,7 @@ class PhasedProviderAttemptCoordinator:
             )
         except (InteractiveTerminalError, TypeError, ValueError) as exc:
             failure = _runtime_diagnostic("retry_offer_failed")
-            self._append(
+            self._safe_append(
                 "turn_offer_failed",
                 {"turn": retry_turn.projection, "diagnostic": failure},
             )
@@ -724,11 +1045,26 @@ class PhasedProviderAttemptCoordinator:
                 "close_projection": close_projection,
             },
         )
-        close = self._bindings.adapter.offer_close(
-            handle,
-            deadline=composition.deadline,
-        )
-        close_receipt = _validate_close_offer(close, handle=handle)
+        try:
+            close = self._bindings.adapter.offer_close(
+                handle,
+                deadline=composition.deadline,
+            )
+            close_receipt = _validate_close_offer(close, handle=handle)
+        except (InteractiveTerminalError, TypeError, ValueError) as exc:
+            failure = _runtime_diagnostic("close_offer_failed")
+            self._safe_append(
+                "close_offer_failed",
+                {
+                    "submission_ordinal": event.submission_ordinal,
+                    "close_projection": close_projection,
+                    "diagnostic": failure,
+                },
+            )
+            raise _NeedsTerminalization(
+                failure,
+                session.lifecycle,
+            ) from exc
         self._append(
             "close_offered",
             {
@@ -760,17 +1096,20 @@ class PhasedProviderAttemptCoordinator:
             abort_calls=0,
         )
         terminal_response = _terminal_response()
-        self._append(
-            "ingress_shutdown_started",
-            {"terminal_response": terminal_response},
-        )
+        self._start_ingress_shutdown_once(fail_safe=False)
         endpoint.stop_admission()
         outcome = endpoint.shutdown(deadline=composition.deadline)
+        if type(outcome) is not SubmitEndpointShutdownOutcome:
+            raise TypeError("endpoint shutdown outcome must be exact")
+        session.ingress_outcome = outcome
         if (
-            type(outcome) is not SubmitEndpointShutdownOutcome
-            or outcome.endpoint_zero_survivor_proven is not True
+            outcome.endpoint_zero_survivor_proven is not True
         ):
-            raise RuntimeError("Task 9 owns incomplete ingress terminalization")
+            failure = _runtime_diagnostic("ingress_shutdown_failed")
+            raise _NeedsTerminalization(
+                failure,
+                session.lifecycle,
+            )
         session.lifecycle = PhasedLifecycleState(
             phase="JOINING",
             provider_cleanup="PENDING",
@@ -799,14 +1138,29 @@ class PhasedProviderAttemptCoordinator:
                 ),
             },
         )
-        natural = self._bindings.adapter.join(
-            handle,
-            composition.deadline,
-        )
-        natural_projection = _validate_natural_shutdown(
-            natural,
-            handle=handle,
-        )
+        try:
+            natural = self._bindings.adapter.join(
+                handle,
+                composition.deadline,
+            )
+            natural_projection = _validate_natural_shutdown(
+                natural,
+                handle=handle,
+            )
+        except (InteractiveTerminalError, TypeError, ValueError) as exc:
+            failure = _runtime_diagnostic("natural_join_failed")
+            self._safe_append(
+                "join_failed",
+                {
+                    "submission_ordinal": event.submission_ordinal,
+                    "diagnostic": failure,
+                },
+            )
+            raise _NeedsTerminalization(
+                failure,
+                session.lifecycle,
+            ) from exc
+        session.natural_shutdown_proof = natural_projection
         session.lifecycle = PhasedLifecycleState(
             phase="JOINED_PENDING_COMMIT",
             provider_cleanup="NOT_REQUIRED",
@@ -818,7 +1172,7 @@ class PhasedProviderAttemptCoordinator:
             "join_succeeded",
             {
                 "submission_ordinal": event.submission_ordinal,
-                "natural_shutdown_proof": natural_projection,
+                "natural_shutdown_proof": natural_projection.to_dict(),
             },
         )
 
@@ -847,10 +1201,7 @@ class PhasedProviderAttemptCoordinator:
                 deliveries,
             )
         except PhasedOperationFailure as failure:
-            raise _NeedsTerminalization(
-                failure.diagnostic,
-                session.lifecycle,
-            ) from failure
+            self._handoff_publication(failure)
         if type(evidence) is not FunctionalEvidencePublication:
             raise TypeError("evidence publication result must be exact")
         expected_evidence = FunctionalEvidencePublication.create(
@@ -865,10 +1216,7 @@ class PhasedProviderAttemptCoordinator:
         try:
             restoration = self._bindings.restore_frozen_candidate(frozen)
         except PhasedOperationFailure as failure:
-            raise _NeedsTerminalization(
-                failure.diagnostic,
-                session.lifecycle,
-            ) from failure
+            self._handoff_publication(failure)
         if (
             type(restoration) is not FrozenCandidateRestoration
             or restoration.frozen_sha256 != frozen.frozen_sha256
@@ -881,10 +1229,7 @@ class PhasedProviderAttemptCoordinator:
                 restoration,
             )
         except PhasedOperationFailure as failure:
-            raise _NeedsTerminalization(
-                failure.diagnostic,
-                session.lifecycle,
-            ) from failure
+            self._handoff_publication(failure)
         if (
             type(verification) is not FrozenCandidateVerification
             or verification.frozen_sha256 != frozen.frozen_sha256
@@ -901,10 +1246,7 @@ class PhasedProviderAttemptCoordinator:
                 verification=verification,
             )
         except PhasedOperationFailure as failure:
-            raise _NeedsTerminalization(
-                failure.diagnostic,
-                session.lifecycle,
-            ) from failure
+            self._handoff_publication(failure)
         if (
             type(commit) is not AtomicSuccessCommitReceipt
             or commit.evidence_sha256 != evidence.evidence_sha256
@@ -918,7 +1260,7 @@ class PhasedProviderAttemptCoordinator:
             natural_join_proven=True,
             abort_calls=0,
         )
-        self._append(
+        self._safe_append(
             "publication_succeeded",
             {
                 "submission_ordinal": session.submission_ordinal,
@@ -935,7 +1277,25 @@ class PhasedProviderAttemptCoordinator:
             commit=commit,
         )
 
-    def run(self) -> PhasedProviderAttemptSuccess:
+    def _handoff_publication(
+        self,
+        failure: PhasedOperationFailure,
+    ) -> NoReturn:
+        self._safe_append(
+            "publication_failed",
+            {
+                "submission_ordinal": self._session.submission_ordinal,
+                "diagnostic": failure.diagnostic,
+            },
+        )
+        raise _NeedsTerminalization(
+            failure.diagnostic,
+            self._session.lifecycle,
+        ) from failure
+
+    def run(
+        self,
+    ) -> PhasedProviderAttemptSuccess | PhasedProviderAttemptFailure:
         allocation = self._bindings.allocate_attempt()
         if type(allocation) is not AttemptAllocation:
             raise TypeError("allocate_attempt must return an exact allocation")
@@ -945,23 +1305,34 @@ class PhasedProviderAttemptCoordinator:
             raise TypeError("compose_attempt must return an exact composition")
         self._session.composition = composition
         try:
-            preflight = self._bindings.preflight_candidates(composition)
+            try:
+                preflight = self._bindings.preflight_candidates(composition)
+            except PhasedOperationFailure as failure:
+                raise _NeedsTerminalization(
+                    failure.diagnostic,
+                    self._session.lifecycle,
+                ) from failure
+            if type(preflight) is not CandidatePreflight:
+                raise TypeError(
+                    "preflight_candidates must return exact preflight"
+                )
+            self._session.preflight = preflight
+            self._session.ledger = self._bindings.create_ledger(
+                allocation,
+                composition,
+            )
+            self._prepare_and_offer_initial()
+            event = self._validate_submission()
+            self._close_and_join(event)
+            result = self._publish()
         except PhasedOperationFailure as failure:
-            raise _NeedsTerminalization(
+            handoff = _NeedsTerminalization(
                 failure.diagnostic,
                 self._session.lifecycle,
-            ) from failure
-        if type(preflight) is not CandidatePreflight:
-            raise TypeError("preflight_candidates must return exact preflight")
-        self._session.preflight = preflight
-        self._session.ledger = self._bindings.create_ledger(
-            allocation,
-            composition,
-        )
-        self._prepare_and_offer_initial()
-        event = self._validate_submission()
-        self._close_and_join(event)
-        result = self._publish()
+            )
+            return self._terminalize(handoff)
+        except _NeedsTerminalization as handoff:
+            return self._terminalize(handoff)
         ledger = self._session.ledger
         if ledger is not None:
             ledger.close()

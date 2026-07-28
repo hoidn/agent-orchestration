@@ -15,12 +15,16 @@ import pytest
 
 from orchestrator.providers.interactive_terminal import (
     CloseOfferReceipt,
+    FailedCleanupProof,
     InteractiveMemberHandle,
     InteractiveMemberInvocation,
     InteractiveSessionSupport,
+    InteractiveTerminalError,
     InteractiveTerminalStartOutcome,
     NaturalShutdownProof,
+    NoBackendAllocationProof,
     OfferReceipt,
+    PhasedFailedCleanupEvidence,
 )
 from orchestrator.workflow.prompting import CanonicalPromptCut
 from orchestrator.workflow.provider_attempts import ProviderAttemptScope
@@ -40,7 +44,9 @@ from orchestrator.workflow.provider_phased_delivery.bindings import (
     OutputPositionValidation,
     PhaseLedger,
     PhasedOperationFailure,
+    PhasedNaturalShutdownEvidence,
     PhasedProviderAttemptCoordinatorBindings,
+    PhasedProviderAttemptFailure,
     PhasedProviderAttemptSuccess,
     StructuredResultValidation,
     SubmitEndpoint,
@@ -234,7 +240,11 @@ def _diagnostic(reason: str) -> PhasedDeliveryDiagnostic:
             kind=(
                 "adapter_operation"
                 if profile.primary_owner == "interactive_adapter"
-                else "runtime_attempt"
+                else (
+                    "state_commit"
+                    if profile.primary_owner == "workflow_state_commit"
+                    else "runtime_attempt"
+                )
             ),
             owner=profile.primary_owner,
             path=None,
@@ -474,6 +484,23 @@ class ScriptedAdapter:
             proof_complete=True,
         )
 
+    def abort(
+        self,
+        handle: InteractiveMemberHandle,
+        deadline: float,
+    ) -> FailedCleanupProof:
+        assert handle == self.handle
+        assert deadline == self.owner.composition.deadline
+        self.owner.actions.append("adapter.abort")
+        return FailedCleanupProof(
+            disposition="failed_cleanup",
+            handle_id=handle.handle_id,
+            pane_absent=True,
+            server_absent=True,
+            cleanup_complete=True,
+            error_code=None,
+        )
+
 
 class RecordingBindings(PhasedProviderAttemptCoordinatorBindings):
     def __init__(
@@ -485,6 +512,10 @@ class RecordingBindings(PhasedProviderAttemptCoordinatorBindings):
         assert len(outcomes) <= materialization_attempts
         self.actions: list[str] = []
         self.failure_finalization_calls = 0
+        self.finalized_failure: tuple[
+            PhasedDeliveryDiagnostic,
+            PhasedLifecycleState,
+        ] | None = None
         self.coordinator: PhasedProviderAttemptCoordinator | None = None
         scope = _scope()
         self.allocation = AttemptAllocation(
@@ -639,6 +670,16 @@ class RecordingBindings(PhasedProviderAttemptCoordinatorBindings):
 
     def observed_at(self) -> str:
         return "2026-07-28T12:00:00Z"
+
+    def prestart_no_backend_allocation_proof(
+        self,
+    ) -> NoBackendAllocationProof:
+        self.actions.append("bindings.prestart_proof")
+        return NoBackendAllocationProof(
+            disposition="no_backend_allocation",
+            backend_resource_allocated=False,
+            proof_complete=True,
+        )
 
     def allocate_attempt(self) -> AttemptAllocation:
         self.actions.append("bindings.allocate")
@@ -806,6 +847,8 @@ class RecordingBindings(PhasedProviderAttemptCoordinatorBindings):
         assert type(first_diagnostic) is PhasedDeliveryDiagnostic
         assert type(lifecycle) is PhasedLifecycleState
         self.failure_finalization_calls += 1
+        self.finalized_failure = (first_diagnostic, lifecycle)
+        self.actions.append("bindings.finalize_failure")
 
 
 class RealDriverAdapter(ScriptedAdapter):
@@ -926,6 +969,7 @@ def test_real_endpoint_and_ledger_validate_atomic_retry_spine(
     bindings.coordinator = coordinator
 
     result = coordinator.run()
+    assert type(result) is PhasedProviderAttemptSuccess
     assert bindings.client_thread is not None
     bindings.client_thread.join(timeout=1)
 
@@ -951,6 +995,7 @@ def test_one_submit_happy_path_records_before_actions_and_commits_once() -> None
 
     result = coordinator.run()
 
+    assert type(result) is PhasedProviderAttemptSuccess
     assert result.lifecycle.phase == "PUBLISHED"
     assert result.submission_ordinal == 1
     assert result.actual_deliveries == (
@@ -1182,6 +1227,7 @@ def test_invalid_then_valid_runs_both_validators_and_atomically_rearms_retry(
 
     result = coordinator.run()
 
+    assert type(result) is PhasedProviderAttemptSuccess
     validator_actions = tuple(
         action
         for action in bindings.actions
@@ -1259,21 +1305,20 @@ def test_invalid_submissions_exhaust_exact_cap_without_publication(
     coordinator = PhasedProviderAttemptCoordinator(bindings)
     bindings.coordinator = coordinator
 
-    with pytest.raises(_NeedsTerminalization) as caught:
-        coordinator.run()
+    result = coordinator.run()
 
-    assert (
-        caught.value.first_diagnostic.reason
-        == "materialization_attempts_exhausted"
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == (
+        "materialization_attempts_exhausted"
     )
-    assert caught.value.lifecycle.phase == "VALIDATING"
+    assert result.lifecycle.phase == "FAILED"
     assert bindings.actions.count("bindings.validate_output") == cap
     assert bindings.actions.count("bindings.validate_structured") == cap
     assert bindings.actions.count("bindings.reset") == cap
     assert "bindings.freeze" not in bindings.actions
     assert "bindings.publish_evidence" not in bindings.actions
     assert "bindings.atomic_commit" not in bindings.actions
-    assert bindings.failure_finalization_calls == 0
+    assert bindings.failure_finalization_calls == 1
     assert tuple(
         (receipt.status, rearm)
         for receipt, rearm in bindings.endpoint.receipts
@@ -1495,6 +1540,959 @@ def test_snapshot_direct_constructor_rejects_preflight_binding_tamper() -> None:
         )
 
 
+class TerminalBoundaryLedger(RecordingLedger):
+    owner: "TerminalBoundaryBindings"
+
+    def append(
+        self,
+        event: str,
+        payload: Mapping[str, object],
+        *,
+        observed_at: str,
+    ) -> None:
+        super().append(event, payload, observed_at=observed_at)
+        boundary = f"ledger_{event}"
+        configured = {
+            self.owner.fail_at,
+            self.owner.ledger_fail_at,
+        }
+        if boundary in configured and boundary not in (
+            self.owner.consumed_failures
+        ):
+            self.owner.consumed_failures.add(boundary)
+            raise PhasedOperationFailure(_diagnostic("evidence_append_failed"))
+
+
+class TerminalBoundaryEndpoint(OneSubmitEndpoint):
+    owner: "TerminalBoundaryBindings"
+
+    def start(self) -> None:
+        super().start()
+        if self.owner.fail_at == "endpoint_native":
+            raise FileExistsError("endpoint address already exists")
+        if self.owner.fail_at in {"endpoint", "endpoint_terminal_ingress"}:
+            raise PhasedOperationFailure(
+                _diagnostic("submit_endpoint_allocation_failed")
+            )
+
+    def open_admission(self, lifecycle: str) -> None:
+        super().open_admission(lifecycle)
+        if self.owner.fail_at == "admission_native":
+            raise RuntimeError("endpoint admission failed")
+
+    def receive_event(
+        self,
+        *,
+        deadline: float | None = None,
+    ) -> SubmitEndpointEvent:
+        if self.owner.fail_at == "submit":
+            self.owner.actions.append("endpoint.receive")
+            raise PhasedOperationFailure(
+                _diagnostic("submit_lifecycle_invalid")
+            )
+        return super().receive_event(deadline=deadline)
+
+    def shutdown(
+        self,
+        *,
+        deadline: float | None = None,
+    ) -> SubmitEndpointShutdownOutcome:
+        outcome = super().shutdown(deadline=deadline)
+        if self.owner.fail_at in {
+            "ingress",
+            "terminal_ingress",
+            "endpoint_terminal_ingress",
+        }:
+            return SubmitEndpointShutdownOutcome(
+                queued_requests_rejected=outcome.queued_requests_rejected,
+                active_requests_drained=outcome.active_requests_drained,
+                listener_closed=False,
+                workers_joined=outcome.workers_joined,
+                endpoint_zero_survivor_proven=False,
+            )
+        return outcome
+
+
+class TerminalBoundaryAdapter(ScriptedAdapter):
+    owner: "TerminalBoundaryBindings"
+
+    def start(
+        self,
+        invocation: InteractiveMemberInvocation,
+        *,
+        deadline: float,
+    ) -> InteractiveTerminalStartOutcome:
+        if self.owner.fail_at == "start":
+            self.owner.actions.append("adapter.start")
+            if self.owner.cleanup_mode == "start_completed":
+                return InteractiveTerminalStartOutcome(
+                    status="failed",
+                    error_code="pane_start_failed",
+                    backend_allocation="possible_or_allocated",
+                    cleanup_status="completed",
+                    provider_zero_survivor_proven=True,
+                    proof=PhasedFailedCleanupEvidence(
+                        disposition="failed_cleanup",
+                        pane_absent=True,
+                        server_absent=True,
+                        cleanup_complete=True,
+                        error_code=None,
+                    ),
+                )
+            if self.owner.cleanup_mode == "start_incomplete":
+                return InteractiveTerminalStartOutcome(
+                    status="failed",
+                    error_code=(
+                        "interactive_terminal_start_cleanup_incomplete"
+                    ),
+                    backend_allocation="possible_or_allocated",
+                    cleanup_status="incomplete",
+                    provider_zero_survivor_proven=False,
+                    proof=PhasedFailedCleanupEvidence(
+                        disposition="failed_cleanup",
+                        pane_absent=False,
+                        server_absent=False,
+                        cleanup_complete=False,
+                        error_code=(
+                            "interactive_terminal_start_cleanup_incomplete"
+                        ),
+                    ),
+                )
+            return InteractiveTerminalStartOutcome(
+                status="failed",
+                error_code="pane_start_failed",
+                backend_allocation="none",
+                cleanup_status="not_required",
+                provider_zero_survivor_proven=True,
+                proof=NoBackendAllocationProof(
+                    disposition="no_backend_allocation",
+                    backend_resource_allocated=False,
+                    proof_complete=True,
+                ),
+            )
+        return super().start(invocation, deadline=deadline)
+
+    def offer(
+        self,
+        handle: InteractiveMemberHandle,
+        literal_message: str,
+        *,
+        deadline: float,
+    ) -> OfferReceipt:
+        phase = self.owner.offered_turns[
+            len(self.owner.actual_offers)
+        ].projection.phase
+        if self.owner.fail_at == phase:
+            self.owner.actions.append(f"adapter.offer.{phase}")
+            raise InteractiveTerminalError("literal_offer_failed")
+        return super().offer(
+            handle,
+            literal_message,
+            deadline=deadline,
+        )
+
+    def offer_close(
+        self,
+        handle: InteractiveMemberHandle,
+        *,
+        deadline: float,
+    ) -> CloseOfferReceipt:
+        if self.owner.fail_at == "close":
+            self.owner.actions.append("adapter.offer_close")
+            raise InteractiveTerminalError("literal_offer_failed")
+        return super().offer_close(handle, deadline=deadline)
+
+    def join(
+        self,
+        handle: InteractiveMemberHandle,
+        deadline: float,
+    ) -> NaturalShutdownProof:
+        if self.owner.fail_at == "join":
+            self.owner.actions.append("adapter.join")
+            raise InteractiveTerminalError("natural_shutdown_timeout")
+        return super().join(handle, deadline)
+
+    def abort(
+        self,
+        handle: InteractiveMemberHandle,
+        deadline: float,
+    ) -> FailedCleanupProof:
+        self.owner.actions.append("adapter.abort")
+        mode = self.owner.cleanup_mode
+        if mode == "raise":
+            raise InteractiveTerminalError("cleanup_backend_error")
+        if mode == "timeout":
+            raise InteractiveTerminalError("cleanup_timeout")
+        if mode == "missing":
+            return cast(FailedCleanupProof, None)
+        if mode == "wrong_type":
+            return cast(FailedCleanupProof, object())
+        handle_id = (
+            "foreign-handle"
+            if mode == "mismatched"
+            else handle.handle_id
+        )
+        complete = mode != "incomplete"
+        return FailedCleanupProof(
+            disposition="failed_cleanup",
+            handle_id=handle_id,
+            pane_absent=complete,
+            server_absent=complete,
+            cleanup_complete=complete,
+            error_code=None if complete else "cleanup_backend_error",
+        )
+
+
+class TerminalBoundaryBindings(RecordingBindings):
+    def __init__(
+        self,
+        *,
+        fail_at: str,
+        cleanup_mode: str = "complete",
+        ledger_fail_at: str | None = None,
+    ) -> None:
+        retry = fail_at in {"retry_materialization", "reset"}
+        super().__init__(
+            materialization_attempts=2 if retry else 1,
+            outcomes=(
+                ((False, True), (True, True))
+                if retry
+                else ((True, True),)
+            ),
+        )
+        self.fail_at = fail_at
+        self.ledger_fail_at = ledger_fail_at
+        self.cleanup_mode = cleanup_mode
+        self.consumed_failures: set[str] = set()
+        self.adapter = TerminalBoundaryAdapter(self)
+        self.endpoint = TerminalBoundaryEndpoint(
+            self,
+            tuple(event.request for event in self.endpoint.events),
+        )
+
+    def preflight_candidates(
+        self,
+        composition: AttemptComposition,
+    ) -> CandidatePreflight:
+        if self.fail_at == "preparation":
+            self.actions.append("bindings.preflight")
+            raise PhasedOperationFailure(_diagnostic("preparation_failed"))
+        return super().preflight_candidates(composition)
+
+    def create_ledger(
+        self,
+        allocation: AttemptAllocation,
+        composition: AttemptComposition,
+    ) -> PhaseLedger:
+        assert allocation == self.allocation
+        assert composition == self.composition
+        self.actions.append("ledger.header")
+        self.ledger = TerminalBoundaryLedger(self)
+        return self.ledger
+
+    def validate_output_positions(
+        self,
+        snapshot: CandidateSnapshot,
+    ) -> OutputPositionValidation:
+        if self.fail_at == "output_validation":
+            self.actions.append("bindings.validate_output")
+            raise PhasedOperationFailure(
+                _diagnostic("output_validation_failed")
+            )
+        return super().validate_output_positions(snapshot)
+
+    def validate_structured_result(
+        self,
+        snapshot: CandidateSnapshot,
+    ) -> StructuredResultValidation:
+        if self.fail_at == "structured_validation":
+            self.actions.append("bindings.validate_structured")
+            raise PhasedOperationFailure(
+                _diagnostic("structured_result_validation_failed")
+            )
+        return super().validate_structured_result(snapshot)
+
+    def reset_candidates(
+        self,
+        snapshot: CandidateSnapshot,
+    ) -> CandidateResetResult:
+        if self.fail_at == "reset":
+            self.actions.append("bindings.reset")
+            raise PhasedOperationFailure(
+                _diagnostic("candidate_reset_failed")
+            )
+        return super().reset_candidates(snapshot)
+
+    def freeze_candidate(
+        self,
+        snapshot: CandidateSnapshot,
+        output: OutputPositionValidation,
+        structured: StructuredResultValidation,
+    ) -> FrozenCandidate:
+        if self.fail_at == "freeze":
+            self.actions.append("bindings.freeze")
+            raise PhasedOperationFailure(
+                _diagnostic("candidate_freeze_failed")
+            )
+        return super().freeze_candidate(snapshot, output, structured)
+
+    def publish_functional_evidence(
+        self,
+        frozen: FrozenCandidate,
+        actual_deliveries: tuple[RenderedProtocolTurn, ...],
+    ) -> FunctionalEvidencePublication:
+        if self.fail_at == "publication":
+            self.actions.append("bindings.publish_evidence")
+            raise PhasedOperationFailure(
+                _diagnostic("evidence_publication_failed")
+            )
+        return super().publish_functional_evidence(
+            frozen,
+            actual_deliveries,
+        )
+
+    def restore_frozen_candidate(
+        self,
+        frozen: FrozenCandidate,
+    ) -> FrozenCandidateRestoration:
+        if self.fail_at == "restoration":
+            self.actions.append("bindings.restore")
+            raise PhasedOperationFailure(
+                _diagnostic("frozen_restoration_failed")
+            )
+        return super().restore_frozen_candidate(frozen)
+
+    def verify_frozen_candidate(
+        self,
+        frozen: FrozenCandidate,
+        restoration: FrozenCandidateRestoration,
+    ) -> FrozenCandidateVerification:
+        if self.fail_at == "verification":
+            self.actions.append("bindings.verify")
+            raise PhasedOperationFailure(
+                _diagnostic("frozen_verification_failed")
+            )
+        return super().verify_frozen_candidate(frozen, restoration)
+
+    def atomic_success_commit(
+        self,
+        *,
+        allocation: AttemptAllocation,
+        output: OutputPositionValidation,
+        structured: StructuredResultValidation,
+        frozen: FrozenCandidate,
+        evidence: FunctionalEvidencePublication,
+        verification: FrozenCandidateVerification,
+    ) -> AtomicSuccessCommitReceipt:
+        if self.fail_at == "commit":
+            self.actions.append("bindings.atomic_commit")
+            raise PhasedOperationFailure(
+                _diagnostic("workflow_state_commit_failed")
+            )
+        return super().atomic_success_commit(
+            allocation=allocation,
+            output=output,
+            structured=structured,
+            frozen=frozen,
+            evidence=evidence,
+            verification=verification,
+        )
+
+
+class RealTerminalBoundaryBindings(TerminalBoundaryBindings):
+    def __init__(self, tmp_path: Path, *, fail_at: str) -> None:
+        super().__init__(fail_at=fail_at)
+        self.run_root = tmp_path / f"run-{fail_at}"
+        self.run_root.mkdir()
+        self.ledger_path: Path | None = None
+
+    def create_ledger(
+        self,
+        allocation: AttemptAllocation,
+        composition: AttemptComposition,
+    ) -> ProviderPromptPhaseLedgerWriter:
+        self.actions.append("ledger.header")
+        writer = ProviderPromptPhaseLedgerWriter.create(
+            self.run_root,
+            scope=allocation.scope,
+            ordinal=allocation.attempt_ordinal,
+            cut=composition.cut,
+            materialization_attempts=composition.materialization_attempts,
+            created_at=self.observed_at(),
+        )
+        self.ledger_path = writer.path
+        return writer
+
+
+@pytest.mark.parametrize(
+    (
+        "fail_at",
+        "reason",
+        "tier",
+        "abort_calls",
+        "shutdown_calls",
+        "terminal_suffix",
+    ),
+    (
+        (
+            "preparation",
+            "preparation_failed",
+            "T0",
+            0,
+            0,
+            (),
+        ),
+        (
+            "ledger_task_start_requested",
+            "evidence_append_failed",
+            "T0",
+            0,
+            0,
+            ("cleanup_finished", "terminal_failed"),
+        ),
+        (
+            "start",
+            "adapter_start_failed",
+            "T0",
+            0,
+            0,
+            (
+                "task_start_failed",
+                "cleanup_finished",
+                "terminal_failed",
+            ),
+        ),
+        (
+            "endpoint",
+            "submit_endpoint_allocation_failed",
+            "T1",
+            1,
+            1,
+            (
+                "cleanup_finished",
+                "ingress_shutdown_started",
+                "ingress_shutdown_finished",
+                "terminal_failed",
+            ),
+        ),
+        (
+            "initial_materialization",
+            "initial_offer_failed",
+            "T1",
+            1,
+            1,
+            (
+                "turn_offer_failed",
+                "cleanup_finished",
+                "ingress_shutdown_started",
+                "ingress_shutdown_finished",
+                "terminal_failed",
+            ),
+        ),
+        (
+            "submit",
+            "submit_lifecycle_invalid",
+            "T1",
+            1,
+            1,
+            (
+                "cleanup_finished",
+                "ingress_shutdown_started",
+                "ingress_shutdown_finished",
+                "terminal_failed",
+            ),
+        ),
+        (
+            "output_validation",
+            "output_validation_failed",
+            "T1",
+            1,
+            1,
+            (
+                "cleanup_finished",
+                "ingress_shutdown_started",
+                "ingress_shutdown_finished",
+                "terminal_failed",
+            ),
+        ),
+        (
+            "structured_validation",
+            "structured_result_validation_failed",
+            "T1",
+            1,
+            1,
+            (
+                "cleanup_finished",
+                "ingress_shutdown_started",
+                "ingress_shutdown_finished",
+                "terminal_failed",
+            ),
+        ),
+        (
+            "reset",
+            "candidate_reset_failed",
+            "T1",
+            1,
+            1,
+            (
+                "cleanup_finished",
+                "ingress_shutdown_started",
+                "ingress_shutdown_finished",
+                "terminal_failed",
+            ),
+        ),
+        (
+            "retry_materialization",
+            "retry_offer_failed",
+            "T1",
+            1,
+            1,
+            (
+                "turn_offer_failed",
+                "cleanup_finished",
+                "ingress_shutdown_started",
+                "ingress_shutdown_finished",
+                "terminal_failed",
+            ),
+        ),
+        (
+            "freeze",
+            "candidate_freeze_failed",
+            "T1",
+            1,
+            1,
+            (
+                "cleanup_finished",
+                "ingress_shutdown_started",
+                "ingress_shutdown_finished",
+                "terminal_failed",
+            ),
+        ),
+        (
+            "close",
+            "close_offer_failed",
+            "T1",
+            1,
+            1,
+            (
+                "close_offer_failed",
+                "cleanup_finished",
+                "ingress_shutdown_started",
+                "ingress_shutdown_finished",
+                "terminal_failed",
+            ),
+        ),
+        (
+            "ingress",
+            "ingress_shutdown_failed",
+            "T2a",
+            1,
+            1,
+            (
+                "cleanup_finished",
+                "ingress_shutdown_failed",
+                "terminal_failed",
+            ),
+        ),
+        (
+            "join",
+            "natural_join_failed",
+            "T3",
+            1,
+            1,
+            (
+                "join_failed",
+                "cleanup_finished",
+                "terminal_failed",
+            ),
+        ),
+        (
+            "publication",
+            "evidence_publication_failed",
+            "T4",
+            0,
+            1,
+            ("publication_failed", "terminal_failed"),
+        ),
+        (
+            "restoration",
+            "frozen_restoration_failed",
+            "T4",
+            0,
+            1,
+            ("publication_failed", "terminal_failed"),
+        ),
+        (
+            "verification",
+            "frozen_verification_failed",
+            "T4",
+            0,
+            1,
+            ("publication_failed", "terminal_failed"),
+        ),
+        (
+            "commit",
+            "workflow_state_commit_failed",
+            "T4",
+            0,
+            1,
+            ("publication_failed", "terminal_failed"),
+        ),
+    ),
+)
+def test_terminal_failure_boundary_trace(
+    fail_at: str,
+    reason: str,
+    tier: str,
+    abort_calls: int,
+    shutdown_calls: int,
+    terminal_suffix: tuple[str, ...],
+) -> None:
+    bindings = TerminalBoundaryBindings(fail_at=fail_at)
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == reason
+    assert result.lifecycle.phase == "FAILED"
+    assert result.terminalization_tier == tier
+    assert bindings.actions.count("adapter.abort") == abort_calls
+    assert bindings.actions.count("endpoint.shutdown") == shutdown_calls
+    assert bindings.failure_finalization_calls == 1
+    assert bindings.finalized_failure == (
+        result.first_diagnostic,
+        result.lifecycle,
+    )
+    assert bindings.committed_material is None
+    assert "ledger.publication_succeeded" not in bindings.actions
+    if hasattr(bindings, "ledger"):
+        event_names = tuple(event for event, _payload in bindings.ledger.events)
+        assert event_names[-len(terminal_suffix):] == terminal_suffix
+
+
+@pytest.mark.parametrize(
+    ("fail_at", "tier"),
+    (
+        ("start", "T0"),
+        ("endpoint", "T1"),
+        ("initial_materialization", "T1"),
+        ("ingress", "T2a"),
+        ("join", "T3"),
+        ("publication", "T4"),
+    ),
+)
+def test_real_ledger_validates_representative_terminal_trace(
+    tmp_path: Path,
+    fail_at: str,
+    tier: str,
+) -> None:
+    bindings = RealTerminalBoundaryBindings(
+        tmp_path,
+        fail_at=fail_at,
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.terminalization_tier == tier
+    assert bindings.ledger_path is not None
+    validation = validate_ledger_bytes(bindings.ledger_path.read_bytes())
+    assert validation["status"] == "complete"
+    assert validation["terminal_event"] == "terminal_failed"
+
+
+@pytest.mark.parametrize(
+    ("cleanup_mode", "complete", "proof_retained"),
+    (
+        ("complete", True, True),
+        ("incomplete", False, True),
+        ("mismatched", False, False),
+        ("wrong_type", False, False),
+        ("missing", False, False),
+        ("raise", False, False),
+        ("timeout", False, False),
+    ),
+)
+def test_live_cleanup_projects_only_exact_handle_bound_proof(
+    cleanup_mode: str,
+    complete: bool,
+    proof_retained: bool,
+) -> None:
+    bindings = TerminalBoundaryBindings(
+        fail_at="initial_materialization",
+        cleanup_mode=cleanup_mode,
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert bindings.actions.count("adapter.abort") == 1
+    assert result.lifecycle.abort_calls == 1
+    assert result.lifecycle.provider_cleanup == (
+        "COMPLETE" if complete else "INCOMPLETE"
+    )
+    assert (result.cleanup_diagnostic is None) is complete
+    if proof_retained:
+        assert type(result.provider_cleanup_proof) is (
+            PhasedFailedCleanupEvidence
+        )
+        assert not hasattr(result.provider_cleanup_proof, "handle_id")
+        assert result.provider_cleanup_proof.cleanup_complete is complete
+    else:
+        assert result.provider_cleanup_proof is None
+    cleanup_payload = next(
+        payload
+        for event, payload in bindings.ledger.events
+        if event == "cleanup_finished"
+    )
+    assert (
+        cleanup_payload["provider_cleanup_proof"]
+        is result.provider_cleanup_proof
+    )
+
+
+@pytest.mark.parametrize(
+    ("cleanup_mode", "cleanup_state", "supplemental_reason"),
+    (
+        ("start_not_required", "NOT_REQUIRED", None),
+        ("start_completed", "COMPLETE", None),
+        (
+            "start_incomplete",
+            "INCOMPLETE",
+            "adapter_start_cleanup_incomplete",
+        ),
+    ),
+)
+def test_failed_start_reuses_validated_closed_outcome_without_abort(
+    cleanup_mode: str,
+    cleanup_state: str,
+    supplemental_reason: str | None,
+) -> None:
+    bindings = TerminalBoundaryBindings(
+        fail_at="start",
+        cleanup_mode=cleanup_mode,
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.terminalization_tier == "T0"
+    assert bindings.actions.count("adapter.abort") == 0
+    assert result.lifecycle.abort_calls == 0
+    assert result.lifecycle.provider_cleanup == cleanup_state
+    start_failure = coordinator._session.start_failure_outcome
+    assert start_failure is not None
+    assert result.provider_cleanup_proof is (
+        start_failure.proof
+    )
+    assert (
+        None
+        if result.cleanup_diagnostic is None
+        else result.cleanup_diagnostic.reason
+    ) == supplemental_reason
+
+
+def test_t2b_reuses_failed_endpoint_shutdown_without_duplicate_calls() -> None:
+    bindings = TerminalBoundaryBindings(
+        fail_at="terminal_ingress",
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+    allocation = bindings.allocate_attempt()
+    coordinator._session.allocation = allocation
+    composition = bindings.compose_attempt(allocation)
+    coordinator._session.composition = composition
+    coordinator._session.preflight = bindings.preflight_candidates(
+        composition
+    )
+    coordinator._session.ledger = bindings.create_ledger(
+        allocation,
+        composition,
+    )
+    coordinator._prepare_and_offer_initial()
+    first = _diagnostic("submit_lifecycle_invalid")
+    coordinator._finish_cleanup_once()
+    coordinator._start_ingress_shutdown_once(fail_safe=True)
+
+    result = coordinator._terminalize(
+        _NeedsTerminalization(first, coordinator.lifecycle)
+    )
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.terminalization_tier == "T2b"
+    assert result.endpoint_shutdown_status == "incomplete"
+    assert bindings.actions.count("adapter.abort") == 1
+    assert bindings.actions.count("endpoint.shutdown") == 1
+    assert tuple(
+        event
+        for event, _payload in bindings.ledger.events
+        if event
+        in {
+            "cleanup_finished",
+            "ingress_shutdown_started",
+            "ingress_shutdown_finished",
+            "ingress_shutdown_failed",
+            "terminal_failed",
+        }
+    ) == (
+        "cleanup_finished",
+        "ingress_shutdown_started",
+        "ingress_shutdown_failed",
+        "terminal_failed",
+    )
+
+
+@pytest.mark.parametrize(
+    "fail_at",
+    ("endpoint_native", "admission_native"),
+)
+def test_native_endpoint_allocation_failure_terminalizes_once(
+    fail_at: str,
+) -> None:
+    bindings = TerminalBoundaryBindings(fail_at=fail_at)
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == (
+        "submit_endpoint_allocation_failed"
+    )
+    assert result.terminalization_tier == "T1"
+    assert bindings.actions.count("adapter.abort") == 1
+    assert bindings.actions.count("endpoint.shutdown") == 1
+    assert bindings.failure_finalization_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("fail_at", "evidence_retained"),
+    (
+        ("publication", False),
+        ("restoration", True),
+        ("verification", True),
+        ("commit", True),
+    ),
+)
+def test_post_proof_failure_retains_provisional_material_without_authority(
+    fail_at: str,
+    evidence_retained: bool,
+) -> None:
+    bindings = TerminalBoundaryBindings(fail_at=fail_at)
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.terminalization_tier == "T4"
+    assert result.lifecycle.natural_join_proven is True
+    assert result.lifecycle.provider_cleanup == "NOT_REQUIRED"
+    assert type(result.natural_shutdown_proof) is (
+        PhasedNaturalShutdownEvidence
+    )
+    assert result.frozen is bindings.frozen
+    assert (result.evidence is not None) is evidence_retained
+    assert result.provider_cleanup_proof is None
+    assert result.cleanup_diagnostic is None
+    assert bindings.actions.count("adapter.abort") == 0
+    assert bindings.actions.count("endpoint.shutdown") == 1
+    assert bindings.committed_material is None
+
+
+@pytest.mark.parametrize(
+    ("fail_at", "publication_started"),
+    (
+        ("ledger_join_succeeded", False),
+        ("ledger_publication_started", True),
+    ),
+)
+def test_post_join_ledger_failure_uses_prior_natural_proof_and_zero_abort(
+    fail_at: str,
+    publication_started: bool,
+) -> None:
+    bindings = TerminalBoundaryBindings(fail_at=fail_at)
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == "evidence_append_failed"
+    assert result.terminalization_tier == "T4"
+    assert result.lifecycle.natural_join_proven is True
+    assert type(result.natural_shutdown_proof) is (
+        PhasedNaturalShutdownEvidence
+    )
+    assert bindings.actions.count("adapter.abort") == 0
+    assert bindings.actions.count("endpoint.shutdown") == 1
+    assert bindings.failure_finalization_calls == 1
+    assert ("bindings.publish_evidence" in bindings.actions) is False
+    assert (
+        "ledger.publication_started" in bindings.actions
+    ) is publication_started
+
+
+@pytest.mark.parametrize(
+    ("fail_at", "ledger_event", "first_reason"),
+    (
+        ("start", "task_start_failed", "adapter_start_failed"),
+        (
+            "initial_materialization",
+            "turn_offer_failed",
+            "initial_offer_failed",
+        ),
+        ("close", "close_offer_failed", "close_offer_failed"),
+        ("join", "join_failed", "natural_join_failed"),
+        (
+            "publication",
+            "publication_failed",
+            "evidence_publication_failed",
+        ),
+    ),
+)
+def test_failure_event_append_failure_preserves_first_diagnostic(
+    fail_at: str,
+    ledger_event: str,
+    first_reason: str,
+) -> None:
+    bindings = TerminalBoundaryBindings(
+        fail_at=fail_at,
+        ledger_fail_at=f"ledger_{ledger_event}",
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == first_reason
+    assert bindings.failure_finalization_calls == 1
+
+
+def test_post_commit_evidence_append_failure_preserves_success_authority() -> None:
+    bindings = TerminalBoundaryBindings(
+        fail_at="ledger_publication_succeeded",
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptSuccess
+    assert result.lifecycle.phase == "PUBLISHED"
+    assert bindings.committed_material is not None
+    assert bindings.failure_finalization_calls == 0
+
+
 class PreflightFailureBindings(RecordingBindings):
     def preflight_candidates(
         self,
@@ -1509,17 +2507,17 @@ def test_preexisting_candidate_hands_off_before_start_or_publication() -> None:
     coordinator = PhasedProviderAttemptCoordinator(bindings)
     bindings.coordinator = coordinator
 
-    with pytest.raises(_NeedsTerminalization) as caught:
-        coordinator.run()
+    result = coordinator.run()
 
-    assert caught.value.first_diagnostic.reason == "candidate_path_preexisting"
-    assert caught.value.lifecycle.phase == "ALLOCATED"
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == "candidate_path_preexisting"
+    assert result.lifecycle.phase == "FAILED"
     assert "adapter.start" not in bindings.actions
     assert "bindings.atomic_commit" not in bindings.actions
-    assert bindings.failure_finalization_calls == 0
+    assert bindings.failure_finalization_calls == 1
 
 
-def test_failure_finalization_is_an_explicit_unused_binding_contract() -> None:
+def test_failure_finalization_is_an_explicit_binding_contract() -> None:
     assert (
         "finalize_failure"
         in PhasedProviderAttemptCoordinatorBindings.__dict__
@@ -1559,11 +2557,17 @@ def test_endpoint_binding_is_exact_and_equal_before_start(kind: str) -> None:
     coordinator = PhasedProviderAttemptCoordinator(bindings)
     bindings.coordinator = coordinator
 
-    with pytest.raises(ValueError, match="endpoint binding"):
-        coordinator.run()
+    result = coordinator.run()
 
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == (
+        "submit_endpoint_allocation_failed"
+    )
+    assert result.terminalization_tier == "T1"
     assert "endpoint.start" not in bindings.actions
-    assert bindings.failure_finalization_calls == 0
+    assert bindings.actions.count("adapter.abort") == 1
+    assert bindings.actions.count("endpoint.shutdown") == 1
+    assert bindings.failure_finalization_calls == 1
 
 
 class _ResetLookalike:
@@ -1679,11 +2683,11 @@ def test_nonregular_retry_replacement_hands_off_without_retry_offer() -> None:
     coordinator = PhasedProviderAttemptCoordinator(bindings)
     bindings.coordinator = coordinator
 
-    with pytest.raises(_NeedsTerminalization) as caught:
-        coordinator.run()
+    result = coordinator.run()
 
-    assert caught.value.first_diagnostic.reason == "candidate_reset_failed"
-    assert caught.value.lifecycle.phase == "VALIDATING"
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == "candidate_reset_failed"
+    assert result.lifecycle.phase == "FAILED"
     assert bindings.endpoint.receipts[0][0].status == "failed"
     assert bindings.endpoint.receipts[0][1] is False
     assert "ledger.retry_queued" not in bindings.actions
@@ -1706,11 +2710,11 @@ def test_incomplete_recreation_hands_off_without_close_or_publication() -> None:
     coordinator = PhasedProviderAttemptCoordinator(bindings)
     bindings.coordinator = coordinator
 
-    with pytest.raises(_NeedsTerminalization) as caught:
-        coordinator.run()
+    result = coordinator.run()
 
-    assert caught.value.first_diagnostic.reason == "candidate_freeze_failed"
-    assert caught.value.lifecycle.phase == "VALIDATING"
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == "candidate_freeze_failed"
+    assert result.lifecycle.phase == "FAILED"
     assert bindings.endpoint.receipts[0][0].status == "failed"
     assert "adapter.offer_close" not in bindings.actions
     assert "bindings.publish_evidence" not in bindings.actions
@@ -1801,10 +2805,10 @@ def test_failed_offer_is_not_an_actual_delivery(
     coordinator = PhasedProviderAttemptCoordinator(bindings)
     bindings.coordinator = coordinator
 
-    with pytest.raises(_NeedsTerminalization) as caught:
-        coordinator.run()
+    result = coordinator.run()
 
-    assert caught.value.first_diagnostic.reason == expected_reason
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == expected_reason
     assert tuple(
         turn.projection.phase
         for turn in coordinator._session.actual_deliveries

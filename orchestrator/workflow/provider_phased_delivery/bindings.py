@@ -11,11 +11,14 @@ from typing import Mapping, Protocol
 
 from orchestrator.providers.interactive_terminal import (
     CloseOfferReceipt,
+    FailedCleanupProof,
     InteractiveMemberHandle,
     InteractiveMemberInvocation,
     InteractiveTerminalStartOutcome,
     NaturalShutdownProof,
+    NoBackendAllocationProof,
     OfferReceipt,
+    PhasedFailedCleanupEvidence,
 )
 from orchestrator.providers.types import (
     escape_provider_command_token,
@@ -821,6 +824,130 @@ class PhasedProviderAttemptSuccess:
             raise ValueError("commit must bind the evidence and frozen candidate")
 
 
+@dataclass(frozen=True, slots=True)
+class PhasedNaturalShutdownEvidence:
+    disposition: str
+    return_code: int
+    pane_absent: bool
+    server_absent: bool
+    proof_complete: bool
+
+    def __post_init__(self) -> None:
+        if (
+            self.disposition != "natural_exit"
+            or self.return_code != 0
+            or self.pane_absent is not True
+            or self.server_absent is not True
+            or self.proof_complete is not True
+        ):
+            raise ValueError("natural shutdown evidence must be complete")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "disposition": self.disposition,
+            "return_code": self.return_code,
+            "pane_absent": self.pane_absent,
+            "server_absent": self.server_absent,
+            "proof_complete": self.proof_complete,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PhasedProviderAttemptFailure:
+    allocation: AttemptAllocation
+    lifecycle: PhasedLifecycleState
+    first_diagnostic: PhasedDeliveryDiagnostic
+    cleanup_diagnostic: PhasedDeliveryDiagnostic | None
+    provider_cleanup_proof: (
+        NoBackendAllocationProof | PhasedFailedCleanupEvidence | None
+    )
+    endpoint_shutdown_status: str
+    natural_shutdown_proof: PhasedNaturalShutdownEvidence | None
+    terminalization_tier: str
+    frozen: FrozenCandidate | None
+    evidence: FunctionalEvidencePublication | None
+
+    def __post_init__(self) -> None:
+        if type(self.allocation) is not AttemptAllocation:
+            raise TypeError("allocation must be exact")
+        if (
+            type(self.lifecycle) is not PhasedLifecycleState
+            or self.lifecycle.phase != "FAILED"
+        ):
+            raise TypeError("lifecycle must be an exact failed state")
+        if type(self.first_diagnostic) is not PhasedDeliveryDiagnostic:
+            raise TypeError("first_diagnostic must be exact")
+        if self.cleanup_diagnostic is not None and (
+            type(self.cleanup_diagnostic) is not PhasedDeliveryDiagnostic
+        ):
+            raise TypeError("cleanup_diagnostic must be exact or null")
+        if self.endpoint_shutdown_status not in {
+            "not_allocated",
+            "complete",
+            "incomplete",
+        }:
+            raise ValueError("endpoint_shutdown_status is invalid")
+        if self.terminalization_tier not in {
+            "T0",
+            "T1",
+            "T2a",
+            "T2b",
+            "T3",
+            "T4",
+        }:
+            raise ValueError("terminalization_tier is invalid")
+        if self.frozen is not None and type(self.frozen) is not FrozenCandidate:
+            raise TypeError("frozen must be exact or null")
+        if self.evidence is not None and (
+            type(self.evidence) is not FunctionalEvidencePublication
+        ):
+            raise TypeError("evidence must be exact or null")
+        proof = self.provider_cleanup_proof
+        cleanup = self.lifecycle.provider_cleanup
+        if self.lifecycle.natural_join_proven:
+            if (
+                self.terminalization_tier != "T4"
+                or cleanup != "NOT_REQUIRED"
+                or proof is not None
+                or self.cleanup_diagnostic is not None
+                or type(self.natural_shutdown_proof)
+                is not PhasedNaturalShutdownEvidence
+                or self.endpoint_shutdown_status != "complete"
+            ):
+                raise ValueError("post-proof failure evidence is inconsistent")
+            return
+        if self.natural_shutdown_proof is not None:
+            raise ValueError("pre-proof failure forbids natural proof")
+        if cleanup == "NOT_REQUIRED":
+            if (
+                type(proof) is not NoBackendAllocationProof
+                or self.cleanup_diagnostic is not None
+            ):
+                raise ValueError("not-required cleanup requires exact proof")
+        elif cleanup == "COMPLETE":
+            if (
+                type(proof) is not PhasedFailedCleanupEvidence
+                or proof.cleanup_complete is not True
+                or self.cleanup_diagnostic is not None
+            ):
+                raise ValueError("complete cleanup evidence is inconsistent")
+        elif cleanup == "INCOMPLETE":
+            if (
+                proof is not None
+                and (
+                    type(proof) is not PhasedFailedCleanupEvidence
+                    or proof.cleanup_complete is not False
+                )
+            ):
+                raise ValueError("incomplete cleanup proof is invalid")
+            if type(self.cleanup_diagnostic) is not PhasedDeliveryDiagnostic:
+                raise ValueError(
+                    "incomplete cleanup requires a supplemental diagnostic"
+                )
+        else:
+            raise ValueError("failed result cannot retain pending cleanup")
+
+
 class PhasedOperationFailure(RuntimeError):
     """One exact semantic binding failure awaiting coordinator terminalization."""
 
@@ -859,6 +986,12 @@ class PhasedAdapter(Protocol):
         handle: InteractiveMemberHandle,
         deadline: float,
     ) -> NaturalShutdownProof: ...
+
+    def abort(
+        self,
+        handle: InteractiveMemberHandle,
+        deadline: float,
+    ) -> FailedCleanupProof: ...
 
 
 class PhaseLedger(Protocol):
@@ -908,6 +1041,10 @@ class PhasedProviderAttemptCoordinatorBindings(Protocol):
     adapter: PhasedAdapter
 
     def observed_at(self) -> str: ...
+
+    def prestart_no_backend_allocation_proof(
+        self,
+    ) -> NoBackendAllocationProof: ...
 
     def allocate_attempt(self) -> AttemptAllocation: ...
 
@@ -1011,6 +1148,8 @@ __all__ = [
     "OutputPositionValidation",
     "PhasedAdapter",
     "PhasedOperationFailure",
+    "PhasedNaturalShutdownEvidence",
+    "PhasedProviderAttemptFailure",
     "PhasedProviderAttemptSuccess",
     "PhasedProviderAttemptCoordinatorBindings",
     "PhaseLedger",
