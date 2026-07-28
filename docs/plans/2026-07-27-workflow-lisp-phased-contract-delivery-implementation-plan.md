@@ -1372,3 +1372,39 @@ Q5 is complete only when:
 17. focused, E2E, routing, and broad non-security evidence is fresh; and
 18. ordered holistic specification then quality review approves the exact
     final committed implementation.
+
+## 2026-07-28 Task 13 Stop Record
+
+Task 13 is not complete, Task 14 has not started, and Q5 must not be described
+as fully implemented under this plan.
+
+The exact migrated target-2.23 consumer and its test harness were prepared but
+not promoted. Two independent real `gpt-5.5`/`high` combined runs completed the
+counted task action and initial-offer release, then reached the one-hour
+whole-attempt deadline with no materialization submission. The pytest results
+were `1 failed in 3601.52s` and `1 failed in 3601.58s`; each observed phase
+ledger remained at the five-event pre-submit prefix. Neither run used pane
+inspection, cancellation, resume, or forced settlement.
+
+Comparative controls narrowed the stop:
+
+- the unchanged real-Codex two-turn adapter control passed with
+  `gpt-5.4`/`high` in `46.36s`;
+- the same control passed with `gpt-5.5`/`high` in `49.05s`;
+- moving acceptance guidance to the end of a temporary byte-derived consumer
+  and adding a temporary generic materialization action token each still
+  produced no submission within the complete four-minute control window; and
+- the temporary source and protocol experiments were removed, their exact
+  provider/submit sockets and processes were cleaned, and no production
+  protocol change was retained.
+
+The deterministic public production-path evidence and the real adapter
+controls remain useful component evidence, but they do not prove the combined
+consumer gate required by Task 13. Independent specification adjudication
+therefore withheld `Q5_TASK13_SPEC_APPROVED` and classified the combined
+result as `not_proven / provider_behavior_nonterminating`.
+
+Resume Task 13 only after a reviewed design/plan amendment changes the gate or
+after the unchanged combined consumer can produce the required real-provider
+invalid-then-valid trace. Do not infer a split-proof substitution, mark Q5
+complete, or start Task 14 closure from this stop record.
