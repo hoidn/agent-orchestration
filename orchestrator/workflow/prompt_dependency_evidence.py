@@ -35,10 +35,14 @@ from orchestrator.workflow.prompt_identity import (
     PROMPT_FRAGMENT_SNAPSHOT_V2_SCHEMA,
     build_prompt_fragment_preparation_failure,
     build_prompt_fragment_snapshot_v2,
+    build_injected_dependencies_role,
     canonical_json_bytes as canonical_prompt_identity_json_bytes,
+    prompt_fragment_record_sha256,
+    prompt_fragment_transport_value_sha256,
     validate_prompt_fragment_preparation_failure,
     validate_prompt_fragment_snapshot_v2_q3,
 )
+from orchestrator.workflow.prompting import CanonicalPromptCut
 from orchestrator.workflow.provider_attempts import (
     ProviderAttemptScope,
     resolve_aggregate_run_owner,
@@ -49,6 +53,9 @@ from orchestrator.workflow.provider_attempts import (
 SUCCESS_SCHEMA = "workflow_prompt_dependency_evidence.functional.v1"
 FRAGMENT_SUCCESS_SCHEMA = "workflow_prompt_fragment_snapshot.functional.v1"
 FRAGMENT_SUCCESS_SCHEMA_V2 = PROMPT_FRAGMENT_SNAPSHOT_V2_SCHEMA
+FRAGMENT_SUCCESS_SCHEMA_V3 = (
+    "workflow_prompt_fragment_snapshot.functional.v3"
+)
 FAILURE_SCHEMA = "workflow_prompt_dependency_failure_evidence.functional.v1"
 INDEX_SCHEMA = "workflow_prompt_dependency_validated_index.functional.v1"
 ALLOCATION_PROJECTION_SCHEMA = "workflow_provider_attempt_allocation_projection.v1"
@@ -64,6 +71,11 @@ _FRAGMENT_SUCCESS_KEYS = _SUCCESS_KEYS | {
 _FRAGMENT_SUCCESS_V2_KEYS = _FRAGMENT_SUCCESS_KEYS | {
     "prompt_attempt_identity",
 }
+_FRAGMENT_SUCCESS_V3_KEYS = (
+    _FRAGMENT_SUCCESS_KEYS
+    - {"final_prompt"}
+    | {"canonical_composed", "prompt_attempt_identity"}
+)
 _FAILURE_KEYS = {
     "schema", "record_kind", "run", "compiler_contract", "attempt",
     "failure", "provider_calls", "record_sha256",
@@ -678,6 +690,186 @@ def build_fragment_success_evidence_v2(
     )
 
 
+def _retained_v1_from_fragment_v3(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    retained = json.loads(canonical_prompt_identity_json_bytes(value))
+    retained.pop("prompt_attempt_identity", None)
+    retained["final_prompt"] = retained.pop("canonical_composed")
+    retained["schema"] = FRAGMENT_SUCCESS_SCHEMA
+    return _seal(retained)
+
+
+def _validate_fragment_v3_cross_fields(
+    record: Mapping[str, Any],
+    *,
+    compiler_fragment_identity_schema_version: str,
+) -> Mapping[str, Any]:
+    from orchestrator.workflow.prompt_identity import (
+        validate_prompt_attempt_identity_v2,
+    )
+
+    if compiler_fragment_identity_schema_version not in {
+        "compiled_prompt_fragment_identity.v1",
+        "compiled_prompt_fragment_identity.v2",
+    }:
+        raise ValueError(
+            "paired compiler fragment identity schema is invalid"
+        )
+    identity = validate_prompt_attempt_identity_v2(
+        record["prompt_attempt_identity"]
+    )
+    canonical_composed = _closed(
+        record["canonical_composed"],
+        {"bytes", "sha256"},
+        "canonical composed prompt",
+    )
+    _integer(
+        canonical_composed["bytes"],
+        "canonical composed prompt bytes",
+    )
+    if not _is_sha(canonical_composed["sha256"]):
+        raise ValueError("canonical composed prompt digest is invalid")
+    if json.loads(
+        canonical_prompt_identity_json_bytes(identity["canonical_composed"])
+    ) != dict(canonical_composed):
+        raise ValueError(
+            "prompt attempt identity canonical composition disagrees"
+        )
+
+    fragment_payload = identity["roles"]["fragment_program"]["payload"]
+    if (
+        fragment_payload["compiled_prompt_fragment_identity"]
+        != record["compiled_prompt_fragment_identity"]
+        or fragment_payload["identity_schema_version"]
+        != compiler_fragment_identity_schema_version
+    ):
+        raise ValueError(
+            "prompt attempt fragment program disagrees with retained authority"
+        )
+
+    resolved_rows = identity["roles"]["resolved_bindings"]["payload"]["rows"]
+    document_rows = [
+        row for row in resolved_rows if row["slot_kind"] == "doc"
+    ]
+    authored_rows = record["authored_rows"]
+    if (
+        not isinstance(authored_rows, (tuple, list))
+        or len(document_rows) != len(authored_rows)
+    ):
+        raise ValueError(
+            "document bindings disagree with authored dependency rows"
+        )
+    for document_row, authored_row in zip(
+        document_rows,
+        authored_rows,
+        strict=True,
+    ):
+        if not isinstance(authored_row, Mapping):
+            raise ValueError("retained authored dependency row is invalid")
+        evaluated_relpath = authored_row.get("evaluated_relpath")
+        if (
+            not isinstance(evaluated_relpath, str)
+            or not evaluated_relpath
+            or document_row["value_sha256"]
+            != prompt_fragment_transport_value_sha256(evaluated_relpath)
+            or document_row["renderer"] is not None
+            or document_row["rendered_bytes_sha256"] is not None
+        ):
+            raise ValueError(
+                "document binding disagrees with retained authored row"
+            )
+
+    expected_dependency_role = build_injected_dependencies_role(
+        canonical_groups=record["canonical_groups"],
+        injection=record["injection"],
+    )
+    if json.loads(
+        canonical_prompt_identity_json_bytes(
+            identity["roles"]["injected_dependencies"]
+        )
+    ) != json.loads(
+        canonical_prompt_identity_json_bytes(expected_dependency_role)
+    ):
+        raise ValueError(
+            "dependency role disagrees with retained injection"
+        )
+    return identity
+
+
+def validate_fragment_success_evidence_v3(
+    value: Any,
+    *,
+    compiler_fragment_identity_schema_version: str,
+) -> dict[str, Any]:
+    """Validate the exact phased snapshot and all Q3/Q5 correspondences."""
+
+    record = _closed(
+        value,
+        _FRAGMENT_SUCCESS_V3_KEYS,
+        "prompt fragment v3 success evidence",
+    )
+    if (
+        record["schema"] != FRAGMENT_SUCCESS_SCHEMA_V3
+        or record["record_kind"] != "prompt_snapshot"
+    ):
+        raise ValueError("prompt fragment v3 success schema is invalid")
+    validate_fragment_success_evidence(
+        _retained_v1_from_fragment_v3(record)
+    )
+    _validate_fragment_v3_cross_fields(
+        record,
+        compiler_fragment_identity_schema_version=(
+            compiler_fragment_identity_schema_version
+        ),
+    )
+    claimed = record["record_sha256"]
+    if (
+        not _is_sha(claimed)
+        or claimed != prompt_fragment_record_sha256(record)
+    ):
+        raise ValueError("record_sha256 does not match record")
+    return json.loads(canonical_prompt_identity_json_bytes(record))
+
+
+def build_fragment_success_evidence_v3(
+    *,
+    retained_v1: Mapping[str, Any],
+    cut: CanonicalPromptCut,
+    prompt_attempt_identity: Mapping[str, Any],
+    compiler_fragment_identity_schema_version: str,
+) -> dict[str, Any]:
+    """Bind one validated canonical cut to identity-v2 functional evidence."""
+
+    validated_v1 = validate_fragment_success_evidence(retained_v1)
+    if type(cut) is not CanonicalPromptCut:
+        raise TypeError("cut must be an exact CanonicalPromptCut")
+    canonical_composed = {
+        "bytes": len(cut.canonical_composed),
+        "sha256": _sha(cut.canonical_composed),
+    }
+    if validated_v1["final_prompt"] != canonical_composed:
+        raise ValueError(
+            "retained fragment projection disagrees with canonical cut"
+        )
+    record = json.loads(
+        canonical_prompt_identity_json_bytes(validated_v1)
+    )
+    record.pop("final_prompt")
+    record["schema"] = FRAGMENT_SUCCESS_SCHEMA_V3
+    record["canonical_composed"] = canonical_composed
+    record["prompt_attempt_identity"] = json.loads(
+        canonical_prompt_identity_json_bytes(prompt_attempt_identity)
+    )
+    record["record_sha256"] = prompt_fragment_record_sha256(record)
+    return validate_fragment_success_evidence_v3(
+        record,
+        compiler_fragment_identity_schema_version=(
+            compiler_fragment_identity_schema_version
+        ),
+    )
+
+
 def build_fragment_preparation_failure_evidence(
     *,
     run_state: RunState,
@@ -821,6 +1013,19 @@ def canonical_record_bytes(
                 "for v2 prompt fragment evidence"
             )
         normalized = validate_fragment_success_evidence_v2(
+            record,
+            compiler_fragment_identity_schema_version=(
+                compiler_fragment_identity_schema_version
+            ),
+        )
+        return canonical_prompt_identity_json_bytes(normalized)
+    elif record.get("schema") == FRAGMENT_SUCCESS_SCHEMA_V3:
+        if compiler_fragment_identity_schema_version is None:
+            raise ValueError(
+                "compiler_fragment_identity_schema_version is required "
+                "for v3 prompt fragment evidence"
+            )
+        normalized = validate_fragment_success_evidence_v3(
             record,
             compiler_fragment_identity_schema_version=(
                 compiler_fragment_identity_schema_version
@@ -1360,12 +1565,15 @@ __all__ = [
     "SUCCESS_SCHEMA",
     "FRAGMENT_SUCCESS_SCHEMA",
     "FRAGMENT_SUCCESS_SCHEMA_V2",
+    "FRAGMENT_SUCCESS_SCHEMA_V3",
     "PROMPT_FRAGMENT_PREPARATION_FAILURE_SCHEMA",
     "FAILURE_SCHEMA", "INDEX_SCHEMA", "ALLOCATION_PROJECTION_SCHEMA",
     "PublicationResult", "SuccessEvidenceBuild", "authored_row_id", "build_success_evidence", "validate_success_evidence",
     "build_fragment_success_evidence", "validate_fragment_success_evidence",
     "build_fragment_success_evidence_v2",
     "validate_fragment_success_evidence_v2",
+    "build_fragment_success_evidence_v3",
+    "validate_fragment_success_evidence_v3",
     "build_fragment_preparation_failure_evidence",
     "build_failure_evidence", "validate_failure_evidence", "canonical_record_bytes",
     "evidence_relative_path", "publish_evidence_file",
