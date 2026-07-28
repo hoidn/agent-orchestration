@@ -1,7 +1,11 @@
 # Workflow Lisp Phased Contract Delivery
 
-- **Status:** proposed; independent specification review, then independent
-  quality review, are required before implementation planning
+- **Status:** accepted for implementation under reviewed plan; ordered
+  independent design review accepted at `872a29af`, and the implementation
+  plan received `Q5_PLAN_SPEC_APPROVED` then `Q5_PLAN_QUALITY_APPROVED` and was
+  committed at `45468c55`. P0 characterization, then P1/P2 prerequisites, are
+  next. Implementation is not started, and `:delivery :phased` remains
+  unavailable.
 - **Kind:** target-2.23 frontend and provider-runtime design
 - **Owner:** Workflow Lisp call policy, prompt composition, and provider
   attempt runtime

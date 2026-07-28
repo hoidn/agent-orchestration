@@ -58,6 +58,12 @@ PROMPT_IDENTITY_DESIGN_PATH = (
 PROMPT_IDENTITY_PLAN_PATH = (
     "docs/plans/2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md"
 )
+PHASED_CONTRACT_DELIVERY_DESIGN_PATH = (
+    "docs/design/workflow_lisp_phased_contract_delivery.md"
+)
+PHASED_CONTRACT_DELIVERY_PLAN_PATH = (
+    "docs/plans/2026-07-27-workflow-lisp-phased-contract-delivery-implementation-plan.md"
+)
 LANGUAGE_SERVER_L1_PLAN_PATH = (
     "docs/plans/2026-07-26-workflow-lisp-language-server-l1-implementation-plan.md"
 )
@@ -3207,3 +3213,92 @@ def test_language_server_l5_routes_shipped_admitted_shapes_and_closes_stage() ->
     normalized_l3_row = _normalized_routing_text(l3_row)
     assert "queued after completed l5" in normalized_l3_row
     assert "reentrancy remains an unsatisfied entry gate" in normalized_l3_row
+
+
+def test_phased_contract_delivery_routes_reviewed_plan_to_prerequisite_gates() -> None:
+    roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH
+    design_path = REPO_ROOT / PHASED_CONTRACT_DELIVERY_DESIGN_PATH
+    plan_path = REPO_ROOT / PHASED_CONTRACT_DELIVERY_PLAN_PATH
+    design_router_path = REPO_ROOT / "docs/design/README.md"
+    capability_matrix_path = REPO_ROOT / "docs/capability_status_matrix.md"
+    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
+
+    normalized_design_status = _normalized_routing_text(
+        "\n".join(design_path.read_text(encoding="utf-8").splitlines()[:18])
+    )
+    assert "status: accepted for implementation under reviewed plan" in (
+        normalized_design_status
+    )
+    assert "872a29af" in normalized_design_status
+    assert "implementation is not started" in normalized_design_status
+    assert ":delivery :phased remains unavailable" in normalized_design_status
+
+    q5_row = _markdown_table_row(roadmap_path, "| Q5 |")
+    normalized_q5_row = _normalized_routing_text(q5_row)
+    assert "accepted design at 872a29af" in normalized_q5_row
+    assert "reviewed implementation plan at 45468c55" in normalized_q5_row
+    assert "q3 complete" in normalized_q5_row
+    assert "no q4 dependency" in normalized_q5_row
+    assert "p0 characterization then p1/p2 prerequisites are next" in (
+        normalized_q5_row
+    )
+    assert "implementation not started" in normalized_q5_row
+    assert ":delivery :phased unavailable" in normalized_q5_row
+
+    design_router_row = _markdown_table_row(
+        design_router_path,
+        "workflow_lisp_phased_contract_delivery.md",
+    )
+    assert "| Accepted design; reviewed plan |" in design_router_row
+    normalized_design_router_row = _normalized_routing_text(design_router_row)
+    assert "872a29af" in normalized_design_router_row
+    assert "45468c55" in normalized_design_router_row
+    assert "p0 characterization then p1/p2 prerequisites" in (
+        normalized_design_router_row
+    )
+
+    capability_row = _markdown_table_row(
+        capability_matrix_path,
+        "Workflow Lisp phased contract delivery Q5",
+    )
+    normalized_capability_row = _normalized_routing_text(capability_row)
+    assert "| Designed |" in capability_row
+    assert "accepted design 872a29af" in normalized_capability_row
+    assert "reviewed plan 45468c55" in normalized_capability_row
+    assert "implementation not started" in normalized_capability_row
+    assert ":delivery :phased" in normalized_capability_row
+    assert "unavailable" in normalized_capability_row
+    assert Path(PHASED_CONTRACT_DELIVERY_PLAN_PATH).name in capability_row
+
+    normalized_design_index = _normalized_routing_text(
+        _markdown_heading_section(
+            index,
+            "### [Workflow Lisp Phased Contract Delivery]",
+        )
+    )
+    assert "accepted target 2.23 stage q5 design" in normalized_design_index
+    assert "872a29af" in normalized_design_index
+    assert "implementation not started" in normalized_design_index
+    assert ":delivery :phased" in normalized_design_index
+    assert "unavailable" in normalized_design_index
+
+    assert (
+        "### [Workflow Lisp Phased Contract Delivery Implementation Plan]"
+        in index
+    )
+    normalized_plan_index = _normalized_routing_text(
+        _markdown_heading_section(
+            index,
+            "### [Workflow Lisp Phased Contract Delivery Implementation Plan]",
+        )
+    )
+    assert "reviewed preimplementation plan" in normalized_plan_index
+    assert "45468c55" in normalized_plan_index
+    assert "p0 characterization then p1/p2 prerequisites" in normalized_plan_index
+    assert "implementation not started" in normalized_plan_index
+    assert Path(PHASED_CONTRACT_DELIVERY_PLAN_PATH).name in index
+
+    plan = plan_path.read_text(encoding="utf-8")
+    assert "Q5_PLAN_SPEC_APPROVED" in plan
+    assert "Q5_PLAN_QUALITY_APPROVED" in plan
+    assert "872a29af13f140d53b3637b475859496a50d5724" in plan

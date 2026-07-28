@@ -77,7 +77,7 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | complete — implementation through `d0bb9a1d`; clean Task-7 closure after exact `a40b536c`/`4e2c4911` boundary repair; ordered final reviews accepted |
 | Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | complete — target-2.22 carrier, one-render trace, content-free five-role evidence, prelaunch publication, fixed comparison, additive reports, compatibility E2E, and closure under the [reviewed implementation plan](2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md) |
 | Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | blocked on binding the concrete generic-reviewer/panel consumer; Q3 prerequisite complete |
-| Q5 | Phased contract delivery | proposed target-2.23 design pending independent specification review; implemented Q1/Q2 plus landed/accepted Q3 attempt-identity/evidence are cumulative inputs; Q5 has no Q4 judgment dependency and its design review may run beside Q3 implementation; implementation planning requires accepted Q3 plus the closed-outcome deadline-aware production-adapter/target-2.17 compatibility and real same-client adapter probe | explicit `:delivery :phased` plus bounded literal materialization attempts; exact `T1 || T2 == C` cut; identity-v2/evidence-v3 and report-v2 distinction between canonical `C`, legacy final-prompt identity, and ordered actual deliveries; proof-authoritative failed-start T0 with one handle-free Q5 cleanup-evidence union and exact active-handle validation before projecting unchanged adapter proofs; inert pre-start binding/locator values and post-start endpoint binding; T2 cleanup-pending/finished closure with one ingress outcome; full Q2 authority with no early publication; total reason projection with non-null reason-equal summaries; ledger-only digest validation; truthful terminal resource evidence; byte-identical omitted/composed path; real review consumer | proposed — specification review pending, then quality review; no implementation plan until Q3 is landed/accepted and the closed-outcome deadline-aware production adapter compatibility/feasibility probe passes; coordinator invalid-then-valid, report, cleanup/endpoint, and post-join evidence are implementation completion gates |
+| Q5 | Phased contract delivery | accepted design at `872a29af`; reviewed implementation plan at `45468c55`; Q3 complete; no Q4 dependency; P0 characterization then P1/P2 prerequisites are next | explicit `:delivery :phased` plus bounded literal materialization attempts; exact `T1 || T2 == C` cut; identity-v2/evidence-v3 and report-v2 distinction between canonical `C`, legacy final-prompt identity, and ordered actual deliveries; proof-authoritative failed-start T0 with one handle-free Q5 cleanup-evidence union and exact active-handle validation before projecting unchanged adapter proofs; inert pre-start binding/locator values and post-start endpoint binding; T2 cleanup-pending/finished closure with one ingress outcome; full Q2 authority with no early publication; total reason projection with non-null reason-equal summaries; ledger-only digest validation; truthful terminal resource evidence; byte-identical omitted/composed path; real review consumer | plan accepted — P0 characterization then P1/P2 prerequisites are next; implementation not started and `:delivery :phased` unavailable; coordinator invalid-then-valid, report, cleanup/endpoint, post-join, real-consumer, and ordered final-review evidence remain implementation completion gates |
 
 ### L-Series: Language-Server Debugging Utility
 
@@ -90,13 +90,13 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and a diagnostic-currentness policy are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | blocked by L3 |
 | L5 | Authored reference navigation | accepted design at `b8a41172`; Q1 catalog and L1 index landed; read-only feasibility gates admitted prompt heads and only final unexpanded direct-retained `proc-ref` occurrences in non-generated, non-specialized authored owners; macro heads defer shape-wide; no L3/L4 dependency — selected under the owner-reordering rule | exact authored prompt-head and admitted proc-ref-name definition hits; macro-consumed, erased, expanded, generated-owner, specialized-owner proc-refs and every macro head remain null; existing direct procedure/`(call ...)` hits regression-locked; WCC/generated calls excluded; every hit uses the full common preflight; real stdio resolves the review workflow prompt head while its macro/proc-ref tokens remain null and its direct call stays exact | complete — implementation through `95e05c01`, `042c0bc3`, `870f7db2`, `7233138a`, and `041754e6`; durable incorporation and closure under the [reviewed implementation plan](2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md) |
 
-The Q-series implementation stages execute in Q-table order. Q5 design review
-may proceed in parallel with Q3 because review can close the Q5 delta against
-the accepted Q3 contract. Target 2.23 is nevertheless cumulative: Q5
-implementation planning and implementation require the Q3
-attempt-identity/evidence substrate to have landed and passed its ordered
-acceptance gates. This exception does not select Q5 implementation planning or
-implementation. Q5 has no Q4 judgment dependency. Q0–Q3 are complete.
+The Q-series implementation stages execute in Q-table order except for Q5's
+explicit lack of a Q4 dependency. Q5's design was accepted at `872a29af`, its
+implementation plan passed ordered review and committed at `45468c55`, and Q3
+is complete. P0 characterization executes next, followed by the P1/P2 shared
+adapter prerequisites and their reviews; only then may the plan capture its
+post-prerequisite control and begin Q5 Task 1. This routing does not start Q5
+implementation, and `:delivery :phased` remains unavailable.
 Q3's target design is accepted after ordered `Q3_DESIGN_SPEC_APPROVED` then
 `Q3_DESIGN_QUALITY_APPROVED`. Its
 [reviewed implementation plan](2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md)
@@ -120,8 +120,9 @@ it executes in L-table order unless the owner explicitly reorders it. At most
 one L stage is active at a time.
 
 One Q implementation stage and one L stage may proceed concurrently only after
-their component plans record disjoint behavioral ownership. The explicit Q5
-design-review exception above does not authorize a second Q component plan.
+their component plans record disjoint behavioral ownership. The reviewed Q5
+plan does not authorize a second Q implementation stage or bypass its P0–P2
+prerequisite gates.
 Shared routing files—including this roadmap, `docs/index.md`,
 `docs/design/README.md`, and `docs/capability_status_matrix.md`—must be updated
 serially at each stage gate. A later stage may be narrowed by its accepted
@@ -273,9 +274,14 @@ mapping.
 ## Stage Q5: Phased Contract Delivery
 
 Authority target:
-`docs/design/workflow_lisp_phased_contract_delivery.md` (proposed;
-independent specification review, then quality review, required before
-planning).
+`docs/design/workflow_lisp_phased_contract_delivery.md` (accepted after ordered
+review at `872a29af`) and the reviewed
+`docs/plans/2026-07-27-workflow-lisp-phased-contract-delivery-implementation-plan.md`
+committed at `45468c55`.
+
+**Current status:** P0 characterization, then P1/P2 prerequisites, are next.
+Q3 is complete and Q5 has no Q4 dependency. Implementation is not started;
+`:delivery :phased` is unavailable.
 
 Deliver a fragment-backed provider call's one canonical composed prompt as two
 successive turns inside one interactive provider attempt, with bounded
@@ -291,8 +297,8 @@ Q5 owns a new single-attempt `PhasedProviderAttemptCoordinator`. It reuses only
 the implemented interactive adapter's `start`, `offer`, `offer_close`, `join`,
 and `abort` primitives plus the structural capability. It does not reuse or
 claim ordinary-call support from the target-2.17 peer-group coordinator,
-ledger, or `peer-finish`. Before Q5 planning, the shared production adapter
-must accept the caller's whole-attempt deadline and return one closed
+ledger, or `peer-finish`. Before Q5 implementation, P1/P2 must make the shared
+production adapter accept the caller's whole-attempt deadline and return one closed
 `InteractiveTerminalStartOutcome`: successful start carries the exact handle;
 failed start carries `none|possible_or_allocated`, exact
 `not_required|completed|incomplete` cleanup, provider-zero-survivor truth, and
@@ -355,14 +361,15 @@ opens external bytes. The ledger and new attempt evidence are neither result
 nor resume authority. Interrupted nonterminal visits use current sticky
 quarantine semantics.
 
-Q5 specification review may proceed in parallel with Q3. Before implementation
-planning, Q3 must be landed and accepted; the closed-outcome deadline-aware
-adapter extension plus target-2.17 compatibility proof must land; and a
-production-adapter real-provider probe must prove successful start, all three
-failed-start proof combinations, two successive offers, normal close/join,
-smaller-than-configured remaining budget, and zero outliving operations in one
-client. It must not implement or claim the Q5 coordinator. Later implementation
-completion requires invalid-then-valid coordinator, report-v2, ledger,
+Q5 design and plan review are complete, and Q3 is landed and accepted. P0 now
+characterizes the remaining shared-adapter gap. P1/P2 must then land the
+closed-outcome deadline-aware adapter extension plus target-2.17 compatibility
+proof, and a production-adapter real-provider probe must prove successful
+start, all three failed-start proof combinations, two successive offers,
+normal close/join, smaller-than-configured remaining budget, and zero
+outliving operations in one client. Those prerequisites must not implement or
+claim the Q5 coordinator. Later implementation completion requires
+invalid-then-valid coordinator, report-v2, ledger,
 before/during timeout, T0–T4 including T2a/T2b and terminalizing-ingress
 failure, diagnostic bijection/summary-null sweep, digest-category,
 natural-proof/ledger-failure, post-join publication-failure,
