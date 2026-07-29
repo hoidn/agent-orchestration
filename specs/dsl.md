@@ -521,13 +521,14 @@ source.
     - Explicit phased delivery is legal only for a direct fragment application
       whose rendered provider contract has a non-empty contract suffix.
       Otherwise compilation fails with
-      `provider_phased_delivery_fragment_application_required` or
-      `provider_phased_delivery_contract_suffix_required`.
+      `provider_phased_delivery_policy_invalid` and reason
+      `fragment_application_required` or `contract_suffix_required`.
     - A target-2.23 phased call carries exact
       `workflow_prompt_attempt_identity.v2`; an omitted or explicit composed
       call retains identity v1. Missing, malformed, downgraded, or mixed
-      delivery/identity carriers fail closed with the existing
-      prompt-attempt identity mismatch diagnostic.
+      delivery/identity carriers fail closed with
+      `provider_phased_delivery_carriage_mismatch`; identity-version
+      disagreement uses reason `attempt_identity_version_mismatch`.
     - Authored `.orc` cannot directly supply `provider_call_policy` or
       `call_policy_bindings`; both are compiler/runtime-owned internal surfaces.
       The lower-level Core `provider_params` and `timeout_sec` semantics remain

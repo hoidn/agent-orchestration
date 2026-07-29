@@ -3725,6 +3725,7 @@ def test_phased_contract_delivery_routes_implemented_surface_to_external_closure
     plan_path = REPO_ROOT / PHASED_CONTRACT_DELIVERY_PLAN_PATH
     design_router_path = REPO_ROOT / "docs/design/README.md"
     capability_matrix_path = REPO_ROOT / "docs/capability_status_matrix.md"
+    dsl_spec = (REPO_ROOT / "specs/dsl.md").read_text(encoding="utf-8")
     index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
 
     normalized_design_status = _normalized_routing_text(
@@ -3862,3 +3863,23 @@ def test_phased_contract_delivery_routes_implemented_surface_to_external_closure
     assert "exact delta adjudication" in normalized_plan
     assert "against the post p2 baseline remain required" in normalized_plan
     assert "q5_final_spec_approved then q5_final_quality_approved" in normalized_plan
+
+    normalized_dsl_spec = _normalized_routing_text(dsl_spec)
+    assert (
+        "compilation fails with provider_phased_delivery_policy_invalid and "
+        "reason fragment_application_required or contract_suffix_required"
+    ) in normalized_dsl_spec
+    assert (
+        "delivery/identity carriers fail closed with "
+        "provider_phased_delivery_carriage_mismatch"
+    ) in normalized_dsl_spec
+    assert (
+        "identity version disagreement uses reason "
+        "attempt_identity_version_mismatch"
+    ) in normalized_dsl_spec
+    assert (
+        "provider_phased_delivery_fragment_application_required" not in dsl_spec
+    )
+    assert (
+        "provider_phased_delivery_contract_suffix_required" not in dsl_spec
+    )
