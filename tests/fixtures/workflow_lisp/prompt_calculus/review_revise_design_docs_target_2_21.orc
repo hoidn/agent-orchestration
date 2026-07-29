@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.23")
+  (:target-dsl "2.21")
   (defmodule review_revise_design_docs)
   (import std/phase :only
     (BlockerClass ReviewDecision ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop))
@@ -94,8 +94,6 @@
           :review_focus inputs.review_focus
           :checks_report inputs.checks_report
           :review_report_target_path inputs.review_report_target_path)
-      :delivery :phased
-      :materialization-attempts 2
       :model inputs.review_model
       :effort inputs.review_effort
       :timeout-sec 3600))

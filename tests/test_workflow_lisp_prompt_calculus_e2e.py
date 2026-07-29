@@ -52,6 +52,13 @@ Q1_RESUME_FIXTURE = (
     / "valid"
     / "prompt_q1_target_2_20_resume.orc"
 )
+Q2_COMPOSED_FIXTURE = (
+    Path(__file__).parent
+    / "fixtures"
+    / "workflow_lisp"
+    / "prompt_calculus"
+    / "review_revise_design_docs_target_2_21.orc"
+)
 CONSUMER_INPUTS = (
     REPO_ROOT
     / "workflows"
@@ -68,7 +75,7 @@ LEGACY_FIXTURE = (
 )
 FIX_PROMPT = "prompts/workflows/review_revise_design_docs/fix.md"
 PROVIDERS = {
-    "providers.design-docs.review": "codex_gpt55",
+    "providers.design-docs.review": "codex",
     "providers.design-docs.fix": "codex_gpt55",
 }
 FROZEN_Q1_FRAGMENT_IDENTITY = (
@@ -76,6 +83,9 @@ FROZEN_Q1_FRAGMENT_IDENTITY = (
 )
 FROZEN_Q1_CARRIER_SHA256 = (
     "a8081747d726424be0b6858d2d9cfec47b1dcf123b12aa91c1c8bd656440cf8f"
+)
+FROZEN_Q2_SOURCE_SHA256 = (
+    "157211801379b7290c7881d8e37b82da14a3ee66eb0fdfd135a4dba1277fb743"
 )
 
 
@@ -96,8 +106,17 @@ def _compile(
     lowering_route: str,
     workspace_root: Path,
 ):
+    compile_source_path = source_path
+    if source_path == Q2_COMPOSED_FIXTURE:
+        compile_source_path = (
+            workspace_root
+            / "q2-composed-control"
+            / "review_revise_design_docs.orc"
+        )
+        compile_source_path.parent.mkdir(parents=True, exist_ok=True)
+        compile_source_path.write_bytes(source_path.read_bytes())
     return compile_stage3_module(
-        source_path,
+        compile_source_path,
         provider_externs=PROVIDERS,
         prompt_externs=prompt_externs,
         validate_shared=True,
@@ -116,19 +135,6 @@ def _bundle(result, suffix: str):
 
 def _provider_step(bundle):
     return next(step for step in bundle.surface.steps if step.kind.value == "provider")
-
-
-def _provider_policy_projection(step) -> dict[str, object]:
-    return {
-        "provider": step.provider,
-        "provider_params": step.provider_params,
-        "provider_call_policy": step.provider_call_policy,
-        "managed_jobs": step.managed_jobs,
-        "timeout_sec": step.common.timeout_sec,
-        "retries": step.common.retries,
-        "inject_output_contract": step.inject_output_contract,
-        "variant_output": step.common.variant_output,
-    }
 
 
 def _runtime_manager(
@@ -363,7 +369,7 @@ def test_real_consumer_migrates_review_report_fill_to_q2_output_position(
         _bundle(result, "::review-design-docs.v1")
     )
 
-    assert result.module.target_dsl_version == "2.21"
+    assert result.module.target_dsl_version == "2.23"
     prompt = result.prompt_catalog.resolve("review-design-doc")
     assert prompt.declaration.return_spec is not None
     assert prompt.declaration.return_spec.type_name == "ReviewDecision"
@@ -546,6 +552,9 @@ def test_real_consumer_migration_preserves_fix_call_and_provider_policy(
     tmp_path: Path,
     lowering_route: str,
 ) -> None:
+    assert hashlib.sha256(Q2_COMPOSED_FIXTURE.read_bytes()).hexdigest() == (
+        FROZEN_Q2_SOURCE_SHA256
+    )
     legacy = _compile(
         LEGACY_FIXTURE / "review_revise_design_docs.orc",
         prompt_externs=_manifest(LEGACY_FIXTURE / "prompts.json"),
@@ -570,16 +579,30 @@ def test_real_consumer_migration_preserves_fix_call_and_provider_policy(
     migrated_review = _provider_step(
         _bundle(migrated, "::review-design-docs.v1")
     )
-    assert _provider_policy_projection(migrated_review) == (
-        _provider_policy_projection(legacy_review)
-    )
+    assert migrated_review.provider == legacy_review.provider == "codex"
+    assert migrated_review.provider_params == legacy_review.provider_params
+    assert migrated_review.common.timeout_sec == (
+        legacy_review.common.timeout_sec
+    ) == 3600
+    legacy_policy = dict(legacy_review.provider_call_policy or {})
+    migrated_policy = dict(migrated_review.provider_call_policy or {})
+    assert {
+        key: migrated_policy[key]
+        for key in legacy_policy
+    } == legacy_policy
+    assert set(migrated_policy) - set(legacy_policy) == {
+        "delivery",
+        "materialization_attempts",
+    }
+    assert migrated_policy["delivery"] == "phased"
+    assert migrated_policy["materialization_attempts"] == 2
 
 
 def test_real_consumer_composes_dependency_fragment_and_result_contract_once(
     tmp_path: Path,
 ) -> None:
     result, _, _, captured, completed = _execute_consumer(
-        source_path=CONSUMER,
+        source_path=Q2_COMPOSED_FIXTURE,
         prompt_externs=_manifest(CONSUMER_INPUTS / "prompts.json"),
         workspace=tmp_path,
         run_id="prompt-core-composition",
@@ -671,7 +694,7 @@ def test_real_consumer_runtime_validates_prompt_owned_result_and_snapshot(
     tmp_path: Path,
 ) -> None:
     result, bundle, manager, captured, completed = _execute_consumer(
-        source_path=CONSUMER,
+        source_path=Q2_COMPOSED_FIXTURE,
         prompt_externs=_manifest(CONSUMER_INPUTS / "prompts.json"),
         workspace=tmp_path,
         run_id="prompt-core-real-consumer",
@@ -679,7 +702,7 @@ def test_real_consumer_runtime_validates_prompt_owned_result_and_snapshot(
 
     assert completed["status"] == "completed"
     assert captured["preparations"] == captured["executions"] == 1
-    assert captured["providers"] == ["codex_gpt55"]
+    assert captured["providers"] == ["codex"]
     [prompt] = captured["prompts"]
     assert prompt.count("TARGET_DOCUMENT_SENTINEL") == 1
     assert prompt.count("FOCUS_SENTINEL") == 1
@@ -742,8 +765,8 @@ def test_real_consumer_runtime_validates_prompt_owned_result_and_snapshot(
 
 @pytest.mark.parametrize(
     "source_path",
-    (Q1_RESUME_FIXTURE, CONSUMER),
-    ids=("target-2.20-q1-control", "target-2.21-real-consumer"),
+    (Q1_RESUME_FIXTURE, Q2_COMPOSED_FIXTURE),
+    ids=("target-2.20-q1-control", "target-2.21-q2-control"),
 )
 def test_review_consumer_default_resume_reuses_committed_review_boundary_once(
     tmp_path: Path,

@@ -266,7 +266,7 @@ def test_review_revise_design_docs_example_validates_with_parameterized_context_
         workspace_root=tmp_path,
     )
 
-    assert result.module.target_dsl_version == "2.21"
+    assert result.module.target_dsl_version == "2.23"
     review_prompt = result.prompt_catalog.resolve("review-design-doc")
     review_output_slot = next(
         slot
