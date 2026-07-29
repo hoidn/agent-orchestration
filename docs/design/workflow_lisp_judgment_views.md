@@ -1,7 +1,8 @@
 # Workflow Lisp Judgment Views
 
-- **Status:** accepted after ordered Q4 design review; implementation pending
-  under the reviewed Q4 implementation plan
+- **Status:** accepted after ordered Q4 design review; implementation remains
+  pending under the Q4 plan only as amended and ordered-reviewed for the
+  Q5-era consumer binding
 - **Kind:** read-only result-plus-provenance inspection design
 - **Owner:** Workflow Lisp prompt calculus Q4
 - **Depends on:** implemented target-2.22 Q3 prompt-attempt identity and
@@ -9,7 +10,7 @@
 - **Language delta:** no new source form or type; one existing-expression WCC
   composition seam is required for `path/join-under` in a
   `list/map-effect` child-call argument
-- **First consumer:** a target-2.22 panel sibling in the
+- **First consumer:** a target-2.23 ordinary-composed panel sibling in the
   `review_revise_design_docs` family
 - **Design review order:** independent `Q4_DESIGN_SPEC_APPROVED`, then
   independent `Q4_DESIGN_QUALITY_APPROVED` (both approved against commit
@@ -78,15 +79,36 @@ groups remain rejected for the reasons in the brief.
 
 The brief's re-entry conditions are resolved against the current tree:
 
-1. target-2.22 WCC compile probes prove both that a fragment-backed call
-   reached through a child-workflow boundary retains
-   `workflow_prompt_attempt_identity.v1` and that a target-2.22 sibling can
-   import the original target-2.21 fragment without bumping the original
-   module; the remaining path-expression call-argument seam is selected
-   explicitly below rather than misreported as implemented;
+1. target-2.22 WCC compile probes prove that a fragment-backed call reached
+   through a child-workflow boundary retains
+   `workflow_prompt_attempt_identity.v1`; Q5 subsequently advanced the
+   production family module to target 2.23 while preserving an exact
+   target-2.21 control, so the implementation-entry recensus below replaces
+   the brief's superseded cross-target import premise without changing the
+   Q4 identity contract; the remaining path-expression call-argument seam is
+   selected explicitly below rather than misreported as implemented;
 2. Q3 landed with functional-v2/identity-v1 authority;
 3. no newer real panel displaced the selected consumer; and
 4. no owner routing act selected trial-runs adjudication.
+
+### Implementation-entry Q5 recensus amendment
+
+Q5 commit `bb67f680` advanced the production
+`workflows/examples/review_revise_design_docs.orc` module to target 2.23 and
+made its existing review call explicitly phased. It also retained the exact
+pre-Q5 target-2.21 source at
+`tests/fixtures/workflow_lisp/prompt_calculus/review_revise_design_docs_target_2_21.orc`.
+That fixture is a byte-frozen compatibility control, not a production import
+owner.
+
+Q4 therefore uses a target-2.23 sibling that imports the existing types and
+`review-design-doc` fragment from the current production module. Its
+fragment-backed review calls specify exact `:delivery :composed`, retaining
+identity-v1/functional-v2 and satisfying the unchanged structural eligibility
+predicate below. The production entry remains phased identity-v2/evidence-v3
+and Q4-ineligible. This amendment changes only the selected consumer/import
+binding and its compatibility proof; it changes no locator, view, result,
+evidence, report, or language semantics.
 
 ### Selected composition shape and proven core
 
@@ -123,6 +145,7 @@ The accepted minimal shape is one child workflow call:
                :checks_report checks_report
                :review_report_target_path
                  review_report_target_path)
+           :delivery :composed
            :model review_model
            :effort review_effort
            :timeout-sec 3600)))
@@ -137,9 +160,12 @@ The child workflow returns the existing path type. Its internal provider
 The outer map sees exactly one workflow call and returns the already-supported
 `List[ReviewReportPath]`.
 
-The child-workflow and cross-target import compile proofs are design
-feasibility results, not implementation evidence. The implementation plan must
-land maintained equivalents.
+The historical child-workflow and cross-target import compile probes are
+design feasibility results, not implementation evidence. The child-boundary
+identity result remains relevant, but Q5 superseded the probed import
+topology. The implementation plan must land a new maintained same-target
+import proof against the current production module and separately preserve
+the frozen compatibility control.
 
 ### Required existing-expression composition seam
 
@@ -691,12 +717,13 @@ to:
 
 ### Module and target
 
-The implementation plan must preserve the original target-2.21
-`review-revise-design-docs` entry's prompt, result, checkpoint, and resume
-behavior. The required layout is a target-2.22 sibling module in the same
-example family that imports the existing `review-design-doc` declaration. The
-original target-2.21 module may add only the four names required by the
-maintained compile proof to its export surface:
+The implementation plan must preserve the current target-2.23
+`review-revise-design-docs` entry's phased prompt, result, checkpoint, resume,
+identity-v2, and functional-v3 behavior. The required layout is a target-2.23
+sibling module in the same example family that imports the existing
+`review-design-doc` declaration and uses it only from an explicit ordinary
+`:delivery :composed` call. The current production module may add only the
+four names required by the maintained compile proof to its export surface:
 
 ```lisp
 (export
@@ -709,15 +736,19 @@ maintained compile proof to its export surface:
 
 `DesignDocPath`, `ReviewReportTargetPath`, and `WorkReportPath` are referenced
 by the fragment's closed fill contract; exporting the fragment without those
-types is not a viable import surface. The original module's target, existing
-entry body, and compiled entry behavior remain the compatibility control.
+types is not a viable import surface. The production module's target, existing
+entry body, phased delivery, and compiled entry behavior remain unchanged.
 
-The implementation gate must characterize the export-only source delta and
-prove the original entry's compiled workflow projection is byte-identical.
-If widening the export surface changes that projection or cannot preserve the
-existing target-2.21 control, implementation stops and returns to Q4 design.
-Bumping the original family module, copying the fragment under a new identity,
-or silently accepting a checksum/resume change is not a fallback.
+The implementation gate must characterize the export-only production-source
+delta and prove the current target-2.23 entry's compiled workflow projection
+is byte-identical. It must separately prove that the frozen target-2.21
+fixture remains byte-identical to the pre-Q5 source retained by `bb67f680`;
+that fixture is comparison evidence and must never become the sibling's
+import source. If widening the production export surface changes the current
+entry projection or Q5 phased behavior, or if the frozen control changes,
+implementation stops and returns to Q4 design. Copying the fragment under a
+new identity or silently accepting a checksum/resume change is not a
+fallback.
 
 ### Lens contract
 
@@ -847,8 +878,10 @@ authoritative where their rules apply.
   defined above.
 - Classic and WCC must project the same eligible results. The real panel and
   resume proof use WCC because `list/map-effect` erases through that route.
-- Q5 target-2.23 phased delivery remains independent and excluded from Q4 v1.
-  Q4 does not interpret Q5 phase ledgers or identity-v2 evidence.
+- The current production target-2.23 phased entry remains independent and
+  excluded from Q4 v1; the target-2.23 panel's explicit composed review calls
+  remain eligible through identity-v1/functional-v2. Q4 does not interpret Q5
+  phase ledgers or identity-v2 evidence.
 
 ## Implementation Ownership
 
@@ -865,7 +898,8 @@ Expected ownership includes:
 - the persisted compiled-surface loader and call-alias traversal as the sole
   result-contract authority for both bundle-backed and state-only reporting;
 - existing JSON/Markdown report integration;
-- the target-2.22 panel consumer, provider bindings, deterministic fixtures,
+- the target-2.23 ordinary-composed panel consumer, provider bindings,
+  deterministic fixtures,
   docs, specs, and routing tests.
 
 The implementation plan must assign normative deltas before runtime edits:
@@ -897,8 +931,9 @@ Implementation follows TDD and proves both directions.
 
 ### Composition and compatibility
 
-1. a maintained target-2.22 WCC fixture proves the outer map body contains one
-   child call boundary;
+1. a maintained target-2.23 WCC fixture proves the outer map body contains one
+   child call boundary and each fragment-backed review call is explicitly
+   composed;
 2. caller-scoped `path/join-under` reaches that child as an ordinary typed
    input in Classic and WCC, while invalid/escaping children retain their
    existing refusals;
@@ -913,8 +948,9 @@ Implementation follows TDD and proves both directions.
 6. direct `List[ReviewDecision]` and inline multi-boundary wrappers retain
    their existing refusals;
 7. exporting the exact three path types plus fragment compiles the sibling
-   while the original target-2.21 workflow projection remains byte- and
-   behavior-compatible.
+   while the current target-2.23 phased workflow projection remains byte- and
+   behavior-compatible and the frozen target-2.21 fixture remains
+   byte-identical.
 
 ### Locator
 
@@ -949,7 +985,9 @@ Implementation follows TDD and proves both directions.
 
 ### Consumer and integration
 
-1. compile-only import/export feasibility preserves the target-2.21 control;
+1. compile-only import/export feasibility uses the current target-2.23
+   production module, preserves its phased entry projection, and independently
+   preserves the frozen target-2.21 control;
 2. the public pairwise-distinct default lens identifiers yield ordered reports
    and one extern-backed synthesis call, whose lack of a compiled fragment/Q3
    carrier is regression-locked as Q4-ineligible;
@@ -969,8 +1007,8 @@ modules run `pytest --collect-only`. No test asserts literal prompt wording.
 
 ## Declarative Acceptance Scenario
 
-Given a target-2.22 panel with three ordered, path-safe, pairwise-distinct lens
-identifiers:
+Given a target-2.23 ordinary-composed panel with three ordered, path-safe,
+pairwise-distinct lens identifiers:
 
 1. WCC executes exactly three child workflow calls under
    `list/map-effect :max 8`;
@@ -1020,16 +1058,18 @@ Q4 does not add:
 The design is implementation-ready only when ordered independent review
 confirms:
 
-1. the adopted consumer is represented using the proven child-workflow and
-   cross-target-import shape plus the explicitly scoped existing-expression
-   composition seam, with no speculative collection widening;
+1. the adopted consumer is represented using the proven child-workflow,
+   same-target production import, explicit composed-delivery shape, and
+   explicitly scoped existing-expression composition seam, with no
+   speculative collection widening;
 2. the result locator co-persists atomically with the validated result and is
    never treated as authority;
 3. views validate existing result and Q3 authorities directly, fail closed,
    and remain outside workflow semantics;
 4. grouping and disagreement are structural, deterministic, and name-agnostic;
 5. principles 28, 29, and 30 are satisfied;
-6. the original target-2.21 consumer and Q5 behavior remain separate; and
+6. the current target-2.23 phased consumer, the Q4 target-2.23 composed
+   sibling, and the frozen target-2.21 control remain distinct; and
 7. the implementation plan includes complete TDD, integration, resume,
    docs/spec, broad-gate, and ordered-review sequencing.
 
