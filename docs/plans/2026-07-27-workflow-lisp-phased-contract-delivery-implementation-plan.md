@@ -1453,3 +1453,24 @@ repair excluded/unrelated failures.
 `Q5_FINAL_SPEC_APPROVED` then `Q5_FINAL_QUALITY_APPROVED` remain unissued and
 must be external reviews of the final exact tree. No closure commit is
 recorded here, and this candidate does not self-attest either verdict.
+
+## 2026-07-29 Task 14 Final Closure Record
+
+The statement immediately above is retained as the truthful status of the
+pre-correction candidate at the time it was written. It is superseded for
+current routing by the later exact-tree closure:
+
+- commit `70f4a7597b915d511ac70084a40fe342617fe91b`;
+- tree `fec729cb45ed9212dec14e1a72ac9e1cd1110a2a`;
+- post-correction broad comparison: 10,925 passed, 38 failed, 23 skipped,
+  0 errors, and 33 warnings in the primary run, with the 38-row failure set
+  exactly equal to the post-P2 primary baseline;
+- focused Q5 selector: 2,306 passed with the two declared baseline nodes
+  deselected; and
+- external ordered `Q5_FINAL_SPEC_APPROVED` then
+  `Q5_FINAL_QUALITY_APPROVED` over that exact commit/tree and its
+  content-addressed closure evidence.
+
+Task 14 and Q5 are complete. This later factual routing record does not claim
+that its own post-review documentation bytes were part of the reviewed
+`70f4a759` tree.

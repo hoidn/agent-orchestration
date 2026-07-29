@@ -22,8 +22,9 @@ correction carries an already-typed `PathJoinUnderExpr` through a
 to `ReviewReportPath` values and performs one ordinary extern-backed synthesis
 call.
 
-**Tech stack:** Python 3.11+, Workflow Lisp target 2.21/2.22, Classic and WCC
-lowering, immutable dataclasses/tuples, state schema 2.1, Q3
+**Tech stack:** Python 3.11+, Workflow Lisp target 2.23 implementation with a
+frozen target-2.21 compatibility control, Classic and WCC lowering, immutable
+dataclasses/tuples, state schema 2.1, target-2.22 Q3
 `workflow_prompt_attempt_identity.v1` and
 `workflow_prompt_fragment_snapshot.functional.v2`, persisted compiled
 surfaces, JSON/Markdown observability, pytest/pytest-xdist, and bounded
@@ -36,15 +37,25 @@ real-provider smoke evidence.
 The design received ordered independent `Q4_DESIGN_SPEC_APPROVED` and then
 distinct `Q4_DESIGN_QUALITY_APPROVED`.
 
+**Accepted Q5-era design amendment:** commit
+`3c21ceb40a53326e764cdaa7c5f4510cc3e61a2a`, tree
+`1740b28f4e7c14db1cd6c49128a1f822141ba5cf`; exact amended design digest
+`sha256:6c66f1890e9a19b2a70fb0ca5520a0e117baa2d092c7ff90466646adb407e8e1`.
+The amendment received ordered independent
+`Q4_DESIGN_AMENDMENT_SPEC_APPROVED` and then distinct
+`Q4_DESIGN_AMENDMENT_QUALITY_APPROVED`. It changes the Q5-era consumer/import
+binding only; the original accepted semantics and provenance remain
+authoritative.
+
 **Consumer-binding authority:** owner-adopted
 `docs/reports/2026-07-27-q4-binding-decision-brief.md`, digest
 `sha256:c309be8a683e12308d8250b357ac9e6999a58eece1073f8765855ae34af20165`.
 
-**Plan status:** accepted for execution after ordered independent
-`Q4_PLAN_SPEC_APPROVED` then distinct `Q4_PLAN_QUALITY_APPROVED` on the
-substantive candidate. This consistency-only status/routing closure changes no
-execution clause and is itself replayed through both ordered reviews before
-commit. The live-Q5 and M1 holds below still govern implementation start.
+**Plan status:** the original plan was accepted after ordered independent
+`Q4_PLAN_SPEC_APPROVED` then distinct `Q4_PLAN_QUALITY_APPROVED`. The Q5-era
+plan amendment below becomes execution authority only after the
+same ordered reviews approve its exact bytes. Q5 Task 14 and canonical
+transplant prerequisites are complete; M1 remains outside this plan.
 
 ---
 
@@ -54,13 +65,13 @@ Q3 is complete and the owner-adopted frontloaded consumer binding satisfies
 Q4's entry gate. Design acceptance is complete. Planning is therefore
 eligible.
 
-The following holds remain binding:
+The following guards remain binding:
 
-- Q4 implementation must not start while any Q5 real-provider acceptance
-  attempt is live. Planning and review are docs-only and may continue in the
-  isolated Q4 checkout.
-- At the implementation start boundary, recensus Q5's final landed bytes
-  against this plan's ownership table. If Q5 changed prompt-attempt,
+- No Q4 mutation may overlap a live real-provider acceptance attempt whose
+  byte freeze includes the same files. Task 0 proves no such attempt is live.
+- Q5 Task 14 and the canonical transplant are complete. Task 0 binds the final
+  landed Q5 bytes against this plan's ownership table. If a later commit
+  changes prompt-attempt,
   `StepResult.debug`, persisted-surface, report, or example-family seams,
   update this plan and repeat ordered plan review before editing code.
 - M1 estate shrink remains queued. Do not start, absorb, or prepare its
@@ -94,7 +105,8 @@ Read before implementation:
   `specs/dsl.md`, and `specs/io.md`;
 - `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`;
 - the completed Q1/Q2/Q3 plans; and
-- this reviewed implementation plan.
+- this implementation plan, after its Q5-era amendment passes the ordered
+  review gate above.
 
 The accepted design wins over this plan. Normative specs win over
 implementation. If a required implementation contradicts either authority,
@@ -111,13 +123,15 @@ of provider prompts.
 
 This plan owns only:
 
-- the exact four-name export compatibility gate on the target-2.21 consumer;
+- four additive exports producing the exact five-name export list on the
+  current target-2.23 production module;
 - one generic WCC child-call argument path for an existing typed
   `PathJoinUnderExpr`;
 - a generic ordinary identity-v1 attempt/result locator;
 - content-addressed persisted result-contract resolution;
 - a pure closed judgment projection and JSON/Markdown integration;
-- one target-2.22 panel sibling and its ordinary extern-backed synthesis;
+- one target-2.23 ordinary-composed panel sibling and its ordinary
+  extern-backed synthesis;
 - deterministic clean/resume, compatibility, and bounded real-smoke evidence;
   and
 - factual specs, docs, routing, and capability status.
@@ -136,7 +150,8 @@ This plan does not add or alter:
   turn queue, interactive adapter, or provider registry;
 - provider supervision/peer-group/live-binding behavior;
 - source recompilation during report projection;
-- target-2.20/2.21 behavior beyond the exact additive export list; or
+- current target-2.23 phased-entry behavior beyond the exact additive export
+  list, or any byte of the frozen target-2.21 compatibility control; or
 - M1 and excluded security/safety/secrets work.
 
 Any test or implementation that appears to need one of those surfaces is a
@@ -190,7 +205,9 @@ bytes. Record exact reviewed commit/tree/digests factually after the verdict.
 - [ ] Record Q5's final landed commit/tree in the external execution record
       and compare its changed paths with the Q4 ownership table below. Do not
       write that volatile value back into this reviewed plan.
-- [ ] Confirm the target-2.21 consumer control and accepted Q4 design digests.
+- [ ] Confirm the current target-2.23 phased production projection, the exact
+      frozen target-2.21 control, and the original plus amended Q4 design
+      bindings.
 - [ ] Confirm M1 is still held.
 - [ ] Confirm no protected/unrelated dirty file overlaps the task about to
       start.
@@ -209,7 +226,7 @@ Expected production ownership:
 | locator | `orchestrator/workflow/prompt_attempt_result_binding.py`, ordinary composed path in `orchestrator/workflow/executor.py`, existing step-result persistence helpers |
 | persisted contract | `orchestrator/dashboard/compiled_workflow.py` plus the new pure projector |
 | reports | new `orchestrator/workflow/judgment_views.py`, `orchestrator/observability/report.py`, `orchestrator/cli/commands/report.py` |
-| consumer | original example's exact export line, one target-2.22 sibling, ordinary provider/prompt bindings, fixtures |
+| consumer | current production example's export-only line, one target-2.23 composed sibling, ordinary provider/prompt bindings, and read-only frozen target-2.21 control |
 | docs/routing | exact Q4 rows and routed docs only |
 
 **Gate:** if overlap is behavioral rather than a shared import-only line,
@@ -270,15 +287,17 @@ pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py
 
 - Modify only the export declaration in
   `workflows/examples/review_revise_design_docs.orc`.
-- Add a maintained target-2.22 import/compile fixture under
+- Add a maintained target-2.23 same-target import/compile fixture under
   `tests/fixtures/workflow_lisp/judgment_views/`.
+- Read but do not modify
+  `tests/fixtures/workflow_lisp/prompt_calculus/review_revise_design_docs_target_2_21.orc`.
 - Modify `tests/test_workflow_lisp_examples.py`.
 - Modify `tests/test_workflow_lisp_prompt_calculus_e2e.py` only for compiled
   projection/identity characterization.
 
 ### Contract
 
-The original export list becomes exactly:
+The current production export list becomes exactly:
 
 ```lisp
 (export
@@ -289,26 +308,35 @@ The original export list becomes exactly:
   review-design-doc)
 ```
 
-No other original source byte changes in this task. Compile the before/after
-target-2.21 entry through the same route and compare the canonical compiled
-workflow projection byte-for-byte. The target, prompt fragment identity,
-result contract, checkpoint/resume identity, and source mapping must remain
-unchanged.
+No other current production source byte changes in this task. Compile the
+before/after target-2.23 phased entry through the same route and compare its
+selected canonical workflow-entry projection byte-for-byte; the module export
+catalog is deliberately excluded from that comparison because this task
+changes it. The target, explicit phased delivery, materialization-attempt
+count, prompt fragment identity-v2, functional-v3 evidence contract, result
+contract, checkpoint/resume identity, and source mapping must remain
+unchanged. Independently require the frozen target-2.21 fixture to retain its
+exact pre-task SHA-256 and keep it off the sibling's import-resolution path.
 
 ### TDD and verification
 
-- [ ] Add a RED target-2.22 import fixture requiring all four new names.
-- [ ] Add a byte-projection control for the original entry.
+- [ ] Add a RED target-2.23 same-target import fixture requiring all four newly
+      exported names from current production.
+- [ ] Add a byte-projection control for the current phased entry and an exact
+      byte-digest control for the frozen target-2.21 fixture.
 - [ ] Show the sibling fails before the export delta.
 - [ ] Apply only the export delta.
-- [ ] Prove sibling compile GREEN and original projection byte-identical.
+- [ ] Prove sibling compile GREEN, current phased-entry projection
+      byte-identical, and frozen target-2.21 bytes unchanged.
 - [ ] Run the two named modules plus their `--collect-only` selectors.
 - [ ] Obtain `Q4_TASK_2_SPEC_APPROVED`.
 - [ ] Obtain distinct `Q4_TASK_2_QUALITY_APPROVED`.
 - [ ] Commit Task 2.
 
-**Hard stop:** do not bump the original module, copy/redeclare the fragment,
-accept a checksum/resume delta, or weaken the comparison.
+**Hard stop:** do not bump or otherwise mutate current production beyond its
+export line, import from or modify the frozen fixture, copy/redeclare the
+fragment, accept a phased-delivery/identity/evidence/checksum/resume delta, or
+weaken either comparison.
 
 ---
 
@@ -516,6 +544,13 @@ one validated projection. No execution/resume/parser module imports it.
 
 ### Contract
 
+The sibling is target 2.23, imports the exported types and
+`review-design-doc` from current production, and never resolves imports
+through the frozen target-2.21 control. Every fragment-backed review call
+specifies exact `:delivery :composed`, retaining identity-v1/functional-v2;
+the current production entry remains phased identity-v2/functional-v3 and
+Q4-ineligible.
+
 The public checked default uses pairwise-distinct safe lens strings. Each
 `list/map-effect :max 8` iteration performs exactly one child call. The child
 owns the existing fragment-backed `ReviewDecision`, matches every existing
@@ -534,6 +569,10 @@ no second matrix. The public entry returns exact `DesignDocPanelResult`.
       as this task's RED.
 - [ ] Positive compile/runtime with ordered distinct lenses and exactly one
       matrix.
+- [ ] Prove the sibling imports current production at target 2.23, every
+      fragment-backed review call is explicitly composed and retains
+      identity-v1/functional-v2, and the frozen target-2.21 control is not an
+      import owner.
 - [ ] Prove the child retains the full union, Q2 output contract, identity-v1,
       and source-map owner.
 - [ ] Prove synthesis has no fragment identity/locator/judgment row and its
@@ -675,7 +714,8 @@ pytest -q -n 16 --dist=worksteal \
       repair external or excluded failures under Q4.
 - [ ] Run genericity scans and prove no consumer/family/module/provider/result
       name controls mechanism behavior.
-- [ ] Verify original target-2.21 byte-projection compatibility again.
+- [ ] Verify current target-2.23 phased-entry projection compatibility and the
+      frozen target-2.21 byte control again.
 - [ ] Verify Q5 phased identity-v2 remains excluded and unchanged.
 - [ ] Update docs from designed/planned to implemented only after evidence is
       green.

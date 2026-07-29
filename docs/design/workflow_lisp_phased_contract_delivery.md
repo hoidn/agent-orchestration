@@ -1,11 +1,10 @@
 # Workflow Lisp Phased Contract Delivery
 
-- **Status:** implemented at target 2.23. Tasks 1–13, including the combined
-  invalid-then-valid real-provider consumer, are complete through `bb67f680`;
-  the 2026-07-28 stop at `3fc3a09e` remains superseded historical
-  provenance. Task 14 normative/routing/broad closure and its external
-  exact-tree reviews are the
-  remaining execution-plan gate and are not self-attested by this document.
+- **Status:** implemented and complete at target 2.23. Tasks 1–13, including
+  the combined invalid-then-valid real-provider consumer, close through
+  `bb67f680`; Task 14 closes at commit `70f4a759`, tree `fec729cb`, after the
+  post-correction broad comparison and external ordered final reviews. The
+  2026-07-28 stop at `3fc3a09e` remains superseded historical provenance.
 - **Kind:** target-2.23 frontend and provider-runtime design
 - **Owner:** Workflow Lisp call policy, prompt composition, and provider
   attempt runtime

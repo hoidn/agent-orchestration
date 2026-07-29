@@ -58,6 +58,12 @@ PROMPT_IDENTITY_DESIGN_PATH = (
 PROMPT_IDENTITY_PLAN_PATH = (
     "docs/plans/2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md"
 )
+JUDGMENT_VIEWS_DESIGN_PATH = (
+    "docs/design/workflow_lisp_judgment_views.md"
+)
+JUDGMENT_VIEWS_PLAN_PATH = (
+    "docs/plans/2026-07-29-workflow-lisp-judgment-views-implementation-plan.md"
+)
 PHASED_CONTRACT_DELIVERY_DESIGN_PATH = (
     "docs/design/workflow_lisp_phased_contract_delivery.md"
 )
@@ -1132,6 +1138,12 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     q3_plan = (REPO_ROOT / PROMPT_IDENTITY_PLAN_PATH).read_text(
         encoding="utf-8"
     )
+    q4_design = (REPO_ROOT / JUDGMENT_VIEWS_DESIGN_PATH).read_text(
+        encoding="utf-8"
+    )
+    q4_plan = (REPO_ROOT / JUDGMENT_VIEWS_PLAN_PATH).read_text(
+        encoding="utf-8"
+    )
     l1_plan = (REPO_ROOT / LANGUAGE_SERVER_L1_PLAN_PATH).read_text(
         encoding="utf-8"
     )
@@ -1216,29 +1228,46 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "concrete generic reviewer/panel consumer is bound" in (
         normalized_q4_row
     )
-    assert "design accepted at d7fe4549" in normalized_q4_row
+    assert "original design accepted at d7fe4549" in normalized_q4_row
     assert (
         "2026 07 29 workflow lisp judgment views implementation plan.md"
         in normalized_q4_row
     )
-    assert "accepted after ordered specification then quality review" in (
+    assert "q5 era design amendment accepted at 3c21ceb4" in normalized_q4_row
+    assert "executable only after its q5 era amendment receives ordered specification then quality review" in (
         normalized_q4_row
     )
     assert "implementation not started" in normalized_q4_row
-    assert "q5 task 14 closes" in normalized_q4_row
-    assert "consolidated lineage is transplanted" in normalized_q4_row
+    assert "current target 2.23 phased production" in normalized_q4_row
+    assert "target 2.23 explicit composed panel sibling" in normalized_q4_row
+    assert "frozen target 2.21 compatibility control" in normalized_q4_row
+    assert "q5 task 14 and canonical transplant are complete" in normalized_q4_row
     normalized_q4_stage = _normalized_routing_text(
         _markdown_heading_section(
             successor,
             "## Stage Q4: Judgment Views",
         )
     )
-    assert "reviewed execution authority" in normalized_q4_stage
+    assert "original pre q5 plan at fbcba410" in normalized_q4_stage
     assert "q4_plan_spec_approved then q4_plan_quality_approved" in (
         normalized_q4_stage
     )
+    assert "become the current execution authority only after their fresh ordered specification then quality review" in (
+        normalized_q4_stage
+    )
+    assert "reviewed execution authority" not in normalized_q4_stage
     assert "proposed" not in normalized_q4_stage
     assert "must receive ordered plan reviews" not in normalized_q4_stage
+    assert "target 2.23 phased production" in normalized_q4_stage
+    assert "target 2.23 sibling" in normalized_q4_stage
+    assert "explicitly composed" in normalized_q4_stage
+    assert "target 2.21" in normalized_q4_stage
+    assert "compatibility only control" in normalized_q4_stage
+    assert "task 14 closed at 70f4a759, tree fec729cb" in normalized_successor
+    assert "remain the q5 closure gate" not in normalized_successor
+    assert "q5 now awaits only its task 14 external closure gate" not in (
+        normalized_successor
+    )
     q4_capability_row = _markdown_table_row(
         capability_matrix_path,
         "Workflow Lisp judgment views Q4",
@@ -1248,10 +1277,28 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "| Designed |" in q4_capability_row
     assert "| Planned |" not in q4_capability_row
-    assert "accepted design" in normalized_q4_capability_row
-    assert "reviewed implementation plan" in (
+    assert "original design and q5 era design amendment accepted" in (
         normalized_q4_capability_row
     )
+    assert "q5 era design amendment 3c21ceb4 accepted" in (
+        normalized_q4_capability_row
+    )
+    assert "only the q5 era plan amendment still requires fresh ordered review" in (
+        normalized_q4_capability_row
+    )
+    assert "target 2.23 explicit composed panel sibling" in normalized_q4_capability_row
+    assert "current target 2.23 phased" in normalized_q4_capability_row
+    assert "frozen target 2.21 control" in normalized_q4_capability_row
+    assert "never an import owner" in normalized_q4_capability_row
+    normalized_q4_design = _normalized_routing_text(q4_design)
+    normalized_q4_plan = _normalized_routing_text(q4_plan)
+    assert "q5 era consumer binding" in normalized_q4_design
+    assert "target 2.23 sibling" in normalized_q4_design
+    assert ":delivery :composed" in normalized_q4_design
+    assert "frozen target 2.21" in normalized_q4_design
+    assert "current target 2.23 phased production" in normalized_q4_plan
+    assert "target 2.23 ordinary composed panel sibling" in normalized_q4_plan
+    assert "frozen target 2.21 compatibility control" in normalized_q4_plan
     normalized_q3_design_status = _normalized_routing_text(
         "\n".join(q3_design.splitlines()[:24])
     )
@@ -1562,10 +1609,14 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "q4's concrete review_revise_design_docs panel consumer is bound"
         in normalized_successor_index
     )
-    assert "its design is accepted at d7fe4549" in normalized_successor_index
-    assert "implementation plan has ordered specification and quality approval" in (
+    assert "its original design is accepted at d7fe4549" in normalized_successor_index
+    assert "q5 era design amendment is accepted at 3c21ceb4" in (
         normalized_successor_index
     )
+    assert "q5 era plan amendment becomes execution authority only after ordered review" in (
+        normalized_successor_index
+    )
+    assert "q5 is complete at 70f4a759, tree fec729cb" in normalized_successor_index
     assert Path(PROMPT_IDENTITY_PLAN_PATH).name in index
     assert "owner reordered l5 authored reference navigation are complete" in (
         normalized_successor_index
@@ -1806,10 +1857,14 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     assert "q4's concrete review_revise_design_docs panel consumer is bound" in (
         active_roadmap_index
     )
-    assert "its design is accepted at d7fe4549" in active_roadmap_index
-    assert "implementation plan has ordered specification and quality approval" in (
+    assert "its original design is accepted at d7fe4549" in active_roadmap_index
+    assert "q5 era design amendment is accepted at 3c21ceb4" in (
         active_roadmap_index
     )
+    assert "q5 era plan amendment becomes execution authority only after ordered review" in (
+        active_roadmap_index
+    )
+    assert "q5 is complete at 70f4a759, tree fec729cb" in active_roadmap_index
     assert "owner reordered l5 authored reference navigation are complete" in (
         active_roadmap_index
     )
@@ -3471,8 +3526,8 @@ def test_language_server_l4_routes_verified_final_review_correction() -> None:
     assert "task 4 focused 356 passed and broad comparison has zero new failures" in (
         normalized_index
     )
-    assert "q5 tasks 1 13 are implemented through bb67f680" in normalized_index
-    assert "external final exact tree reviews remain pending" in normalized_index
+    assert "q5 is complete at 70f4a759, tree fec729cb" in normalized_index
+    assert "external ordered final reviews" in normalized_index
     lifecycle_index = _normalized_routing_text(
         _markdown_heading_section(
             index,
@@ -3523,16 +3578,18 @@ def test_language_server_l4_routes_verified_final_review_correction() -> None:
         _markdown_table_row(roadmap_path, "| L5 |")
     )
     assert "concrete generic reviewer/panel consumer is bound" in q4_row
-    assert "design accepted at d7fe4549" in q4_row
-    assert "accepted after ordered specification then quality review" in q4_row
+    assert "original design accepted at d7fe4549" in q4_row
+    assert "current target 2.23 phased production" in q4_row
+    assert "target 2.23 explicit composed panel sibling" in q4_row
+    assert "frozen target 2.21 compatibility control" in q4_row
+    assert "q5 era design amendment accepted at 3c21ceb4" in q4_row
+    assert "implementation plan" in q4_row
+    assert "its q5 era amendment receives ordered specification then quality review" in q4_row
     assert "implementation not started" in q4_row
-    assert "q5 task 14 closes" in q4_row
-    assert "consolidated lineage is transplanted" in q4_row
+    assert "q5 task 14 and canonical transplant are complete" in q4_row
     assert "no q4 dependency" in q5_row
-    assert "implementation complete through task 13 commit bb67f680" in q5_row
-    assert "3fc3a09e" in q5_row
-    assert "superseded historical provenance" in q5_row
-    assert "external q5_final_spec_approved then q5_final_quality_approved" in q5_row
+    assert "complete at 70f4a759, tree fec729cb" in q5_row
+    assert "external ordered q5_final_spec_approved then q5_final_quality_approved" in q5_row
     assert "complete" in l5_row
     assert "041754e6" in l5_row
 
@@ -3719,7 +3776,7 @@ def test_language_server_l5_routes_shipped_admitted_shapes_and_closes_stage() ->
     ) in normalized_l3_row
 
 
-def test_phased_contract_delivery_routes_implemented_surface_to_external_closure() -> None:
+def test_phased_contract_delivery_routes_completed_surface() -> None:
     roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH
     design_path = REPO_ROOT / PHASED_CONTRACT_DELIVERY_DESIGN_PATH
     plan_path = REPO_ROOT / PHASED_CONTRACT_DELIVERY_PLAN_PATH
@@ -3731,12 +3788,13 @@ def test_phased_contract_delivery_routes_implemented_surface_to_external_closure
     normalized_design_status = _normalized_routing_text(
         "\n".join(design_path.read_text(encoding="utf-8").splitlines()[:18])
     )
-    assert "status: implemented at target 2.23" in normalized_design_status
+    assert "status: implemented and complete at target 2.23" in normalized_design_status
     assert "bb67f680" in normalized_design_status
+    assert "70f4a759" in normalized_design_status
+    assert "fec729cb" in normalized_design_status
     assert "3fc3a09e" in normalized_design_status
     assert "superseded historical provenance" in normalized_design_status
-    assert "external exact tree reviews" in normalized_design_status
-    assert "not self attested" in normalized_design_status
+    assert "external ordered final reviews" in normalized_design_status
 
     q5_row = _markdown_table_row(roadmap_path, "| Q5 |")
     normalized_q5_row = _normalized_routing_text(q5_row)
@@ -3744,42 +3802,23 @@ def test_phased_contract_delivery_routes_implemented_surface_to_external_closure
     assert "reviewed implementation plan at 45468c55" in normalized_q5_row
     assert "q3 complete" in normalized_q5_row
     assert "no q4 dependency" in normalized_q5_row
-    assert "implementation complete through task 13 commit bb67f680" in (
-        normalized_q5_row
-    )
-    assert "attempt 10 passed in 47.29s" in normalized_q5_row
-    assert "focused 2,245 passed" in normalized_q5_row
-    assert "q5_task13_spec_approved then q5_task13_quality_approved" in (
-        normalized_q5_row
-    )
-    assert "3fc3a09e is superseded historical provenance" in normalized_q5_row
-    assert (
-        "task 14's 10,919 passed / 42 failed / 23 skipped candidate predates "
-        "correction 5d8a3151"
-    ) in normalized_q5_row
-    assert "superseded for closure" in normalized_q5_row
-    assert "fresh post correction broad replay" in normalized_q5_row
+    assert "complete at 70f4a759, tree fec729cb" in normalized_q5_row
+    assert "post correction broad comparison" in normalized_q5_row
     assert "exact delta adjudication" in normalized_q5_row
-    assert "external q5_final_spec_approved then q5_final_quality_approved" in (
-        normalized_q5_row
-    )
-    assert "no repository row self attests" in normalized_q5_row
+    assert "external ordered q5_final_spec_approved then q5_final_quality_approved" in normalized_q5_row
 
     design_router_row = _markdown_table_row(
         design_router_path,
         "workflow_lisp_phased_contract_delivery.md",
     )
-    assert "| Implemented through Task 13 at `bb67f680` |" in design_router_row
+    assert "| Implemented and complete at `70f4a759` |" in design_router_row
     normalized_design_router_row = _normalized_routing_text(design_router_row)
     assert "872a29af" in normalized_design_router_row
     assert "45468c55" in normalized_design_router_row
     assert "3fc3a09e" in normalized_design_router_row
     assert "explicitly superseded history" in normalized_design_router_row
-    assert "q5_task13_spec_approved then q5_task13_quality_approved" in (
-        normalized_design_router_row
-    )
-    assert "external exact tree final reviews" in normalized_design_router_row
-    assert "does not self attest" in normalized_design_router_row
+    assert "external ordered final reviews" in normalized_design_router_row
+    assert "tree fec729cb" in normalized_design_router_row
 
     capability_row = _markdown_table_row(
         capability_matrix_path,
@@ -3789,17 +3828,10 @@ def test_phased_contract_delivery_routes_implemented_surface_to_external_closure
     assert "| Implemented |" in capability_row
     assert "accepted design 872a29af" in normalized_capability_row
     assert "reviewed plan 45468c55" in normalized_capability_row
-    assert "tasks 1 13 complete through bb67f680" in normalized_capability_row
-    assert "attempt 10 passed in 47.29s" in normalized_capability_row
-    assert "focused q5 selector passed 2,245 tests" in normalized_capability_row
-    assert "q5_task13_spec_approved then q5_task13_quality_approved" in (
-        normalized_capability_row
-    )
+    assert "complete at 70f4a759, tree fec729cb" in normalized_capability_row
+    assert "real invalid then valid attempt 10 passed" in normalized_capability_row
     assert "3fc3a09e is superseded history" in normalized_capability_row
-    assert "external exact tree reviews remain the roadmap gate" in (
-        normalized_capability_row
-    )
-    assert "does not self attest" in normalized_capability_row
+    assert "external ordered final reviews closed task 14" in normalized_capability_row
     assert Path(PHASED_CONTRACT_DELIVERY_PLAN_PATH).name in capability_row
 
     normalized_design_index = _normalized_routing_text(
@@ -3808,14 +3840,15 @@ def test_phased_contract_delivery_routes_implemented_surface_to_external_closure
             "### [Workflow Lisp Phased Contract Delivery]",
         )
     )
-    assert "implemented target 2.23 stage q5 surface" in normalized_design_index
+    assert "implemented and closed target 2.23 stage q5 surface" in normalized_design_index
     assert "bb67f680" in normalized_design_index
+    assert "70f4a759" in normalized_design_index
+    assert "fec729cb" in normalized_design_index
     assert "3fc3a09e" in normalized_design_index
     assert "superseded historical provenance" in normalized_design_index
     assert "q5_final_spec_approved then q5_final_quality_approved" in (
         normalized_design_index
     )
-    assert "does not self attest" in normalized_design_index
 
     assert (
         "### [Workflow Lisp Phased Contract Delivery Implementation Plan]"
@@ -3830,11 +3863,10 @@ def test_phased_contract_delivery_routes_implemented_surface_to_external_closure
     assert "reviewed q5 execution plan" in normalized_plan_index
     assert "45468c55" in normalized_plan_index
     assert "tasks 1 13 are complete through bb67f680" in normalized_plan_index
+    assert "task 14 closes at 70f4a759" in normalized_plan_index
     assert "3fc3a09e" in normalized_plan_index
     assert "explicitly superseded historical provenance" in normalized_plan_index
-    assert "2,245 pass gate" in normalized_plan_index
-    assert "exact delta adjudication" in normalized_plan_index
-    assert "external final exact tree reviews" in normalized_plan_index
+    assert "external final exact tree reviews at 70f4a759" in normalized_plan_index
     assert Path(PHASED_CONTRACT_DELIVERY_PLAN_PATH).name in index
 
     plan = plan_path.read_text(encoding="utf-8")
@@ -3863,6 +3895,12 @@ def test_phased_contract_delivery_routes_implemented_surface_to_external_closure
     assert "exact delta adjudication" in normalized_plan
     assert "against the post p2 baseline remain required" in normalized_plan
     assert "q5_final_spec_approved then q5_final_quality_approved" in normalized_plan
+    assert "## 2026-07-29 Task 14 Final Closure Record" in plan
+    assert "70f4a7597b915d511ac70084a40fe342617fe91b" in plan
+    assert "fec729cb45ed9212dec14e1a72ac9e1cd1110a2a" in plan
+    assert "10,925 passed, 38 failed, 23 skipped" in normalized_plan
+    assert "focused q5 selector: 2,306 passed" in normalized_plan
+    assert "task 14 and q5 are complete" in normalized_plan
 
     normalized_dsl_spec = _normalized_routing_text(dsl_spec)
     assert (
