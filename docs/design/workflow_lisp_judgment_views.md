@@ -1,6 +1,7 @@
 # Workflow Lisp Judgment Views
 
-- **Status:** proposed for ordered Q4 design review
+- **Status:** accepted after ordered Q4 design review; implementation pending
+  under the reviewed Q4 implementation plan
 - **Kind:** read-only result-plus-provenance inspection design
 - **Owner:** Workflow Lisp prompt calculus Q4
 - **Depends on:** implemented target-2.22 Q3 prompt-attempt identity and
@@ -11,7 +12,8 @@
 - **First consumer:** a target-2.22 panel sibling in the
   `review_revise_design_docs` family
 - **Design review order:** independent `Q4_DESIGN_SPEC_APPROVED`, then
-  independent `Q4_DESIGN_QUALITY_APPROVED`
+  independent `Q4_DESIGN_QUALITY_APPROVED` (both approved against commit
+  `d7fe454902ff2f5b5784a66c37fbb19f9332e4ac`)
 - **Related authorities:**
   - `docs/reports/2026-07-27-q4-binding-decision-brief.md`
   - `docs/design/workflow_lisp_prompt_calculus.md`

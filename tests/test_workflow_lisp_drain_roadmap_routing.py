@@ -1212,9 +1212,44 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "| Q4 |",
     )
     normalized_q4_row = _normalized_routing_text(q4_row)
-    assert "q3 prerequisite complete" in normalized_q4_row
-    assert "blocked on binding the concrete generic reviewer/panel consumer" in (
+    assert "q3 complete" in normalized_q4_row
+    assert "concrete generic reviewer/panel consumer is bound" in (
         normalized_q4_row
+    )
+    assert "design accepted at d7fe4549" in normalized_q4_row
+    assert (
+        "2026 07 29 workflow lisp judgment views implementation plan.md"
+        in normalized_q4_row
+    )
+    assert "accepted after ordered specification then quality review" in (
+        normalized_q4_row
+    )
+    assert "implementation not started" in normalized_q4_row
+    assert "live q5 hold applies" in normalized_q4_row
+    normalized_q4_stage = _normalized_routing_text(
+        _markdown_heading_section(
+            successor,
+            "## Stage Q4: Judgment Views",
+        )
+    )
+    assert "reviewed execution authority" in normalized_q4_stage
+    assert "q4_plan_spec_approved then q4_plan_quality_approved" in (
+        normalized_q4_stage
+    )
+    assert "proposed" not in normalized_q4_stage
+    assert "must receive ordered plan reviews" not in normalized_q4_stage
+    q4_capability_row = _markdown_table_row(
+        capability_matrix_path,
+        "Workflow Lisp judgment views Q4",
+    )
+    normalized_q4_capability_row = _normalized_routing_text(
+        q4_capability_row
+    )
+    assert "| Designed |" in q4_capability_row
+    assert "| Planned |" not in q4_capability_row
+    assert "accepted design" in normalized_q4_capability_row
+    assert "reviewed implementation plan" in (
+        normalized_q4_capability_row
     )
     normalized_q3_design_status = _normalized_routing_text(
         "\n".join(q3_design.splitlines()[:24])
@@ -1522,7 +1557,14 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "active post stage 8 selector" in normalized_successor_index
     assert "q0 q3 are implemented" in normalized_successor_index
     assert "q3 closes under its reviewed plan" in normalized_successor_index
-    assert "q4 still needs its concrete consumer" in normalized_successor_index
+    assert (
+        "q4's concrete review_revise_design_docs panel consumer is bound"
+        in normalized_successor_index
+    )
+    assert "its design is accepted at d7fe4549" in normalized_successor_index
+    assert "implementation plan has ordered specification and quality approval" in (
+        normalized_successor_index
+    )
     assert Path(PROMPT_IDENTITY_PLAN_PATH).name in index
     assert "owner reordered l5 authored reference navigation are complete" in (
         normalized_successor_index
@@ -1760,7 +1802,13 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     )
     assert "q0 q3 are implemented" in active_roadmap_index
     assert "q3 closes under its reviewed plan" in active_roadmap_index
-    assert "q4 still needs its concrete consumer" in active_roadmap_index
+    assert "q4's concrete review_revise_design_docs panel consumer is bound" in (
+        active_roadmap_index
+    )
+    assert "its design is accepted at d7fe4549" in active_roadmap_index
+    assert "implementation plan has ordered specification and quality approval" in (
+        active_roadmap_index
+    )
     assert "owner reordered l5 authored reference navigation are complete" in (
         active_roadmap_index
     )
@@ -3473,7 +3521,10 @@ def test_language_server_l4_routes_verified_final_review_correction() -> None:
     l5_row = _normalized_routing_text(
         _markdown_table_row(roadmap_path, "| L5 |")
     )
-    assert "blocked on binding the concrete generic reviewer/panel consumer" in q4_row
+    assert "concrete generic reviewer/panel consumer is bound" in q4_row
+    assert "design accepted at d7fe4549" in q4_row
+    assert "accepted after ordered specification then quality review" in q4_row
+    assert "implementation not started while the live q5 hold applies" in q4_row
     assert "no q4 dependency" in q5_row
     assert "partial" in q5_row
     assert "3fc3a09e" in q5_row
