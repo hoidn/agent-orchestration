@@ -288,11 +288,12 @@ and the "silent-in-ledger" verdicts for W-R1/W-A5/W-L1 now read as fixed).
   post-commit `publication_succeeded` append alone opts back into the
   admission (`admit_deadline=True`) per the design's zero-append-at-expiry
   clause for that row. Normal-path spine appends keep their admission.
-- **F2 fix** (`ledger.py`): the offline validator's
-  `active_requests_drained >= 1` floor applies only to the normal
-  close-path shutdown (`ingress_mode == "normal"`), where the accepted
-  submit's flushed receipt is producer-counted; terminalizing shutdowns may
-  truthfully report zero drainage.
+- **F2 fix** (`ledger.py`, corrected for receipt-first close ordering): the
+  offline validator's `active_requests_drained >= 1` floor applies to normal
+  close-path shutdown and to terminalizing shutdown after `close_offered` or
+  `close_offer_failed`, because either close outcome proves the accepted
+  submit's receipt flushed and was producer-counted. Terminalization before a
+  close outcome may truthfully report zero drainage.
 - **Regression tests** (former strict xfails, now passing):
   `test_post_expiry_terminalization_emits_failsafe_ledger_rows`,
   `test_exhausted_attempts_ledger_should_validate_offline`; plus

@@ -1383,7 +1383,11 @@ Every ledger scalar and cross-row relation is closed:
   are monotonically final counts for that one shutdown. The finished counts
   cannot be smaller than any corresponding count already observed by the
   coordinator, and `active_requests_drained` includes the accepted submit whose
-  receipt had to flush before shutdown began.
+  receipt had to flush before shutdown began. A `close_offered` or
+  `close_offer_failed` row proves that flush and therefore requires
+  `active_requests_drained >= 1` in either normal or terminalizing ingress.
+  Terminalization before either close outcome, including direct cleanup from
+  `close_offer_requested`, may truthfully report zero.
 
 #### Offline digest partition
 

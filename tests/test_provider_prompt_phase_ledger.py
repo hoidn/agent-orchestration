@@ -1941,9 +1941,9 @@ def test_validator_accepts_zero_drainage_at_terminalizing_ingress_shutdown() -> 
 
     A terminalizing shutdown after an exhausted/failed submission truthfully
     reports ``active_requests_drained: 0`` -- the request was resolved with a
-    terminal receipt before shutdown, so nothing remained to drain.  Only the
-    normal close-path shutdown carries the design's drained-accepted-submit
-    floor.
+    terminal receipt before shutdown, so nothing remained to drain. Direct
+    cleanup from ``close_offer_requested`` also admits zero because no close
+    outcome proves that ``accepted_closing`` reached the submit client.
     """
 
     payloads = _event_payloads()
@@ -1952,7 +1952,7 @@ def test_validator_accepts_zero_drainage_at_terminalizing_ingress_shutdown() -> 
         **payloads["ingress_shutdown_finished"],
         "active_requests_drained": 0,
     }
-    events = [
+    rejected_submission = [
         ("task_start_requested", payloads["task_start_requested"]),
         ("task_started", payloads["task_started"]),
         ("turn_offer_requested", payloads["turn_offer_requested"]),
@@ -1971,8 +1971,74 @@ def test_validator_accepts_zero_drainage_at_terminalizing_ingress_shutdown() -> 
             _terminal_from_cleanup(cleanup, endpoint="complete"),
         ),
     ]
+    final_receipt_unproven = [
+        ("task_start_requested", payloads["task_start_requested"]),
+        ("task_started", payloads["task_started"]),
+        ("turn_offer_requested", payloads["turn_offer_requested"]),
+        ("turn_offered", payloads["turn_offered"]),
+        ("submit_received", payloads["submit_received"]),
+        ("candidate_frozen", payloads["candidate_frozen"]),
+        ("close_offer_requested", payloads["close_offer_requested"]),
+        ("cleanup_finished", cleanup),
+        (
+            "ingress_shutdown_started",
+            payloads["ingress_shutdown_started"],
+        ),
+        ("ingress_shutdown_finished", zero_drain_finished),
+        (
+            "terminal_failed",
+            _terminal_from_cleanup(
+                cleanup,
+                endpoint="complete",
+                diagnostic=_diagnostic_for_reason(
+                    "submit_lifecycle_invalid"
+                ),
+            ),
+        ),
+    ]
 
-    _assert_complete(events, "terminal_failed")
+    _assert_complete(rejected_submission, "terminal_failed")
+    _assert_complete(final_receipt_unproven, "terminal_failed")
+
+
+def test_validator_rejects_zero_drainage_after_accepted_close_failure() -> None:
+    """A close outcome proves that accepted_closing already flushed."""
+
+    payloads = _event_payloads()
+    cleanup = _complete_cleanup()
+    zero_drain_finished = {
+        **payloads["ingress_shutdown_finished"],
+        "active_requests_drained": 0,
+    }
+    close_failure = _exact_diagnostic(
+        payloads["close_offer_failed"]["diagnostic"]
+    )
+    events = [
+        ("task_start_requested", payloads["task_start_requested"]),
+        ("task_started", payloads["task_started"]),
+        ("turn_offer_requested", payloads["turn_offer_requested"]),
+        ("turn_offered", payloads["turn_offered"]),
+        ("submit_received", payloads["submit_received"]),
+        ("candidate_frozen", payloads["candidate_frozen"]),
+        ("close_offer_requested", payloads["close_offer_requested"]),
+        ("close_offer_failed", payloads["close_offer_failed"]),
+        ("cleanup_finished", cleanup),
+        (
+            "ingress_shutdown_started",
+            payloads["ingress_shutdown_started"],
+        ),
+        ("ingress_shutdown_finished", zero_drain_finished),
+        (
+            "terminal_failed",
+            _terminal_from_cleanup(
+                cleanup,
+                endpoint="complete",
+                diagnostic=close_failure,
+            ),
+        ),
+    ]
+
+    assert _validate(_ledger_bytes(events))["reason"] == "payload_invalid"
 
 
 def test_validator_rejects_zero_drainage_at_normal_close_shutdown() -> None:

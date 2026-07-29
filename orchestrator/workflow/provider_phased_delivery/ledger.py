@@ -1728,6 +1728,7 @@ class _LedgerGrammar:
         self.ingress = "not_allocated"
         self.provider_live = False
         self.ingress_mode: str | None = None
+        self.accepted_submit_receipt_flushed = False
         self.current_submit: int | None = None
         self.pending_turn: Mapping[str, Any] | None = None
         self.pending_close: Mapping[str, Any] | None = None
@@ -2093,12 +2094,13 @@ class _LedgerGrammar:
         if (
             event
             in {"ingress_shutdown_finished", "ingress_shutdown_failed"}
-            # The drain floor holds only for the normal close-path shutdown,
-            # where the accepted submit's receipt flushed before shutdown
-            # began and was counted.  A terminalizing shutdown may truthfully
-            # report zero drainage: its submissions were already resolved
-            # with terminal or retry receipts, or none was active.
-            and self.ingress_mode == "normal"
+            # The floor holds whenever a close outcome proves the accepted
+            # submit receipt flushed, including terminalization after a failed
+            # close offer. Earlier terminalization may truthfully report zero.
+            and (
+                self.ingress_mode == "normal"
+                or self.accepted_submit_receipt_flushed
+            )
             and self.current_submit is not None
             and payload["active_requests_drained"] < 1
         ):
@@ -2230,8 +2232,10 @@ class _LedgerGrammar:
         elif event == "close_offer_requested":
             self.phase = "close_requested"
         elif event == "close_offered":
+            self.accepted_submit_receipt_flushed = True
             self.phase = "close_offered"
         elif event == "close_offer_failed":
+            self.accepted_submit_receipt_flushed = True
             self.phase = "close_failed"
             self.primary_failure_diagnostic = payload["diagnostic"]
         elif event == "ingress_shutdown_started":
