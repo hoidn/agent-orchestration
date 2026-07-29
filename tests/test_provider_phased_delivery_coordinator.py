@@ -2794,7 +2794,7 @@ def test_monotonic_clock_requires_an_exact_finite_float(now: object) -> None:
     ]
 
 
-def test_during_ledger_header_retains_and_closes_truthful_prefix(
+def test_during_ledger_header_records_t0_terminalization_and_closes(
     tmp_path: Path,
 ) -> None:
     bindings = RealDeadlineHeaderBindings(tmp_path)
@@ -2808,10 +2808,19 @@ def test_during_ledger_header_retains_and_closes_truthful_prefix(
         "deadline_exhausted_during_ledger_append"
     )
     assert bindings.ledger_path is not None
+    # Post-expiry fail-safe terminalization still records the T0 production
+    # (header -> cleanup_finished -> terminal_failed) in the ledger.
+    rows = [
+        json.loads(line)
+        for line in bindings.ledger_path.read_bytes().splitlines()
+    ]
+    assert [
+        row["event"] for row in rows if row.get("record_kind") == "event"
+    ] == ["cleanup_finished", "terminal_failed"]
     validation = validate_ledger_bytes(bindings.ledger_path.read_bytes())
-    assert validation["status"] == "valid_prefix"
-    assert validation["reason"] == "nonterminal_prefix"
-    assert validation["terminal_event"] is None
+    assert validation["status"] == "complete"
+    assert validation["reason"] == "complete"
+    assert validation["terminal_event"] == "terminal_failed"
     assert bindings.real_ledger is not None
     assert bindings.real_ledger._closed is True
     assert "adapter.start" not in bindings.actions

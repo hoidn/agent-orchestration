@@ -328,7 +328,13 @@ class PhasedProviderAttemptCoordinator:
             raise TypeError("monotonic clock must return a finite float")
         return now
 
-    def _append(self, event: str, payload: dict[str, object]) -> None:
+    def _append(
+        self,
+        event: str,
+        payload: dict[str, object],
+        *,
+        admit_deadline: bool = True,
+    ) -> None:
         if self._session.ledger_channel != "WRITABLE":
             raise PhasedOperationFailure(
                 _runtime_diagnostic("evidence_append_failed")
@@ -336,7 +342,9 @@ class PhasedProviderAttemptCoordinator:
         ledger = self._session.ledger
         if ledger is None:
             raise RuntimeError("phase ledger is not prepared")
-        admission = self._admit_deadline("ledger_append")
+        admission = (
+            self._admit_deadline("ledger_append") if admit_deadline else None
+        )
         try:
             ledger.append(
                 event,
@@ -351,20 +359,37 @@ class PhasedProviderAttemptCoordinator:
             raise PhasedOperationFailure(
                 _runtime_diagnostic("evidence_append_failed")
             ) from exc
-        self._finish_deadline(admission)
+        if admission is not None:
+            self._finish_deadline(admission)
 
     def _safe_append(
         self,
         event: str,
         payload: dict[str, object],
+        *,
+        admit_deadline: bool = False,
     ) -> bool:
+        """Fail-safe emission channel for failure and terminalization rows.
+
+        A dropped append never fails the caller here; a row is dropped only
+        when the channel is absent, poisoned, or the append itself fails.
+        No ledger-append deadline admission is performed by default:
+        terminalization is the design's sole exception to the zero-call
+        rule and must emit its rows with no remaining budget, and the spine
+        failure rows sharing this channel are loss-tolerant evidence whose
+        operations already performed their own deadline observations.  The
+        post-commit ``publication_succeeded`` append opts back into the
+        admission (``admit_deadline=True``) because the design requires
+        expiry before it to make zero append calls.
+        """
+
         if (
             self._session.ledger is None
             or self._session.ledger_channel != "WRITABLE"
         ):
             return False
         try:
-            self._append(event, payload)
+            self._append(event, payload, admit_deadline=admit_deadline)
         except PhasedOperationFailure:
             return False
         return True
@@ -1551,6 +1576,7 @@ class PhasedProviderAttemptCoordinator:
                 "submission_ordinal": session.submission_ordinal,
                 "commit_status": commit.status,
             },
+            admit_deadline=True,
         )
         return PhasedProviderAttemptSuccess(
             allocation=allocation,
