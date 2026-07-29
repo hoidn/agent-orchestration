@@ -14,6 +14,8 @@ from orchestrator.dashboard.server import DashboardApp
 from orchestrator.dashboard.compiled_workflow import (
     PersistedCompiledWorkflowError,
     _closed_anchor,
+    load_persisted_compiled_workflow_surface,
+    traverse_persisted_compiled_workflow_call_frames,
 )
 from orchestrator.runtime_observability import record_compiled_frontend_provenance
 from orchestrator.workflow.persisted_surface import (
@@ -102,6 +104,7 @@ def _write_real_imported_bundle_mix_run(
         "run_id": run_id,
         "status": "completed",
         "workflow_file": str(source_path.relative_to(workspace)),
+        "workflow_checksum": f"sha256:{result.manifest.source_sha256}",
     }
     record_compiled_frontend_provenance(state, result.validated_bundle.provenance)
     run_root = workspace / ".orchestrate" / "runs" / run_id
@@ -116,6 +119,86 @@ def _write_real_imported_bundle_mix_run(
         encoding="utf-8",
     )
     return result, source_path, state
+
+
+def test_persisted_surface_traverses_exact_nested_import_alias(
+    tmp_path: Path,
+) -> None:
+    result, source_path, state = _write_real_imported_bundle_mix_run(tmp_path)
+    graph = load_persisted_compiled_workflow_surface(
+        workspace_root=tmp_path,
+        workflow_path=source_path,
+        state=state,
+    )
+    call = graph.entry_node.steps[0]
+    assert call.call_alias is not None
+    frame_id = f"{call.step_id}::visit::1"
+    child_state = {"steps": {}, "call_frames": {}}
+    state["call_frames"] = {
+        frame_id: {
+            "call_frame_id": frame_id,
+            "call_step_id": call.step_id,
+            "import_alias": call.call_alias,
+            "state": child_state,
+        }
+    }
+
+    traversed = traverse_persisted_compiled_workflow_call_frames(
+        graph,
+        state=state,
+        call_frame_ids=(frame_id,),
+    )
+
+    assert traversed.node is graph.imported_node(
+        graph.entry_node,
+        call.call_alias,
+    )
+    assert traversed.state is child_state
+
+
+@pytest.mark.parametrize(
+    "damage",
+    (
+        "frame_identity",
+        "unknown_alias",
+        "valid_wrong_alias",
+        "missing_nested_state",
+    ),
+)
+def test_persisted_surface_rejects_contradictory_call_frame_traversal(
+    tmp_path: Path,
+    damage: str,
+) -> None:
+    result, source_path, state = _write_real_imported_bundle_mix_run(tmp_path)
+    graph = load_persisted_compiled_workflow_surface(
+        workspace_root=tmp_path,
+        workflow_path=source_path,
+        state=state,
+    )
+    call = graph.entry_node.steps[0]
+    frame_id = f"{call.step_id}::visit::1"
+    frame: dict[str, object] = {
+        "call_frame_id": frame_id,
+        "call_step_id": call.step_id,
+        "import_alias": call.call_alias,
+        "state": {"steps": {}, "call_frames": {}},
+    }
+    if damage == "frame_identity":
+        frame["call_frame_id"] = "different"
+    elif damage == "unknown_alias":
+        frame["import_alias"] = "missing"
+    elif damage == "valid_wrong_alias":
+        frame["import_alias"] = graph.entry_node.steps[1].call_alias
+    else:
+        frame.pop("state")
+    state["call_frames"] = {frame_id: frame}
+
+    with pytest.raises(PersistedCompiledWorkflowError):
+        traverse_persisted_compiled_workflow_call_frames(
+            graph,
+            state=state,
+            call_frame_ids=(frame_id,),
+        )
 
 
 def _write_compiled_run(

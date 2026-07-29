@@ -6,24 +6,41 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from orchestrator.workflow.persisted_surface import (
     SUPPORTED_PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMAS,
+    PersistedSurfaceStep,
     PersistedWorkflowSurfaceGraph,
+    PersistedWorkflowSurfaceNode,
     decode_persisted_workflow_surface_graph,
 )
+from orchestrator.workflow.surface_ast import SurfaceStepKind
 
 
 _BUILD_SCHEMA_VERSION = "workflow_lisp_build.v2"
 _FINGERPRINT_RE = re.compile(r"[0-9a-f]{16}")
+_HEX_SHA256_RE = re.compile(r"[0-9a-f]{64}")
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}")
 _ANCHOR_KEYS = {"schema_version", "path", "entry_workflow", "sha256"}
 
 
 class PersistedCompiledWorkflowError(ValueError):
     """A persisted compiled-frontend surface binding fails closed."""
+
+    def __init__(self, message: str, *, reason: str = "contract") -> None:
+        self.reason = reason
+        super().__init__(message)
+
+
+@dataclass(frozen=True)
+class PersistedCompiledWorkflowScope:
+    """One graph node paired with its exact persisted nested run state."""
+
+    node: PersistedWorkflowSurfaceNode
+    state: Mapping[str, Any]
 
 
 def load_persisted_compiled_workflow_surface(
@@ -61,6 +78,7 @@ def load_persisted_compiled_workflow_surface(
         workspace=workspace,
         workflow_path=workflow_path,
         compiled=compiled,
+        state=state,
     )
     artifact_path = _validated_surface_artifact_path(
         workspace,
@@ -88,6 +106,122 @@ def load_persisted_compiled_workflow_surface(
     if graph_entry_source != expected_source:
         _fail("persisted workflow surface entry source path mismatches the run binding")
     return graph
+
+
+def traverse_persisted_compiled_workflow_call_frames(
+    graph: PersistedWorkflowSurfaceGraph,
+    *,
+    state: Mapping[str, Any],
+    call_frame_ids: tuple[str, ...],
+) -> PersistedCompiledWorkflowScope:
+    """Traverse one exact persisted call-frame path through a surface graph."""
+
+    if not isinstance(graph, PersistedWorkflowSurfaceGraph):
+        _fail("persisted workflow surface graph is invalid")
+    if not isinstance(state, Mapping):
+        _fail("persisted workflow run state is invalid")
+    if not isinstance(call_frame_ids, tuple):
+        _fail("persisted workflow call-frame path must be a tuple")
+
+    node = graph.entry_node
+    nested_state = state
+    for frame_id in call_frame_ids:
+        if not isinstance(frame_id, str) or not frame_id:
+            _fail("persisted workflow call-frame path is invalid")
+        frames = nested_state.get("call_frames")
+        if not isinstance(frames, Mapping):
+            _fail("persisted workflow call-frame state is missing")
+        frame = frames.get(frame_id)
+        if not isinstance(frame, Mapping):
+            _fail("persisted workflow call frame is missing")
+        if frame.get("call_frame_id") != frame_id:
+            _fail("persisted workflow call-frame identity is contradictory")
+        import_alias = frame.get("import_alias")
+        if not isinstance(import_alias, str) or not import_alias:
+            _fail("persisted workflow call-frame import alias is invalid")
+        call_step_id = frame.get("call_step_id")
+        if not isinstance(call_step_id, str) or not call_step_id:
+            _fail("persisted workflow call-frame step identity is invalid")
+        call_matches = tuple(
+            step
+            for step, loop_owner_id in _walk_persisted_steps(node)
+            if step.kind is SurfaceStepKind.CALL
+            and step.call_alias == import_alias
+            and _matches_runtime_step_id(
+                call_step_id,
+                persisted_step_id=step.step_id,
+                loop_owner_id=loop_owner_id,
+            )
+        )
+        if len(call_matches) != 1:
+            _fail(
+                "persisted workflow call-frame step and import alias are contradictory"
+            )
+        imported = graph.imported_node(node, import_alias)
+        if imported is None:
+            _fail("persisted workflow call-frame import alias is unknown")
+        child_state = frame.get("state")
+        if not isinstance(child_state, Mapping):
+            _fail("persisted workflow call-frame nested state is missing")
+        node = imported
+        nested_state = child_state
+    return PersistedCompiledWorkflowScope(node=node, state=nested_state)
+
+
+def _walk_persisted_steps(
+    node: PersistedWorkflowSurfaceNode,
+) -> tuple[tuple[PersistedSurfaceStep, str | None], ...]:
+    def walk(
+        step: PersistedSurfaceStep,
+        loop_owner_id: str | None,
+    ) -> tuple[tuple[PersistedSurfaceStep, str | None], ...]:
+        rows: list[tuple[PersistedSurfaceStep, str | None]] = [
+            (step, loop_owner_id)
+        ]
+        for child in step.for_each_steps:
+            rows.extend(walk(child, step.step_id))
+        if step.repeat_until is not None:
+            for child in step.repeat_until.steps:
+                rows.extend(walk(child, step.step_id))
+        for child in (*step.then_steps, *step.else_steps):
+            rows.extend(walk(child, loop_owner_id))
+        for case_steps in step.match_cases.values():
+            for child in case_steps:
+                rows.extend(walk(child, loop_owner_id))
+        return tuple(rows)
+
+    return tuple(
+        row
+        for root in (*node.steps, *node.finalization_steps)
+        for row in walk(root, None)
+    )
+
+
+def _matches_runtime_step_id(
+    runtime_step_id: str,
+    *,
+    persisted_step_id: str,
+    loop_owner_id: str | None,
+) -> bool:
+    if loop_owner_id is None:
+        return runtime_step_id == persisted_step_id
+    prefix = f"{loop_owner_id}."
+    if not persisted_step_id.startswith(prefix):
+        return False
+    suffix = persisted_step_id[len(prefix) :]
+    if not suffix:
+        return False
+    runtime_prefix = f"{loop_owner_id}#"
+    runtime_suffix = f".{suffix}"
+    if not (
+        runtime_step_id.startswith(runtime_prefix)
+        and runtime_step_id.endswith(runtime_suffix)
+    ):
+        return False
+    ordinal = runtime_step_id[
+        len(runtime_prefix) : len(runtime_step_id) - len(runtime_suffix)
+    ]
+    return bool(ordinal) and ordinal.isdigit()
 
 
 def _compiled_frontend_record(state: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -151,6 +285,7 @@ def _validate_manifest_source_binding(
     workspace: Path,
     workflow_path: Path,
     compiled: Mapping[str, Any],
+    state: Mapping[str, Any],
 ) -> Path:
     source_path = _lexical_workspace_path(
         workspace,
@@ -163,10 +298,39 @@ def _validate_manifest_source_binding(
         label="persisted run workflow path",
     )
     if source_path != expected_source:
-        _fail("manifest source_path does not match the run workflow_file")
+        _fail(
+            "manifest source_path does not match the run workflow_file",
+            reason="coordinate",
+        )
     entry_workflow = _required_string(manifest, "entry_workflow")
     if compiled.get("frontend_entry_workflow") != entry_workflow:
-        _fail("state entry workflow does not match the manifest entry workflow")
+        _fail(
+            "state entry workflow does not match the manifest entry workflow",
+            reason="coordinate",
+        )
+    state_checksum = state.get("workflow_checksum")
+    manifest_checksum = manifest.get("source_sha256")
+    if (
+        not isinstance(state_checksum, str)
+        or _SHA256_RE.fullmatch(state_checksum) is None
+    ):
+        _fail(
+            "state workflow checksum is missing or invalid",
+            reason="coordinate",
+        )
+    if (
+        not isinstance(manifest_checksum, str)
+        or _HEX_SHA256_RE.fullmatch(manifest_checksum) is None
+    ):
+        _fail(
+            "manifest source digest is missing or invalid",
+            reason="coordinate",
+        )
+    if state_checksum != f"sha256:{manifest_checksum}":
+        _fail(
+            "state workflow checksum does not match the manifest source digest",
+            reason="coordinate",
+        )
     return source_path
 
 
@@ -263,5 +427,5 @@ def _required_string(value: Mapping[str, Any], key: str) -> str:
     return item
 
 
-def _fail(message: str) -> None:
-    raise PersistedCompiledWorkflowError(message)
+def _fail(message: str, *, reason: str = "contract") -> None:
+    raise PersistedCompiledWorkflowError(message, reason=reason)
