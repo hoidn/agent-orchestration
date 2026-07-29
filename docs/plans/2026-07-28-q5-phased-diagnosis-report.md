@@ -271,3 +271,59 @@ Constraint compliance: no production code was changed in this diagnosis; the
 only additions are the two fixture modules and this report, developed and
 committed in the prescribed fresh clone. The stop record stays governing: Q5
 status does not move; no split-proof substitution; no Task-14 closure.
+
+## Fix record (2026-07-28, post-review — commit `492b1171`)
+
+Both confirmed defects are fixed in this clone under the routed discipline;
+the diagnosis sections above describe **pre-fix** behavior and stand as the
+historical record (in particular the T2/T3/T6/B rows of the validation table
+and the "silent-in-ledger" verdicts for W-R1/W-A5/W-L1 now read as fixed).
+
+- **F1 fix** (`coordinator.py`): `_safe_append` is the fail-safe emission
+  channel — terminalization and failure rows append without a
+  `ledger_append` deadline admission, so whole-attempt expiry now records
+  `cleanup_finished` (with the supplemental
+  `deadline_exhausted_before_adapter_cleanup` diagnostic and zero abort
+  calls), the terminalizing ingress rows, and `terminal_failed`. The
+  post-commit `publication_succeeded` append alone opts back into the
+  admission (`admit_deadline=True`) per the design's zero-append-at-expiry
+  clause for that row. Normal-path spine appends keep their admission.
+- **F2 fix** (`ledger.py`): the offline validator's
+  `active_requests_drained >= 1` floor applies only to the normal
+  close-path shutdown (`ingress_mode == "normal"`), where the accepted
+  submit's flushed receipt is producer-counted; terminalizing shutdowns may
+  truthfully report zero drainage.
+- **Regression tests** (former strict xfails, now passing):
+  `test_post_expiry_terminalization_emits_failsafe_ledger_rows`,
+  `test_exhausted_attempts_ledger_should_validate_offline`; plus
+  `test_post_expiry_terminalization_records_failsafe_rows_in_ledger`,
+  two validator drain-rule contract tests in
+  `test_provider_prompt_phase_ledger.py`, updated real-stack expectations
+  (T2/T3/T5/T6), and
+  `test_during_ledger_header_records_t0_terminalization_and_closes`
+  (T0 production at header expiry).
+- **Post-fix evidence**: every fixture ledger now validates offline —
+  T1 `complete/publication_succeeded`; T2, T3, T5, T6, B frozen-clock all
+  `complete/terminal_failed`. Full phased surface: 822 tests passing
+  pre-review; 429 across the changed files post-review-fix; no adjacent
+  regressions.
+- **Reviews** (ordered, per the stopped Q5 plan's discipline): spec
+  conformance review APPROVED (six findings, all conforms — fail-safe
+  emission set exactly matches the design's T0–T3 productions and the
+  zero-call-rule exception; drain floor matches the accepted-submit clause
+  at its ledger-decidable boundary; normal-path admissions unchanged; scope
+  confined to F1/F2 plus fixtures). Quality review APPROVED with two P3
+  items (docstring wording, one stale test name), both applied before
+  commit.
+- **Live-provider re-attempt instrumentation**: owner authorized live
+  provider sessions; `tests/e2e/test_e2e_q5_phased_live_codex_probe.py`
+  (opt-in: `ORCHESTRATE_E2E` + codex CLI) drives real codex through this
+  fixed stack with scripted validators forcing the invalid→valid retry
+  cycle. It is diagnosis-grade instrumentation, NOT the Task-13 combined
+  consumer gate (synthetic probe cut, scripted validators): a pass does not
+  move Q5's status, and a stall now yields a deadline-terminalized,
+  offline-validating ledger — direct provider-behavior evidence.
+
+The stop record still governs: Q5 status unmoved, no split-proof
+substitution, no Task-14 closure. Landing these commits anywhere beyond this
+clone remains the owner-coordinated transplant step.
