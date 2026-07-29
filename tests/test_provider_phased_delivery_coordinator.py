@@ -7,7 +7,7 @@ from dataclasses import FrozenInstanceError, replace
 import hashlib
 import json
 from pathlib import Path
-from threading import Lock, Thread
+from threading import Event, Lock, Thread
 import time
 from types import MethodType
 from typing import cast, Mapping
@@ -972,6 +972,7 @@ class RealIntegrationBindings(RecordingBindings):
         )
         self.client_receipts: list[SubmitReceipt] = []
         self.client_thread: Thread | None = None
+        self.final_receipt_received = Event()
         self.ledger_path: Path | None = None
 
     def run_client(self) -> None:
@@ -992,6 +993,7 @@ class RealIntegrationBindings(RecordingBindings):
             )
             self.client_receipts.append(receipt)
             if receipt.status != "retry_queued":
+                self.final_receipt_received.set()
                 return
 
     def create_ledger(
@@ -1018,6 +1020,38 @@ class RealIntegrationBindings(RecordingBindings):
         assert composition == self.composition
         self.actions.append("bindings.endpoint")
         return self.endpoint
+
+
+class ReceiptCoupledCloseAdapter(RealDriverAdapter):
+    def offer_close(
+        self,
+        handle: InteractiveMemberHandle,
+        *,
+        deadline: float,
+    ) -> CloseOfferReceipt:
+        assert self.owner.final_receipt_received.wait(timeout=1), (
+            "close admission preceded final client receipt completion"
+        )
+        return super().offer_close(handle, deadline=deadline)
+
+
+class ReceiptCoupledRealIntegrationBindings(RealIntegrationBindings):
+    def __init__(self, tmp_path: Path) -> None:
+        super().__init__(tmp_path)
+        self.adapter = ReceiptCoupledCloseAdapter(self)
+
+
+def test_real_endpoint_flushes_final_receipt_before_close_admission(
+    tmp_path: Path,
+) -> None:
+    bindings = ReceiptCoupledRealIntegrationBindings(tmp_path)
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptSuccess
+    assert bindings.final_receipt_received.is_set()
 
 
 def test_real_endpoint_and_ledger_validate_atomic_retry_spine(
@@ -1102,9 +1136,9 @@ def test_one_submit_happy_path_records_before_actions_and_commits_once() -> None
         "ledger.candidate_frozen",
         "bindings.control_event.VALID_FROZEN.none",
         "ledger.close_offer_requested",
+        "endpoint.resolve.accepted_closing",
         "adapter.offer_close",
         "ledger.close_offered",
-        "endpoint.resolve.accepted_closing",
         "ledger.ingress_shutdown_started",
         "endpoint.stop",
         "endpoint.shutdown",

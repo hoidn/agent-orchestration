@@ -1292,6 +1292,21 @@ class PhasedProviderAttemptCoordinator:
                 "close_projection": close_projection,
             },
         )
+        endpoint.resolve(
+            event,
+            SubmitReceipt(
+                status="accepted_closing",
+                attempt_scope_sha256=allocation.scope.key,
+                client_request_id=event.request.client_request_id,
+                submission_ordinal=event.submission_ordinal,
+                configured_total=composition.materialization_attempts,
+                remaining_submissions=(
+                    composition.materialization_attempts
+                    - event.submission_ordinal
+                ),
+                diagnostic=None,
+            ),
+        )
         close_admission = self._admit_deadline("close_offer")
         try:
             close = self._bindings.adapter.offer_close(
@@ -1322,21 +1337,6 @@ class PhasedProviderAttemptCoordinator:
                 "close_projection": close_projection,
                 "receipt": close_receipt,
             },
-        )
-        endpoint.resolve(
-            event,
-            SubmitReceipt(
-                status="accepted_closing",
-                attempt_scope_sha256=allocation.scope.key,
-                client_request_id=event.request.client_request_id,
-                submission_ordinal=event.submission_ordinal,
-                configured_total=composition.materialization_attempts,
-                remaining_submissions=(
-                    composition.materialization_attempts
-                    - event.submission_ordinal
-                ),
-                diagnostic=None,
-            ),
         )
         session.lifecycle = PhasedLifecycleState(
             phase="INGRESS_STOPPING",

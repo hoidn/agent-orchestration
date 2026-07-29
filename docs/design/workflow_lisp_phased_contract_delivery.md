@@ -693,14 +693,18 @@ The successful control flow is:
    identities/digests against the snapshot, appends `candidate_frozen` with
    the complete embedded manifest, and enters `VALID_FROZEN`.
 7. While the submit request remains active, it records
-   `close_offer_requested`, calls deadline-aware `offer_close`, durably
-   records `close_offered`, and returns an `accepted_closing` submit receipt.
-   The current provider turn can then finish, allowing the queued normal close
-   to reach the next natural boundary.
-8. After the accepted-closing receipt is flushed, the coordinator disables
+   `close_offer_requested`, resolves the request as `accepted_closing`, and
+   waits for that receipt to flush to the submit client. `accepted_closing`
+   means that the submission was accepted and the coordinator durably
+   committed to an immediate graceful close; it does not claim that the close
+   has already been offered or executed.
+8. Only after the accepted-closing receipt is flushed, the coordinator calls
+   deadline-aware `offer_close`, durably records `close_offered`, disables
    ingress, returns the exact terminal failed receipt for every later or queued
-   submit, closes the listener, and joins all endpoint workers. Only a complete
-   `ingress_shutdown_finished` projection permits `join` to begin.
+   submit, closes the listener, and joins all endpoint workers. The current
+   provider turn can finish, allowing the queued normal close to reach the next
+   natural boundary. Only a complete `ingress_shutdown_finished` projection
+   permits `join` to begin.
 9. The coordinator calls `join` under the remaining whole-step deadline and
    accepts only a complete zero-exit `NaturalShutdownProof`. Receipt of that
    validated proof atomically changes the in-memory lifecycle from `JOINING`
@@ -837,7 +841,9 @@ artifact mapping.
 `retry_queued|accepted_closing|failed`. It binds the exact attempt, client
 request id, submission ordinal, configured total, remaining submissions, and
 one complete `provider_phased_delivery_diagnostic.v1` or null. It contains no
-prompt, result, artifact, or diagnostic free text.
+prompt, result, artifact, or diagnostic free text. `accepted_closing` asserts
+acceptance plus a durable coordinator commitment to immediate graceful close;
+it does not assert that the close action has already run.
 
 An exact duplicate request id and payload returns the prior durable receipt
 without another validation or offer. Reuse of a request id with a different
@@ -1591,7 +1597,10 @@ submit/coordinator receipt or initiating a later action that depends on that
 outcome. `submit_received` is durable before validation;
 `validation_rejected` is durable before reset; `candidate_reset` and
 `retry_queued` are durable before the retry offer; `candidate_frozen` is
-durable before close or an `accepted_closing` receipt; and
+durable before close or an `accepted_closing` receipt;
+`close_offer_requested` is durable before that receipt, the receipt is flushed
+before `offer_close`, and `close_offered` is durable before ingress shutdown;
+and
 `ingress_shutdown_finished` is durable before join begins, and
 `ingress_shutdown_failed` is durable before its terminal row whenever the
 evidence channel remains writable. Receipt of a valid natural-shutdown proof
