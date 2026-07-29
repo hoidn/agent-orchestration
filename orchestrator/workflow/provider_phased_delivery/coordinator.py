@@ -367,20 +367,16 @@ class PhasedProviderAttemptCoordinator:
         event: str,
         payload: dict[str, object],
         *,
-        admit_deadline: bool = False,
+        admit_deadline: bool = True,
     ) -> bool:
         """Fail-safe emission channel for failure and terminalization rows.
 
         A dropped append never fails the caller here; a row is dropped only
-        when the channel is absent, poisoned, or the append itself fails.
-        No ledger-append deadline admission is performed by default:
-        terminalization is the design's sole exception to the zero-call
-        rule and must emit its rows with no remaining budget, and the spine
-        failure rows sharing this channel are loss-tolerant evidence whose
-        operations already performed their own deadline observations.  The
-        post-commit ``publication_succeeded`` append opts back into the
-        admission (``admit_deadline=True``) because the design requires
-        expiry before it to make zero append calls.
+        when the channel is absent, poisoned, expired, or the append itself
+        fails.  Ordinary failure rows use the mandatory ledger-append
+        deadline admission by default.  Terminalization is the design's
+        sole exception to the zero-call rule, so its explicit fail-safe
+        emissions opt out and remain recordable with no remaining budget.
         """
 
         if (
@@ -493,7 +489,11 @@ class PhasedProviderAttemptCoordinator:
             "terminal_response": _terminal_response()
         }
         if fail_safe:
-            self._safe_append("ingress_shutdown_started", payload)
+            self._safe_append(
+                "ingress_shutdown_started",
+                payload,
+                admit_deadline=False,
+            )
         else:
             self._append("ingress_shutdown_started", payload)
         session.ingress_shutdown_action = "STARTED"
@@ -625,6 +625,7 @@ class PhasedProviderAttemptCoordinator:
                     outcome.provider_zero_survivor_proven
                 ),
             },
+            admit_deadline=False,
         )
         return outcome
 
@@ -668,12 +669,20 @@ class PhasedProviderAttemptCoordinator:
             "endpoint_zero_survivor_proven": complete,
         }
         if complete:
-            self._safe_append("ingress_shutdown_finished", payload)
+            self._safe_append(
+                "ingress_shutdown_finished",
+                payload,
+                admit_deadline=False,
+            )
             return "complete"
         payload["diagnostic"] = _runtime_diagnostic(
             "ingress_shutdown_failed"
         )
-        self._safe_append("ingress_shutdown_failed", payload)
+        self._safe_append(
+            "ingress_shutdown_failed",
+            payload,
+            admit_deadline=False,
+        )
         return "incomplete"
 
     def _terminalize(
@@ -721,6 +730,7 @@ class PhasedProviderAttemptCoordinator:
                     None if natural is None else natural.to_dict()
                 ),
             },
+            admit_deadline=False,
         )
         failure = PhasedProviderAttemptFailure(
             allocation=allocation,

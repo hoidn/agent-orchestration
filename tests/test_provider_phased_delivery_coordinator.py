@@ -2198,6 +2198,17 @@ class RealDeadlineHeaderBindings(RealTerminalBoundaryBindings):
         return self.composition.deadline - 1.0
 
 
+class OrdinaryFailureDeadlineBindings(RealTerminalBoundaryBindings):
+    def __init__(self, tmp_path: Path) -> None:
+        super().__init__(tmp_path, fail_at="initial_materialization")
+        self.deadline_expired = False
+
+    def monotonic_now(self) -> float:
+        if self.deadline_expired:
+            return self.composition.deadline
+        return self.composition.deadline - 1.0
+
+
 class MalformedStartAdapter(TerminalBoundaryAdapter):
     def start(
         self,
@@ -2878,6 +2889,51 @@ def test_during_ledger_header_records_t0_terminalization_and_closes(
     assert bindings.real_ledger is not None
     assert bindings.real_ledger._closed is True
     assert "adapter.start" not in bindings.actions
+
+
+def test_expired_ordinary_failure_row_is_dropped_before_failsafe_rows(
+    tmp_path: Path,
+) -> None:
+    bindings = OrdinaryFailureDeadlineBindings(tmp_path)
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+    original_safe_append = coordinator._safe_append
+
+    def expire_before_failure_row(
+        _self: PhasedProviderAttemptCoordinator,
+        event: str,
+        payload: dict[str, object],
+        **kwargs: object,
+    ) -> bool:
+        if event == "turn_offer_failed":
+            bindings.deadline_expired = True
+        return original_safe_append(event, payload, **kwargs)
+
+    coordinator._safe_append = MethodType(
+        expire_before_failure_row,
+        coordinator,
+    )
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == "initial_offer_failed"
+    assert bindings.ledger_path is not None
+    events = [
+        json.loads(line)["event"]
+        for line in bindings.ledger_path.read_bytes().splitlines()
+        if json.loads(line).get("record_kind") == "event"
+    ]
+    assert "turn_offer_failed" not in events
+    assert events[-4:] == [
+        "cleanup_finished",
+        "ingress_shutdown_started",
+        "ingress_shutdown_finished",
+        "terminal_failed",
+    ]
+    validation = validate_ledger_bytes(bindings.ledger_path.read_bytes())
+    assert validation["status"] == "complete"
+    assert validation["terminal_event"] == "terminal_failed"
 
 
 def test_native_ledger_header_failure_enters_typed_t0_terminalizer() -> None:
