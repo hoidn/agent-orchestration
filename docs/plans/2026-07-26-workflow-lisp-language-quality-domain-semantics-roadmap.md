@@ -76,7 +76,7 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | Q1 | Prompt core | Q0 complete; prompt-calculus design corrected and accepted | target-gated `defprompt`, imports, closed slot kinds, fully applied named fills, exact discharge/placeholder diagnostics, prompt-carried result derivation, deterministic flattening through existing prompt composition, one migrated real consumer | complete — implementation through `af45c4f1`; exact-tree gates and ordered final reviews accepted |
 | Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | complete — implementation through `d0bb9a1d`; clean Task-7 closure after exact `a40b536c`/`4e2c4911` boundary repair; ordered final reviews accepted |
 | Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | complete — target-2.22 carrier, one-render trace, content-free five-role evidence, prelaunch publication, fixed comparison, additive reports, compatibility E2E, and closure under the [reviewed implementation plan](2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md) |
-| Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | blocked on binding the concrete generic-reviewer/panel consumer; Q3 prerequisite complete |
+| Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | design proposed — the owner-adopted `review_revise_design_docs` panel binding satisfies the consumer gate; ordered design review is in progress and implementation planning has not started |
 | Q5 | Phased contract delivery | accepted design at `872a29af`; reviewed implementation plan at `45468c55`; Q3 complete; no Q4 dependency; implementation activated through `bceb03e4` | explicit `:delivery :phased` plus bounded literal materialization attempts; exact `T1 || T2 == C` cut; identity-v2/evidence-v3 and report-v2 distinction between canonical `C`, legacy final-prompt identity, and ordered actual deliveries; proof-authoritative failed-start T0 with one handle-free Q5 cleanup-evidence union and exact active-handle validation before projecting unchanged adapter proofs; inert pre-start binding/locator values and post-start endpoint binding; T2 cleanup-pending/finished closure with one ingress outcome; full Q2 authority with no early publication; total reason projection with non-null reason-equal summaries; ledger-only digest validation; truthful terminal resource evidence; byte-identical omitted/composed path; real review consumer | partial — activation `bceb03e4` is present; Task 13 stopped at `3fc3a09e` with `Q5_TASK13_SPEC_APPROVED` withheld and Task 14 not started; exact F1/F2 evidence-surfacing correction `492b1171`, merged at `92515f98`, requires `Q5_F1_F2_FIX_SPEC_APPROVED` then `Q5_F1_F2_FIX_QUALITY_APPROVED`; both are required and not issued; only then may the unchanged combined invalid-then-valid real-provider gate be re-attempted; no split-proof substitution |
 
 ### L-Series: Language-Server Debugging Utility
@@ -260,8 +260,11 @@ accepted-design commit `9b2aa7ac`. The
 [Q3 implementation plan](2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md)
 is reviewed and accepted at `ad5474c7`. Q3 is implemented for direct
 fragment-backed target-2.22 calls and its Task-7 record owns the compatibility,
-documentation, broad non-security, and ordered closure gates. Q4's remaining
-entry gate is its concrete consumer, not missing Q3 machinery.
+documentation, broad non-security, and ordered closure gates. The
+content-addressed Q4 binding brief now selects the
+`review_revise_design_docs` panel sibling, so both Q4 entry conditions are
+satisfied; acceptance of the separately proposed Q4 design remains the next
+gate.
 
 Q3 is the sole roadmap owner of the E4P role-separation and diagnostic delta.
 The predecessor's separate E4P list item is absorbed here and must not be
@@ -280,19 +283,29 @@ Q3 does not introduce search or compare candidate fitness.
 
 ## Stage Q4: Judgment Views
 
-Authority target: `docs/design/workflow_lisp_judgment_views.md`, to be created
-and independently accepted before the Q4 implementation plan.
+Authority target: `docs/design/workflow_lisp_judgment_views.md`, now proposed
+for ordered independent specification then quality review. It must be accepted
+before the Q4 implementation plan.
 
 Q4 may add an inspection-layer judgment value only after Q3 provides stable
 attempt identity. The semantic authority remains the provider result plus
 existing attempt evidence. Matrices, disagreement tables, and iteration
 series are deterministic views and are never parsed back into workflow state.
 
-The first consumer is a generic-reviewer panel over the already implemented
-bounded `list/map-effect` surface. This stage may use lists of judgment
-inspection values only if their transport and view contract is accepted in
-the Q4 design; it may not add runtime prompt references or higher-order
-mapping.
+The first consumer is the owner-adopted panel sibling of
+`review_revise_design_docs`, bound by
+`docs/reports/2026-07-27-q4-binding-decision-brief.md`. It preserves the
+target-2.21 entry, imports its fragment into a target-2.22 sibling, and uses
+one child workflow per bounded `list/map-effect` iteration so the map carries
+`List[ReviewReportPath]` rather than a list of union values. The design must
+own the narrowly identified WCC composition seam that carries the existing
+`path/join-under` expression as a child-call argument; it may not add runtime
+prompt references, higher-order mapping, or recursive union-list transport.
+
+Docs-only design and plan work may proceed beside Q5. Q4 implementation stays
+held while a Q5 real-provider acceptance attempt is live because the report
+and prompt-attempt projection ownership is adjacent. M1 estate shrink remains
+queued separately.
 
 ## Stage Q5: Phased Contract Delivery
 
