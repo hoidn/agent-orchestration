@@ -2,7 +2,10 @@ from pathlib import Path
 
 import importlib
 
-from orchestrator.workflow_lisp.compiler import compile_stage3_module as _compile_stage3_module
+from orchestrator.workflow_lisp.compiler import (
+    compile_stage3_entrypoint,
+    compile_stage3_module as _compile_stage3_module,
+)
 from orchestrator.workflow_lisp.route_readiness import compile_registered_route_case
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
@@ -22,6 +25,19 @@ DESIGN_DOCS_REVIEW_PROMPT = (
 )
 DESIGN_DOCS_FIX_PROMPT = (
     REPO_ROOT / "prompts" / "workflows" / "review_revise_design_docs" / "fix.md"
+)
+JUDGMENT_VIEWS_FIXTURES = (
+    REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "judgment_views"
+)
+WORKFLOW_LISP_FIXTURES = JUDGMENT_VIEWS_FIXTURES.parent
+DESIGN_DOCS_EXPORT_IMPORT_FIXTURE = (
+    JUDGMENT_VIEWS_FIXTURES
+    / "review_revise_design_docs_export_import.orc"
+)
+FROZEN_DESIGN_DOCS_TARGET_2_21_CONTROL = (
+    WORKFLOW_LISP_FIXTURES
+    / "prompt_calculus"
+    / "review_revise_design_docs_target_2_21.orc"
 )
 
 
@@ -331,6 +347,49 @@ def test_review_revise_design_docs_example_validates_with_parameterized_context_
     ]
     assert "variant_output" in review_step
     assert "output_bundle" not in review_step
+
+
+def test_review_revise_design_docs_exports_compile_for_same_target_importer(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_entrypoint(
+        DESIGN_DOCS_EXPORT_IMPORT_FIXTURE,
+        source_roots=(WORKFLOW_LISP_FIXTURES, WORKFLOWS),
+        provider_externs={
+            "providers.design-docs.review": "codex",
+            "providers.design-docs.fix": "codex",
+        },
+        prompt_externs={
+            "prompts.design-docs.fix": DESIGN_DOCS_FIX_PROMPT.relative_to(
+                REPO_ROOT
+            ).as_posix(),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+
+    imported = result.compiled_results_by_name["review_revise_design_docs"]
+    assert result.entry_result.module.target_dsl_version == "2.23"
+    assert imported.module.target_dsl_version == "2.23"
+    assert tuple(imported.module.exports) == (
+        "review-revise-design-docs",
+        "DesignDocPath",
+        "ReviewReportTargetPath",
+        "WorkReportPath",
+        "review-design-doc",
+    )
+    assert (
+        result.graph.modules_by_name["review_revise_design_docs"].path
+        == DESIGN_DOCS_REVIEW_EXAMPLE
+    )
+    assert FROZEN_DESIGN_DOCS_TARGET_2_21_CONTROL not in {
+        source.path for source in result.graph.modules_by_name.values()
+    }
+    assert (
+        "judgment_views/review_revise_design_docs_export_import::imported-review"
+        in result.validated_bundles_by_name
+    )
 
 
 def test_review_revise_design_docs_runtime_private_collection_lane(tmp_path: Path) -> None:

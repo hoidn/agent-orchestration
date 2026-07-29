@@ -5,7 +5,7 @@
   (import std/phase :only
     (BlockerClass ReviewDecision ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop))
   (import std/context :only (RunCtx))
-  (export review-revise-design-docs)
+  (export review-revise-design-docs DesignDocPath ReviewReportTargetPath WorkReportPath review-design-doc)
 
   (defpath DesignDocPath
     :kind relpath

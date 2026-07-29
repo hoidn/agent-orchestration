@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import replace
+from collections.abc import Mapping
+from dataclasses import fields, is_dataclass, replace
+from enum import Enum
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -22,6 +24,7 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
 from orchestrator.workflow.prompting import render_prompt_fragment_base
 from orchestrator.workflow.prompt_dependency_evidence import (
+    FRAGMENT_SUCCESS_SCHEMA_V3,
     validate_fragment_success_evidence,
     validate_terminal_evidence,
 )
@@ -40,6 +43,11 @@ from orchestrator.workflow_lisp.lexical_checkpoints import (
     checkpoint_runtime_program_identity,
     validate_checkpoint_record,
 )
+from orchestrator.workflow_lisp.source_map import (
+    SourceMapEntry,
+    build_source_map_document,
+)
+from orchestrator.workflow_lisp.spans import SourcePosition
 from tests.workflow_bundle_helpers import bundle_context_dict
 
 
@@ -86,6 +94,19 @@ FROZEN_Q1_CARRIER_SHA256 = (
 )
 FROZEN_Q2_SOURCE_SHA256 = (
     "157211801379b7290c7881d8e37b82da14a3ee66eb0fdfd135a4dba1277fb743"
+)
+PRE_Q4_SOURCE_SIZE = 8_079
+Q4_SOURCE_SIZE = 8_149
+PRE_Q4_SOURCE_SHA256 = (
+    "89176c15dcaf29b5212441ad4776593d919880784fe0f531c9034b8a177640d7"
+)
+Q4_SOURCE_SHA256 = (
+    "8784501577c4f162f584a2ae17d1644a6bc4ea0c8bfbd18cdb0c1b7fd24a0598"
+)
+PRE_Q4_EXPORT_DECLARATION = b"  (export review-revise-design-docs)\n"
+Q4_EXPORT_DECLARATION = (
+    b"  (export review-revise-design-docs DesignDocPath "
+    b"ReviewReportTargetPath WorkReportPath review-design-doc)\n"
 )
 
 
@@ -135,6 +156,268 @@ def _bundle(result, suffix: str):
 
 def _provider_step(bundle):
     return next(step for step in bundle.surface.steps if step.kind.value == "provider")
+
+
+def _plain_compiled_projection(value):
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, Path):
+        return value.as_posix()
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            field.name: _plain_compiled_projection(
+                getattr(value, field.name)
+            )
+            for field in fields(value)
+        }
+    if isinstance(value, Mapping):
+        return {
+            str(key): _plain_compiled_projection(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_plain_compiled_projection(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        return sorted(
+            (_plain_compiled_projection(item) for item in value),
+            key=repr,
+        )
+    return value
+
+
+def _compiled_source_map(result, *, entry_name: str):
+    return build_source_map_document(
+        SimpleNamespace(
+            compiled_results_by_name={"__main__": result},
+            validated_bundles_by_name=result.validated_bundles,
+        ),
+        selected_name=entry_name,
+        display_name_resolver=lambda name: name.rsplit("::", 1)[-1],
+    )
+
+
+def _authored_source_coordinates(value) -> tuple[tuple[object, ...], ...]:
+    coordinates: set[tuple[object, ...]] = set()
+
+    def visit(candidate) -> None:
+        if isinstance(candidate, SourceMapEntry):
+            coordinates.add(
+                (
+                    tuple(candidate.form_path),
+                    candidate.path,
+                    candidate.line,
+                    candidate.column,
+                    candidate.end_line,
+                    candidate.end_column,
+                )
+            )
+            return
+        if is_dataclass(candidate) and not isinstance(candidate, type):
+            for field in fields(candidate):
+                visit(getattr(candidate, field.name))
+            return
+        if isinstance(candidate, Mapping):
+            for item in candidate.values():
+                visit(item)
+            return
+        if isinstance(candidate, (list, tuple)):
+            for item in candidate:
+                visit(item)
+
+    visit(value)
+    return tuple(sorted(coordinates, key=repr))
+
+
+def _source_position_rows(value) -> set[tuple[str, int, int, int]]:
+    positions: set[tuple[str, int, int, int]] = set()
+    seen: set[int] = set()
+
+    def visit(candidate) -> None:
+        if isinstance(candidate, SourcePosition):
+            positions.add(
+                (
+                    candidate.path,
+                    candidate.line,
+                    candidate.column,
+                    candidate.offset,
+                )
+            )
+            return
+        if not (
+            (is_dataclass(candidate) and not isinstance(candidate, type))
+            or isinstance(candidate, Mapping)
+            or isinstance(candidate, (list, tuple, set, frozenset))
+        ):
+            return
+        identity = id(candidate)
+        if identity in seen:
+            return
+        seen.add(identity)
+        if is_dataclass(candidate) and not isinstance(candidate, type):
+            for field in fields(candidate):
+                visit(getattr(candidate, field.name))
+        elif isinstance(candidate, Mapping):
+            for item in candidate.values():
+                visit(item)
+        else:
+            for item in candidate:
+                visit(item)
+
+    visit(value)
+    return positions
+
+
+def _assert_q4_source_position_relation(
+    before,
+    after,
+    *,
+    source_path: Path,
+) -> None:
+    before_rows = _source_position_rows(before)
+    after_rows = _source_position_rows(after)
+    before_by_coordinate = {
+        (path, line, column): offset
+        for path, line, column, offset in before_rows
+    }
+    after_by_coordinate = {
+        (path, line, column): offset
+        for path, line, column, offset in after_rows
+    }
+    canonical_source = source_path.resolve().as_posix()
+    compared_exact = 0
+    compared_shifted = 0
+    for coordinate in sorted(
+        set(before_by_coordinate) | set(after_by_coordinate)
+    ):
+        path, line, _column = coordinate
+        if path == canonical_source and line == 8:
+            continue
+        assert coordinate in before_by_coordinate
+        assert coordinate in after_by_coordinate
+        before_offset = before_by_coordinate[coordinate]
+        after_offset = after_by_coordinate[coordinate]
+        if path == canonical_source and line > 8:
+            assert after_offset == before_offset + 70
+            compared_shifted += 1
+        else:
+            assert after_offset == before_offset
+            compared_exact += 1
+    assert compared_exact > 0
+    assert compared_shifted > 0
+
+
+def _leaf_differences(
+    before,
+    after,
+    *,
+    path: tuple[object, ...] = (),
+) -> tuple[tuple[tuple[object, ...], object, object], ...]:
+    differences: list[tuple[tuple[object, ...], object, object]] = []
+    if isinstance(before, Mapping) and isinstance(after, Mapping):
+        assert set(before) == set(after)
+        for key in sorted(before):
+            differences.extend(
+                _leaf_differences(
+                    before[key],
+                    after[key],
+                    path=(*path, key),
+                )
+            )
+        return tuple(differences)
+    if isinstance(before, list) and isinstance(after, list):
+        assert len(before) == len(after)
+        for index, (before_item, after_item) in enumerate(
+            zip(before, after, strict=True)
+        ):
+            differences.extend(
+                _leaf_differences(
+                    before_item,
+                    after_item,
+                    path=(*path, index),
+                )
+            )
+        return tuple(differences)
+    if before != after:
+        differences.append((path, before, after))
+    return tuple(differences)
+
+
+def _pre_q4_consumer_source_bytes() -> bytes:
+    current = CONSUMER.read_bytes()
+    if PRE_Q4_EXPORT_DECLARATION in current:
+        assert current.count(PRE_Q4_EXPORT_DECLARATION) == 1
+        return current
+    assert current.count(Q4_EXPORT_DECLARATION) == 1
+    return current.replace(
+        Q4_EXPORT_DECLARATION,
+        PRE_Q4_EXPORT_DECLARATION,
+    )
+
+
+def _target_2_23_phased_entry_projection(
+    result,
+) -> bytes:
+    entry_name = "review_revise_design_docs::review-revise-design-docs"
+    entry = _bundle(result, "::review-revise-design-docs")
+    helper = _bundle(result, "::review-design-docs.v1")
+    review = _provider_step(helper)
+    contract = review.compiler_prompt_fragment_contract
+    assert contract is not None
+    typed_entry = next(
+        workflow
+        for workflow in result.typed_workflows
+        if workflow.definition.name == entry_name
+    )
+    authored_input_names = tuple(
+        name for name, _type_ref in typed_entry.signature.params
+    )
+    source_map = _compiled_source_map(
+        result,
+        entry_name=entry_name,
+    )
+    helper_source_map = source_map.workflows[helper.surface.name]
+    parent_source_map = source_map.workflows[entry_name]
+    projection = {
+        "schema_version": "q4_task2_export_compatibility.v1",
+        "target_dsl": result.module.target_dsl_version,
+        "entry": {
+            "name": entry.surface.name,
+            "inputs": {
+                name: entry.surface.inputs[name]
+                for name in authored_input_names
+            },
+            "outputs": entry.surface.outputs,
+        },
+        "phased_review": {
+            "provider_call_policy": review.provider_call_policy,
+            "compiled_prompt_fragment_identity": (
+                review.compiled_prompt_fragment_identity
+            ),
+            "prompt_attempt_identity_version": (
+                review.prompt_attempt_identity_version
+            ),
+            "compiler_prompt_fragment_contract": (
+                canonical_compiler_prompt_fragment_contract_json(contract)
+            ),
+            "expected_outputs": review.common.expected_outputs,
+            "variant_output": review.common.variant_output,
+            "runtime_plan": helper.runtime_plan,
+            "source_map": helper_source_map,
+        },
+        "parent_checkpoint_point_kinds": tuple(
+            point.point_kind
+            for point in entry.runtime_plan.lexical_checkpoint_points
+        ),
+        "parent_authored_source_coordinates": (
+            _authored_source_coordinates(parent_source_map)
+        ),
+    }
+    return json.dumps(
+        _plain_compiled_projection(projection),
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("ascii")
 
 
 def _runtime_manager(
@@ -545,6 +828,201 @@ def test_real_consumer_q2_contract_matches_classic_and_wcc(
         }
 
     assert projection(results["legacy"]) == projection(results["wcc_m4"])
+
+
+def test_target_2_23_export_delta_preserves_selected_phased_entry_projection(
+    tmp_path: Path,
+) -> None:
+    source_path = (
+        tmp_path / "q4-export-control" / "review_revise_design_docs.orc"
+    )
+    source_path.parent.mkdir(parents=True)
+    before_source = _pre_q4_consumer_source_bytes()
+    after_source = CONSUMER.read_bytes()
+    assert len(before_source) == PRE_Q4_SOURCE_SIZE
+    assert len(after_source) == Q4_SOURCE_SIZE
+    assert (
+        hashlib.sha256(before_source).hexdigest()
+        == PRE_Q4_SOURCE_SHA256
+    )
+    assert hashlib.sha256(after_source).hexdigest() == Q4_SOURCE_SHA256
+    assert (
+        before_source.replace(
+            PRE_Q4_EXPORT_DECLARATION,
+            Q4_EXPORT_DECLARATION,
+        )
+        == after_source
+    )
+
+    source_path.write_bytes(before_source)
+    before = _compile(
+        source_path,
+        prompt_externs=_manifest(CONSUMER_INPUTS / "prompts.json"),
+        lowering_route="wcc_m4",
+        workspace_root=tmp_path,
+    )
+
+    source_path.write_bytes(after_source)
+    after = _compile(
+        source_path,
+        prompt_externs=_manifest(CONSUMER_INPUTS / "prompts.json"),
+        lowering_route="wcc_m4",
+        workspace_root=tmp_path,
+    )
+
+    _assert_q4_source_position_relation(
+        before,
+        after,
+        source_path=source_path,
+    )
+    before_projection = _target_2_23_phased_entry_projection(before)
+    after_projection = _target_2_23_phased_entry_projection(after)
+    assert after_projection == before_projection
+
+    projection = json.loads(after_projection)
+    assert set(projection) == {
+        "schema_version",
+        "target_dsl",
+        "entry",
+        "phased_review",
+        "parent_checkpoint_point_kinds",
+        "parent_authored_source_coordinates",
+    }
+    assert (
+        projection["schema_version"]
+        == "q4_task2_export_compatibility.v1"
+    )
+    assert projection["target_dsl"] == "2.23"
+    phased_review = projection["phased_review"]
+    assert set(phased_review) == {
+        "provider_call_policy",
+        "compiled_prompt_fragment_identity",
+        "prompt_attempt_identity_version",
+        "compiler_prompt_fragment_contract",
+        "expected_outputs",
+        "variant_output",
+        "runtime_plan",
+        "source_map",
+    }
+    assert phased_review["provider_call_policy"]["delivery"] == "phased"
+    assert (
+        phased_review["provider_call_policy"]["materialization_attempts"]
+        == 2
+    )
+    assert (
+        phased_review["prompt_attempt_identity_version"]
+        == "workflow_prompt_attempt_identity.v2"
+    )
+    assert phased_review["compiled_prompt_fragment_identity"].startswith(
+        "sha256:"
+    )
+    assert (
+        json.loads(
+            phased_review["compiler_prompt_fragment_contract"]
+        )["schema_version"]
+        == "compiler_prompt_fragment_contract.v2"
+    )
+    assert FRAGMENT_SUCCESS_SCHEMA_V3 == (
+        "workflow_prompt_fragment_snapshot.functional.v3"
+    )
+    assert phased_review["expected_outputs"] == [
+        {
+            "name": "review_report_target_path",
+            "path": "${inputs.inputs__review_report_target_path}",
+            "required": True,
+            "type": "string",
+        }
+    ]
+    assert phased_review["variant_output"]["discriminant"]["allowed"] == [
+        "APPROVE",
+        "REVISE",
+        "BLOCKED",
+    ]
+    assert (
+        phased_review["runtime_plan"]["lexical_checkpoint_points"][0][
+            "checkpoint_id"
+        ]
+        == "ckpt:d2553c2c3a954e553e791195"
+    )
+    assert phased_review["source_map"]["workflow_name"].endswith(
+        "::review-design-docs.v1"
+    )
+    assert phased_review["source_map"]["workflow_origin"]["form_path"] == [
+        "workflow-lisp",
+        "defproc",
+        "review-design-docs",
+    ]
+    assert projection["parent_checkpoint_point_kinds"] == [
+        "effect_boundary",
+        "loop_back_edge",
+    ]
+    assert projection["parent_authored_source_coordinates"]
+
+    before_helper = _bundle(before, "::review-design-docs.v1")
+    after_helper = _bundle(after, "::review-design-docs.v1")
+    before_review = _provider_step(before_helper)
+    after_review = _provider_step(after_helper)
+    assert before_review.step_id == after_review.step_id
+    before_prompt_keys = tuple(before_helper.semantic_ir.prompt_surfaces)
+    after_prompt_keys = tuple(after_helper.semantic_ir.prompt_surfaces)
+    assert before_prompt_keys == after_prompt_keys
+    assert len(before_prompt_keys) == 1
+    helper_differences = _leaf_differences(
+        _plain_compiled_projection(before_helper),
+        _plain_compiled_projection(after_helper),
+    )
+    dependency_leaf = (
+        "compiler_prompt_dependency_contract",
+        "source_workflow_sha256",
+    )
+    expected_helper_paths = {
+        ("surface", "steps", 0, *dependency_leaf),
+        (
+            "core_workflow_ast",
+            "_surface_workflow",
+            "steps",
+            0,
+            *dependency_leaf,
+        ),
+        ("core_workflow_ast", "body", 0, *dependency_leaf),
+        (
+            "core_workflow_ast",
+            "body",
+            0,
+            "_surface_step",
+            *dependency_leaf,
+        ),
+        (
+            "ir",
+            "nodes",
+            before_review.step_id,
+            "execution_config",
+            *dependency_leaf,
+        ),
+        (
+            "semantic_ir",
+            "prompt_surfaces",
+            before_prompt_keys[0],
+            *dependency_leaf,
+        ),
+    }
+    assert len(helper_differences) == 6
+    assert {
+        path for path, _before_value, _after_value in helper_differences
+    } == expected_helper_paths
+    assert {
+        before_value
+        for _path, before_value, _after_value in helper_differences
+    } == {f"sha256:{PRE_Q4_SOURCE_SHA256}"}
+    assert {
+        after_value
+        for _path, _before_value, after_value in helper_differences
+    } == {f"sha256:{Q4_SOURCE_SHA256}"}
+
+    assert (
+        hashlib.sha256(Q2_COMPOSED_FIXTURE.read_bytes()).hexdigest()
+        == FROZEN_Q2_SOURCE_SHA256
+    )
 
 
 @pytest.mark.parametrize("lowering_route", ("legacy", "wcc_m4"))
