@@ -12,6 +12,8 @@ import sys
 import time
 import zipfile
 
+import pytest
+
 from orchestrator.workflow_lisp.form_registry import registered_form_heads
 from tests.test_workflow_lisp_lsp_stdio import (
     _LspProcess,
@@ -31,6 +33,12 @@ CONTROLLED_SERVER = (
 )
 STARTUP_STDOUT_PROBE_ROOT = (
     FIXTURES / "lsp_transport" / "startup_stdout_probe"
+)
+L3_ENTRY_SELECTION_ROOT = (
+    FIXTURES
+    / "modules"
+    / "valid"
+    / "lsp_l3_entry_selection"
 )
 
 
@@ -394,6 +402,189 @@ def _current_document_surface(
         "symbols": symbols["result"],
         "completion": completion["result"],
     }
+
+
+def _l3_position(source_text: str, offset: int) -> dict[str, int]:
+    prefix = source_text[:offset]
+    return {
+        "line": prefix.count("\n"),
+        "character": len(prefix.rsplit("\n", 1)[-1]),
+    }
+
+
+def _l3_current_protocol_surface(
+    process: _LspProcess,
+    *,
+    source_path: Path,
+    request_id_prefix: str,
+) -> dict[str, object]:
+    source_text = source_path.read_text(encoding="utf-8")
+    helper_name = (
+        "application-helper"
+        if source_path.name == "application.orc"
+        else "library-helper"
+    )
+    surface = _current_document_surface(
+        process,
+        source_path=source_path,
+        request_id_prefix=request_id_prefix,
+        expected_helper_name=helper_name,
+    )
+    if source_path.name == "application.orc":
+        call_offset = source_text.index(
+            "application-helper",
+            source_text.index("(defworkflow selected"),
+        )
+        definition, definition_observed = _request_until(
+            process,
+            request_id=f"{request_id_prefix}-definition",
+            method="textDocument/definition",
+            params={
+                "textDocument": {"uri": source_path.as_uri()},
+                "position": _l3_position(source_text, call_offset + 1),
+            },
+            result_predicate=lambda result: result is not None,
+        )
+    else:
+        definition, definition_observed = _request(
+            process,
+            request_id=f"{request_id_prefix}-definition",
+            method="textDocument/definition",
+            params={
+                "textDocument": {"uri": source_path.as_uri()},
+                "position": {"line": 0, "character": 0},
+            },
+        )
+    assert "error" not in definition
+    additional_diagnostics = [
+        item["params"]["diagnostics"]
+        for item in definition_observed
+        if (
+            item.get("method") == "textDocument/publishDiagnostics"
+            and item["params"]["uri"] == source_path.as_uri()
+        )
+    ]
+    if additional_diagnostics:
+        surface["diagnostics"] = additional_diagnostics[-1]
+    surface["definition"] = definition["result"]
+    return surface
+
+
+def _l3_stdio_session(
+    workspace: Path,
+    *,
+    source_order: tuple[Path, ...],
+    request_id_prefix: str,
+) -> dict[Path, dict[str, object]]:
+    application_path = workspace / "application.orc"
+    process = _LspProcess(workspace)
+    surfaces: dict[Path, dict[str, object]] = {}
+    try:
+        _initialize(
+            process,
+            workspace=workspace,
+            initialization_options={
+                "source_roots": [str(workspace)],
+                "entry_workflows": {
+                    str(application_path): "selected",
+                },
+            },
+        )
+        for index, source_path in enumerate(source_order, start=1):
+            _open(
+                process,
+                source_path=source_path,
+                text=source_path.read_text(encoding="utf-8"),
+            )
+            surfaces[source_path] = _l3_current_protocol_surface(
+                process,
+                source_path=source_path,
+                request_id_prefix=(
+                    f"{request_id_prefix}-{index}-{source_path.stem}"
+                ),
+            )
+        process.shutdown()
+    finally:
+        process.close()
+    return surfaces
+
+
+@pytest.mark.parametrize(
+    "source_names",
+    (
+        ("application.orc", "library.orc"),
+        ("library.orc", "application.orc"),
+    ),
+    ids=("application-then-library", "library-then-application"),
+)
+def test_l3_real_stdio_mixed_entries_match_isolated_peers_without_bleed(
+    tmp_path: Path,
+    source_names: tuple[str, str],
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    shutil.copytree(L3_ENTRY_SELECTION_ROOT, workspace)
+    application_path = workspace / "application.orc"
+    library_path = workspace / "library.orc"
+    source_order = tuple(workspace / name for name in source_names)
+    before = _tree_snapshot(workspace)
+
+    combined = _l3_stdio_session(
+        workspace,
+        source_order=source_order,
+        request_id_prefix="combined",
+    )
+    isolated = {
+        source_path: _l3_stdio_session(
+            workspace,
+            source_order=(source_path,),
+            request_id_prefix=f"isolated-{source_path.stem}",
+        )[source_path]
+        for source_path in (application_path, library_path)
+    }
+
+    assert combined == isolated
+    assert combined[application_path]["diagnostics"] == []
+    assert combined[library_path]["diagnostics"] == []
+    application_symbols = {
+        item["name"]
+        for item in combined[application_path]["symbols"]
+    }
+    library_symbols = {
+        item["name"]
+        for item in combined[library_path]["symbols"]
+    }
+    assert application_symbols == {
+        "application",
+        "application-helper",
+        "first",
+        "selected",
+    }
+    assert library_symbols == {
+        "library",
+        "library-helper",
+    }
+    application_completions = {
+        item["label"]
+        for item in combined[application_path]["completion"]["items"]
+    }
+    library_completions = {
+        item["label"]
+        for item in combined[library_path]["completion"]["items"]
+    }
+    assert "application-helper" in application_completions
+    assert "library-helper" not in application_completions
+    assert "library-helper" in library_completions
+    assert "application-helper" not in library_completions
+    assert combined[application_path]["definition"] == {
+        "uri": application_path.as_uri(),
+        "range": {
+            "start": {"line": 5, "character": 2},
+            "end": {"line": 10, "character": 10},
+        },
+    }
+    assert combined[library_path]["definition"] is None
+    assert _tree_snapshot(workspace) == before
+    assert not (workspace / ".orchestrate").exists()
 
 
 def _wait_for_path(path: Path, *, timeout: float = 3.0) -> bool:

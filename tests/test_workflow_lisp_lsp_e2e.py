@@ -11,6 +11,7 @@ from tests.test_workflow_lisp_lsp_integration import (
     _change,
     _frozen_form_completion_items,
     _initialize,
+    _l3_stdio_session,
     _open,
     _request,
     _request_until,
@@ -48,6 +49,15 @@ REVIEW_DESIGN_DOCS_INPUTS = (
 )
 REVIEW_DESIGN_DOCS_PROVIDERS = REVIEW_DESIGN_DOCS_INPUTS / "providers.json"
 REVIEW_DESIGN_DOCS_PROMPTS = REVIEW_DESIGN_DOCS_INPUTS / "prompts.json"
+L3_ENTRY_SELECTION_ROOT = (
+    REPO_ROOT
+    / "tests"
+    / "fixtures"
+    / "workflow_lisp"
+    / "modules"
+    / "valid"
+    / "lsp_l3_entry_selection"
+)
 
 
 def _tree_digest(root: Path) -> str:
@@ -159,6 +169,57 @@ def test_real_repository_cycle_guard_editor_session_is_read_only() -> None:
     assert CYCLE_GUARD_ENTRY.read_bytes() == entry_bytes
     assert CYCLE_GUARD_COMMANDS.read_bytes() == command_bytes
     assert _tree_digest(REPO_ROOT / ".orchestrate" / "build") == build_digest
+
+
+def test_real_repository_l3_mixed_entry_editor_session_is_read_only() -> None:
+    application_path = L3_ENTRY_SELECTION_ROOT / "application.orc"
+    library_path = L3_ENTRY_SELECTION_ROOT / "library.orc"
+    protected_bytes = {
+        path: path.read_bytes()
+        for path in (application_path, library_path)
+    }
+    fixture_digest = _tree_digest(L3_ENTRY_SELECTION_ROOT)
+    build_digest = _tree_digest(REPO_ROOT / ".orchestrate" / "build")
+    runs_digest = _tree_digest(REPO_ROOT / ".orchestrate" / "runs")
+    artifact_digest = _tree_digest(REPO_ROOT / "artifacts")
+
+    surfaces = _l3_stdio_session(
+        L3_ENTRY_SELECTION_ROOT,
+        source_order=(application_path, library_path),
+        request_id_prefix="repository-l3",
+    )
+
+    assert surfaces[application_path]["diagnostics"] == []
+    assert surfaces[library_path]["diagnostics"] == []
+    assert {
+        item["name"]
+        for item in surfaces[application_path]["symbols"]
+    } == {
+        "application",
+        "application-helper",
+        "first",
+        "selected",
+    }
+    assert {
+        item["name"]
+        for item in surfaces[library_path]["symbols"]
+    } == {
+        "library",
+        "library-helper",
+    }
+    assert surfaces[application_path]["definition"]["uri"] == (
+        application_path.as_uri()
+    )
+    assert surfaces[library_path]["definition"] is None
+    assert {
+        path: path.read_bytes()
+        for path in (application_path, library_path)
+    } == protected_bytes
+    assert _tree_digest(L3_ENTRY_SELECTION_ROOT) == fixture_digest
+    assert not (L3_ENTRY_SELECTION_ROOT / ".orchestrate").exists()
+    assert _tree_digest(REPO_ROOT / ".orchestrate" / "build") == build_digest
+    assert _tree_digest(REPO_ROOT / ".orchestrate" / "runs") == runs_digest
+    assert _tree_digest(REPO_ROOT / "artifacts") == artifact_digest
 
 
 def test_real_repository_l2_recovery_to_full_is_read_only() -> None:

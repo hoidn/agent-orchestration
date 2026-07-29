@@ -38,6 +38,15 @@ IMPORTED_SOURCE_ROOT = (
 )
 IMPORTED_ENTRY = IMPORTED_SOURCE_ROOT / "neurips" / "entry.orc"
 CLI_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "cli"
+L3_ENTRY_SELECTION_ROOT = (
+    REPO_ROOT
+    / "tests"
+    / "fixtures"
+    / "workflow_lisp"
+    / "modules"
+    / "valid"
+    / "lsp_l3_entry_selection"
+)
 REQUEST_IDENTITY_FIELDS = (
     "source_path",
     "workspace_root",
@@ -237,6 +246,184 @@ def test_real_dry_run_and_lsp_share_the_build_owned_request_capture(
         assert cli_capture.workspace_root not in cli_capture.source_roots
     assert (driver_builtin_root := builtin_root) not in cli_capture.source_roots
     assert driver_builtin_root != workspace
+
+
+@pytest.mark.parametrize(
+    ("source_name", "entry_workflow", "expected_cli_status"),
+    (
+        ("application.orc", "selected", 0),
+        ("library.orc", None, 2),
+    ),
+    ids=("listed-application", "unlisted-library"),
+)
+def test_l3_listed_and_unlisted_requests_match_real_cli_f2_capture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source_name: str,
+    entry_workflow: str | None,
+    expected_cli_status: int,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    source_root = workspace / "src"
+    source_root.mkdir(parents=True)
+    for fixture_name in ("application.orc", "library.orc"):
+        shutil.copyfile(
+            L3_ENTRY_SELECTION_ROOT / fixture_name,
+            source_root / fixture_name,
+        )
+    source_path = source_root / source_name
+    application_path = source_root / "application.orc"
+    caller_roots = (source_root, workspace)
+    run_command = importlib.import_module("orchestrator.cli.commands.run")
+    cli_main = importlib.import_module("orchestrator.cli.main")
+    compiler = importlib.import_module("orchestrator.workflow_lisp.compiler")
+    persistent_build = run_command.build_frontend_bundle
+    cli_results: list[build.FrontendBuildResult] = []
+    cli_errors: list[build.LispFrontendCompileError] = []
+    effective_root_observations: list[tuple[Path, ...]] = []
+    production_effective_source_roots = compiler._effective_source_roots
+
+    def observe_effective_source_roots(
+        path: Path,
+        *,
+        source_roots: tuple[Path, ...] | None = None,
+        source_read_trace: object = None,
+    ) -> tuple[Path, ...]:
+        result = production_effective_source_roots(
+            path,
+            source_roots=source_roots,
+            source_read_trace=source_read_trace,
+        )
+        effective_root_observations.append(result)
+        return result
+
+    def observe_cli_build(
+        request: build.FrontendBuildRequest,
+    ) -> build.FrontendBuildResult:
+        try:
+            result = persistent_build(request)
+        except build.LispFrontendCompileError as error:
+            cli_errors.append(error)
+            raise
+        cli_results.append(result)
+        return result
+
+    monkeypatch.setattr(
+        run_command,
+        "build_frontend_bundle",
+        observe_cli_build,
+    )
+    monkeypatch.chdir(workspace)
+    cli_argv = [
+        "run",
+        str(source_path),
+        "--dry-run",
+        "--quiet",
+    ]
+    if entry_workflow is not None:
+        cli_argv[2:2] = ["--entry-workflow", entry_workflow]
+    for caller_root in caller_roots:
+        cli_argv.extend(("--source-root", str(caller_root)))
+    cli_args = cli_main.create_parser().parse_args(cli_argv)
+
+    monkeypatch.setattr(
+        compiler,
+        "_effective_source_roots",
+        observe_effective_source_roots,
+    )
+    assert run_command.run_workflow(cli_args) == expected_cli_status
+
+    driver = compile_driver.initialize_compile_driver(
+        lsp_state.initialize_lsp_state(
+            root_uri=workspace.as_uri(),
+            initialization_options={
+                "source_roots": [
+                    str(caller_root)
+                    for caller_root in caller_roots
+                ],
+                "entry_workflows": {
+                    str(application_path): "selected",
+                },
+            },
+        )
+    )
+    driver.apply_transition(
+        lsp_state.open_entry(
+            driver.state,
+            document_uri=source_path.as_uri(),
+            editor_text=source_path.read_text(encoding="utf-8"),
+            disk_snapshot=compile_driver.probe_disk_source(source_path),
+        )
+    )
+    driver.drain()
+    [entry] = driver.state.entries
+    assert entry.compile_status == "success"
+    assert entry.accepted_snapshot is not None
+    lsp_result = entry.accepted_snapshot.build_value
+    assert isinstance(lsp_result, build.FrontendInMemoryBuildResult)
+    lsp_capture = lsp_result.compile_request_capture
+
+    if entry_workflow is not None:
+        [cli_result] = cli_results
+        assert cli_errors == []
+        cli_capture = cli_result.compile_request_capture
+        assert (
+            _diagnostic_identities(cli_result.diagnostics)
+            == _diagnostic_identities(lsp_result.diagnostics)
+            == ()
+        )
+        assert lsp_result.entry_selection is not None
+        assert lsp_result.entry_selection.requested_name == entry_workflow
+        assert lsp_result.selected_workflow_name == "application::selected"
+    else:
+        assert cli_results == []
+        [cli_error] = cli_errors
+        assert [item.code for item in cli_error.diagnostics] == [
+            "entry_workflow_required"
+        ]
+        cli_capture = cli_error.compile_request_capture
+        assert lsp_result.entry_selection is None
+        assert lsp_result.selected_workflow_name is None
+        assert lsp_result.validated_bundle is None
+        assert lsp_result.source_map_payload is None
+
+    assert cli_capture == lsp_capture
+    assert tuple(field.name for field in fields(cli_capture)) == (
+        REQUEST_IDENTITY_FIELDS
+    )
+    assert cli_capture.source_path == source_path
+    assert cli_capture.workspace_root == workspace
+    assert cli_capture.source_roots == caller_roots
+    assert cli_capture.entry_workflow == entry_workflow
+    assert cli_capture.validation_profile is lsp_capture.validation_profile
+    assert cli_capture.lint_profile == lsp_capture.lint_profile
+    assert cli_capture.lowering_route == lsp_capture.lowering_route
+    assert cli_capture.provider_externs == lsp_capture.provider_externs
+    assert cli_capture.prompt_externs == lsp_capture.prompt_externs
+    assert cli_capture.command_boundaries == lsp_capture.command_boundaries
+    assert (
+        cli_capture.imported_workflow_bundles
+        == lsp_capture.imported_workflow_bundles
+    )
+    builtin_root = compiler._builtin_stdlib_source_root().resolve()
+    expected_effective_roots = (
+        caller_roots[0],
+        builtin_root,
+        caller_roots[1],
+    )
+    assert tuple(effective_root_observations) == (
+        expected_effective_roots,
+        expected_effective_roots,
+    )
+    assert effective_root_observations[0] == effective_root_observations[1]
+    assert tuple(
+        root
+        for root in effective_root_observations[0]
+        if root != builtin_root
+    ) == cli_capture.source_roots == lsp_capture.source_roots
+    assert builtin_root not in cli_capture.source_roots
+    assert builtin_root not in lsp_capture.source_roots
+    assert builtin_root != workspace
 
 
 def test_real_broken_dry_run_and_lsp_share_request_and_diagnostic_identity(

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import replace
 from importlib import import_module
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 from threading import Event, Lock, Thread
 from types import SimpleNamespace
 
@@ -26,6 +29,16 @@ from orchestrator.workflow_lisp.wcc.route import normalize_lowering_route
 CLI_FIXTURES = (
     Path(__file__).parent / "fixtures" / "workflow_lisp" / "cli"
 ).resolve()
+L3_ENTRY_SELECTION_ROOT = (
+    Path(__file__).parent
+    / "fixtures"
+    / "workflow_lisp"
+    / "modules"
+    / "valid"
+    / "lsp_l3_entry_selection"
+).resolve()
+L3_APPLICATION = L3_ENTRY_SELECTION_ROOT / "application.orc"
+L3_LIBRARY = L3_ENTRY_SELECTION_ROOT / "library.orc"
 
 
 def _workspace_snapshot(root: Path) -> tuple[tuple[str, bytes], ...]:
@@ -2290,6 +2303,368 @@ def test_l3_build_request_uses_only_exact_per_source_entry_selection(
     }
     assert driver._build_request(same_basename).entry_workflow is None
     assert driver._build_request(descendant).entry_workflow is None
+
+
+def _l3_open_and_compile(
+    driver: compile_driver.LspCompileDriver,
+    source_path: Path,
+) -> build.FrontendInMemoryBuildResult:
+    driver.apply_transition(
+        lsp_state.open_entry(
+            driver.state,
+            document_uri=source_path.as_uri(),
+            editor_text=source_path.read_text(encoding="utf-8"),
+            disk_snapshot=compile_driver.probe_disk_source(source_path),
+        )
+    )
+    [transition] = driver.drain()
+    assert transition.effects.scheduled_generations == ()
+    entry = next(
+        item
+        for item in driver.state.entries
+        if item.path == source_path
+    )
+    assert entry.compile_status == "success"
+    assert entry.pending_generation is None
+    assert entry.accepted_snapshot is not None
+    assert isinstance(
+        entry.accepted_snapshot.build_value,
+        build.FrontendInMemoryBuildResult,
+    )
+    return entry.accepted_snapshot.build_value
+
+
+def _l3_driver() -> compile_driver.LspCompileDriver:
+    return compile_driver.initialize_compile_driver(
+        lsp_state.initialize_lsp_state(
+            root_uri=L3_ENTRY_SELECTION_ROOT.as_uri(),
+            initialization_options={
+                "source_roots": [str(L3_ENTRY_SELECTION_ROOT)],
+                "entry_workflows": {
+                    str(L3_APPLICATION): "selected",
+                },
+            },
+        )
+    )
+
+
+def _l3_result_identity(
+    result: build.FrontendInMemoryBuildResult,
+) -> dict[str, object]:
+    entry_result = result.compile_result.entry_result
+    return {
+        "request_capture": result.compile_request_capture,
+        "diagnostics": tuple(
+            build._json_data(diagnostic)
+            for diagnostic in result.diagnostics
+        ),
+        "entry_selection": result.entry_selection,
+        "selected_workflow_name": result.selected_workflow_name,
+        "typed_frontend_ast": build._serialize_typed_frontend_ast(
+            result.compile_result
+        ),
+        "workflow_catalog": entry_result.workflow_catalog,
+        "procedure_catalog": entry_result.procedure_catalog,
+        "artifact_presence": tuple(
+            getattr(result, field_name) is not None
+            for field_name in (
+                "source_map_payload",
+                "semantic_ir_payload",
+                "executable_ir_payload",
+                "runtime_plan_payload",
+            )
+        ),
+    }
+
+
+def _l3_serializable_result_identity(
+    result: build.FrontendInMemoryBuildResult,
+) -> dict[str, object]:
+    capture = result.compile_request_capture
+    entry_result = result.compile_result.entry_result
+    return {
+        "request_capture": {
+            "source_path": str(capture.source_path),
+            "workspace_root": str(capture.workspace_root),
+            "source_roots": tuple(str(path) for path in capture.source_roots),
+            "entry_workflow": capture.entry_workflow,
+            "validation_profile": capture.validation_profile.value,
+            "lint_profile": capture.lint_profile,
+            "lowering_route": capture.lowering_route.value,
+            "provider_externs": dict(capture.provider_externs),
+            "prompt_externs": dict(capture.prompt_externs),
+            "command_boundaries": tuple(sorted(capture.command_boundaries)),
+            "imported_workflow_bundles": tuple(
+                binding.canonical_key
+                for binding in capture.imported_workflow_bundles
+            ),
+        },
+        "diagnostics": tuple(
+            build._json_data(diagnostic)
+            for diagnostic in result.diagnostics
+        ),
+        "entry_selection": (
+            None
+            if result.entry_selection is None
+            else {
+                "requested_name": result.entry_selection.requested_name,
+                "selected_name": result.entry_selection.selected_name,
+                "canonical_name": result.entry_selection.canonical_name,
+                "exported_names": result.entry_selection.exported_names,
+            }
+        ),
+        "selected_workflow_name": result.selected_workflow_name,
+        "typed_frontend_ast": build._serialize_typed_frontend_ast(
+            result.compile_result
+        ),
+        "workflow_catalog": {
+            "signatures": tuple(
+                sorted(entry_result.workflow_catalog.signatures_by_name)
+            ),
+            "definitions": tuple(
+                sorted(entry_result.workflow_catalog.definitions_by_name)
+            ),
+        },
+        "procedure_catalog": {
+            "signatures": tuple(
+                sorted(entry_result.procedure_catalog.signatures_by_name)
+            ),
+            "definitions": tuple(
+                sorted(entry_result.procedure_catalog.definitions_by_name)
+            ),
+        },
+        "artifact_presence": _l3_result_identity(result)[
+            "artifact_presence"
+        ],
+    }
+
+
+def _l3_entry_authority_projection(
+    driver: compile_driver.LspCompileDriver,
+    source_path: Path,
+) -> dict[str, object]:
+    entry = next(
+        item
+        for item in driver.state.entries
+        if item.path == source_path
+    )
+    accepted_snapshot = driver.snapshot_if_current(source_path.as_uri())
+    assert accepted_snapshot is entry.accepted_snapshot
+    assert accepted_snapshot is not None
+    return {
+        "path": entry.path,
+        "buffer_status": entry.buffer_status,
+        "compile_status": entry.compile_status,
+        "generation": entry.generation,
+        "pending_generation": entry.pending_generation,
+        "disk_snapshot": entry.disk_snapshot,
+        "editor_text": entry.editor_text,
+        "accepted_generation": entry.generation,
+        "accepted_source_revision_vector": (
+            accepted_snapshot.source_revision_vector
+        ),
+        "accepted_text_by_path": accepted_snapshot.accepted_text_by_path,
+        "dependency_closure": entry.dependency_closure,
+        "dependency_revision_vector": entry.dependency_revision_vector,
+    }
+
+
+def _l3_fresh_process_identity(source_path: Path) -> dict[str, object]:
+    script = "\n".join(
+        (
+            "import json",
+            "from pathlib import Path",
+            "import sys",
+            "from tests.test_workflow_lisp_lsp_compile_driver import (",
+            "    _l3_driver,",
+            "    _l3_open_and_compile,",
+            "    _l3_serializable_result_identity,",
+            ")",
+            "result = _l3_open_and_compile(_l3_driver(), Path(sys.argv[1]))",
+            "print(json.dumps(_l3_serializable_result_identity(result), sort_keys=True))",
+        )
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script, str(source_path)],
+        cwd=L3_ENTRY_SELECTION_ROOT.parents[5],
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert isinstance(payload, dict)
+    return payload
+
+
+@pytest.mark.parametrize(
+    "source_order",
+    (
+        (L3_APPLICATION, L3_LIBRARY),
+        (L3_LIBRARY, L3_APPLICATION),
+    ),
+    ids=("application-then-library", "library-then-application"),
+)
+def test_l3_mixed_entry_driver_matches_isolated_peers_without_state_bleed(
+    source_order: tuple[Path, Path],
+) -> None:
+    before = _workspace_snapshot(L3_ENTRY_SELECTION_ROOT)
+    combined_driver = _l3_driver()
+    combined_results = {
+        source_path: _l3_open_and_compile(combined_driver, source_path)
+        for source_path in source_order
+    }
+    isolated_drivers = {
+        source_path: _l3_driver()
+        for source_path in (L3_APPLICATION, L3_LIBRARY)
+    }
+    isolated_results = {
+        source_path: _l3_open_and_compile(
+            isolated_drivers[source_path],
+            source_path,
+        )
+        for source_path in (L3_APPLICATION, L3_LIBRARY)
+    }
+    fresh_process_results = {
+        source_path: _l3_fresh_process_identity(source_path)
+        for source_path in (L3_APPLICATION, L3_LIBRARY)
+    }
+
+    assert {
+        source_path: _l3_result_identity(result)
+        for source_path, result in combined_results.items()
+    } == {
+        source_path: _l3_result_identity(result)
+        for source_path, result in isolated_results.items()
+    }
+    combined_authority = {
+        source_path: _l3_entry_authority_projection(
+            combined_driver,
+            source_path,
+        )
+        for source_path in (L3_APPLICATION, L3_LIBRARY)
+    }
+    isolated_authority = {
+        source_path: _l3_entry_authority_projection(
+            isolated_drivers[source_path],
+            source_path,
+        )
+        for source_path in (L3_APPLICATION, L3_LIBRARY)
+    }
+    assert combined_authority == isolated_authority
+    for source_path, authority in combined_authority.items():
+        source_text = source_path.read_text(encoding="utf-8")
+        disk_snapshot = compile_driver.probe_disk_source(source_path)
+        assert authority == {
+            "path": source_path,
+            "buffer_status": "clean",
+            "compile_status": "success",
+            "generation": 1,
+            "pending_generation": None,
+            "disk_snapshot": disk_snapshot,
+            "editor_text": source_text,
+            "accepted_generation": 1,
+            "accepted_source_revision_vector": (
+                (source_path, disk_snapshot.revision),
+            ),
+            "accepted_text_by_path": (
+                (source_path, source_text),
+            ),
+            "dependency_closure": frozenset({source_path}),
+            "dependency_revision_vector": (
+                (source_path, disk_snapshot.revision),
+            ),
+        }
+    assert {
+        source_path: json.loads(
+            json.dumps(
+                _l3_serializable_result_identity(result),
+                sort_keys=True,
+            )
+        )
+        for source_path, result in combined_results.items()
+    } == fresh_process_results
+    captures = {
+        source_path: result.compile_request_capture
+        for source_path, result in combined_results.items()
+    }
+    assert captures[L3_APPLICATION].entry_workflow == "selected"
+    assert captures[L3_LIBRARY].entry_workflow is None
+    assert replace(
+        captures[L3_APPLICATION],
+        source_path=L3_LIBRARY,
+        entry_workflow=None,
+    ) == captures[L3_LIBRARY]
+
+    application = combined_results[L3_APPLICATION]
+    assert application.entry_selection == build.FrontendEntrySelection(
+        requested_name="selected",
+        selected_name="application::selected",
+        canonical_name="application::selected",
+        exported_names=("first", "selected"),
+    )
+    assert application.selected_workflow_name == "application::selected"
+    assert application.diagnostics == ()
+    assert {
+        *application.compile_result.entry_result
+        .procedure_catalog.signatures_by_name
+    } == {
+        "application-helper",
+        "application::application-helper",
+    }
+    assert {
+        *application.compile_result.entry_result
+        .workflow_catalog.signatures_by_name
+    } == {
+        "first",
+        "selected",
+        "application::first",
+        "application::selected",
+    }
+
+    library = combined_results[L3_LIBRARY]
+    assert library.entry_selection is None
+    assert library.selected_workflow_name is None
+    assert library.diagnostics == ()
+    assert (
+        library.compile_result.entry_result
+        .workflow_catalog.signatures_by_name
+        == {}
+    )
+    assert (
+        library.compile_result.entry_result
+        .workflow_catalog.definitions_by_name
+        == {}
+    )
+    assert {
+        *library.compile_result.entry_result
+        .procedure_catalog.signatures_by_name
+    } == {
+        "library-helper",
+        "library::library-helper",
+    }
+    assert {
+        *library.compile_result.entry_result
+        .procedure_catalog.definitions_by_name
+    } == {
+        "library::library-helper",
+    }
+    assert _l3_result_identity(application)["artifact_presence"] == (
+        True,
+        True,
+        True,
+        True,
+    )
+    assert _l3_result_identity(library)["artifact_presence"] == (
+        False,
+        False,
+        False,
+        False,
+    )
+    assert combined_driver.queued_generations == ()
+    assert _workspace_snapshot(L3_ENTRY_SELECTION_ROOT) == before
+    assert not (L3_ENTRY_SELECTION_ROOT / ".orchestrate").exists()
 
 
 def test_each_eligible_generation_runs_one_full_shared_stage3_without_cache_or_provisional_phase(
