@@ -27,8 +27,6 @@ import tempfile
 import time
 from pathlib import Path
 
-import pytest
-
 from orchestrator.providers.interactive_terminal import (
     InteractiveMemberInvocation,
     InteractiveSessionSupport,
@@ -391,10 +389,10 @@ def test_never_engaging_provider_bounds_wait_at_whole_attempt_deadline(
     """Failure shape (a), 2026-07-27/28: provider never engages the handshake.
 
     W-R1 (AWAITING_SUBMIT loop) must terminate at the whole-attempt deadline
-    and surface a structured deadline outcome.  Also records the two
-    surfacing gaps of the post-expiry terminalizer: the ledger keeps the
-    healthy five-row pre-submit prefix (no cleanup/terminal rows), and no
-    abort is attempted, so the provider pane/server survive.
+    and surface a structured deadline outcome.  Post-F1, the fail-safe
+    terminalization rows also land in the ledger, so the run is
+    distinguishable from a healthy long wait; the zero-call cleanup rule
+    still applies, so the provider pane/server survive for the operator.
     """
 
     timeout_sec = 6.0
@@ -423,27 +421,32 @@ def test_never_engaging_provider_bounds_wait_at_whole_attempt_deadline(
         assert result.terminalization_tier == "T1"
         # ...so the synthetic provider demonstrably survives the attempt.
         assert _provider_survivor_alive(bindings)
-        # H2 surfacing gap: the ledger froze at the healthy pre-submit
-        # prefix -- exactly the five-row shape observed on 2026-07-27/28.
+        # F1 fixed: the fail-safe terminalization rows land post-expiry,
+        # replacing the silent five-row prefix observed on 2026-07-27/28.
         rows = _ledger_rows(bindings)
-        assert len(rows) == 5
-        assert _events(rows) == _PRE_SUBMIT_EVENTS
+        assert _events(rows) == _PRE_SUBMIT_EVENTS + [
+            "cleanup_finished",
+            "ingress_shutdown_started",
+            "ingress_shutdown_finished",
+            "terminal_failed",
+        ]
         validation = _validation(bindings)
-        assert validation["status"] == "valid_prefix"
-        assert validation["reason"] == "nonterminal_prefix"
-        assert validation["terminal_event"] is None
+        assert validation["status"] == "complete"
+        assert validation["reason"] == "complete"
+        assert validation["terminal_event"] == "terminal_failed"
     finally:
         _teardown_leaked_provider(bindings)
 
 
-def test_mid_phase_silent_provider_bounds_wait_and_freezes_ledger_prefix(
+def test_mid_phase_silent_provider_bounds_wait_and_records_terminalization(
     tmp_path: Path,
 ) -> None:
     """Failure shape (b): provider engages, then goes silent mid-phase.
 
     The retry wait (second AWAITING_SUBMIT visit, W-R1) must also be
-    deadline-bounded; the ledger again ends on a healthy-looking prefix
-    (last event ``turn_offered``) with no terminal rows.
+    deadline-bounded, and post-F1/F2 the ledger records the terminalization
+    tail after the last healthy row (``turn_offered``) and validates
+    offline.
     """
 
     timeout_sec = 8.0
@@ -471,10 +474,14 @@ def test_mid_phase_silent_provider_bounds_wait_and_freezes_ledger_prefix(
             "retry_queued",
             "turn_offer_requested",
             "turn_offered",
+            "cleanup_finished",
+            "ingress_shutdown_started",
+            "ingress_shutdown_finished",
+            "terminal_failed",
         ]
         validation = _validation(bindings)
-        assert validation["status"] == "valid_prefix"
-        assert validation["terminal_event"] is None
+        assert validation["status"] == "complete"
+        assert validation["terminal_event"] == "terminal_failed"
     finally:
         _teardown_leaked_provider(bindings)
 
@@ -525,11 +532,11 @@ def test_exhausted_attempts_aborts_live_provider_and_surfaces_terminal_rows(
 ) -> None:
     """Pre-expiry terminalization on a live provider: abort + full rows.
 
-    Contrast fixture for the H2 verdict: with budget remaining, the
-    terminalizer aborts the live pane (W-A6) and the producer records the
-    full terminalization production in the ledger.  The offline validator
-    nevertheless rejects that truthful ledger -- see the companion strict
-    xfail below (finding F3 in the diagnosis report).
+    With budget remaining, the terminalizer aborts the live pane (W-A6) and
+    the ledger records the full terminalization production.  Post-F2, the
+    truthful evidence also validates offline even though the exhausted
+    submission was resolved with a terminal ``failed`` receipt (zero
+    drainage at shutdown is legal in the terminalizing context).
     """
 
     bindings = SyntheticProviderBindings(
@@ -559,36 +566,25 @@ def test_exhausted_attempts_aborts_live_provider_and_surfaces_terminal_rows(
             "terminal_failed",
         ]
         validation = _validation(bindings)
-        # F3 (confirmed surfacing defect, deadline-independent): the
-        # endpoint counts drainage only for accepted_closing receipts
-        # (endpoint.py resolve()), while the offline validator requires
-        # active_requests_drained >= 1 at ingress shutdown once any submit
-        # was received (ledger.py grammar).  The exhausted-attempts request
-        # was resolved with a terminal "failed" receipt, so the truthful
-        # complete ledger validates as malformed/payload_invalid.
-        assert validation["status"] == "malformed"
-        assert validation["reason"] == "payload_invalid"
-        assert validation["terminal_event"] is None
+        assert validation["status"] == "complete"
+        assert validation["reason"] == "complete"
+        assert validation["terminal_event"] == "terminal_failed"
         assert not _provider_survivor_alive(bindings)
     finally:
         _teardown_leaked_provider(bindings)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "F3 (Q5 diagnosis 2026-07-28): a truthful exhausted-attempts "
-        "terminalization ledger must validate offline with "
-        "terminal_event=terminal_failed, but PhasedSubmitEndpoint.resolve "
-        "counts only accepted_closing receipts toward "
-        "active_requests_drained while the ledger grammar demands >= 1 "
-        "once a submit was received.  Remove this xfail with the fix."
-    ),
-)
 def test_exhausted_attempts_ledger_should_validate_offline(
     tmp_path: Path,
 ) -> None:
-    """Design contract: truthful terminalization evidence validates offline."""
+    """F2 regression: truthful terminalization evidence validates offline.
+
+    Was the strict-xfail fixture of the 2026-07-28 diagnosis: the endpoint
+    counts only ``accepted_closing`` receipts toward
+    ``active_requests_drained``, so the validator's drain requirement now
+    applies only to the normal close-path shutdown, not to terminalizing
+    shutdowns whose submissions were resolved with terminal receipts.
+    """
 
     bindings = SyntheticProviderBindings(
         tmp_path,
@@ -607,14 +603,15 @@ def test_exhausted_attempts_ledger_should_validate_offline(
         _teardown_leaked_provider(bindings)
 
 
-def test_close_refusing_provider_bounds_join_and_freezes_ledger_at_join_started(
+def test_close_refusing_provider_bounds_join_and_records_terminalization(
     tmp_path: Path,
 ) -> None:
     """W-A5: a provider that never exits after close bounds at the deadline.
 
-    The join poll loop must terminate at the whole-attempt deadline; the
-    post-expiry terminalizer then drops ``join_failed``/terminal rows, so the
-    truthful ledger ends at ``join_started`` (the join-flavoured H2 shape).
+    The join poll loop must terminate at the whole-attempt deadline; post-F1
+    the terminalizer records the join-expiry tail (``cleanup_finished`` with
+    the zero-call expiry diagnostic, then ``terminal_failed``) after
+    ``join_started``.
     """
 
     timeout_sec = 10.0
@@ -648,10 +645,12 @@ def test_close_refusing_provider_bounds_join_and_freezes_ledger_at_join_started(
             "ingress_shutdown_started",
             "ingress_shutdown_finished",
             "join_started",
+            "cleanup_finished",
+            "terminal_failed",
         ]
         validation = _validation(bindings)
-        assert validation["status"] == "valid_prefix"
-        assert validation["terminal_event"] is None
+        assert validation["status"] == "complete"
+        assert validation["terminal_event"] == "terminal_failed"
         assert _provider_survivor_alive(bindings)
     finally:
         _teardown_leaked_provider(bindings)

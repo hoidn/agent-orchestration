@@ -1936,6 +1936,65 @@ def test_validator_grammar_accepts_t0_through_t4_terminalization() -> None:
         _assert_complete(events, "terminal_failed")
 
 
+def test_validator_accepts_zero_drainage_at_terminalizing_ingress_shutdown() -> None:
+    """F2 regression (Q5 diagnosis 2026-07-28): terminal drainage may be zero.
+
+    A terminalizing shutdown after an exhausted/failed submission truthfully
+    reports ``active_requests_drained: 0`` -- the request was resolved with a
+    terminal receipt before shutdown, so nothing remained to drain.  Only the
+    normal close-path shutdown carries the design's drained-accepted-submit
+    floor.
+    """
+
+    payloads = _event_payloads()
+    cleanup = _complete_cleanup()
+    zero_drain_finished = {
+        **payloads["ingress_shutdown_finished"],
+        "active_requests_drained": 0,
+    }
+    events = [
+        ("task_start_requested", payloads["task_start_requested"]),
+        ("task_started", payloads["task_started"]),
+        ("turn_offer_requested", payloads["turn_offer_requested"]),
+        ("turn_offered", payloads["turn_offered"]),
+        ("submit_received", payloads["submit_received"]),
+        ("validation_rejected", payloads["validation_rejected"]),
+        ("candidate_reset", payloads["candidate_reset"]),
+        ("cleanup_finished", cleanup),
+        (
+            "ingress_shutdown_started",
+            payloads["ingress_shutdown_started"],
+        ),
+        ("ingress_shutdown_finished", zero_drain_finished),
+        (
+            "terminal_failed",
+            _terminal_from_cleanup(cleanup, endpoint="complete"),
+        ),
+    ]
+
+    _assert_complete(events, "terminal_failed")
+
+
+def test_validator_rejects_zero_drainage_at_normal_close_shutdown() -> None:
+    """The accepted submit's receipt flush must be counted at normal close."""
+
+    payloads = _event_payloads()
+    zero_drain_finished = {
+        **payloads["ingress_shutdown_finished"],
+        "active_requests_drained": 0,
+    }
+    events = [
+        *_normal_until_close(),
+        (
+            "ingress_shutdown_started",
+            payloads["ingress_shutdown_started"],
+        ),
+        ("ingress_shutdown_finished", zero_drain_finished),
+    ]
+
+    assert _validate(_ledger_bytes(events))["reason"] == "payload_invalid"
+
+
 def test_validator_distinguishes_t0_from_implicit_t1_allocation() -> None:
     payloads = _event_payloads()
     no_allocation = payloads["cleanup_finished"]

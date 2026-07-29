@@ -2093,6 +2093,12 @@ class _LedgerGrammar:
         if (
             event
             in {"ingress_shutdown_finished", "ingress_shutdown_failed"}
+            # The drain floor holds only for the normal close-path shutdown,
+            # where the accepted submit's receipt flushed before shutdown
+            # began and was counted.  A terminalizing shutdown may truthfully
+            # report zero drainage: its submissions were already resolved
+            # with terminal or retry receipts, or none was active.
+            and self.ingress_mode == "normal"
             and self.current_submit is not None
             and payload["active_requests_drained"] < 1
         ):

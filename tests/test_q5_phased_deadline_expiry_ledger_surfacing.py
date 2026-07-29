@@ -1,30 +1,27 @@
-"""Q5 diagnosis: deterministic post-expiry terminalization surfacing checks.
+"""Q5: post-expiry fail-safe terminalization must surface in the phase ledger.
 
-Isolates the H2 finding of
-docs/plans/2026-07-28-q5-phased-diagnosis-report.md with a frozen clock and
-no tmux: once the whole-attempt deadline expires inside the submit wait,
-``PhasedProviderAttemptCoordinator._append`` admits ``ledger_append`` against
-that same expired deadline, so every terminalization row
-(``cleanup_finished``, ``ingress_shutdown_*``, ``terminal_failed``) is
-refused, and ``_safe_append`` swallows the refusal.  The ledger therefore
-keeps the healthy five-row pre-submit prefix -- indistinguishable from a
-still-waiting attempt -- while the returned failure object alone carries the
-deadline diagnostic.
+Regression tests for finding F1 of
+docs/plans/2026-07-28-q5-phased-diagnosis-report.md: once the whole-attempt
+deadline expires inside the submit wait, the fail-safe terminalizer is the
+design's sole exception to the zero-call rule
+(workflow_lisp_phased_contract_delivery.md, "Deadline observation
+discipline" / T0-T3 terminalization productions) — it makes no further
+adapter calls, but it still *emits* its ledger rows (``cleanup_finished``,
+``ingress_shutdown_*``, ``terminal_failed``) with no remaining budget, so a
+deadline-terminalized attempt is distinguishable from a healthy long wait.
 
-The design requires otherwise: the fail-safe terminalizer is "the only
-exception" to the zero-call rule and still *emits* its ledger rows with no
-remaining budget (workflow_lisp_phased_contract_delivery.md, "Deadline
-observation discipline" / T0-T3 terminalization productions).  The strict
-xfail below asserts that contract and is the ready-made regression test for
-the fix.
+Before the fix, ``PhasedProviderAttemptCoordinator._append`` admitted a
+``ledger_append`` deadline operation against the already-expired attempt
+deadline for these rows too, and ``_safe_append`` swallowed the refusal: the
+ledger froze at the healthy five-row pre-submit prefix — the silent-ledger
+shape observed in the 2026-07-27 acceptance attempt and recorded by the
+2026-07-28 Task-13 stop record.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-
-import pytest
 
 from orchestrator.workflow.provider_phased_delivery.bindings import (
     AttemptAllocation,
@@ -110,12 +107,11 @@ def _run_expired(tmp_path: Path):
 def test_post_expiry_terminalization_returns_structured_failure_but_skips_cleanup(
     tmp_path: Path,
 ) -> None:
-    """Current behavior, pinned: expiry surfaces ONLY in the returned object.
+    """Zero-call rule unchanged: expiry skips the abort, endpoint fail-safe runs.
 
-    The failure object is fully populated (structured outcome exists), the
-    designed zero-call rule skips the abort, and the fake endpoint is still
-    shut down.  This is the deterministic mechanics behind the two observed
-    acceptance failures.
+    The failure object is fully populated; the adapter is never asked to
+    abort after expiry (designed fail-closed cleanup skip), and the
+    coordinator-local endpoint fail-safe still shuts ingress down.
     """
 
     bindings, result, _rows, _events = _run_expired(tmp_path)
@@ -138,49 +134,52 @@ def test_post_expiry_terminalization_returns_structured_failure_but_skips_cleanu
     assert bindings.failure_finalization_calls == 1
 
 
-def test_post_expiry_terminalization_leaves_healthy_looking_ledger_prefix(
+def test_post_expiry_terminalization_records_failsafe_rows_in_ledger(
     tmp_path: Path,
 ) -> None:
-    """H2 mechanics, pinned: every terminal row is dropped after expiry.
+    """F1 regression: the fail-safe rows land after whole-attempt expiry.
 
-    ``_admit_deadline("ledger_append")`` refuses each terminalization append
-    against the already-expired attempt deadline and ``_safe_append``
-    swallows the refusal, so the ledger ends exactly at the five-row
-    pre-submit prefix and offline validation reports a healthy
-    ``valid_prefix`` -- the shape observed on 2026-07-27 and recorded by the
-    Task-13 stop record on 2026-07-28.
+    The terminalization production continues past the pre-submit prefix and
+    the rows tell the truth: cleanup was skipped by the zero-call rule
+    (``incomplete``, zero abort calls, the supplemental expiry diagnostic)
+    and the endpoint fail-safe completed.
     """
 
-    bindings, _result, rows, events = _run_expired(tmp_path)
-    assert len(rows) == 5
+    _bindings, _result, rows, events = _run_expired(tmp_path)
     assert events == [
         "task_start_requested",
         "task_started",
         "turn_offer_requested",
         "turn_offered",
+        "cleanup_finished",
+        "ingress_shutdown_started",
+        "ingress_shutdown_finished",
+        "terminal_failed",
     ]
-    validation = validate_ledger_bytes(bindings.ledger_path.read_bytes())
-    assert validation["status"] == "valid_prefix"
-    assert validation["reason"] == "nonterminal_prefix"
-    assert validation["terminal_event"] is None
+    cleanup_payload = rows[5]["payload"]
+    assert cleanup_payload["cleanup_status"] == "incomplete"
+    assert cleanup_payload["abort_calls"] == 0
+    assert cleanup_payload["provider_cleanup_proof"] is None
+    assert cleanup_payload["cleanup_diagnostic"]["reason"] == (
+        "deadline_exhausted_before_adapter_cleanup"
+    )
+    terminal_payload = rows[8]["payload"]
+    assert terminal_payload["diagnostic"]["reason"] == (
+        "deadline_exhausted_during_submit"
+    )
+    assert terminal_payload["cleanup_status"] == "incomplete"
+    assert terminal_payload["endpoint_shutdown_status"] == "complete"
+    assert terminal_payload["natural_shutdown_proof"] is None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "H2 defect (Q5 diagnosis 2026-07-28): the design's fail-safe "
-        "terminalization must emit cleanup_finished / ingress_shutdown_* / "
-        "terminal_failed with no remaining budget, but _append gates every "
-        "row behind a ledger_append admission against the already-expired "
-        "whole-attempt deadline, so the T2a production never reaches the "
-        "ledger.  Remove this xfail with the fix; these assertions are the "
-        "regression test."
-    ),
-)
 def test_post_expiry_terminalization_emits_failsafe_ledger_rows(
     tmp_path: Path,
 ) -> None:
-    """Design contract: deadline expiry must surface in the phase ledger."""
+    """F1 contract: deadline expiry must surface in the phase ledger.
+
+    Was the strict-xfail fixture of the 2026-07-28 diagnosis; now the
+    regression test for the fix.
+    """
 
     bindings, _result, _rows, events = _run_expired(tmp_path)
     assert "cleanup_finished" in events
@@ -190,4 +189,6 @@ def test_post_expiry_terminalization_emits_failsafe_ledger_rows(
     )
     assert events[-1] == "terminal_failed"
     validation = validate_ledger_bytes(bindings.ledger_path.read_bytes())
+    assert validation["status"] == "complete"
+    assert validation["reason"] == "complete"
     assert validation["terminal_event"] == "terminal_failed"
