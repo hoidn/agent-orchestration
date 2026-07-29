@@ -41,11 +41,14 @@ implementation-discovered case where a JSON string cannot be canonicalized
 as a filesystem path; the new closed `canonical_path_required` row is ordered
 after entry-value validation and before suffix validation.
 
-**Execution status:** accepted for execution after independent
-`L3_PLAN_SPEC_APPROVED` then distinct `L3_PLAN_QUALITY_APPROVED`. The exact
-plan/routing snapshot is in final ordered reaffirmation; no production change
-is authorized until that reviewed snapshot commits. Task 1 starts only after
-the committed plan gate and fresh controls below.
+**Execution status:** complete after ordered `L3_FINAL_SPEC_APPROVED` then
+distinct `L3_FINAL_QUALITY_APPROVED`. The plan gate passed independent
+`L3_PLAN_SPEC_APPROVED` then distinct `L3_PLAN_QUALITY_APPROVED`. Task 1
+landed at `fc1b01ee` after ordered `L3_TASK1_SPEC_APPROVED` then
+`L3_TASK1_QUALITY_APPROVED`; Task 2 landed at `9e59929d`, followed by
+xdist-evidence correction `8c704f3f`, and each Task 2 snapshot received
+restarted `L3_TASK2_SPEC_APPROVED` then `L3_TASK2_QUALITY_APPROVED`. The exact
+Task 3 closure bytes then received both final tokens in order.
 
 ---
 
@@ -92,7 +95,7 @@ Read before implementation:
 - `docs/capability_status_matrix.md`;
 - `docs/design/README.md`;
 - `docs/design/workflow_lisp_language_server.md`, especially
-  "L3 Target Amendment: Immutable Per-Source Entry Selection";
+  "L3 Shipped Amendment: Immutable Per-Source Entry Selection";
 - `docs/design/workflow_lisp_frontend_specification.md` §76.1;
 - `docs/design/workflow_language_design_principles.md`, especially principles
   28, 29, and 30;
@@ -213,8 +216,10 @@ Before Task 1:
 
 - [x] Obtain final ordered specification then quality reaffirmation against
       the exact plan/status/routing snapshot.
-- [ ] Commit those exact reviewed bytes before production changes.
-- [ ] Capture the fresh pre-L3 focused control:
+- [x] Commit those exact reviewed bytes before production changes at
+      `72708915549b59a5013cdcfe33234b7a2dcb4b46`, tree
+      `2634e7c024ba8fd3c38e514c14b67ec06b9afa13`.
+- [x] Capture the fresh pre-L3 focused control:
 
   ```bash
   pytest -q \
@@ -228,20 +233,34 @@ Before Task 1:
     tests/test_workflow_lisp_drain_roadmap_routing.py
   ```
 
-- [ ] Retain a byte-for-byte read-only raw transcript outside the repository
+- [x] Retain a byte-for-byte read-only raw transcript outside the repository
       in a directory named by control `HEAD`. The transcript contains the
       control `HEAD`, tree, collected/pass/failure/error/skip totals, elapsed
       time, and exact failures. Store the SHA-256 of those final raw bytes in
       a separate read-only `.sha256` sidecar; the transcript does not hash
       itself. Do not edit this reviewed plan or any other repository path
       between the plan-gate commit and Task 1.
-- [ ] Capture a fresh pre-L3 broad non-security collection and suite in tmux
+- [x] Capture a fresh pre-L3 broad non-security collection and suite in tmux
       with the exact Task-3 command. Retain the collected node IDs, failing
       node IDs, totals, and elapsed time as read-only raw transcripts in the
       same external control directory. Store each final transcript's SHA-256
       in its own read-only `.sha256` sidecar so the final run has a
       same-command comparison. Record both controls and their sidecar digest
       values factually only in Task 3's already-authorized plan update.
+
+The read-only pre-L3 control directory is
+`/tmp/workflow-lisp-l3-controls-72708915549b59a5013cdcfe33234b7a2dcb4b46/`.
+The focused control collected and passed 404 tests in 52.65 seconds
+(`real 53.36`) with no failures, errors, or skips; its raw transcript SHA-256
+is `0a74f97e4a851cc55d95bd367533fb0c8f24db201893cd0d150f820e0b20b915`.
+The broad collection found 10,827 selected/collected tests (10,846
+discovered, 19 deselected) in
+4.38 seconds (`real 6.64`); its transcript SHA-256 is
+`05e5d69edfed51ce7e80b8799cd16eb09d7ceedae0e86a38dc3b7af1ad1c8274`.
+The broad suite passed 10,765, failed 41, skipped 21, emitted 33 warnings, and
+had zero errors in 166.23 seconds (`real 166.90`); its transcript SHA-256 is
+`b585468757d7f3b5d0e91178b75b4fa32cff0a953f7aeb42695db89814205f22`.
+Its exact failed-node set equals the MR-4 41-node baseline.
 
 ## Task 1: Atomically Normalize The Map And Build Per-Source Requests
 
@@ -274,24 +293,24 @@ source-path selection.
 - Modify exact initialization fixtures only:
   `tests/test_workflow_lisp_lsp_e2e.py`
 
-- [ ] Write RED state tests proving absent map becomes `()`, distinct relative
+- [x] Write RED state tests proving absent map becomes `()`, distinct relative
       and absolute contained keys canonicalize into lexical canonical-path
       order, values remain codepoint-for-codepoint unchanged, and the frozen
       tuple cannot be mutated.
-- [ ] Prove normalization is boundary-deferred: a missing-but-contained `.orc`
+- [x] Prove normalization is boundary-deferred: a missing-but-contained `.orc`
       path and an unknown export name both initialize successfully. Literal
       non-empty key/value spellings are not trimmed, case-folded, or Unicode-
       normalized; no source read, parse, or export lookup occurs during
       initialization. The unknown export may fail only when the ordinary
       compile boundary consumes the prepared request.
-- [ ] Write one RED parameterized state matrix for all accepted refusal rows:
+- [x] Write one RED parameterized state matrix for all accepted refusal rows:
       old scalar, non-object, empty key, invalid/empty value,
       uncanonicalizable path, wrong suffix, uncontained path, and canonical
       alias duplicate. Assert the exact `schema`, `code`, `field`, `rule`,
       `rejected_value`, and precisely present/absent `entry_key`,
       `canonical_path`, and
       `conflicting_entry_key`.
-- [ ] Write RED precedence tests: unsupported fields before map validation,
+- [x] Write RED precedence tests: unsupported fields before map validation,
       with lexical selection among multiple unsupported field names; the old
       scalar's structured `unsupported_field` row when it is lexically
       selected; map shape/entry validation before `source_roots` or
@@ -299,37 +318,37 @@ source-path selection.
       then canonicalization then suffix then containment; and
       canonical-path/lexical-spelling duplicate selection. Assert first
       failure only.
-- [ ] Write RED JSON-domain tests: JSON-native wrong values receive structured
+- [x] Write RED JSON-domain tests: JSON-native wrong values receive structured
       refusals, while non-JSON programmatic keys/values raise `TypeError`
       before L3 normalization and never use `repr`.
-- [ ] Write a RED server test proving `LspInitializationError.data` is
+- [x] Write a RED server test proving `LspInitializationError.data` is
       forwarded unchanged as `JsonRpcInvalidParams.data`; retain existing
       compiler-initialization diagnostic data unchanged.
-- [ ] Write RED real-stdio initialization cases for every JSON-deliverable
+- [x] Write RED real-stdio initialization cases for every JSON-deliverable
       refusal row. Assert JSON-RPC `-32602`, exact `error.data`, and
       conditional-field presence/absence; assert no message phrasing.
-- [ ] Prove the `canonical_path_required` row at both state and real-stdio
+- [x] Prove the `canonical_path_required` row at both state and real-stdio
       boundaries with a JSON NUL-bearing path key. Catch filesystem
       canonicalization exceptions generically, include only the raw
       `rejected_value` and `entry_key`, and never invent `canonical_path`.
-- [ ] Write RED driver tests with two canonical source paths proving the mapped
+- [x] Write RED driver tests with two canonical source paths proving the mapped
       path receives its exact name, the unlisted path receives `None`, request
       order does not matter, and no basename/ancestor/default lookup occurs.
-- [ ] Replace `LspInitializationOptions.entry_workflow` with immutable
+- [x] Replace `LspInitializationOptions.entry_workflow` with immutable
       `entry_workflows: tuple[tuple[Path, str], ...]`. Add the smallest pure
       JSON-domain/normalization helpers implementing the design's exact table
       and precedence.
-- [ ] Extend `LspInitializationError` only enough to carry optional structured
+- [x] Extend `LspInitializationError` only enough to carry optional structured
       data. Forward it from `server.py` without changing other initialization
       error schemas.
-- [ ] Replace the allowed scalar with `entry_workflows`. At
+- [x] Replace the allowed scalar with `entry_workflows`. At
       `_build_request(source_path)`, perform one exact lookup over the frozen
       tuple and pass the result into the unchanged `FrontendBuildRequest`.
-- [ ] Mechanically migrate existing LSP test initialization objects from the
+- [x] Mechanically migrate existing LSP test initialization objects from the
       scalar to a one-row map keyed by their actual entry path. Do not alter
       expected compiler/build selection semantics, and do not change the
       unrelated imported-workflow manifest `entry_workflow` field.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest --collect-only -q \
@@ -349,7 +368,7 @@ source-path selection.
     tests/test_workflow_lisp_lsp_e2e.py
   ```
 
-- [ ] Obtain ordered `L3_TASK1_SPEC_APPROVED` then
+- [x] Obtain ordered `L3_TASK1_SPEC_APPROVED` then
       `L3_TASK1_QUALITY_APPROVED`, commit only the exact reviewed files, and
       rerun the selector post-commit.
 
@@ -373,54 +392,54 @@ selection, diagnostic, catalog, protocol, or artifact bleed.
 - Modify only if a genuine Task-1 defect is found: the Task-1 owner paths,
   followed by a fresh Task-1 TDD/review cycle.
 
-- [ ] Add a multi-export application with a non-first selected workflow and a
+- [x] Add a multi-export application with a non-first selected workflow and a
       zero-workflow exported-procedure library. Keep both fixtures minimal and
       target-compatible with the current compiler.
-- [ ] Add a parameterized application→library/library→application driver test
+- [x] Add a parameterized application→library/library→application driver test
       under one initialization map and one serialized worker.
-- [ ] Capture each prepared `FrontendBuildRequest` and assert the application
+- [x] Capture each prepared `FrontendBuildRequest` and assert the application
       alone carries the exact configured name; the library carries `None`; all
       process-wide context fields remain identical.
-- [ ] Compare each accepted result with an isolated fresh-process peer:
+- [x] Compare each accepted result with an isolated fresh-process peer:
       request capture, ordered diagnostic identity, entry selection,
       selected-workflow name, typed frontend AST, callable catalogs, and the
       presence/absence of source-map/semantic/executable/runtime artifacts.
-- [ ] Assert the application selects the requested non-first export and the
+- [x] Assert the application selects the requested non-first export and the
       library remains a non-runnable no-selection build whose existing
       workflow catalog has empty `signatures_by_name` and
       `definitions_by_name`, while its procedure catalog is intact.
-- [ ] At the in-process driver boundary, assert both entries finish with
+- [x] At the in-process driver boundary, assert both entries finish with
       `compile_status == "success"` and retain current accepted snapshots;
       compare those internal states only with in-process isolated controls.
-- [ ] Add a listed-application parity row that invokes the unchanged real CLI
+- [x] Add a listed-application parity row that invokes the unchanged real CLI
       parser/run path with `--entry-workflow`, initializes the LSP map with the
       same exact name, and compares the full existing F2 capture tuple.
-- [ ] Add an unlisted-library parity row that invokes the same CLI without the
+- [x] Add an unlisted-library parity row that invokes the same CLI without the
       entry flag. Bind the capture attached to the expected persistent
       non-runnable-build error and compare it with the successful read-only LSP
       in-memory result's capture.
-- [ ] Assert the application has a selected workflow and matching diagnostic
+- [x] Assert the application has a selected workflow and matching diagnostic
       identity; the library's request carries `None`, its LSP entry selection
       is `None`, and no successful CLI artifact parity is claimed.
-- [ ] Keep workspace root, caller source-root order, fixed compile policy,
+- [x] Keep workspace root, caller source-root order, fixed compile policy,
       loaded context bundles, and builtin-root treatment inside the equality
       assertion.
-- [ ] Open the mapped application and unlisted library in one real server in
+- [x] Open the mapped application and unlisted library in one real server in
       both orders. Wait for each current generation before observing it.
-- [ ] Assert the application produces no `entry_workflow_required` diagnostic
+- [x] Assert the application produces no `entry_workflow_required` diagnostic
       and reaches the same current-success protocol surface as its isolated
       peer; assert the library reaches its corresponding procedure-only
       current-success surface. Exact requested/selected values remain
       authoritative in the in-process and F2 assertions above rather than
       being inferred from protocol output that does not expose them.
-- [ ] Compare each combined-process source's diagnostics, document symbols,
+- [x] Compare each combined-process source's diagnostics, document symbols,
       definition/completion observations, and completed protocol responses
       with a fresh one-source server peer. Assert no cross-source contribution
       or callable bleed. Do not claim that stdio exposes internal
       `CompileEntryState` or selection state.
-- [ ] Assert protocol stdout remains frame-clean and the read-only server
+- [x] Assert protocol stdout remains frame-clean and the read-only server
       creates no build artifacts or run state.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest --collect-only -q \
@@ -437,9 +456,19 @@ selection, diagnostic, catalog, protocol, or artifact bleed.
     tests/test_workflow_lisp_compiler_session_state.py
   ```
 
-- [ ] Obtain ordered `L3_TASK2_SPEC_APPROVED` then
+- [x] Obtain ordered `L3_TASK2_SPEC_APPROVED` then
       `L3_TASK2_QUALITY_APPROVED`, commit only the two fixtures and exact
       reviewed tests, and rerun post-commit.
+
+Task 2 landed at `9e59929d`. Its L3-specific repository-real read-only test
+initially also observed repository-global build/run/artifact trees, which are
+not invariant while the plan-mandated 16-worker broad suite runs unrelated
+build-producing tests. Correction `8c704f3f` removed only those
+repository-global observations from that L3 fixture while retaining exact
+fixture bytes, fixture-tree digest, absence of fixture-local state,
+frame-clean protocol behavior, and all mixed-entry surface assertions. The
+correction received restarted `L3_TASK2_SPEC_APPROVED` then
+`L3_TASK2_QUALITY_APPROVED`.
 
 ## Task 3: Promote Shipped L3, Run Broad Gates, And Close
 
@@ -463,15 +492,15 @@ ordered final reviews close the exact implementation.
 - Modify factually after all gates: this plan, including the retained
   pre-L3 focused and broad control results
 
-- [ ] First make routing assertions RED for L3 implemented/complete status,
+- [x] First make routing assertions RED for L3 implemented/complete status,
       exact shipped `entry_workflows` behavior, removal of target/pending
       wording and the old scalar from accepted setup, task commit/review
       records, and L4 as the next L-stage design gate.
-- [ ] Promote design/setup/router/capability/roadmap wording from accepted
+- [x] Promote design/setup/router/capability/roadmap wording from accepted
       target to shipped behavior. Preserve MR-4 substrate truth,
       zero/one/many compiler semantics, immutable restart cost, all exclusions,
       and Q4/Q5's independent status.
-- [ ] Run the complete focused surface:
+- [x] Run the complete focused surface:
 
   ```bash
   pytest -q \
@@ -486,7 +515,7 @@ ordered final reviews close the exact implementation.
     tests/test_workflow_lisp_drain_roadmap_routing.py
   ```
 
-- [ ] Run this exact broad non-security collection and suite in tmux:
+- [x] Run this exact broad non-security collection and suite in tmux:
 
   ```bash
   L3_EXCLUDES=(
@@ -521,8 +550,37 @@ ordered final reviews close the exact implementation.
   Record collection/pass/failure/error/skip totals and exact failed-node delta
   against the pre-L3 same-command control and MR-4 broad baseline. Do not
   repair excluded or unrelated failures under L3.
-- [ ] Inspect the exact closure diff and run `git diff --check`.
-- [ ] Obtain holistic `L3_FINAL_SPEC_APPROVED`, then distinct
+
+Task 3's final evidence is rooted at corrected integrated substrate
+`8c704f3f82f4635166d0f1c79bcd08dac7556b87`; earlier Task 3 runs are not
+closure evidence. The focused selector passed 588 tests in 81.06 seconds.
+
+The exact broad collection found 10,884 selected/collected tests (10,903
+discovered, 19 deselected) in 4.18 seconds. This is 57 more collected nodes
+than the pre-L3
+control: 44 landed with L3 Tasks 1–2 and 13 arrived in the disjoint
+owner-supplied Q5 evidence-fix merge immediately before the final gate. The
+collection transcript SHA-256 is
+`c33d79851bfb1fe4cd6752da12fff3c993e218cf370b76e87610e7d57681d4e6`.
+
+The broad suite passed 10,820, failed 42, skipped 22, emitted 33 warnings, and
+had zero errors in 162.07 seconds. Its transcript SHA-256 is
+`804fa167f53b7b12eec08233afade87c3db73e307ef892f3dbd079db74ced0cb`.
+All 41 frozen pre-L3/MR-4 failed nodes recur exactly. The sole added node is
+the pre-existing
+`tests/test_workflow_lisp_lsp_e2e.py::test_real_repository_l2_recovery_to_full_is_read_only`;
+the corrected L3-owned node is absent. The L2 test passed all protocol,
+recovery, protected-file, and local read-only assertions and failed only its
+final repository-global `.orchestrate/build` digest while 16 xdist workers
+ran unrelated build-producing tests. The unchanged node then passed alone in
+three consecutive runs of 3.13, 3.13, and 3.14 seconds; it also passed in the
+complete focused selector. This classifies the one-node delta as unrelated
+broad-worker interference against a repository-global observability
+assertion, not an L3 behavior regression. Per plan proportionality, no
+pre-existing L2 test, L3 production code, or other behavioral surface was
+changed in response.
+- [x] Inspect the exact closure diff and run `git diff --check`.
+- [x] Obtain holistic `L3_FINAL_SPEC_APPROVED`, then distinct
       `L3_FINAL_QUALITY_APPROVED`. Any byte change restarts both reviews in
       order.
 - [ ] Commit the exact reviewed closure without post-review edits.

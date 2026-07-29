@@ -1306,18 +1306,25 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "| L3 |",
     )
     normalized_l3_row = _normalized_routing_text(l3_row)
-    assert "accepted for execution under the" in normalized_l3_row
-    assert "reviewed three task implementation plan" in normalized_l3_row
-    assert "l3_plan_spec_approved" in normalized_l3_row
-    assert "l3_plan_quality_approved" in normalized_l3_row
-    assert "task 1 follows the committed plan gate" in normalized_l3_row
+    assert "complete" in normalized_l3_row
+    assert (
+        "implementation through fc1b01ee, 9e59929d, and "
+        "xdist evidence correction 8c704f3f"
+    ) in normalized_l3_row
+    assert "l3_task1_spec_approved" in normalized_l3_row
+    assert "l3_task1_quality_approved" in normalized_l3_row
+    assert "l3_task2_spec_approved" in normalized_l3_row
+    assert "l3_task2_quality_approved" in normalized_l3_row
     assert "compile path reentrancy" in normalized_l3_row
     assert "blocked by l2" not in normalized_l3_row
     l4_row = _markdown_table_row(
         REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
         "| L4 |",
     )
-    assert "blocked by l3" in _normalized_routing_text(l4_row)
+    normalized_l4_row = _normalized_routing_text(l4_row)
+    assert "next l series design gate" in normalized_l4_row
+    assert "requires separate design review" in normalized_l4_row
+    assert "blocked by l3" not in normalized_l4_row
     l1_row = _markdown_table_row(
         REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
         "| L1 |",
@@ -1352,17 +1359,17 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "Workflow Lisp language server L3 per-source entry selection",
     )
     normalized_l3_capability_row = _normalized_routing_text(l3_capability_row)
-    assert "| Designed |" in l3_capability_row
+    assert "| Implemented |" in l3_capability_row
     assert "entry_workflows" in l3_capability_row
-    assert "l3_design_spec_approved" in normalized_l3_capability_row
-    assert "l3_design_quality_approved" in normalized_l3_capability_row
+    assert "l3_task1_spec_approved" in normalized_l3_capability_row
+    assert "l3_task1_quality_approved" in normalized_l3_capability_row
+    assert "l3_task2_spec_approved" in normalized_l3_capability_row
+    assert "l3_task2_quality_approved" in normalized_l3_capability_row
     assert "owner reordered l5 authored reference navigation are complete" in (
         normalized_index
     )
-    assert "l5 completion does not satisfy l3" in normalized_index
-    assert "completed mr 4 supplies the missing reentrancy evidence" in (
-        normalized_index
-    )
+    assert "l3 completed over mr 4 under its reviewed plan" in normalized_index
+    assert "select l4 only through its separate design review" in normalized_index
     assert "p1 diagnostic accumulation" in normalized_successor
     assert "p5 compile caching/incrementality" in normalized_successor
     assert "runtime debugging surface" in normalized_successor
@@ -1497,10 +1504,10 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "owner reordered l5 authored reference navigation are complete" in (
         normalized_successor_index
     )
-    assert "l5 completion does not satisfy l3" in (
+    assert "l3 completed over mr 4 under its reviewed plan" in (
         normalized_successor_index
     )
-    assert "completed mr 4 supplies the missing reentrancy evidence" in (
+    assert "select l4 only through its separate design review" in (
         normalized_successor_index
     )
     assert "### [Workflow Lisp Language Server L2 Implementation Plan]" in index
@@ -1734,10 +1741,9 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     assert "mr 4 closed l3's compile path reentrancy prerequisite" in (
         active_roadmap_index
     )
-    assert (
-        "immutable per source selection design plus three task "
-        "implementation plan are accepted"
-    ) in active_roadmap_index
+    assert "l3 immutable per source entry selection" in active_roadmap_index
+    assert "l4 diagnostic lifecycle and compile progress" in active_roadmap_index
+    assert "next l series design gate" in active_roadmap_index
 
 
 def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> None:
@@ -3065,7 +3071,7 @@ def test_final_yaml_holdout_is_retired_and_authored_workflow_estate_is_empty() -
     ) == []
 
 
-def test_language_server_l2_l5_and_mr4_select_l3_reviewed_execution_plan() -> None:
+def test_language_server_l2_l3_l5_are_complete_and_select_l4_design_gate() -> None:
     roadmap = (
         REPO_ROOT
         / "docs"
@@ -3104,12 +3110,25 @@ def test_language_server_l2_l5_and_mr4_select_l3_reviewed_execution_plan() -> No
         if line.startswith("| L3 |")
     )
     normalized_l3_row = _normalized_routing_text(l3_row)
-    assert "accepted for execution under the" in normalized_l3_row
-    assert "reviewed three task implementation plan" in normalized_l3_row
-    assert "l3_plan_spec_approved" in normalized_l3_row
-    assert "l3_plan_quality_approved" in normalized_l3_row
-    assert "task 1 follows the committed plan gate" in normalized_l3_row
+    assert "complete" in normalized_l3_row
+    assert (
+        "implementation through fc1b01ee, 9e59929d, and "
+        "xdist evidence correction 8c704f3f"
+    ) in normalized_l3_row
+    assert "l3_task1_spec_approved" in normalized_l3_row
+    assert "l3_task1_quality_approved" in normalized_l3_row
+    assert "l3_task2_spec_approved" in normalized_l3_row
+    assert "l3_task2_quality_approved" in normalized_l3_row
     assert "compile path reentrancy" in normalized_l3_row
+    l4_row = next(
+        line
+        for line in roadmap.splitlines()
+        if line.startswith("| L4 |")
+    )
+    normalized_l4_row = _normalized_routing_text(l4_row)
+    assert "next l series design gate" in normalized_l4_row
+    assert "requires separate design review" in normalized_l4_row
+    assert "blocked by l3" not in normalized_l4_row
     l2_plan = (
         REPO_ROOT
         / "docs"
@@ -3170,7 +3189,7 @@ def test_language_server_l2_l5_and_mr4_select_l3_reviewed_execution_plan() -> No
         )
 
 
-def test_language_server_l3_reviewed_plan_is_active_and_unimplemented() -> None:
+def test_language_server_l3_routes_shipped_per_source_entry_selection() -> None:
     plan_path = REPO_ROOT / LANGUAGE_SERVER_L3_PLAN_PATH
     plan = plan_path.read_text(encoding="utf-8")
     normalized_plan = _normalized_routing_text(plan)
@@ -3192,9 +3211,18 @@ def test_language_server_l3_reviewed_plan_is_active_and_unimplemented() -> None:
     setup = (
         REPO_ROOT / "docs/workflow_lisp_language_server_setup.md"
     ).read_text(encoding="utf-8")
-    assert "execution status: accepted for execution" in normalized_plan
+    assert "execution status: complete" in normalized_plan
     assert "l3_plan_spec_approved" in normalized_plan
     assert "l3_plan_quality_approved" in normalized_plan
+    assert "l3_task1_spec_approved" in normalized_plan
+    assert "l3_task1_quality_approved" in normalized_plan
+    assert "l3_task2_spec_approved" in normalized_plan
+    assert "l3_task2_quality_approved" in normalized_plan
+    assert "l3_final_spec_approved" in normalized_plan
+    assert "l3_final_quality_approved" in normalized_plan
+    assert "fc1b01ee" in normalized_plan
+    assert "9e59929d" in normalized_plan
+    assert "8c704f3f" in normalized_plan
     for task_number in (1, 2, 3):
         assert f"## Task {task_number}:" in plan
     assert "## Task 4:" not in plan
@@ -3202,22 +3230,31 @@ def test_language_server_l3_reviewed_plan_is_active_and_unimplemented() -> None:
     assert "superpowers:test-driven-development" in plan
     assert "do not create a worktree" in normalized_plan
 
-    assert "accepted for execution under the" in normalized_l3_row
-    assert "reviewed three task implementation plan" in normalized_l3_row
-    assert "l3_plan_spec_approved" in normalized_l3_row
-    assert "l3_plan_quality_approved" in normalized_l3_row
+    assert "complete" in normalized_l3_row
+    assert "l3_final_spec_approved" in normalized_l3_row
+    assert "l3_final_quality_approved" in normalized_l3_row
+    assert (
+        "implementation through fc1b01ee, 9e59929d, and "
+        "xdist evidence correction 8c704f3f"
+    ) in normalized_l3_row
     assert Path(LANGUAGE_SERVER_L3_PLAN_PATH).name in l3_row
     assert LANGUAGE_SERVER_L3_PLAN_PATH in design
     assert Path(LANGUAGE_SERVER_L3_PLAN_PATH).name in design_router_row
     assert Path(LANGUAGE_SERVER_L3_PLAN_PATH).name in capability_row
-    assert "| Designed |" in capability_row
+    assert "| Implemented |" in capability_row
     assert Path(LANGUAGE_SERVER_L3_PLAN_PATH).name in index
     assert (
         "### [Workflow Lisp Language Server L3 Per-Source Entry Selection "
         "Implementation Plan]" in index
     )
-    assert "current shipped scalar selection" in _normalized_routing_text(setup)
-    assert "accepted, not yet shipped" in _normalized_routing_text(setup)
+    normalized_setup = _normalized_routing_text(setup)
+    assert "entry_workflows" in normalized_setup
+    assert "exact canonical source path" in normalized_setup
+    assert "unlisted source request carries no requested workflow" in normalized_setup
+    assert "current shipped scalar selection" not in normalized_setup
+    assert "accepted, not yet shipped" not in normalized_setup
+    assert "| entry_workflow |" not in setup
+    assert "l3 target initialization" not in normalized_setup
 
 def test_language_server_l5_routes_shipped_admitted_shapes_and_closes_stage() -> None:
     roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH
@@ -3295,15 +3332,15 @@ def test_language_server_l5_routes_shipped_admitted_shapes_and_closes_stage() ->
     assert Path(LANGUAGE_SERVER_L5_PLAN_PATH).name in index
     normalized_index = _normalized_routing_text(index)
     assert "shipped execution and closure record" in normalized_index
-    assert "l5 completion does not satisfy l3" in normalized_index
+    assert "l3 completed over mr 4 under its reviewed plan" in normalized_index
 
     l3_row = _markdown_table_row(roadmap_path, "| L3 |")
     normalized_l3_row = _normalized_routing_text(l3_row)
-    assert "accepted for execution under the" in normalized_l3_row
-    assert "reviewed three task implementation plan" in normalized_l3_row
-    assert "l3_plan_spec_approved" in normalized_l3_row
-    assert "l3_plan_quality_approved" in normalized_l3_row
-    assert "task 1 follows the committed plan gate" in normalized_l3_row
+    assert "complete" in normalized_l3_row
+    assert (
+        "implementation through fc1b01ee, 9e59929d, and "
+        "xdist evidence correction 8c704f3f"
+    ) in normalized_l3_row
 
 
 def test_phased_contract_delivery_routes_reviewed_plan_to_prerequisite_gates() -> None:

@@ -1,6 +1,6 @@
 # Workflow Lisp Language Server
 
-- **Status:** implemented through L2/L5; L3 target accepted, implementation pending
+- **Status:** implemented through L2/L3/L5
 - **Kind:** feature / developer tooling architecture decision
 - **Owner:** Workflow Lisp frontend (tooling consumer)
 - **Reviewers:** independent specification rereview
@@ -13,7 +13,11 @@
   `L3_DESIGN_SPEC_APPROVED`, then independent quality review
   `L3_DESIGN_QUALITY_APPROVED` (2026-07-28); L3 canonical-path refusal
   correction `L3_CANONICAL_PATH_DESIGN_SPEC_APPROVED`, then independent
-  `L3_CANONICAL_PATH_DESIGN_QUALITY_APPROVED` (2026-07-28)
+  `L3_CANONICAL_PATH_DESIGN_QUALITY_APPROVED` (2026-07-28); L3 Task 1
+  `L3_TASK1_SPEC_APPROVED`, then `L3_TASK1_QUALITY_APPROVED`; L3 Task 2 and
+  its xdist-evidence correction each received restarted
+  `L3_TASK2_SPEC_APPROVED`, then `L3_TASK2_QUALITY_APPROVED`; final closure
+  `L3_FINAL_SPEC_APPROVED`, then `L3_FINAL_QUALITY_APPROVED` (2026-07-28)
 - **Created:** 2026-07-13
 - **Last material update:** 2026-07-28
 - **Review history:** earlier design and quality changes-required rounds,
@@ -63,12 +67,13 @@
   reference navigation is implemented through `95e05c01`, `042c0bc3`,
   `870f7db2`, `7233138a`, and `041754e6` under
   `docs/plans/2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md`.
-  L3 per-source entry selection is the next target after compiler-session
+  L3 per-source entry selection is implemented after compiler-session
   reentrancy closed under
   `docs/plans/2026-07-27-workflow-lisp-compiler-session-state-implementation-plan.md`;
-  its accepted three-task component plan is
+  its reviewed three-task component plan is
   `docs/plans/2026-07-28-workflow-lisp-language-server-l3-per-source-entry-selection-implementation-plan.md`.
-  The target below remains unimplemented until that reviewed plan closes.
+  The implementation landed through Task 1 `fc1b01ee`, Task 2 `9e59929d`,
+  and Task 2's xdist-evidence correction `8c704f3f`.
 
 ## Summary
 
@@ -101,7 +106,7 @@ non-specialized owners.
 Capabilities P1-P5 (hover types, multi-diagnostic error recovery,
 as-you-type checking, and incrementality) remain wholly deferred.
 
-## L3 Target Amendment: Immutable Per-Source Entry Selection
+## L3 Shipped Amendment: Immutable Per-Source Entry Selection
 
 L3 replaces the process-wide `initializationOptions.entry_workflow` scalar
 with one immutable `initializationOptions.entry_workflows` object:

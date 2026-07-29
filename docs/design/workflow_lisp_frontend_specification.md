@@ -4463,7 +4463,7 @@ Compiler outputs should support:
   effects, report parsing, pointer-as-authority, manual state paths, unproved
   variant references, and command adapters without typed contracts.
 
-The implemented Workflow Lisp language-server v1 plus L0, L1, L2, and L5
+The implemented Workflow Lisp language-server v1 plus L0, L1, L2, L3, and L5
 consumes those shared surfaces for:
 
 - compiler diagnostics on clean disk-equal open/save through one serialized
@@ -4476,6 +4476,16 @@ consumes those shared surfaces for:
   records, unions, schemas, resources, and transitions; and
 - namespace-preserving procedure/workflow completion with compiler-rendered
   signatures plus completion from the form registry.
+
+L3 accepts one immutable `entry_workflows` source-path-to-export-name object
+at initialization. Each compile request performs exact canonical source-path
+lookup: a listed application receives its configured exported-workflow name,
+while an unlisted library receives `entry_workflow=None` and keeps the
+production compiler's unchanged zero/one/many-export selection semantics. The
+removed process-wide scalar is rejected. Map validation and real-stdio
+refusals use the closed structured initialization-error contract owned by the
+language-server design. No editor focus, source content, basename, ancestor,
+or default selection is inferred.
 
 It owns exactly one canonical workspace root, treats the compiler-owned builtin
 stdlib root as its sole additional source allowance, binds results to exact
