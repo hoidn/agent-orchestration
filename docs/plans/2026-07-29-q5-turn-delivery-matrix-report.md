@@ -50,6 +50,31 @@
    deadline-terminalized ledgers observable in their (still-live, dead-pane)
    tmux scrollbacks; see the audit appendix.
 
+## Consolidation Disposition
+
+The debug branch is diagnosis provenance, not a competing implementation
+lineage. Its remaining deliverables were reconciled into the consolidated
+`mr4-local` line as follows:
+
+- matrix harness `52a52b2a` was integrated as `bcca80be`;
+- startup-synchronized probe `ce39161c` was integrated as `e5048646`;
+- this report `faf3e88f` was integrated as `26afe4a9`;
+- the exact `d405e5ee` patch was **not** cherry-picked. Its diagnosis and
+  required receipt-before-close ordering are accepted, but its code is
+  superseded by the already-landed `4f350407`, `18cc7578`, and `668c9c53`
+  stack. That stack flushes the final receipt before any adapter close
+  bytes, routes accepted-closing, retry, final-rejection, exhausted, and
+  active flush failures through the shared terminalizing resolver, preserves
+  the primary protocol-closed/timeout diagnostic, and records close intent
+  before the flush. It therefore covers the `d405e5ee` contract without
+  reintroducing a parallel implementation.
+
+Accordingly, later references in this historical report to “land
+`d405e5ee`” describe the debug branch at the time of investigation and are
+not current routing instructions. Production V2 bracketed-paste delivery
+remains unchanged; `KPEnter` remains a negative harness control and is not a
+production submit key.
+
 ## Workstream 1 — Isolated Turn-Delivery Matrix
 
 ### Harness

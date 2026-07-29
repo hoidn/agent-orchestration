@@ -1225,7 +1225,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         normalized_q4_row
     )
     assert "implementation not started" in normalized_q4_row
-    assert "live q5 hold applies" in normalized_q4_row
+    assert "q5 task 14 closes" in normalized_q4_row
+    assert "consolidated lineage is transplanted" in normalized_q4_row
     normalized_q4_stage = _normalized_routing_text(
         _markdown_heading_section(
             successor,
@@ -1964,7 +1965,7 @@ def test_prompt_identity_normative_and_authoring_surfaces_ship_q3() -> None:
     ).read_text(encoding="utf-8")
 
     normalized_master = _normalized_routing_text(master)
-    assert "v1.1 through v2.22" in normalized_master
+    assert "v1.1 through v2.23" in normalized_master
     assert "v2.22 adds direct fragment prompt attempt identity" in (
         normalized_master
     )
@@ -3470,8 +3471,8 @@ def test_language_server_l4_routes_verified_final_review_correction() -> None:
     assert "task 4 focused 356 passed and broad comparison has zero new failures" in (
         normalized_index
     )
-    assert "492b1171" in normalized_index
-    assert "no split proof" in normalized_index
+    assert "q5 tasks 1 13 are implemented through bb67f680" in normalized_index
+    assert "external final exact tree reviews remain pending" in normalized_index
     lifecycle_index = _normalized_routing_text(
         _markdown_heading_section(
             index,
@@ -3524,12 +3525,14 @@ def test_language_server_l4_routes_verified_final_review_correction() -> None:
     assert "concrete generic reviewer/panel consumer is bound" in q4_row
     assert "design accepted at d7fe4549" in q4_row
     assert "accepted after ordered specification then quality review" in q4_row
-    assert "implementation not started while the live q5 hold applies" in q4_row
+    assert "implementation not started" in q4_row
+    assert "q5 task 14 closes" in q4_row
+    assert "consolidated lineage is transplanted" in q4_row
     assert "no q4 dependency" in q5_row
-    assert "partial" in q5_row
+    assert "implementation complete through task 13 commit bb67f680" in q5_row
     assert "3fc3a09e" in q5_row
-    assert "task 14 not started" in q5_row
-    assert "no split proof substitution" in q5_row
+    assert "superseded historical provenance" in q5_row
+    assert "external q5_final_spec_approved then q5_final_quality_approved" in q5_row
     assert "complete" in l5_row
     assert "041754e6" in l5_row
 
@@ -3716,7 +3719,7 @@ def test_language_server_l5_routes_shipped_admitted_shapes_and_closes_stage() ->
     ) in normalized_l3_row
 
 
-def test_phased_contract_delivery_routes_partial_stop_to_exact_fix_reviews() -> None:
+def test_phased_contract_delivery_routes_implemented_surface_to_external_closure() -> None:
     roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH
     design_path = REPO_ROOT / PHASED_CONTRACT_DELIVERY_DESIGN_PATH
     plan_path = REPO_ROOT / PHASED_CONTRACT_DELIVERY_PLAN_PATH
@@ -3727,16 +3730,12 @@ def test_phased_contract_delivery_routes_partial_stop_to_exact_fix_reviews() -> 
     normalized_design_status = _normalized_routing_text(
         "\n".join(design_path.read_text(encoding="utf-8").splitlines()[:18])
     )
-    assert "status: partial" in normalized_design_status
-    assert "bceb03e4" in normalized_design_status
+    assert "status: implemented at target 2.23" in normalized_design_status
+    assert "bb67f680" in normalized_design_status
     assert "3fc3a09e" in normalized_design_status
-    assert "task 14 has not started" in normalized_design_status
-    assert "492b1171" in normalized_design_status
-    assert "92515f98" in normalized_design_status
-    assert "q5_f1_f2_fix_spec_approved" in normalized_design_status
-    assert "q5_f1_f2_fix_quality_approved" in normalized_design_status
-    assert "required, not issued" in normalized_design_status
-    assert "no split proof satisfies that gate" in normalized_design_status
+    assert "superseded historical provenance" in normalized_design_status
+    assert "external exact tree reviews" in normalized_design_status
+    assert "not self attested" in normalized_design_status
 
     q5_row = _markdown_table_row(roadmap_path, "| Q5 |")
     normalized_q5_row = _normalized_routing_text(q5_row)
@@ -3744,54 +3743,62 @@ def test_phased_contract_delivery_routes_partial_stop_to_exact_fix_reviews() -> 
     assert "reviewed implementation plan at 45468c55" in normalized_q5_row
     assert "q3 complete" in normalized_q5_row
     assert "no q4 dependency" in normalized_q5_row
-    assert "implementation activated through bceb03e4" in normalized_q5_row
-    assert "partial" in normalized_q5_row
-    assert "task 13 stopped at 3fc3a09e" in normalized_q5_row
-    assert "q5_task13_spec_approved withheld" in normalized_q5_row
-    assert "task 14 not started" in normalized_q5_row
-    assert "492b1171" in normalized_q5_row
-    assert "92515f98" in normalized_q5_row
-    assert "q5_f1_f2_fix_spec_approved" in normalized_q5_row
-    assert "q5_f1_f2_fix_quality_approved" in normalized_q5_row
-    assert "required and not issued" in normalized_q5_row
-    assert "unchanged combined invalid then valid real provider gate" in (
+    assert "implementation complete through task 13 commit bb67f680" in (
         normalized_q5_row
     )
-    assert "no split proof substitution" in normalized_q5_row
+    assert "attempt 10 passed in 47.29s" in normalized_q5_row
+    assert "focused 2,245 passed" in normalized_q5_row
+    assert "q5_task13_spec_approved then q5_task13_quality_approved" in (
+        normalized_q5_row
+    )
+    assert "3fc3a09e is superseded historical provenance" in normalized_q5_row
+    assert (
+        "task 14's 10,919 passed / 42 failed / 23 skipped candidate predates "
+        "correction 5d8a3151"
+    ) in normalized_q5_row
+    assert "superseded for closure" in normalized_q5_row
+    assert "fresh post correction broad replay" in normalized_q5_row
+    assert "exact delta adjudication" in normalized_q5_row
+    assert "external q5_final_spec_approved then q5_final_quality_approved" in (
+        normalized_q5_row
+    )
+    assert "no repository row self attests" in normalized_q5_row
 
     design_router_row = _markdown_table_row(
         design_router_path,
         "workflow_lisp_phased_contract_delivery.md",
     )
-    assert "| Partial through activation `bceb03e4` |" in design_router_row
+    assert "| Implemented through Task 13 at `bb67f680` |" in design_router_row
     normalized_design_router_row = _normalized_routing_text(design_router_row)
     assert "872a29af" in normalized_design_router_row
     assert "45468c55" in normalized_design_router_row
     assert "3fc3a09e" in normalized_design_router_row
-    assert "492b1171" in normalized_design_router_row
-    assert "92515f98" in normalized_design_router_row
-    assert "q5_f1_f2_fix_spec_approved" in normalized_design_router_row
-    assert "q5_f1_f2_fix_quality_approved" in normalized_design_router_row
-    assert "owed, not issued" in normalized_design_router_row
-    assert "not a split proof substitute" in normalized_design_router_row
+    assert "explicitly superseded history" in normalized_design_router_row
+    assert "q5_task13_spec_approved then q5_task13_quality_approved" in (
+        normalized_design_router_row
+    )
+    assert "external exact tree final reviews" in normalized_design_router_row
+    assert "does not self attest" in normalized_design_router_row
 
     capability_row = _markdown_table_row(
         capability_matrix_path,
         "Workflow Lisp phased contract delivery Q5",
     )
     normalized_capability_row = _normalized_routing_text(capability_row)
-    assert "| Partial |" in capability_row
+    assert "| Implemented |" in capability_row
     assert "accepted design 872a29af" in normalized_capability_row
     assert "reviewed plan 45468c55" in normalized_capability_row
-    assert "activation is present" in normalized_capability_row
-    assert "task 13 is stopped" in normalized_capability_row
-    assert "task 14 has not started" in normalized_capability_row
-    assert "q5_task13_spec_approved" in normalized_capability_row
-    assert "withheld" in normalized_capability_row
-    assert "q5_f1_f2_fix_spec_approved" in normalized_capability_row
-    assert "q5_f1_f2_fix_quality_approved" in normalized_capability_row
-    assert "owed and not issued" in normalized_capability_row
-    assert "no split proof substitution" in normalized_capability_row
+    assert "tasks 1 13 complete through bb67f680" in normalized_capability_row
+    assert "attempt 10 passed in 47.29s" in normalized_capability_row
+    assert "focused q5 selector passed 2,245 tests" in normalized_capability_row
+    assert "q5_task13_spec_approved then q5_task13_quality_approved" in (
+        normalized_capability_row
+    )
+    assert "3fc3a09e is superseded history" in normalized_capability_row
+    assert "external exact tree reviews remain the roadmap gate" in (
+        normalized_capability_row
+    )
+    assert "does not self attest" in normalized_capability_row
     assert Path(PHASED_CONTRACT_DELIVERY_PLAN_PATH).name in capability_row
 
     normalized_design_index = _normalized_routing_text(
@@ -3800,15 +3807,14 @@ def test_phased_contract_delivery_routes_partial_stop_to_exact_fix_reviews() -> 
             "### [Workflow Lisp Phased Contract Delivery]",
         )
     )
-    assert "partial target 2.23 stage q5 surface" in normalized_design_index
-    assert "bceb03e4" in normalized_design_index
+    assert "implemented target 2.23 stage q5 surface" in normalized_design_index
+    assert "bb67f680" in normalized_design_index
     assert "3fc3a09e" in normalized_design_index
-    assert "492b1171" in normalized_design_index
-    assert "92515f98" in normalized_design_index
-    assert "q5_f1_f2_fix_spec_approved" in normalized_design_index
-    assert "q5_f1_f2_fix_quality_approved" in normalized_design_index
-    assert "required and unissued" in normalized_design_index
-    assert "not a split proof" in normalized_design_index
+    assert "superseded historical provenance" in normalized_design_index
+    assert "q5_final_spec_approved then q5_final_quality_approved" in (
+        normalized_design_index
+    )
+    assert "does not self attest" in normalized_design_index
 
     assert (
         "### [Workflow Lisp Phased Contract Delivery Implementation Plan]"
@@ -3822,23 +3828,37 @@ def test_phased_contract_delivery_routes_partial_stop_to_exact_fix_reviews() -> 
     )
     assert "reviewed q5 execution plan" in normalized_plan_index
     assert "45468c55" in normalized_plan_index
-    assert "bceb03e4" in normalized_plan_index
-    assert "task 13 stop record at 3fc3a09e" in normalized_plan_index
-    assert "492b1171" in normalized_plan_index
-    assert "92515f98" in normalized_plan_index
-    assert "q5_f1_f2_fix_spec_approved" in normalized_plan_index
-    assert "q5_f1_f2_fix_quality_approved" in normalized_plan_index
-    assert "required and unissued" in normalized_plan_index
-    assert "task 14 has not started" in normalized_plan_index
-    assert "no split proof" in normalized_plan_index
+    assert "tasks 1 13 are complete through bb67f680" in normalized_plan_index
+    assert "3fc3a09e" in normalized_plan_index
+    assert "explicitly superseded historical provenance" in normalized_plan_index
+    assert "2,245 pass gate" in normalized_plan_index
+    assert "exact delta adjudication" in normalized_plan_index
+    assert "external final exact tree reviews" in normalized_plan_index
     assert Path(PHASED_CONTRACT_DELIVERY_PLAN_PATH).name in index
 
     plan = plan_path.read_text(encoding="utf-8")
+    normalized_plan = _normalized_routing_text(plan)
     assert "Q5_PLAN_SPEC_APPROVED" in plan
     assert "Q5_PLAN_QUALITY_APPROVED" in plan
     assert "872a29af13f140d53b3637b475859496a50d5724" in plan
     assert "## 2026-07-28 Task 13 Stop Record" in plan
-    assert "Q5_TASK13_SPEC_APPROVED" in plan
+    assert "historical provenance, superseded on 2026 07 29." in normalized_plan
     assert "withheld" in plan
     assert "Task 14 has not started" in plan
     assert "Do not infer a split-proof substitution" in plan
+    assert "## 2026-07-29 Task 13 Completion Record" in plan
+    assert "bb67f680" in plan
+    assert "1 passed in 47.29s" in plan
+    assert "passed 2,245 tests" in normalized_plan
+    assert "Q5_TASK13_SPEC_APPROVED" in plan
+    assert "Q5_TASK13_QUALITY_APPROVED" in plan
+    assert "## 2026-07-29 Task 14 Pre-Correction Candidate Record" in plan
+    assert "10,919 passed, 42 failed, 23 skipped, 0 errors, and 33 warnings" in (
+        normalized_plan
+    )
+    assert "predates correction 5d8a3151" in normalized_plan
+    assert "truthful superseded candidate evidence" in normalized_plan
+    assert "fresh post correction replay" in normalized_plan
+    assert "exact delta adjudication" in normalized_plan
+    assert "against the post p2 baseline remain required" in normalized_plan
+    assert "q5_final_spec_approved then q5_final_quality_approved" in normalized_plan

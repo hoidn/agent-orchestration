@@ -71,11 +71,17 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
 
 - Workflow Lisp call-local provider policy
   - Ordinary Workflow Lisp `provider-result` may author the closed canonical
-    options `model` and `effort`, plus a positive literal timeout. The compiler
-    carries only present model/effort values in the internal
-    `provider_call_policy` mapping; timeout remains the existing common
-    `timeout_sec` field. Complete absence emits neither field and preserves the
-    provider template's existing defaults and argv behavior.
+    options `model` and `effort`, plus a positive literal timeout. Target 2.23
+    additionally accepts explicit `delivery` and bounded literal
+    `materialization_attempts`. The closed internal `provider_call_policy`
+    mapping orders present keys as `model`, `effort`, `delivery`, then
+    `materialization_attempts`; timeout remains the existing common
+    `timeout_sec` field.
+  - Model and effort are provider-bound. Delivery and materialization attempts
+    are runtime-only call policy: they are not legal
+    `call_policy_bindings`, are never merged into provider parameters, and
+    never alter provider argv. Complete absence emits no policy mapping and
+    preserves the provider template's existing defaults and argv behavior.
   - `ProviderTemplate.call_policy_bindings` is declarative provider data. Its
     keys are exactly `model` and `effort`, and each value must be a public
     `CallPolicyBinding(target_param: str, argv_fragment: Sequence[str] | None)`
@@ -107,12 +113,15 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     in those commands and exactly one dynamic placeholder—the matching target—in
     its ordered `argv_fragment`. Missing, duplicate, mismatched, extra, reserved,
     or non-string fragment placeholders reject registration.
-  - Preparation translates canonical values without substitution, then performs
-    exactly one merge with precedence `provider defaults < provider_params <
-    translated canonical overrides`. It applies the existing parameter
-    substitution exactly once to that merged mapping, appends present fragments
-    in canonical `model`, then `effort` order, and invokes the existing command
-    builder. The existing substitution owner retains `substitution_error`.
+  - Preparation translates provider-bound canonical values without
+    substitution, then performs exactly one merge with precedence `provider
+    defaults < provider_params < translated canonical overrides`. It applies
+    the existing parameter substitution exactly once to that merged mapping,
+    appends present fragments in canonical `model`, then `effort` order, and
+    invokes the existing command builder. Runtime-only delivery values are
+    consumed by the executor/coordinator before this translation and are
+    excluded from it. The existing substitution owner retains
+    `substitution_error`.
   - A present canonical option without a declared binding fails before process or
     session creation with exit `2` and
     `error.type: provider_call_policy_unsupported`. Its bounded context contains
@@ -436,6 +445,57 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     select providers, settle attempts, validate business results, or
     participate in checkpoint/resume compatibility. Targets 2.20 and 2.21
     preserve their existing invocation and functional-v1 evidence bytes.
+
+- Workflow Lisp phased contract delivery (target 2.23)
+  - Omitted delivery and explicit composed delivery use the ordinary composed
+    provider path and never construct the phased coordinator. Explicit phased
+    delivery requires the exact structural
+    `interactive_terminal_turn_queue.v1` capability; capability absence,
+    malformed capability, or runtime drift fails closed with no composed
+    fallback.
+  - One `timeout_sec` owns the whole attempt deadline. The coordinator shortens
+    each adapter or local operation to the remaining budget and does not
+    authorize a later action or commit after an operation crosses that
+    deadline.
+  - The compiler/runtime composes canonical `C` once. It delivers exact prefix
+    `T1` as task ordinal zero, then the separator-inclusive suffix `T2` as
+    materialization ordinal/submission one, with `T1 || T2 == C`. A retry keeps
+    `T2` byte-identical, adds separately accounted diagnostic framing, and uses
+    submission two or three. Protocol, submit, and diagnostic frames are
+    outside `C`. One provider-attempt ordinal, one provider process, and one
+    task delivery own the complete sequence.
+  - Before launch, every bound candidate path must be distinct and absent. The
+    provider receives an opaque attempt-bound submit binding and a content-free,
+    argument-free submit signal. Binding and endpoint-locator derivation is
+    inert; actual endpoint allocation/bind begins only after successful
+    provider start.
+  - On each accepted submit the runtime snapshots candidate bytes, validates
+    output-position files first and the structured result second, and publishes
+    neither surface. An invalid candidate records a complete content-free
+    manifest and resets every bound path to exact absence before a permitted
+    retry. A valid candidate is frozen; no further submit can replace it.
+  - Success first durably records close intent, then resolves and flushes the
+    active submit request's exact `accepted_closing` receipt before offering
+    any close bytes. Receipt-flush failure terminalizes without calling
+    `offer_close`. Only after a successful flush does the runtime offer and
+    durably record natural close, disable and drain ingress, close and join the
+    endpoint, validate natural zero-exit provider shutdown, publish terminal
+    evidence, restore and verify the frozen candidate, and perform one guarded
+    atomic state commit. Only validated output files and the structured bundle
+    become workflow authority. Provider stdout, submit receipts, protocol
+    frames, phase ledgers, reports, and provisional files are
+    non-authoritative.
+  - Failed start uses the closed `InteractiveTerminalStartOutcome` and
+    handle-free `NoBackendAllocationProof|PhasedFailedCleanupEvidence`
+    projection. A later abort still returns the unchanged target-2.17
+    handle-bound proof; exact active-handle identity is validated before its
+    content-free projection. Missing or mismatched proof identity fails closed.
+  - Every failure follows the closed T0–T4 terminal grammar. An allocated
+    endpoint has at most one ingress start and one finished-or-failed outcome;
+    every pre-natural-proof path has exactly one cleanup outcome overall.
+    Receipt of a validated natural proof moves the attempt to
+    `JOINED_PENDING_COMMIT`; later evidence, restoration, verification, or
+    state-commit failure never aborts the now-terminal provider.
 
 - Workflow Lisp live-provider supervision (v2.16)
   - `with-live-providers` is a `.orc`-only form with exactly two bindings and

@@ -673,13 +673,15 @@ unchanged. No full prompt or role bytes are persisted.
 
 ## Comparison Contract
 
-The pure comparator accepts two validated v2 records with the same
-`ProviderAttemptScope`, where `current.ordinal > previous.ordinal`.
+The Q3 comparator accepts two validated functional-v2/identity-v1 records with
+the same `ProviderAttemptScope`, where
+`current.ordinal > previous.ordinal`.
 Report selection first chooses the greatest earlier published
 `record_kind=prompt_snapshot` ordinal in that scope without skipping a newer
-legacy or invalid candidate. That exact candidate must then validate as v2.
-A valid v1 candidate yields `legacy_snapshot_only`; an invalid candidate
-yields `previous_record_invalid`, even when an older valid v2 record exists.
+legacy or invalid candidate. That exact candidate must then validate as
+functional-v2. A valid functional-v1 candidate yields `legacy_snapshot_only`;
+an invalid candidate yields `previous_record_invalid`, even when an older
+valid functional-v2 record exists.
 Selection does not use filesystem order or mapping order.
 
 For comparable records, it emits an ordered array using this fixed order:
@@ -738,7 +740,9 @@ stdout, or current provider configuration.
 ## Report Surface
 
 Existing `orchestrator report` JSON retains its `run`, `progress`, and `steps`
-members and adds one exact top-level sibling:
+members and adds one exact top-level sibling. Q3 originally emitted report v1;
+the implemented target-2.23 phased-delivery amendment now emits the additive
+report v2 shape for every DSL target:
 
 ```json
 {
@@ -746,7 +750,7 @@ members and adds one exact top-level sibling:
   "progress": {},
   "steps": [],
   "prompt_context": {
-    "schema_version": "workflow_prompt_context_report.v1",
+    "schema_version": "workflow_prompt_context_report.v2",
     "attempts": []
   }
 }
@@ -763,7 +767,8 @@ shape.
 
 The report qualifies a provider-attempt scope as fragment-backed only from:
 
-- at least one strictly validated v1/v2 fragment snapshot in that scope;
+- at least one strictly validated functional-v1/v2/v3 fragment snapshot in
+  that scope;
 - at least one strictly validated existing failure record whose compiler
   contract origin is `workflow_lisp_prompt_fragment`; or
 - at least one strictly validated Q3 preparation-failure record in that scope.
@@ -788,8 +793,11 @@ Every attempt row has this one closed shape:
   "record_status": "snapshot",
   "record_sha256": "sha256:...",
   "identity": {
+    "identity_version": "workflow_prompt_attempt_identity.v1",
     "composition_sha256": "sha256:...",
-    "final_prompt_sha256": "sha256:...",
+    "legacy_final_prompt_sha256": "sha256:...",
+    "canonical_composed": null,
+    "actual_deliveries": null,
     "role_sha256": {
       "fragment_program": "sha256:...",
       "resolved_bindings": "sha256:...",
@@ -811,8 +819,8 @@ The exact `record_status` cases are:
 
 | `record_status` | `record_sha256` | `identity` | `comparison` |
 | --- | --- | --- | --- |
-| `snapshot` | validated v2 record digest | exact validated Q3 digest projection | available against the selected validated predecessor, or unavailable with a closed reason |
-| `legacy_snapshot` | validated v1 record digest | null | unavailable / `legacy_snapshot_only` |
+| `snapshot` | validated functional-v2/identity-v1 or functional-v3/identity-v2 record digest | exact validated versioned digest projection | available against the selected same-version predecessor, or unavailable with a closed reason |
+| `legacy_snapshot` | validated functional-v1 record digest | null | unavailable / `legacy_snapshot_only` |
 | `failure` | validated failure-record digest | null | unavailable / `provider_policy_unresolved` for the exact Q3 preparation-failure schema; otherwise `current_record_missing` |
 | `allocation_only` | null | null | unavailable / `current_record_missing` |
 | `invalid` | null | null | unavailable / `current_record_invalid` |
@@ -820,13 +828,14 @@ The exact `record_status` cases are:
 The row keys never vary. `record_sha256` and `identity` use JSON null exactly
 where the table says null. An invalid publication may retain its existing
 allocator/event identity for ordering, but the report does not repeat an
-unvalidated claimed record digest. If a current valid v2 snapshot has a
-greatest earlier prompt-snapshot publication in the same scope, that exact
-candidate must validate as v2 before comparison. An invalid candidate yields
-`previous_record_invalid`; a valid v1 candidate yields
-`legacy_snapshot_only`. Failure publications and allocation-only gaps are not
-prompt-snapshot predecessor candidates and are skipped when selecting the
-greatest earlier prompt snapshot.
+unvalidated claimed record digest. If a current valid functional-v2/v3
+snapshot has a greatest earlier prompt-snapshot publication in the same scope,
+that exact candidate must validate under its claimed schema before comparison.
+An invalid candidate yields `previous_record_invalid`; a valid functional-v1
+candidate yields `legacy_snapshot_only`; and an identity-v1/identity-v2 pair
+uses the amendment's `identity_version_mismatch`. Failure publications and
+allocation-only gaps are not prompt-snapshot predecessor candidates and are
+skipped when selecting the greatest earlier prompt snapshot.
 
 The Markdown view renders a `Prompt context` section after the ordinary steps,
 with the same attempt order, record-status labels, role labels, and comparison
@@ -875,8 +884,8 @@ Q3 does not make evidence authoritative:
   call-frame, bound-input, checkpoint, result-contract, and completed-boundary
   guards and returns the committed result without preparing a provider or
   reading prompt evidence;
-- a pending or failed boundary allocates a fresh attempt and creates a fresh
-  v2 identity before its provider launch;
+- a pending or failed boundary allocates a fresh attempt and creates fresh
+  version-appropriate identity evidence before provider launch;
 - a missing or damaged evidence file does not invalidate an otherwise
   compatible completed result;
 - the optional identity carrier and binding plan participate in ordinary
@@ -887,6 +896,41 @@ Q3 does not make evidence authoritative:
 Targets below 2.22 preserve their existing artifact, runtime, checkpoint,
 state, and evidence bytes. A target-2.22 runtime must not silently emit v1
 evidence for a fragment-backed attempt.
+
+## Implemented Target-2.23 Phased-Delivery Amendment
+
+Target 2.23 preserves the complete Q3 role model and binding-plan authority
+while adding one versioned distinction for explicit phased delivery:
+
+- omitted and explicit composed calls retain
+  `workflow_prompt_attempt_identity.v1` inside
+  `workflow_prompt_fragment_snapshot.functional.v2`;
+- explicit phased calls require `workflow_prompt_attempt_identity.v2` inside
+  `workflow_prompt_fragment_snapshot.functional.v3`;
+- identity v2 replaces the v1 delivered-final-prompt claim with separate
+  `canonical_composed {bytes, sha256}` and ordered `actual_deliveries`; a
+  requested or offered turn is not actual delivery until its durable receipt;
+- functional-v3 validates every delivery row and the v2 composition seal
+  without persisting prompt or candidate content; and
+- a composed/phased identity-evidence mismatch fails before provider start.
+
+The current report projection is
+`workflow_prompt_context_report.v2`. Every non-null identity has the fixed
+keys `identity_version`, `composition_sha256`,
+`legacy_final_prompt_sha256`, `canonical_composed`, `actual_deliveries`, and
+`role_sha256`. V1 rows populate only the legacy final-prompt field; v2 rows
+populate only canonical composition and actual deliveries. There is no
+`final_prompt_sha256` field that could misdescribe canonical `C` as one
+delivered turn.
+
+Predecessor selection retains Q3 scope/ordinal rules but comparison is
+version-strict. A v1/v2 pair is unavailable with
+`identity_version_mismatch`. V2 adds only
+`actual_delivery_drift` after the five existing role classifications and
+canonical composition agree. Report v2 remains provenance only and does not
+change execution, result, checkpoint, retry, or resume authority. The exact
+v2 record and projection schemas are owned by
+`workflow_lisp_phased_contract_delivery.md`.
 
 ## Principle 29 And Type Parsimony
 

@@ -263,6 +263,60 @@
 - Target-2.20/2.21 state, checkpoints, functional-v1 evidence, and reuse stay
   byte-compatible. Q3 does not change state schema `2.1`.
 
+## Target 2.23 Phased Contract Delivery State And Resume
+
+- Phased delivery remains on state schema `2.1`. Persisted provider
+  configuration and lexical checkpoint configuration carry the ordinary
+  provider call policy extended by exact `delivery` and
+  `materialization_attempts`, the exact
+  `workflow_prompt_attempt_identity.v2` selection, and the retained
+  `compiler_prompt_attempt_binding_plan.v1`. Missing, extra, downgraded, or
+  unequal carriers fail closed before provider preparation and during
+  checkpoint/completed-boundary compatibility validation.
+- Runtime evidence and report surfaces form a separate version-closed family:
+  `workflow_prompt_attempt_composition.v2`,
+  `workflow_prompt_attempt_provider_policy.v2`,
+  `provider_phased_protocol_frame.v1`,
+  `workflow_prompt_fragment_snapshot.functional.v3`,
+  `provider_phased_candidate_digest_manifest.v1`,
+  `provider_phased_delivery_diagnostic.v1`, and
+  `workflow_prompt_context_report.v2`. They are validated evidence or report
+  schemas, not persisted provider-configuration/checkpoint carriers and not
+  workflow-state authority. Missing, malformed, downgraded, or mixed-version
+  evidence fails its owning validation boundary closed.
+- Identity v2 preserves canonical-composed identity separately from its exact
+  ordered `actual_deliveries`. A requested or offered turn is not an actual
+  delivery until its durable receipt proves delivery. Functional-v3 evidence
+  is content-free and validates this distinction; it never stores prompt,
+  candidate, result, submit, command, or environment bytes.
+- `workflow_prompt_context_report.v2` projects validated v1 attempts through
+  nullable `legacy_final_prompt_sha256` and validated v2 attempts through
+  `canonical_composed` plus ordered `actual_deliveries`. Comparison is
+  version-strict and may report `actual_delivery_drift`; it never substitutes
+  canonical composition for a delivered prompt. Reports remain
+  non-authoritative.
+- Each phased attempt owns one append-only
+  `provider_prompt_phase_ledger.v1` JSONL sidecar. Its header is sequence zero,
+  subsequent events are contiguous, and terminal rows close the grammar.
+  Offline validation reads only ledger bytes and returns a closed validation
+  status. The ledger, its digests, candidate manifests, diagnostics, receipts,
+  and terminal events are evidence only and cannot satisfy a result,
+  checkpoint, route, retry, or resume guard.
+- Provider output positions and the structured result publish in one guarded
+  state commit only after the candidate is jointly valid, frozen, naturally
+  closed, restored, and verified. No provisional artifact map, bundle value,
+  lineage row, success state, or route value enters authoritative state.
+- Compatible completed-boundary reuse validates ordinary source, root,
+  call-frame, bound-input, checkpoint, result-contract, completed-state, and
+  persisted completed-boundary event invariants. It does not open the phase
+  ledger, candidate files, or attempt-evidence records and does not reconstruct
+  evidence from current source.
+- An interrupted nonterminal phased visit is detected from authoritative
+  `current_step` state and becomes a sticky
+  `provider_phased_interrupted_visit_quarantined` failure. It is never
+  ordinarily resumed or silently restarted. Missing, malformed, conflicting,
+  or ambiguous state/evidence needed to classify the boundary fails closed.
+
 ## Workflow Lisp Typed Prompt-Input Evidence
 
 - Each provider invocation's prompt composition returns one closed, validated

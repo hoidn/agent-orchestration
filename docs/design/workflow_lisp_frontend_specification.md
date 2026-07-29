@@ -1300,6 +1300,27 @@ contract is `workflow_lisp_prompt_identity_diagnostics.md`. This target does
 not add prompt values, judgments, coordinated-provider fragments, or identity
 for arbitrary provider calls.
 
+### 8.7.4 Implemented Phased Contract Delivery (Target 2.23)
+
+A direct fragment-backed `provider-result` may select `:delivery :composed` or
+`:delivery :phased`. Omission remains byte-compatible composed delivery.
+Phased delivery may additionally set one literal
+`:materialization-attempts` in `1..3`; omission defaults to `2`. The attempts
+keyword is illegal without explicit phased delivery.
+
+The compiler-owned call-policy mapping orders present keys as `model`,
+`effort`, `delivery`, then `materialization_attempts`. Only model and effort
+are provider-bound; delivery and attempts are runtime-only. A phased call
+requires the exact `interactive_terminal_turn_queue.v1` capability and exact
+attempt identity v2. There is no capability-based fallback to composed
+delivery.
+
+The compiler renders canonical `C` once and retains exact slices
+`T1 || T2 == C`: task once, then separator-inclusive materialization, with a
+bounded retry reusing exact `T2`. Protocol frames remain outside `C`. The
+complete runtime, identity/evidence, resume, and failure contract is
+`workflow_lisp_phased_contract_delivery.md`.
+
 ### 8.8 `defproc`
 
 Defines reusable effectful workflow procedure.
@@ -2659,6 +2680,30 @@ including running attempts, but never become execution, result, checkpoint,
 retry, or resume authority. Target-2.20/2.21 compiler, checkpoint, runtime,
 functional-v1 evidence, provider, result, and completed-boundary reuse remain
 compatible.
+
+### 22.9 Implemented Phased Contract Delivery (Target 2.23)
+
+Target 2.23 opens the closed compiler-owned provider call policy with
+`delivery` and `materialization_attempts`. The carrier flows unchanged through
+classic and WCC compilation, Core, Semantic IR, Executable IR, persisted
+provider configuration, checkpoint identity, and `RuntimeStep`. Omitted
+delivery carries neither key; explicit composed carries only its delivery
+selection; explicit phased carries the defaulted or authored attempts total.
+
+Only explicit phased delivery selects the single-attempt coordinator. The
+coordinator consumes one canonical render plus its exact `T1`/`T2` cut,
+identity-v2 and functional-v3 policy, generated candidate paths, Q2 output and
+result validators, and the exact structural interactive capability. It owns
+the attempt-bound submit endpoint, phase ledger, bounded correction, natural
+close, evidence publication, frozen-candidate restoration, and one guarded
+state commit. None of those internal handles or evidence records is a Workflow
+Lisp value.
+
+Omitted and explicit composed calls retain Q3 identity v1/functional-v2 bytes
+and the ordinary provider executor. A phased capability refusal launches no
+provider and has no composed fallthrough. Interrupted nonterminal phased
+visits are sticky-quarantined; compatible completed reuse validates the
+completed state/evidence boundary without reading the phase ledger.
 
 ## 23. Command Result
 
@@ -5590,6 +5635,23 @@ runtime-contribution, and provider-policy drift in fixed order; target-2.20 and
 2.21 controls preserve their execution bytes and project validated v1 evidence
 as `legacy_snapshot`. The surface remains direct-fragment-only and
 non-authoritative.
+
+## 105.9 Implemented Phased Contract Delivery
+
+Q5 is implemented at target 2.23 through the exact call-policy carriage,
+single-render `T1 || T2 == C` cut, deadline-aware interactive adapter,
+attempt-bound submit endpoint, bounded materialization-only correction,
+joint Q2 validation, immutable candidate freezing, natural shutdown, and
+atomic publication described in Sections 8.7.4 and 22.9.
+
+Attempt identity v2 and functional evidence v3 distinguish canonical
+composition from exact actual deliveries. The canonical phase ledger,
+candidate manifests, total diagnostics, and report-v2 projection are
+content-free and non-authoritative. Omitted/explicit composed calls retain
+their ordinary path and Q3 v1/v2 evidence; target-2.17 peer behavior is
+unchanged. The migrated `review-design-docs` consumer and its real-provider
+invalid-then-valid run prove one-client correction without pane-text
+authority, cancellation, or a provider-session resume command.
 
 ## Part XIX. Resolved Design Decisions
 

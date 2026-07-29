@@ -1,13 +1,11 @@
 # Workflow Lisp Phased Contract Delivery
 
-- **Status:** partial. Implementation is activated through `bceb03e4`, but the
-  Task 13 stop recorded at `3fc3a09e` still governs and Task 14 has not
-  started. The F1/F2 evidence-surfacing correction at `492b1171`, merged into
-  this lineage at `92515f98`, still requires
-  `Q5_F1_F2_FIX_SPEC_APPROVED` then `Q5_F1_F2_FIX_QUALITY_APPROVED`; both are
-  required, not issued. Only after those reviews may the unchanged combined
-  invalid-then-valid real-provider gate be re-attempted. No split proof
-  satisfies that gate.
+- **Status:** implemented at target 2.23. Tasks 1–13, including the combined
+  invalid-then-valid real-provider consumer, are complete through `bb67f680`;
+  the 2026-07-28 stop at `3fc3a09e` remains superseded historical
+  provenance. Task 14 normative/routing/broad closure and its external
+  exact-tree reviews are the
+  remaining execution-plan gate and are not self-attested by this document.
 - **Kind:** target-2.23 frontend and provider-runtime design
 - **Owner:** Workflow Lisp call policy, prompt composition, and provider
   attempt runtime
@@ -2404,8 +2402,7 @@ ledger-driven recovery path.
   attempt-owned sidecar and interruption uses the existing sticky run-error
   envelope. The call policy remains program/configuration input.
 
-If Q5 is accepted and selected for implementation, normative amendments are
-required in:
+The implemented Q5 contract is reflected normatively in:
 
 - `specs/dsl.md` for target-2.23 syntax and diagnostics, including opening
   the closed compiler-owned `provider_call_policy` mapping (canonical
@@ -2437,11 +2434,16 @@ required in:
 attempts are excluded from phased admission; lifting that exclusion is a
 separate future amendment.
 
-The capability matrix must remain “designed/not available” until
-implementation, executable evidence, normative updates, and final reviews
-land.
+The capability matrix may describe the Tasks 1–13 runtime surface as
+implemented. Roadmap closure remains separately gated on Task 14's fresh
+normative/routing/broad evidence and external exact-tree reviews.
 
 ## Feasibility Prerequisite
+
+**Satisfied.** The deadline-aware closed-start adapter prerequisite and its
+real supported interactive-provider proof landed before the Q5 coordinator.
+The remainder of this section retains the reviewed prerequisite contract and
+its proof boundary as historical design authority.
 
 The existing code proves the individual
 `InteractiveTerminalTurnQueueAdapter` primitives and proves their use inside a

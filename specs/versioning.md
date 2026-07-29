@@ -336,6 +336,36 @@
     provider, evidence, and completed-result reuse bytes remain unchanged.
     State schema remains `2.1`.
 
+- v2.23 additions (Workflow Lisp phased contract delivery)
+  - Target `2.23` adds the optional direct-fragment provider-call policy
+    `:delivery :composed|:phased` and the phased-only non-boolean literal
+    `:materialization-attempts 1..3`, defaulting to `2` only when phased
+    delivery is explicit. Omitted delivery remains composed and carries
+    neither key.
+  - Omitted and explicit composed calls retain the ordinary route,
+    attempt-identity-v1, and functional-v2 evidence. Explicit phased delivery
+    requires `interactive_terminal_turn_queue.v1`, has no composed fallback,
+    and requires attempt-identity-v2 plus functional-v3 evidence.
+  - The phased runtime partitions one canonical composition as exact
+    `T1 || T2 == C`, delivers the task once, permits bounded
+    materialization-only correction in the same provider process, validates
+    output positions then the structured result, and publishes one jointly
+    valid candidate only after natural shutdown and one guarded state commit.
+  - `provider_phased_protocol_frame.v1`,
+    `provider_prompt_phase_ledger.v1`,
+    `provider_phased_candidate_digest_manifest.v1`,
+    `provider_phased_delivery_diagnostic.v1`, and
+    `workflow_prompt_context_report.v2` are additive, content-free,
+    non-authoritative evidence/report surfaces. Completed reuse does not read
+    the ledger; interrupted nonterminal phased visits are sticky-quarantined.
+  - The closed `provider_call_policy` ordering becomes `model`, `effort`,
+    `delivery`, `materialization_attempts`. Only model/effort are
+    provider-bound; delivery/attempts are runtime-only, and `timeout_sec`
+    remains the one whole-attempt deadline outside the mapping.
+  - State schema remains `2.1`. Target-2.22 and earlier source, omitted/composed
+    invocation bytes, compiled Q1/Q2 identities, and completed-result reuse
+    remain compatible.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -366,6 +396,7 @@
   - `v2.20`: Workflow Lisp prompt fragments
   - `v2.21`: Workflow Lisp prompt output positions
   - `v2.22`: Workflow Lisp prompt-attempt identity and diagnostics
+  - `v2.23`: Workflow Lisp phased contract delivery
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -505,5 +536,6 @@ Planned acceptance:
 | 2.20 | Workflow Lisp `defprompt`, closed fragment slots, and prompt-owned structured returns | Adds fully applied importable fragments, exact v1 fragment identity/carriage, schema-2.1 prompt snapshots, and compatible completed-boundary reuse. |
 | 2.21 | Workflow Lisp `(slot :path :out [PathType])`, `compiled_prompt_fragment_identity.v2`, and `compiler_prompt_fragment_contract.v2` | One authored path fill drives rendering plus one required UTF-8 file contract. The generated file contract composes with exactly one prompt-owned structured result in fixed order, rejects name/destination collisions before launch, and commits both artifact maps state-atomically. |
 | 2.22 | Workflow Lisp direct-fragment prompt-attempt identity, functional-v2 evidence, and additive prompt-context reports | Requires the compiler-owned identity-version/binding-plan pair, seals five content-free roles plus exact prepared-prompt composition after invocation preparation and before launch, classifies retry drift in fixed order, and preserves target-2.20/2.21 execution and evidence bytes. |
+| 2.23 | Workflow Lisp explicit phased contract delivery | Adds optional `:delivery :composed|:phased` and phased-only literal materialization attempts, exact `T1 || T2 == C` delivery inside one provider process, bounded same-client correction, identity-v2/functional-v3/phase-ledger evidence, and report-v2 actual-delivery comparison. Omitted/explicit composed calls preserve the ordinary path and identity-v1/functional-v2 bytes; state schema remains `2.1`. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

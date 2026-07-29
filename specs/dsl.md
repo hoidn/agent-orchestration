@@ -22,7 +22,7 @@ snippets are structural notation for that mapping, not accepted fresh workflow
 source.
 
 - Top-level workflow keys
-  - `version`: string (supported revisions extend through `"2.22"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (supported revisions extend through `"2.23"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -489,9 +489,11 @@ source.
 
   - Workflow Lisp `provider-result` call policy:
     - The source grammar adds exactly `:model <String expr>`, `:effort <String
-      expr>`, and `:timeout-sec <positive Int literal>` as optional keyword/value
-      pairs. Each occurs at most once; missing values, duplicates, and unknown
-      keywords fail with the established provider-result diagnostics.
+      expr>`, `:timeout-sec <positive Int literal>`, `:delivery
+      :composed|:phased`, and `:materialization-attempts <Int literal>` as
+      optional keyword/value pairs. Each occurs at most once; missing values,
+      duplicates, and unknown keywords fail with the established
+      provider-result diagnostics.
     - Model and effort must typecheck as exact `String`, have no direct or
       transitive runtime effects, and belong to the existing inline-lowerable
       scalar/template subset. Procedure-reference edges alone are allowed;
@@ -501,10 +503,31 @@ source.
       existing `timeout_sec` field and retains the ordinary elapsed-time exit
       `124` contract; dynamic, boolean, float, string, zero, and negative timeout
       forms are invalid.
-    - Present model/effort values lower to the closed compiler-owned
-      `provider_call_policy` mapping in canonical `model`, then `effort` order.
-      Absent keywords remain absent; no empty mapping, default, parameter, argv
+    - Present call-policy values lower to the closed compiler-owned
+      `provider_call_policy` mapping in canonical `model`, `effort`, `delivery`,
+      then `materialization_attempts` order. Model and effort are
+      provider-bound. Delivery and materialization attempts are runtime-only
+      coordinator inputs and never become provider parameters or argv
+      fragments. Timeout remains outside this mapping as `timeout_sec`.
+      Absent keywords remain absent; no empty mapping, parameter, argv
       fragment, or serialized `null` is synthesized.
+    - The two delivery keywords require target 2.23. Below target 2.23 either
+      fails with `provider_phased_delivery_requires_dsl_2_23`.
+      `:materialization-attempts` is legal only with explicit
+      `:delivery :phased`; it must be a non-boolean literal exact `Int` in
+      `1..3` and defaults to `2` only for explicit phased delivery. Omitted
+      delivery carries neither delivery key. Explicit `:delivery :composed`
+      carries only `delivery: composed` and forbids materialization attempts.
+    - Explicit phased delivery is legal only for a direct fragment application
+      whose rendered provider contract has a non-empty contract suffix.
+      Otherwise compilation fails with
+      `provider_phased_delivery_fragment_application_required` or
+      `provider_phased_delivery_contract_suffix_required`.
+    - A target-2.23 phased call carries exact
+      `workflow_prompt_attempt_identity.v2`; an omitted or explicit composed
+      call retains identity v1. Missing, malformed, downgraded, or mixed
+      delivery/identity carriers fail closed with the existing
+      prompt-attempt identity mismatch diagnostic.
     - Authored `.orc` cannot directly supply `provider_call_policy` or
       `call_policy_bindings`; both are compiler/runtime-owned internal surfaces.
       The lower-level Core `provider_params` and `timeout_sec` semantics remain
@@ -565,6 +588,24 @@ source.
       caller-authored fields, workflow values, result contracts, checkpoint
       results, or resume guards. Coordinated-provider and non-fragment calls
       are outside target 2.22 Q3.
+
+  - Workflow Lisp phased contract delivery (target 2.23):
+    - Omitted delivery and explicit `:delivery :composed` execute the ordinary
+      composed provider route. They do not create the phased coordinator or
+      infer support from provider capability.
+    - Explicit `:delivery :phased` requires the exact structural
+      `interactive_terminal_turn_queue.v1` capability. Missing, malformed, or
+      unsupported capability fails closed without composed fallback.
+    - The compiler renders one canonical prompt `C` once and partitions it
+      into exact byte slices `T1 || T2 == C`; protocol, submit, and retry
+      diagnostic frames are outside `C`. The task is offered exactly once.
+      Initial materialization is submission one; a bounded correction reuses
+      unchanged `T2` for submission two or three with separately accounted
+      diagnostics.
+    - A phased call requires attempt identity v2 and functional evidence v3.
+      Canonical composition and actual delivered turns remain distinct,
+      content-free claims. The phase ledger, reports, submit receipts, stdout,
+      and protocol frames are never workflow result authority.
 
   - reusable-call contract boundary:
     - Task 10 reserves `imports`, `call`, `with`, `asset_file`, and `asset_depends_on` semantics before execution support lands.

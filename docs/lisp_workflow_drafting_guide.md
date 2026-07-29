@@ -1430,6 +1430,49 @@ older fragment snapshot appears as `legacy_snapshot`, while an unqualified
 run has an empty attempt list. Coordinated-provider and extern-backed calls do
 not gain Q3 identity by implication.
 
+### Authoring Phased Contract Delivery - Target 2.23
+
+Use explicit phased delivery when one direct prompt-fragment call has a
+non-empty generated output contract and the provider can correct
+materialization in the same interactive client without redoing the task:
+
+```lisp
+(provider-result providers.design-docs.review
+  :prompt
+    (review-design-doc
+      :target_doc completed.target_doc
+      :review_report_target_path inputs.review_report_target_path)
+  :delivery :phased
+  :materialization-attempts 2
+  :model inputs.review_model
+  :effort inputs.review_effort
+  :timeout-sec 3600)
+```
+
+The provider template must declare the exact
+`interactive_terminal_turn_queue.v1` capability. The runtime delivers the
+task portion once, then the generated materialization contract at the next
+natural turn boundary. A failed output-position or structured-result
+validation may receive a materialization-only retry in the same client.
+`:materialization-attempts` is the total candidate-submission count, is a
+literal integer in `1..3`, and defaults to `2` when phased delivery is
+explicit.
+
+Omit `:delivery` for the ordinary composed path. Explicit
+`:delivery :composed` also selects that path and cannot carry
+`:materialization-attempts`. Phased delivery is accepted only for a direct
+fragment application with a non-empty generated contract suffix; there is no
+extern-backed form, dynamic attempt count, capability-based fallback, third
+phase, or same-turn steering.
+
+Keep output obligations in the fragment result/output-position contracts.
+Do not add prose telling the provider how to satisfy deterministic structure
+that those contracts already carry. The phase ledger, report, submit receipt,
+stdout, and provisional candidate files are diagnostic evidence only.
+Validated output files and the structured result bundle remain the sole
+workflow authority. Compatible completed resume does not replay the provider;
+an interrupted nonterminal phased visit is quarantined rather than resumed.
+
 ## 8A. Bounded Live Provider Supervision
 
 Target DSL 2.16 implements one deliberately narrow concurrent form:

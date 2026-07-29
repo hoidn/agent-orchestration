@@ -1257,14 +1257,14 @@ modify only the exact fragment-backed call in
 `workflows/examples/review_revise_design_docs.orc` and required existing
 fixtures.
 
-- [ ] Write the real-provider gate before changing the consumer: one
+- [x] Write the real-provider gate before changing the consumer: one
   production coordinator/adapter/client/task action, invalid first
   materialization, one diagnostic materialization-only retry, valid second
   materialization, natural join, exact evidence, and atomic publication.
   Never inspect pane text or cancel/resume a provider session.
-- [ ] Add explicit phased policy only to the exact review call, preserving
+- [x] Add explicit phased policy only to the exact review call, preserving
   judgment prose and Q2 output/result authority.
-- [ ] Run in tmux:
+- [x] Run in tmux:
 
   ```bash
   ORCHESTRATE_E2E=1 PYTHONWARNINGS=error pytest -q -s \
@@ -1272,8 +1272,8 @@ fixtures.
     -k 'review_revise_design_docs and invalid_then_valid'
   ```
 
-- [ ] Run the full focused Q5 selector covering Tasks 1–12.
-- [ ] Obtain ordered `Q5_TASK13_SPEC_APPROVED` then
+- [x] Run the full focused Q5 selector covering Tasks 1–12.
+- [x] Obtain ordered `Q5_TASK13_SPEC_APPROVED` then
   `Q5_TASK13_QUALITY_APPROVED`; commit.
 
 **Gate:** The motivating consumer proves a real same-client
@@ -1285,11 +1285,11 @@ publication.
 **Files:** Only normative/routing paths in the responsibility map and this
 plan.
 
-- [ ] Recapture shared docs, preserving newer Q/L/M and owner edits.
-- [ ] Update `specs/dsl.md`, `specs/providers.md`, `specs/state.md`,
+- [x] Recapture shared docs, preserving newer Q/L/M and owner edits.
+- [x] Update `specs/dsl.md`, `specs/providers.md`, `specs/state.md`,
   `specs/versioning.md`, and `specs/index.md` for exact implemented behavior.
   Do not amend `specs/io.md`; add no isolation support/diagnostic claim.
-- [ ] Update design, authoring, capability, indexes, and roadmap truth. Mark
+- [x] Update design, authoring, capability, indexes, and roadmap truth. Mark
   Q5 implemented only after P0–P2 and Tasks 1–13 are complete and green.
 - [ ] Run routing, authoring, all focused Q5, prompt identity/calculus,
   adapter, peer, compiled-policy, and E2E selectors.
@@ -1375,6 +1375,11 @@ Q5 is complete only when:
 
 ## 2026-07-28 Task 13 Stop Record
 
+**Historical provenance, superseded on 2026-07-29.** The paragraphs below
+truthfully record the then-current stop and must remain readable as history.
+They no longer select execution; the Task 13 completion record after this
+section is current.
+
 Task 13 is not complete, Task 14 has not started, and Q5 must not be described
 as fully implemented under this plan.
 
@@ -1408,3 +1413,43 @@ Resume Task 13 only after a reviewed design/plan amendment changes the gate or
 after the unchanged combined consumer can produce the required real-provider
 invalid-then-valid trace. Do not infer a split-proof substitution, mark Q5
 complete, or start Task 14 closure from this stop record.
+
+## 2026-07-29 Task 13 Completion Record
+
+This record supersedes the 2026-07-28 stop for current routing without
+rewriting its historical claims.
+
+- The exact target-2.23 motivating-consumer gate completed on real attempt 10:
+  `1 passed in 47.29s`. The run used one provider process and the unchanged
+  combined invalid-then-valid contract path.
+- The classified precommit focused selector passed **2,245** tests, deselected
+  exactly the two post-P2 baseline nodes below, and emitted 33 warnings:
+  - `tests/test_workflow_lisp_checkpoint_identity_comparison.py::test_design_delta_drain_generic_route_matches_baseline`;
+  - `tests/test_workflow_lisp_checkpoint_identity_comparison.py::test_reviewed_inline_call_retirement_rejects_identity_or_lineage_drift`.
+- Independent review issued ordered `Q5_TASK13_SPEC_APPROVED` then
+  `Q5_TASK13_QUALITY_APPROVED` over the exact consumer and harness delta.
+- Commit `bb67f680` (`Prove phased delivery with real review consumer`) landed
+  Task 13. The postcommit focused repeat again passed **2,245** tests with the
+  same two explicit deselections.
+
+Task 13 is complete. The historical withheld verdict applies only to the
+superseded 2026-07-28 candidate; it does not override the later ordered
+approvals over the completed bytes.
+
+## 2026-07-29 Task 14 Pre-Correction Candidate Record
+
+The Task 14 normative/design/authoring/capability/routing candidate describes
+the implemented Tasks 1–13 surface while preserving newer Q/L/M routing and
+the historical stop above.
+
+The broad non-security run at Task-13 commit `bb67f680` completed with
+**10,919 passed, 42 failed, 23 skipped, 0 errors, and 33 warnings**. It
+predates correction `5d8a3151` and is retained as truthful superseded
+candidate evidence, not as the Task-14 closing broad gate. A fresh
+post-correction replay and exact delta adjudication of node IDs and non-passes
+against the post-P2 baseline remain required. This record does not classify or
+repair excluded/unrelated failures.
+
+`Q5_FINAL_SPEC_APPROVED` then `Q5_FINAL_QUALITY_APPROVED` remain unissued and
+must be external reviews of the final exact tree. No closure commit is
+recorded here, and this candidate does not self-attest either verdict.
