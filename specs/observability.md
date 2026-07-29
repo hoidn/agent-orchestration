@@ -189,6 +189,131 @@ derives solely from the validated `.orc` executable and `state.json`.
     - callee finalization failure with exports suppressed
     - call-frame resume/export state when a run is interrupted mid-call
 
+## Workflow Lisp Judgment Views
+
+- Every JSON report has the exact additive top-level sibling below, including
+  runs with no eligible result. The nested object and every row described in
+  this section are closed; unknown keys and schema versions fail report
+  validation.
+
+  ```json
+  {
+    "judgment_views": {
+      "schema_version": "workflow_judgment_views.v1",
+      "judgments": [],
+      "matrices": [],
+      "disagreements": [],
+      "iteration_series": []
+    }
+  }
+  ```
+
+  Markdown reports derive a sibling `Judgment views` section from the same
+  validated projection.
+- Every judgment coordinate is the closed object with exact fields
+  `root_workflow_identity`, `call_frame_path`, `runtime_step_id`,
+  `enclosing_step_id`, `enclosing_visit`, and `loop`.
+  `root_workflow_identity` is the root state's canonical `workflow_checksum`;
+  `call_frame_path` is the exact outermost-to-innermost array of persisted,
+  non-empty call-frame IDs; and the step/visit values come from the validated
+  provider-attempt scope. `loop` is null or the closed object with exact fields
+  `kind`, `step_id`, and `iteration`, where `kind` is `for_each` or
+  `repeat_until` and `iteration` is nonnegative. Coordinates are never
+  reconstructed from display names, runtime-step spelling, or filesystem
+  paths.
+- An available judgment is the closed
+  `workflow_judgment_inspection.v1` object with exact fields
+  `schema_version`, `status: "available"`, `coordinate`,
+  `attempt_ordinal`, `result`, and `provenance`.
+  - `result` has exactly `declared_shape`, `contract_sha256`,
+    `value_sha256`, `value`, and `comparison`.
+    `declared_shape` is `root_value`, `record_value`, or `union_value`;
+    `value` is the authoritative reached-state value revalidated against the
+    exact persisted result contract. `comparison` is null or the closed
+    `{kind, value}` object, whose kind is `canonical_value` or
+    `union_variant`.
+  - `provenance` has exactly `evidence_record_sha256`,
+    `identity_schema_version`, `role_sha256`, `final_prompt_sha256`,
+    `composition_sha256`, and `comparison`.
+    `identity_schema_version` is exact
+    `workflow_prompt_attempt_identity.v1`; `role_sha256` has exactly
+    `fragment_program`, `resolved_bindings`, `injected_dependencies`,
+    `runtime_contributions`, and `provider_policy`; and `comparison` reuses
+    the closed Q3 comparison schema and reason set byte-for-byte.
+- An unavailable judgment is the closed
+  `workflow_judgment_inspection.v1` object with exactly
+  `schema_version`, `status: "unavailable"`, `coordinate`, and `reason`.
+  Its reason is exactly one of
+  `judgment_result_binding_missing`, `judgment_result_binding_invalid`,
+  `judgment_result_binding_ambiguous`, `judgment_result_scope_mismatch`,
+  `judgment_result_attempt_mismatch`, `judgment_result_evidence_invalid`,
+  `judgment_result_contract_mismatch`, `judgment_result_value_mismatch`,
+  `judgment_result_coordinate_invalid`, or
+  `judgment_view_group_invalid`. Unavailable rows remain ordered members but
+  never count as votes.
+- Comparison keys are structural. Exact `Bool`, `Int`, `Float`, `String`, and
+  enum roots compare by canonical value; unions compare by selected variant
+  name. Records, lists, maps, paths, `Value`, and other structured roots have
+  no comparison key and are `not_comparable`; their canonical result digests
+  remain visible. Conventional field names such as `decision`, `score`, or
+  `approved` have no semantic role.
+- Rows group only by `(root workflow identity, runtime step ID)`. A closed
+  `workflow_judgment_matrix.v1` matrix has exactly `schema_version`, `group`,
+  and `members`; `group` has exactly `root_workflow_identity` and
+  `runtime_step_id`. Each member has exactly `coordinate`, `status`,
+  `comparison`, `result_value_sha256`, `evidence_record_sha256`, and `reason`.
+  Its status is:
+  - `comparable`, with a non-null comparison, both digests, and null reason;
+  - `not_comparable`, with null comparison, both digests, and null reason; or
+  - `unavailable`, with null comparison and digests plus one closed Q4 reason.
+- Each matrix has one closed `workflow_judgment_disagreement.v1` row with
+  exactly `schema_version`, `group`, `status`, `available_member_count`,
+  `comparable_member_count`, `not_comparable_member_count`,
+  `unavailable_member_count`, and `distinct_comparison_key_count`.
+  Classification is total in this order: fewer than two available rows is
+  `insufficient_members`; otherwise any available row without a key is
+  `not_comparable`; otherwise one distinct key is `agree`; otherwise two or
+  more distinct keys is `disagree`. Unavailable members are counted only by
+  `unavailable_member_count`. The `disagreements` array has exactly one row per
+  matrix in matrix order.
+- A closed `workflow_judgment_iteration_series.v1` row has exactly
+  `schema_version`, `scope_sha256`, `coordinate`, and `attempts`. Each attempt
+  has exactly `attempt_ordinal`, `record_status`, `record_sha256`,
+  `comparison`, and `committed_result_status`, reusing Q3's closed record
+  status, digest, and comparison contracts. `committed_result_status` is:
+  - `bound` only for the one ordinal selected by a fully validated result
+    binding;
+  - `not_bound` only when another ordinal is validly bound in that scope or
+    reached state proves the scope has no committed provider result; or
+  - `unknown_pre_q4` for every ordinal when an otherwise-compatible pre-Q4
+    reached result has no binding.
+  At most one ordinal is `bound`, and the projector never infers a committing
+  attempt from the newest record.
+- Deterministic order is independent of discovery, filesystem enumeration, and
+  provider completion timing. Judgments and matrix members sort by:
+  root-workflow-identity bytes; runtime-step-ID UTF-8 bytes; canonical JSON
+  UTF-8 bytes of `call_frame_path` using `ensure_ascii=False` and separators
+  `(",", ":")`; enclosing-step-ID UTF-8 bytes; enclosing visit; loop kind
+  then loop-step-ID UTF-8 bytes with non-loop before loop; loop iteration;
+  attempt ordinal with missing before positive; and result-digest bytes with
+  missing before present. Matrices sort by their two group coordinates.
+  Attempts sort by ascending ordinal; iteration series sort by the full
+  coordinate order and then scope-digest bytes.
+- State-only and bundle-backed reports use the same
+  `orchestrator.dashboard.compiled_workflow.load_persisted_compiled_workflow_surface`
+  path, anchored by
+  `state.runtime_observability.compiled_frontend.persisted_workflow_surface`,
+  to resolve the exact run-bound, content-addressed result contract. They
+  produce the same projection without recompiling retained/current source or
+  trusting an unbound live bundle. A missing, ambiguous, digest-invalid, or
+  coordinate-inconsistent persisted surface makes only the affected judgment
+  unavailable.
+- Judgment views are pure, read-only, and non-authoritative. Execution,
+  resume, workflow parsers, and workflows do not consume them; they cannot
+  route, retry, settle, score, promote, or mutate a workflow. Association,
+  validation, grouping, ordering, and rendering are deterministic
+  runtime/report obligations and add no provider-prompt instruction or input.
+
 ## Error Context (shape)
 
 On step failure, record a structured error object similar to:

@@ -263,6 +263,50 @@
 - Target-2.20/2.21 state, checkpoints, functional-v1 evidence, and reuse stay
   byte-compatible. Q3 does not change state schema `2.1`.
 
+## Workflow Prompt-Attempt Result Binding State And Resume
+
+- State schema `2.1` is unchanged. A newly executed provider result that
+  satisfies the complete ordinary identity-v1 eligibility predicate in
+  `providers.md` carries one runtime-owned
+  `StepResult.debug.prompt_attempt_result_binding`. The member is optional at
+  the state-schema level so ineligible and pre-Q4 results remain valid, but it
+  is required for every newly executed eligible result. The closed locator has
+  exactly these fields:
+  - `schema_version`:
+    `workflow_prompt_attempt_result_binding.v1`;
+  - `scope_sha256`: the canonical key of the root-owned provider-attempt
+    scope;
+  - `attempt_ordinal`: the positive ordinal of the successful attempt;
+  - `evidence_relative_path`: the allocator publication's canonical
+    run-relative evidence path;
+  - `evidence_file_sha256`: the canonical digest of those exact evidence
+    bytes; and
+  - `record_kind`: exact `prompt_snapshot`.
+  Other independently owned `debug` members remain admissible, but the closed
+  locator admits no additional field and contains no result, prompt, role,
+  score, provider-output, or report data.
+- Runtime constructs the locator only after the provider result and every
+  prompt output-position and structured-result contract have passed the
+  unchanged state-atomic Q2 validation boundary in `io.md`, and after the
+  publication locator agrees with the retained scope and successful attempt
+  ordinal. It attaches the locator to that same result dictionary before the
+  normal reached-state commit. Top-level, call-frame, and generated loop-step
+  persistence therefore commit the validated result, its artifacts, and its
+  locator in the same state mutation; there is no separate result-commit
+  event or second persistence authority.
+- A failure before that reached-state mutation commits no binding. If the
+  state mutation fails, neither the reached result nor its locator is
+  available at that boundary. A completed-boundary resume reuses the
+  co-persisted result and locator through the ordinary compatibility guards
+  without preparing a provider or reopening evidence.
+- The locator is optional, non-authoritative debug state and does not
+  participate in source, program, checkpoint, result-contract, or
+  completed-boundary compatibility. A compatible pre-Q4 completed result
+  without it remains loadable and reusable. Its judgment view reports the
+  association as unavailable; runtime and reporting never backfill the
+  locator, select the last attempt, or make missing or damaged evidence
+  invalidate that completed result.
+
 ## Target 2.23 Phased Contract Delivery State And Resume
 
 - Phased delivery remains on state schema `2.1`. Persisted provider

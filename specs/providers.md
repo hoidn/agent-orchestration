@@ -446,6 +446,39 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     participate in checkpoint/resume compatibility. Targets 2.20 and 2.21
     preserve their existing invocation and functional-v1 evidence bytes.
 
+- Workflow Lisp ordinary identity-v1 judgment association
+  - A provider call is eligible for the generic attempt/result association if
+    and only if all of these structural conditions hold:
+    - it is a direct fragment-backed provider call with a compiled fragment
+      contract;
+    - its effective delivery is ordinary composed delivery: omitted on the
+      pre-2.23 surface or exact `:delivery :composed`, never phased;
+    - its compiled carrier is exact
+      `workflow_prompt_attempt_identity.v1`;
+    - its published evidence is exact
+      `workflow_prompt_fragment_snapshot.functional.v2` and embeds that same
+      identity-v1 schema;
+    - it has one root-owned provider-attempt scope and one unique Q3
+      publication for that scope and ordinal; and
+    - it has one validated committed provider result after the unchanged Q2
+      output-position and structured-result validation in `io.md`.
+    Target version, workflow/module/provider/step/family names, result type,
+    and field spelling never establish eligibility. Unknown delivery,
+    identity, or evidence versions are ineligible rather than inferred.
+  - One eligible committed result receives one association with the exact
+    successful attempt ordinal and that ordinal's exact allocator publication.
+    Every attempted launch retains its ordinary Q3 evidence, but a
+    failed-then-successful retry binds only the successful attempt ordinal.
+    The runtime never selects the newest, last allocated, or
+    successful-looking attempt by proximity.
+  - A target-2.23 phased call carries
+    `workflow_prompt_attempt_identity.v2` and
+    `workflow_prompt_fragment_snapshot.functional.v3`; it is Q4-ineligible
+    before locator construction, receives no association, and does not later
+    appear as a missing-binding judgment row. A target-2.23 explicit composed
+    call remains eligible only when it satisfies the complete identity-v1 and
+    functional-v2 predicate above.
+
 - Workflow Lisp phased contract delivery (target 2.23)
   - Omitted delivery and explicit composed delivery use the ordinary composed
     provider path and never construct the phased coordinator. Explicit phased

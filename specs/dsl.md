@@ -608,6 +608,12 @@ source.
       content-free claims. The phase ledger, reports, submit receipts, stdout,
       and protocol frames are never workflow result authority.
 
+  - Workflow Lisp WCC child-call argument projection:
+    - Within existing bounded `list/map-effect`, an existing typed
+      `path/join-under` expression may be evaluated in the caller iteration
+      scope and its typed path value passed as an ordinary child input through
+      the admitted WCC route.
+
   - reusable-call contract boundary:
     - Task 10 reserves `imports`, `call`, `with`, `asset_file`, and `asset_depends_on` semantics before execution support lands.
     - When Task 11 lands, those fields require `version: "2.5"` or higher.

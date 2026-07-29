@@ -2119,6 +2119,249 @@ def test_prompt_identity_normative_and_authoring_surfaces_ship_q3() -> None:
     assert "Q4 judgments remain excluded" in q3_capability
 
 
+def test_judgment_views_normative_contracts_route_q4_only() -> None:
+    state = (REPO_ROOT / "specs/state.md").read_text(encoding="utf-8")
+    observability = (REPO_ROOT / "specs/observability.md").read_text(
+        encoding="utf-8"
+    )
+    providers = (REPO_ROOT / "specs/providers.md").read_text(encoding="utf-8")
+    dsl = (REPO_ROOT / "specs/dsl.md").read_text(encoding="utf-8")
+
+    state_section = _markdown_heading_section(
+        state,
+        "## Workflow Prompt-Attempt Result Binding State And Resume",
+    ).split("\n## ", 1)[0]
+    state_items = re.findall(
+        r"(?ms)^- (.*?)(?=^- |\Z)",
+        state_section,
+    )
+    assert len(state_items) == 4
+    assert "StepResult.debug.prompt_attempt_result_binding" in state_items[0]
+    assert "workflow_prompt_attempt_result_binding.v1" in state_items[0]
+    assert {
+        match.group(1)
+        for match in re.finditer(r"(?m)^  - `([a-z0-9_]+)`:", state_items[0])
+    } == {
+        "schema_version",
+        "scope_sha256",
+        "attempt_ordinal",
+        "evidence_relative_path",
+        "evidence_file_sha256",
+        "record_kind",
+    }
+    assert "`prompt_snapshot`" in state_items[0]
+    assert "`io.md`" in state_items[1]
+    assert {"result", "artifacts", "locator"} <= set(
+        re.findall(r"[a-z]+", state_items[1].lower())
+    )
+    assert "pre-Q4" in state_items[3]
+
+    observability_section = _markdown_heading_section(
+        observability,
+        "## Workflow Lisp Judgment Views",
+    ).split("\n## ", 1)[0]
+    observability_items = re.findall(
+        r"(?ms)^- (.*?)(?=^- |\Z)",
+        observability_section,
+    )
+    empty_shape_match = re.search(
+        r"(?ms)```json\n(.*?)\n  ```",
+        observability_items[0],
+    )
+    assert empty_shape_match is not None
+    assert json.loads(empty_shape_match.group(1)) == {
+        "judgment_views": {
+            "schema_version": "workflow_judgment_views.v1",
+            "judgments": [],
+            "matrices": [],
+            "disagreements": [],
+            "iteration_series": [],
+        }
+    }
+
+    coordinate_item = next(
+        item for item in observability_items if "workflow_checksum" in item
+    )
+    for field in (
+        "root_workflow_identity",
+        "call_frame_path",
+        "runtime_step_id",
+        "enclosing_step_id",
+        "enclosing_visit",
+        "loop",
+        "kind",
+        "step_id",
+        "iteration",
+    ):
+        assert f"`{field}`" in coordinate_item
+    assert {"`for_each`", "`repeat_until`"} <= set(
+        re.findall(r"`[^`]+`", coordinate_item)
+    )
+
+    available_item = next(
+        item
+        for item in observability_items
+        if "workflow_judgment_inspection.v1" in item
+        and 'status: "available"' in item
+    )
+    for symbol in (
+        "attempt_ordinal",
+        "declared_shape",
+        "contract_sha256",
+        "value_sha256",
+        "evidence_record_sha256",
+        "identity_schema_version",
+        "role_sha256",
+        "final_prompt_sha256",
+        "composition_sha256",
+        "workflow_prompt_attempt_identity.v1",
+    ):
+        assert f"`{symbol}`" in available_item
+    for enum_value in (
+        "root_value",
+        "record_value",
+        "union_value",
+        "canonical_value",
+        "union_variant",
+    ):
+        assert f"`{enum_value}`" in available_item
+
+    unavailable_item = next(
+        item
+        for item in observability_items
+        if "workflow_judgment_inspection.v1" in item
+        and 'status: "unavailable"' in item
+    )
+    assert {
+        match.group(1)
+        for match in re.finditer(
+            r"`(judgment_(?:result|view)_[a-z_]+)`",
+            unavailable_item,
+        )
+    } == {
+        "judgment_result_binding_missing",
+        "judgment_result_binding_invalid",
+        "judgment_result_binding_ambiguous",
+        "judgment_result_scope_mismatch",
+        "judgment_result_attempt_mismatch",
+        "judgment_result_evidence_invalid",
+        "judgment_result_contract_mismatch",
+        "judgment_result_value_mismatch",
+        "judgment_result_coordinate_invalid",
+        "judgment_view_group_invalid",
+    }
+
+    matrix_item = next(
+        item
+        for item in observability_items
+        if "workflow_judgment_matrix.v1" in item
+    )
+    for symbol in (
+        "group",
+        "members",
+        "result_value_sha256",
+        "evidence_record_sha256",
+        "comparable",
+        "not_comparable",
+        "unavailable",
+    ):
+        assert f"`{symbol}`" in matrix_item
+
+    disagreement_item = next(
+        item
+        for item in observability_items
+        if "workflow_judgment_disagreement.v1" in item
+    )
+    for symbol in (
+        "available_member_count",
+        "comparable_member_count",
+        "not_comparable_member_count",
+        "unavailable_member_count",
+        "distinct_comparison_key_count",
+        "insufficient_members",
+        "not_comparable",
+        "agree",
+        "disagree",
+    ):
+        assert f"`{symbol}`" in disagreement_item
+
+    series_item = next(
+        item
+        for item in observability_items
+        if "workflow_judgment_iteration_series.v1" in item
+    )
+    for symbol in (
+        "scope_sha256",
+        "attempts",
+        "attempt_ordinal",
+        "record_status",
+        "record_sha256",
+        "committed_result_status",
+        "bound",
+        "not_bound",
+        "unknown_pre_q4",
+    ):
+        assert f"`{symbol}`" in series_item
+
+    order_item = next(
+        item for item in observability_items if "ensure_ascii=False" in item
+    )
+    assert "`call_frame_path`" in order_item
+    assert '`(",", ":")`' in order_item
+    parity_item = next(
+        item
+        for item in observability_items
+        if "load_persisted_compiled_workflow_surface" in item
+    )
+    assert (
+        "`orchestrator.dashboard.compiled_workflow."
+        "load_persisted_compiled_workflow_surface`"
+    ) in parity_item
+    assert (
+        "`state.runtime_observability.compiled_frontend."
+        "persisted_workflow_surface`"
+    ) in parity_item
+
+    providers_section = providers.split(
+        "- Workflow Lisp ordinary identity-v1 judgment association",
+        1,
+    )[1].split(
+        "\n- Workflow Lisp phased contract delivery (target 2.23)",
+        1,
+    )[0]
+    provider_items = re.findall(
+        r"(?ms)^  - (.*?)(?=^  - |\Z)",
+        providers_section,
+    )
+    assert len(provider_items) == 3
+    for symbol in (
+        ":delivery :composed",
+        "workflow_prompt_attempt_identity.v1",
+        "workflow_prompt_fragment_snapshot.functional.v2",
+        "io.md",
+    ):
+        assert f"`{symbol}`" in provider_items[0]
+    assert "Q3" in provider_items[1]
+    assert provider_items[1].count("ordinal") >= 3
+    for symbol in (
+        "workflow_prompt_attempt_identity.v2",
+        "workflow_prompt_fragment_snapshot.functional.v3",
+    ):
+        assert f"`{symbol}`" in provider_items[2]
+    assert "Q4-ineligible" in provider_items[2]
+
+    dsl_section = dsl.split(
+        "  - Workflow Lisp WCC child-call argument projection:",
+        1,
+    )[1].split(
+        "\n  - reusable-call contract boundary:",
+        1,
+    )[0]
+    assert dsl_section.count("`list/map-effect`") == 1
+    assert dsl_section.count("`path/join-under`") == 1
+    assert dsl_section.count("WCC") == 1
+
+
 def test_stage_6_numbered_sequence_closes_task_7_after_completed_queues() -> None:
     sequence = (
         REPO_ROOT
