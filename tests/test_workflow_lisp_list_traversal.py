@@ -54,12 +54,16 @@ from orchestrator.workflow_lisp.type_env import (
 )
 from orchestrator.workflow_lisp.wcc.defunctionalize import (
     _frontend_expr_from_wcc_loop_body,
+    _wcc_workflow_call_exclusively_consumes_binding,
 )
 from orchestrator.workflow_lisp.wcc.model import (
     WCC_M4_ROUTE_SCHEMA_VERSION,
     WccIdentityFactory,
+    WccLet,
     WccLiteralAtom,
     WccLoopDone,
+    WccNameAtom,
+    WccPerform,
 )
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict
@@ -85,6 +89,13 @@ _RUNTIME_CARDINALITY_PROVIDER_FIXTURE = (
 )
 _RUNTIME_CARDINALITY_WORKFLOW = (
     "list_map_effect_runtime_cardinality_provider::orchestrate"
+)
+_PATH_JOIN_MAP_CHILD_FIXTURE = (
+    Path(__file__).parent
+    / "fixtures"
+    / "workflow_lisp"
+    / "judgment_views"
+    / "path_join_map_child_argument.orc"
 )
 
 
@@ -2595,6 +2606,366 @@ def test_frontend_effect_map_accepts_computed_pure_call_argument(
     assert qualified[0].checkpoint_kind == "call_boundary"
 
 
+def test_frontend_effect_map_accepts_path_join_under_child_argument(
+    tmp_path: Path,
+) -> None:
+    child_names = ("first.md", "nested/second.md")
+    expected_paths = (
+        "artifacts/children/first.md",
+        "artifacts/children/nested/second.md",
+    )
+    direct_source = """
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.23")
+          (defmodule path_join_child_argument_oracle)
+          (export invoke-one)
+          (defpath ChildPath
+            :kind relpath
+            :under "artifacts/children"
+            :must-exist false)
+          (defworkflow child ((target ChildPath)) -> Int
+            (provider-result providers.worker
+              :prompt prompts.worker
+              :inputs ()
+              :delivery :composed
+              :returns Int))
+          (defworkflow invoke-one ((child_name String)) -> Int
+            (call child
+              :target (path/join-under ChildPath child_name))))
+    """
+
+    def compile_bundle(
+        workspace: Path,
+        *,
+        lowering_route: str,
+        use_map_fixture: bool,
+    ):
+        module_path = workspace / (
+            "judgment_views/path_join_map_child_argument.orc"
+            if use_map_fixture
+            else "path_join_child_argument_oracle.orc"
+        )
+        module_path.parent.mkdir(parents=True)
+        if use_map_fixture:
+            module_path.write_bytes(_PATH_JOIN_MAP_CHILD_FIXTURE.read_bytes())
+        else:
+            module_path.write_text(
+                direct_source.strip() + "\n",
+                encoding="utf-8",
+            )
+        (module_path.parent / "worker.md").write_text(
+            "Return the declared typed result.\n",
+            encoding="utf-8",
+        )
+        result = compile_stage3_entrypoint(
+            module_path,
+            source_roots=(workspace,),
+            entry_workflow=(
+                "orchestrate" if use_map_fixture else "invoke-one"
+            ),
+            provider_externs={"providers.worker": "deterministic-worker"},
+            prompt_externs={"prompts.worker": "worker.md"},
+            validate_shared=True,
+            workspace_root=workspace,
+            lowering_route=lowering_route,
+        )
+        bundle = result.validated_bundles_by_name[
+            (
+                "judgment_views/path_join_map_child_argument::orchestrate"
+                if use_map_fixture
+                else "path_join_child_argument_oracle::invoke-one"
+            )
+        ]
+        return module_path, bundle, result
+
+    def run_bundle(
+        workspace: Path,
+        *,
+        module_path: Path,
+        bundle,
+        run_id: str,
+        bound_inputs: dict[str, object],
+    ) -> dict[str, object]:
+        state_manager = StateManager(
+            workspace=workspace,
+            run_id=run_id,
+        )
+        state_manager.initialize(
+            str(module_path),
+            context=bundle_context_dict(bundle),
+            bound_inputs=bound_inputs,
+        )
+
+        def prepare_provider(
+            _self,
+            provider_name=None,
+            prompt_content=None,
+            env=None,
+            **_kwargs,
+        ):
+            return (
+                SimpleNamespace(
+                    provider_name=provider_name,
+                    prompt=prompt_content or "",
+                    env=env or {},
+                ),
+                None,
+            )
+
+        def execute_provider(_self, invocation, **_kwargs):
+            output_path = workspace / invocation.env[
+                "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"
+            ]
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text("1\n", encoding="utf-8")
+            return ProviderExecutionResult(0, b"", b"", 1)
+
+        with (
+            patch.object(
+                ProviderExecutor,
+                "prepare_invocation",
+                prepare_provider,
+            ),
+            patch.object(ProviderExecutor, "execute", execute_provider),
+        ):
+            state = WorkflowExecutor(
+                bundle,
+                workspace,
+                state_manager,
+                retry_delay_ms=0,
+            ).execute(on_error="stop")
+        assert state["status"] == "completed", state
+        return state
+
+    def child_frame_paths(state: dict[str, object]) -> tuple[str, ...]:
+        frames = sorted(
+            (
+                frame
+                for frame in state["call_frames"].values()
+                if frame["import_alias"].endswith("::child")
+            ),
+            key=lambda frame: frame["call_frame_id"],
+        )
+        return tuple(
+            frame["bound_inputs"]["target"]
+            for frame in frames
+        )
+
+    direct_projections: dict[str, tuple[tuple[int, ...], tuple[str, ...]]] = {}
+    for lowering_route in ("legacy", "wcc_m4"):
+        workspace = tmp_path / f"direct-{lowering_route}"
+        module_path, bundle, _ = compile_bundle(
+            workspace,
+            lowering_route=lowering_route,
+            use_map_fixture=False,
+        )
+        states = tuple(
+            run_bundle(
+                workspace,
+                module_path=module_path,
+                bundle=bundle,
+                run_id=f"path-child-{lowering_route}-{index}",
+                bound_inputs={"child_name": child_name},
+            )
+            for index, child_name in enumerate(child_names)
+        )
+        direct_projections[lowering_route] = (
+            tuple(state["workflow_outputs"]["__result__"] for state in states),
+            tuple(
+                path
+                for state in states
+                for path in child_frame_paths(state)
+            ),
+        )
+
+    map_workspace = tmp_path / "map-wcc"
+    map_module_path, map_bundle, map_result = compile_bundle(
+        map_workspace,
+        lowering_route="wcc_m4",
+        use_map_fixture=True,
+    )
+    map_state = run_bundle(
+        map_workspace,
+        module_path=map_module_path,
+        bundle=map_bundle,
+        run_id="path-child-map-wcc",
+        bound_inputs={"child_names": list(child_names)},
+    )
+
+    expected_projection = ((1, 1), expected_paths)
+    assert direct_projections == {
+        "legacy": expected_projection,
+        "wcc_m4": expected_projection,
+    }
+    assert (
+        tuple(map_state["workflow_outputs"]["__result__"]),
+        child_frame_paths(map_state),
+    ) == expected_projection
+    assert tuple(
+        point.point_kind
+        for point in map_bundle.runtime_plan.lexical_checkpoint_points
+    ) == ("effect_boundary", "loop_back_edge")
+    call_point = map_bundle.runtime_plan.lexical_checkpoint_points[0]
+    assert call_point.details["effect_boundary"]["effect_kind"] == "call"
+
+    map_lowered = next(
+        workflow
+        for workflow in map_result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::orchestrate")
+    )
+    bind_origins = [
+        origin
+        for step_id, origin in map_lowered.origin_map.step_spans.items()
+        if step_id.endswith("__bind_target")
+    ]
+    assert len(bind_origins) == 2
+    assert {
+        (
+            origin.form_path,
+            origin.span.start.line,
+            origin.span.start.column,
+            origin.span.end.line,
+            origin.span.end.column,
+        )
+        for origin in bind_origins
+    } == {
+        (
+            ("workflow-lisp", "defworkflow", "orchestrate"),
+            26,
+            17,
+            26,
+            55,
+        )
+    }
+
+
+@pytest.mark.parametrize(
+    ("child", "expected_code"),
+    (
+        ('""', "path_join_under_child_invalid"),
+        ('"../escape.md"', "path_join_under_escape"),
+    ),
+)
+def test_frontend_effect_map_path_join_under_preserves_refusal_families(
+    tmp_path: Path,
+    child: str,
+    expected_code: str,
+) -> None:
+    result = _build_source(
+        tmp_path,
+        f"""
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.23")
+          (defmodule map_path_refusal)
+          (export orchestrate)
+          (defpath ChildPath
+            :kind relpath
+            :under "artifacts/children"
+            :must-exist false)
+          (defworkflow child ((target ChildPath)) -> Int (+ 1 0))
+          (defworkflow orchestrate () -> List[Int]
+            (list/map-effect ((item (list "safe.md"))) :max 1
+              (call child
+                :target (path/join-under ChildPath {child})))))
+        """,
+        lowering_route="wcc_m4",
+    )
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="map-path-refusal",
+    )
+    state_manager.initialize(str(tmp_path / "map_path_refusal.orc"))
+
+    state = WorkflowExecutor(
+        result.validated_bundle,
+        tmp_path,
+        state_manager,
+        retry_delay_ms=0,
+    ).execute(on_error="stop")
+
+    loop_error = state["steps"][
+        "map_path_refusal::orchestrate__loop"
+    ]["error"]["context"]["error"]
+    assert state["status"] == "failed"
+    assert loop_error["type"] == expected_code
+    assert state["call_frames"] == {}
+
+
+@pytest.mark.parametrize(
+    ("module_name", "body", "expected_code"),
+    (
+        (
+            "map_path_function_refusal",
+            """
+              (defun child-path ((child String)) -> ChildPath
+                (path/join-under ChildPath child))
+              (defworkflow child ((target ChildPath)) -> Int (+ 1 0))
+              (defworkflow orchestrate ((children List[String])) -> List[Int]
+                (list/map-effect ((child_name children)) :max 2
+                  (call child :target (child-path child_name))))
+            """,
+            "wcc_lowering_route_unsupported",
+        ),
+        (
+            "map_path_prompt_fill_refusal",
+            """
+              (defprompt worker-prompt
+                (:fills (target :path :out ChildPath))
+                -> Int
+                "{target}")
+              (defworkflow orchestrate ((children List[String])) -> List[Int]
+                (list/map-effect ((child_name children)) :max 2
+                  (provider-result providers.worker
+                    :prompt
+                      (worker-prompt
+                        :target
+                          (path/join-under ChildPath child_name))
+                    :delivery :composed)))
+            """,
+            "prompt_fill_identity_unsupported",
+        ),
+    ),
+)
+def test_frontend_effect_map_path_join_under_does_not_widen_other_surfaces(
+    tmp_path: Path,
+    module_name: str,
+    body: str,
+    expected_code: str,
+) -> None:
+    module_path = tmp_path / f"{module_name}.orc"
+    module_path.write_text(
+        f"""
+        (workflow-lisp
+          (:language "0.1")
+          (:target-dsl "2.23")
+          (defmodule {module_name})
+          (export orchestrate)
+          (defpath ChildPath
+            :kind relpath
+            :under "artifacts/children"
+            :must-exist false)
+          {body})
+        """.strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            module_path,
+            source_roots=(tmp_path,),
+            entry_workflow="orchestrate",
+            provider_externs={"providers.worker": "deterministic-worker"},
+            validate_shared=True,
+            workspace_root=tmp_path,
+            lowering_route="wcc_m4",
+        )
+
+    assert excinfo.value.diagnostics[0].code == expected_code
+
+
 @pytest.mark.parametrize(
     ("module_name", "body", "expected_effect_kind"),
     (
@@ -2810,6 +3181,88 @@ def test_terminal_loop_state_survives_wcc_round_trip_and_generic_traversal() -> 
         for node in walk_expr(restored)
         if isinstance(node, LiteralExpr)
     ] == [11, 22]
+
+
+def test_path_binding_elision_requires_one_exclusive_workflow_call_consumer() -> None:
+    span = _expression_syntax("1").span
+    int_type = PrimitiveTypeRef(name="Int")
+    factory = WccIdentityFactory(
+        owner_name="exclusive-workflow-call-consumer",
+        lexical_owner_chain=("workflow", "loop"),
+        route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
+    )
+    path_value = WccNameAtom(
+        metadata=factory.atom_metadata(
+            role="path-value",
+            type_ref=int_type,
+            source_span=span,
+            form_path=("workflow-lisp", "path-value"),
+        ),
+        name="child_path",
+    )
+    result_value = WccLiteralAtom(
+        metadata=factory.atom_metadata(
+            role="result-value",
+            type_ref=int_type,
+            source_span=span,
+            form_path=("workflow-lisp", "result-value"),
+        ),
+        value=1,
+        literal_kind="int",
+    )
+    call = WccPerform(
+        metadata=factory.value_metadata(
+            role="perform:workflow-call",
+            type_ref=int_type,
+            source_span=span,
+            form_path=("workflow-lisp", "workflow-call"),
+        ),
+        perform_kind="workflow_call",
+        target_name="child",
+        prompt_name=None,
+        positional_args=(),
+        keyword_args=(("path", path_value),),
+        returns_type_name="Int",
+    )
+    continuation = WccLet(
+        metadata=factory.body_metadata(
+            role="call-result",
+            type_ref=int_type,
+            source_span=span,
+            form_path=("workflow-lisp", "call-result"),
+        ),
+        bound_name="call_result",
+        bound_type_ref=int_type,
+        bound_value=call,
+        body=WccLoopDone(
+            metadata=factory.body_metadata(
+                role="loop-done",
+                type_ref=int_type,
+                source_span=span,
+                form_path=("workflow-lisp", "loop-done"),
+            ),
+            result=result_value,
+        ),
+    )
+
+    assert _wcc_workflow_call_exclusively_consumes_binding(
+        continuation,
+        "child_path",
+    )
+    assert not _wcc_workflow_call_exclusively_consumes_binding(
+        replace(
+            continuation,
+            bound_value=replace(call, perform_kind="provider_result"),
+        ),
+        "child_path",
+    )
+    assert not _wcc_workflow_call_exclusively_consumes_binding(
+        replace(
+            continuation,
+            body=replace(continuation.body, state=path_value),
+        ),
+        "child_path",
+    )
 
 
 @pytest.mark.parametrize(

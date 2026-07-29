@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import replace
+from dataclasses import fields, is_dataclass, replace
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 from typing import Any
@@ -5886,17 +5886,85 @@ def _frontend_expr_from_wcc_binding_value(value):
     return _frontend_expr_from_wcc_value(value)
 
 
+def _wcc_tree_references_name(value: object, name: str) -> bool:
+    if isinstance(value, WccNameAtom):
+        return value.name == name
+    if isinstance(value, Mapping):
+        return any(
+            _wcc_tree_references_name(item, name)
+            for item in value.values()
+        )
+    if isinstance(value, (tuple, list)):
+        return any(
+            _wcc_tree_references_name(item, name)
+            for item in value
+        )
+    if is_dataclass(value):
+        return any(
+            _wcc_tree_references_name(
+                getattr(value, field.name),
+                name,
+            )
+            for field in fields(value)
+        )
+    return False
+
+
+def _wcc_workflow_call_exclusively_consumes_binding(
+    body: WccBody,
+    binding_name: str,
+) -> bool:
+    if (
+        not isinstance(body, WccLet)
+        or not isinstance(body.bound_value, WccPerform)
+        or body.bound_value.perform_kind != "workflow_call"
+    ):
+        return False
+    perform = body.bound_value
+    if not any(
+        _wcc_tree_references_name(value, binding_name)
+        for _, value in perform.keyword_args
+    ):
+        return False
+    if (
+        _wcc_tree_references_name(
+            perform.positional_args,
+            binding_name,
+        )
+        or _wcc_tree_references_name(
+            perform.operation_payload,
+            binding_name,
+        )
+    ):
+        return False
+    return not _wcc_tree_references_name(body.body, binding_name)
+
+
 def _frontend_expr_from_wcc_loop_body(body: WccBody, env: Mapping[str, object] | None = None):
     resolved_env: Mapping[str, object] = env or {}
     if isinstance(body, WccLet):
         binding_expr = (
-            _frontend_expr_from_wcc_loop_binding_value(body.bound_value)
+            _frontend_expr_from_wcc_loop_binding_value(
+                body.bound_value,
+                env=resolved_env,
+            )
             if isinstance(body.bound_value, (WccPerform, WccCall))
             else _frontend_expr_from_wcc_value_with_env(body.bound_value, resolved_env)
         )
         nested_env: Mapping[str, object] = resolved_env
         if not isinstance(body.bound_value, (WccPerform, WccCall)):
             nested_env = {**dict(resolved_env), body.bound_name: binding_expr}
+        if (
+            isinstance(binding_expr, PathJoinUnderExpr)
+            and _wcc_workflow_call_exclusively_consumes_binding(
+                body.body,
+                body.bound_name,
+            )
+        ):
+            return _frontend_expr_from_wcc_loop_body(
+                body.body,
+                nested_env,
+            )
         return LetStarExpr(
             bindings=((body.bound_name, binding_expr),),
             body=_frontend_expr_from_wcc_loop_body(body.body, nested_env),
@@ -6189,7 +6257,11 @@ def _prompt_application_from_wcc_payload(
     )
 
 
-def _frontend_expr_from_wcc_loop_binding_value(value):
+def _frontend_expr_from_wcc_loop_binding_value(
+    value,
+    *,
+    env: Mapping[str, object] | None = None,
+):
     if isinstance(value, WccPerform):
         if value.perform_kind == "provider_result":
             operation_payload = value.operation_payload if isinstance(value.operation_payload, dict) else {}
@@ -6268,10 +6340,29 @@ def _frontend_expr_from_wcc_loop_binding_value(value):
                 expansion_stack=value.metadata.expansion_stack,
             )
         if value.perform_kind == "workflow_call":
+            path_binding_env = (
+                {
+                    name: binding
+                    for name, binding in env.items()
+                    if isinstance(binding, PathJoinUnderExpr)
+                }
+                if env is not None
+                else None
+            )
             return CallExpr(
                 callee_name=value.target_name,
                 bindings=tuple(
-                    (binding_name, _frontend_expr_from_wcc_value(binding_value))
+                    (
+                        binding_name,
+                        (
+                            _frontend_expr_from_wcc_value_with_env(
+                                binding_value,
+                                path_binding_env,
+                            )
+                            if path_binding_env
+                            else _frontend_expr_from_wcc_value(binding_value)
+                        ),
+                    )
                     for binding_name, binding_value in value.keyword_args
                 ),
                 span=value.metadata.source_span,
