@@ -161,10 +161,12 @@ analysis. It has no multi-diagnostic recovery,
 hover/type sidecar, compile cache or incrementality, rename, formatting, code
 actions, semantic tokens, multi-root workspace support, or non-default compile
 policy. These are not partial server features. L3 ships immutable exact
-per-source entry selection over the MR-4 reentrant compiler substrate. L4
-diagnostic lifecycle and compile progress requires its own design review and
-editor evidence before implementation. The frontend prerequisites P1–P5 and
-any other successor work remain separately designed and scheduled.
+per-source entry selection over the MR-4 reentrant compiler substrate. The
+accepted [L4 diagnostic-lifecycle and compile-progress target](design/workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md)
+is not implemented: the shipped server still retains prior diagnostics
+visibly while dirty/pending and emits no work-done progress. The frontend
+prerequisites P1–P5 and any other successor work remain separately designed
+and scheduled.
 
 For the owning contract and rationale, see
 [Workflow Lisp Language Server](design/workflow_lisp_language_server.md) and

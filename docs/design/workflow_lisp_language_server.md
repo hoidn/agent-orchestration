@@ -1,6 +1,7 @@
 # Workflow Lisp Language Server
 
-- **Status:** implemented through L2/L3/L5
+- **Status:** implemented through L2/L3/L5; accepted L4 target pending
+  implementation
 - **Kind:** feature / developer tooling architecture decision
 - **Owner:** Workflow Lisp frontend (tooling consumer)
 - **Reviewers:** independent specification rereview
@@ -17,7 +18,9 @@
   `L3_TASK1_SPEC_APPROVED`, then `L3_TASK1_QUALITY_APPROVED`; L3 Task 2 and
   its xdist-evidence correction each received restarted
   `L3_TASK2_SPEC_APPROVED`, then `L3_TASK2_QUALITY_APPROVED`; final closure
-  `L3_FINAL_SPEC_APPROVED`, then `L3_FINAL_QUALITY_APPROVED` (2026-07-28)
+  `L3_FINAL_SPEC_APPROVED`, then `L3_FINAL_QUALITY_APPROVED` (2026-07-28);
+  L4 independent specification review `L4_DESIGN_SPEC_APPROVED`, then
+  independent quality review `L4_DESIGN_QUALITY_APPROVED`
 - **Created:** 2026-07-13
 - **Last material update:** 2026-07-28
 - **Review history:** earlier design and quality changes-required rounds,
@@ -105,6 +108,20 @@ unexpanded direct-retained `proc-ref` name tokens in authored non-generated,
 non-specialized owners.
 Capabilities P1-P5 (hover types, multi-diagnostic error recovery,
 as-you-type checking, and incrementality) remain wholly deferred.
+
+## L4 Accepted Target Amendment: Current Diagnostics And Compile Progress
+
+The accepted
+[L4 diagnostic-lifecycle and compile-progress amendment](workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md)
+replaces the target anti-flicker policy with a current-only publication view
+while preserving retained contribution ownership internally. It also defines
+one capability-gated, indeterminate, non-blocking work-done lifecycle per
+logical serialized compile-pump busy interval.
+
+This is an accepted target, not current behavior. Until its reviewed
+implementation plan lands and closes, the shipped server continues retaining
+prior accepted diagnostics visibly while an entry is dirty or pending and
+emits no work-done progress.
 
 ## L3 Shipped Amendment: Immutable Per-Source Entry Selection
 

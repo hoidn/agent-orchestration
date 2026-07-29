@@ -1322,8 +1322,11 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "| L4 |",
     )
     normalized_l4_row = _normalized_routing_text(l4_row)
-    assert "next l series design gate" in normalized_l4_row
-    assert "requires separate design review" in normalized_l4_row
+    assert "ordered l4_design_spec_approved then l4_design_quality_approved" in (
+        normalized_l4_row
+    )
+    assert "a separate implementation plan is next" in normalized_l4_row
+    assert "no l4 behavior is implemented" in normalized_l4_row
     assert "blocked by l3" not in normalized_l4_row
     l1_row = _markdown_table_row(
         REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
@@ -1369,7 +1372,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         normalized_index
     )
     assert "l3 completed over mr 4 under its reviewed plan" in normalized_index
-    assert "select l4 only through its separate design review" in normalized_index
+    assert "l4's separate implementation plan gate is next" in normalized_index
     assert "p1 diagnostic accumulation" in normalized_successor
     assert "p5 compile caching/incrementality" in normalized_successor
     assert "runtime debugging surface" in normalized_successor
@@ -1507,7 +1510,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "l3 completed over mr 4 under its reviewed plan" in (
         normalized_successor_index
     )
-    assert "select l4 only through its separate design review" in (
+    assert "l4's separate implementation plan gate is next" in (
         normalized_successor_index
     )
     assert "### [Workflow Lisp Language Server L2 Implementation Plan]" in index
@@ -1743,7 +1746,10 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     )
     assert "l3 immutable per source entry selection" in active_roadmap_index
     assert "l4 diagnostic lifecycle and compile progress" in active_roadmap_index
-    assert "next l series design gate" in active_roadmap_index
+    assert "accepted editor evidence and ordered design reviews" in (
+        active_roadmap_index
+    )
+    assert "a separate implementation plan is next" in active_roadmap_index
 
 
 def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> None:
@@ -3126,8 +3132,11 @@ def test_language_server_l2_l3_l5_are_complete_and_select_l4_design_gate() -> No
         if line.startswith("| L4 |")
     )
     normalized_l4_row = _normalized_routing_text(l4_row)
-    assert "next l series design gate" in normalized_l4_row
-    assert "requires separate design review" in normalized_l4_row
+    assert "ordered l4_design_spec_approved then l4_design_quality_approved" in (
+        normalized_l4_row
+    )
+    assert "a separate implementation plan is next" in normalized_l4_row
+    assert "no l4 behavior is implemented" in normalized_l4_row
     assert "blocked by l3" not in normalized_l4_row
     l2_plan = (
         REPO_ROOT
