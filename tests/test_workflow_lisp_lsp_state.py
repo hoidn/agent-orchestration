@@ -61,6 +61,13 @@ class _StringLikeStatus:
 _READABLE_REVISION = f"sha256:{'a' * 64}"
 
 
+def _current_diagnostic_contributions(state):
+    projection = getattr(lsp_state, "current_diagnostic_contributions", None)
+    if not callable(projection):
+        pytest.fail("current_diagnostic_contributions is not implemented")
+    return projection(state)
+
+
 def _recovery_completion_state(
     *,
     workspace: Path,
@@ -834,7 +841,9 @@ def test_change_and_save_clear_navigation_without_erasing_trusted_ownership(
     assert entry.dependency_closure == frozenset({path.resolve()})
     assert entry.dependency_revision_vector == dependency_revision_vector
     assert entry.diagnostic_contributions is diagnostic_contributions
-    assert changed.effects == StateEffects()
+    assert changed.effects == StateEffects(
+        republish_uris=(path.as_uri(),),
+    )
 
     path.write_text("(workflow-lisp changed)\n", encoding="utf-8")
     saved = save_entry(
@@ -1115,6 +1124,10 @@ def test_changed_save_invalidates_importer_and_diagnostic_owner_once(
             (diagnostic_owner.resolve(), 2),
             (saved_path.resolve(), 3),
         ),
+        republish_uris=(
+            importer.as_uri(),
+            saved_path.as_uri(),
+        ),
     )
 
 
@@ -1166,6 +1179,7 @@ def test_changed_dirty_or_unavailable_save_still_schedules_importer(
     assert by_path[saved_path.resolve()].pending_generation is None
     assert saved.effects == StateEffects(
         scheduled_generations=((importer.resolve(), 2),),
+        republish_uris=(importer.as_uri(),),
     )
 
 
@@ -1203,6 +1217,7 @@ def test_changed_save_with_unknown_closure_cancels_pending_and_schedules_clean(
     assert saved.effects == StateEffects(
         scheduled_generations=((unknown.resolve(), 2),),
         canceled_generations=((saved_path.resolve(), 1),),
+        republish_uris=(unknown.as_uri(),),
     )
 
 
@@ -2000,6 +2015,334 @@ def test_dirty_and_pending_keep_earlier_contributions_until_current_completion(
     )
 
 
+@pytest.mark.parametrize("language_error", (False, True))
+def test_current_diagnostic_projection_retains_exact_current_tuple(
+    tmp_path: Path,
+    language_error: bool,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_path.write_text("(workflow-lisp)\n", encoding="utf-8")
+    state = _accepted_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        closure=frozenset({entry_path.resolve()}),
+        revision_paths=(entry_path,),
+        language_error=language_error,
+    )
+    contributions = state.entries[0].diagnostic_contributions
+
+    projected = _current_diagnostic_contributions(state)
+
+    assert projected == {entry_path.resolve().as_uri(): contributions}
+    assert projected[entry_path.resolve().as_uri()] is contributions
+
+
+def test_current_diagnostic_projection_accepts_empty_current_tuple(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_path.write_text("(workflow-lisp)\n", encoding="utf-8")
+    state = _accepted_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        closure=frozenset({entry_path.resolve()}),
+        revision_paths=(entry_path,),
+    )
+    state = replace(
+        state,
+        entries=(replace(state.entries[0], diagnostic_contributions=()),),
+    )
+
+    assert _current_diagnostic_contributions(state) == {
+        entry_path.resolve().as_uri(): ()
+    }
+
+
+@pytest.mark.parametrize(
+    ("entry_changes", "configuration_stale"),
+    (
+        ({"buffer_status": "dirty", "compile_status": "idle"}, False),
+        ({"buffer_status": "unavailable", "compile_status": "idle"}, False),
+        ({"editor_text": None}, False),
+        (
+            {
+                "pending_generation": 1,
+                "compile_status": "pending",
+            },
+            False,
+        ),
+        ({"compile_status": "idle"}, False),
+        ({"compile_status": "server_error"}, False),
+        ({}, True),
+    ),
+)
+def test_noncurrent_diagnostic_owners_project_nothing(
+    tmp_path: Path,
+    entry_changes: dict[str, object],
+    configuration_stale: bool,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_path.write_text("(workflow-lisp)\n", encoding="utf-8")
+    state = _accepted_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        closure=frozenset({entry_path.resolve()}),
+        revision_paths=(entry_path,),
+    )
+    state = replace(
+        state,
+        entries=(replace(state.entries[0], **entry_changes),),
+        configuration_stale=configuration_stale,
+    )
+
+    assert _current_diagnostic_contributions(state) == {}
+
+
+def test_closed_diagnostic_owner_projects_nothing(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_path.write_text("(workflow-lisp)\n", encoding="utf-8")
+    state = _accepted_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        closure=frozenset({entry_path.resolve()}),
+        revision_paths=(entry_path,),
+    )
+
+    closed = close_entry(state, document_uri=entry_path.as_uri())
+
+    assert _current_diagnostic_contributions(closed.state) == {}
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    (
+        {"compile_entry_uri": "file:///wrong-owner.orc"},
+        {"accepted_generation": "one"},
+    ),
+)
+def test_current_diagnostic_projection_rejects_malformed_retained_owner(
+    tmp_path: Path,
+    malformed: dict[str, object],
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_path.write_text("(workflow-lisp)\n", encoding="utf-8")
+    state = _accepted_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        closure=frozenset({entry_path.resolve()}),
+        revision_paths=(entry_path,),
+    )
+    contribution = replace(
+        state.entries[0].diagnostic_contributions[0],
+        **malformed,
+    )
+    malformed_state = replace(
+        state,
+        entries=(
+            replace(
+                state.entries[0],
+                diagnostic_contributions=(contribution,),
+            ),
+        ),
+    )
+
+    with pytest.raises((TypeError, ValueError)):
+        _current_diagnostic_contributions(malformed_state)
+
+
+@pytest.mark.parametrize("accepted_generation", (1, 3))
+def test_clean_terminal_diagnostic_projection_requires_current_generation(
+    tmp_path: Path,
+    accepted_generation: int,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_path.write_text("(workflow-lisp)\n", encoding="utf-8")
+    state = _accepted_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        closure=frozenset({entry_path.resolve()}),
+        revision_paths=(entry_path,),
+    )
+    contribution = replace(
+        state.entries[0].diagnostic_contributions[0],
+        accepted_generation=accepted_generation,
+    )
+    malformed_state = replace(
+        state,
+        entries=(
+            replace(
+                state.entries[0],
+                generation=2,
+                diagnostic_contributions=(contribution,),
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError):
+        _current_diagnostic_contributions(malformed_state)
+
+
+def test_hidden_historical_diagnostic_generation_remains_valid(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_path.write_text("(workflow-lisp)\n", encoding="utf-8")
+    state = _accepted_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        closure=frozenset({entry_path.resolve()}),
+        revision_paths=(entry_path,),
+    )
+    historical = state.entries[0].diagnostic_contributions
+    hidden_state = replace(
+        state,
+        entries=(
+            replace(
+                state.entries[0],
+                generation=2,
+                buffer_status="dirty",
+                compile_status="idle",
+            ),
+        ),
+    )
+
+    assert _current_diagnostic_contributions(hidden_state) == {}
+    assert hidden_state.entries[0].diagnostic_contributions is historical
+
+
+@pytest.mark.parametrize("accepted_generation", (0, 3))
+def test_hidden_diagnostic_projection_rejects_impossible_generation(
+    tmp_path: Path,
+    accepted_generation: int,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_path.write_text("(workflow-lisp)\n", encoding="utf-8")
+    state = _accepted_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        closure=frozenset({entry_path.resolve()}),
+        revision_paths=(entry_path,),
+    )
+    contribution = replace(
+        state.entries[0].diagnostic_contributions[0],
+        accepted_generation=accepted_generation,
+    )
+    malformed_state = replace(
+        state,
+        entries=(
+            replace(
+                state.entries[0],
+                generation=2,
+                buffer_status="dirty",
+                compile_status="idle",
+                diagnostic_contributions=(contribution,),
+            ),
+        ),
+    )
+
+    with pytest.raises((TypeError, ValueError)):
+        _current_diagnostic_contributions(malformed_state)
+
+
+def test_visibility_transitions_republish_old_targets_without_deleting_ownership(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    dependency_path = workspace / "dependency.orc"
+    target_path = workspace / "target.orc"
+    for path in (entry_path, dependency_path, target_path):
+        path.write_text("(workflow-lisp)\n", encoding="utf-8")
+    state = _accepted_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        closure=frozenset(
+            {entry_path.resolve(), dependency_path.resolve()}
+        ),
+        revision_paths=(entry_path, dependency_path),
+        contribution_target_uris=(target_path.as_uri(),),
+    )
+    contributions = state.entries[0].diagnostic_contributions
+
+    dirty = change_entry(
+        state,
+        document_uri=entry_path.as_uri(),
+        editor_text="(workflow-lisp edited)\n",
+    )
+    direct_pending = save_entry(
+        state,
+        document_uri=entry_path.as_uri(),
+        disk_snapshot=probe_disk_source(entry_path),
+    )
+    dependency_path.write_text(
+        "(workflow-lisp changed)\n",
+        encoding="utf-8",
+    )
+    invalidated = observe_file_revision(
+        state,
+        probe_disk_source(dependency_path),
+    )
+
+    for transition in (dirty, direct_pending, invalidated):
+        assert transition.effects.republish_uris == (target_path.as_uri(),)
+        assert transition.state.entries[0].diagnostic_contributions is contributions
+        assert _current_diagnostic_contributions(transition.state) == {}
+
+
+def test_hidden_diagnostic_transitions_do_not_republish_redundantly(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    target_path = workspace / "target.orc"
+    for path in (entry_path, target_path):
+        path.write_text("(workflow-lisp)\n", encoding="utf-8")
+    state = _accepted_state(
+        workspace=workspace,
+        entry_path=entry_path,
+        closure=frozenset({entry_path.resolve()}),
+        revision_paths=(entry_path,),
+        contribution_target_uris=(target_path.as_uri(),),
+    )
+    dirty = change_entry(
+        state,
+        document_uri=entry_path.as_uri(),
+        editor_text="(workflow-lisp edited)\n",
+    )
+    entry_path.write_text("(workflow-lisp edited)\n", encoding="utf-8")
+    pending = save_entry(
+        dirty.state,
+        document_uri=entry_path.as_uri(),
+        disk_snapshot=probe_disk_source(entry_path),
+    )
+    failed = record_server_failure(
+        pending.state,
+        document_uri=entry_path.as_uri(),
+        generation=pending.state.entries[0].generation,
+    )
+
+    assert pending.effects.republish_uris == ()
+    assert failed.effects.republish_uris == ()
+
+
 def test_close_stale_and_server_failure_apply_contribution_ownership_rules(
     tmp_path: Path,
 ) -> None:
@@ -2077,6 +2420,7 @@ def test_observed_dependency_change_invalidates_and_schedules_clean_importer(
     )
     assert observed.effects == StateEffects(
         scheduled_generations=((entry_path.resolve(), 2),),
+        republish_uris=(entry_path.as_uri(),),
     )
 
 
@@ -2186,6 +2530,7 @@ def test_unknown_unavailable_entry_conservatively_invalidates_all_open_entries(
     assert by_path[known_path.resolve()].pending_generation == 2
     assert observed.effects == StateEffects(
         scheduled_generations=((known_path.resolve(), 2),),
+        republish_uris=(known_path.as_uri(),),
     )
 
 
@@ -2239,6 +2584,7 @@ def test_precise_language_error_changed_dependency_revision_is_invalidated(
     assert entry.dependency_revision_vector is not None
     assert observed.effects == StateEffects(
         scheduled_generations=((entry_path.resolve(), 2),),
+        republish_uris=(entry_path.as_uri(),),
     )
 
 
@@ -2317,6 +2663,7 @@ def test_open_dependency_becoming_unavailable_is_not_self_scheduled(
     assert observed.effects == StateEffects(
         scheduled_generations=((entry_path.resolve(), 2),),
         canceled_generations=((dependency_path.resolve(), 1),),
+        republish_uris=(entry_path.as_uri(),),
     )
 
 

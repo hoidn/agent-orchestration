@@ -560,6 +560,11 @@ def change_entry(
         state=replace(state, entries=_replace_entry(state.entries, updated)),
         effects=StateEffects(
             canceled_generations=_pending_generation_effect(path, entry),
+            republish_uris=_diagnostic_visibility_republish_uris(
+                entry,
+                updated,
+                configuration_stale=state.configuration_stale,
+            ),
         ),
     )
 
@@ -602,6 +607,11 @@ def save_entry(
         effects=StateEffects(
             scheduled_generations=((path, generation),) if schedulable else (),
             canceled_generations=_pending_generation_effect(path, entry),
+            republish_uris=_diagnostic_visibility_republish_uris(
+                entry,
+                updated,
+                configuration_stale=state.configuration_stale,
+            ),
         ),
     )
 
@@ -797,6 +807,7 @@ def observe_file_revision(
     updated_entries: list[CompileEntryState] = []
     scheduled: list[tuple[Path, int]] = []
     canceled: list[tuple[Path, int]] = []
+    republish_groups: list[tuple[str, ...]] = []
     for entry in state.entries:
         if entry.path not in affected_paths:
             updated_entries.append(entry)
@@ -823,15 +834,21 @@ def observe_file_revision(
             and disk_snapshot is not None
             and _snapshot_has_decoded_text(disk_snapshot)
         )
-        updated_entries.append(
-            replace(
+        updated = replace(
+            entry,
+            disk_snapshot=disk_snapshot,
+            generation=generation,
+            pending_generation=generation if schedulable else None,
+            buffer_status=buffer_status,
+            compile_status="pending" if schedulable else "idle",
+            accepted_snapshot=None,
+        )
+        updated_entries.append(updated)
+        republish_groups.append(
+            _diagnostic_visibility_republish_uris(
                 entry,
-                disk_snapshot=disk_snapshot,
-                generation=generation,
-                pending_generation=generation if schedulable else None,
-                buffer_status=buffer_status,
-                compile_status="pending" if schedulable else "idle",
-                accepted_snapshot=None,
+                updated,
+                configuration_stale=state.configuration_stale,
             )
         )
         if schedulable:
@@ -842,6 +859,7 @@ def observe_file_revision(
         effects=StateEffects(
             scheduled_generations=tuple(scheduled),
             canceled_generations=tuple(canceled),
+            republish_uris=_merge_republish_uris(*republish_groups),
         ),
     )
 
@@ -1026,7 +1044,8 @@ def _validate_diagnostic_contributions(
     diagnostic_contributions: tuple[DiagnosticContribution, ...],
     *,
     owner_path: Path,
-    generation: int,
+    generation: int | None,
+    maximum_generation: int | None = None,
 ) -> None:
     """Validate the structural contribution boundary without nominal coupling."""
 
@@ -1056,10 +1075,19 @@ def _validate_diagnostic_contributions(
             raise ValueError(
                 "diagnostic contribution target URI must be canonical"
             )
+        if type(accepted_generation) is not int or accepted_generation < 1:
+            raise TypeError(
+                "diagnostic contribution generation must be a "
+                "positive integer"
+            )
         if (
-            type(accepted_generation) is not int
-            or accepted_generation != generation
+            maximum_generation is not None
+            and accepted_generation > maximum_generation
         ):
+            raise ValueError(
+                "diagnostic contribution generation exceeds compile entry"
+            )
+        if generation is not None and accepted_generation != generation:
             raise ValueError(
                 "diagnostic contribution generation does not match completion"
             )
@@ -1067,6 +1095,85 @@ def _validate_diagnostic_contributions(
             raise TypeError(
                 "diagnostic contribution parity identity must be a tuple"
             )
+
+
+def current_diagnostic_contributions(
+    state: LspState,
+) -> Mapping[str, tuple[DiagnosticContribution, ...]]:
+    """Project exact retained tuples for diagnostically current owners."""
+
+    projected: dict[str, tuple[DiagnosticContribution, ...]] = {}
+    for entry in state.entries:
+        _validate_diagnostic_contributions(
+            entry.diagnostic_contributions,
+            owner_path=entry.path,
+            generation=None,
+            maximum_generation=entry.generation,
+        )
+        if _entry_diagnostics_current(
+            entry,
+            configuration_stale=state.configuration_stale,
+        ):
+            projected[entry.path.as_uri()] = entry.diagnostic_contributions
+    return projected
+
+
+def _entry_diagnostics_current(
+    entry: CompileEntryState,
+    *,
+    configuration_stale: bool,
+) -> bool:
+    terminal_candidate = (
+        not configuration_stale
+        and entry.editor_text is not None
+        and entry.buffer_status == "clean"
+        and entry.pending_generation is None
+        and entry.compile_status in {"success", "language_error"}
+    )
+    if not terminal_candidate:
+        return False
+    if not all(
+        contribution.compile_entry_uri == entry.path.as_uri()
+        and contribution.accepted_generation == entry.generation
+        for contribution in entry.diagnostic_contributions
+    ):
+        raise ValueError(
+            "diagnostic contribution generation does not match "
+            "current terminal entry"
+        )
+    return True
+
+
+def _diagnostic_visibility_republish_uris(
+    old_entry: CompileEntryState,
+    new_entry: CompileEntryState,
+    *,
+    configuration_stale: bool,
+) -> tuple[str, ...]:
+    _validate_diagnostic_contributions(
+        old_entry.diagnostic_contributions,
+        owner_path=old_entry.path,
+        generation=None,
+        maximum_generation=old_entry.generation,
+    )
+    _validate_diagnostic_contributions(
+        new_entry.diagnostic_contributions,
+        owner_path=new_entry.path,
+        generation=None,
+        maximum_generation=new_entry.generation,
+    )
+    if _entry_diagnostics_current(
+        old_entry,
+        configuration_stale=configuration_stale,
+    ) == _entry_diagnostics_current(
+        new_entry,
+        configuration_stale=configuration_stale,
+    ):
+        return ()
+    return _merge_republish_uris(
+        _diagnostic_target_uris(old_entry.diagnostic_contributions),
+        _diagnostic_target_uris(new_entry.diagnostic_contributions),
+    )
 
 
 def _diagnostic_target_uris(

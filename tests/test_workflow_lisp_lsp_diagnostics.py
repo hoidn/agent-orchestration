@@ -328,6 +328,101 @@ def test_aggregation_deduplicates_by_parity_and_retains_remaining_owner(
     assert remaining[source_path.as_uri()][0].message == "later owner wording"
 
 
+def test_current_projection_hides_one_owner_without_erasing_other_owner(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.lsp.compile_driver import probe_disk_source
+    from orchestrator.lsp.state import (
+        AcceptedCompileSnapshot,
+        accept_compile_success,
+        change_entry,
+        initialize_lsp_state,
+        open_entry,
+    )
+    import orchestrator.lsp.state as state_module
+
+    projection = getattr(
+        state_module,
+        "current_diagnostic_contributions",
+        None,
+    )
+    if not callable(projection):
+        pytest.fail("current_diagnostic_contributions is not implemented")
+
+    _contribution_type, translate, aggregate = _surface()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    source_path = workspace / "shared.orc"
+    first_path = workspace / "a-entry.orc"
+    second_path = workspace / "z-entry.orc"
+    for path in (source_path, first_path, second_path):
+        path.write_text("a😀bc\n", encoding="utf-8")
+    state = initialize_lsp_state(root_uri=workspace.as_uri())
+    contributions_by_path = {}
+    for generation, entry_path in enumerate((first_path, second_path), 1):
+        opened = open_entry(
+            state,
+            document_uri=entry_path.as_uri(),
+            editor_text=entry_path.read_text(encoding="utf-8"),
+            disk_snapshot=probe_disk_source(entry_path),
+        )
+        actual_generation = opened.state.entries[-1].generation
+        contributions = translate(
+            (_diagnostic(source_path),),
+            compile_entry_uri=entry_path.as_uri(),
+            accepted_generation=actual_generation,
+            accepted_text_by_path={source_path: source_path.read_text()},
+        )
+        contributions_by_path[entry_path] = contributions
+        state = accept_compile_success(
+            opened.state,
+            document_uri=entry_path.as_uri(),
+            generation=actual_generation,
+            snapshot=AcceptedCompileSnapshot(
+                build_value=("accepted", generation),
+                source_revision_vector=(
+                    (
+                        entry_path.resolve(),
+                        probe_disk_source(entry_path).revision,
+                    ),
+                ),
+            ),
+            dependency_closure=frozenset({entry_path.resolve()}),
+            diagnostic_contributions=contributions,
+        ).state
+
+    first_hidden = change_entry(
+        state,
+        document_uri=first_path.as_uri(),
+        editor_text="edited\n",
+    )
+    aggregate_after_first = aggregate(
+        projection(first_hidden.state)
+    )
+
+    assert len(aggregate_after_first[source_path.as_uri()]) == 1
+    assert (
+        aggregate_after_first[source_path.as_uri()][0].compile_entry_uri
+        == second_path.as_uri()
+    )
+    assert (
+        first_hidden.state.entries[0].diagnostic_contributions
+        is contributions_by_path[first_path]
+    )
+
+    second_hidden = change_entry(
+        first_hidden.state,
+        document_uri=second_path.as_uri(),
+        editor_text="edited\n",
+    )
+
+    assert aggregate(projection(second_hidden.state)) == {}
+    assert (
+        second_hidden.state.entries[1].diagnostic_contributions
+        is contributions_by_path[second_path]
+    )
+
+
 def test_direct_contribution_construction_copies_and_deep_freezes_payloads(
     tmp_path: Path,
 ) -> None:

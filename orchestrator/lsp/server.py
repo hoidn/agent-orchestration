@@ -40,6 +40,7 @@ from .state import (
     change_entry,
     classify_completion_recovery,
     close_entry,
+    current_diagnostic_contributions,
     initialize_lsp_state,
     open_entry,
     save_observed_entry,
@@ -224,19 +225,19 @@ class WorkflowLispLanguageServer(LanguageServer):
         self,
         params: types.DidChangeTextDocumentParams,
     ) -> None:
-        """Adopt the full in-memory overlay without compiling or publishing."""
+        """Adopt the full in-memory overlay and publish visibility effects."""
 
         driver = self._require_driver()
         document = self.workspace.get_text_document(
             params.text_document.uri
         )
-        driver.apply_transition(
-            change_entry(
-                driver.state,
-                document_uri=params.text_document.uri,
-                editor_text=document.source,
-            )
+        transition = change_entry(
+            driver.state,
+            document_uri=params.text_document.uri,
+            editor_text=document.source,
         )
+        driver.apply_transition(transition)
+        self._emit_transition_effects((transition,))
 
     def save_document(self, params: types.DidSaveTextDocumentParams) -> None:
         """Re-probe authoritative disk text and run any resulting generation."""
@@ -565,14 +566,11 @@ class WorkflowLispLanguageServer(LanguageServer):
             )
         )
         if republish_uris:
-            aggregated = aggregate_diagnostic_contributions(
-                {
-                    entry.path.as_uri(): entry.diagnostic_contributions
-                    for entry in driver.state.entries
-                }
-            )
-            for uri in republish_uris:
-                self.text_document_publish_diagnostics(
+            try:
+                aggregated = aggregate_diagnostic_contributions(
+                    current_diagnostic_contributions(driver.state)
+                )
+                publications = tuple(
                     types.PublishDiagnosticsParams(
                         uri=uri,
                         diagnostics=tuple(
@@ -580,7 +578,13 @@ class WorkflowLispLanguageServer(LanguageServer):
                             for contribution in aggregated.get(uri, ())
                         ),
                     )
+                    for uri in republish_uris
                 )
+            except Exception as error:
+                self.log_internal_error(error)
+            else:
+                for publication in publications:
+                    self.text_document_publish_diagnostics(publication)
         if not any(
             transition.effects.restart_notice_required
             for transition in retained_transitions

@@ -777,7 +777,13 @@ def test_document_symbol_protocol_exposes_ten_kinds_and_selection_ranges(
                 },
             }
         )
-        process.assert_no_message()
+        dirty_clear, _ = process.read_until(
+            lambda item: (
+                item.get("method") == "textDocument/publishDiagnostics"
+                and item["params"]["uri"] == entry_path.as_uri()
+            )
+        )
+        assert dirty_clear["params"]["diagnostics"] == []
         entry_path.write_text(source_text, encoding="utf-8")
         process.send(
             {
@@ -1059,7 +1065,13 @@ def test_frame_clean_document_lifecycle_and_watcher_publication(
                 },
             }
         )
-        process.assert_no_message()
+        dirty_clear, _ = process.read_until(
+            lambda item: (
+                item.get("method") == "textDocument/publishDiagnostics"
+                and item["params"]["uri"] == source_path.as_uri()
+            )
+        )
+        assert dirty_clear["params"]["diagnostics"] == []
         source_path.write_text(valid_text, encoding="utf-8")
         process.send(
             {
@@ -1497,10 +1509,259 @@ def test_internal_compile_error_logs_without_replacing_owned_diagnostics(
     entry = server.driver.state.entries[0]
     assert entry.compile_status == "server_error"
     assert entry.diagnostic_contributions is before
-    assert tuple(published) == published_before_failure
+    assert tuple(published[:-1]) == published_before_failure
+    assert published[-1].uri == source_path.as_uri()
+    assert published[-1].diagnostics == ()
     assert len(logged) == 1
     assert logged[0].type == types.MessageType.Error
     assert "transport-visible internal failure" in logged[0].message
+
+
+def test_dirty_change_immediately_clears_visible_diagnostics_and_retains_owner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from lsprotocol import types
+
+    from orchestrator.lsp.server import WorkflowLispLanguageServer
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    source_path = workspace / "entry.orc"
+    broken_text = "(workflow-lisp"
+    source_path.write_text(broken_text, encoding="utf-8")
+    server = WorkflowLispLanguageServer()
+    published: list[types.PublishDiagnosticsParams] = []
+    monkeypatch.setattr(
+        server,
+        "text_document_publish_diagnostics",
+        published.append,
+    )
+    server.initialize_runtime(
+        types.InitializeParams(
+            capabilities=types.ClientCapabilities(),
+            root_uri=workspace.as_uri(),
+        )
+    )
+    server.open_document(
+        types.DidOpenTextDocumentParams(
+            text_document=types.TextDocumentItem(
+                uri=source_path.as_uri(),
+                language_id="workflow-lisp",
+                version=1,
+                text=broken_text,
+            )
+        )
+    )
+    assert server.driver is not None
+    contributions = server.driver.state.entries[0].diagnostic_contributions
+    assert contributions
+    assert published[-1].diagnostics
+    monkeypatch.setattr(
+        server.protocol,
+        "_workspace",
+        SimpleNamespace(
+            get_text_document=lambda _uri: SimpleNamespace(
+                source="(workflow-lisp)\n"
+            )
+        ),
+    )
+
+    server.change_document(
+        types.DidChangeTextDocumentParams(
+            text_document=types.VersionedTextDocumentIdentifier(
+                uri=source_path.as_uri(),
+                version=2,
+            ),
+            content_changes=(
+                types.TextDocumentContentChangeWholeDocument(
+                    text="(workflow-lisp)\n"
+                ),
+            ),
+        )
+    )
+
+    assert published[-1].uri == source_path.as_uri()
+    assert published[-1].diagnostics == ()
+    assert (
+        server.driver.state.entries[0].diagnostic_contributions
+        is contributions
+    )
+
+
+def test_diagnostic_projection_failure_logs_without_publishing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    from lsprotocol import types
+
+    from orchestrator.lsp.server import WorkflowLispLanguageServer
+    from orchestrator.lsp.state import LspStateTransition, StateEffects
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    source_path = workspace / "entry.orc"
+    broken_text = "(workflow-lisp"
+    source_path.write_text(broken_text, encoding="utf-8")
+    server = WorkflowLispLanguageServer()
+    logged: list[types.LogMessageParams] = []
+    published: list[types.PublishDiagnosticsParams] = []
+    monkeypatch.setattr(server, "window_log_message", logged.append)
+    monkeypatch.setattr(
+        server,
+        "text_document_publish_diagnostics",
+        published.append,
+    )
+    server.initialize_runtime(
+        types.InitializeParams(
+            capabilities=types.ClientCapabilities(),
+            root_uri=workspace.as_uri(),
+        )
+    )
+    assert server.driver is not None
+    server.open_document(
+        types.DidOpenTextDocumentParams(
+            text_document=types.TextDocumentItem(
+                uri=source_path.as_uri(),
+                language_id="workflow-lisp",
+                version=1,
+                text=broken_text,
+            )
+        )
+    )
+    contribution = server.driver.state.entries[0].diagnostic_contributions[0]
+    malformed = replace(
+        contribution,
+        compile_entry_uri=(workspace / "wrong.orc").as_uri(),
+    )
+    malformed_state = replace(
+        server.driver.state,
+        entries=(
+            replace(
+                server.driver.state.entries[0],
+                diagnostic_contributions=(malformed,),
+            ),
+        ),
+    )
+    server.driver.state = malformed_state
+    published.clear()
+    logged.clear()
+    server._emit_transition_effects(
+        (
+            LspStateTransition(
+                state=server.driver.state,
+                effects=StateEffects(
+                    republish_uris=(source_path.as_uri(),)
+                ),
+            ),
+        )
+    )
+
+    assert published == []
+    assert len(logged) == 1
+    assert logged[0].type == types.MessageType.Error
+    assert "owner does not match compile entry" in logged[0].message
+
+
+def test_diagnostic_conversion_failure_logs_without_partial_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    from lsprotocol import types
+
+    import orchestrator.lsp.server as server_module
+    from orchestrator.lsp.server import WorkflowLispLanguageServer
+    from orchestrator.lsp.state import LspStateTransition, StateEffects
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    source_path = workspace / "entry.orc"
+    later_target = workspace / "later.orc"
+    broken_text = "(workflow-lisp"
+    source_path.write_text(broken_text, encoding="utf-8")
+    later_target.write_text(broken_text, encoding="utf-8")
+    server = WorkflowLispLanguageServer()
+    logged: list[types.LogMessageParams] = []
+    published: list[types.PublishDiagnosticsParams] = []
+    monkeypatch.setattr(server, "window_log_message", logged.append)
+    monkeypatch.setattr(
+        server,
+        "text_document_publish_diagnostics",
+        published.append,
+    )
+    server.initialize_runtime(
+        types.InitializeParams(
+            capabilities=types.ClientCapabilities(),
+            root_uri=workspace.as_uri(),
+        )
+    )
+    server.open_document(
+        types.DidOpenTextDocumentParams(
+            text_document=types.TextDocumentItem(
+                uri=source_path.as_uri(),
+                language_id="workflow-lisp",
+                version=1,
+                text=broken_text,
+            )
+        )
+    )
+    assert server.driver is not None
+    first = server.driver.state.entries[0].diagnostic_contributions[0]
+    second = replace(first, target_uri=later_target.as_uri())
+    server.driver.state = replace(
+        server.driver.state,
+        entries=(
+            replace(
+                server.driver.state.entries[0],
+                diagnostic_contributions=(first, second),
+            ),
+        ),
+    )
+    real_conversion = server_module._lsp_diagnostic
+    conversion_order: list[str] = []
+
+    def fail_later_conversion(contribution):
+        conversion_order.append(contribution.target_uri)
+        if contribution.target_uri == later_target.as_uri():
+            raise ValueError("later diagnostic conversion failed")
+        return real_conversion(contribution)
+
+    monkeypatch.setattr(
+        server_module,
+        "_lsp_diagnostic",
+        fail_later_conversion,
+    )
+    published.clear()
+    logged.clear()
+
+    server._emit_transition_effects(
+        (
+            LspStateTransition(
+                state=server.driver.state,
+                effects=StateEffects(
+                    republish_uris=(
+                        source_path.as_uri(),
+                        later_target.as_uri(),
+                    )
+                ),
+            ),
+        )
+    )
+
+    assert conversion_order == [
+        source_path.as_uri(),
+        later_target.as_uri(),
+    ]
+    assert published == []
+    assert len(logged) == 1
+    assert logged[0].type == types.MessageType.Error
+    assert "later diagnostic conversion failed" in logged[0].message
 
 
 def test_save_document_probes_once_and_applies_one_observed_transition(
