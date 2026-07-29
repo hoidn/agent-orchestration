@@ -15,6 +15,7 @@ from orchestrator.observability.report import (
     render_status_markdown,
 )
 from orchestrator.runtime_observability import compute_active_runtime
+from orchestrator.workflow.judgment_views import project_judgment_views
 from orchestrator.workflow.prompt_context_report import (
     project_prompt_context_v2,
 )
@@ -223,6 +224,7 @@ def _state_only_snapshot(
         "progress": progress,
         "steps": steps,
         "prompt_context": project_prompt_context_v2(state, run_dir),
+        "judgment_views": project_judgment_views(state, run_dir),
     }
 
 

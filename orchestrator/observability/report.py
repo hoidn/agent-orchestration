@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Optional
 
 from orchestrator.runtime_observability import compute_active_runtime
+from orchestrator.workflow.judgment_views import (
+    empty_judgment_views,
+    project_judgment_views,
+    validate_judgment_views_projection,
+)
 from orchestrator.workflow.loaded_bundle import workflow_bundle
 from orchestrator.workflow.prompt_context_report import (
     project_prompt_context_v2,
@@ -471,6 +476,7 @@ def build_status_snapshot(
         "progress": progress,
         "steps": step_entries,
         "prompt_context": project_prompt_context_v2(state, run_root),
+        "judgment_views": project_judgment_views(state, run_root),
     }
 
 
@@ -690,6 +696,68 @@ def render_status_markdown(snapshot: Dict[str, Any]) -> str:
                     lines.append(
                         f"- reason: `{comparison.get('reason')}`"
                     )
+            lines.append("")
+
+    judgment_views = validate_judgment_views_projection(
+        snapshot.get("judgment_views", empty_judgment_views())
+    )
+    lines.append("## Judgment views")
+    judgments = judgment_views["judgments"]
+    if not judgments:
+        lines.extend(["- judgments: `0`", ""])
+    else:
+        for matrix, disagreement in zip(
+            judgment_views["matrices"],
+            judgment_views["disagreements"],
+            strict=True,
+        ):
+            group = matrix["group"]
+            lines.append(
+                "### "
+                f"{group['runtime_step_id']} "
+                f"({disagreement['status']})"
+            )
+            lines.append(
+                "- root_workflow_identity: "
+                f"`{group['root_workflow_identity']}`"
+            )
+            lines.append(
+                "- available_members: "
+                f"`{disagreement['available_member_count']}`"
+            )
+            lines.append(
+                "- comparable_members: "
+                f"`{disagreement['comparable_member_count']}`"
+            )
+            lines.append(
+                "- unavailable_members: "
+                f"`{disagreement['unavailable_member_count']}`"
+            )
+            for member in matrix["members"]:
+                coordinate = member["coordinate"]
+                lines.append(
+                    "- member: "
+                    f"`{coordinate['runtime_step_id']}` "
+                    f"visit `{coordinate['enclosing_visit']}` "
+                    f"status `{member['status']}`"
+                )
+                if member["comparison"] is not None:
+                    lines.append(
+                        "  - comparison: "
+                        f"`{member['comparison']}`"
+                    )
+                if member["result_value_sha256"] is not None:
+                    lines.append(
+                        "  - result_value_sha256: "
+                        f"`{member['result_value_sha256']}`"
+                    )
+                if member["evidence_record_sha256"] is not None:
+                    lines.append(
+                        "  - evidence_record_sha256: "
+                        f"`{member['evidence_record_sha256']}`"
+                    )
+                if member["reason"] is not None:
+                    lines.append(f"  - reason: `{member['reason']}`")
             lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"

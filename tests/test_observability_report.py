@@ -89,7 +89,7 @@ def test_snapshot_counts_and_infers_running_from_prompt_audit(tmp_path: Path):
     "target_label",
     ("2.20", "2.21", "2.22", "2.23", "mixed", "no-qualified-attempt"),
 )
-def test_prompt_context_loaded_report_has_exact_additive_empty_projection(
+def test_prompt_context_and_judgment_views_loaded_report_have_exact_additive_empty_projections(
     tmp_path: Path,
     target_label: str,
 ) -> None:
@@ -127,10 +127,23 @@ def test_prompt_context_loaded_report_has_exact_additive_empty_projection(
         run_root,
     )
 
-    assert tuple(snapshot) == ("run", "progress", "steps", "prompt_context")
+    assert tuple(snapshot) == (
+        "run",
+        "progress",
+        "steps",
+        "prompt_context",
+        "judgment_views",
+    )
     assert snapshot["prompt_context"] == {
         "schema_version": "workflow_prompt_context_report.v2",
         "attempts": [],
+    }
+    assert snapshot["judgment_views"] == {
+        "schema_version": "workflow_judgment_views.v1",
+        "judgments": [],
+        "matrices": [],
+        "disagreements": [],
+        "iteration_series": [],
     }
 
 
@@ -269,29 +282,91 @@ def test_markdown_renderer_emits_human_readable_status(tmp_path: Path):
     assert "Prompt body" in md
 
 
-def test_prompt_context_markdown_section_follows_ordinary_steps(
+def test_judgment_views_markdown_follows_prompt_context_without_full_content(
     tmp_path: Path,
 ) -> None:
+    from orchestrator.workflow.judgment_views import (
+        _project_group_views,
+    )
+    from orchestrator.workflow.prompt_identity import canonical_sha256
+
     run_root = tmp_path / ".orchestrate" / "runs" / "run-prompt-context"
-    run_root.mkdir(parents=True)
+    logs = run_root / "logs"
+    logs.mkdir(parents=True)
+    prompt_content = "private provider input for the judgment"
+    (logs / "DraftPlan.prompt.txt").write_text(prompt_content, encoding="utf-8")
     state = {
         "run_id": "run-prompt-context",
-        "status": "completed",
+        "status": "running",
         "started_at": "2026-07-27T00:00:00+00:00",
         "updated_at": "2026-07-27T00:00:01+00:00",
         "workflow_file": "workflows/test.yaml",
         "steps": {},
     }
-
-    markdown = render_status_markdown(
-        build_status_snapshot(
-            _load_bundle(tmp_path, _sample_workflow_payload()),
-            state,
-            run_root,
-        )
+    digest = "sha256:" + ("1" * 64)
+    coordinate = {
+        "root_workflow_identity": digest,
+        "call_frame_path": [],
+        "runtime_step_id": "root.review",
+        "enclosing_step_id": "root.review",
+        "enclosing_visit": 1,
+        "loop": None,
+    }
+    result_value = {"analysis": "private full result value"}
+    comparison = {
+        "status": "unavailable",
+        "previous_attempt_ordinal": None,
+        "classifications": [],
+        "reason": "no_predecessor",
+    }
+    judgment = {
+        "schema_version": "workflow_judgment_inspection.v1",
+        "status": "available",
+        "coordinate": coordinate,
+        "attempt_ordinal": 1,
+        "result": {
+            "declared_shape": "record_value",
+            "contract_sha256": digest,
+            "value_sha256": canonical_sha256(result_value),
+            "value": result_value,
+            "comparison": None,
+        },
+        "provenance": {
+            "evidence_record_sha256": digest,
+            "identity_schema_version": "workflow_prompt_attempt_identity.v1",
+            "role_sha256": {
+                "fragment_program": digest,
+                "resolved_bindings": digest,
+                "injected_dependencies": digest,
+                "runtime_contributions": digest,
+                "provider_policy": digest,
+            },
+            "final_prompt_sha256": digest,
+            "composition_sha256": digest,
+            "comparison": comparison,
+        },
+    }
+    snapshot = build_status_snapshot(
+        _load_bundle(tmp_path, _sample_workflow_payload()),
+        state,
+        run_root,
     )
+    matrices, disagreements = _project_group_views([judgment])
+    snapshot["judgment_views"] = {
+        "schema_version": "workflow_judgment_views.v1",
+        "judgments": [judgment],
+        "matrices": matrices,
+        "disagreements": disagreements,
+        "iteration_series": [],
+    }
 
-    assert markdown.index("## Prompt context") > markdown.index("## Steps")
+    markdown = render_status_markdown(snapshot)
+
+    judgment_offset = markdown.index("## Judgment views")
+    assert judgment_offset > markdown.index("## Prompt context") > markdown.index("## Steps")
+    judgment_section = markdown[judgment_offset:]
+    assert result_value["analysis"] not in judgment_section
+    assert prompt_content not in judgment_section
 
 
 def test_status_snapshot_surfaces_typed_terminal_observability_summary(tmp_path: Path):

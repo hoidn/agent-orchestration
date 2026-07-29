@@ -103,7 +103,7 @@ def test_report_supports_json_format(tmp_path, capsys, monkeypatch):
     assert payload["steps"][0]["kind"] == "unknown"
 
 
-def test_prompt_context_state_only_report_has_exact_additive_empty_projection(
+def test_prompt_context_and_judgment_views_state_only_report_have_exact_empty_projections(
     tmp_path,
     capsys,
     monkeypatch,
@@ -121,10 +121,23 @@ def test_prompt_context_state_only_report_has_exact_additive_empty_projection(
 
     assert result == 0
     payload = json.loads(capsys.readouterr().out)
-    assert tuple(payload) == ("run", "progress", "steps", "prompt_context")
+    assert tuple(payload) == (
+        "run",
+        "progress",
+        "steps",
+        "prompt_context",
+        "judgment_views",
+    )
     assert payload["prompt_context"] == {
         "schema_version": "workflow_prompt_context_report.v2",
         "attempts": [],
+    }
+    assert payload["judgment_views"] == {
+        "schema_version": "workflow_judgment_views.v1",
+        "judgments": [],
+        "matrices": [],
+        "disagreements": [],
+        "iteration_series": [],
     }
 
 
