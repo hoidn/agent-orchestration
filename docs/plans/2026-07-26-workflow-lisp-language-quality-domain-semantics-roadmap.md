@@ -87,7 +87,7 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | L1 | Authored symbols and callable signatures | L0 complete; closed navigation/completion amendment accepted | authored type/resource/transition symbols and namespace-preserving procedure/workflow signature completion use existing compiler spans/catalogs, exclude generated shapes, and retain fail-closed freshness | complete — implemented, reviewed, and repository-real stdio closure gate passed |
 | L2 | Recovery-safe static completion | L1 complete; two-tier completion design and component plan accepted | dirty/pending/invalidated/failed open entries receive only the process-frozen form registry as an incomplete list; stale callables remain closed and stale/closed/unassociated entries remain empty | complete — implementation through `10e3ccc3`; ordered `L2_FINAL_SPEC_APPROVED` then `L2_FINAL_QUALITY_APPROVED` |
 | L3 | Per-source entry selection | L2 complete; immutable initialization-schema amendment accepted; compile-path reentrancy proven by completed substrate MR-4 | one canonical workspace process can select an exported workflow for a named application source while compiling library entries with no selection, with exact CLI request parity and restart semantics | complete — implementation through `fc1b01ee`, `9e59929d`, and xdist-evidence correction `8c704f3f` after ordered `L3_TASK1_SPEC_APPROVED` / `L3_TASK1_QUALITY_APPROVED`, restarted `L3_TASK2_SPEC_APPROVED` / `L3_TASK2_QUALITY_APPROVED`, and final `L3_FINAL_SPEC_APPROVED` / `L3_FINAL_QUALITY_APPROVED` under the [reviewed three-task implementation plan](2026-07-28-workflow-lisp-language-server-l3-per-source-entry-selection-implementation-plan.md) |
-| L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and the current-only diagnostic/progress design are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | design accepted after ordered `L4_DESIGN_SPEC_APPROVED` then `L4_DESIGN_QUALITY_APPROVED`; a separate implementation plan is next; no L4 behavior is implemented |
+| L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and the current-only diagnostic/progress design are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | design accepted after ordered `L4_DESIGN_SPEC_APPROVED` then `L4_DESIGN_QUALITY_APPROVED`; [reviewed implementation plan](2026-07-28-workflow-lisp-language-server-l4-diagnostic-lifecycle-progress-implementation-plan.md) accepted after ordered `L4_PLAN_SPEC_APPROVED` then `L4_PLAN_QUALITY_APPROVED`; pre-implementation controls are next; no L4 behavior is implemented |
 | L5 | Authored reference navigation | accepted design at `b8a41172`; Q1 catalog and L1 index landed; read-only feasibility gates admitted prompt heads and only final unexpanded direct-retained `proc-ref` occurrences in non-generated, non-specialized authored owners; macro heads defer shape-wide; no L3/L4 dependency — selected under the owner-reordering rule | exact authored prompt-head and admitted proc-ref-name definition hits; macro-consumed, erased, expanded, generated-owner, specialized-owner proc-refs and every macro head remain null; existing direct procedure/`(call ...)` hits regression-locked; WCC/generated calls excluded; every hit uses the full common preflight; real stdio resolves the review workflow prompt head while its macro/proc-ref tokens remain null and its direct call stays exact | complete — implementation through `95e05c01`, `042c0bc3`, `870f7db2`, `7233138a`, and `041754e6`; durable incorporation and closure under the [reviewed implementation plan](2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md) |
 
 The Q-series implementation stages execute in Q-table order except for Q5's
@@ -120,7 +120,9 @@ implementation landed through Task 1 `fc1b01ee`, Task 2 `9e59929d`, and
 Task 2's xdist-evidence correction `8c704f3f` after their ordered
 specification and quality reviews. L4's editor evidence and ordered
 `L4_DESIGN_SPEC_APPROVED` then `L4_DESIGN_QUALITY_APPROVED` reviews are
-complete; its separate implementation plan is the next L-series gate.
+complete. Its reviewed implementation plan passed ordered
+`L4_PLAN_SPEC_APPROVED` then `L4_PLAN_QUALITY_APPROVED`; pre-implementation
+controls are the next L-series gate.
 L5 completion did not bypass any L3 gate.
 The L-series is an owner-selected
 priority queue rather than a
@@ -521,7 +523,10 @@ server design, based on observed client behavior rather than assumed UI
 capabilities.
 
 **Status:** accepted after ordered `L4_DESIGN_SPEC_APPROVED` then
-`L4_DESIGN_QUALITY_APPROVED`. A separate implementation plan is the next gate.
+`L4_DESIGN_QUALITY_APPROVED`. The
+[reviewed implementation plan](2026-07-28-workflow-lisp-language-server-l4-diagnostic-lifecycle-progress-implementation-plan.md)
+passed ordered `L4_PLAN_SPEC_APPROVED` then `L4_PLAN_QUALITY_APPROVED`;
+pre-implementation controls are next.
 The accepted target is
 `docs/design/workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md`, with
 selection evidence in
