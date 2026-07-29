@@ -32,7 +32,9 @@ stdio, and headless Neovim.
 
 **Execution status:** reviewed implementation plan accepted after ordered
 `L4_PLAN_SPEC_APPROVED` then `L4_PLAN_QUALITY_APPROVED`. Pre-implementation
-controls are next. No L4 runtime behavior is implemented.
+controls are complete after ordered `L4_CONTROL_SPEC_APPROVED` then
+`L4_CONTROL_QUALITY_APPROVED`; Task 1 is next. No L4 runtime behavior is
+implemented.
 
 ---
 
@@ -189,6 +191,74 @@ Append both control records to this plan, obtain ordered
 metadata-only bytes, and commit only this plan before Task 1. Confirm the tree
 is clean. Do not reinterpret a failure as L4 owned without a reproducing
 narrow selector.
+
+### Pre-Implementation Control Record
+
+Captured on 2026-07-28 against commit
+`f29b8999348c8f10f6469088715b8a960f95e63d`, tree
+`4f70fa471a24230ab63a648a6d5dd4d6cf02daaa`, with a clean working tree.
+
+The exact focused collection selected 282 tests in 1.13 seconds. Its raw
+output SHA-256 is
+`f9de5e6785dd64e73bff2ed0ff34a9cfb663faf3e23954b4472e4594ebcc5453`.
+The focused execution passed 282 tests in 60.76 seconds with zero failures,
+errors, or skips. Its raw output SHA-256 is
+`b10822c08faf73f6b7a1480f670960e5d79cfb050556caca27ae9909558fa08a`.
+
+The exact broad non-security command selected and executed 10,884 tests. The
+authoritative complete-transcript run finished in 160.11 seconds with 10,820
+passed, 42 failed, 0 errors, 22 skipped, and 33 warnings. Its raw output
+SHA-256 is
+`e3d493ee211b402859a11e3a2388ae093fde3fe6d1c138e0f967238df80d38f3`.
+The sorted exact failure-node set SHA-256 is
+`f5dccf2885bfd0f37e18573073e3904469453daff7823723560e989efac6c88c`.
+The exact pre-L4 failure nodes are:
+
+- `tests/test_workflow_lisp_post_wcc_inventory.py::test_checked_in_inventory_loads_and_validates`
+- `tests/test_workflow_lisp_post_wcc_inventory.py::test_missing_explicit_tranche_3a_coverage_emits_stable_code`
+- `tests/test_workflow_lisp_post_wcc_inventory.py::test_unknown_status_emits_stable_code`
+- `tests/test_workflow_lisp_post_wcc_inventory.py::test_missing_evidence_path_emits_stable_code`
+- `tests/test_workflow_lisp_post_wcc_inventory.py::test_completed_row_requires_completed_gap_history`
+- `tests/test_workflow_lisp_post_wcc_inventory.py::test_implemented_by_wcc_row_requires_completed_gap_history`
+- `tests/test_workflow_lisp_post_wcc_inventory.py::test_remaining_row_contradicted_by_repo_evidence_emits_status_conflict`
+- `tests/test_workflow_lisp_post_wcc_inventory.py::test_promotion_gate_rows_cannot_block_done`
+- `tests/test_workflow_lisp_post_wcc_inventory.py::test_markdown_guard_drift_emits_stable_code`
+- `tests/test_workflow_lisp_post_wcc_inventory.py::test_newer_progress_ledger_event_overrides_older_status_sources`
+- `tests/test_workflow_lisp_post_wcc_inventory.py::test_done_preconditions_follow_remaining_surface_state`
+- `tests/test_workflow_lisp_procedures.py::test_procedure_identity_modes_match_frozen_wcc_m4_observables`
+- `tests/test_provider_supervision_runtime.py::test_provider_supervision_call_frame_fails_before_runtime_activity`
+- `tests/test_workflow_lisp_post_wcc_inventory.py::test_cli_inventory_check_succeeds_for_checked_in_inventory`
+- `tests/test_workflow_lisp_post_wcc_inventory.py::test_cli_inventory_check_reports_drift_or_missing_evidence`
+- `tests/test_provider_prompt_dependency_broad_gate.py::test_reviewed_baseline_helper_migration_changes_only_helper_and_record_digests`
+- `tests/test_workflow_lisp_route_readiness.py::test_checked_in_registry_loads_and_validates`
+- `tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_runtime_helper_rejects_clean_run_before_writes[False]`
+- `tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_runtime_helper_rejects_clean_run_before_writes[True]`
+- `tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_retained_run_evidence_replays`
+- `tests/test_workflow_lisp_procedure_identity_retirement.py::test_checked_retirement_artifacts_reproduce_from_production_build[old]`
+- `tests/test_workflow_lisp_procedure_identity_retirement.py::test_checked_retirement_artifacts_reproduce_from_production_build[new]`
+- `tests/test_workflow_lisp_route_readiness.py::test_cli_route_readiness_check_valid_registry`
+- `tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_actual_recovery_record_matches_its_lifecycle_contract`
+- `tests/test_demo_nanobragg_entrypoint_reference_harness.py::test_build_harness_produces_shared_library`
+- `tests/test_demo_nanobragg_entrypoint_reference_harness.py::test_run_reference_case_returns_tensor_payload`
+- `tests/test_demo_nanobragg_reference_harness.py::test_extract_accumulation_slice_reports_scoped_anchor_metadata`
+- `tests/test_demo_nanobragg_reference_harness.py::test_reference_harness_supports_compile_check_mode`
+- `tests/test_workflow_lisp_prompt_identity_e2e.py::test_target_222_retry_attributes_changed_roles_before_terminal_report`
+- `tests/test_resume_command.py::test_direct_resume_quarantines_before_restart_or_launch_and_stays_sticky`
+- `tests/test_workflow_lisp_list_traversal.py::test_unknown_target_versions_still_fail_closed`
+- `tests/test_workflow_lisp_wcc_characterization.py::test_characterization_structural_cases_match_golden[stdlib_review_revise_loop]`
+- `tests/test_workflow_lisp_wcc_characterization.py::test_characterization_structural_cases_match_golden[wcc_m4_implementation_phase_full_fixture]`
+- `tests/test_workflow_lisp_wcc_characterization.py::test_characterization_structural_cases_match_golden[module_graph_imported_bundle_mix]`
+- `tests/test_workflow_lisp_wcc_characterization.py::test_characterization_behavior_cases_match_golden[stdlib_review_revise_loop]`
+- `tests/test_workflow_lisp_wcc_characterization.py::test_characterization_behavior_cases_match_golden[wcc_m4_implementation_phase_full_fixture]`
+- `tests/test_workflow_lisp_lsp_e2e.py::test_real_repository_l2_recovery_to_full_is_read_only`
+- `tests/test_workflow_lisp_procedure_first_migrations.py::test_procedure_first_design_delta_public_wrapper_runtime_contract`
+- `tests/test_workflow_lisp_checkpoint_identity_comparison.py::test_design_delta_drain_generic_route_matches_baseline`
+- `tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_checksum_evidence_projection_replays`
+- `tests/test_workflow_lisp_checkpoint_identity_comparison.py::test_reviewed_inline_call_retirement_rejects_identity_or_lineage_drift`
+- `tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_finalizer_hypothetical_removes_four_public_wrapper_checkpoints`
+
+None of these nodes belongs to the L4 owned-path or focused-selector surface.
+They are comparison facts only and grant no repair or weakening scope.
 
 ---
 
