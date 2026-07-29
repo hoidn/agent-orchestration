@@ -2256,7 +2256,10 @@ class _LedgerGrammar:
         elif event == "ingress_shutdown_failed":
             self.ingress = "incomplete"
             self.phase = "ingress_failed_terminal"
-            if self.primary_failure_diagnostic is None:
+            if (
+                self.primary_failure_diagnostic is None
+                and self.ingress_mode == "normal"
+            ):
                 self.primary_failure_diagnostic = payload["diagnostic"]
         elif event == "join_started":
             self.phase = "join_started"

@@ -1023,6 +1023,112 @@ class RealIntegrationBindings(RecordingBindings):
         return self.endpoint
 
 
+class RealFinalReceiptTimeoutAdapter(ScriptedAdapter):
+    owner: "RealFinalReceiptTimeoutBindings"
+
+    def offer(
+        self,
+        handle: InteractiveMemberHandle,
+        literal_message: str,
+        *,
+        deadline: float,
+    ) -> OfferReceipt:
+        receipt = super().offer(
+            handle,
+            literal_message,
+            deadline=deadline,
+        )
+        self.owner.queue_unflushed_request()
+        return receipt
+
+
+class RealFinalReceiptTimeoutBindings(RecordingBindings):
+    def __init__(
+        self,
+        tmp_path: Path,
+        *,
+        release_endpoint_worker: Event,
+    ) -> None:
+        super().__init__()
+        self.run_root = tmp_path / "run-final-receipt-timeout"
+        self.run_root.mkdir()
+        deadline = time.monotonic() + 0.5
+        binding, locator = derive_submit_binding_and_locator(
+            attempt_scope_sha256=self.allocation.scope.key,
+            socket_root=tmp_path,
+            nonce="q5-real-final-receipt-timeout",
+            deadline=deadline,
+        )
+        self.composition = replace(
+            self.composition,
+            invocation=_invocation(self.composition.task_turn, binding),
+            submit_binding=binding,
+            endpoint_locator=locator,
+            deadline=deadline,
+        )
+        self.adapter = RealFinalReceiptTimeoutAdapter(self)
+        self.endpoint = PhasedSubmitEndpoint(
+            binding=binding,
+            locator=locator,
+            configured_total=1,
+        )
+        self.ledger_path: Path | None = None
+        self.release_endpoint_worker = release_endpoint_worker
+        self.endpoint_worker: Thread | None = None
+
+    def monotonic_now(self) -> float:
+        return time.monotonic()
+
+    def queue_unflushed_request(self) -> None:
+        request = SubmitRequest(
+            attempt_scope_sha256=self.allocation.scope.key,
+            endpoint_instance_id=(
+                self.composition.submit_binding.endpoint_instance_id
+            ),
+            binding_token=self.composition.submit_binding.binding_token,
+            client_request_id="real-final-timeout-request",
+            payload_sha256=_digest(b""),
+        )
+        with self.endpoint._condition:
+            classified = self.endpoint._classify_request_locked(request)
+        assert type(classified) is SubmitEndpointEvent
+        worker = Thread(
+            target=self.release_endpoint_worker.wait,
+            name="q5-held-real-endpoint-worker",
+            daemon=True,
+        )
+        with self.endpoint._lock:
+            self.endpoint._workers.add(worker)
+            self.endpoint._worker_count += 1
+        worker.start()
+        self.endpoint_worker = worker
+
+    def create_ledger(
+        self,
+        allocation: AttemptAllocation,
+        composition: AttemptComposition,
+    ) -> ProviderPromptPhaseLedgerWriter:
+        self.actions.append("ledger.header")
+        writer = ProviderPromptPhaseLedgerWriter.create(
+            self.run_root,
+            scope=allocation.scope,
+            ordinal=allocation.attempt_ordinal,
+            cut=composition.cut,
+            materialization_attempts=composition.materialization_attempts,
+            created_at=self.observed_at(),
+        )
+        self.ledger_path = writer.path
+        return writer
+
+    def create_endpoint(
+        self,
+        composition: AttemptComposition,
+    ) -> PhasedSubmitEndpoint:
+        assert composition == self.composition
+        self.actions.append("bindings.endpoint")
+        return self.endpoint
+
+
 class ReceiptCoupledCloseAdapter(RealDriverAdapter):
     def offer_close(
         self,
@@ -1705,11 +1811,6 @@ class TerminalBoundaryEndpoint(OneSubmitEndpoint):
             raise PhasedSubmitProtocolClosedError(
                 "submit receipt could not be flushed to its client"
             )
-        if self.owner.fail_at == "final_receipt_timeout":
-            raise TimeoutError(
-                "whole-attempt deadline exhausted before receipt flush"
-            )
-
     def shutdown(
         self,
         *,
@@ -3450,25 +3551,18 @@ def test_terminal_failure_boundary_trace(
         assert event_names[-len(terminal_suffix):] == terminal_suffix
 
 
-@pytest.mark.parametrize(
-    ("fail_at", "expected_reason"),
-    (
-        ("final_receipt_protocol_closed", "submit_lifecycle_invalid"),
-        ("final_receipt_timeout", "deadline_exhausted_during_submit"),
-    ),
-)
-def test_final_receipt_flush_failure_terminalizes_without_graceful_close(
-    fail_at: str,
-    expected_reason: str,
+def test_final_receipt_protocol_close_terminalizes_without_graceful_close(
 ) -> None:
-    bindings = TerminalBoundaryBindings(fail_at=fail_at)
+    bindings = TerminalBoundaryBindings(
+        fail_at="final_receipt_protocol_closed"
+    )
     coordinator = PhasedProviderAttemptCoordinator(bindings)
     bindings.coordinator = coordinator
 
     result = coordinator.run()
 
     assert type(result) is PhasedProviderAttemptFailure
-    assert result.first_diagnostic.reason == expected_reason
+    assert result.first_diagnostic.reason == "submit_lifecycle_invalid"
     assert result.lifecycle.phase == "FAILED"
     assert result.terminalization_tier == "T1"
     assert result.endpoint_shutdown_status == "complete"
@@ -3485,6 +3579,65 @@ def test_final_receipt_flush_failure_terminalizes_without_graceful_close(
         "ingress_shutdown_finished",
         "terminal_failed",
     )
+
+
+def test_real_final_receipt_timeout_preserves_primary_failure_in_ledger(
+    tmp_path: Path,
+) -> None:
+    release_endpoint_worker = Event()
+    bindings = RealFinalReceiptTimeoutBindings(
+        tmp_path,
+        release_endpoint_worker=release_endpoint_worker,
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    try:
+        result = coordinator.run()
+
+        assert type(result) is PhasedProviderAttemptFailure
+        assert (
+            result.first_diagnostic.reason
+            == "deadline_exhausted_during_submit"
+        )
+        assert result.terminalization_tier == "T1"
+        assert result.endpoint_shutdown_status == "incomplete"
+        assert result.cleanup_diagnostic is not None
+        assert (
+            result.cleanup_diagnostic.reason
+            == "deadline_exhausted_before_adapter_cleanup"
+        )
+        assert bindings.actions.count("adapter.offer_close") == 0
+        assert bindings.actions.count("adapter.abort") == 0
+        assert bindings.failure_finalization_calls == 1
+        assert bindings.ledger_path is not None
+        validation = validate_ledger_bytes(
+            bindings.ledger_path.read_bytes()
+        )
+        assert validation["status"] == "complete"
+        assert validation["terminal_event"] == "terminal_failed"
+        rows = tuple(
+            json.loads(line)
+            for line in bindings.ledger_path.read_text(
+                encoding="utf-8"
+            ).splitlines()
+        )
+        ingress_failure = next(
+            row
+            for row in rows
+            if row.get("event") == "ingress_shutdown_failed"
+        )
+        assert ingress_failure["payload"][
+            "active_requests_drained"
+        ] == 0
+    finally:
+        release_endpoint_worker.set()
+        if bindings.endpoint_worker is not None:
+            bindings.endpoint_worker.join(timeout=1)
+        shutdown = bindings.endpoint.shutdown(
+            deadline=time.monotonic() + 1,
+        )
+        assert shutdown.endpoint_zero_survivor_proven is True
 
 
 @pytest.mark.parametrize(
