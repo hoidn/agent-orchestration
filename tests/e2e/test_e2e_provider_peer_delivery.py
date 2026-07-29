@@ -1182,7 +1182,7 @@ def test_real_adapter_phased_adapter_feasibility_two_successive_offers(
         assert production_backend.calls.count("start_server") == 1
         assert production_backend.calls.count("start_pane") == 1
         assert production_backend.calls.count("offer_literal") == 3
-        assert production_backend.calls.count("offer_keys") == 3
+        assert production_backend.calls.count("offer_keys") == 6
         assert production_backend.active_calls == 0
         assert production_backend.maximum_active_calls == 1
         assert production_backend.timeouts

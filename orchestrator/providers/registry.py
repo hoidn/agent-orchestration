@@ -103,9 +103,9 @@ class ProviderRegistry:
                             *unrestricted_flags,
                             "${PROMPT}",
                         ),
-                        message_submit_keys=("ENTER", "TAB"),
+                        message_submit_keys=("ENTER", "ENTER"),
                         graceful_close_text="/exit",
-                        graceful_close_submit_keys=("ENTER", "TAB"),
+                        graceful_close_submit_keys=("ENTER", "ENTER"),
                     )
                     if interactive_session
                     else None

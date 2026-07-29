@@ -548,9 +548,13 @@ def test_builtin_interactive_capability_is_explicit() -> None:
     assert codex.interactive_session_support.schema_version == SCHEMA_VERSION
     assert "${PROMPT}" not in codex.command
     assert "${PROMPT}" in codex.interactive_session_support.command
+    assert codex.interactive_session_support.message_submit_keys == (
+        "ENTER",
+        "ENTER",
+    )
     assert codex.interactive_session_support.graceful_close_submit_keys == (
         "ENTER",
-        "TAB",
+        "ENTER",
     )
     assert codex.validate() == []
     assert codex_gpt55 is not None
@@ -1407,12 +1411,14 @@ def test_interactive_adapter_deadline_limits_every_selected_backend_action(
     clock = _ManualClock()
     adapter = _interactive_adapter(tmp_path, backend, clock)
     if operation == "start":
+        deadline_budget = 0.125
         outcome = adapter.start(
             _interactive_invocation(tmp_path),
-            deadline=100.125,
+            deadline=100.0 + deadline_budget,
         )
         assert outcome.status == "started"
     else:
+        deadline_budget = 0.625
         handle = _started_handle(
             adapter,
             _interactive_invocation(tmp_path),
@@ -1420,12 +1426,22 @@ def test_interactive_adapter_deadline_limits_every_selected_backend_action(
         )
         backend.actions.clear()
         if operation == "offer":
-            adapter.offer(handle, "message", deadline=100.125)
+            adapter.offer(
+                handle,
+                "message",
+                deadline=100.0 + deadline_budget,
+            )
         else:
-            adapter.offer_close(handle, deadline=100.125)
+            adapter.offer_close(
+                handle,
+                deadline=100.0 + deadline_budget,
+            )
 
     assert backend.actions
-    assert all(0.0 < timeout <= 0.125 for _, timeout in backend.actions)
+    assert all(
+        0.0 < timeout <= deadline_budget
+        for _, timeout in backend.actions
+    )
 
 
 @pytest.mark.parametrize(
@@ -1585,7 +1601,151 @@ def test_interactive_adapter_preserves_literal_multiline_utf8_and_declared_keys(
     assert receipt.status == "offered"
     assert receipt.byte_count == len(message.encode("utf-8"))
     assert backend.literal_offers == [(backend.target, message)]
-    assert backend.key_offers == [(backend.target, ("ENTER", "TAB"))]
+    assert backend.key_offers == [
+        (backend.target, ("ENTER",)),
+        (backend.target, ("TAB",)),
+    ]
+
+
+@pytest.mark.parametrize(
+    "accepted_key_ordinal",
+    (
+        pytest.param(1, id="normal-first-enter-second-no-op"),
+        pytest.param(2, id="swallowed-first-enter"),
+    ),
+)
+@pytest.mark.parametrize(
+    ("operation", "expected_status"),
+    (
+        ("offer", "offered"),
+        ("offer_close", "close_offered"),
+    ),
+)
+def test_interactive_adapter_settles_between_declared_submit_keys_for_both_client_outcomes(
+    tmp_path: Path,
+    accepted_key_ordinal: int,
+    operation: str,
+    expected_status: str,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    clock = _ManualClock()
+    adapter = _interactive_adapter(tmp_path, backend, clock)
+    support = _support(
+        message_submit_keys=("ENTER", "ENTER"),
+        graceful_close_submit_keys=("ENTER", "ENTER"),
+    )
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path, support=support),
+        deadline=101.0,
+    )
+    key_offer_times: list[float] = []
+    accepted_submissions = 0
+
+    def observe_submit_key() -> None:
+        nonlocal accepted_submissions
+        key_offer_times.append(clock.value)
+        if len(key_offer_times) == accepted_key_ordinal:
+            accepted_submissions += 1
+
+    backend.after_action["offer_keys"] = observe_submit_key
+
+    if operation == "offer":
+        receipt = adapter.offer(handle, "queued", deadline=101.0)
+    else:
+        receipt = adapter.offer_close(handle, deadline=101.0)
+
+    assert receipt.status == expected_status
+    assert accepted_submissions == 1
+    assert backend.literal_offers == [
+        (
+            backend.target,
+            "queued" if operation == "offer" else "/exit",
+        )
+    ]
+    assert backend.key_offers == [
+        (backend.target, ("ENTER",)),
+        (backend.target, ("ENTER",)),
+    ]
+    assert key_offer_times == pytest.approx([100.25, 100.50])
+
+
+@pytest.mark.parametrize(
+    ("operation", "expected_code"),
+    (
+        ("offer", "offer_timeout"),
+        ("offer_close", "close_offer_timeout"),
+    ),
+)
+def test_interactive_adapter_fails_closed_before_later_submit_key_without_settle_budget(
+    tmp_path: Path,
+    operation: str,
+    expected_code: str,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    clock = _ManualClock()
+    adapter = _interactive_adapter(tmp_path, backend, clock)
+    support = _support(
+        message_submit_keys=("ENTER", "ENTER"),
+        graceful_close_submit_keys=("ENTER", "ENTER"),
+    )
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path, support=support),
+        deadline=101.0,
+    )
+
+    with pytest.raises(InteractiveTerminalError) as exc_info:
+        if operation == "offer":
+            adapter.offer(handle, "queued", deadline=100.375)
+        else:
+            adapter.offer_close(handle, deadline=100.375)
+
+    assert exc_info.value.code == expected_code
+    assert backend.key_offers == [(backend.target, ("ENTER",))]
+    with pytest.raises(InteractiveTerminalError, match="handle_terminal"):
+        adapter.offer(handle, "again", deadline=101.0)
+
+
+@pytest.mark.parametrize("operation", ("offer", "offer_close"))
+def test_interactive_adapter_key_failure_after_first_submit_key_terminals_handle(
+    tmp_path: Path,
+    operation: str,
+) -> None:
+    backend = _FakeInteractiveBackend()
+    clock = _ManualClock()
+    adapter = _interactive_adapter(tmp_path, backend, clock)
+    support = _support(
+        message_submit_keys=("ENTER", "ENTER"),
+        graceful_close_submit_keys=("ENTER", "ENTER"),
+    )
+    handle = _started_handle(
+        adapter,
+        _interactive_invocation(tmp_path, support=support),
+        deadline=101.0,
+    )
+    key_attempts = 0
+
+    def fail_second_key() -> None:
+        nonlocal key_attempts
+        key_attempts += 1
+        if key_attempts == 2:
+            backend.key_error = InteractiveTerminalError(
+                "key_offer_failed"
+            )
+
+    backend.after_action["offer_keys"] = fail_second_key
+
+    with pytest.raises(InteractiveTerminalError) as exc_info:
+        if operation == "offer":
+            adapter.offer(handle, "queued", deadline=101.0)
+        else:
+            adapter.offer_close(handle, deadline=101.0)
+
+    assert exc_info.value.code == "key_offer_failed"
+    assert backend.key_offers == [(backend.target, ("ENTER",))]
+    with pytest.raises(InteractiveTerminalError, match="handle_terminal"):
+        adapter.offer(handle, "again", deadline=101.0)
 
 
 def test_interactive_adapter_offers_declared_natural_close_without_forcing(

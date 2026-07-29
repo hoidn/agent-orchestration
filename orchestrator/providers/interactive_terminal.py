@@ -25,6 +25,7 @@ from .types import (
 
 
 _MAX_ENCODED_UNIX_SOCKET_PATH_BYTES = 103
+_SUBMIT_KEY_SETTLE_SEC = 0.25
 _INTERACTIVE_TERMINAL_ERROR_CODES = frozenset(
     {
         "adapter_already_started",
@@ -1142,14 +1143,11 @@ class InteractiveTerminalTurnQueueAdapter:
                         timeout_code="offer_timeout",
                     ),
                 )
-                self._backend.offer_keys(
-                    self._socket_path,
-                    handle.target,
+                self._offer_declared_submit_keys(
+                    handle,
                     self._support.message_submit_keys,
-                    timeout_sec=self._remaining(
-                        deadline,
-                        timeout_code="offer_timeout",
-                    ),
+                    deadline=deadline,
+                    timeout_code="offer_timeout",
                 )
             except InteractiveTerminalError as exc:
                 if exc.code in {
@@ -1200,14 +1198,11 @@ class InteractiveTerminalTurnQueueAdapter:
                         timeout_code="close_offer_timeout",
                     ),
                 )
-                self._backend.offer_keys(
-                    self._socket_path,
-                    handle.target,
+                self._offer_declared_submit_keys(
+                    handle,
                     self._support.graceful_close_submit_keys,
-                    timeout_sec=self._remaining(
-                        deadline,
-                        timeout_code="close_offer_timeout",
-                    ),
+                    deadline=deadline,
+                    timeout_code="close_offer_timeout",
                 )
             except InteractiveTerminalError as exc:
                 if exc.code in {
@@ -1511,6 +1506,33 @@ class InteractiveTerminalTurnQueueAdapter:
         if status.state != "running":
             self._state = "failed"
             raise InteractiveTerminalError("process_not_live")
+
+    def _offer_declared_submit_keys(
+        self,
+        handle: InteractiveMemberHandle,
+        keys: Sequence[str],
+        *,
+        deadline: float,
+        timeout_code: str,
+    ) -> None:
+        for key in keys:
+            remaining = deadline - self._monotonic()
+            if remaining <= _SUBMIT_KEY_SETTLE_SEC:
+                raise InteractiveTerminalError(timeout_code)
+            self._wait(_SUBMIT_KEY_SETTLE_SEC)
+            try:
+                self._backend.offer_keys(
+                    self._socket_path,
+                    handle.target,
+                    (key,),
+                    timeout_sec=self._remaining(
+                        deadline,
+                        timeout_code=timeout_code,
+                    ),
+                )
+            except InteractiveTerminalError:
+                self._state = "failed"
+                raise
 
     def _cleanup_start_failure(
         self,
