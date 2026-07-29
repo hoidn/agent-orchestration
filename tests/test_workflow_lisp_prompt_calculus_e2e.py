@@ -24,6 +24,7 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
 from orchestrator.workflow.prompting import render_prompt_fragment_base
 from orchestrator.workflow.prompt_dependency_evidence import (
+    FRAGMENT_SUCCESS_SCHEMA_V2,
     FRAGMENT_SUCCESS_SCHEMA_V3,
     validate_fragment_success_evidence,
     validate_terminal_evidence,
@@ -38,7 +39,10 @@ from orchestrator.workflow.prompt_fragment_contract import (
     canonical_compiler_prompt_fragment_contract_json,
 )
 from orchestrator.workflow.signatures import bind_workflow_inputs
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.compiler import (
+    compile_stage3_entrypoint,
+    compile_stage3_module,
+)
 from orchestrator.workflow_lisp.lexical_checkpoints import (
     checkpoint_runtime_program_identity,
     validate_checkpoint_record,
@@ -53,6 +57,26 @@ from tests.workflow_bundle_helpers import bundle_context_dict
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONSUMER = REPO_ROOT / "workflows" / "examples" / "review_revise_design_docs.orc"
+JUDGMENT_PANEL = (
+    REPO_ROOT
+    / "workflows"
+    / "examples"
+    / "review_revise_design_docs_judgment_panel.orc"
+)
+JUDGMENT_PANEL_INPUTS = (
+    REPO_ROOT
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "review_revise_design_docs_judgment_panel"
+)
+JUDGMENT_PANEL_SYNTHESIS_PROMPT = (
+    REPO_ROOT
+    / "prompts"
+    / "workflows"
+    / "review_revise_design_docs"
+    / "synthesize.md"
+)
 Q1_RESUME_FIXTURE = (
     Path(__file__).parent
     / "fixtures"
@@ -143,6 +167,25 @@ def _compile(
         validate_shared=True,
         workspace_root=workspace_root,
         lowering_route=lowering_route,
+    )
+
+
+def _compile_judgment_panel(workspace_root: Path):
+    return compile_stage3_entrypoint(
+        JUDGMENT_PANEL,
+        source_roots=(CONSUMER.parent,),
+        entry_workflow=(
+            "review-revise-design-docs-judgment-panel"
+        ),
+        provider_externs=_manifest(
+            JUDGMENT_PANEL_INPUTS / "providers.json"
+        ),
+        prompt_externs=_manifest(
+            JUDGMENT_PANEL_INPUTS / "prompts.json"
+        ),
+        validate_shared=True,
+        workspace_root=workspace_root,
+        lowering_route="wcc_m4",
     )
 
 
@@ -1022,6 +1065,128 @@ def test_target_2_23_export_delta_preserves_selected_phased_entry_projection(
     assert (
         hashlib.sha256(Q2_COMPOSED_FIXTURE.read_bytes()).hexdigest()
         == FROZEN_Q2_SOURCE_SHA256
+    )
+
+
+def test_judgment_panel_retains_composed_child_and_unfragmented_synthesis(
+    tmp_path: Path,
+) -> None:
+    result = _compile_judgment_panel(tmp_path)
+    entry_result = result.entry_result
+    child = _bundle(entry_result, "::review-one")
+    entry = _bundle(
+        entry_result,
+        "::review-revise-design-docs-judgment-panel",
+    )
+    review = _provider_step(child)
+    synthesis = _provider_step(entry)
+    source_map = _compiled_source_map(
+        entry_result,
+        entry_name=entry.surface.name,
+    )
+    child_source_map = source_map.workflows[child.surface.name]
+
+    assert review.provider == "codex"
+    assert review.provider_call_policy is not None
+    assert review.provider_call_policy["delivery"] == "composed"
+    assert (
+        review.prompt_attempt_identity_version
+        == "workflow_prompt_attempt_identity.v1"
+    )
+    assert review.compiled_prompt_fragment_identity is not None
+    assert review.compiler_prompt_fragment_contract is not None
+    assert (
+        review.compiler_prompt_fragment_contract.schema_version
+        == "compiler_prompt_fragment_contract.v2"
+    )
+    assert FRAGMENT_SUCCESS_SCHEMA_V2 == (
+        "workflow_prompt_fragment_snapshot.functional.v2"
+    )
+    assert tuple(
+        dict(row) for row in review.common.expected_outputs
+    ) == (
+        {
+            "name": "review_report_target_path",
+            "path": "${inputs.review_report_target_path}",
+            "type": "string",
+            "required": True,
+        },
+    )
+    assert review.common.output_bundle is None
+    assert review.common.variant_output is not None
+    assert tuple(
+        review.common.variant_output["discriminant"]["allowed"]
+    ) == ("APPROVE", "REVISE", "BLOCKED")
+    assert set(review.common.variant_output["variants"]) == {
+        "APPROVE",
+        "REVISE",
+        "BLOCKED",
+    }
+    assert dict(child.surface.outputs["__result__"].definition) == {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "artifacts/review",
+        "must_exist_target": True,
+        "from": {
+            "ref": (
+                "root.steps."
+                "review_revise_design_docs_judgment_panel::"
+                "review-one__match_decision.artifacts.__result__"
+            )
+        },
+    }
+    assert child_source_map.workflow_origin.form_path == (
+        "workflow-lisp",
+        "defworkflow",
+        "review-one",
+    )
+    assert (
+        Path(child_source_map.workflow_origin.path)
+        == JUDGMENT_PANEL
+    )
+
+    assert synthesis.provider == "codex"
+    assert synthesis.asset_file == (
+        "prompts/workflows/review_revise_design_docs/synthesize.md"
+    )
+    assert synthesis.compiler_prompt_fragment_contract is None
+    assert synthesis.compiled_prompt_fragment_identity is None
+    assert synthesis.prompt_attempt_identity_version is None
+    assert synthesis.compiler_prompt_attempt_binding_plan is None
+    assert synthesis.compiler_prompt_dependency_contract is None
+    assert "delivery" not in dict(
+        synthesis.provider_call_policy or {}
+    )
+    assert [
+        row["binding_name"]
+        for row in synthesis.typed_prompt_inputs
+    ] == ["target_doc", "reports"]
+    assert [
+        row["value_type_name"]
+        for row in synthesis.typed_prompt_inputs
+    ] == [
+        "DesignDocPath",
+        "List[std/phase::ReviewReportPath]",
+    ]
+    assert synthesis.common.variant_output is None
+    assert synthesis.common.output_bundle is not None
+    [root_field] = synthesis.common.output_bundle["fields"]
+    assert root_field["name"] == "__result__"
+    assert root_field["json_pointer"] == ""
+    assert root_field["type"] == "relpath"
+    assert root_field["under"] == "artifacts/review"
+    assert root_field["must_exist_target"] is True
+    assert set(entry.surface.outputs) == {
+        "return__reports",
+        "return__synthesis",
+    }
+    assert (
+        entry.surface.outputs["return__reports"].definition["items"]
+        == {
+            "type": "relpath",
+            "under": "artifacts/review",
+            "must_exist_target": True,
+        }
     )
 
 

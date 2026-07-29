@@ -1776,7 +1776,7 @@ def _validate_variant_contract(contract: Mapping[str, Any]) -> None:
         or not allowed
         or any(not isinstance(item, str) or not item for item in allowed)
         or len(set(allowed)) != len(allowed)
-        or tuple(variants) != allowed
+        or set(variants) != set(allowed)
     ):
         _contract_failure(
             "persisted variant discriminant contract is malformed"

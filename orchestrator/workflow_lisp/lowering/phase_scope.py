@@ -30,7 +30,10 @@ from orchestrator.workflow.view_renderer import (
     resolve_default_view_renderer,
     resolve_view_renderer,
 )
-from orchestrator.workflow_lisp.typed_prompt_inputs import normalize_typed_prompt_input_entry
+from orchestrator.workflow_lisp.typed_prompt_inputs import (
+    normalize_typed_prompt_input_entry,
+    select_prompt_fragment_renderer,
+)
 
 from ..contracts import derive_reusable_state_contract_metadata, derive_structured_result_contract, derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -1184,7 +1187,11 @@ def _implicit_typed_prompt_input_shape(
     type_ref = _type_ref_for_prompt_input(expr, context=context)
     if isinstance(type_ref, PathTypeRef):
         return "path_value"
-    if isinstance(type_ref, (PrimitiveTypeRef, RecordTypeRef)):
+    if (
+        type_ref is not None
+        and select_prompt_fragment_renderer(type_ref, kind="value")
+        == "canonical-json"
+    ):
         return "any_pure_value"
 
     contract = _typed_prompt_input_contract(expr, context=context)

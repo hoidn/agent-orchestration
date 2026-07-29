@@ -355,6 +355,88 @@ def test_persisted_result_contract_classifies_record_and_union_carriers(
     assert resolved.declared_shape == declared_shape
 
 
+def test_persisted_union_contract_preserves_allowed_order_across_canonical_map_order(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    provider_id = fixture["root_provider"].step_id
+
+    def mutate(payload: dict[str, Any]) -> None:
+        entry = payload["nodes"][payload["entry_workflow"]]
+        common = _payload_step(entry["steps"], provider_id)["common"]
+        common["output_bundle"] = None
+        common["variant_output"] = {
+            "path": "result.json",
+            "discriminant": {
+                "name": "variant",
+                "json_pointer": "/variant",
+                "type": "enum",
+                "allowed": ["REVISE", "APPROVE"],
+            },
+            "shared_fields": [],
+            "variants": {
+                "APPROVE": {"fields": []},
+                "REVISE": {"fields": []},
+            },
+        }
+
+    _reanchor(fixture, mutate)
+
+    resolved = resolve_persisted_result_contract(
+        workspace_root=tmp_path,
+        state=fixture["state"],
+        scope=_scope(fixture, "root"),
+    )
+
+    assert tuple(resolved.contract["discriminant"]["allowed"]) == (
+        "REVISE",
+        "APPROVE",
+    )
+    assert set(resolved.contract["variants"]) == {
+        "APPROVE",
+        "REVISE",
+    }
+
+
+@pytest.mark.parametrize("damage", ("missing", "extra"))
+def test_persisted_union_contract_rejects_variant_membership_mismatch(
+    tmp_path: Path,
+    damage: str,
+) -> None:
+    fixture = _fixture(tmp_path)
+    provider_id = fixture["root_provider"].step_id
+
+    def mutate(payload: dict[str, Any]) -> None:
+        entry = payload["nodes"][payload["entry_workflow"]]
+        common = _payload_step(entry["steps"], provider_id)["common"]
+        variants = {"APPROVE": {"fields": []}}
+        if damage == "extra":
+            variants["BLOCKED"] = {"fields": []}
+        common["output_bundle"] = None
+        common["variant_output"] = {
+            "path": "result.json",
+            "discriminant": {
+                "name": "variant",
+                "json_pointer": "/variant",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            },
+            "shared_fields": [],
+            "variants": variants,
+        }
+
+    _reanchor(fixture, mutate)
+
+    _assert_code(
+        JUDGMENT_RESULT_CONTRACT_MISMATCH,
+        lambda: resolve_persisted_result_contract(
+            workspace_root=tmp_path,
+            state=fixture["state"],
+            scope=_scope(fixture, "root"),
+        ),
+    )
+
+
 @pytest.mark.parametrize(
     "damage",
     ("missing", "extra", "ambiguous"),

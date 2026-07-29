@@ -12,6 +12,7 @@ from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.surface_ast import SurfaceStepKind
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.providers.executor import ProviderExecutor
 
 
@@ -163,6 +164,104 @@ def test_prompt_fragment_renderer_selection_recurses_only_through_admitted_lists
         is None
         for type_ref in unsupported
     )
+
+
+def _compile_generic_ordinary_extern_input(
+    tmp_path: Path,
+    *,
+    input_type: str,
+    type_definitions: str = "",
+):
+    source = tmp_path / "ordinary_extern_typed_input.orc"
+    source.write_text(
+        f"""\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.23")
+  (defmodule ordinary_extern_typed_input)
+  (export summarize)
+  (defpath ReportPath
+    :kind relpath
+    :under "artifacts/reports"
+    :must-exist true)
+{type_definitions}
+  (defworkflow summarize ((value {input_type})) -> Bool
+    (provider-result providers.summarize
+      :prompt prompts.summarize
+      :inputs (value)
+      :returns Bool)))
+""",
+        encoding="utf-8",
+    )
+    result = compile_stage3_module(
+        source,
+        entry_workflow="summarize",
+        provider_externs={"providers.summarize": "test-provider"},
+        prompt_externs={"prompts.summarize": "prompts/summarize.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+    bundle = next(iter(result.validated_bundles.values()))
+    return _provider_step(bundle)
+
+
+def test_ordinary_extern_prompt_input_admits_nested_lists_of_json_values(
+    tmp_path: Path,
+) -> None:
+    provider_step = _compile_generic_ordinary_extern_input(
+        tmp_path,
+        input_type="List[List[ReportPath]]",
+    )
+
+    assert [
+        {
+            "binding_name": row["binding_name"],
+            "renderer_id": row["renderer"]["renderer_id"],
+            "accepted_shape": row["renderer"]["accepted_shape"],
+            "value_type_name": row["value_type_name"],
+        }
+        for row in provider_step.typed_prompt_inputs
+    ] == [
+        {
+            "binding_name": "value",
+            "renderer_id": "canonical-json",
+            "accepted_shape": "any_pure_value",
+            "value_type_name": "List[List[ReportPath]]",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("input_type", "type_definitions", "diagnostic_code"),
+    [
+        ("Optional[String]", "", "workflow_boundary_collection_unsupported"),
+        ("Map[String, String]", "", "workflow_boundary_collection_unsupported"),
+        (
+            "Outcome",
+            """\
+  (defunion Outcome
+    (VALUE (value String))
+    (EMPTY))
+""",
+            "workflow_boundary_type_invalid",
+        ),
+    ],
+)
+def test_ordinary_extern_prompt_input_rejects_unsupported_containers(
+    tmp_path: Path,
+    input_type: str,
+    type_definitions: str,
+    diagnostic_code: str,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as exc_info:
+        _compile_generic_ordinary_extern_input(
+            tmp_path,
+            input_type=input_type,
+            type_definitions=type_definitions,
+        )
+
+    assert exc_info.value.diagnostics[0].code == diagnostic_code
 
 
 def _provider_step(bundle):

@@ -1,0 +1,16 @@
+{
+  "target_doc": "docs/design/panel-target.md",
+  "context_docs": [
+    "docs/design/panel-context.md"
+  ],
+  "lens_ids": [
+    "q4-panel/architecture-quality.md",
+    "q4-panel/contract-correctness.md",
+    "q4-panel/operational-clarity.md"
+  ],
+  "checks_report": "artifacts/work/q4-panel/checks.md",
+  "review_model": "fixture-review-model",
+  "review_effort": "high",
+  "synthesis_model": "fixture-synthesis-model",
+  "synthesis_effort": "high"
+}

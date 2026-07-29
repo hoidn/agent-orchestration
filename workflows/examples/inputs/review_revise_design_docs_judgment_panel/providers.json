@@ -1,0 +1,5 @@
+{
+  "providers.design-docs.review": "codex",
+  "providers.design-docs.fix": "codex_gpt55",
+  "providers.design-docs.synthesize": "codex"
+}

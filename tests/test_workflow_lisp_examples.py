@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import importlib
+import json
 
 from orchestrator.workflow_lisp.compiler import (
     compile_stage3_entrypoint,
@@ -38,6 +39,21 @@ FROZEN_DESIGN_DOCS_TARGET_2_21_CONTROL = (
     WORKFLOW_LISP_FIXTURES
     / "prompt_calculus"
     / "review_revise_design_docs_target_2_21.orc"
+)
+DESIGN_DOCS_JUDGMENT_PANEL_EXAMPLE = (
+    WORKFLOWS / "review_revise_design_docs_judgment_panel.orc"
+)
+DESIGN_DOCS_JUDGMENT_PANEL_INPUTS = (
+    WORKFLOWS
+    / "inputs"
+    / "review_revise_design_docs_judgment_panel"
+)
+DESIGN_DOCS_JUDGMENT_PANEL_SYNTHESIS_PROMPT = (
+    REPO_ROOT
+    / "prompts"
+    / "workflows"
+    / "review_revise_design_docs"
+    / "synthesize.md"
 )
 
 
@@ -388,6 +404,77 @@ def test_review_revise_design_docs_exports_compile_for_same_target_importer(
     }
     assert (
         "judgment_views/review_revise_design_docs_export_import::imported-review"
+        in result.validated_bundles_by_name
+    )
+
+
+def test_review_revise_design_docs_judgment_panel_compiles_from_current_owner(
+    tmp_path: Path,
+) -> None:
+    providers_path = (
+        DESIGN_DOCS_JUDGMENT_PANEL_INPUTS / "providers.json"
+    )
+    prompts_path = (
+        DESIGN_DOCS_JUDGMENT_PANEL_INPUTS / "prompts.json"
+    )
+    inputs_path = (
+        DESIGN_DOCS_JUDGMENT_PANEL_INPUTS / "panel_inputs.json"
+    )
+    assert DESIGN_DOCS_JUDGMENT_PANEL_EXAMPLE.is_file()
+    assert providers_path.is_file()
+    assert prompts_path.is_file()
+    assert inputs_path.is_file()
+    assert DESIGN_DOCS_JUDGMENT_PANEL_SYNTHESIS_PROMPT.is_file()
+    provider_externs = json.loads(
+        providers_path.read_text(encoding="utf-8")
+    )
+    prompt_externs = json.loads(
+        prompts_path.read_text(encoding="utf-8")
+    )
+    checked_inputs = json.loads(
+        inputs_path.read_text(encoding="utf-8")
+    )
+    lens_ids = checked_inputs["lens_ids"]
+    assert len(lens_ids) == 3
+    assert len(set(lens_ids)) == len(lens_ids)
+    assert all(
+        isinstance(lens, str)
+        and lens
+        and not lens.startswith("/")
+        and ".." not in lens.split("/")
+        for lens in lens_ids
+    )
+
+    result = compile_stage3_entrypoint(
+        DESIGN_DOCS_JUDGMENT_PANEL_EXAMPLE,
+        source_roots=(WORKFLOWS,),
+        entry_workflow=(
+            "review-revise-design-docs-judgment-panel"
+        ),
+        provider_externs=provider_externs,
+        prompt_externs=prompt_externs,
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+
+    imported = result.compiled_results_by_name[
+        "review_revise_design_docs"
+    ]
+    assert result.entry_result.module.target_dsl_version == "2.23"
+    assert imported.module.target_dsl_version == "2.23"
+    assert (
+        result.graph.modules_by_name[
+            "review_revise_design_docs"
+        ].path
+        == DESIGN_DOCS_REVIEW_EXAMPLE
+    )
+    assert FROZEN_DESIGN_DOCS_TARGET_2_21_CONTROL not in {
+        source.path for source in result.graph.modules_by_name.values()
+    }
+    assert (
+        "review_revise_design_docs_judgment_panel"
+        "::review-revise-design-docs-judgment-panel"
         in result.validated_bundles_by_name
     )
 
