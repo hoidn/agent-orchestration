@@ -7,6 +7,7 @@ from dataclasses import FrozenInstanceError, replace
 import hashlib
 import json
 from pathlib import Path
+import tempfile
 from threading import Event, Lock, Thread
 import time
 from types import MethodType
@@ -1052,10 +1053,14 @@ class RealFinalReceiptTimeoutBindings(RecordingBindings):
         super().__init__()
         self.run_root = tmp_path / "run-final-receipt-timeout"
         self.run_root.mkdir()
+        self.socket_root_context = tempfile.TemporaryDirectory(
+            prefix="q5-receipt-",
+        )
+        socket_root = Path(self.socket_root_context.name)
         deadline = time.monotonic() + 0.5
         binding, locator = derive_submit_binding_and_locator(
             attempt_scope_sha256=self.allocation.scope.key,
-            socket_root=tmp_path,
+            socket_root=socket_root,
             nonce="q5-real-final-receipt-timeout",
             deadline=deadline,
         )
@@ -2136,6 +2141,98 @@ class RealTerminalBoundaryBindings(TerminalBoundaryBindings):
         self.ledger_path = writer.path
         self.real_ledger = writer
         return writer
+
+
+class ReceiptFlushFailureEndpoint(OneSubmitEndpoint):
+    owner: "ReceiptFlushFailureBindings"
+
+    def resolve(
+        self,
+        event: SubmitEndpointEvent,
+        receipt: SubmitReceipt,
+        *,
+        rearm_retry: bool = False,
+    ) -> None:
+        super().resolve(event, receipt, rearm_retry=rearm_retry)
+        if receipt.status != self.owner.failed_receipt_status:
+            return
+        if self.owner.receipt_failure == "protocol_closed":
+            raise PhasedSubmitProtocolClosedError(
+                "submit receipt could not be flushed to its client"
+            )
+        raise TimeoutError(
+            "whole-attempt deadline exhausted before receipt flush"
+        )
+
+
+class ReceiptFlushFailureBindings(RecordingBindings):
+    def __init__(
+        self,
+        *,
+        location: str,
+        receipt_failure: str,
+    ) -> None:
+        if location not in {"active_handoff", "exhausted", "retry"}:
+            raise ValueError("unknown receipt-flush failure location")
+        if receipt_failure not in {"protocol_closed", "timeout"}:
+            raise ValueError("unknown receipt-flush failure")
+        retry = location in {"active_handoff", "retry"}
+        super().__init__(
+            materialization_attempts=2 if retry else 1,
+            outcomes=(
+                ((False, True), (True, True))
+                if retry
+                else ((False, True),)
+            ),
+        )
+        self.location = location
+        self.receipt_failure = receipt_failure
+        self.failed_receipt_status = (
+            "retry_queued" if location == "retry" else "failed"
+        )
+        self.endpoint = ReceiptFlushFailureEndpoint(
+            self,
+            tuple(event.request for event in self.endpoint.events),
+        )
+
+    def reset_candidates(
+        self,
+        snapshot: CandidateSnapshot,
+    ) -> CandidateResetResult:
+        if self.location == "active_handoff":
+            self.actions.append("bindings.reset")
+            raise PhasedOperationFailure(
+                _diagnostic("candidate_reset_failed")
+            )
+        return super().reset_candidates(snapshot)
+
+
+class IncompleteIngressDeadlineBindings(RealTerminalBoundaryBindings):
+    def __init__(
+        self,
+        tmp_path: Path,
+        *,
+        crosses_deadline: bool,
+    ) -> None:
+        super().__init__(tmp_path, fail_at="ingress")
+        self.crosses_deadline = crosses_deadline
+        self.deadline_expired = False
+
+    def monotonic_now(self) -> float:
+        coordinator = self.coordinator
+        probe = (
+            None
+            if coordinator is None
+            else getattr(coordinator._session, "deadline_probe", None)
+        )
+        if (
+            self.crosses_deadline
+            and probe == ("ingress_shutdown", "during")
+        ):
+            self.deadline_expired = True
+        if self.deadline_expired:
+            return self.composition.deadline
+        return self.composition.deadline - 1.0
 
 
 class DeadlineMatrixBindings(TerminalBoundaryBindings):
@@ -3581,6 +3678,147 @@ def test_final_receipt_protocol_close_terminalizes_without_graceful_close(
     )
 
 
+def test_accepted_closing_receipt_uses_shared_active_resolver() -> None:
+    bindings = RecordingBindings()
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+    original_resolve = coordinator._resolve_active_receipt
+    resolved_statuses: list[str] = []
+
+    def record_shared_resolution(
+        _self: PhasedProviderAttemptCoordinator,
+        event: SubmitEndpointEvent,
+        receipt: SubmitReceipt,
+        *,
+        rearm_retry: bool = False,
+        first_diagnostic: PhasedDeliveryDiagnostic | None = None,
+    ) -> None:
+        resolved_statuses.append(receipt.status)
+        original_resolve(
+            event,
+            receipt,
+            rearm_retry=rearm_retry,
+            first_diagnostic=first_diagnostic,
+        )
+
+    coordinator._resolve_active_receipt = MethodType(
+        record_shared_resolution,
+        coordinator,
+    )
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptSuccess
+    assert resolved_statuses == ["accepted_closing"]
+
+
+@pytest.mark.parametrize(
+    ("location", "receipt_failure", "expected_reason"),
+    (
+        (
+            "active_handoff",
+            "protocol_closed",
+            "candidate_reset_failed",
+        ),
+        ("active_handoff", "timeout", "candidate_reset_failed"),
+        (
+            "exhausted",
+            "protocol_closed",
+            "materialization_attempts_exhausted",
+        ),
+        (
+            "exhausted",
+            "timeout",
+            "materialization_attempts_exhausted",
+        ),
+        ("retry", "protocol_closed", "submit_lifecycle_invalid"),
+        ("retry", "timeout", "deadline_exhausted_during_submit"),
+    ),
+)
+def test_active_receipt_flush_failures_enter_closed_terminalization(
+    location: str,
+    receipt_failure: str,
+    expected_reason: str,
+) -> None:
+    bindings = ReceiptFlushFailureBindings(
+        location=location,
+        receipt_failure=receipt_failure,
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == expected_reason
+    assert result.lifecycle.phase == "FAILED"
+    assert result.terminalization_tier == "T1"
+    assert bindings.actions.count("adapter.abort") == 1
+    assert bindings.actions.count("endpoint.stop") == 1
+    assert bindings.actions.count("endpoint.shutdown") == 1
+    assert bindings.actions.count("bindings.finalize_failure") == 1
+    assert bindings.actions.count("ledger.close") == 1
+    assert "adapter.offer_close" not in bindings.actions
+    assert "bindings.publish_evidence" not in bindings.actions
+    assert tuple(
+        event for event, _payload in bindings.ledger.events
+    )[-4:] == (
+        "cleanup_finished",
+        "ingress_shutdown_started",
+        "ingress_shutdown_finished",
+        "terminal_failed",
+    )
+
+
+@pytest.mark.parametrize(
+    ("crosses_deadline", "expected_reason"),
+    (
+        (False, "ingress_shutdown_failed"),
+        (True, "deadline_exhausted_during_ingress_shutdown"),
+    ),
+)
+def test_incomplete_normal_ingress_preserves_primary_diagnostic(
+    tmp_path: Path,
+    crosses_deadline: bool,
+    expected_reason: str,
+) -> None:
+    bindings = IncompleteIngressDeadlineBindings(
+        tmp_path,
+        crosses_deadline=crosses_deadline,
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == expected_reason
+    assert bindings.ledger_path is not None
+    rows = tuple(
+        json.loads(line)
+        for line in bindings.ledger_path.read_text(
+            encoding="utf-8"
+        ).splitlines()
+    )
+    ingress_failure = next(
+        row
+        for row in rows
+        if row.get("event") == "ingress_shutdown_failed"
+    )
+    assert ingress_failure["payload"]["diagnostic"]["reason"] == (
+        expected_reason
+    )
+    validation = validate_ledger_bytes(
+        bindings.ledger_path.read_bytes()
+    )
+    assert validation["status"] == "complete"
+    assert validation["reason"] == "complete"
+    assert validation["terminal_event"] == "terminal_failed"
+    assert bindings.failure_finalization_calls == 1
+    assert bindings.real_ledger is not None
+    assert bindings.real_ledger._closed is True
+
+
 def test_real_final_receipt_timeout_preserves_primary_failure_in_ledger(
     tmp_path: Path,
 ) -> None:
@@ -3631,13 +3869,39 @@ def test_real_final_receipt_timeout_preserves_primary_failure_in_ledger(
             "active_requests_drained"
         ] == 0
     finally:
-        release_endpoint_worker.set()
-        if bindings.endpoint_worker is not None:
-            bindings.endpoint_worker.join(timeout=1)
-        shutdown = bindings.endpoint.shutdown(
-            deadline=time.monotonic() + 1,
+        try:
+            release_endpoint_worker.set()
+            if bindings.endpoint_worker is not None:
+                bindings.endpoint_worker.join(timeout=1)
+            shutdown = bindings.endpoint.shutdown(
+                deadline=time.monotonic() + 1,
+            )
+            assert shutdown.endpoint_zero_survivor_proven is True
+        finally:
+            bindings.socket_root_context.cleanup()
+
+
+def test_real_receipt_timeout_socket_uses_platform_temp_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    platform_temp_root = Path(tempfile.mkdtemp(prefix="q5-platform-"))
+    monkeypatch.setattr(tempfile, "tempdir", str(platform_temp_root))
+    release_endpoint_worker = Event()
+    bindings = RealFinalReceiptTimeoutBindings(
+        tmp_path,
+        release_endpoint_worker=release_endpoint_worker,
+    )
+
+    try:
+        assert Path(bindings.socket_root_context.name).parent == (
+            platform_temp_root
         )
-        assert shutdown.endpoint_zero_survivor_proven is True
+    finally:
+        try:
+            bindings.socket_root_context.cleanup()
+        finally:
+            platform_temp_root.rmdir()
 
 
 @pytest.mark.parametrize(

@@ -283,6 +283,7 @@ class _CoordinatorSession:
     start_failure_outcome: InteractiveTerminalStartOutcome | None = None
     cleanup_outcome: _CleanupOutcome | None = None
     ingress_outcome: SubmitEndpointShutdownOutcome | None = None
+    ingress_shutdown_failure: PhasedDeliveryDiagnostic | None = None
     ingress_shutdown_action: Literal["NOT_STARTED", "STARTED"] = (
         "NOT_STARTED"
     )
@@ -678,6 +679,8 @@ class PhasedProviderAttemptCoordinator:
         payload["diagnostic"] = _runtime_diagnostic(
             "ingress_shutdown_failed"
         )
+        if session.ingress_shutdown_failure is not None:
+            payload["diagnostic"] = session.ingress_shutdown_failure
         self._safe_append(
             "ingress_shutdown_failed",
             payload,
@@ -763,7 +766,7 @@ class PhasedProviderAttemptCoordinator:
         endpoint = session.endpoint
         if allocation is None or composition is None or endpoint is None:
             raise RuntimeError("active failure state is incomplete")
-        endpoint.resolve(
+        self._resolve_active_receipt(
             event,
             SubmitReceipt(
                 status="failed",
@@ -777,11 +780,47 @@ class PhasedProviderAttemptCoordinator:
                 ),
                 diagnostic=failure.diagnostic,
             ),
+            first_diagnostic=failure.diagnostic,
         )
         raise _NeedsTerminalization(
             failure.diagnostic,
             session.lifecycle,
         )
+
+    def _resolve_active_receipt(
+        self,
+        event: SubmitEndpointEvent,
+        receipt: SubmitReceipt,
+        *,
+        rearm_retry: bool = False,
+        first_diagnostic: PhasedDeliveryDiagnostic | None = None,
+    ) -> None:
+        session = self._session
+        endpoint = session.endpoint
+        if endpoint is None:
+            raise RuntimeError("active receipt state is incomplete")
+        try:
+            endpoint.resolve(
+                event,
+                receipt,
+                rearm_retry=rearm_retry,
+            )
+        except PhasedSubmitProtocolClosedError as exc:
+            diagnostic = first_diagnostic or _runtime_diagnostic(
+                "submit_lifecycle_invalid"
+            )
+            raise _NeedsTerminalization(
+                diagnostic,
+                session.lifecycle,
+            ) from exc
+        except TimeoutError as exc:
+            diagnostic = first_diagnostic or _runtime_diagnostic(
+                "deadline_exhausted_during_submit"
+            )
+            raise _NeedsTerminalization(
+                diagnostic,
+                session.lifecycle,
+            ) from exc
 
     def _prepare_and_offer_initial(self) -> None:
         session = self._session
@@ -1173,7 +1212,7 @@ class PhasedProviderAttemptCoordinator:
                 "materialization_attempts_exhausted",
                 canonical_value=composition.materialization_attempts,
             )
-            endpoint.resolve(
+            self._resolve_active_receipt(
                 event,
                 SubmitReceipt(
                     status="failed",
@@ -1184,6 +1223,7 @@ class PhasedProviderAttemptCoordinator:
                     remaining_submissions=0,
                     diagnostic=failure,
                 ),
+                first_diagnostic=failure,
             )
             raise _NeedsTerminalization(failure, session.lifecycle)
 
@@ -1252,7 +1292,7 @@ class PhasedProviderAttemptCoordinator:
             "turn_offered",
             {"turn": retry_turn.projection, "receipt": projection},
         )
-        endpoint.resolve(
+        self._resolve_active_receipt(
             event,
             SubmitReceipt(
                 status="retry_queued",
@@ -1302,32 +1342,21 @@ class PhasedProviderAttemptCoordinator:
                 "close_projection": close_projection,
             },
         )
-        try:
-            endpoint.resolve(
-                event,
-                SubmitReceipt(
-                    status="accepted_closing",
-                    attempt_scope_sha256=allocation.scope.key,
-                    client_request_id=event.request.client_request_id,
-                    submission_ordinal=event.submission_ordinal,
-                    configured_total=composition.materialization_attempts,
-                    remaining_submissions=(
-                        composition.materialization_attempts
-                        - event.submission_ordinal
-                    ),
-                    diagnostic=None,
+        self._resolve_active_receipt(
+            event,
+            SubmitReceipt(
+                status="accepted_closing",
+                attempt_scope_sha256=allocation.scope.key,
+                client_request_id=event.request.client_request_id,
+                submission_ordinal=event.submission_ordinal,
+                configured_total=composition.materialization_attempts,
+                remaining_submissions=(
+                    composition.materialization_attempts
+                    - event.submission_ordinal
                 ),
-            )
-        except PhasedSubmitProtocolClosedError as exc:
-            raise _NeedsTerminalization(
-                _runtime_diagnostic("submit_lifecycle_invalid"),
-                session.lifecycle,
-            ) from exc
-        except TimeoutError as exc:
-            raise _NeedsTerminalization(
-                _runtime_diagnostic("deadline_exhausted_during_submit"),
-                session.lifecycle,
-            ) from exc
+                diagnostic=None,
+            ),
+        )
         close_admission = self._admit_deadline("close_offer")
         try:
             close = self._bindings.adapter.offer_close(
@@ -1375,7 +1404,11 @@ class PhasedProviderAttemptCoordinator:
             self._finish_deadline(ingress_admission)
             raise TypeError("endpoint shutdown outcome must be exact")
         session.ingress_outcome = outcome
-        self._finish_deadline(ingress_admission)
+        try:
+            self._finish_deadline(ingress_admission)
+        except PhasedOperationFailure as failure:
+            session.ingress_shutdown_failure = failure.diagnostic
+            raise
         if (
             outcome.endpoint_zero_survivor_proven is not True
         ):

@@ -272,28 +272,28 @@ only additions are the two fixture modules and this report, developed and
 committed in the prescribed fresh clone. The stop record stays governing: Q5
 status does not move; no split-proof substitution; no Task-14 closure.
 
-## Fix record (2026-07-28, post-review — commit `492b1171`)
+## Historical F1/F2 fix record
+
+This subsection records the exact 2026-07-28 implementation at
+`492b1171`. Later corrections are recorded separately below rather than
+retroactively attributed to this commit.
 
 Both confirmed defects are fixed in this clone under the routed discipline;
 the diagnosis sections above describe **pre-fix** behavior and stand as the
 historical record (in particular the T2/T3/T6/B rows of the validation table
 and the "silent-in-ledger" verdicts for W-R1/W-A5/W-L1 now read as fixed).
 
-- **F1 fix** (`coordinator.py`): `_safe_append` is the fail-safe emission
-  channel — terminalization and failure rows append without a
-  `ledger_append` deadline admission, so whole-attempt expiry now records
-  `cleanup_finished` (with the supplemental
+- **F1 fix at `492b1171`** (`coordinator.py`): `_safe_append` is the fail-safe
+  emission channel. At this commit, terminalization and ordinary failure rows
+  append without a `ledger_append` deadline admission, so whole-attempt
+  expiry records `cleanup_finished` (with the supplemental
   `deadline_exhausted_before_adapter_cleanup` diagnostic and zero abort
   calls), the terminalizing ingress rows, and `terminal_failed`. The
-  post-commit `publication_succeeded` append alone opts back into the
-  admission (`admit_deadline=True`) per the design's zero-append-at-expiry
-  clause for that row. Normal-path spine appends keep their admission.
-- **F2 fix** (`ledger.py`, corrected for receipt-first close ordering): the
-  offline validator's `active_requests_drained >= 1` floor applies to normal
-  close-path shutdown and to terminalizing shutdown after `close_offered` or
-  `close_offer_failed`, because either close outcome proves the accepted
-  submit's receipt flushed and was producer-counted. Terminalization before a
-  close outcome may truthfully report zero drainage.
+  post-commit `publication_succeeded` append alone opts back into admission.
+- **F2 fix at `492b1171`** (`ledger.py`): the offline validator's
+  `active_requests_drained >= 1` floor applies only to normal close-path
+  shutdown (`ingress_mode == "normal"`); terminalizing shutdowns may report
+  zero drainage at this point in the lineage.
 - **Regression tests** (former strict xfails, now passing):
   `test_post_expiry_terminalization_emits_failsafe_ledger_rows`,
   `test_exhausted_attempts_ledger_should_validate_offline`; plus
@@ -324,6 +324,34 @@ and the "silent-in-ledger" verdicts for W-R1/W-A5/W-L1 now read as fixed).
   consumer gate (synthetic probe cut, scripted validators): a pass does not
   move Q5's status, and a stall now yields a deadline-terminalized,
   offline-validating ledger — direct provider-behavior evidence.
+
+## Subsequent correction chain and current candidate
+
+The later lineage strengthens or corrects that historical fix:
+
+- `18cc7578` terminalizes protocol-closed and timed-out
+  `accepted_closing` receipt flushes before any graceful-close action.
+- `2927a715` restores the drainage floor for terminalization after a
+  `close_offered` or `close_offer_failed` row proves the accepted receipt was
+  flushed, while retaining zero as valid before such a close outcome.
+- `d402b40a` restores mandatory deadline admission for ordinary failure rows.
+  Only terminalization calls that explicitly pass `admit_deadline=False`
+  bypass admission after expiry.
+- `7f6ee5b2` prevents a terminalizing ingress row from replacing an already
+  established primary diagnostic outside normal ingress shutdown.
+
+The current reviewed correction candidate is based on `7f6ee5b2` and has no
+commit identity in this report. It routes every active receipt flush,
+including `accepted_closing`, through one resolver while retaining the exact
+protocol-close and timeout mappings; preserves
+`deadline_exhausted_during_ingress_shutdown` as the normal-ingress primary
+when the deadline crosses after an incomplete shutdown outcome while leaving
+ordinary incomplete shutdown mapped to `ingress_shutdown_failed`; and makes
+the real timeout fixture use the platform-configured temporary root with
+unconditional temporary-directory cleanup. The candidate's regression tests
+cover all three previously unhandled receipt sites in both exception
+directions, accepted-closing resolver routing, both ingress-diagnostic
+directions, and the xdist AF_UNIX path case.
 
 The stop record still governs: Q5 status unmoved, no split-proof
 substitution, no Task-14 closure. Landing these commits anywhere beyond this
