@@ -1299,6 +1299,10 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "current target 2.23 phased production" in normalized_q4_plan
     assert "target 2.23 ordinary composed panel sibling" in normalized_q4_plan
     assert "frozen target 2.21 compatibility control" in normalized_q4_plan
+    assert tuple(
+        text.count("`q4_task2_export_compatibility.v1`")
+        for text in (q4_design, q4_plan)
+    ) == (1, 1)
     normalized_q3_design_status = _normalized_routing_text(
         "\n".join(q3_design.splitlines()[:24])
     )

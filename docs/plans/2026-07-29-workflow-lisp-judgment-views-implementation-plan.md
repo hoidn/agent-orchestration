@@ -57,6 +57,13 @@ plan amendment below becomes execution authority only after the
 same ordered reviews approve its exact bytes. Q5 Task 14 and canonical
 transplant prerequisites are complete; M1 remains outside this plan.
 
+Task 2 later reached its explicit compatibility hard stop: the required
+export edit necessarily changes source-lineage values and consistently
+alpha-renames the parent loop's offset-bearing generated identities. The
+corrected Task 2 gate below requires one ordered specification then quality
+review of its exact design/plan bytes before execution resumes. It does not
+re-open any completed Q5 or L-series gate.
+
 ---
 
 ## Entry Gate, Holds, And Deliberate Cost
@@ -308,26 +315,102 @@ The current production export list becomes exactly:
   review-design-doc)
 ```
 
-No other current production source byte changes in this task. Compile the
-before/after target-2.23 phased entry through the same route and compare its
-selected canonical workflow-entry projection byte-for-byte; the module export
-catalog is deliberately excluded from that comparison because this task
-changes it. The target, explicit phased delivery, materialization-attempt
-count, prompt fragment identity-v2, functional-v3 evidence contract, result
-contract, checkpoint/resume identity, and source mapping must remain
-unchanged. Independently require the frozen target-2.21 fixture to retain its
-exact pre-task SHA-256 and keep it off the sibling's import-resolution path.
+No other current production source byte changes in this task. Keep the
+declaration on its current source line so later authored line/column
+coordinates do not move. Bind the source delta exactly:
+
+```text
+before sha256:89176c15dcaf29b5212441ad4776593d919880784fe0f531c9034b8a177640d7
+after  sha256:8784501577c4f162f584a2ae17d1644a6bc4ea0c8bfbd18cdb0c1b7fd24a0598
+```
+
+Compile the before/after target-2.23 phased entry through the same route and
+compare a selected semantic workflow-entry projection. First require the
+source-position relation itself:
+
+- old/new source sizes are exactly 8,079/8,149 bytes;
+- excluding the intentionally changed export span, every
+  current-production position before it is exact;
+- every current-production position after it retains path, line, and column
+  and has `after.offset == before.offset + 70`; and
+- imported and prelude positions are exact.
+
+Apply that check to every source position reachable from the selected
+compiled projection, including type references that seed specialization
+identity.
+
+Build `q4_task2_export_compatibility.v1` with exactly these keys:
+
+```text
+schema_version
+target_dsl
+entry.name
+entry.inputs
+entry.outputs
+phased_review.provider_call_policy
+phased_review.compiled_prompt_fragment_identity
+phased_review.prompt_attempt_identity_version
+phased_review.compiler_prompt_fragment_contract
+phased_review.expected_outputs
+phased_review.variant_output
+phased_review.runtime_plan
+phased_review.source_map
+parent_checkpoint_point_kinds
+parent_authored_source_coordinates
+```
+
+`schema_version` is the literal contract name above.
+`parent_authored_source_coordinates` contains only ordered authored form paths
+and path/line/column coordinates; it omits generated subject keys and raw byte
+offsets, which are checked by the separate `+70` relation. This exact
+projection must be byte-identical. It deliberately makes no equality claim
+for the changed source SHA, parent specialization/WCC/checkpoint/allocation
+identities, or digests derived from them.
+
+Separately serialize the phased helper bundle canonically and require its
+recursive before/after diff to contain exactly six leaves. Each leaf is
+`compiler_prompt_dependency_contract.source_workflow_sha256`; the locations
+are `surface.steps[0]`,
+`core_workflow_ast._surface_workflow.steps[0]`,
+`core_workflow_ast.body[0]`,
+`core_workflow_ast.body[0]._surface_step`, the helper provider node's
+executable-IR `execution_config`, and the helper prompt surface in semantic
+IR. All six before values equal the bound old SHA-256 and all six after values
+equal the bound new SHA-256. A missing, additional, differently named, or
+differently valued leaf fails. Do not add a reusable alpha normalizer,
+derived-digest manifest, or new production machinery for this test.
+
+Without normalization, require the target, public input/result contracts,
+explicit phased delivery, materialization-attempt count, prompt fragment
+identity-v2, functional-v3 schema, provider configuration, and phased-helper
+checkpoint/runtime plan to remain exact. Require the parent checkpoint
+topology and point kinds, every authored form path, and the complete
+source-position relation to remain exact. Independently require the frozen
+target-2.21 fixture to retain its exact pre-task SHA-256 and keep it off the
+sibling's import-resolution path.
+
+The changed workflow checksum means pre-export runs are not resumable against
+the post-export source; ordinary checksum validation remains fail closed. Task
+0 proved no active Q5 orchestrator/provider attempt is stranded. Task 2 makes
+no cross-source-revision resume claim and changes no compiler or runtime
+checksum behavior.
 
 ### TDD and verification
 
 - [ ] Add a RED target-2.23 same-target import fixture requiring all four newly
       exported names from current production.
-- [ ] Add a byte-projection control for the current phased entry and an exact
-      byte-digest control for the frozen target-2.21 fixture.
+- [ ] Add a RED whole-entry comparison that exposes the raw source-lineage and
+      parent generated-identity delta; do not accept a helper-only false
+      green.
+- [ ] Add the exact named behavior projection, exact source
+      before/after digests and sizes, complete `+70` source-position relation,
+      exact six-leaf helper diff, exact invariants, and an exact byte-digest
+      control for the frozen target-2.21 fixture.
 - [ ] Show the sibling fails before the export delta.
 - [ ] Apply only the export delta.
 - [ ] Prove sibling compile GREEN, current phased-entry projection
-      byte-identical, and frozen target-2.21 bytes unchanged.
+      byte-identical, the helper diff exactly six source-SHA leaves, all
+      invariants exact, and frozen target-2.21 bytes unchanged.
 - [ ] Run the two named modules plus their `--collect-only` selectors.
 - [ ] Obtain `Q4_TASK_2_SPEC_APPROVED`.
 - [ ] Obtain distinct `Q4_TASK_2_QUALITY_APPROVED`.
@@ -335,8 +418,11 @@ exact pre-task SHA-256 and keep it off the sibling's import-resolution path.
 
 **Hard stop:** do not bump or otherwise mutate current production beyond its
 export line, import from or modify the frozen fixture, copy/redeclare the
-fragment, accept a phased-delivery/identity/evidence/checksum/resume delta, or
-weaken either comparison.
+fragment, change compiler/runtime checksum semantics, claim cross-revision
+resume compatibility, accept a semantic/provider/phased-helper checkpoint or
+runtime-plan delta, violate the exact source-position relation, add
+normalization or digest-manifest machinery, accept a seventh helper-diff
+leaf, or weaken either comparison.
 
 ---
 
