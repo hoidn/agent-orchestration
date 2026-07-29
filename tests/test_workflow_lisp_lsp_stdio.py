@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -238,6 +239,289 @@ def _initialize_request(
             "capabilities": capabilities or {},
         },
     }
+
+
+@pytest.mark.parametrize(
+    ("advertised", "expected"),
+    ((None, False), (False, False), (True, True)),
+)
+def test_progress_support_requires_exact_true_capability(
+    tmp_path: Path,
+    advertised: bool | None,
+    expected: bool,
+) -> None:
+    from lsprotocol import types
+
+    from orchestrator.lsp.server import WorkflowLispLanguageServer
+
+    workspace = tmp_path.resolve()
+    window = (
+        None
+        if advertised is None
+        else types.WindowClientCapabilities(
+            work_done_progress=advertised,
+        )
+    )
+    server = WorkflowLispLanguageServer()
+
+    server.initialize_runtime(
+        types.InitializeParams(
+            capabilities=types.ClientCapabilities(window=window),
+            root_uri=workspace.as_uri(),
+        )
+    )
+
+    assert server.progress_controller.supported is expected
+
+
+def test_progress_token_retirement_uses_the_reviewed_pygls_mapping_contract() -> None:
+    from collections.abc import MutableMapping
+
+    from orchestrator.lsp.server import WorkflowLispLanguageServer
+
+    server = WorkflowLispLanguageServer()
+    assert isinstance(server.work_done_progress.tokens, MutableMapping)
+    retained = object()
+    server.work_done_progress.tokens["retire-me"] = retained  # type: ignore[assignment]
+    server.work_done_progress.tokens["keep-me"] = retained  # type: ignore[assignment]
+
+    server._retire_progress_token("retire-me")
+
+    assert server.work_done_progress.tokens == {"keep-me": retained}
+
+
+def test_begin_notify_failure_suppresses_logs_and_retires(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.lsp.progress import ProgressController, Suppressed
+    from orchestrator.lsp.server import WorkflowLispLanguageServer
+
+    server = WorkflowLispLanguageServer()
+    creating = ProgressController(supported=True).observe_busy(True).controller
+    server.progress_controller = creating
+    token = "workflow-lisp-progress-1"
+    server.work_done_progress.tokens[token] = object()  # type: ignore[assignment]
+    logged: list[Exception] = []
+    monkeypatch.setattr(server, "log_internal_error", logged.append)
+
+    def fail_begin(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("begin transport unavailable")
+
+    monkeypatch.setattr(server.work_done_progress, "begin", fail_begin)
+
+    server._apply_progress_transition(
+        creating.create_succeeded(token=token, interval=1)
+    )
+
+    assert server.progress_controller.state == Suppressed(interval=1)
+    assert [str(error) for error in logged] == [
+        "begin transport unavailable"
+    ]
+    assert token not in server.work_done_progress.tokens
+
+
+def test_end_notify_failure_still_logs_retires_and_becomes_inactive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.lsp.progress import Inactive, ProgressController
+    from orchestrator.lsp.server import WorkflowLispLanguageServer
+
+    server = WorkflowLispLanguageServer()
+    creating = ProgressController(supported=True).observe_busy(True).controller
+    active = creating.create_succeeded(
+        token="workflow-lisp-progress-1",
+        interval=1,
+    ).controller
+    server.progress_controller = active
+    token = "workflow-lisp-progress-1"
+    server.work_done_progress.tokens[token] = object()  # type: ignore[assignment]
+    logged: list[Exception] = []
+    monkeypatch.setattr(server, "log_internal_error", logged.append)
+
+    def fail_end(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("end transport unavailable")
+
+    monkeypatch.setattr(server.work_done_progress, "end", fail_end)
+
+    server._apply_progress_transition(active.observe_busy(False))
+
+    assert server.progress_controller.state == Inactive()
+    assert [str(error) for error in logged] == ["end transport unavailable"]
+    assert token not in server.work_done_progress.tokens
+
+
+def test_begin_failure_retires_even_when_transport_logger_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.lsp.progress import ProgressController, Suppressed
+    from orchestrator.lsp.server import WorkflowLispLanguageServer
+
+    server = WorkflowLispLanguageServer()
+    creating = ProgressController(supported=True).observe_busy(True).controller
+    server.progress_controller = creating
+    token = "workflow-lisp-progress-1"
+    server.work_done_progress.tokens[token] = object()  # type: ignore[assignment]
+
+    def fail_begin(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("begin unavailable")
+
+    def fail_logger(_error: Exception) -> None:
+        raise RuntimeError("logger unavailable")
+
+    monkeypatch.setattr(server.work_done_progress, "begin", fail_begin)
+    monkeypatch.setattr(server, "log_internal_error", fail_logger)
+
+    server._apply_progress_transition(
+        creating.create_succeeded(token=token, interval=1)
+    )
+
+    assert server.progress_controller.state == Suppressed(interval=1)
+    assert token not in server.work_done_progress.tokens
+
+
+def test_create_task_cancellation_is_owned_and_suppresses_stale_creating(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.lsp.progress import ProgressController, Suppressed
+    from orchestrator.lsp.server import WorkflowLispLanguageServer
+
+    server = WorkflowLispLanguageServer()
+    creating_transition = ProgressController(
+        supported=True
+    ).observe_busy(True)
+    server.progress_controller = creating_transition.controller
+    create_effect = creating_transition.effects[0]
+    started = asyncio.Event()
+
+    async def wait_forever(*, token: str, interval: int) -> None:
+        assert token == create_effect.token
+        assert interval == create_effect.interval
+        started.set()
+        await asyncio.Future()
+
+    monkeypatch.setattr(server, "_create_progress_token", wait_forever)
+
+    async def cancel_owned_task() -> None:
+        server._interpret_progress_effect(create_effect)
+        await started.wait()
+        task = next(iter(server._progress_create_tasks))
+        task.cancel()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+    asyncio.run(cancel_owned_task())
+
+    assert server.progress_controller.state == Suppressed(interval=1)
+    assert server._progress_create_tasks == set()
+
+
+def test_successful_create_task_completion_remains_active_and_owned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.lsp.progress import Active, ProgressController
+    from orchestrator.lsp.server import WorkflowLispLanguageServer
+
+    server = WorkflowLispLanguageServer()
+    creating_transition = ProgressController(
+        supported=True
+    ).observe_busy(True)
+    server.progress_controller = creating_transition.controller
+    create_effect = creating_transition.effects[0]
+    begun: list[str] = []
+
+    async def acknowledge(token: str) -> None:
+        server.work_done_progress.tokens[token] = object()  # type: ignore[assignment]
+
+    monkeypatch.setattr(
+        server.work_done_progress,
+        "create_async",
+        acknowledge,
+    )
+    monkeypatch.setattr(
+        server.work_done_progress,
+        "begin",
+        lambda token, _value: begun.append(str(token)),
+    )
+
+    async def run_owned_create() -> None:
+        server._interpret_progress_effect(create_effect)
+        while server._progress_create_tasks:
+            await asyncio.sleep(0)
+
+    asyncio.run(run_owned_create())
+
+    assert server.progress_controller.state == Active(
+        token=create_effect.token,
+        interval=create_effect.interval,
+    )
+    assert server._progress_create_tasks == set()
+    assert begun == [create_effect.token]
+    assert create_effect.token in server.work_done_progress.tokens
+
+
+def test_create_apply_exception_is_retrieved_settled_and_retires_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.lsp.progress import ProgressController, Suppressed
+    from orchestrator.lsp.server import WorkflowLispLanguageServer
+
+    server = WorkflowLispLanguageServer()
+    creating_transition = ProgressController(
+        supported=True
+    ).observe_busy(True)
+    server.progress_controller = creating_transition.controller
+    create_effect = creating_transition.effects[0]
+    logged: list[Exception] = []
+    monkeypatch.setattr(server, "log_internal_error", logged.append)
+
+    async def acknowledge(token: str) -> None:
+        server.work_done_progress.tokens[token] = object()  # type: ignore[assignment]
+
+    monkeypatch.setattr(
+        server.work_done_progress,
+        "create_async",
+        acknowledge,
+    )
+    original_apply = server._apply_progress_transition
+    apply_calls = 0
+
+    def fail_first_apply(transition: object) -> None:
+        nonlocal apply_calls
+        apply_calls += 1
+        if apply_calls == 1:
+            raise RuntimeError("create callback apply failed")
+        original_apply(transition)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        server,
+        "_apply_progress_transition",
+        fail_first_apply,
+    )
+
+    async def run_owned_create() -> None:
+        loop = asyncio.get_running_loop()
+        unexpected: list[dict[str, object]] = []
+        previous_handler = loop.get_exception_handler()
+        loop.set_exception_handler(
+            lambda _loop, context: unexpected.append(context)
+        )
+        server._interpret_progress_effect(create_effect)
+        try:
+            while server._progress_create_tasks:
+                await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            assert unexpected == []
+        finally:
+            loop.set_exception_handler(previous_handler)
+
+    asyncio.run(run_owned_create())
+
+    assert server.progress_controller.state == Suppressed(interval=1)
+    assert server._progress_create_tasks == set()
+    assert create_effect.token not in server.work_done_progress.tokens
+    assert [str(error) for error in logged] == [
+        "create callback apply failed"
+    ]
 
 
 def test_lsp_dependency_is_optional_and_default_imports_remain_transport_free() -> None:

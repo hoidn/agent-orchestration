@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 import json
 import os
@@ -9,6 +10,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+from threading import Event
 import time
 import zipfile
 
@@ -121,6 +123,7 @@ def _initialize(
     *,
     workspace: Path,
     initialization_options: dict[str, object],
+    capabilities: dict[str, object] | None = None,
 ) -> None:
     process.send(
         _initialize_request(
@@ -128,6 +131,7 @@ def _initialize(
             root_uri=workspace.as_uri(),
             workspace_folder_uris=(workspace.as_uri(),),
             initialization_options=initialization_options,
+            capabilities=capabilities,
         )
     )
     response, _observed = process.read_until(
@@ -141,6 +145,12 @@ def _initialize(
             "params": {},
         }
     )
+
+
+def _progress_support_capability(
+    supported: bool,
+) -> dict[str, object]:
+    return {"window": {"workDoneProgress": supported}}
 
 
 def _open(
@@ -608,6 +618,387 @@ def _controlled_process(
     )
 
 
+def _direct_busy_server(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    source_text: str,
+    build_in_memory: Callable[..., object],
+) -> tuple[
+    "WorkflowLispLanguageServer",
+    Path,
+    list[str],
+    list[Exception],
+]:
+    from lsprotocol import types
+
+    from orchestrator.lsp.compile_driver import probe_disk_source
+    from orchestrator.lsp.progress import ProgressController
+    from orchestrator.lsp.server import WorkflowLispLanguageServer
+    from orchestrator.lsp.state import open_entry
+
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_path.write_text(source_text, encoding="utf-8")
+    logged: list[Exception] = []
+    server = WorkflowLispLanguageServer(
+        build_in_memory=build_in_memory,
+        _defer_compiles=True,
+    )
+    monkeypatch.setattr(server, "log_internal_error", logged.append)
+    server.initialize_runtime(
+        types.InitializeParams(
+            capabilities=types.ClientCapabilities(
+                window=types.WindowClientCapabilities(
+                    work_done_progress=False,
+                )
+            ),
+            root_uri=workspace.as_uri(),
+            initialization_options={
+                "source_roots": [str(workspace)],
+            },
+        )
+    )
+    driver = server._require_driver()
+    transition = open_entry(
+        driver.state,
+        document_uri=entry_path.as_uri(),
+        editor_text=source_text,
+        disk_snapshot=probe_disk_source(entry_path),
+    )
+    driver.apply_transition(transition)
+    creating = ProgressController(supported=True).observe_busy(True).controller
+    active = creating.create_succeeded(
+        token="workflow-lisp-progress-1",
+        interval=1,
+    ).controller
+    server.progress_controller = active
+    server.work_done_progress.tokens[
+        "workflow-lisp-progress-1"
+    ] = object()  # type: ignore[assignment]
+    ended: list[str] = []
+    monkeypatch.setattr(
+        server.work_done_progress,
+        "end",
+        lambda token, _value: ended.append(str(token)),
+    )
+    monkeypatch.setattr(
+        server,
+        "text_document_publish_diagnostics",
+        lambda _params: None,
+    )
+    monkeypatch.setattr(server, "window_show_message", lambda _params: None)
+    monkeypatch.setattr(server, "window_log_message", lambda _params: None)
+    return server, entry_path, ended, logged
+
+
+def _entry_status(
+    server: "WorkflowLispLanguageServer",
+    entry_path: Path,
+) -> str:
+    return next(
+        entry.compile_status
+        for entry in server._require_driver().state.entries
+        if entry.path == entry_path
+    )
+
+
+def _assert_direct_progress_settled(
+    server: "WorkflowLispLanguageServer",
+    ended: list[str],
+) -> None:
+    from orchestrator.lsp.progress import Inactive
+
+    assert server.progress_controller.state == Inactive()
+    assert ended == ["workflow-lisp-progress-1"]
+    assert (
+        "workflow-lisp-progress-1"
+        not in server.work_done_progress.tokens
+    )
+
+
+def test_language_error_completion_settles_production_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.workflow_lisp.build import (
+        build_frontend_bundle_in_memory,
+    )
+
+    server, entry_path, ended, _logged = _direct_busy_server(
+        tmp_path,
+        monkeypatch,
+        source_text="(workflow-lisp",
+        build_in_memory=build_frontend_bundle_in_memory,
+    )
+
+    asyncio.run(server._run_compile_pump())
+
+    assert _entry_status(server, entry_path) == "language_error"
+    _assert_direct_progress_settled(server, ended)
+
+
+def test_server_error_completion_settles_production_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_build(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("controlled server error")
+
+    server, entry_path, ended, logged = _direct_busy_server(
+        tmp_path,
+        monkeypatch,
+        source_text=_library_source("server-error"),
+        build_in_memory=fail_build,
+    )
+
+    asyncio.run(server._run_compile_pump())
+
+    assert _entry_status(server, entry_path) == "server_error"
+    assert [str(error) for error in logged] == ["controlled server error"]
+    _assert_direct_progress_settled(server, ended)
+
+
+def test_configuration_staleness_settles_production_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lsprotocol import types
+
+    from orchestrator.workflow_lisp.build import (
+        build_frontend_bundle_in_memory,
+    )
+
+    server, _entry_path, ended, _logged = _direct_busy_server(
+        tmp_path,
+        monkeypatch,
+        source_text=_library_source("configuration-stale"),
+        build_in_memory=build_frontend_bundle_in_memory,
+    )
+    added_root = (tmp_path / "other-root").resolve()
+    added_root.mkdir()
+
+    server.change_workspace_folders(
+        types.DidChangeWorkspaceFoldersParams(
+            event=types.WorkspaceFoldersChangeEvent(
+                added=(
+                    types.WorkspaceFolder(
+                        uri=added_root.as_uri(),
+                        name="other-root",
+                    ),
+                ),
+                removed=(),
+            )
+        )
+    )
+
+    assert server._require_driver().state.configuration_stale is True
+    _assert_direct_progress_settled(server, ended)
+
+
+def test_transient_pump_exception_settles_then_retries_queued_generation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.workflow_lisp.build import (
+        build_frontend_bundle_in_memory,
+    )
+
+    server, entry_path, ended, logged = _direct_busy_server(
+        tmp_path,
+        monkeypatch,
+        source_text=_library_source("pump-error"),
+        build_in_memory=build_frontend_bundle_in_memory,
+    )
+    driver = server._require_driver()
+    original_begin_next = type(driver).begin_next
+    attempts = 0
+
+    def fail_once_then_begin(driver_value: object) -> object:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("unexpected pump failure")
+        return original_begin_next(driver_value)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        type(driver),
+        "begin_next",
+        fail_once_then_begin,
+    )
+
+    async def ignore_create(*, token: str, interval: int) -> None:
+        assert token == "workflow-lisp-progress-2"
+        assert interval == 2
+
+    monkeypatch.setattr(server, "_create_progress_token", ignore_create)
+
+    async def run_initial_and_retry() -> None:
+        await server._run_compile_pump()
+        retry = server._compile_task
+        assert retry is not None
+        await retry
+
+    asyncio.run(run_initial_and_retry())
+
+    assert _entry_status(server, entry_path) == "success"
+    assert driver.queued_generations == ()
+    assert [str(error) for error in logged] == [
+        "unexpected pump failure"
+    ]
+    _assert_direct_progress_settled(server, ended)
+
+
+def test_pump_exception_logger_failure_still_settles_and_retries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.workflow_lisp.build import (
+        build_frontend_bundle_in_memory,
+    )
+
+    server, entry_path, ended, _logged = _direct_busy_server(
+        tmp_path,
+        monkeypatch,
+        source_text=_library_source("pump-logger-error"),
+        build_in_memory=build_frontend_bundle_in_memory,
+    )
+    driver = server._require_driver()
+    original_begin_next = type(driver).begin_next
+    attempts = 0
+
+    def fail_once_then_begin(driver_value: object) -> object:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("unexpected pump failure")
+        return original_begin_next(driver_value)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        type(driver),
+        "begin_next",
+        fail_once_then_begin,
+    )
+
+    def fail_logger(_error: Exception) -> None:
+        raise RuntimeError("server logger unavailable")
+
+    monkeypatch.setattr(server, "log_internal_error", fail_logger)
+
+    async def ignore_create(*, token: str, interval: int) -> None:
+        assert token == "workflow-lisp-progress-2"
+        assert interval == 2
+
+    monkeypatch.setattr(server, "_create_progress_token", ignore_create)
+
+    async def run_initial_and_retry() -> None:
+        await server._run_compile_pump()
+        retry = server._compile_task
+        assert retry is not None
+        await retry
+
+    asyncio.run(run_initial_and_retry())
+
+    assert _entry_status(server, entry_path) == "success"
+    assert driver.queued_generations == ()
+    _assert_direct_progress_settled(server, ended)
+
+
+def test_pump_cancellation_settles_then_preserves_queued_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.workflow_lisp.build import (
+        build_frontend_bundle_in_memory,
+    )
+
+    server, entry_path, ended, logged = _direct_busy_server(
+        tmp_path,
+        monkeypatch,
+        source_text=_library_source("pump-cancel-retry"),
+        build_in_memory=build_frontend_bundle_in_memory,
+    )
+    driver = server._require_driver()
+    original_begin_next = type(driver).begin_next
+    attempts = 0
+
+    def cancel_once_then_begin(driver_value: object) -> object:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise asyncio.CancelledError
+        return original_begin_next(driver_value)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        type(driver),
+        "begin_next",
+        cancel_once_then_begin,
+    )
+
+    async def ignore_create(*, token: str, interval: int) -> None:
+        assert token == "workflow-lisp-progress-2"
+        assert interval == 2
+
+    monkeypatch.setattr(server, "_create_progress_token", ignore_create)
+
+    async def run_canceled_and_retry() -> None:
+        with pytest.raises(asyncio.CancelledError):
+            await server._run_compile_pump()
+        retry = server._compile_task
+        assert retry is not None
+        await retry
+
+    asyncio.run(run_canceled_and_retry())
+
+    assert _entry_status(server, entry_path) == "success"
+    assert driver.queued_generations == ()
+    assert logged == []
+    _assert_direct_progress_settled(server, ended)
+
+
+def test_pump_task_cancellation_settles_before_worker_returns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.workflow_lisp.build import (
+        build_frontend_bundle_in_memory,
+    )
+
+    started = Event()
+    release = Event()
+
+    def blocked_build(*args: object, **kwargs: object) -> object:
+        started.set()
+        if not release.wait(timeout=10.0):
+            raise TimeoutError("test did not release direct blocked build")
+        return build_frontend_bundle_in_memory(*args, **kwargs)
+
+    server, _entry_path, ended, _logged = _direct_busy_server(
+        tmp_path,
+        monkeypatch,
+        source_text=_library_source("pump-cancel"),
+        build_in_memory=blocked_build,
+    )
+
+    async def cancel_running_pump() -> None:
+        task = asyncio.create_task(server._run_compile_pump())
+        while not started.is_set():
+            await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert release.is_set() is False
+        _assert_direct_progress_settled(server, ended)
+        release.set()
+        await asyncio.sleep(0)
+
+    try:
+        asyncio.run(cancel_running_pump())
+    finally:
+        release.set()
+
+
 def test_real_stdio_observes_and_coalesces_saves_while_first_compile_is_blocked(
     tmp_path: Path,
 ) -> None:
@@ -689,6 +1080,484 @@ def test_real_stdio_observes_and_coalesces_saves_while_first_compile_is_blocked(
     )
     assert len(tuple(control_root.glob("build-*-started"))) == 2
     assert len(tuple(control_root.glob("build-*-finished"))) == 2
+
+
+@pytest.mark.parametrize("advertised", (None, False))
+def test_blocked_compile_without_progress_support_emits_no_progress_frames(
+    tmp_path: Path,
+    advertised: bool | None,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    control_root = (tmp_path / "control").resolve()
+    workspace.mkdir()
+    control_root.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_path.write_text(_library_source("unsupported"), encoding="utf-8")
+    process = _controlled_process(workspace, control_root=control_root)
+    try:
+        _initialize(
+            process,
+            workspace=workspace,
+            initialization_options={"source_roots": [str(workspace)]},
+            capabilities=(
+                None
+                if advertised is None
+                else _progress_support_capability(advertised)
+            ),
+        )
+        _open(
+            process,
+            source_path=entry_path,
+            text=entry_path.read_text(encoding="utf-8"),
+        )
+        assert _wait_for_path(control_root / "build-1-started")
+        response, observed = _request(
+            process,
+            request_id="unsupported-progress-probe",
+            method="textDocument/documentSymbol",
+            params={"textDocument": {"uri": entry_path.as_uri()}},
+        )
+        assert response["result"] is None
+        assert not any(
+            item.get("method")
+            in {"window/workDoneProgress/create", "$/progress"}
+            for item in observed
+        )
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "method": "textDocument/didClose",
+                "params": {
+                    "textDocument": {"uri": entry_path.as_uri()},
+                },
+            }
+        )
+        (control_root / "release-first-build").touch()
+        assert _wait_for_path(
+            control_root / "build-1-finished",
+            timeout=30.0,
+        )
+        process.shutdown()
+    finally:
+        (control_root / "release-first-build").touch(exist_ok=True)
+        process.close()
+
+
+def test_supporting_client_gets_balanced_progress_while_compile_stays_live(
+    tmp_path: Path,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    control_root = (tmp_path / "control").resolve()
+    workspace.mkdir()
+    control_root.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_path.write_text(_library_source("supported"), encoding="utf-8")
+    process = _controlled_process(workspace, control_root=control_root)
+    observed: list[dict[str, object]] = []
+    try:
+        _initialize(
+            process,
+            workspace=workspace,
+            initialization_options={"source_roots": [str(workspace)]},
+            capabilities=_progress_support_capability(True),
+        )
+        _open(
+            process,
+            source_path=entry_path,
+            text=entry_path.read_text(encoding="utf-8"),
+        )
+        create, create_observed = process.read_until(
+            lambda item: (
+                item.get("method") == "window/workDoneProgress/create"
+            )
+        )
+        observed.extend(create_observed)
+        assert _wait_for_path(control_root / "build-1-started")
+        token = create["params"]["token"]
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "id": create["id"],
+                "result": None,
+            }
+        )
+        begin, begin_observed = process.read_until(
+            lambda item: (
+                item.get("method") == "$/progress"
+                and item["params"]["token"] == token
+                and item["params"]["value"]["kind"] == "begin"
+            )
+        )
+        observed.extend(begin_observed)
+        assert begin["params"]["value"]["cancellable"] is False
+        assert "percentage" not in begin["params"]["value"]
+
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "method": "textDocument/didClose",
+                "params": {
+                    "textDocument": {"uri": entry_path.as_uri()},
+                },
+            }
+        )
+        end, end_observed = process.read_until(
+            lambda item: (
+                item.get("method") == "$/progress"
+                and item["params"]["token"] == token
+                and item["params"]["value"]["kind"] == "end"
+            )
+        )
+        observed.extend(end_observed)
+        assert end["params"]["token"] == token
+        assert not (control_root / "build-1-finished").exists()
+
+        (control_root / "release-first-build").touch()
+        assert _wait_for_path(
+            control_root / "build-1-finished",
+            timeout=30.0,
+        )
+        process.shutdown()
+    finally:
+        (control_root / "release-first-build").touch(exist_ok=True)
+        process.close()
+
+    progress_values = [
+        item["params"]["value"]
+        for item in observed
+        if item.get("method") == "$/progress"
+    ]
+    assert [value["kind"] for value in progress_values] == ["begin", "end"]
+
+
+def test_progress_create_error_suppresses_frames_without_stalling_compile(
+    tmp_path: Path,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    control_root = (tmp_path / "control").resolve()
+    workspace.mkdir()
+    control_root.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_path.write_text(_library_source("create-error"), encoding="utf-8")
+    process = _controlled_process(workspace, control_root=control_root)
+    try:
+        _initialize(
+            process,
+            workspace=workspace,
+            initialization_options={"source_roots": [str(workspace)]},
+            capabilities=_progress_support_capability(True),
+        )
+        _open(
+            process,
+            source_path=entry_path,
+            text=entry_path.read_text(encoding="utf-8"),
+        )
+        create, _observed = process.read_until(
+            lambda item: (
+                item.get("method") == "window/workDoneProgress/create"
+            )
+        )
+        assert _wait_for_path(control_root / "build-1-started")
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "id": create["id"],
+                "error": {
+                    "code": -32000,
+                    "message": "test client refuses progress",
+                },
+            }
+        )
+        (control_root / "release-first-build").touch()
+        assert _wait_for_path(
+            control_root / "build-1-finished",
+            timeout=30.0,
+        )
+        response, observed = _request_until(
+            process,
+            request_id="create-error-settled",
+            method="textDocument/documentSymbol",
+            params={"textDocument": {"uri": entry_path.as_uri()}},
+            result_predicate=lambda value: isinstance(value, list),
+        )
+        assert [item["name"] for item in response["result"]] == [
+            "entry",
+            "create-error",
+        ]
+        assert not any(
+            item.get("method") == "$/progress" for item in observed
+        )
+        process.shutdown()
+    finally:
+        (control_root / "release-first-build").touch(exist_ok=True)
+        process.close()
+
+
+def test_client_progress_cancel_ends_only_presentation(
+    tmp_path: Path,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    control_root = (tmp_path / "control").resolve()
+    workspace.mkdir()
+    control_root.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_path.write_text(_library_source("cancel-view"), encoding="utf-8")
+    process = _controlled_process(workspace, control_root=control_root)
+    try:
+        _initialize(
+            process,
+            workspace=workspace,
+            initialization_options={"source_roots": [str(workspace)]},
+            capabilities=_progress_support_capability(True),
+        )
+        _open(
+            process,
+            source_path=entry_path,
+            text=entry_path.read_text(encoding="utf-8"),
+        )
+        create, _observed = process.read_until(
+            lambda item: (
+                item.get("method") == "window/workDoneProgress/create"
+            )
+        )
+        token = create["params"]["token"]
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "id": create["id"],
+                "result": None,
+            }
+        )
+        process.read_until(
+            lambda item: (
+                item.get("method") == "$/progress"
+                and item["params"]["token"] == token
+                and item["params"]["value"]["kind"] == "begin"
+            )
+        )
+        assert _wait_for_path(control_root / "build-1-started")
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "method": "window/workDoneProgress/cancel",
+                "params": {"token": token},
+            }
+        )
+        process.read_until(
+            lambda item: (
+                item.get("method") == "$/progress"
+                and item["params"]["token"] == token
+                and item["params"]["value"]["kind"] == "end"
+            )
+        )
+        assert not (control_root / "build-1-finished").exists()
+
+        (control_root / "release-first-build").touch()
+        assert _wait_for_path(
+            control_root / "build-1-finished",
+            timeout=30.0,
+        )
+        response, after_cancel = _request_until(
+            process,
+            request_id="cancel-view-settled",
+            method="textDocument/documentSymbol",
+            params={"textDocument": {"uri": entry_path.as_uri()}},
+            result_predicate=lambda value: isinstance(value, list),
+        )
+        assert [item["name"] for item in response["result"]] == [
+            "entry",
+            "cancel-view",
+        ]
+        assert not any(
+            item.get("method") == "$/progress" for item in after_cancel
+        )
+        process.shutdown()
+    finally:
+        (control_root / "release-first-build").touch(exist_ok=True)
+        process.close()
+
+
+def test_superseding_save_storm_reuses_one_progress_interval(
+    tmp_path: Path,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    control_root = (tmp_path / "control").resolve()
+    workspace.mkdir()
+    control_root.mkdir()
+    entry_path = workspace / "entry.orc"
+    entry_path.write_text(_library_source("initial-progress"), encoding="utf-8")
+    process = _controlled_process(workspace, control_root=control_root)
+    observed: list[dict[str, object]] = []
+    try:
+        _initialize(
+            process,
+            workspace=workspace,
+            initialization_options={"source_roots": [str(workspace)]},
+            capabilities=_progress_support_capability(True),
+        )
+        _open(
+            process,
+            source_path=entry_path,
+            text=entry_path.read_text(encoding="utf-8"),
+        )
+        create, create_observed = process.read_until(
+            lambda item: (
+                item.get("method") == "window/workDoneProgress/create"
+            )
+        )
+        observed.extend(create_observed)
+        token = create["params"]["token"]
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "id": create["id"],
+                "result": None,
+            }
+        )
+        _begin, begin_observed = process.read_until(
+            lambda item: (
+                item.get("method") == "$/progress"
+                and item["params"]["value"]["kind"] == "begin"
+            )
+        )
+        observed.extend(begin_observed)
+        assert _wait_for_path(control_root / "build-1-started")
+
+        for _index in range(2):
+            process.send(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "textDocument/didSave",
+                    "params": {
+                        "textDocument": {"uri": entry_path.as_uri()},
+                    },
+                }
+            )
+        assert _wait_for_path(control_root / "save-2-observed")
+        (control_root / "release-first-build").touch()
+        end, end_observed = process.read_until(
+            lambda item: (
+                item.get("method") == "$/progress"
+                and item["params"]["token"] == token
+                and item["params"]["value"]["kind"] == "end"
+            ),
+            timeout=30.0,
+        )
+        observed.extend(end_observed)
+        assert end["params"]["token"] == token
+        assert _wait_for_path(
+            control_root / "build-2-finished",
+            timeout=30.0,
+        )
+        observed.extend(process.shutdown())
+    finally:
+        (control_root / "release-first-build").touch(exist_ok=True)
+        process.close()
+
+    creates = [
+        item
+        for item in observed
+        if item.get("method") == "window/workDoneProgress/create"
+    ]
+    progress_values = [
+        item["params"]["value"]
+        for item in observed
+        if item.get("method") == "$/progress"
+    ]
+    assert len(creates) == 1
+    assert [value["kind"] for value in progress_values] == ["begin", "end"]
+
+
+def test_other_pending_entry_keeps_progress_open_after_first_closes(
+    tmp_path: Path,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    control_root = (tmp_path / "control").resolve()
+    workspace.mkdir()
+    control_root.mkdir()
+    first_path = workspace / "first.orc"
+    second_path = workspace / "second.orc"
+    first_path.write_text(_library_source("first"), encoding="utf-8")
+    second_path.write_text(_library_source("second"), encoding="utf-8")
+    process = _controlled_process(workspace, control_root=control_root)
+    try:
+        _initialize(
+            process,
+            workspace=workspace,
+            initialization_options={"source_roots": [str(workspace)]},
+            capabilities=_progress_support_capability(True),
+        )
+        _open(
+            process,
+            source_path=first_path,
+            text=first_path.read_text(encoding="utf-8"),
+        )
+        create, _observed = process.read_until(
+            lambda item: (
+                item.get("method") == "window/workDoneProgress/create"
+            )
+        )
+        token = create["params"]["token"]
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "id": create["id"],
+                "result": None,
+            }
+        )
+        process.read_until(
+            lambda item: (
+                item.get("method") == "$/progress"
+                and item["params"]["value"]["kind"] == "begin"
+            )
+        )
+        assert _wait_for_path(control_root / "build-1-started")
+        _open(
+            process,
+            source_path=second_path,
+            text=second_path.read_text(encoding="utf-8"),
+        )
+        process.send(
+            {
+                "jsonrpc": "2.0",
+                "method": "textDocument/didClose",
+                "params": {
+                    "textDocument": {"uri": first_path.as_uri()},
+                },
+            }
+        )
+        response, while_blocked = _request(
+            process,
+            request_id="second-still-pending",
+            method="textDocument/documentSymbol",
+            params={"textDocument": {"uri": second_path.as_uri()}},
+        )
+        assert response["result"] is None
+        assert not any(
+            item.get("method") == "$/progress"
+            and item["params"]["value"]["kind"] == "end"
+            for item in while_blocked
+        )
+        assert not any(
+            item.get("method") == "window/workDoneProgress/create"
+            for item in while_blocked
+        )
+
+        (control_root / "release-first-build").touch()
+        end, _observed = process.read_until(
+            lambda item: (
+                item.get("method") == "$/progress"
+                and item["params"]["token"] == token
+                and item["params"]["value"]["kind"] == "end"
+            ),
+            timeout=30.0,
+        )
+        assert end["params"]["token"] == token
+        assert _wait_for_path(control_root / "build-2-started")
+        process.shutdown()
+    finally:
+        (control_root / "release-first-build").touch(exist_ok=True)
+        process.close()
 
 
 def test_real_stdio_close_discards_result_while_first_compile_is_blocked(

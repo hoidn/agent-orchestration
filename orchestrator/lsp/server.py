@@ -32,6 +32,12 @@ from .navigation import (
     definition_at_lsp_position,
     symbols_for_document,
 )
+from .progress import (
+    ProgressController,
+    ProgressEffect,
+    ProgressTransition,
+    SettlementReason,
+)
 from .state import (
     AcceptedCompileSnapshot,
     LspInitializationError,
@@ -89,6 +95,8 @@ class WorkflowLispLanguageServer(LanguageServer):
         self._build_in_memory = build_in_memory
         self._defer_compiles = _defer_compiles
         self._compile_task: asyncio.Task[None] | None = None
+        self._progress_create_tasks: set[asyncio.Task[None]] = set()
+        self.progress_controller = ProgressController(supported=False)
         self.watcher_registration_supported = False
         self._watcher_registration_sent = False
 
@@ -138,6 +146,17 @@ class WorkflowLispLanguageServer(LanguageServer):
                 data={"diagnostics": diagnostic_rows},
             ) from error
         self.driver = driver
+        window_capabilities = getattr(params.capabilities, "window", None)
+        self.progress_controller = ProgressController(
+            supported=(
+                getattr(
+                    window_capabilities,
+                    "work_done_progress",
+                    None,
+                )
+                is True
+            )
+        )
         watched_files = getattr(
             getattr(params.capabilities, "workspace", None),
             "did_change_watched_files",
@@ -466,6 +485,16 @@ class WorkflowLispLanguageServer(LanguageServer):
             )
         )
 
+    def cancel_progress_presentation(
+        self,
+        params: types.WorkDoneProgressCancelParams,
+    ) -> None:
+        """Honor client cancellation as presentation-only suppression."""
+
+        self._apply_progress_transition(
+            self.progress_controller.cancel_presentation(str(params.token))
+        )
+
     def _require_driver(self) -> LspCompileDriver:
         driver = self.driver
         if driver is None:
@@ -477,6 +506,7 @@ class WorkflowLispLanguageServer(LanguageServer):
 
         if not self._defer_compiles:
             return
+        self._reconcile_progress()
         task = self._compile_task
         if task is not None and not task.done():
             return
@@ -500,8 +530,12 @@ class WorkflowLispLanguageServer(LanguageServer):
                 )
                 transition = driver.finish_prepared(completion)
                 self._emit_transition_effects((transition,))
+        except asyncio.CancelledError:
+            self._settle_progress("pump_task_cancellation")
+            raise
         except Exception as error:
-            self.log_internal_error(error)
+            self._settle_progress("pump_exception")
+            self._log_internal_error_best_effort(error)
         finally:
             self._compile_task = None
             if driver.queued_generations:
@@ -585,6 +619,7 @@ class WorkflowLispLanguageServer(LanguageServer):
             else:
                 for publication in publications:
                     self.text_document_publish_diagnostics(publication)
+        self._reconcile_progress()
         if not any(
             transition.effects.restart_notice_required
             for transition in retained_transitions
@@ -606,6 +641,176 @@ class WorkflowLispLanguageServer(LanguageServer):
                 message=message,
             )
         )
+
+    def _logical_compile_busy(self) -> bool:
+        """Project only open, clean, current pending generations as busy."""
+
+        state = self._require_driver().state
+        return (
+            not state.configuration_stale
+            and any(
+                entry.editor_text is not None
+                and entry.buffer_status == "clean"
+                and entry.compile_status == "pending"
+                and entry.pending_generation == entry.generation
+                for entry in state.entries
+            )
+        )
+
+    def _reconcile_progress(self) -> None:
+        """Reconcile transport presentation after adopted driver state."""
+
+        if not self._defer_compiles:
+            return
+        self._apply_progress_transition(
+            self.progress_controller.observe_busy(
+                self._logical_compile_busy()
+            )
+        )
+
+    def _settle_progress(self, reason: SettlementReason) -> None:
+        """Settle local presentation after a pump-level terminal path."""
+
+        self._apply_progress_transition(
+            self.progress_controller.settle(reason)
+        )
+
+    def _apply_progress_transition(
+        self,
+        transition: ProgressTransition,
+    ) -> None:
+        """Adopt pure progress state before interpreting ordered effects."""
+
+        self.progress_controller = transition.controller
+        for effect in transition.effects:
+            self._interpret_progress_effect(effect)
+
+    def _interpret_progress_effect(self, effect: ProgressEffect) -> None:
+        """Interpret one transport-only progress instruction."""
+
+        if effect.kind == "create":
+            task = asyncio.create_task(
+                self._create_progress_token(
+                    token=effect.token,
+                    interval=effect.interval,
+                )
+            )
+            self._progress_create_tasks.add(task)
+            task.add_done_callback(
+                lambda completed,
+                token=effect.token,
+                interval=effect.interval: self._finish_progress_create_task(
+                    completed,
+                    token=token,
+                    interval=interval,
+                )
+            )
+            return
+        if effect.kind == "begin":
+            try:
+                self.work_done_progress.begin(
+                    effect.token,
+                    types.WorkDoneProgressBegin(
+                        title="Workflow Lisp compile",
+                        cancellable=False,
+                    ),
+                )
+            except Exception as error:
+                self._apply_progress_transition(
+                    self.progress_controller.begin_failed(
+                        token=effect.token,
+                        interval=effect.interval,
+                        error=error,
+                    )
+                )
+            return
+        if effect.kind == "end":
+            try:
+                self.work_done_progress.end(
+                    effect.token,
+                    types.WorkDoneProgressEnd(),
+                )
+            except Exception as error:
+                self._log_internal_error_best_effort(error)
+            return
+        if effect.kind == "retire":
+            self._retire_progress_token(effect.token)
+            return
+        if effect.kind == "log_transport_error":
+            error = effect.error
+            if error is None:
+                error = RuntimeError("progress transport failed")
+            self._log_internal_error_best_effort(error)
+            return
+        raise RuntimeError(f"unknown progress effect: {effect.kind}")
+
+    def _finish_progress_create_task(
+        self,
+        task: asyncio.Task[None],
+        *,
+        token: str,
+        interval: int,
+    ) -> None:
+        """Consume one create task result and settle any stale Creating state."""
+
+        self._progress_create_tasks.discard(task)
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            error: Exception | None = None
+        except Exception as task_error:
+            error = task_error
+        else:
+            return
+        transition = self.progress_controller.create_task_settled(
+            token=token,
+            interval=interval,
+            error=error,
+        )
+        try:
+            self._apply_progress_transition(transition)
+        except Exception as settlement_error:
+            self.progress_controller = transition.controller
+            self._retire_progress_token(token)
+            if error is not None:
+                self._log_internal_error_best_effort(error)
+            self._log_internal_error_best_effort(settlement_error)
+
+    def _log_internal_error_best_effort(self, error: Exception) -> None:
+        """Keep internal logging outside progress and compile authority."""
+
+        try:
+            self.log_internal_error(error)
+        except Exception:
+            return
+
+    async def _create_progress_token(
+        self,
+        *,
+        token: str,
+        interval: int,
+    ) -> None:
+        """Await token acknowledgment off the compile critical path."""
+
+        try:
+            await self.work_done_progress.create_async(token)
+        except Exception as error:
+            transition = self.progress_controller.create_failed(
+                token=token,
+                interval=interval,
+                error=error,
+            )
+        else:
+            transition = self.progress_controller.create_succeeded(
+                token=token,
+                interval=interval,
+            )
+        self._apply_progress_transition(transition)
+
+    def _retire_progress_token(self, token: str) -> None:
+        """Retire one acknowledged pygls token through the reviewed adapter."""
+
+        self.work_done_progress.tokens.pop(token, None)
 
 
 def _initialization_diagnostic_path(raw_path: str) -> str:
@@ -663,6 +868,12 @@ def create_server(
         params: types.DidChangeWorkspaceFoldersParams,
     ) -> None:
         server.change_workspace_folders(params)
+
+    @server.feature(types.WINDOW_WORK_DONE_PROGRESS_CANCEL)
+    def work_done_progress_cancel(
+        params: types.WorkDoneProgressCancelParams,
+    ) -> None:
+        server.cancel_progress_presentation(params)
 
     @server.feature(types.TEXT_DOCUMENT_DEFINITION)
     def definition(params: types.DefinitionParams) -> types.Location | None:
