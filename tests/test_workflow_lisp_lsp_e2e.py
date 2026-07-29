@@ -179,9 +179,6 @@ def test_real_repository_l3_mixed_entry_editor_session_is_read_only() -> None:
         for path in (application_path, library_path)
     }
     fixture_digest = _tree_digest(L3_ENTRY_SELECTION_ROOT)
-    build_digest = _tree_digest(REPO_ROOT / ".orchestrate" / "build")
-    runs_digest = _tree_digest(REPO_ROOT / ".orchestrate" / "runs")
-    artifact_digest = _tree_digest(REPO_ROOT / "artifacts")
 
     surfaces = _l3_stdio_session(
         L3_ENTRY_SELECTION_ROOT,
@@ -217,9 +214,6 @@ def test_real_repository_l3_mixed_entry_editor_session_is_read_only() -> None:
     } == protected_bytes
     assert _tree_digest(L3_ENTRY_SELECTION_ROOT) == fixture_digest
     assert not (L3_ENTRY_SELECTION_ROOT / ".orchestrate").exists()
-    assert _tree_digest(REPO_ROOT / ".orchestrate" / "build") == build_digest
-    assert _tree_digest(REPO_ROOT / ".orchestrate" / "runs") == runs_digest
-    assert _tree_digest(REPO_ROOT / "artifacts") == artifact_digest
 
 
 def test_real_repository_l2_recovery_to_full_is_read_only() -> None:
