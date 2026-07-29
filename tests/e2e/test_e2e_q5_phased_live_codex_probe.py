@@ -64,12 +64,27 @@ _PROBE_MODEL = "gpt-5.5"
 _PROBE_EFFORT = "high"
 _PROBE_TIMEOUT_SEC = 900.0
 
-_TASK_SLICE = (
-    "You are a provider inside a bounded diagnostic probe of the phased "
-    "materialization protocol. Acknowledge briefly and wait; the "
-    "materialization instructions arrive in the next message. Do not "
-    "explore the repository and do not run anything yet.\n"
-)
+
+def _task_slice(marker: Path, release: Path) -> str:
+    # The blocking task action mirrors the combined acceptance test: the
+    # model holds one tool call open until the harness has offered the
+    # initial materialization turn, which proves the TUI (and bracketed
+    # paste mode) is live before any turn bytes reach the pane. Without
+    # this synchronization the initial offer races provider startup, tmux
+    # degrades ``paste-buffer -p`` to an unbracketed paste, and the turn
+    # is never committed (2026-07-29 probe run evidence).
+    return (
+        "You are a provider inside a bounded diagnostic probe of the "
+        "phased materialization protocol. Run exactly one shell command "
+        "now, as a single tool call:\n"
+        f"sh -c 'touch {marker}; while [ ! -e {release} ]; "
+        "do sleep 0.05; done'\n"
+        "As soon as it completes, immediately finish this response with "
+        "TASK_PHASE_COMPLETE; do not run anything else. The "
+        "materialization instructions arrive in the next message.\n"
+    )
+
+
 _MATERIALIZATION_SLICE = (
     "Materialization instructions (follow them exactly, nothing else):\n"
     "1. Run this shell command from the current working directory:\n"
@@ -82,8 +97,45 @@ _MATERIALIZATION_SLICE = (
 )
 
 
-def _probe_cut() -> CanonicalPromptCut:
-    task = _TASK_SLICE.encode("utf-8")
+class _StartupSyncedAdapter:
+    """Gate the first offer on the provider's task-action marker."""
+
+    def __init__(
+        self,
+        delegate: object,
+        *,
+        marker: Path,
+        release: Path,
+    ) -> None:
+        self._delegate = delegate
+        self._marker = marker
+        self._release = release
+        self._offer_calls = 0
+
+    def __getattr__(self, name: str):
+        return getattr(self._delegate, name)
+
+    def offer(self, handle, literal_message: str, *, deadline: float):
+        self._offer_calls += 1
+        if self._offer_calls == 1:
+            while (
+                not self._marker.exists()
+                and time.monotonic() < deadline - 5.0
+            ):
+                time.sleep(0.05)
+        receipt = self._delegate.offer(
+            handle,
+            literal_message,
+            deadline=deadline,
+        )
+        if self._offer_calls == 1:
+            self._release.parent.mkdir(parents=True, exist_ok=True)
+            self._release.touch()
+        return receipt
+
+
+def _probe_cut(marker: Path, release: Path) -> CanonicalPromptCut:
+    task = _task_slice(marker, release).encode("utf-8")
     materialization = _MATERIALIZATION_SLICE.encode("utf-8")
     canonical = task + materialization
     return CanonicalPromptCut(
@@ -118,17 +170,24 @@ class LiveCodexBindings(SyntheticProviderBindings):
             materialization_attempts=2,
             outcomes=((False, True), (True, True)),
         )
-        cut = _probe_cut()
+        marker = tmp_path / "probe-task.marker"
+        release = tmp_path / "probe-task.release"
+        self.adapter = _StartupSyncedAdapter(
+            self.adapter,
+            marker=marker,
+            release=release,
+        )
+        cut = _probe_cut(marker, release)
         task_turn = render_task_turn(cut=cut)
         initial_turn = render_initial_materialization_turn(
             cut=cut,
-            submit_keys=("ENTER",),
+            submit_keys=("ENTER", "ENTER"),
         )
         retry_turn = render_retry_materialization_turn(
             cut=cut,
             submission_ordinal=2,
             diagnostics=(_diagnostic("output_validation_failed"),),
-            submit_keys=("ENTER",),
+            submit_keys=("ENTER", "ENTER"),
         )
         codex_command = (
             "codex",
@@ -142,9 +201,9 @@ class LiveCodexBindings(SyntheticProviderBindings):
             schema_version="interactive_terminal_turn_queue.v1",
             turn_boundary_messages=True,
             command=(*codex_command, "${PROMPT}"),
-            message_submit_keys=("ENTER",),
+            message_submit_keys=("ENTER", "ENTER"),
             graceful_close_text="/exit",
-            graceful_close_submit_keys=("ENTER",),
+            graceful_close_submit_keys=("ENTER", "ENTER"),
         )
         template = self.composition.invocation
         invocation = InteractiveMemberInvocation(
