@@ -20,11 +20,14 @@ from orchestrator.providers.types import (
 )
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.prompt_context_report import (
-    PROMPT_CONTEXT_REPORT_SCHEMA,
+    PROMPT_CONTEXT_REPORT_V2_SCHEMA,
 )
 from orchestrator.workflow.prompt_dependency_evidence import (
     FRAGMENT_SUCCESS_SCHEMA_V2,
     validate_fragment_success_evidence_v2,
+)
+from orchestrator.workflow.prompt_identity import (
+    PROMPT_ATTEMPT_IDENTITY_VERSION,
 )
 from tests.test_workflow_lisp_prompt_identity_runtime import (
     _runtime_q3_fixture,
@@ -241,12 +244,27 @@ def test_target_222_retry_attributes_changed_roles_before_terminal_report(
     assert snapshot["run"]["status"] == "completed"
     prompt_context = snapshot["prompt_context"]
     assert prompt_context["schema_version"] == (
-        PROMPT_CONTEXT_REPORT_SCHEMA
+        PROMPT_CONTEXT_REPORT_V2_SCHEMA
     )
     assert [
         attempt["attempt_ordinal"]
         for attempt in prompt_context["attempts"]
     ] == [1, 2]
+    identities = [
+        attempt["identity"]
+        for attempt in prompt_context["attempts"]
+    ]
+    assert all(
+        identity["identity_version"]
+        == PROMPT_ATTEMPT_IDENTITY_VERSION
+        for identity in identities
+    )
+    assert all(
+        identity["legacy_final_prompt_sha256"] is not None
+        and identity["canonical_composed"] is None
+        and identity["actual_deliveries"] is None
+        for identity in identities
+    )
     assert prompt_context["attempts"][0]["comparison"] == {
         "status": "unavailable",
         "previous_attempt_ordinal": None,

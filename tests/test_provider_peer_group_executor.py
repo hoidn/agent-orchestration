@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from orchestrator.state import StateManager, StepResult
+from orchestrator.workflow.call_frame_state import _CallFrameStateManager
 from orchestrator.workflow.executable_ir import ExecutableNodeKind
 from orchestrator.workflow.executor import WorkflowExecutor
 
@@ -42,6 +43,37 @@ def test_top_level_peer_group_uses_its_separate_atomic_dispatch() -> None:
 
     assert result == {"status": "completed", "exit_code": 0}
     assert calls == [(step, state, "Peers")]
+
+
+def test_peer_group_call_frame_fails_before_runtime_activity() -> None:
+    executor = object.__new__(WorkflowExecutor)
+    executor.state_manager = object.__new__(_CallFrameStateManager)
+    activity: list[str] = []
+    executor._executable_node_for_step = (  # type: ignore[method-assign]
+        lambda _step: activity.append("config") or None
+    )
+    executor._persist_step_result = (  # type: ignore[method-assign]
+        lambda *_args, **_kwargs: activity.append("persist") or {}
+    )
+    executor._contract_violation_result = (  # type: ignore[method-assign]
+        lambda *_args, **_kwargs: {
+            "status": "failed",
+            "exit_code": 2,
+        }
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="provider_peer_group_atomic_finalizer_unavailable",
+    ):
+        WorkflowExecutor._execute_provider_peer_group(
+            executor,
+            {"name": "ImportedPeers", "step_id": "import.peers"},
+            {"step_visits": {"ImportedPeers": 1}},
+            step_name="ImportedPeers",
+        )
+
+    assert activity == []
 
 
 def _atomic_executor(

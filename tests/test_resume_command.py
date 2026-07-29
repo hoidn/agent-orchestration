@@ -4966,6 +4966,51 @@ def _provider_supervision_resume_executor(
     )
 
 
+def test_completed_resume_validates_phased_authority_before_running_activation(
+    temp_workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor, manager = _provider_supervision_resume_executor(
+        temp_workspace,
+        run_id="completed-phased-authority-order",
+    )
+    assert manager.state is not None
+    manager.state.status = "completed"
+    manager.state.current_step = None
+    manager._write_state()
+    events: list[str] = []
+
+    monkeypatch.setattr(
+        executor,
+        "_determine_resume_restart_node_id",
+        lambda _state: events.append("restart") or None,
+    )
+    monkeypatch.setattr(
+        executor,
+        "_completed_phased_provider_resume_boundary",
+        lambda _state: events.append("assessment")
+        or {
+            "kind": "integrity_error",
+            "reason": "completed_phased_evidence_invalid",
+        },
+    )
+    monkeypatch.setattr(
+        executor,
+        "_execute_prologue",
+        lambda _state, *, resume: events.append("prologue")
+        or {"status": "running"},
+    )
+
+    result = executor.execute(resume=True)
+
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == (
+        "provider_phased_resume_state_integrity_error"
+    )
+    assert manager.load().status == "failed"
+    assert events == ["restart", "assessment"]
+
+
 @pytest.mark.parametrize(
     ("persisted_result", "expected_kind"),
     [

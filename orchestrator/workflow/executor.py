@@ -3619,14 +3619,29 @@ class WorkflowExecutor:
                     return root_guard_result
             state = run_state.to_dict()
             completed_phased_resume_boundary = None
+            completed_resume_candidate = (
+                resume
+                and state.get("status") == "completed"
+                and state.get("current_step") is None
+            )
+            prologue_executed = False
+            if not completed_resume_candidate:
+                early_result = self._execute_prologue(
+                    state,
+                    resume=resume,
+                )
+                prologue_executed = True
+                if early_result is not None:
+                    return early_result
+
             if resume:
                 try:
-                    pre_prologue_restart = (
+                    resume_restart = (
                         self._determine_resume_restart_node_id(state)
                     )
                 except ResumeStateIntegrityError:
-                    pre_prologue_restart = False
-                if pre_prologue_restart is None:
+                    resume_restart = False
+                if resume_restart is None:
                     completed_phased_resume_boundary = (
                         self._completed_phased_provider_resume_boundary(
                             state
@@ -3645,9 +3660,14 @@ class WorkflowExecutor:
                             ),
                             dict(completed_phased_resume_boundary),
                         )
-            early_result = self._execute_prologue(state, resume=resume)
-            if early_result is not None:
-                return early_result
+
+            if not prologue_executed:
+                early_result = self._execute_prologue(
+                    state,
+                    resume=resume,
+                )
+                if early_result is not None:
+                    return early_result
 
             loop_result = self._execute_step_loop(
                 state,
@@ -11475,11 +11495,14 @@ class WorkflowExecutor:
     ) -> Dict[str, Any]:
         """Execute one closed group through the bounded directive coordinator."""
 
-        if not callable(
-            getattr(
-                self.state_manager,
-                "finalize_step_with_dataflow",
-                None,
+        if (
+            not _is_structurally_root_state_manager(self.state_manager)
+            or not callable(
+                getattr(
+                    self.state_manager,
+                    "finalize_step_with_dataflow",
+                    None,
+                )
             )
         ):
             raise RuntimeError(
@@ -11543,11 +11566,14 @@ class WorkflowExecutor:
     ) -> Dict[str, Any]:
         """Execute one static peer group through its single-writer coordinator."""
 
-        if not callable(
-            getattr(
-                self.state_manager,
-                "finalize_step_with_dataflow",
-                None,
+        if (
+            not _is_structurally_root_state_manager(self.state_manager)
+            or not callable(
+                getattr(
+                    self.state_manager,
+                    "finalize_step_with_dataflow",
+                    None,
+                )
             )
         ):
             raise RuntimeError(

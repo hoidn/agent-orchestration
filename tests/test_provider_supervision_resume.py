@@ -2758,17 +2758,25 @@ def test_workflow_executor_dispatches_provider_supervision_to_general_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from orchestrator.state import StateManager
     from orchestrator.workflow.executor import WorkflowExecutor
     from tests.test_provider_supervision_ir import (
         _provider_supervision_config,
     )
 
     config = _provider_supervision_config()
-    executor = object.__new__(WorkflowExecutor)
-    executor.state_manager = SimpleNamespace(
-        finalize_step_with_dataflow=lambda *_args, **_kwargs: None,
-        run_root=tmp_path,
+    workflow_path = tmp_path / "workflow.orc"
+    workflow_path.write_text(
+        "; provider-supervision dispatch fixture\n",
+        encoding="utf-8",
     )
+    manager = StateManager(
+        tmp_path,
+        run_id="provider-supervision-general-dispatch",
+    )
+    manager.initialize(workflow_path.name)
+    executor = object.__new__(WorkflowExecutor)
+    executor.state_manager = manager
     executor._executable_node_for_step = (  # type: ignore[method-assign]
         lambda _step: SimpleNamespace(execution_config=config)
     )
