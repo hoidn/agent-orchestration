@@ -25,7 +25,7 @@ from .types import (
 
 
 _MAX_ENCODED_UNIX_SOCKET_PATH_BYTES = 103
-_SUBMIT_KEY_SETTLE_SEC = 0.25
+_SUBMIT_KEY_SETTLE_SEC = 1.0
 _INTERACTIVE_TERMINAL_ERROR_CODES = frozenset(
     {
         "adapter_already_started",
@@ -815,6 +815,7 @@ class _TmuxInteractiveTerminalBackend:
         pasted = self._run(
             socket_path,
             "paste-buffer",
+            "-p",
             "-d",
             "-b",
             buffer_name,

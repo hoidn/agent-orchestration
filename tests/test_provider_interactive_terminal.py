@@ -1418,7 +1418,7 @@ def test_interactive_adapter_deadline_limits_every_selected_backend_action(
         )
         assert outcome.status == "started"
     else:
-        deadline_budget = 0.625
+        deadline_budget = 2.125 if operation == "offer" else 1.125
         handle = _started_handle(
             adapter,
             _interactive_invocation(tmp_path),
@@ -1595,7 +1595,7 @@ def test_interactive_adapter_preserves_literal_multiline_utf8_and_declared_keys(
     )
     message = "first line\nλ second line\n"
 
-    receipt = adapter.offer(handle, message, deadline=101.0)
+    receipt = adapter.offer(handle, message, deadline=103.0)
 
     assert isinstance(receipt, OfferReceipt)
     assert receipt.status == "offered"
@@ -1651,9 +1651,9 @@ def test_interactive_adapter_settles_between_declared_submit_keys_for_both_clien
     backend.after_action["offer_keys"] = observe_submit_key
 
     if operation == "offer":
-        receipt = adapter.offer(handle, "queued", deadline=101.0)
+        receipt = adapter.offer(handle, "queued", deadline=103.0)
     else:
-        receipt = adapter.offer_close(handle, deadline=101.0)
+        receipt = adapter.offer_close(handle, deadline=103.0)
 
     assert receipt.status == expected_status
     assert accepted_submissions == 1
@@ -1667,7 +1667,7 @@ def test_interactive_adapter_settles_between_declared_submit_keys_for_both_clien
         (backend.target, ("ENTER",)),
         (backend.target, ("ENTER",)),
     ]
-    assert key_offer_times == pytest.approx([100.25, 100.50])
+    assert key_offer_times == pytest.approx([101.0, 102.0])
 
 
 @pytest.mark.parametrize(
@@ -1697,9 +1697,9 @@ def test_interactive_adapter_fails_closed_before_later_submit_key_without_settle
 
     with pytest.raises(InteractiveTerminalError) as exc_info:
         if operation == "offer":
-            adapter.offer(handle, "queued", deadline=100.375)
+            adapter.offer(handle, "queued", deadline=101.5)
         else:
-            adapter.offer_close(handle, deadline=100.375)
+            adapter.offer_close(handle, deadline=101.5)
 
     assert exc_info.value.code == expected_code
     assert backend.key_offers == [(backend.target, ("ENTER",))]
@@ -1738,9 +1738,9 @@ def test_interactive_adapter_key_failure_after_first_submit_key_terminals_handle
 
     with pytest.raises(InteractiveTerminalError) as exc_info:
         if operation == "offer":
-            adapter.offer(handle, "queued", deadline=101.0)
+            adapter.offer(handle, "queued", deadline=103.0)
         else:
-            adapter.offer_close(handle, deadline=101.0)
+            adapter.offer_close(handle, deadline=103.0)
 
     assert exc_info.value.code == "key_offer_failed"
     assert backend.key_offers == [(backend.target, ("ENTER",))]
@@ -1759,7 +1759,7 @@ def test_interactive_adapter_offers_declared_natural_close_without_forcing(
         deadline=101.0,
     )
 
-    receipt = adapter.offer_close(handle, deadline=101.0)
+    receipt = adapter.offer_close(handle, deadline=102.0)
 
     assert isinstance(receipt, CloseOfferReceipt)
     assert receipt.status == "close_offered"
@@ -1777,13 +1777,13 @@ def test_interactive_adapter_join_requires_zero_natural_exit_and_full_cleanup(
         _interactive_invocation(tmp_path),
         deadline=101.0,
     )
-    adapter.offer_close(handle, deadline=101.0)
+    adapter.offer_close(handle, deadline=102.0)
     backend.pane_status = PaneProcessStatus(
         state="exited",
         return_code=0,
     )
 
-    proof = adapter.join(handle, deadline=101.0)
+    proof = adapter.join(handle, deadline=102.0)
 
     assert isinstance(proof, NaturalShutdownProof)
     assert proof.proof_complete is True
@@ -1805,13 +1805,13 @@ def test_interactive_adapter_natural_join_removes_owned_socket_after_absence(
         deadline=101.0,
     )
     handle.socket_path.touch()
-    adapter.offer_close(handle, deadline=101.0)
+    adapter.offer_close(handle, deadline=102.0)
     backend.pane_status = PaneProcessStatus(
         state="exited",
         return_code=0,
     )
 
-    proof = adapter.join(handle, deadline=101.0)
+    proof = adapter.join(handle, deadline=102.0)
 
     assert proof.server_absent is True
     assert backend.server_live is False
@@ -1829,7 +1829,7 @@ def test_interactive_adapter_natural_join_types_socket_unlink_failure(
         deadline=101.0,
     )
     handle.socket_path.mkdir()
-    adapter.offer_close(handle, deadline=101.0)
+    adapter.offer_close(handle, deadline=102.0)
     backend.pane_status = PaneProcessStatus(
         state="exited",
         return_code=0,
@@ -1837,7 +1837,7 @@ def test_interactive_adapter_natural_join_types_socket_unlink_failure(
 
     try:
         with pytest.raises(InteractiveTerminalError) as exc_info:
-            adapter.join(handle, deadline=101.0)
+            adapter.join(handle, deadline=102.0)
         assert exc_info.value.code == (
             "interactive_terminal_socket_cleanup_failed"
         )
@@ -1928,6 +1928,59 @@ def test_tmux_backend_types_subprocess_timeout(
         )
 
     assert exc_info.value.code == "backend_operation_timeout"
+
+
+def test_tmux_backend_offer_literal_uses_bracketed_paste_buffer_with_exact_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = interactive_terminal_module._TmuxInteractiveTerminalBackend()
+    socket_path = tmp_path / "socket"
+    target = "%peer-1"
+    literal_text = "first line\nλ second line\n"
+    calls: list[tuple[Path, tuple[str, ...], bytes | None]] = []
+
+    def run(
+        called_socket_path: Path,
+        *args: str,
+        input_bytes: bytes | None = None,
+        process_env: dict[str, str] | None = None,
+        timeout_sec: float,
+    ) -> subprocess.CompletedProcess[bytes]:
+        del process_env
+        assert 0.0 < timeout_sec <= 1.0
+        calls.append((called_socket_path, args, input_bytes))
+        return subprocess.CompletedProcess(args, 0, b"", b"")
+
+    monkeypatch.setattr(backend, "_run", run)
+
+    backend.offer_literal(
+        socket_path,
+        target,
+        literal_text,
+        timeout_sec=1.0,
+    )
+
+    assert calls == [
+        (
+            socket_path,
+            ("load-buffer", "-b", "orc-peer-input", "-"),
+            literal_text.encode("utf-8"),
+        ),
+        (
+            socket_path,
+            (
+                "paste-buffer",
+                "-p",
+                "-d",
+                "-b",
+                "orc-peer-input",
+                "-t",
+                target,
+            ),
+            None,
+        ),
+    ]
 
 
 @pytest.mark.skipif(shutil.which("tmux") is None, reason="tmux is unavailable")
@@ -2033,13 +2086,13 @@ def test_interactive_adapter_join_waits_for_recorded_exit_status(
         _interactive_invocation(tmp_path),
         deadline=101.0,
     )
-    adapter.offer_close(handle, deadline=101.0)
+    adapter.offer_close(handle, deadline=102.0)
     backend.pane_status_sequence = [
         PaneProcessStatus(state="exited_pending", return_code=None),
         PaneProcessStatus(state="exited", return_code=0),
     ]
 
-    proof = adapter.join(handle, deadline=101.0)
+    proof = adapter.join(handle, deadline=102.0)
 
     assert proof.proof_complete is True
 
@@ -2054,14 +2107,14 @@ def test_interactive_adapter_join_is_idempotent_after_natural_shutdown(
         _interactive_invocation(tmp_path),
         deadline=101.0,
     )
-    adapter.offer_close(handle, deadline=101.0)
+    adapter.offer_close(handle, deadline=102.0)
     backend.pane_status = PaneProcessStatus(
         state="exited",
         return_code=0,
     )
 
-    first = adapter.join(handle, deadline=101.0)
-    second = adapter.join(handle, deadline=101.0)
+    first = adapter.join(handle, deadline=102.0)
+    second = adapter.join(handle, deadline=102.0)
 
     assert second == first
     assert backend.close_pane_calls == [backend.target]
@@ -2087,11 +2140,11 @@ def test_interactive_adapter_join_rejects_missing_or_failed_process(
         _interactive_invocation(tmp_path),
         deadline=101.0,
     )
-    adapter.offer_close(handle, deadline=101.0)
+    adapter.offer_close(handle, deadline=102.0)
     backend.pane_status = status
 
     with pytest.raises(InteractiveTerminalError) as exc_info:
-        adapter.join(handle, deadline=101.0)
+        adapter.join(handle, deadline=102.0)
 
     assert exc_info.value.code == expected_code
 
@@ -2107,7 +2160,7 @@ def test_interactive_adapter_join_times_out_without_screen_authority(
         _interactive_invocation(tmp_path),
         deadline=101.0,
     )
-    adapter.offer_close(handle, deadline=101.0)
+    adapter.offer_close(handle, deadline=102.0)
 
     with pytest.raises(InteractiveTerminalError) as exc_info:
         adapter.join(handle, deadline=100.02)
@@ -2143,7 +2196,7 @@ def test_interactive_adapter_offer_failures_are_typed(
     )
 
     with pytest.raises(InteractiveTerminalError) as exc_info:
-        adapter.offer(handle, "message", deadline=101.0)
+        adapter.offer(handle, "message", deadline=102.0)
 
     assert exc_info.value.code == expected_code
 
@@ -2161,7 +2214,7 @@ def test_interactive_adapter_close_failure_is_typed(
     )
 
     with pytest.raises(InteractiveTerminalError) as exc_info:
-        adapter.offer_close(handle, deadline=101.0)
+        adapter.offer_close(handle, deadline=102.0)
 
     assert exc_info.value.code == "key_offer_failed"
 
@@ -2546,15 +2599,15 @@ def test_interactive_adapter_abort_after_failed_join_remains_cleanup_only(
         _interactive_invocation(tmp_path),
         deadline=101.0,
     )
-    adapter.offer_close(handle, deadline=101.0)
+    adapter.offer_close(handle, deadline=102.0)
     backend.pane_status = PaneProcessStatus(
         state="exited",
         return_code=7,
     )
     with pytest.raises(InteractiveTerminalError):
-        adapter.join(handle, deadline=101.0)
+        adapter.join(handle, deadline=102.0)
 
-    proof = adapter.abort(handle, deadline=101.0)
+    proof = adapter.abort(handle, deadline=102.0)
 
     assert proof.disposition == "failed_cleanup"
     assert proof.cleanup_complete is True
@@ -2601,13 +2654,13 @@ def test_interactive_adapter_never_uses_v1_control_or_observation_surfaces(
         _interactive_invocation(tmp_path),
         deadline=101.0,
     )
-    adapter.offer(handle, "queued", deadline=101.0)
-    adapter.offer_close(handle, deadline=101.0)
+    adapter.offer(handle, "queued", deadline=103.0)
+    adapter.offer_close(handle, deadline=104.0)
     backend.pane_status = PaneProcessStatus(
         state="exited",
         return_code=0,
     )
 
-    proof = adapter.join(handle, deadline=101.0)
+    proof = adapter.join(handle, deadline=104.0)
 
     assert proof.proof_complete is True
