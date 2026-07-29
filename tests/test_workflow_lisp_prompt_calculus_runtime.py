@@ -1382,6 +1382,9 @@ def test_q3_compatible_completed_boundary_reuses_without_preparation_or_evidence
         if step["step_id"] == provider_node.step_id
     )
     assert provider_state["status"] == "completed"
+    committed_binding = provider_state["debug"][
+        "prompt_attempt_result_binding"
+    ]
     for allocation in committed["provider_attempt_allocations"].values():
         for event in allocation["events"]:
             relative_path = event.get("relative_path")
@@ -1413,6 +1416,14 @@ def test_q3_compatible_completed_boundary_reuses_without_preparation_or_evidence
         ).execute(resume=True, on_error="stop")
 
     assert resumed["status"] == "completed"
+    resumed_provider_state = next(
+        step
+        for step in resumed["steps"].values()
+        if step["step_id"] == provider_node.step_id
+    )
+    assert resumed_provider_state["debug"][
+        "prompt_attempt_result_binding"
+    ] == committed_binding
     assert captured["preparations"] == 1
     assert captured["executions"] == 1
 
@@ -1515,6 +1526,237 @@ def test_q3_pending_and_failed_boundaries_carry_pair_into_fresh_attempt(
         for event in allocation["events"]
         if event["event"] == "allocated"
     ] == [1, 2]
+    provider_state = next(
+        value
+        for value in completed["steps"].values()
+        if value["step_id"] == provider_node.step_id
+    )
+    binding = provider_state["debug"]["prompt_attempt_result_binding"]
+    successful_publication = next(
+        event
+        for event in allocation["events"]
+        if event["event"] == "evidence_published"
+        and event["ordinal"] == 2
+    )
+    assert binding == {
+        "schema_version": (
+            "workflow_prompt_attempt_result_binding.v1"
+        ),
+        "scope_sha256": next(
+            iter(completed["provider_attempt_allocations"])
+        ),
+        "attempt_ordinal": 2,
+        "evidence_relative_path": successful_publication[
+            "relative_path"
+        ],
+        "evidence_file_sha256": successful_publication[
+            "file_sha256"
+        ],
+        "record_kind": "prompt_snapshot",
+    }
+
+
+def test_q3_post_provider_output_failure_commits_no_result_binding(
+    tmp_path: Path,
+) -> None:
+    source_path, bundle = _compile_runtime_fragment(
+        tmp_path,
+        lowering_route="wcc_m4",
+        target_dsl="2.22",
+        with_output_position=True,
+    )
+    manager = _runtime_fragment_manager(
+        tmp_path,
+        source_path,
+        bundle,
+        run_id="prompt-fragment-q3-output-failure",
+    )
+    captured: dict[str, object] = {
+        "preparations": 0,
+        "executions": 0,
+    }
+    prepare, execute = _provider_success(tmp_path, captured)
+
+    with patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        prepare,
+    ), patch.object(
+        ProviderExecutor,
+        "execute",
+        execute,
+    ):
+        failed = WorkflowExecutor(
+            bundle,
+            tmp_path,
+            manager,
+            retry_delay_ms=0,
+        ).execute(on_error="stop")
+
+    assert failed["status"] == "failed"
+    [failed_step] = failed["steps"].values()
+    assert failed_step["status"] == "failed"
+    assert "prompt_attempt_result_binding" not in failed_step.get(
+        "debug",
+        {},
+    )
+    assert captured["preparations"] == 1
+    assert captured["executions"] == 1
+    persisted = json.loads(
+        manager.state_file.read_text(encoding="utf-8")
+    )
+    [allocation] = persisted["provider_attempt_allocations"].values()
+    assert any(
+        event["event"] == "evidence_published"
+        for event in allocation["events"]
+    )
+
+
+def test_q3_result_binding_failure_precedes_reached_result_commit(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.prompt_attempt_result_binding import (
+        PromptAttemptResultBindingError,
+    )
+
+    source_path, bundle = _compile_runtime_fragment(
+        tmp_path,
+        lowering_route="wcc_m4",
+        target_dsl="2.22",
+        with_output_position=True,
+    )
+    manager = _runtime_fragment_manager(
+        tmp_path,
+        source_path,
+        bundle,
+        run_id="prompt-fragment-q3-binding-failure",
+    )
+    captured: dict[str, object] = {
+        "preparations": 0,
+        "executions": 0,
+    }
+    prepare, base_execute = _provider_success(tmp_path, captured)
+
+    def execute_with_required_file(provider, invocation, **kwargs):
+        report = tmp_path / "artifacts" / "work" / "review.md"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("reviewed\n", encoding="utf-8")
+        return base_execute(provider, invocation, **kwargs)
+
+    with patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        prepare,
+    ), patch.object(
+        ProviderExecutor,
+        "execute",
+        execute_with_required_file,
+    ), patch(
+        "orchestrator.workflow.executor."
+        "attach_prompt_attempt_result_binding",
+        side_effect=PromptAttemptResultBindingError(
+            "judgment_result_binding_ambiguous",
+            "injected contradictory retained authority",
+        ),
+    ):
+        failed = WorkflowExecutor(
+            bundle,
+            tmp_path,
+            manager,
+            retry_delay_ms=0,
+        ).execute(on_error="stop")
+
+    assert failed["status"] == "failed"
+    [failed_step] = failed["steps"].values()
+    assert failed_step["status"] == "failed"
+    assert failed_step["error"]["context"]["reason"] == (
+        "judgment_result_binding_ambiguous"
+    )
+    assert "prompt_attempt_result_binding" not in failed_step.get(
+        "debug",
+        {},
+    )
+    assert captured["preparations"] == 1
+    assert captured["executions"] == 1
+
+
+def test_q3_precommit_interruption_persists_no_result_binding(
+    tmp_path: Path,
+) -> None:
+    class BeforeReachedCommit(BaseException):
+        pass
+
+    source_path, bundle = _compile_runtime_fragment(
+        tmp_path,
+        lowering_route="wcc_m4",
+        target_dsl="2.22",
+        with_output_position=True,
+    )
+    manager = _runtime_fragment_manager(
+        tmp_path,
+        source_path,
+        bundle,
+        run_id="prompt-fragment-q3-precommit-interruption",
+    )
+    captured: dict[str, object] = {
+        "preparations": 0,
+        "executions": 0,
+    }
+    prepare, base_execute = _provider_success(tmp_path, captured)
+
+    def execute_with_required_file(provider, invocation, **kwargs):
+        report = tmp_path / "artifacts" / "work" / "review.md"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("reviewed\n", encoding="utf-8")
+        return base_execute(provider, invocation, **kwargs)
+
+    original_update = StateManager.update_step
+
+    def interrupt_binding_commit(
+        state_manager,
+        step_name,
+        result,
+    ):
+        if (
+            result.debug is not None
+            and "prompt_attempt_result_binding" in result.debug
+        ):
+            raise BeforeReachedCommit
+        return original_update(state_manager, step_name, result)
+
+    with patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        prepare,
+    ), patch.object(
+        ProviderExecutor,
+        "execute",
+        execute_with_required_file,
+    ), patch.object(
+        StateManager,
+        "update_step",
+        interrupt_binding_commit,
+    ), pytest.raises(BeforeReachedCommit):
+        WorkflowExecutor(
+            bundle,
+            tmp_path,
+            manager,
+            retry_delay_ms=0,
+        ).execute(on_error="stop")
+
+    persisted = json.loads(
+        manager.state_file.read_text(encoding="utf-8")
+    )
+    assert persisted["steps"] == {}
+    [allocation] = persisted["provider_attempt_allocations"].values()
+    assert any(
+        event["event"] == "evidence_published"
+        for event in allocation["events"]
+    )
+    assert "prompt_attempt_result_binding" not in json.dumps(
+        persisted,
+        sort_keys=True,
+    )
 
 
 def test_q3_complete_pair_loss_refuses_before_provider_launch(

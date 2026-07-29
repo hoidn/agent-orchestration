@@ -626,17 +626,28 @@ def test_public_phased_retry_is_atomic_and_projects_exact_evidence(
     monkeypatch: pytest.MonkeyPatch,
     first_mode: str,
 ) -> None:
-    _, manager, harness, completed = _execute(
-        tmp_path,
-        monkeypatch,
-        first_mode=first_mode,
-        run_id=f"public-{first_mode}",
-    )
+    with patch(
+        "orchestrator.workflow.executor."
+        "attach_prompt_attempt_result_binding",
+        side_effect=AssertionError(
+            "phased identity-v2 route attempted Q4 result binding"
+        ),
+    ):
+        _, manager, harness, completed = _execute(
+            tmp_path,
+            monkeypatch,
+            first_mode=first_mode,
+            run_id=f"public-{first_mode}",
+        )
 
     assert completed["status"] == "completed"
     assert completed["workflow_outputs"] == {"return__approved": True}
     [step] = completed["steps"].values()
     assert step["status"] == "completed"
+    assert "prompt_attempt_result_binding" not in step.get(
+        "debug",
+        {},
+    )
     assert step["artifacts"]["approved"] is True
     assert step["artifacts"]["report"] == "VALID_REPORT_2\n"
     assert len(harness.invocations) == 1
@@ -993,6 +1004,7 @@ _PROMPT_DERIVED_FIELD_TOKENS = {
     ),
     "composition_sha256": "$COMPOSED_PROMPT_SHA256",
     "executable_ir_digest": "$PROMPT_DERIVED_EXECUTABLE_IR_DIGEST",
+    "evidence_file_sha256": "$PROMPT_EVIDENCE_FILE_SHA256",
     "file_sha256": "$PROMPT_EVIDENCE_FILE_SHA256",
     "frontend_persisted_surface_sha256": (
         "$PROMPT_DERIVED_PERSISTED_SURFACE_SHA256"
@@ -1652,6 +1664,18 @@ def test_public_ordinary_delivery_matrix_preserves_provider_result(
     assert len(invocations) == 1
     assert completed["status"] == "completed"
     assert completed["workflow_outputs"] == {"return__approved": True}
+    [completed_step] = completed["steps"].values()
+    binding = completed_step.get("debug", {}).get(
+        "prompt_attempt_result_binding"
+    )
+    if target in {"2.22", "2.23"}:
+        assert binding is not None
+        assert binding["schema_version"] == (
+            "workflow_prompt_attempt_result_binding.v1"
+        )
+        assert binding["attempt_ordinal"] == 1
+    else:
+        assert binding is None
     assert len(provider_execution_results) == 1
     assert len(output_bundle_payloads) == 1
     golden = _compatibility_golden_bytes(

@@ -134,6 +134,7 @@ from .prompting import (
 )
 from .prompt_dependency_contract import PromptDependencyOriginKind
 from .prompt_dependency_evidence import (
+    PublicationResult,
     authored_row_id,
     build_fragment_preparation_failure_evidence,
     build_fragment_success_evidence,
@@ -142,6 +143,11 @@ from .prompt_dependency_evidence import (
     build_success_evidence,
     evidence_relative_path,
     publish_evidence_file,
+)
+from .prompt_attempt_result_binding import (
+    PromptAttemptResultBindingError,
+    attach_prompt_attempt_result_binding,
+    is_prompt_attempt_result_binding_eligible,
 )
 from .prompt_identity import (
     build_fragment_program_role,
@@ -7415,6 +7421,7 @@ class WorkflowExecutor:
             scope: ProviderAttemptScope | None = None
             ordinal: int | None = None
             q3_fragment_success_build: Any = None
+            q3_fragment_publication: PublicationResult | None = None
             attempt_prompt = prompt
             if content_dependencies is not None:
                 if compiler_prompt_dependency_contract is not None:
@@ -7869,7 +7876,7 @@ class WorkflowExecutor:
                             fragment_identity_schema_version
                         ),
                     )
-                    publish_evidence_file(
+                    q3_fragment_publication = publish_evidence_file(
                         self.state_manager,
                         scope,
                         ordinal,
@@ -8079,6 +8086,91 @@ class WorkflowExecutor:
             result['debug'] = debug_info
 
         final_result = self._apply_expected_outputs_contract(step, result, state, context=context)
+        raw_call_policy = step.get("provider_call_policy") or {}
+        delivery = (
+            raw_call_policy.get("delivery")
+            if isinstance(raw_call_policy, Mapping)
+            else None
+        )
+        binding_prefix_eligible = (
+            is_prompt_attempt_result_binding_eligible(
+                direct_fragment_call=q3_fragment_enabled,
+                compiled_fragment_contract_present=(
+                    fragment_contract is not None
+                    and _fragment_identity is not None
+                ),
+                delivery=delivery,
+                prompt_attempt_identity_schema_version=(
+                    step.prompt_attempt_identity_version
+                    if isinstance(step, RuntimeStep)
+                    else None
+                ),
+                validated_result_ready_for_commit=(
+                    final_result.get("status") == "completed"
+                    and final_result.get("exit_code") == 0
+                ),
+            )
+        )
+        if binding_prefix_eligible:
+            try:
+                owner = resolve_aggregate_run_owner(
+                    self.state_manager
+                )
+                root_state = owner.root_manager.state
+                root_allocations = (
+                    root_state.provider_attempt_allocations
+                )
+                projected_debug = attach_prompt_attempt_result_binding(
+                    final_result.get("debug"),
+                    direct_fragment_call=True,
+                    compiled_fragment_contract_present=True,
+                    delivery=delivery,
+                    prompt_attempt_identity_schema_version=(
+                        step.prompt_attempt_identity_version
+                    ),
+                    compiler_fragment_identity_schema_version=(
+                        fragment_identity_schema_version
+                    ),
+                    validated_result_ready_for_commit=True,
+                    scope=scope,
+                    attempt_ordinal=ordinal,
+                    root_provider_attempt_allocations=(
+                        root_allocations
+                    ),
+                    publication=q3_fragment_publication,
+                )
+            except PromptAttemptResultBindingError as exc:
+                return self._contract_violation_result(
+                    "Provider result binding failed",
+                    {
+                        "reason": exc.code,
+                        "error": str(exc),
+                        "scope_sha256": (
+                            scope.key
+                            if scope is not None
+                            else None
+                        ),
+                        "attempt_ordinal": ordinal,
+                    },
+                )
+            except (TypeError, ValueError) as exc:
+                return self._contract_violation_result(
+                    "Provider result binding failed",
+                    {
+                        "reason": (
+                            "judgment_result_binding_invalid"
+                        ),
+                        "error": str(exc),
+                        "scope_sha256": (
+                            scope.key
+                            if scope is not None
+                            else None
+                        ),
+                        "attempt_ordinal": ordinal,
+                    },
+                )
+            if projected_debug or "debug" in final_result:
+                final_result["debug"] = projected_debug
         if snapshots:
             final_result['snapshots'] = snapshots
         return final_result

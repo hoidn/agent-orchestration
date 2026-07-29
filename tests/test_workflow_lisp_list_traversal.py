@@ -97,6 +97,13 @@ _PATH_JOIN_MAP_CHILD_FIXTURE = (
     / "judgment_views"
     / "path_join_map_child_argument.orc"
 )
+_PROMPT_BINDING_MAP_CHILD_FIXTURE = (
+    Path(__file__).parent
+    / "fixtures"
+    / "workflow_lisp"
+    / "judgment_views"
+    / "prompt_binding_map_child.orc"
+)
 
 
 def _module_source(target_dsl: str) -> str:
@@ -2806,6 +2813,12 @@ def test_frontend_effect_map_accepts_path_join_under_child_argument(
         point.point_kind
         for point in map_bundle.runtime_plan.lexical_checkpoint_points
     ) == ("effect_boundary", "loop_back_edge")
+    assert all(
+        "prompt_attempt_result_binding"
+        not in step.get("debug", {})
+        for frame in map_state["call_frames"].values()
+        for step in frame["state"]["steps"].values()
+    )
     call_point = map_bundle.runtime_plan.lexical_checkpoint_points[0]
     assert call_point.details["effect_boundary"]["effect_kind"] == "call"
 
@@ -3670,6 +3683,158 @@ def test_frontend_effect_map_runtime_commits_exact_calls_in_source_order(
             loop_state["artifacts"]["state__results"]
             == expected_outputs
         )
+
+
+def test_frontend_effect_map_child_provider_result_binding_is_root_owned_per_iteration(
+    tmp_path: Path,
+) -> None:
+    module_path = tmp_path / "prompt_binding_map_child.orc"
+    module_path.write_bytes(_PROMPT_BINDING_MAP_CHILD_FIXTURE.read_bytes())
+    result = compile_stage3_module(
+        module_path,
+        provider_externs={"providers.worker": "deterministic-worker"},
+        prompt_externs={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+    bundle = result.validated_bundles["orchestrate"]
+    manager = StateManager(
+        workspace=tmp_path,
+        run_id="prompt-binding-map-child",
+    )
+    manager.initialize(
+        str(module_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs={"items": [3, 1]},
+    )
+    provider_outputs = iter((31, 11))
+
+    def prepare_provider(
+        _self,
+        provider_name=None,
+        prompt_content=None,
+        env=None,
+        timeout_sec=None,
+        **_kwargs,
+    ):
+        prompt = prompt_content or ""
+        return (
+            SimpleNamespace(
+                input_mode="stdin",
+                prompt=prompt,
+                env=env or {},
+                prepared_prompt=prompt,
+                prepared_provider_policy=SimpleNamespace(
+                    to_dict=lambda: {
+                        "provider_name": provider_name,
+                        "model": None,
+                        "effort": None,
+                        "timeout_sec": timeout_sec,
+                        "input_mode": "stdin",
+                    }
+                ),
+            ),
+            None,
+        )
+
+    def execute_provider(_self, invocation, **_kwargs):
+        output_path = tmp_path / invocation.env[
+            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"
+        ]
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            f"{next(provider_outputs)}\n",
+            encoding="utf-8",
+        )
+        return ProviderExecutionResult(0, b"", b"", 1)
+
+    with (
+        patch.object(
+            ProviderExecutor,
+            "prepare_invocation",
+            prepare_provider,
+        ),
+        patch.object(
+            ProviderExecutor,
+            "execute",
+            execute_provider,
+        ),
+    ):
+        state = WorkflowExecutor(
+            bundle,
+            tmp_path,
+            manager,
+            retry_delay_ms=0,
+        ).execute(on_error="stop")
+
+    frames = sorted(
+        state["call_frames"].values(),
+        key=lambda frame: frame["call_frame_id"],
+    )
+    allocations = state["provider_attempt_allocations"]
+    assert state["status"] == "completed", state
+    assert state["workflow_outputs"] == {"__result__": [31, 11]}
+    assert [frame["import_alias"] for frame in frames] == [
+        "child",
+        "child",
+    ]
+    assert [frame["bound_inputs"]["item"] for frame in frames] == [3, 1]
+    assert [
+        frame["state"]["workflow_outputs"]["__result__"]
+        for frame in frames
+    ] == [31, 11]
+    assert all(
+        frame["state"].get("provider_attempt_allocations", {}) == {}
+        for frame in frames
+    )
+
+    bindings: list[dict[str, object]] = []
+    for frame in frames:
+        provider_steps = [
+            step
+            for step in frame["state"]["steps"].values()
+            if "prompt_attempt_result_binding"
+            in step.get("debug", {})
+        ]
+        assert len(provider_steps) == 1
+        provider_step = provider_steps[0]
+        binding = provider_step["debug"][
+            "prompt_attempt_result_binding"
+        ]
+        allocation = allocations[binding["scope_sha256"]]
+        publication = [
+            event
+            for event in allocation["events"]
+            if event["event"] == "evidence_published"
+            and event["ordinal"] == binding["attempt_ordinal"]
+        ]
+        assert provider_step["status"] == "completed"
+        assert allocation[
+            "prompt_fragment_identity_schema_version"
+        ] == "compiled_prompt_fragment_identity.v1"
+        assert allocation["scope"]["resume_scope"][
+            "call_frame_ids"
+        ] == [frame["call_frame_id"]]
+        assert len(publication) == 1
+        assert publication[0]["record_kind"] == "prompt_snapshot"
+        assert binding == {
+            "schema_version": (
+                "workflow_prompt_attempt_result_binding.v1"
+            ),
+            "scope_sha256": binding["scope_sha256"],
+            "attempt_ordinal": 1,
+            "evidence_relative_path": publication[0]["relative_path"],
+            "evidence_file_sha256": publication[0]["file_sha256"],
+            "record_kind": publication[0]["record_kind"],
+        }
+        bindings.append(binding)
+
+    binding_scopes = {
+        binding["scope_sha256"] for binding in bindings
+    }
+    assert len(binding_scopes) == 2
+    assert set(allocations) == binding_scopes
 
 
 def test_frontend_effect_map_runtime_fails_with_exact_cap_diagnostic_before_max_plus_one(
