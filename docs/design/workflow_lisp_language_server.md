@@ -1,6 +1,7 @@
 # Workflow Lisp Language Server
 
-- **Status:** implemented through L2/L3/L4/L5
+- **Status:** implemented through L2/L3/L4/L5; L4 Task 4 closure candidate
+  awaits preparatory review and final exact-tree review
 - **Kind:** feature / developer tooling architecture decision
 - **Owner:** Workflow Lisp frontend (tooling consumer)
 - **Reviewers:** independent specification rereview
@@ -21,7 +22,11 @@
   L4 independent specification review `L4_DESIGN_SPEC_APPROVED`, then
   independent quality review `L4_DESIGN_QUALITY_APPROVED`; L4 Task 1
   `L4_TASK1_SPEC_APPROVED`, then `L4_TASK1_QUALITY_APPROVED`; L4 Task 2
-  `L4_TASK2_SPEC_APPROVED`, then `L4_TASK2_QUALITY_APPROVED`
+  `L4_TASK2_SPEC_APPROVED`, then `L4_TASK2_QUALITY_APPROVED`; L4 Task 3
+  `L4_TASK3_SPEC_APPROVED`, then `L4_TASK3_QUALITY_APPROVED`. Required next,
+  but not yet issued: preparatory `L4_TASK4_SPEC_APPROVED`, then
+  `L4_TASK4_QUALITY_APPROVED`, followed after commit by final exact-tree
+  `L4_FINAL_SPEC_APPROVED`, then `L4_FINAL_QUALITY_APPROVED`
 - **Created:** 2026-07-13
 - **Last material update:** 2026-07-28
 - **Review history:** earlier design and quality changes-required rounds,

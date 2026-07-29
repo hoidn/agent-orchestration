@@ -1,11 +1,13 @@
 # Workflow Lisp Phased Contract Delivery
 
-- **Status:** accepted for implementation under reviewed plan; ordered
-  independent design review accepted at `872a29af`, and the implementation
-  plan received `Q5_PLAN_SPEC_APPROVED` then `Q5_PLAN_QUALITY_APPROVED` and was
-  committed at `45468c55`. P0 characterization, then P1/P2 prerequisites, are
-  next. Implementation is not started, and `:delivery :phased` remains
-  unavailable.
+- **Status:** partial. Implementation is activated through `bceb03e4`, but the
+  Task 13 stop recorded at `3fc3a09e` still governs and Task 14 has not
+  started. The F1/F2 evidence-surfacing correction at `492b1171`, merged into
+  this lineage at `92515f98`, still requires
+  `Q5_F1_F2_FIX_SPEC_APPROVED` then `Q5_F1_F2_FIX_QUALITY_APPROVED`; both are
+  required, not issued. Only after those reviews may the unchanged combined
+  invalid-then-valid real-provider gate be re-attempted. No split proof
+  satisfies that gate.
 - **Kind:** target-2.23 frontend and provider-runtime design
 - **Owner:** Workflow Lisp call policy, prompt composition, and provider
   attempt runtime

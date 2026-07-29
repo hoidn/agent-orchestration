@@ -77,7 +77,7 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | complete — implementation through `d0bb9a1d`; clean Task-7 closure after exact `a40b536c`/`4e2c4911` boundary repair; ordered final reviews accepted |
 | Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | complete — target-2.22 carrier, one-render trace, content-free five-role evidence, prelaunch publication, fixed comparison, additive reports, compatibility E2E, and closure under the [reviewed implementation plan](2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md) |
 | Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | blocked on binding the concrete generic-reviewer/panel consumer; Q3 prerequisite complete |
-| Q5 | Phased contract delivery | accepted design at `872a29af`; reviewed implementation plan at `45468c55`; Q3 complete; no Q4 dependency; P0 characterization then P1/P2 prerequisites are next | explicit `:delivery :phased` plus bounded literal materialization attempts; exact `T1 || T2 == C` cut; identity-v2/evidence-v3 and report-v2 distinction between canonical `C`, legacy final-prompt identity, and ordered actual deliveries; proof-authoritative failed-start T0 with one handle-free Q5 cleanup-evidence union and exact active-handle validation before projecting unchanged adapter proofs; inert pre-start binding/locator values and post-start endpoint binding; T2 cleanup-pending/finished closure with one ingress outcome; full Q2 authority with no early publication; total reason projection with non-null reason-equal summaries; ledger-only digest validation; truthful terminal resource evidence; byte-identical omitted/composed path; real review consumer | plan accepted — P0 characterization then P1/P2 prerequisites are next; implementation not started and `:delivery :phased` unavailable; coordinator invalid-then-valid, report, cleanup/endpoint, post-join, real-consumer, and ordered final-review evidence remain implementation completion gates |
+| Q5 | Phased contract delivery | accepted design at `872a29af`; reviewed implementation plan at `45468c55`; Q3 complete; no Q4 dependency; implementation activated through `bceb03e4` | explicit `:delivery :phased` plus bounded literal materialization attempts; exact `T1 || T2 == C` cut; identity-v2/evidence-v3 and report-v2 distinction between canonical `C`, legacy final-prompt identity, and ordered actual deliveries; proof-authoritative failed-start T0 with one handle-free Q5 cleanup-evidence union and exact active-handle validation before projecting unchanged adapter proofs; inert pre-start binding/locator values and post-start endpoint binding; T2 cleanup-pending/finished closure with one ingress outcome; full Q2 authority with no early publication; total reason projection with non-null reason-equal summaries; ledger-only digest validation; truthful terminal resource evidence; byte-identical omitted/composed path; real review consumer | partial — activation `bceb03e4` is present; Task 13 stopped at `3fc3a09e` with `Q5_TASK13_SPEC_APPROVED` withheld and Task 14 not started; exact F1/F2 evidence-surfacing correction `492b1171`, merged at `92515f98`, requires `Q5_F1_F2_FIX_SPEC_APPROVED` then `Q5_F1_F2_FIX_QUALITY_APPROVED`; both are required and not issued; only then may the unchanged combined invalid-then-valid real-provider gate be re-attempted; no split-proof substitution |
 
 ### L-Series: Language-Server Debugging Utility
 
@@ -87,16 +87,19 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | L1 | Authored symbols and callable signatures | L0 complete; closed navigation/completion amendment accepted | authored type/resource/transition symbols and namespace-preserving procedure/workflow signature completion use existing compiler spans/catalogs, exclude generated shapes, and retain fail-closed freshness | complete — implemented, reviewed, and repository-real stdio closure gate passed |
 | L2 | Recovery-safe static completion | L1 complete; two-tier completion design and component plan accepted | dirty/pending/invalidated/failed open entries receive only the process-frozen form registry as an incomplete list; stale callables remain closed and stale/closed/unassociated entries remain empty | complete — implementation through `10e3ccc3`; ordered `L2_FINAL_SPEC_APPROVED` then `L2_FINAL_QUALITY_APPROVED` |
 | L3 | Per-source entry selection | L2 complete; immutable initialization-schema amendment accepted; compile-path reentrancy proven by completed substrate MR-4 | one canonical workspace process can select an exported workflow for a named application source while compiling library entries with no selection, with exact CLI request parity and restart semantics | complete — implementation through `fc1b01ee`, `9e59929d`, and xdist-evidence correction `8c704f3f` after ordered `L3_TASK1_SPEC_APPROVED` / `L3_TASK1_QUALITY_APPROVED`, restarted `L3_TASK2_SPEC_APPROVED` / `L3_TASK2_QUALITY_APPROVED`, and final `L3_FINAL_SPEC_APPROVED` / `L3_FINAL_QUALITY_APPROVED` under the [reviewed three-task implementation plan](2026-07-28-workflow-lisp-language-server-l3-per-source-entry-selection-implementation-plan.md) |
-| L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and the current-only diagnostic/progress design are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | design accepted after ordered `L4_DESIGN_SPEC_APPROVED` then `L4_DESIGN_QUALITY_APPROVED`; plan accepted after ordered `L4_PLAN_SPEC_APPROVED` then `L4_PLAN_QUALITY_APPROVED`; implemented through `11629551` and `0d5f7009` after ordered `L4_TASK1_SPEC_APPROVED` / `L4_TASK1_QUALITY_APPROVED` and `L4_TASK2_SPEC_APPROVED` / `L4_TASK2_QUALITY_APPROVED`; real Neovim acceptance passed; Task 4 broad comparison and final closure are next under the [reviewed implementation plan](2026-07-28-workflow-lisp-language-server-l4-diagnostic-lifecycle-progress-implementation-plan.md) |
+| L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and the current-only diagnostic/progress design are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | closure candidate — design accepted after ordered `L4_DESIGN_SPEC_APPROVED` then `L4_DESIGN_QUALITY_APPROVED`; [reviewed implementation plan](2026-07-28-workflow-lisp-language-server-l4-diagnostic-lifecycle-progress-implementation-plan.md) accepted after `L4_PLAN_SPEC_APPROVED` then `L4_PLAN_QUALITY_APPROVED`; implemented through `11629551` and `0d5f7009` after ordered `L4_TASK1_SPEC_APPROVED` / `L4_TASK1_QUALITY_APPROVED` and `L4_TASK2_SPEC_APPROVED` / `L4_TASK2_QUALITY_APPROVED`; real Neovim acceptance passed in Task 3 `bdd1e822` after `L4_TASK3_SPEC_APPROVED` then `L4_TASK3_QUALITY_APPROVED`; Task 4 focused 356 passed and broad comparison has zero new failures; preparatory `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` are required next, followed after commit by `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED`; the next non-L4 gate is Q5's required, unissued `Q5_F1_F2_FIX_SPEC_APPROVED` then `Q5_F1_F2_FIX_QUALITY_APPROVED` over exact `492b1171` F1/F2 bytes, then its unchanged combined real-provider gate |
 | L5 | Authored reference navigation | accepted design at `b8a41172`; Q1 catalog and L1 index landed; read-only feasibility gates admitted prompt heads and only final unexpanded direct-retained `proc-ref` occurrences in non-generated, non-specialized authored owners; macro heads defer shape-wide; no L3/L4 dependency — selected under the owner-reordering rule | exact authored prompt-head and admitted proc-ref-name definition hits; macro-consumed, erased, expanded, generated-owner, specialized-owner proc-refs and every macro head remain null; existing direct procedure/`(call ...)` hits regression-locked; WCC/generated calls excluded; every hit uses the full common preflight; real stdio resolves the review workflow prompt head while its macro/proc-ref tokens remain null and its direct call stays exact | complete — implementation through `95e05c01`, `042c0bc3`, `870f7db2`, `7233138a`, and `041754e6`; durable incorporation and closure under the [reviewed implementation plan](2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md) |
 
 The Q-series implementation stages execute in Q-table order except for Q5's
 explicit lack of a Q4 dependency. Q5's design was accepted at `872a29af`, its
-implementation plan passed ordered review and committed at `45468c55`, and Q3
-is complete. P0 characterization executes next, followed by the P1/P2 shared
-adapter prerequisites and their reviews; only then may the plan capture its
-post-prerequisite control and begin Q5 Task 1. This routing does not start Q5
-implementation, and `:delivery :phased` remains unavailable.
+implementation plan passed ordered review and committed at `45468c55`, Q3 is
+complete, and Q5 is activated through `bceb03e4`. It remains partial under the
+Task 13 stop at `3fc3a09e`; Task 14 has not started. The next Q5 gate is
+`Q5_F1_F2_FIX_SPEC_APPROVED` then `Q5_F1_F2_FIX_QUALITY_APPROVED` over the
+exact F1/F2 evidence-surfacing correction at `492b1171` (merged at
+`92515f98`). Both labels are required and not issued. The unchanged combined
+invalid-then-valid real-provider gate follows; a split proof does not satisfy
+it.
 Q3's target design is accepted after ordered `Q3_DESIGN_SPEC_APPROVED` then
 `Q3_DESIGN_QUALITY_APPROVED`. Its
 [reviewed implementation plan](2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md)
@@ -119,11 +122,14 @@ passed ordered `L3_PLAN_SPEC_APPROVED` then `L3_PLAN_QUALITY_APPROVED`;
 implementation landed through Task 1 `fc1b01ee`, Task 2 `9e59929d`, and
 Task 2's xdist-evidence correction `8c704f3f` after their ordered
 specification and quality reviews. L4's editor evidence, ordered design and
-plan reviews, current-only diagnostic publication `11629551`, and
-compile-progress implementation `0d5f7009` are landed. The repository-real
-Neovim acceptance gate passes. Task 4's broad comparison, closure metadata,
-and final exact-tree reviews are the next L-series gate; the stage is not yet
-complete.
+plan reviews, current-only diagnostic publication `11629551`,
+compile-progress implementation `0d5f7009`, and repository-real Neovim/docs
+Task 3 `bdd1e822` are landed. The exact Task 4 focused selector passes 356
+tests and the broad comparison has zero new failures. Preparatory
+`L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` are next for the
+closure-only candidate; after that commit, the distinct final exact-tree
+`L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED` reviews close the
+stage. None of those Task 4/final labels is recorded as already issued.
 L5 completion did not bypass any L3 gate.
 The L-series is an owner-selected
 priority queue rather than a
@@ -291,9 +297,14 @@ review at `872a29af`) and the reviewed
 `docs/plans/2026-07-27-workflow-lisp-phased-contract-delivery-implementation-plan.md`
 committed at `45468c55`.
 
-**Current status:** P0 characterization, then P1/P2 prerequisites, are next.
-Q3 is complete and Q5 has no Q4 dependency. Implementation is not started;
-`:delivery :phased` is unavailable.
+**Current status:** partial. Q5 is activated through `bceb03e4`; Task 13 is
+stopped by `3fc3a09e`, `Q5_TASK13_SPEC_APPROVED` was withheld, and Task 14 has
+not started. The exact F1/F2 evidence-surfacing correction at `492b1171`,
+merged at `92515f98`, requires `Q5_F1_F2_FIX_SPEC_APPROVED` then
+`Q5_F1_F2_FIX_QUALITY_APPROVED`; both are required and not issued. Only then
+may the unchanged combined invalid-then-valid real-provider gate be
+re-attempted. No split proof satisfies that gate. Q3 is complete and Q5 has no
+Q4 dependency.
 
 Deliver a fragment-backed provider call's one canonical composed prompt as two
 successive turns inside one interactive provider attempt, with bounded
@@ -373,19 +384,16 @@ opens external bytes. The ledger and new attempt evidence are neither result
 nor resume authority. Interrupted nonterminal visits use current sticky
 quarantine semantics.
 
-Q5 design and plan review are complete, and Q3 is landed and accepted. P0 now
-characterizes the remaining shared-adapter gap. P1/P2 must then land the
-closed-outcome deadline-aware adapter extension plus target-2.17 compatibility
-proof, and a production-adapter real-provider probe must prove successful
-start, all three failed-start proof combinations, two successive offers,
-normal close/join, smaller-than-configured remaining budget, and zero
-outliving operations in one client. Those prerequisites must not implement or
-claim the Q5 coordinator. Later implementation completion requires
-invalid-then-valid coordinator, report-v2, ledger,
-before/during timeout, T0–T4 including T2a/T2b and terminalizing-ingress
-failure, diagnostic bijection/summary-null sweep, digest-category,
-natural-proof/ledger-failure, post-join publication-failure,
-composed-compatibility, real-consumer, and ordered-review evidence.
+Q5 design, plan, prerequisites, and activation are landed through `bceb03e4`.
+The Task 13 stop at `3fc3a09e` remains authoritative. Diagnosis found two
+evidence-surfacing defects; correction `492b1171` is present in this lineage
+through merge `92515f98`, but those exact fix bytes still owe the stopped
+plan's `Q5_F1_F2_FIX_SPEC_APPROVED` then
+`Q5_F1_F2_FIX_QUALITY_APPROVED`; both are owed and not issued. Only then may
+the unchanged combined invalid-then-valid real-provider gate be re-attempted.
+Task 13 is not complete, Task 14 has not started, and the
+deterministic/synthetic/live-probe component evidence is not a split-proof
+substitute.
 
 ## Stage L0: Reliability And Diagnostic Actionability
 
@@ -523,13 +531,17 @@ Authority target: an accepted editor-lifecycle amendment to the language
 server design, based on observed client behavior rather than assumed UI
 capabilities.
 
-**Status:** implemented through diagnostic publication `11629551` and compile
-progress `0d5f7009` after ordered Task 1 and Task 2 specification then quality
-reviews. The
+**Status:** closure candidate. Diagnostic publication `11629551`, compile
+progress `0d5f7009`, and repository-real Neovim/docs Task 3 `bdd1e822` passed
+their ordered task reviews. The
 [reviewed implementation plan](2026-07-28-workflow-lisp-language-server-l4-diagnostic-lifecycle-progress-implementation-plan.md)
 passed ordered `L4_PLAN_SPEC_APPROVED` then `L4_PLAN_QUALITY_APPROVED`. Real
-stdio and repository-real Neovim acceptance pass. Task 4 broad comparison and
-final closure are next; L4 is not complete until those gates pass.
+stdio and repository-real Neovim acceptance pass. Task 4's exact focused
+selector passes 356 tests and its broad comparison introduces zero new
+failures. Preparatory `L4_TASK4_SPEC_APPROVED` then
+`L4_TASK4_QUALITY_APPROVED` are required next; after commit, final exact-tree
+`L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED` remain required.
+These labels are requirements, not outcomes already issued.
 The implemented target is
 `docs/design/workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md`, with
 selection evidence in

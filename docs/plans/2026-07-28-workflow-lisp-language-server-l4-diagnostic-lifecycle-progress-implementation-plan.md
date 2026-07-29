@@ -30,11 +30,14 @@ stdio, and headless Neovim.
 `0e0fd4df5d0943c0c176822a3584d6efecd22434`, after ordered
 `L4_DESIGN_SPEC_APPROVED` then `L4_DESIGN_QUALITY_APPROVED`.
 
-**Execution status:** Tasks 1 and 2 are implemented and committed after their
-ordered specification then quality reviews. The repository-real Neovim
-acceptance passes and Task 3's durable documentation/routing candidate is under
-ordered review. Task 4 broad comparison and final closure follow the reviewed
-Task 3 commit.
+**Execution status:** Tasks 1–3 are implemented and committed after their
+ordered specification then quality reviews. The exact Task 4 focused rerun and
+broad non-security comparison are recorded below with zero new failures. The
+closure-only metadata candidate now requires preparatory
+`L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED`; neither label has
+been issued yet. After that exact candidate is committed, the distinct
+`L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED` reviews remain
+required against the clean committed tree.
 
 ---
 
@@ -517,6 +520,9 @@ Suggested subject: `Report serialized LSP compile progress`.
 - **Task 2 commit:** `0d5f70093fe7ee7c7abb59a29c3f555f1f3c14c9`,
   tree `94a995b55186805af25bc5d7b370829b79b7b175`, after ordered
   `L4_TASK2_SPEC_APPROVED` then `L4_TASK2_QUALITY_APPROVED`.
+- **Task 3 commit:** `bdd1e8223e24c5346567710563473e2aaf5ec9ac`,
+  tree `a81183182898abc3c2b40f70c3e2bb40b7342d9c`, after ordered
+  `L4_TASK3_SPEC_APPROVED` then `L4_TASK3_QUALITY_APPROVED`.
 - **Repository-real Neovim acceptance:** one acceptance test passed in 1.77
   seconds against installed Neovim `0.12.0-dev-703+g66f02ee1fe` and production
   `python -m orchestrator.lsp`. It observed the exact initial diagnostic
@@ -526,8 +532,8 @@ Suggested subject: `Report serialized LSP compile progress`.
   additional helper test proves the workspace snapshot records regular-file
   bytes, directories, and symlink targets without traversing symlinked
   directories; the two-test module passes.
-- **Next gate:** Task 3 ordered specification then quality reviews and its
-  exact-path commit, followed by Task 4 broad comparison and final closure.
+- **Next gate:** Task 4's closure-only metadata reviews and exact-path commit,
+  followed by the distinct final exact-tree reviews.
 
 ---
 
@@ -696,6 +702,45 @@ suite. These closure-byte reviews are preparatory and are not the named final
 exact-tree reviews.
 
 Suggested subject: `Close LSP diagnostic lifecycle and progress`.
+
+### Task 4 Evidence And Closure Record
+
+The comparison candidate is based on clean Task 3 commit
+`bdd1e8223e24c5346567710563473e2aaf5ec9ac`, tree
+`a81183182898abc3c2b40f70c3e2bb40b7342d9c`.
+
+The exact focused selector from Step 2 passed 356 tests in 70.94 seconds with
+zero failures, errors, or skips. Its complete raw-output SHA-256 is
+`1a19ac9339d54dd9416cbdbded1af1b8e1688b0d5ca8589a37f44ef520fee966`.
+
+The exact broad non-security command selected and executed 10,958 tests. It
+finished in 161.94 seconds with 10,895 passed, 41 failed, 0 errors, 22 skipped,
+and 33 warnings. Its complete raw-output SHA-256 is
+`6f071f35bf086f027ce6445f3c83114f4812f06025ec565fe32123c37ab627a4`;
+the sorted exact failure-node set SHA-256 is
+`97c8f87faafae8e8cfa29cbc36c9d237956d010500333247090032d14fac8c18`.
+All 41 failures are unchanged members of the 42-node pre-L4 control. There are
+zero new failures. The one removed control failure is
+`tests/test_workflow_lisp_lsp_e2e.py::test_real_repository_l2_recovery_to_full_is_read_only`,
+which now passes on the L4 tree. No unrelated failure is reclassified, repaired,
+or waived by this record.
+
+The next required outcomes for these closure-only bytes are, in order,
+`L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED`. They are required
+review labels, not outcomes already issued. After the reviewed closure
+candidate is committed, Step 3 requires the distinct
+`L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED` exact-tree outcomes;
+those final labels likewise have not yet been issued.
+
+After those final exact-tree reviews approve L4, the next eligible roadmap
+gate is the stopped Q5 lineage:
+`Q5_F1_F2_FIX_SPEC_APPROVED` then `Q5_F1_F2_FIX_QUALITY_APPROVED` over the
+exact merged F1/F2 evidence-surfacing correction from `492b1171`. Both labels
+are required and not issued. The unchanged combined invalid-then-valid
+real-provider gate follows. Q5 remains partial at activation `bceb03e4`, its
+Task 13 stop at `3fc3a09e` still governs, Task 14 has not started, and no
+split-proof substitution is claimed. Q4 remains blocked on its concrete
+consumer.
 
 ### Step 3: Final exact-tree review
 

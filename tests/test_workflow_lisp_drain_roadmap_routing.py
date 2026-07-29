@@ -1337,7 +1337,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "l4_task1_quality_approved" in normalized_l4_row
     assert "l4_task2_spec_approved" in normalized_l4_row
     assert "l4_task2_quality_approved" in normalized_l4_row
-    assert "task 4 broad comparison and final closure are next" in (
+    assert "task 4 focused 356 passed and broad comparison has zero new failures" in (
         normalized_l4_row
     )
     assert "separate implementation plan is the next" not in normalized_successor
@@ -1390,7 +1390,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "l4 diagnostic lifecycle and compile progress is implemented" in (
         normalized_index
     )
-    assert "task 4 broad comparison and final closure are next" in (
+    assert "task 4 focused 356 passed and broad comparison has zero new failures" in (
         normalized_index
     )
     assert "p1 diagnostic accumulation" in normalized_successor
@@ -1533,7 +1533,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "l4 diagnostic lifecycle and compile progress is implemented" in (
         normalized_successor_index
     )
-    assert "task 4 broad comparison and final closure are next" in (
+    assert "task 4 focused 356 passed and broad comparison has zero new failures" in (
         normalized_successor_index
     )
     assert "### [Workflow Lisp Language Server L2 Implementation Plan]" in index
@@ -1775,7 +1775,7 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     assert "reviewed implementation plan" in active_roadmap_index
     assert "current only diagnostic publication" in active_roadmap_index
     assert "capability gated progress" in active_roadmap_index
-    assert "task 4 broad comparison and final closure are next" in (
+    assert "task 4 focused 356 passed and broad comparison has zero new failures" in (
         active_roadmap_index
     )
     assert Path(LANGUAGE_SERVER_L4_PLAN_PATH).name in index
@@ -3174,7 +3174,7 @@ def test_language_server_l2_l3_l5_are_complete_and_route_l4_final_gate() -> None
     assert "l4_task2_spec_approved" in normalized_l4_row
     assert "l4_task2_quality_approved" in normalized_l4_row
     assert "real neovim acceptance passed" in normalized_l4_row
-    assert "task 4 broad comparison and final closure are next" in (
+    assert "task 4 focused 356 passed and broad comparison has zero new failures" in (
         normalized_l4_row
     )
     assert "no l4 behavior is implemented" not in normalized_l4_row
@@ -3307,7 +3307,7 @@ def test_language_server_l3_routes_shipped_per_source_entry_selection() -> None:
     assert "l3 target initialization" not in normalized_setup
 
 
-def test_language_server_l4_routes_shipped_lifecycle_before_final_closure() -> None:
+def test_language_server_l4_routes_verified_closure_candidate() -> None:
     roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH
     plan_path = REPO_ROOT / LANGUAGE_SERVER_L4_PLAN_PATH
     design_path = (
@@ -3331,10 +3331,22 @@ def test_language_server_l4_routes_shipped_lifecycle_before_final_closure() -> N
     assert "l4_task1_quality_approved" in normalized_l4_row
     assert "l4_task2_spec_approved" in normalized_l4_row
     assert "l4_task2_quality_approved" in normalized_l4_row
+    assert "bdd1e822" in normalized_l4_row
+    assert "l4_task3_spec_approved" in normalized_l4_row
+    assert "l4_task3_quality_approved" in normalized_l4_row
     assert "real neovim acceptance passed" in normalized_l4_row
-    assert "task 4 broad comparison and final closure are next" in (
+    assert "task 4 focused 356 passed and broad comparison has zero new failures" in (
         normalized_l4_row
     )
+    assert "l4_task4_spec_approved then l4_task4_quality_approved" in (
+        normalized_l4_row
+    )
+    assert "l4_final_spec_approved then l4_final_quality_approved" in (
+        normalized_l4_row
+    )
+    assert "q5_f1_f2_fix_spec_approved" in normalized_l4_row
+    assert "q5_f1_f2_fix_quality_approved" in normalized_l4_row
+    assert "required, unissued" in normalized_l4_row
     assert "complete" not in _normalized_routing_text(
         l4_row.split("|")[-2]
     )
@@ -3349,14 +3361,20 @@ def test_language_server_l4_routes_shipped_lifecycle_before_final_closure() -> N
     assert "capability gated" in normalized_capability_row
     assert "logical serialized compile pump" in normalized_capability_row
     assert "neovim" in normalized_capability_row
+    assert "356 passed" in normalized_capability_row
+    assert "zero new failures" in normalized_capability_row
+    assert "not recorded as issued" in normalized_capability_row
 
     design = design_path.read_text(encoding="utf-8")
     normalized_design_status = _normalized_routing_text(
-        "\n".join(design.splitlines()[:25])
+        "\n".join(design.splitlines()[:35])
     )
     assert "status: implemented and incorporated" in normalized_design_status
     assert "11629551" in normalized_design_status
     assert "0d5f7009" in normalized_design_status
+    assert "l4_task3_spec_approved" in normalized_design_status
+    assert "l4_task3_quality_approved" in normalized_design_status
+    assert "required next, but not yet issued" in normalized_design_status
     assert "implementation pending" not in normalized_design_status
 
     baseline = _normalized_routing_text(
@@ -3376,15 +3394,57 @@ def test_language_server_l4_routes_shipped_lifecycle_before_final_closure() -> N
     assert "0d5f7009" in plan
     assert "l4_task2_spec_approved" in plan
     assert "l4_task2_quality_approved" in plan
+    assert "task 3 commit" in plan
+    assert "bdd1e822" in plan
+    assert "l4_task3_spec_approved" in plan
+    assert "l4_task3_quality_approved" in plan
     assert "repository real neovim acceptance" in plan
+    assert "356 tests in 70.94 seconds" in plan
+    assert "1a19ac9339d54dd9416cbdbded1af1b8e1688b0d5ca8589a37f44ef520fee966" in plan
+    assert "10,895 passed, 41 failed, 0 errors, 22 skipped" in plan
+    assert "6f071f35bf086f027ce6445f3c83114f4812f06025ec565fe32123c37ab627a4" in plan
+    assert "zero new failures" in plan
+    assert "required review labels, not outcomes already issued" in plan
 
-    normalized_index = _normalized_routing_text(index_path.read_text())
+    index = index_path.read_text(encoding="utf-8")
+    normalized_index = _normalized_routing_text(index)
     assert "l4 diagnostic lifecycle and compile progress is implemented" in (
         normalized_index
     )
-    assert "task 4 broad comparison and final closure are next" in (
+    assert "task 4 focused 356 passed and broad comparison has zero new failures" in (
         normalized_index
     )
+    assert "492b1171" in normalized_index
+    assert "no split proof" in normalized_index
+    lifecycle_index = _normalized_routing_text(
+        _markdown_heading_section(
+            index,
+            "### [Workflow Lisp LSP Diagnostic Lifecycle And Compile Progress]",
+        )
+    )
+    assert "bdd1e822" in lifecycle_index
+    assert "356 passed" in lifecycle_index
+    assert "zero new failures" in lifecycle_index
+    assert "l4_task4_spec_approved then l4_task4_quality_approved" in (
+        lifecycle_index
+    )
+    assert "l4_final_spec_approved then l4_final_quality_approved" in lifecycle_index
+    assert "unissued" in lifecycle_index
+    assert "task 4 broad comparison and final closure are next" not in lifecycle_index
+    plan_index = _normalized_routing_text(
+        _markdown_heading_section(
+            index,
+            "### [Workflow Lisp L4 Diagnostic Lifecycle And Compile Progress "
+            "Implementation Plan]",
+        )
+    )
+    assert "bdd1e822" in plan_index
+    assert "356 passed" in plan_index
+    assert "zero new failures" in plan_index
+    assert "l4_task4_spec_approved then l4_task4_quality_approved" in plan_index
+    assert "l4_final_spec_approved then l4_final_quality_approved" in plan_index
+    assert "unissued" in plan_index
+    assert "task 4 broad comparison and final closure are next" not in plan_index
     normalized_setup = _normalized_routing_text(setup_path.read_text())
     assert "old squiggles disappear on an unsaved edit" in normalized_setup
     assert "workdoneprogress" in normalized_setup
@@ -3401,6 +3461,10 @@ def test_language_server_l4_routes_shipped_lifecycle_before_final_closure() -> N
     )
     assert "blocked on binding the concrete generic reviewer/panel consumer" in q4_row
     assert "no q4 dependency" in q5_row
+    assert "partial" in q5_row
+    assert "3fc3a09e" in q5_row
+    assert "task 14 not started" in q5_row
+    assert "no split proof substitution" in q5_row
     assert "complete" in l5_row
     assert "041754e6" in l5_row
 
@@ -3492,7 +3556,7 @@ def test_language_server_l5_routes_shipped_admitted_shapes_and_closes_stage() ->
     ) in normalized_l3_row
 
 
-def test_phased_contract_delivery_routes_reviewed_plan_to_prerequisite_gates() -> None:
+def test_phased_contract_delivery_routes_partial_stop_to_exact_fix_reviews() -> None:
     roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH
     design_path = REPO_ROOT / PHASED_CONTRACT_DELIVERY_DESIGN_PATH
     plan_path = REPO_ROOT / PHASED_CONTRACT_DELIVERY_PLAN_PATH
@@ -3503,12 +3567,16 @@ def test_phased_contract_delivery_routes_reviewed_plan_to_prerequisite_gates() -
     normalized_design_status = _normalized_routing_text(
         "\n".join(design_path.read_text(encoding="utf-8").splitlines()[:18])
     )
-    assert "status: accepted for implementation under reviewed plan" in (
-        normalized_design_status
-    )
-    assert "872a29af" in normalized_design_status
-    assert "implementation is not started" in normalized_design_status
-    assert ":delivery :phased remains unavailable" in normalized_design_status
+    assert "status: partial" in normalized_design_status
+    assert "bceb03e4" in normalized_design_status
+    assert "3fc3a09e" in normalized_design_status
+    assert "task 14 has not started" in normalized_design_status
+    assert "492b1171" in normalized_design_status
+    assert "92515f98" in normalized_design_status
+    assert "q5_f1_f2_fix_spec_approved" in normalized_design_status
+    assert "q5_f1_f2_fix_quality_approved" in normalized_design_status
+    assert "required, not issued" in normalized_design_status
+    assert "no split proof satisfies that gate" in normalized_design_status
 
     q5_row = _markdown_table_row(roadmap_path, "| Q5 |")
     normalized_q5_row = _normalized_routing_text(q5_row)
@@ -3516,35 +3584,54 @@ def test_phased_contract_delivery_routes_reviewed_plan_to_prerequisite_gates() -
     assert "reviewed implementation plan at 45468c55" in normalized_q5_row
     assert "q3 complete" in normalized_q5_row
     assert "no q4 dependency" in normalized_q5_row
-    assert "p0 characterization then p1/p2 prerequisites are next" in (
+    assert "implementation activated through bceb03e4" in normalized_q5_row
+    assert "partial" in normalized_q5_row
+    assert "task 13 stopped at 3fc3a09e" in normalized_q5_row
+    assert "q5_task13_spec_approved withheld" in normalized_q5_row
+    assert "task 14 not started" in normalized_q5_row
+    assert "492b1171" in normalized_q5_row
+    assert "92515f98" in normalized_q5_row
+    assert "q5_f1_f2_fix_spec_approved" in normalized_q5_row
+    assert "q5_f1_f2_fix_quality_approved" in normalized_q5_row
+    assert "required and not issued" in normalized_q5_row
+    assert "unchanged combined invalid then valid real provider gate" in (
         normalized_q5_row
     )
-    assert "implementation not started" in normalized_q5_row
-    assert ":delivery :phased unavailable" in normalized_q5_row
+    assert "no split proof substitution" in normalized_q5_row
 
     design_router_row = _markdown_table_row(
         design_router_path,
         "workflow_lisp_phased_contract_delivery.md",
     )
-    assert "| Accepted design; reviewed plan |" in design_router_row
+    assert "| Partial through activation `bceb03e4` |" in design_router_row
     normalized_design_router_row = _normalized_routing_text(design_router_row)
     assert "872a29af" in normalized_design_router_row
     assert "45468c55" in normalized_design_router_row
-    assert "p0 characterization then p1/p2 prerequisites" in (
-        normalized_design_router_row
-    )
+    assert "3fc3a09e" in normalized_design_router_row
+    assert "492b1171" in normalized_design_router_row
+    assert "92515f98" in normalized_design_router_row
+    assert "q5_f1_f2_fix_spec_approved" in normalized_design_router_row
+    assert "q5_f1_f2_fix_quality_approved" in normalized_design_router_row
+    assert "owed, not issued" in normalized_design_router_row
+    assert "not a split proof substitute" in normalized_design_router_row
 
     capability_row = _markdown_table_row(
         capability_matrix_path,
         "Workflow Lisp phased contract delivery Q5",
     )
     normalized_capability_row = _normalized_routing_text(capability_row)
-    assert "| Designed |" in capability_row
+    assert "| Partial |" in capability_row
     assert "accepted design 872a29af" in normalized_capability_row
     assert "reviewed plan 45468c55" in normalized_capability_row
-    assert "implementation not started" in normalized_capability_row
-    assert ":delivery :phased" in normalized_capability_row
-    assert "unavailable" in normalized_capability_row
+    assert "activation is present" in normalized_capability_row
+    assert "task 13 is stopped" in normalized_capability_row
+    assert "task 14 has not started" in normalized_capability_row
+    assert "q5_task13_spec_approved" in normalized_capability_row
+    assert "withheld" in normalized_capability_row
+    assert "q5_f1_f2_fix_spec_approved" in normalized_capability_row
+    assert "q5_f1_f2_fix_quality_approved" in normalized_capability_row
+    assert "owed and not issued" in normalized_capability_row
+    assert "no split proof substitution" in normalized_capability_row
     assert Path(PHASED_CONTRACT_DELIVERY_PLAN_PATH).name in capability_row
 
     normalized_design_index = _normalized_routing_text(
@@ -3553,11 +3640,15 @@ def test_phased_contract_delivery_routes_reviewed_plan_to_prerequisite_gates() -
             "### [Workflow Lisp Phased Contract Delivery]",
         )
     )
-    assert "accepted target 2.23 stage q5 design" in normalized_design_index
-    assert "872a29af" in normalized_design_index
-    assert "implementation not started" in normalized_design_index
-    assert ":delivery :phased" in normalized_design_index
-    assert "unavailable" in normalized_design_index
+    assert "partial target 2.23 stage q5 surface" in normalized_design_index
+    assert "bceb03e4" in normalized_design_index
+    assert "3fc3a09e" in normalized_design_index
+    assert "492b1171" in normalized_design_index
+    assert "92515f98" in normalized_design_index
+    assert "q5_f1_f2_fix_spec_approved" in normalized_design_index
+    assert "q5_f1_f2_fix_quality_approved" in normalized_design_index
+    assert "required and unissued" in normalized_design_index
+    assert "not a split proof" in normalized_design_index
 
     assert (
         "### [Workflow Lisp Phased Contract Delivery Implementation Plan]"
@@ -3569,13 +3660,25 @@ def test_phased_contract_delivery_routes_reviewed_plan_to_prerequisite_gates() -
             "### [Workflow Lisp Phased Contract Delivery Implementation Plan]",
         )
     )
-    assert "reviewed preimplementation plan" in normalized_plan_index
+    assert "reviewed q5 execution plan" in normalized_plan_index
     assert "45468c55" in normalized_plan_index
-    assert "p0 characterization then p1/p2 prerequisites" in normalized_plan_index
-    assert "implementation not started" in normalized_plan_index
+    assert "bceb03e4" in normalized_plan_index
+    assert "task 13 stop record at 3fc3a09e" in normalized_plan_index
+    assert "492b1171" in normalized_plan_index
+    assert "92515f98" in normalized_plan_index
+    assert "q5_f1_f2_fix_spec_approved" in normalized_plan_index
+    assert "q5_f1_f2_fix_quality_approved" in normalized_plan_index
+    assert "required and unissued" in normalized_plan_index
+    assert "task 14 has not started" in normalized_plan_index
+    assert "no split proof" in normalized_plan_index
     assert Path(PHASED_CONTRACT_DELIVERY_PLAN_PATH).name in index
 
     plan = plan_path.read_text(encoding="utf-8")
     assert "Q5_PLAN_SPEC_APPROVED" in plan
     assert "Q5_PLAN_QUALITY_APPROVED" in plan
     assert "872a29af13f140d53b3637b475859496a50d5724" in plan
+    assert "## 2026-07-28 Task 13 Stop Record" in plan
+    assert "Q5_TASK13_SPEC_APPROVED" in plan
+    assert "withheld" in plan
+    assert "Task 14 has not started" in plan
+    assert "Do not infer a split-proof substitution" in plan

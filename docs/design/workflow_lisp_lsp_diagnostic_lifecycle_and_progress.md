@@ -1,13 +1,18 @@
 # Workflow Lisp LSP Diagnostic Lifecycle And Compile Progress
 
-- **Status:** implemented and incorporated
+- **Status:** implemented and incorporated; Task 4 closure candidate awaits
+  preparatory review and final exact-tree review
 - **Kind:** developer-tooling architecture amendment
 - **Owner:** Workflow Lisp language server
 - **Reviewers:** independent specification review
   `L4_DESIGN_SPEC_APPROVED`, then independent quality review
   `L4_DESIGN_QUALITY_APPROVED`; Task 1
   `L4_TASK1_SPEC_APPROVED` then `L4_TASK1_QUALITY_APPROVED`; Task 2
-  `L4_TASK2_SPEC_APPROVED` then `L4_TASK2_QUALITY_APPROVED`
+  `L4_TASK2_SPEC_APPROVED` then `L4_TASK2_QUALITY_APPROVED`; Task 3
+  `L4_TASK3_SPEC_APPROVED` then `L4_TASK3_QUALITY_APPROVED`. Required next,
+  but not yet issued: preparatory `L4_TASK4_SPEC_APPROVED` then
+  `L4_TASK4_QUALITY_APPROVED`, followed after commit by final exact-tree
+  `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED`
 - **Created:** 2026-07-28
 - **Last material update:** 2026-07-28
 - **Related docs / plans:**
