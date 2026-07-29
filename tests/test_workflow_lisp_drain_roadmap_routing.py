@@ -1332,9 +1332,16 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert Path(LANGUAGE_SERVER_L4_PLAN_PATH).name in l4_row
     assert "l4_plan_spec_approved" in normalized_l4_row
     assert "l4_plan_quality_approved" in normalized_l4_row
-    assert "pre implementation controls are next" in normalized_l4_row
+    assert "implemented through 11629551 and 0d5f7009" in normalized_l4_row
+    assert "l4_task1_spec_approved" in normalized_l4_row
+    assert "l4_task1_quality_approved" in normalized_l4_row
+    assert "l4_task2_spec_approved" in normalized_l4_row
+    assert "l4_task2_quality_approved" in normalized_l4_row
+    assert "task 4 broad comparison and final closure are next" in (
+        normalized_l4_row
+    )
     assert "separate implementation plan is the next" not in normalized_successor
-    assert "no l4 behavior is implemented" in normalized_l4_row
+    assert "no l4 behavior is implemented" not in normalized_l4_row
     assert "blocked by l3" not in normalized_l4_row
     l1_row = _markdown_table_row(
         REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
@@ -1380,8 +1387,12 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         normalized_index
     )
     assert "l3 completed over mr 4 under its reviewed plan" in normalized_index
-    assert "l4's reviewed implementation plan is accepted" in normalized_index
-    assert "pre implementation controls are next" in normalized_index
+    assert "l4 diagnostic lifecycle and compile progress is implemented" in (
+        normalized_index
+    )
+    assert "task 4 broad comparison and final closure are next" in (
+        normalized_index
+    )
     assert "p1 diagnostic accumulation" in normalized_successor
     assert "p5 compile caching/incrementality" in normalized_successor
     assert "runtime debugging surface" in normalized_successor
@@ -1519,10 +1530,12 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "l3 completed over mr 4 under its reviewed plan" in (
         normalized_successor_index
     )
-    assert "l4's reviewed implementation plan is accepted" in (
+    assert "l4 diagnostic lifecycle and compile progress is implemented" in (
         normalized_successor_index
     )
-    assert "pre implementation controls are next" in normalized_successor_index
+    assert "task 4 broad comparison and final closure are next" in (
+        normalized_successor_index
+    )
     assert "### [Workflow Lisp Language Server L2 Implementation Plan]" in index
     assert "do not select e0" in normalized_successor_index
 
@@ -1759,8 +1772,12 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     assert "accepted editor evidence and ordered design reviews" in (
         active_roadmap_index
     )
-    assert "reviewed implementation plan is accepted" in active_roadmap_index
-    assert "pre implementation controls are next" in active_roadmap_index
+    assert "reviewed implementation plan" in active_roadmap_index
+    assert "current only diagnostic publication" in active_roadmap_index
+    assert "capability gated progress" in active_roadmap_index
+    assert "task 4 broad comparison and final closure are next" in (
+        active_roadmap_index
+    )
     assert Path(LANGUAGE_SERVER_L4_PLAN_PATH).name in index
 
 
@@ -3089,7 +3106,7 @@ def test_final_yaml_holdout_is_retired_and_authored_workflow_estate_is_empty() -
     ) == []
 
 
-def test_language_server_l2_l3_l5_are_complete_and_select_l4_design_gate() -> None:
+def test_language_server_l2_l3_l5_are_complete_and_route_l4_final_gate() -> None:
     roadmap = (
         REPO_ROOT
         / "docs"
@@ -3151,8 +3168,16 @@ def test_language_server_l2_l3_l5_are_complete_and_select_l4_design_gate() -> No
     assert Path(LANGUAGE_SERVER_L4_PLAN_PATH).name in l4_row
     assert "l4_plan_spec_approved" in normalized_l4_row
     assert "l4_plan_quality_approved" in normalized_l4_row
-    assert "pre implementation controls are next" in normalized_l4_row
-    assert "no l4 behavior is implemented" in normalized_l4_row
+    assert "implemented through 11629551 and 0d5f7009" in normalized_l4_row
+    assert "l4_task1_spec_approved" in normalized_l4_row
+    assert "l4_task1_quality_approved" in normalized_l4_row
+    assert "l4_task2_spec_approved" in normalized_l4_row
+    assert "l4_task2_quality_approved" in normalized_l4_row
+    assert "real neovim acceptance passed" in normalized_l4_row
+    assert "task 4 broad comparison and final closure are next" in (
+        normalized_l4_row
+    )
+    assert "no l4 behavior is implemented" not in normalized_l4_row
     assert "blocked by l3" not in normalized_l4_row
     l2_plan = (
         REPO_ROOT
@@ -3280,6 +3305,105 @@ def test_language_server_l3_routes_shipped_per_source_entry_selection() -> None:
     assert "accepted, not yet shipped" not in normalized_setup
     assert "| entry_workflow |" not in setup
     assert "l3 target initialization" not in normalized_setup
+
+
+def test_language_server_l4_routes_shipped_lifecycle_before_final_closure() -> None:
+    roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH
+    plan_path = REPO_ROOT / LANGUAGE_SERVER_L4_PLAN_PATH
+    design_path = (
+        REPO_ROOT
+        / "docs"
+        / "design"
+        / "workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md"
+    )
+    baseline_path = (
+        REPO_ROOT / "docs" / "design" / "workflow_lisp_language_server.md"
+    )
+    index_path = REPO_ROOT / "docs" / "index.md"
+    setup_path = (
+        REPO_ROOT / "docs" / "workflow_lisp_language_server_setup.md"
+    )
+
+    l4_row = _markdown_table_row(roadmap_path, "| L4 |")
+    normalized_l4_row = _normalized_routing_text(l4_row)
+    assert "implemented through 11629551 and 0d5f7009" in normalized_l4_row
+    assert "l4_task1_spec_approved" in normalized_l4_row
+    assert "l4_task1_quality_approved" in normalized_l4_row
+    assert "l4_task2_spec_approved" in normalized_l4_row
+    assert "l4_task2_quality_approved" in normalized_l4_row
+    assert "real neovim acceptance passed" in normalized_l4_row
+    assert "task 4 broad comparison and final closure are next" in (
+        normalized_l4_row
+    )
+    assert "complete" not in _normalized_routing_text(
+        l4_row.split("|")[-2]
+    )
+
+    capability_row = _markdown_table_row(
+        REPO_ROOT / "docs" / "capability_status_matrix.md",
+        "Workflow Lisp language server L4 diagnostic lifecycle/progress",
+    )
+    normalized_capability_row = _normalized_routing_text(capability_row)
+    assert "| Implemented |" in capability_row
+    assert "current only diagnostic" in normalized_capability_row
+    assert "capability gated" in normalized_capability_row
+    assert "logical serialized compile pump" in normalized_capability_row
+    assert "neovim" in normalized_capability_row
+
+    design = design_path.read_text(encoding="utf-8")
+    normalized_design_status = _normalized_routing_text(
+        "\n".join(design.splitlines()[:25])
+    )
+    assert "status: implemented and incorporated" in normalized_design_status
+    assert "11629551" in normalized_design_status
+    assert "0d5f7009" in normalized_design_status
+    assert "implementation pending" not in normalized_design_status
+
+    baseline = _normalized_routing_text(
+        baseline_path.read_text(encoding="utf-8")
+    )
+    assert "current only diagnostic presentation" in baseline
+    assert "capability gated" in baseline
+    assert "one logical serialized compile pump busy interval" in baseline
+    assert "accepted l4 target pending" not in baseline
+
+    plan = _normalized_routing_text(plan_path.read_text(encoding="utf-8"))
+    assert "task 1 commit" in plan
+    assert "11629551" in plan
+    assert "l4_task1_spec_approved" in plan
+    assert "l4_task1_quality_approved" in plan
+    assert "task 2 commit" in plan
+    assert "0d5f7009" in plan
+    assert "l4_task2_spec_approved" in plan
+    assert "l4_task2_quality_approved" in plan
+    assert "repository real neovim acceptance" in plan
+
+    normalized_index = _normalized_routing_text(index_path.read_text())
+    assert "l4 diagnostic lifecycle and compile progress is implemented" in (
+        normalized_index
+    )
+    assert "task 4 broad comparison and final closure are next" in (
+        normalized_index
+    )
+    normalized_setup = _normalized_routing_text(setup_path.read_text())
+    assert "old squiggles disappear on an unsaved edit" in normalized_setup
+    assert "workdoneprogress" in normalized_setup
+    assert "one indeterminate progress lifecycle" in normalized_setup
+
+    q4_row = _normalized_routing_text(
+        _markdown_table_row(roadmap_path, "| Q4 |")
+    )
+    q5_row = _normalized_routing_text(
+        _markdown_table_row(roadmap_path, "| Q5 |")
+    )
+    l5_row = _normalized_routing_text(
+        _markdown_table_row(roadmap_path, "| L5 |")
+    )
+    assert "blocked on binding the concrete generic reviewer/panel consumer" in q4_row
+    assert "no q4 dependency" in q5_row
+    assert "complete" in l5_row
+    assert "041754e6" in l5_row
+
 
 def test_language_server_l5_routes_shipped_admitted_shapes_and_closes_stage() -> None:
     roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH

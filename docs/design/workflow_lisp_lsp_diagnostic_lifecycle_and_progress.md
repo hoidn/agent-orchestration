@@ -1,11 +1,13 @@
 # Workflow Lisp LSP Diagnostic Lifecycle And Compile Progress
 
-- **Status:** accepted target; implementation pending
+- **Status:** implemented and incorporated
 - **Kind:** developer-tooling architecture amendment
 - **Owner:** Workflow Lisp language server
 - **Reviewers:** independent specification review
   `L4_DESIGN_SPEC_APPROVED`, then independent quality review
-  `L4_DESIGN_QUALITY_APPROVED`
+  `L4_DESIGN_QUALITY_APPROVED`; Task 1
+  `L4_TASK1_SPEC_APPROVED` then `L4_TASK1_QUALITY_APPROVED`; Task 2
+  `L4_TASK2_SPEC_APPROVED` then `L4_TASK2_QUALITY_APPROVED`
 - **Created:** 2026-07-28
 - **Last material update:** 2026-07-28
 - **Related docs / plans:**
@@ -13,7 +15,10 @@
   - `docs/design/workflow_language_design_principles.md`
   - `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`
   - `docs/reports/2026-07-28-workflow-lisp-l4-editor-lifecycle-probe.md`
-- **Implementation target:** roadmap Stage L4
+- **Implementation record:** current-only diagnostic publication at
+  `11629551`; transport-local compile progress at `0d5f7009`; repository-real
+  Neovim acceptance in
+  `tests/test_workflow_lisp_lsp_neovim_e2e.py`
 
 ## Summary
 

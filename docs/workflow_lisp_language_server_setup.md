@@ -89,6 +89,21 @@ strictly decoded bytes currently on disk. An unsaved `didChange` marks the
 document dirty and does not compile an in-memory overlay. Save the file to disk
 before expecting refreshed diagnostics or navigation.
 
+Old squiggles disappear on an unsaved edit and remain absent while the entry
+is pending, invalidated, unavailable, server-failed, configuration-stale,
+closed, or unassociated. The server retains their exact contribution
+ownership internally so a current clean success or language error can publish
+its complete replacement atomically without erasing an equivalent current
+contribution from another entry.
+
+Clients that advertise LSP `window.workDoneProgress=true` receive one
+indeterminate progress lifecycle for each logical serialized compile-pump busy
+interval. Coalesced entries and superseding saves share the interval. The item
+is non-cancellable as compiler work, has no percentage, and never delays or
+controls compilation; a client cancellation request ends only its
+presentation. Clients that omit or disable `workDoneProgress` receive no
+progress traffic.
+
 The implemented v1 surface is:
 
 - compiler diagnostics on clean open/save, usually one blocking diagnostic
@@ -156,15 +171,17 @@ unlatch it; restart the language server.
 
 ## Current Limits
 
-The implemented v1/L0/L1/L2/L3/L5 surface intentionally has no unsaved-buffer
+The implemented v1/L0/L1/L2/L3/L4/L5 surface intentionally has no unsaved-buffer
 analysis. It has no multi-diagnostic recovery,
 hover/type sidecar, compile cache or incrementality, rename, formatting, code
 actions, semantic tokens, multi-root workspace support, or non-default compile
 policy. These are not partial server features. L3 ships immutable exact
-per-source entry selection over the MR-4 reentrant compiler substrate. The
-accepted [L4 diagnostic-lifecycle and compile-progress target](design/workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md)
-is not implemented: the shipped server still retains prior diagnostics
-visibly while dirty/pending and emits no work-done progress. The frontend
+per-source entry selection over the MR-4 reentrant compiler substrate. L4
+ships the
+[current-only diagnostic and compile-progress contract](design/workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md)
+without adding dirty-buffer analysis, a second contribution store, progress
+percentages, public compiler cancellation, or editor-specific production
+code. The frontend
 prerequisites P1–P5 and any other successor work remain separately designed
 and scheduled.
 

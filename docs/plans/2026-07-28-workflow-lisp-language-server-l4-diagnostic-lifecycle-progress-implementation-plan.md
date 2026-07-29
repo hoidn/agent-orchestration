@@ -30,11 +30,11 @@ stdio, and headless Neovim.
 `0e0fd4df5d0943c0c176822a3584d6efecd22434`, after ordered
 `L4_DESIGN_SPEC_APPROVED` then `L4_DESIGN_QUALITY_APPROVED`.
 
-**Execution status:** reviewed implementation plan accepted after ordered
-`L4_PLAN_SPEC_APPROVED` then `L4_PLAN_QUALITY_APPROVED`. Pre-implementation
-controls are complete after ordered `L4_CONTROL_SPEC_APPROVED` then
-`L4_CONTROL_QUALITY_APPROVED`; Task 1 is next. No L4 runtime behavior is
-implemented.
+**Execution status:** Tasks 1 and 2 are implemented and committed after their
+ordered specification then quality reviews. The repository-real Neovim
+acceptance passes and Task 3's durable documentation/routing candidate is under
+ordered review. Task 4 broad comparison and final closure follow the reviewed
+Task 3 commit.
 
 ---
 
@@ -508,6 +508,26 @@ Obtain `L4_TASK2_SPEC_APPROVED`, then `L4_TASK2_QUALITY_APPROVED`, restarting
 both in order after any byte change. Commit only Task 2 paths.
 
 Suggested subject: `Report serialized LSP compile progress`.
+
+### Task 1–3 Execution Record
+
+- **Task 1 commit:** `116295513b0e39463004c663920bfa73128481ca`,
+  tree `d7f9d7d66142d022e5a82bb6ab72828b8ad53e0a`, after ordered
+  `L4_TASK1_SPEC_APPROVED` then `L4_TASK1_QUALITY_APPROVED`.
+- **Task 2 commit:** `0d5f70093fe7ee7c7abb59a29c3f555f1f3c14c9`,
+  tree `94a995b55186805af25bc5d7b370829b79b7b175`, after ordered
+  `L4_TASK2_SPEC_APPROVED` then `L4_TASK2_QUALITY_APPROVED`.
+- **Repository-real Neovim acceptance:** one acceptance test passed in 1.77
+  seconds against installed Neovim `0.12.0-dev-703+g66f02ee1fe` and production
+  `python -m orchestrator.lsp`. It observed the exact initial diagnostic
+  identity, unsaved-edit clear, one save create/begin/end token lifecycle,
+  exact empty current completion, empty final progress status, the exact
+  intentional source-byte change only, and no `.orchestrate` tree. One
+  additional helper test proves the workspace snapshot records regular-file
+  bytes, directories, and symlink targets without traversing symlinked
+  directories; the two-test module passes.
+- **Next gate:** Task 3 ordered specification then quality reviews and its
+  exact-path commit, followed by Task 4 broad comparison and final closure.
 
 ---
 

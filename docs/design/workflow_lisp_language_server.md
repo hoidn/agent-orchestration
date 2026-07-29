@@ -1,7 +1,6 @@
 # Workflow Lisp Language Server
 
-- **Status:** implemented through L2/L3/L5; accepted L4 target pending
-  implementation
+- **Status:** implemented through L2/L3/L4/L5
 - **Kind:** feature / developer tooling architecture decision
 - **Owner:** Workflow Lisp frontend (tooling consumer)
 - **Reviewers:** independent specification rereview
@@ -20,7 +19,9 @@
   `L3_TASK2_SPEC_APPROVED`, then `L3_TASK2_QUALITY_APPROVED`; final closure
   `L3_FINAL_SPEC_APPROVED`, then `L3_FINAL_QUALITY_APPROVED` (2026-07-28);
   L4 independent specification review `L4_DESIGN_SPEC_APPROVED`, then
-  independent quality review `L4_DESIGN_QUALITY_APPROVED`
+  independent quality review `L4_DESIGN_QUALITY_APPROVED`; L4 Task 1
+  `L4_TASK1_SPEC_APPROVED`, then `L4_TASK1_QUALITY_APPROVED`; L4 Task 2
+  `L4_TASK2_SPEC_APPROVED`, then `L4_TASK2_QUALITY_APPROVED`
 - **Created:** 2026-07-13
 - **Last material update:** 2026-07-28
 - **Review history:** earlier design and quality changes-required rounds,
@@ -77,6 +78,10 @@
   `docs/plans/2026-07-28-workflow-lisp-language-server-l3-per-source-entry-selection-implementation-plan.md`.
   The implementation landed through Task 1 `fc1b01ee`, Task 2 `9e59929d`,
   and Task 2's xdist-evidence correction `8c704f3f`.
+  L4 current-only diagnostic publication is implemented at `11629551` and
+  transport-local serialized compile progress is implemented at `0d5f7009`
+  under
+  `docs/plans/2026-07-28-workflow-lisp-language-server-l4-diagnostic-lifecycle-progress-implementation-plan.md`.
 
 ## Summary
 
@@ -109,19 +114,23 @@ non-specialized owners.
 Capabilities P1-P5 (hover types, multi-diagnostic error recovery,
 as-you-type checking, and incrementality) remain wholly deferred.
 
-## L4 Accepted Target Amendment: Current Diagnostics And Compile Progress
+## L4 Shipped Amendment: Current Diagnostics And Compile Progress
 
-The accepted
+The implemented
 [L4 diagnostic-lifecycle and compile-progress amendment](workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md)
 replaces the target anti-flicker policy with a current-only publication view
 while preserving retained contribution ownership internally. It also defines
 one capability-gated, indeterminate, non-blocking work-done lifecycle per
 logical serialized compile-pump busy interval.
 
-This is an accepted target, not current behavior. Until its reviewed
-implementation plan lands and closes, the shipped server continues retaining
-prior accepted diagnostics visibly while an entry is dirty or pending and
-emits no work-done progress.
+Current-only diagnostic presentation hides dirty, pending, invalidated,
+unavailable, server-failed, configuration-stale, closed, and unassociated
+owners without deleting their retained contribution tuples. A current success
+or language error reveals its complete replacement contribution atomically.
+Supporting clients receive one non-cancellable progress lifecycle for one
+logical serialized compile-pump busy interval; coalesced entries and
+superseding generations share it. Progress acknowledgment and transport
+failure never delay, cancel, validate, or otherwise control compilation.
 
 ## L3 Shipped Amendment: Immutable Per-Source Entry Selection
 
@@ -940,12 +949,12 @@ tests must not freeze it.
   contract above may replace contributions or a navigation snapshot. Results
   superseded by a newer entry generation, source digest/sentinel, or
   configuration-stale transition are discarded in full and never published.
-  While a
-  newer saved/dependency generation is pending, or after `didChange` marks the
-  buffer dirty, the prior accepted contribution may remain published to avoid
-  flicker; its `Diagnostic.data.accepted_generation` makes clear that it
-  describes the earlier accepted disk generation, never the pending or dirty
-  buffer. A current completion replaces the entry contribution atomically.
+  Publication is a current-only projection over those retained tuples. A
+  newer saved/dependency generation, dirty buffer, invalidation, unavailable
+  entry, server failure, configuration staleness, close, or unassociated state
+  hides that owner's contribution and republishes its retained target URIs.
+  A current success or language-error completion reveals its replacement
+  contribution atomically.
 
 ### Navigation index
 
@@ -1165,10 +1174,12 @@ Invariants that must hold after implementation:
    `LispFrontendDiagnostic` objects** — never from parsing rendered log
    strings. Raw start/end spans, not the lossy serialized envelope, drive LSP
    ranges.
-4. **Contribution and generation ownership is exact.** Each entry replaces
+4. **Contribution ownership and visible currentness are exact.** Each entry replaces
    only its own contribution map, target publication aggregates all entries,
    and no result superseded by an entry generation, raw-byte source revision,
    or configuration-stale transition may publish diagnostics or navigation.
+   Retained tuples remain internal ownership evidence, but only clean,
+   terminal, generation-matched owners enter the visible aggregate.
 5. **Source currentness is compiler-read, content-addressed, and
    fail-closed.** Every successful snapshot's canonical closure and exact
    SHA-256 vector derive only from its internally consistent
@@ -1216,6 +1227,12 @@ Invariants that must hold after implementation:
    prints, and tracebacks cannot share the stdio transport stream.
 12. **Absence of the `lsp` extra changes nothing** for any other orchestrator
    surface; the runtime dependency set of a default install is unchanged.
+13. **Progress is transport-local observability.** Only a client advertising
+    `window.workDoneProgress=true` receives a create request and balanced
+    begin/end frames. One logical serialized compile-pump busy interval owns
+    one token even across coalescing or supersession; client cancellation ends
+    presentation only, and every local terminal path settles without changing
+    compiler or driver authority.
 
 Failure behavior:
 
@@ -1231,16 +1248,16 @@ Failure behavior:
 - Malformed/broken clean source → the pipeline's (typically single)
   diagnostic atomically replaces that entry's contribution and navigation
   returns null.
-- Dirty buffer → no compile; existing clean-generation diagnostics may remain
-  visible with their earlier `accepted_generation`, but they are not
-  current-buffer analysis and navigation returns null until a new clean
+- Dirty buffer → no compile; retained clean-generation contributions become
+  invisible immediately, their old targets receive empty/current aggregate
+  publication as needed, and navigation returns null until a new clean
   generation succeeds.
-- Compile pending → the prior accepted diagnostic contribution may remain
-  visible with its earlier generation; navigation returns null and only the
-  current entry generation/source/config vector may replace the contribution.
+- Compile pending → retained prior contributions stay hidden; navigation
+  returns null and only the current entry generation/source/config vector may
+  replace and reveal the contribution.
 - Source SHA-256/sentinel revision → every known affected importer is
-  invalidated before scheduling; old contributions may remain visibly
-  generation-stamped, but no affected navigation remains current.
+  invalidated before scheduling; old contributions remain retained but hidden,
+  and no affected navigation remains current.
 - Unknown closure ownership → every open entry is invalidated and every
   readable/eligible open entry is recompiled rather than leaving a possibly
   dependent snapshot fresh.

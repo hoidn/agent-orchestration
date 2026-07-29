@@ -4463,8 +4463,8 @@ Compiler outputs should support:
   effects, report parsing, pointer-as-authority, manual state paths, unproved
   variant references, and command adapters without typed contracts.
 
-The implemented Workflow Lisp language-server v1 plus L0, L1, L2, L3, and L5
-consumes those shared surfaces for:
+The implemented Workflow Lisp language-server v1 plus L0, L1, L2, L3, L4,
+and L5 consumes those shared surfaces for:
 
 - compiler diagnostics on clean disk-equal open/save through one serialized
   full Stage-3 compile;
@@ -4494,6 +4494,23 @@ drift, returns null navigation for dirty/pending/failed/invalidated/stale
 documents, and writes no workspace files. It uses the fixed production compile
 policy and does not infer a nominal type taxonomy. See
 `docs/workflow_lisp_language_server_setup.md`.
+
+L4 keeps diagnostic ownership and presentation separate. Retained
+contribution tuples continue to own invalidation, replacement, and target
+clearing, while only clean, current, terminal, generation-matched owners enter
+the published aggregate. Dirty, pending, invalidated, unavailable,
+server-failed, configuration-stale, closed, and unassociated owners are hidden
+without deleting their tuples; current success or language-error completion
+reveals one atomic replacement.
+
+When the initialized client advertises `window.workDoneProgress=true`, one
+transport-local, indeterminate, non-cancellable lifecycle covers one logical
+serialized compile-pump busy interval. Coalesced entries and superseding
+generations share its token. Capability absence, create/begin/end transport
+failure, late acknowledgment, and presentation-only client cancellation never
+delay, validate, cancel, or otherwise change compilation. This adds no
+percentage, telemetry, persistence, runtime reporting, compiler callback, or
+public compile-cancellation surface.
 
 L5 is a read-only consumer of already-retained original syntax, typed prompt
 or proc-ref occurrences, and compiler prompt/procedure catalogs. Each admitted
