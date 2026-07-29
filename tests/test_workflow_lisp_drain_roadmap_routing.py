@@ -3307,7 +3307,7 @@ def test_language_server_l3_routes_shipped_per_source_entry_selection() -> None:
     assert "l3 target initialization" not in normalized_setup
 
 
-def test_language_server_l4_routes_verified_closure_candidate() -> None:
+def test_language_server_l4_routes_verified_final_review_correction() -> None:
     roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH
     plan_path = REPO_ROOT / LANGUAGE_SERVER_L4_PLAN_PATH
     design_path = (
@@ -3346,7 +3346,6 @@ def test_language_server_l4_routes_verified_closure_candidate() -> None:
     )
     assert "q5_f1_f2_fix_spec_approved" in normalized_l4_row
     assert "q5_f1_f2_fix_quality_approved" in normalized_l4_row
-    assert "required, unissued" in normalized_l4_row
     assert "complete" not in _normalized_routing_text(
         l4_row.split("|")[-2]
     )
@@ -3363,7 +3362,10 @@ def test_language_server_l4_routes_verified_closure_candidate() -> None:
     assert "neovim" in normalized_capability_row
     assert "356 passed" in normalized_capability_row
     assert "zero new failures" in normalized_capability_row
-    assert "not recorded as issued" in normalized_capability_row
+    assert "final quality returned changes_required solely" in (
+        normalized_capability_row
+    )
+    assert "external exact tree record" in normalized_capability_row
 
     design = design_path.read_text(encoding="utf-8")
     normalized_design_status = _normalized_routing_text(
@@ -3374,7 +3376,12 @@ def test_language_server_l4_routes_verified_closure_candidate() -> None:
     assert "0d5f7009" in normalized_design_status
     assert "l4_task3_spec_approved" in normalized_design_status
     assert "l4_task3_quality_approved" in normalized_design_status
-    assert "required next, but not yet issued" in normalized_design_status
+    assert "final quality returned changes_required solely" in (
+        normalized_design_status
+    )
+    assert "fresh ordered l4_final_spec_approved then l4_final_quality_approved" in (
+        normalized_design_status
+    )
     assert "implementation pending" not in normalized_design_status
 
     baseline = _normalized_routing_text(
@@ -3404,7 +3411,8 @@ def test_language_server_l4_routes_verified_closure_candidate() -> None:
     assert "10,895 passed, 41 failed, 0 errors, 22 skipped" in plan
     assert "6f071f35bf086f027ce6445f3c83114f4812f06025ec565fe32123c37ab627a4" in plan
     assert "zero new failures" in plan
-    assert "required review labels, not outcomes already issued" in plan
+    assert "final quality returned changes_required solely" in plan
+    assert "external exact tree record" in plan
 
     index = index_path.read_text(encoding="utf-8")
     normalized_index = _normalized_routing_text(index)
@@ -3429,7 +3437,10 @@ def test_language_server_l4_routes_verified_closure_candidate() -> None:
         lifecycle_index
     )
     assert "l4_final_spec_approved then l4_final_quality_approved" in lifecycle_index
-    assert "unissued" in lifecycle_index
+    assert "changes_required" in lifecycle_index
+    assert "fresh ordered l4_final_spec_approved then l4_final_quality_approved" in (
+        lifecycle_index
+    )
     assert "task 4 broad comparison and final closure are next" not in lifecycle_index
     plan_index = _normalized_routing_text(
         _markdown_heading_section(
@@ -3443,7 +3454,10 @@ def test_language_server_l4_routes_verified_closure_candidate() -> None:
     assert "zero new failures" in plan_index
     assert "l4_task4_spec_approved then l4_task4_quality_approved" in plan_index
     assert "l4_final_spec_approved then l4_final_quality_approved" in plan_index
-    assert "unissued" in plan_index
+    assert "changes_required" in plan_index
+    assert "fresh ordered l4_final_spec_approved then l4_final_quality_approved" in (
+        plan_index
+    )
     assert "task 4 broad comparison and final closure are next" not in plan_index
     normalized_setup = _normalized_routing_text(setup_path.read_text())
     assert "old squiggles disappear on an unsaved edit" in normalized_setup
@@ -3467,6 +3481,101 @@ def test_language_server_l4_routes_verified_closure_candidate() -> None:
     assert "no split proof substitution" in q5_row
     assert "complete" in l5_row
     assert "041754e6" in l5_row
+
+
+def test_language_server_l4_final_review_status_is_exact_tree_history() -> None:
+    roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH
+    roadmap = roadmap_path.read_text(encoding="utf-8")
+    capability_row = _markdown_table_row(
+        REPO_ROOT / "docs" / "capability_status_matrix.md",
+        "Workflow Lisp language server L4 diagnostic lifecycle/progress",
+    )
+    design_router_path = REPO_ROOT / "docs" / "design" / "README.md"
+    design_router_rows = [
+        _markdown_table_row(design_router_path, "workflow_lisp_language_server.md"),
+        _markdown_table_row(
+            design_router_path,
+            "workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md",
+        ),
+    ]
+    design_headers = [
+        "\n".join(
+            (
+                REPO_ROOT / "docs" / "design" / "workflow_lisp_language_server.md"
+            )
+            .read_text(encoding="utf-8")
+            .splitlines()[:45]
+        ),
+        "\n".join(
+            (
+                REPO_ROOT
+                / "docs"
+                / "design"
+                / "workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md"
+            )
+            .read_text(encoding="utf-8")
+            .splitlines()[:35]
+        ),
+    ]
+    plan = (
+        REPO_ROOT / LANGUAGE_SERVER_L4_PLAN_PATH
+    ).read_text(encoding="utf-8")
+    index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    roadmap_l4_stage = roadmap.split(
+        "## Stage L4: Diagnostic Lifecycle And Compile Progress",
+        1,
+    )[1].split("\n## ", 1)[0]
+    index_sections = [
+        _markdown_heading_section(
+            index,
+            "### [Workflow Lisp Language Quality And Domain Semantics Roadmap]",
+        ),
+        _markdown_heading_section(
+            index,
+            "### [Workflow Lisp Language Server]",
+        ),
+        _markdown_heading_section(
+            index,
+            "### [Workflow Lisp LSP Diagnostic Lifecycle And Compile Progress]",
+        ),
+        _markdown_heading_section(
+            index,
+            "### [Workflow Lisp L4 Diagnostic Lifecycle And Compile Progress "
+            "Implementation Plan]",
+        ),
+    ]
+    surfaces = [
+        _markdown_table_row(roadmap_path, "| L4 |"),
+        roadmap_l4_stage,
+        capability_row,
+        *design_router_rows,
+        *design_headers,
+        plan,
+        *index_sections,
+    ]
+
+    for surface in surfaces:
+        normalized = _normalized_routing_text(surface)
+        assert (
+            "c41e2e756f1d0c6bc27bbd9a8b8bbbfc57c59fc121b0bd46dc548709c286b990"
+            in normalized
+        )
+        assert "l4_task4_spec_approved then l4_task4_quality_approved" in normalized
+        assert "1f64f153" in normalized
+        assert "7790ee0e" in normalized
+        assert "l4_final_spec_approved" in normalized
+        assert "changes_required" in normalized
+        assert "stale review status metadata" in normalized
+        assert "does not transfer to corrected bytes" in normalized
+        assert (
+            "fresh ordered l4_final_spec_approved then l4_final_quality_approved"
+            in normalized
+        )
+        assert "external exact tree record" in normalized
+        assert "self attest" in normalized
+        assert "preparatory review" not in normalized
+        assert "preparatory l4_task4_spec_approved" not in normalized
+        assert "task 4 closure candidate" not in normalized
 
 
 def test_language_server_l5_routes_shipped_admitted_shapes_and_closes_stage() -> None:

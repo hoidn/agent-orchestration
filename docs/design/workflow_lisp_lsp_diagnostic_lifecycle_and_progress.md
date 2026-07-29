@@ -1,7 +1,7 @@
 # Workflow Lisp LSP Diagnostic Lifecycle And Compile Progress
 
-- **Status:** implemented and incorporated; Task 4 closure candidate awaits
-  preparatory review and final exact-tree review
+- **Status:** implemented and incorporated; final-review metadata correction
+  requires fresh ordered exact-tree reviews
 - **Kind:** developer-tooling architecture amendment
 - **Owner:** Workflow Lisp language server
 - **Reviewers:** independent specification review
@@ -9,10 +9,16 @@
   `L4_DESIGN_QUALITY_APPROVED`; Task 1
   `L4_TASK1_SPEC_APPROVED` then `L4_TASK1_QUALITY_APPROVED`; Task 2
   `L4_TASK2_SPEC_APPROVED` then `L4_TASK2_QUALITY_APPROVED`; Task 3
-  `L4_TASK3_SPEC_APPROVED` then `L4_TASK3_QUALITY_APPROVED`. Required next,
-  but not yet issued: preparatory `L4_TASK4_SPEC_APPROVED` then
-  `L4_TASK4_QUALITY_APPROVED`, followed after commit by final exact-tree
-  `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED`
+  `L4_TASK3_SPEC_APPROVED` then `L4_TASK3_QUALITY_APPROVED`. Task 4 closure
+  diff `c41e2e756f1d0c6bc27bbd9a8b8bbbfc57c59fc121b0bd46dc548709c286b990`
+  received `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` before
+  commit `1f64f153`, tree `7790ee0e`. That exact tree received
+  `L4_FINAL_SPEC_APPROVED`; final quality returned `CHANGES_REQUIRED` solely
+  for stale review-status metadata, so that exact-tree verdict does not
+  transfer to corrected bytes. Completion requires fresh ordered
+  `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED` against the
+  corrected committed tree. The final verdict is an external exact-tree
+  record; no repository byte can self-attest its own post-commit review
 - **Created:** 2026-07-28
 - **Last material update:** 2026-07-28
 - **Related docs / plans:**

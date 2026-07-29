@@ -33,11 +33,16 @@ stdio, and headless Neovim.
 **Execution status:** Tasks 1–3 are implemented and committed after their
 ordered specification then quality reviews. The exact Task 4 focused rerun and
 broad non-security comparison are recorded below with zero new failures. The
-closure-only metadata candidate now requires preparatory
-`L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED`; neither label has
-been issued yet. After that exact candidate is committed, the distinct
-`L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED` reviews remain
-required against the clean committed tree.
+closure diff
+`c41e2e756f1d0c6bc27bbd9a8b8bbbfc57c59fc121b0bd46dc548709c286b990`
+received `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` before
+commit `1f64f153`, tree `7790ee0e`. That exact tree received
+`L4_FINAL_SPEC_APPROVED`; final quality returned `CHANGES_REQUIRED` solely for
+stale review-status metadata, so that exact-tree verdict does not transfer to
+corrected bytes. Completion requires fresh ordered `L4_FINAL_SPEC_APPROVED`
+then `L4_FINAL_QUALITY_APPROVED` against the corrected committed tree. The
+final verdict is an external exact-tree record; no repository byte can
+self-attest its own post-commit review.
 
 ---
 
@@ -532,8 +537,10 @@ Suggested subject: `Report serialized LSP compile progress`.
   additional helper test proves the workspace snapshot records regular-file
   bytes, directories, and symlink targets without traversing symlinked
   directories; the two-test module passes.
-- **Next gate:** Task 4's closure-only metadata reviews and exact-path commit,
-  followed by the distinct final exact-tree reviews.
+- **Review history:** Task 4's closure-only diff later received ordered
+  `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` and committed at
+  `1f64f153`; the final exact-tree history and correction rule are recorded in
+  Task 4 below.
 
 ---
 
@@ -697,8 +704,8 @@ Update only this plan and routing metadata with:
 - L4 complete status; and
 - the next eligible roadmap gate.
 
-Review those closure-only bytes in order, commit them, and rerun the routing
-suite. These closure-byte reviews are preparatory and are not the named final
+Those closure-only bytes were reviewed in order, committed, and followed by a
+routing rerun. Their Task 4 reviews are distinct from the named final
 exact-tree reviews.
 
 Suggested subject: `Close LSP diagnostic lifecycle and progress`.
@@ -725,15 +732,19 @@ zero new failures. The one removed control failure is
 which now passes on the L4 tree. No unrelated failure is reclassified, repaired,
 or waived by this record.
 
-The next required outcomes for these closure-only bytes are, in order,
-`L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED`. They are required
-review labels, not outcomes already issued. After the reviewed closure
-candidate is committed, Step 3 requires the distinct
-`L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED` exact-tree outcomes;
-those final labels likewise have not yet been issued.
+Task 4 closure diff
+`c41e2e756f1d0c6bc27bbd9a8b8bbbfc57c59fc121b0bd46dc548709c286b990`
+received `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` before
+commit `1f64f153`, tree `7790ee0e`. That exact committed tree received
+`L4_FINAL_SPEC_APPROVED`; final quality returned `CHANGES_REQUIRED` solely for
+stale review-status metadata. The prior exact-tree verdict does not transfer
+to corrected bytes. L4 completion therefore requires fresh ordered
+`L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED` against the corrected
+committed tree. The final verdict is an external exact-tree record; no
+repository byte can self-attest its own post-commit review.
 
-After those final exact-tree reviews approve L4, the next eligible roadmap
-gate is the stopped Q5 lineage:
+After fresh final exact-tree reviews approve L4, the next eligible roadmap gate
+is the stopped Q5 lineage:
 `Q5_F1_F2_FIX_SPEC_APPROVED` then `Q5_F1_F2_FIX_QUALITY_APPROVED` over the
 exact merged F1/F2 evidence-surfacing correction from `492b1171`. Both labels
 are required and not issued. The unchanged combined invalid-then-valid
@@ -747,10 +758,13 @@ consumer.
 Refresh the clean committed `HEAD`/tree and rerun the exact focused selector
 from Step 2. Obtain final independent `L4_FINAL_SPEC_APPROVED`, then distinct
 `L4_FINAL_QUALITY_APPROVED` against that exact committed tree and the recorded
-broad comparison. Record the reviewed commit/tree and labels without changing
-repository bytes. If either review requires a byte change, apply it, rerun
-affected verification, commit the correction, and restart both named final
-reviews in order against the new clean committed tree.
+broad comparison. The verdict belongs to an external exact-tree record because
+repository bytes cannot self-attest their own post-commit review. If either
+review requires a byte change, apply it, rerun affected verification, commit
+the correction, and restart both named final reviews in order against the new
+clean committed tree. Commit `1f64f153`, tree `7790ee0e`, exercised that rule:
+its specification verdict did not transfer after quality required the
+review-status metadata correction.
 
 ## Completion Gate
 
