@@ -96,6 +96,7 @@ from orchestrator.workflow.provider_phased_delivery.ledger import (
 )
 from orchestrator.workflow.provider_phased_delivery.protocol import (
     PHASED_PROVIDER_BINDING_ENV,
+    PhasedSubmitProtocolClosedError,
     PhasedSubmitBinding,
     SubmitEndpointLocator,
     SubmitRequest,
@@ -1689,6 +1690,25 @@ class TerminalBoundaryEndpoint(OneSubmitEndpoint):
                 _diagnostic("submit_lifecycle_invalid")
             )
         return super().receive_event(deadline=deadline)
+
+    def resolve(
+        self,
+        event: SubmitEndpointEvent,
+        receipt: SubmitReceipt,
+        *,
+        rearm_retry: bool = False,
+    ) -> None:
+        super().resolve(event, receipt, rearm_retry=rearm_retry)
+        if receipt.status != "accepted_closing":
+            return
+        if self.owner.fail_at == "final_receipt_protocol_closed":
+            raise PhasedSubmitProtocolClosedError(
+                "submit receipt could not be flushed to its client"
+            )
+        if self.owner.fail_at == "final_receipt_timeout":
+            raise TimeoutError(
+                "whole-attempt deadline exhausted before receipt flush"
+            )
 
     def shutdown(
         self,
@@ -3372,6 +3392,43 @@ def test_terminal_failure_boundary_trace(
     if hasattr(bindings, "ledger"):
         event_names = tuple(event for event, _payload in bindings.ledger.events)
         assert event_names[-len(terminal_suffix):] == terminal_suffix
+
+
+@pytest.mark.parametrize(
+    ("fail_at", "expected_reason"),
+    (
+        ("final_receipt_protocol_closed", "submit_lifecycle_invalid"),
+        ("final_receipt_timeout", "deadline_exhausted_during_submit"),
+    ),
+)
+def test_final_receipt_flush_failure_terminalizes_without_graceful_close(
+    fail_at: str,
+    expected_reason: str,
+) -> None:
+    bindings = TerminalBoundaryBindings(fail_at=fail_at)
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+
+    assert type(result) is PhasedProviderAttemptFailure
+    assert result.first_diagnostic.reason == expected_reason
+    assert result.lifecycle.phase == "FAILED"
+    assert result.terminalization_tier == "T1"
+    assert result.endpoint_shutdown_status == "complete"
+    assert bindings.actions.count("endpoint.resolve.accepted_closing") == 1
+    assert bindings.actions.count("adapter.offer_close") == 0
+    assert bindings.actions.count("endpoint.stop") == 1
+    assert bindings.actions.count("endpoint.shutdown") == 1
+    assert bindings.actions.count("adapter.abort") == 1
+    assert bindings.actions.count("bindings.finalize_failure") == 1
+    assert bindings.actions.count("ledger.close") == 1
+    assert tuple(event for event, _payload in bindings.ledger.events)[-4:] == (
+        "cleanup_finished",
+        "ingress_shutdown_started",
+        "ingress_shutdown_finished",
+        "terminal_failed",
+    )
 
 
 @pytest.mark.parametrize(

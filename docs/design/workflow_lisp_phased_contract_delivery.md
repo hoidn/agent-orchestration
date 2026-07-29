@@ -697,7 +697,11 @@ The successful control flow is:
    waits for that receipt to flush to the submit client. `accepted_closing`
    means that the submission was accepted and the coordinator durably
    committed to an immediate graceful close; it does not claim that the close
-   has already been offered or executed.
+   has already been offered or executed. If the receipt cannot be flushed,
+   the coordinator offers no graceful close and enters T1 terminalization.
+   An endpoint protocol closure is `submit_lifecycle_invalid`; expiry while
+   delivering the active submit's receipt is
+   `deadline_exhausted_during_submit`.
 8. Only after the accepted-closing receipt is flushed, the coordinator calls
    deadline-aware `offer_close`, durably records `close_offered`, disables
    ingress, returns the exact terminal failed receipt for every later or queued
@@ -1464,6 +1468,7 @@ candidate_frozen
   -> close_offer_requested
 close_offer_requested
   -> close_offered | close_offer_failed
+  | cleanup_finished(pre-proof, accepted-closing flush unproven)
 close_offer_failed
   -> cleanup_finished(pre-proof)
 close_offered

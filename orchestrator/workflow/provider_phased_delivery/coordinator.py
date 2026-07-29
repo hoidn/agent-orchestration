@@ -43,7 +43,7 @@ from .bindings import (
     StructuredResultValidation,
     SubmitEndpoint,
 )
-from .protocol import PhasedSubmitBinding
+from .protocol import PhasedSubmitBinding, PhasedSubmitProtocolClosedError
 from .diagnostics import (
     DEADLINE_OPERATION_REGISTRY,
     DeadlineOperationDefinition,
@@ -1292,21 +1292,32 @@ class PhasedProviderAttemptCoordinator:
                 "close_projection": close_projection,
             },
         )
-        endpoint.resolve(
-            event,
-            SubmitReceipt(
-                status="accepted_closing",
-                attempt_scope_sha256=allocation.scope.key,
-                client_request_id=event.request.client_request_id,
-                submission_ordinal=event.submission_ordinal,
-                configured_total=composition.materialization_attempts,
-                remaining_submissions=(
-                    composition.materialization_attempts
-                    - event.submission_ordinal
+        try:
+            endpoint.resolve(
+                event,
+                SubmitReceipt(
+                    status="accepted_closing",
+                    attempt_scope_sha256=allocation.scope.key,
+                    client_request_id=event.request.client_request_id,
+                    submission_ordinal=event.submission_ordinal,
+                    configured_total=composition.materialization_attempts,
+                    remaining_submissions=(
+                        composition.materialization_attempts
+                        - event.submission_ordinal
+                    ),
+                    diagnostic=None,
                 ),
-                diagnostic=None,
-            ),
-        )
+            )
+        except PhasedSubmitProtocolClosedError as exc:
+            raise _NeedsTerminalization(
+                _runtime_diagnostic("submit_lifecycle_invalid"),
+                session.lifecycle,
+            ) from exc
+        except TimeoutError as exc:
+            raise _NeedsTerminalization(
+                _runtime_diagnostic("deadline_exhausted_during_submit"),
+                session.lifecycle,
+            ) from exc
         close_admission = self._admit_deadline("close_offer")
         try:
             close = self._bindings.adapter.offer_close(
