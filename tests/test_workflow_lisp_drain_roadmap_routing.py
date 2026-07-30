@@ -46,6 +46,9 @@ LANGUAGE_QUALITY_ROADMAP_PATH = (
 SUBSTRATE_MAINTENANCE_TRACK_PATH = (
     "docs/plans/2026-07-26-substrate-maintenance-track.md"
 )
+PURE_RESULT_REPLAY_DESIGN_PATH = (
+    "docs/design/workflow_lisp_pure_result_replay.md"
+)
 M0_GREEN_BASELINE_PLAN_PATH = (
     "docs/plans/2026-07-29-m0-green-baseline-component-plan.md"
 )
@@ -4370,6 +4373,9 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
         encoding="utf-8"
     )
     index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
+    pure_replay_design = (
+        REPO_ROOT / PURE_RESULT_REPLAY_DESIGN_PATH
+    ).read_text(encoding="utf-8")
 
     assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in track
     assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in index
@@ -4402,6 +4408,12 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "postcommit selector passed" in normalized_track_header
     assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in track_header
     assert "later phase defaults remain recorded" in normalized_track_header
+    assert "phase m2 is now selected" in normalized_track_header
+    assert Path(PURE_RESULT_REPLAY_DESIGN_PATH).name in track_header
+    normalized_track = _normalized_routing_text(track)
+    assert "minimum m2/m3a correctness machinery" in normalized_track
+    assert "strictly reduce both durable value count" in normalized_track
+    assert "does not authorize adjacent refactoring" in normalized_track
     listing_guard = next(
         clause
         for clause in normalized_track_header.split(".")
@@ -4409,7 +4421,7 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     )
     assert all(
         phase in listing_guard
-        for phase in ("mc", "mr", "m2", "m3", "m4")
+        for phase in ("mc", "mr", "m3", "m4")
     )
     assert "ml" not in listing_guard
 
@@ -4491,9 +4503,63 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     )
     assert "ml 2 allocator simplification" in normalized_substrate_index_route
     assert "phase ml is historical complete" in normalized_substrate_index_route
-    assert "no successor substrate phase is auto selected" in (
-        normalized_substrate_index_route
+    assert "m2 component" in normalized_substrate_index_route
+    assert "is selected" in normalized_substrate_index_route
+    assert "remains proposed with the executable prerequisite open" in (
+        _normalized_routing_text(index)
     )
+    assert "evidence gated and unselected" in normalized_substrate_index_route
+    for unselected_phase in ("mc", "mr", "m3", "m4"):
+        assert unselected_phase in normalized_substrate_index_route
+
+    m2_section = track.split(
+        "## Phase M2: Persistence-Parsimony Design",
+        1,
+    )[1].split("## Phase M3:", 1)[0]
+    normalized_m2 = _normalized_routing_text(m2_section)
+    assert "status: selected" in normalized_m2
+    assert "component" in normalized_m2
+    assert "only depth" in normalized_m2
+    assert "required public run/resume feasibility fixture is not yet landed" in (
+        normalized_m2
+    )
+    assert "m3a is not implementation selected" in normalized_m2
+    assert Path(PURE_RESULT_REPLAY_DESIGN_PATH).name in m2_section
+    assert "effect identity memo keys" in normalized_m2
+    assert "not selected" in normalized_m2
+    assert "three distinct post ml runs" in normalized_m2
+    assert "one full workflow re execution" in normalized_m2
+
+    normalized_pure_replay = _normalized_routing_text(pure_replay_design)
+    assert "status: proposed" in normalized_pure_replay
+    assert "executable feasibility prerequisite open" in normalized_pure_replay
+    assert "result_persistence_profile" in pure_replay_design
+    assert "derived_pure_replay.v1" in pure_replay_design
+    assert "value free completion shells" in normalized_pure_replay
+    assert "result_storage" in pure_replay_design
+    assert "atomic state transaction" in normalized_pure_replay
+    assert "noderesultaddress" in normalized_pure_replay
+    assert "there is no existing typed replay dependency graph" in (
+        normalized_pure_replay
+    )
+    assert "identity neutral typed dependency index" in normalized_pure_replay
+    assert "default resume checkpoint candidate set" in normalized_pure_replay
+    assert "validated_frame_entry_replay" in normalized_pure_replay
+    assert "reuse its existing cursor and visit count without another increment" in (
+        normalized_pure_replay
+    )
+    assert "profile_conflict" in pure_replay_design
+    assert "progress_witness_invalid" in pure_replay_design
+    assert "effect identity memo keys" in normalized_pure_replay
+    assert "do not enter" in normalized_pure_replay
+    assert "pure_result_replay_unavailable" in pure_replay_design
+    assert "deterministic counted effect e1" in normalized_pure_replay
+    assert "interrupted effect e2" in normalized_pure_replay
+    assert "loop/recur" in normalized_pure_replay
+    assert "not selected" in normalized_pure_replay
+    assert "m2 is not complete" in normalized_pure_replay
+    assert "m3a is not implementation selected" in normalized_pure_replay
+    assert Path(PURE_RESULT_REPLAY_DESIGN_PATH).name in index
 
     normalized_plan = _normalized_routing_text(m1_plan)
     normalized_plan_header = _normalized_routing_text(
@@ -4673,7 +4739,9 @@ def test_ml0_selects_at_least_once_recovery_with_reviewable_component_bounds() -
     assert "ml 2 closed at commit" in normalized_track
     assert "ml 4 tasks 1 4 landed" in normalized_track
     assert "phase ml is historical complete" in normalized_index
-    assert "no successor substrate phase is auto selected" in normalized_index
+    assert "m2 component" in normalized_index
+    assert "is selected" in normalized_index
+    assert "evidence gated and unselected" in normalized_index
 
     normalized_ml2_plan = _normalized_routing_text(
         plans[ML2_PROVIDER_ALLOCATOR_PLAN_PATH]

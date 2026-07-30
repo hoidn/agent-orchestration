@@ -27,14 +27,20 @@
   9,714 broad non-security tests with 19 skipped and 5 warnings.
   Amendment phases ML, MC, MR and the M1 inventory extension were adopted into
   this shape 2026-07-26 by owner direction (provider-repeat cost model and
-  incorporation request). Later-phase defaults remain recorded, but no
-  successor phase is selected by listing: MC, MR, and M4 each require their
-  own component plan, M2 requires an accepted design, and M3 requires M2
-  completion.
-- **Relation:** parallel substrate track beside the active
+  incorporation request). Phase M2 is now selected at its recorded
+  component-(a)-only depth; its candidate
+  [Pure-Result Replay design](../design/workflow_lisp_pure_result_replay.md)
+  passed ordered specification then quality review for the feasibility
+  tranche, with its executable prerequisite still open. MC, MR, M3, and M4
+  are not selected by listing and
+  still require their own component plans; M3 additionally requires accepted
+  M2 design.
+- **Relation:** parallel substrate track beside the completed
   `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`
-  (Q/L tracks). Two junctions: M2 consumes Q3's prompt/effect identity
-  definition, and MR-4 (compiler session state) is coupled to the
+  (Q/L tracks). The accepted Q3 identity satisfies M2's entry prerequisite,
+  but selected component (a) creates no memo key or second identity;
+  component (b), if its evidence threshold ever reopens, must consume Q3's
+  definition. MR-4 (compiler session state) was coupled to the
   L-series — later L stages, notably L3's per-source entry selection,
   raise per-process compile pressure on exactly the reentrancy MR-4
   fixes, so MR-4 schedules in coordination with both series and should
@@ -79,12 +85,12 @@
   `85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c`.
   These hashes are non-authoritative M0 context only. Task 5 neither edits nor
   re-reviews the unchanged owning Q/L routers and does not reopen either gate.
-- **Later-phase defaults remain recorded, not currently pending:** M2 defaults
-  to pure-result replay only unless its named re-entry evidence appears; M4
-  defaults to the bounded executor/validation split if its entry conditions
-  still hold; ML-3 remains deferred until the provider-isolation freeze lifts;
-  and neutral-IR boundary redraw remains outside M4 absent its own accepted
-  design.
+- **Later-phase defaults remain recorded:** M2's pure-result-replay-only
+  default is selected;
+  its named component-(b) re-entry evidence remains absent. M4 defaults to the
+  bounded executor/validation split if its entry conditions still hold; ML-3
+  remains deferred until the provider-isolation freeze lifts; and neutral-IR
+  boundary redraw remains outside M4 absent its own accepted design.
 
 ## Objective
 
@@ -102,7 +108,14 @@ seams that loosening defines.
 
 - **Deletion over refactoring.** Every phase must delete more code than it
   adds; the recorded exceptions are M3b's identity-key field on attempt
-  records and MR-4's compiler session objects.
+  records, MR-4's compiler session objects, and the minimum M2/M3a
+  correctness machinery required for the reviewed pure-result feasibility
+  contract. The M2/M3a exception is bounded to the replay profile, exact
+  completion shell, atomic progress/settlement, transient typed dependency
+  index, fail-closed persistence audit, and checkpoint/replay preparation.
+  That tranche must report source LOC honestly and must strictly reduce both
+  durable value count and state/sidecar bytes; it does not authorize adjacent
+  refactoring or speculative cache machinery.
 - **No weakened gates.** Fixing the baseline means porting or explicitly
   adjudicating tests, never skipping them to force green. Security-relevant
   coverage (path safety, CLI safety, secrets) must survive any porting.
@@ -134,7 +147,7 @@ seams that loosening defines.
 | ML | Provider at-least-once loosening | historical complete: selected at `e2e39422`; ML-1 at `9c14dae3`; ML-2 at `b8783f66`, tree `b833b03c`; ML-4 Tasks 1–4 at `c45928f4`, `b3370858`, `ed19624c`, and `758c67e0`, with closure through the commit containing this record | satisfied: 5 E2E passed; 156 owning adjudication tests passed; 3 lock-control tests passed with 120 deselected; broad non-security suite 9,714 passed, 19 skipped, 5 warnings |
 | MC | Common-helper consolidation | M0 complete; Q0-listed files deferred until Q0 closes | net LOC strictly negative; no residual private clones; touched-module suites green |
 | MR | Behavior-preserving structural refactors | per-tranche: MR-5a after M0; MR-1 after ML-1; MR-2 after ML; MR-3 with/after ML-2; MR-4 Q-coordinated | golden-parity gates per tranche; MR-1..MR-3 complete before M3 starts |
-| M2 | Persistence-parsimony design | ML complete; Q3 identity definition accepted; owner depth decision recorded | accepted design with executable feasibility fixtures for both components |
+| M2 | Persistence-parsimony design | selected: ML complete; Q3 identity accepted; owner depth fixed at component (a) | accepted pure-result replay design with one executable feasibility fixture |
 | M3 | Persistence implementation | M2 complete | per-tranche parity gates (below) |
 | M4 | Structural decomposition | M3 complete or owner-recorded M2/M3 no-go; owner M4 go decision | touched modules split along the then-current seams; full suite green; no behavior change |
 
@@ -295,40 +308,46 @@ deletion-bound exception), MR-5 scoped error-hygiene rider.
 
 ## Phase M2: Persistence-Parsimony Design
 
-One design document with two components, each with an executable
-feasibility fixture:
+**Status:** selected at the owner-recorded component-(a)-only depth. The
+candidate [Pure-Result Replay design](../design/workflow_lisp_pure_result_replay.md)
+passed `M2_FEASIBILITY_SPEC_APPROVED` then
+`M2_FEASIBILITY_QUALITY_APPROVED`. Its required
+public run/resume feasibility fixture is not yet landed, so M2 is not complete
+and M3a is not implementation-selected.
 
-- **(a) Pure-result replay.** Stop persisting pure node results; resume
-  recomputes them deterministically from persisted effect results
-  (principle 27; shared golden vectors). Semantics unchanged; ledger
-  shrinks; resume-compatibility checking narrows to effect boundaries.
-- **(b) Effect-identity memo keys.** Key each completed provider/command
-  attempt by call identity — composed prompt identity (Q3) plus input
-  digests plus call policy. Resume becomes memo-first: re-execute the
-  graph, hit the memo for every matching key, re-pay only misses, each
-  miss named. Positional resume remains as fallback during transition.
+The selected design stops persisting eligible successful compiler-generated
+pure-projection values and reconstructs them deterministically from validated
+bound inputs and durable effect results. It keeps effects and public workflow
+boundaries durable, excludes recurrent/loop state, and requires one executable
+fresh/interrupted-resume feasibility fixture with both-direction failure
+coverage.
 
-The design records the owner depth decision: (a) only, or (a)+(b); (b)
-presupposes the adopted at-least-once contract (amendment §Target
-Contract). It must
-state what (b) supersedes (the positional resume-compatibility machinery's
-runtime role) and what it must not touch (live regions are non-replayable
-and remain region-scoped; evidence records remain append-only; workflow
-public boundaries remain durable and typed).
+Component (b), effect-identity memo keys and memo-first resume, is not selected.
+It re-enters only under the M0 decision brief's named evidence: positional
+invalidation causes recovery re-spend in at least three distinct post-ML runs,
+or forces one full-workflow re-execution. No such evidence is recorded. If it
+re-enters, it must consume Q3's composed prompt/effect identity, state what
+positional machinery it supersedes, keep live regions non-replayable, preserve
+append-only evidence, and keep public boundaries durable and typed.
 
 ## Phase M3: Persistence Implementation
 
-Tranches, each with RED fixtures and its own gate:
+Potential tranches, each requiring selection, RED fixtures, and its own gate:
 
-- **3a** Pure-result elision. Gate: golden-run byte parity on diagnostics,
+- **3a** Pure-result elision: not selected until the M2 executable fixture and
+  design acceptance close. It is the only tranche admitted by the selected M2
+  depth. Gate: golden-run byte parity on diagnostics,
   artifacts, and settlement results between persisted and recomputed
   execution; measured ledger reduction recorded.
-- **3b** Identity keys: dual-write first (no behavior change), then
+- **3b** Identity keys: not selected; requires component-(b) re-entry and an
+  accepted design. If admitted, dual-write first (no behavior change), then
   memo-first resume behind a flag, then default flip. Gate at each step:
   resume parity on recorded fixture runs, plus one real interrupted-run
   resume with fresh output; named `memo_miss` diagnostics proven by
   fixture.
-- **3c** Loop-state checkpoint elision; mid-loop resume via replay+memo.
+- **3c** Loop-state checkpoint elision: not selected because its stated
+  replay+memo prerequisite is absent. If later admitted, mid-loop resume via
+  replay+memo.
   Gate: mid-list and mid-drain resume fixtures pass with no per-iteration
   checkpoint writes.
 
