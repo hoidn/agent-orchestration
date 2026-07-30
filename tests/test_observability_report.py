@@ -1244,7 +1244,9 @@ def test_failed_projection_envelope_treats_unchanged_current_step_as_forensic(
     assert error_type in markdown
 
 
-def test_snapshot_surfaces_provider_session_quarantine_and_metadata_paths(tmp_path: Path):
+def test_snapshot_preserves_historical_provider_session_quarantine_read_only_compatibility(
+    tmp_path: Path,
+):
     run_root = tmp_path / ".orchestrate" / "runs" / "run-session"
     (run_root / "logs").mkdir(parents=True)
     metadata_path = run_root / "provider_sessions" / "root.askprovider__v1.json"
@@ -1299,10 +1301,14 @@ def test_snapshot_surfaces_provider_session_quarantine_and_metadata_paths(tmp_pa
             }
         },
     }
+    state_file = run_root / "state.json"
+    state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    state_bytes_before = state_file.read_bytes()
 
     snapshot = build_status_snapshot(_load_bundle(tmp_path, workflow), state, run_root)
     md = render_status_markdown(snapshot)
 
+    assert state_file.read_bytes() == state_bytes_before
     assert snapshot["run"]["error"]["type"] == "provider_session_interrupted_visit_quarantined"
     assert snapshot["steps"][0]["output"]["provider_session"]["metadata_path"] == str(metadata_path)
     assert "provider_session_interrupted_visit_quarantined" in md

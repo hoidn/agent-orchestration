@@ -475,7 +475,11 @@ def test_state_only_report_rejects_ambiguous_debug_kind_discriminators(
     ) in captured.err
 
 
-def test_report_markdown_surfaces_provider_session_quarantine_context(tmp_path, capsys, monkeypatch):
+def test_report_markdown_preserves_historical_provider_session_quarantine_read_only_compatibility(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
     monkeypatch.chdir(tmp_path)
     runs_root = tmp_path / ".orchestrate" / "runs"
     run_id = "20260227T000008Z-hhhhhh"
@@ -527,6 +531,7 @@ artifacts:
         }
     }
     state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    state_bytes_before = state_file.read_bytes()
 
     result = report_workflow(
         run_id=run_id,
@@ -534,6 +539,7 @@ artifacts:
         format="md",
     )
 
+    assert state_file.read_bytes() == state_bytes_before
     assert result == 0
     out = capsys.readouterr().out
     assert "provider_session_interrupted_visit_quarantined" in out

@@ -3364,7 +3364,7 @@ def test_projection_resume_root_cli_audit_precedes_override_session_process_and_
     )
     assert manager.state is not None
     manager.state.error = {
-        "type": resume_command.PROVIDER_SESSION_QUARANTINE_ERROR,
+        "type": "provider_session_interrupted_visit_quarantined",
         "message": "stale quarantine must not preempt root projection audit",
         "context": {
             "metadata_path": "provider_sessions/private.json",
@@ -5018,6 +5018,182 @@ def _running_provider_session_state(
     }
 
 
+def _seed_public_provider_session_resume(
+    workspace: Path,
+    *,
+    run_id: str,
+    terminal_result: bool,
+) -> tuple[StateManager, object, Path]:
+    workflow_path = workspace / f"{run_id}.orc"
+    workflow_path.write_text(
+        "; test-only source identity for a validated provider-session bundle\n",
+        encoding="utf-8",
+    )
+    invocation_marker = workspace / f"{run_id}.provider-invocations"
+    provider_script = "\n".join(
+        [
+            "import json",
+            "from pathlib import Path",
+            f"marker = Path({str(invocation_marker)!r})",
+            "prior = marker.read_text(encoding='utf-8') if marker.exists() else ''",
+            "marker.write_text(prior + 'invoked\\n', encoding='utf-8')",
+            "print(json.dumps({'type': 'session.started', 'session_id': 'sess-fresh'}))",
+            "print(json.dumps({'type': 'assistant.message', 'role': 'assistant', 'text': 'completed'}))",
+            "print(json.dumps({'type': 'response.completed', 'session_id': 'sess-fresh'}))",
+        ]
+    )
+    bundle = WorkflowLoader(workspace).load_mapping(
+        {
+            "version": "2.10",
+            "name": f"provider-session-{run_id}",
+            "providers": {
+                "session_provider": {
+                    "command": ["python", "-c", provider_script],
+                    "input_mode": "stdin",
+                    "session_support": {
+                        "metadata_mode": "codex_exec_jsonl_stdout",
+                        "fresh_command": ["python", "-c", provider_script],
+                        "resume_command": [
+                            "python",
+                            "-c",
+                            provider_script + " # ${SESSION_ID}",
+                        ],
+                    },
+                }
+            },
+            "artifacts": {
+                "implementation_session_id": {
+                    "kind": "scalar",
+                    "type": "string",
+                }
+            },
+            "steps": [
+                {
+                    "name": "Implement",
+                    "id": "implement",
+                    "provider": "session_provider",
+                    "provider_session": {
+                        "mode": "fresh",
+                        "publish_artifact": "implementation_session_id",
+                    },
+                }
+            ],
+        },
+        workflow_path=workflow_path,
+    )
+    manager = StateManager(workspace, run_id=run_id)
+    manager.initialize(
+        workflow_path.as_posix(),
+        context=bundle_context_dict(bundle),
+    )
+    assert manager.state is not None
+    manager.state.status = "completed" if terminal_result else "failed"
+    manager.state.step_visits = {"Implement": 1}
+    manager.state.current_step = None
+    if terminal_result:
+        manager.state.steps = {
+            "Implement": {
+                "status": "completed",
+                "step_id": "root.implement",
+                "visit_count": 1,
+                "output": "committed",
+            }
+        }
+        manager.state.error = None
+    else:
+        manager.state.steps = {}
+        manager.state.error = {
+            "type": "provider_session_interrupted_visit_quarantined",
+            "message": "Historical interrupted visit.",
+            "context": {
+                "step_name": "Implement",
+                "step_id": "root.implement",
+                "visit_count": 1,
+            },
+        }
+    manager._write_state()
+    return manager, bundle, invocation_marker
+
+
+def test_resume_interrupted_provider_session_reruns_with_next_attempt(
+    temp_workspace: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    run_id = "resume-interrupted-provider-session"
+    manager, bundle, invocation_marker = _seed_public_provider_session_resume(
+        temp_workspace,
+        run_id=run_id,
+        terminal_result=False,
+    )
+
+    with caplog.at_level(logging.INFO), patch(
+        "os.getcwd",
+        return_value=str(temp_workspace),
+    ), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=bundle,
+    ):
+        result = resume_workflow(
+            run_id=run_id,
+            max_retries=0,
+            retry_delay_ms=0,
+        )
+
+    persisted = manager.load().to_dict()
+    rerun_events = [
+        record
+        for record in caplog.records
+        if record.getMessage() == "provider_attempt_interrupted_rerun"
+    ]
+    assert result == 0
+    assert invocation_marker.read_text(encoding="utf-8") == "invoked\n"
+    assert persisted["steps"]["Implement"]["status"] == "completed"
+    assert persisted["steps"]["Implement"]["step_id"] == "root.implement"
+    assert persisted["steps"]["Implement"]["visit_count"] == 2
+    assert persisted["step_visits"] == {"Implement": 2}
+    assert persisted.get("error") is None
+    assert len(rerun_events) == 1
+    assert rerun_events[0].provider_family == "session"
+    assert rerun_events[0].provider_step_id == "root.implement"
+    assert rerun_events[0].discarded_visit == 1
+    assert rerun_events[0].next_visit == 2
+
+
+def test_resume_completed_provider_session_reuses_without_invocation(
+    temp_workspace: Path,
+) -> None:
+    run_id = "resume-completed-provider-session"
+    manager, bundle, invocation_marker = _seed_public_provider_session_resume(
+        temp_workspace,
+        run_id=run_id,
+        terminal_result=True,
+    )
+
+    with patch(
+        "os.getcwd",
+        return_value=str(temp_workspace),
+    ), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=bundle,
+    ):
+        result = resume_workflow(
+            run_id=run_id,
+            max_retries=0,
+            retry_delay_ms=0,
+        )
+
+    persisted = manager.load().to_dict()
+    assert result == 0
+    assert not invocation_marker.exists()
+    assert persisted["steps"]["Implement"] == {
+        "status": "completed",
+        "step_id": "root.implement",
+        "visit_count": 1,
+        "output": "committed",
+    }
+    assert persisted["step_visits"] == {"Implement": 1}
+
+
 def test_interrupted_provider_visit_disposition_requests_rerun(
 ) -> None:
     guard = ResumePlanner().detect_interrupted_provider_session_visit(
@@ -5147,7 +5323,7 @@ def test_interrupted_provider_visit_default_resume_relaxes_only_missing_prior_bo
 def test_interrupted_provider_session_at_least_once_legacy_quarantine_marker_is_distinct(
 ) -> None:
     error = {
-        "type": resume_command.PROVIDER_SESSION_QUARANTINE_ERROR,
+        "type": "provider_session_interrupted_visit_quarantined",
         "message": "historical sticky quarantine",
         "context": {
             "step_name": "Implement",
