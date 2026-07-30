@@ -21,9 +21,10 @@ logic enters provider prompts.
 **Tech stack:** Python 3.13, pytest/xdist, persisted schema-2.1 run state,
 Workflow Lisp runtime plans, and subprocess crash/resume fixtures.
 
-**Status:** ML-0 reviewed-plan candidate. Implementation is not started and
-begins only after ordered specification then quality approval of the exact
-ML-0 specification-and-plan candidate and its selection commit.
+**Status:** ML-1 complete. ML-0 was selected at commit
+`e2e39422f8fe52ad35dd6a174bc108f65bcf2050`. Tasks 1–7, focused and broad
+non-security gates, and the final ordered reviews are complete. The commit
+containing this execution record closes ML-1 and hands off to ML-2.
 
 ## Authority and bounds
 
@@ -71,15 +72,15 @@ to come from ordinary guards and atomic result publication.
 - Modify: `tests/test_provider_peer_group_resume.py`
 - Modify: `tests/test_workflow_lisp_phased_delivery_runtime.py`
 
-- [ ] Add one RED fixture per ordinary/session/supervision/peer/phased route.
+- [x] Add one RED fixture per ordinary/session/supervision/peer/phased route.
   Each fixture must distinguish a committed result from an in-flight visit and
   prove that only the latter requests a fresh attempt.
-- [ ] Add both-direction integrity cases: one exact validated interrupted visit
+- [x] Add both-direction integrity cases: one exact validated interrupted visit
   becomes recoverable; malformed, ambiguous, or projection-mismatched state
   remains rejected before provider launch.
-- [ ] Characterize legacy sticky quarantine records separately from live
+- [x] Characterize legacy sticky quarantine records separately from live
   cursors.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest --collect-only -q \
@@ -109,7 +110,7 @@ to come from ordinary guards and atomic result publication.
 - Modify: `orchestrator/workflow/executor.py`
 - Modify: `tests/test_resume_command.py`
 
-- [ ] First add
+- [x] First add
   `test_interrupted_provider_visit_disposition_requests_rerun` and
   `test_interrupted_provider_visit_integrity_error_never_invokes_provider`.
   Run:
@@ -121,19 +122,19 @@ to come from ordinary guards and atomic result publication.
 
   Expected RED: the exact visit still returns a quarantine disposition; the
   no-launch negative remains green.
-- [ ] Replace quarantine decisions with an exact `rerun_interrupted_visit`
+- [x] Replace quarantine decisions with an exact `rerun_interrupted_visit`
   disposition after the existing family-specific integrity checks.
-- [ ] Implement one shared state mutation that validates the matching
+- [x] Implement one shared state mutation that validates the matching
   `current_step`, records an interrupted evidence disposition when an owning
   metadata file is available, clears only that cursor, clears a reconstructible
   legacy quarantine error, and leaves terminal results untouched.
-- [ ] Emit `provider_attempt_interrupted_rerun` once when ordinary dispatch is
+- [x] Emit `provider_attempt_interrupted_rerun` once when ordinary dispatch is
   about to re-pay the provider call. Include family, step id, discarded visit,
   and next visit in structured logging context without prompt prose.
-- [ ] Prove no provider invocation occurs when recovery preparation fails.
-- [ ] Run the Task 2 selectors and request independent specification review,
+- [x] Prove no provider invocation occurs when recovery preparation fails.
+- [x] Run the Task 2 selectors and request independent specification review,
   then quality review, once each.
-- [ ] Commit with subject `Replace provider quarantine with rerun recovery`.
+- [x] Commit with subject `Replace provider quarantine with rerun recovery`.
 
 ## Task 3: Migrate session and ordinary provider recovery
 
@@ -146,7 +147,7 @@ to come from ordinary guards and atomic result publication.
 - Modify: `tests/test_observability_report.py`
 - Modify: `tests/test_cli_report_command.py`
 
-- [ ] First add
+- [x] First add
   `test_resume_interrupted_provider_session_reruns_with_next_attempt` and
   `test_resume_completed_provider_session_reuses_without_invocation` to
   `tests/test_resume_command.py`. Run:
@@ -158,14 +159,14 @@ to come from ordinary guards and atomic result publication.
 
   Expected RED: the interrupted case persists the legacy quarantine; the
   completed-reuse control passes.
-- [ ] Make an interrupted session-enabled visit and any already-supported
+- [x] Make an interrupted session-enabled visit and any already-supported
   ordinary provider interruption re-enter normal execution with the next
   attempt identity.
-- [ ] Remove the session quarantine fast-fail constants and error rendering.
+- [x] Remove the session quarantine fast-fail constants and error rendering.
   Preserve read-only rendering of unrelated historical errors.
-- [ ] Prove a completed boundary still reuses the committed value with provider
+- [x] Prove a completed boundary still reuses the committed value with provider
   invocation count unchanged.
-- [ ] Run focused tests, ordered specification then quality review, and commit
+- [x] Run focused tests, ordered specification then quality review, and commit
   with subject `Rerun interrupted provider sessions`.
 
 ## Task 4: Migrate supervision and peer-group recovery
@@ -180,7 +181,7 @@ to come from ordinary guards and atomic result publication.
 - Modify: `tests/e2e/test_e2e_provider_supervision.py`
 - Modify: `tests/e2e/test_e2e_provider_peer_delivery.py`
 
-- [ ] First add
+- [x] First add
   `test_interrupted_supervision_visit_reruns_fresh_members` and
   `test_interrupted_peer_group_visit_reruns_fresh_members` in their owning
   resume modules. Run:
@@ -193,16 +194,16 @@ to come from ordinary guards and atomic result publication.
   ```
 
   Expected RED: both routes return their sticky quarantine failures.
-- [ ] Retain the exact cursor/visit checks and family cleanup, but replace the
+- [x] Retain the exact cursor/visit checks and family cleanup, but replace the
   terminal quarantine mutation with interrupted evidence plus fresh group
   visit dispatch.
-- [ ] Never reuse member panes, endpoints, attempts, provisional bundles, or
+- [x] Never reuse member panes, endpoints, attempts, provisional bundles, or
   settlement candidates from the discarded visit.
-- [ ] Preserve peer message ledgers as immutable partial evidence and preserve
+- [x] Preserve peer message ledgers as immutable partial evidence and preserve
   record-before-offer semantics for the fresh visit.
-- [ ] Prove each route emits one re-spend diagnostic and a malformed family
+- [x] Prove each route emits one re-spend diagnostic and a malformed family
   relationship still fails before member launch.
-- [ ] Run focused tests, ordered specification then quality review, and commit
+- [x] Run focused tests, ordered specification then quality review, and commit
   with subject `Rerun interrupted provider groups`.
 
 ## Task 5: Migrate phased-delivery recovery
@@ -216,7 +217,7 @@ to come from ordinary guards and atomic result publication.
 - Modify: `tests/test_workflow_lisp_phased_delivery_e2e.py`
 - Modify: `tests/e2e/test_e2e_provider_phased_contract_delivery.py`
 
-- [ ] First add
+- [x] First add
   `test_interrupted_phased_visit_reruns_from_task_turn_with_fresh_attempt` and
   its malformed-cursor no-launch negative. Run:
 
@@ -228,13 +229,13 @@ to come from ordinary guards and atomic result publication.
   Expected RED: the valid interruption produces
   `provider_phased_interrupted_visit_quarantined`; the malformed negative
   remains green.
-- [ ] Replace sticky phased quarantine with whole-visit discard-and-rerun.
-- [ ] Keep task/materialization turn partitioning, within-attempt
+- [x] Replace sticky phased quarantine with whole-visit discard-and-rerun.
+- [x] Keep task/materialization turn partitioning, within-attempt
   materialization retry, receipts, freeze, natural close/join, and joint
   publication unchanged.
-- [ ] Prove partial ledgers and candidates cannot become result authority and
+- [x] Prove partial ledgers and candidates cannot become result authority and
   that the fresh attempt starts from the task turn.
-- [ ] Run focused tests, ordered specification then quality review, and commit
+- [x] Run focused tests, ordered specification then quality review, and commit
   with subject `Rerun interrupted phased provider visits`.
 
 ## Task 6: Remove obsolete quarantine vocabulary
@@ -252,11 +253,11 @@ to come from ordinary guards and atomic result publication.
 - Modify: `tests/test_provider_peer_group_resume.py`
 - Modify: `tests/test_provider_phased_delivery_diagnostics.py`
 
-- [ ] Grep production code for
+- [x] Grep production code for
   `provider_*_interrupted_visit_quarantined` and
   `quarantined_interrupted_visit`; leave no active runtime producer or
   selector.
-- [ ] Before removing compatibility vocabulary, add
+- [x] Before removing compatibility vocabulary, add
   `test_active_runtime_exposes_no_interrupted_visit_quarantine_error_type` to
   `tests/test_resume_command.py`. Run:
 
@@ -267,24 +268,75 @@ to come from ordinary guards and atomic result publication.
 
   Expected RED: active production still exposes at least one legacy quarantine
   type.
-- [ ] Retain only narrowly named legacy-read compatibility if Task 3's fixture
+- [x] Retain only narrowly named legacy-read compatibility if Task 3's fixture
   proves it necessary; do not preserve an active quarantine route.
-- [ ] Run the complete ML-1 focused aggregate and a no-provider-launch negative
+- [x] Run the complete ML-1 focused aggregate and a no-provider-launch negative
   control.
-- [ ] Request ordered specification then quality review and commit with subject
+- [x] Request ordered specification then quality review and commit with subject
   `Retire provider interruption quarantine`.
 
 ## Task 7: Close ML-1
 
-- [ ] Run one subprocess kill-mid-provider crash/resume E2E for each of
+- [x] Run one subprocess kill-mid-provider crash/resume E2E for each of
   ordinary, session, supervision, peer, and phased. Each completes through a
   fresh attempt and emits exactly one
   `provider_attempt_interrupted_rerun`.
-- [ ] Run the repository-standard broad non-security suite with
+- [x] Run the repository-standard broad non-security suite with
   `pytest -q -n 16 --dist=worksteal`, excluding only the owner-directed
   security selectors.
-- [ ] Record exact commands, counts, hashes, commits, and remaining ML-2/ML-4
+- [x] Record exact commands, counts, hashes, commits, and remaining ML-2/ML-4
   handoff in this plan.
-- [ ] Request one final ordered specification review followed by one quality
+- [x] Request one final ordered specification review followed by one quality
   review. Replay only after a material finding.
-- [ ] Commit with subject `Close ML1 provider rerun recovery`.
+- [x] Commit with subject `Close ML1 provider rerun recovery`.
+
+## Execution record
+
+ML-0 selected the tranche at commit
+`e2e39422f8fe52ad35dd6a174bc108f65bcf2050`, tree
+`c35119ba87125f15b79e48b6bd0ffb6466f7b738`. The implementation commits are:
+
+- Task 2: `cf3a7a5cfeef0dd43919457a3f9fc875e5a41998`, tree
+  `83f424261838070d628735c2f118cc9d40f19789`;
+- Task 3: `da178b8b53ee3bf90df27f74fdcf021e24a489d7`, tree
+  `2a3313d989aea4e59be6dc8df4bec165b776be90`;
+- Task 4: `60d9370b0bc7af7bc3d3b3edb80f2fe066948535`, tree
+  `70a7660a8c87cbad9db4c5eab0b1ae8c2e3f24d3`;
+- Task 5: `79a1a88a3620a45006557a055a763dbd7545893d`, tree
+  `ffb7f1e413557b85f6d4c2f56b75687363376f95`; and
+- Task 6: `bf6fe7c7d95391ab4675e7cae38b744bc484313e`, tree
+  `93f28e07418a35356b058df68d15c3aaf9768941`.
+
+Task 7 verification:
+
+- `pytest --collect-only -q tests/test_provider_rerun_subprocess_e2e.py`
+  collected 5 cases. `pytest -q tests/test_provider_rerun_subprocess_e2e.py`
+  passed all 5. The fixture SHA-256 is
+  `35a16613675d17ba7b186e61a212b2634f20c6c758fcbaf2897ad1e1cdb7a0b4`.
+- The complete 14-module ML-1 focused aggregate passed 539 tests and skipped
+  6. Six explicit malformed/projection-mismatch controls passed without
+  provider launch.
+- The first broad command used only the keyword backstop and produced
+  9,975 passed, 19 skipped, and 5 failures: four stale quarantine
+  expectations and one explicitly excluded provider-launch-shim security
+  test. The four in-scope expectations were corrected without changing
+  production behavior; their exact selector passed 4 tests.
+- The authoritative repository-standard command used all 21 explicit
+  security/isolation `--ignore` selectors plus
+  `-k 'not security and not secret and not isolation and not safety'`. It
+  passed 9,687 tests and skipped 19 in 136.23 seconds.
+- `git diff --check` passed. The final Task 7 test-file SHA-256 values are
+  `92b0817f3db66f80d467f4d8ef31988db698c135f1804fbec000569ea72a6594`
+  for `tests/test_provider_peer_group_ir.py` and
+  `882a89e994fc58dab3fe9c917764dcb6012cfe2a02a8cb30081cff61779a754e`
+  for `tests/test_workflow_state_projection.py`.
+- Final specification review approved. Final quality review found one material
+  test-cleanup defect; after process-group cleanup was added, the single
+  permitted replay returned `ML1_FINAL_SPEC_APPROVED` followed by
+  `ML1_FINAL_QUALITY_APPROVED`. No other final review replay occurred.
+
+The next selected tranche is ML-2 under
+`2026-07-30-provider-attempt-allocator-simplification-component-plan.md`,
+followed by ML-4 under
+`2026-07-30-adjudication-rerun-recovery-component-plan.md`. ML-3,
+provider-isolation implementation, and every security surface remain excluded.

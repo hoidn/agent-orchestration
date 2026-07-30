@@ -4350,9 +4350,11 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "selected" in normalized_ml
     assert "ml 0" in normalized_ml
     assert "normative contract" in normalized_ml
-    assert "implementation pending" in normalized_ml
-    assert "ml 0" in normalized_ml
-    assert "specification amendment" in normalized_ml
+    assert "ml 1 is complete under its reviewed component plan" in normalized_ml
+    assert "task 7 verification" in normalized_ml
+    assert "final ordered reviews passed" in normalized_ml
+    assert "ml 2 is current" in normalized_ml
+    assert "e2e39422f8fe52ad35dd6a174bc108f65bcf2050" in ml_section
     for component_plan in (
         ML1_PROVIDER_RECOVERY_PLAN_PATH,
         ML2_PROVIDER_ALLOCATOR_PLAN_PATH,
@@ -4369,16 +4371,12 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     )
     assert "m0 is historical complete" in normalized_substrate_index_route
     assert "m1 is historical complete" in normalized_substrate_index_route
-    assert "ml is selected" in normalized_substrate_index_route
-    assert "ml 0 is the current selection candidate" in (
+    assert "ml was selected" in normalized_substrate_index_route
+    assert "is historical complete under its reviewed component plan" in (
         normalized_substrate_index_route
     )
-    assert "normative specification amendment" in (
-        normalized_substrate_index_route
-    )
-    assert "runtime implementation remains pending" in (
-        normalized_substrate_index_route
-    )
+    assert "ml 2 allocator simplification" in normalized_substrate_index_route
+    assert "is current" in normalized_substrate_index_route
 
     normalized_plan = _normalized_routing_text(m1_plan)
     normalized_plan_header = _normalized_routing_text(

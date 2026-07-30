@@ -921,7 +921,7 @@ def test_resume_planner_rejects_inconsistent_projection_compatibility_fields(
     assert exc_info.value.context["field"] == field
 
 
-def test_resume_planner_quarantines_provider_session_visits_without_current_step_name(tmp_path: Path):
+def test_resume_planner_reruns_interrupted_provider_session_visits_without_current_step_name(tmp_path: Path):
     workflow_path = _write_provider_session_projection_workflow(tmp_path)
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
@@ -949,7 +949,7 @@ def test_resume_planner_quarantines_provider_session_visits_without_current_step
     )
 
     assert guard == {
-        "kind": "quarantine",
+        "kind": "rerun_interrupted_visit",
         "step_name": "StartImplementation",
         "step_id": "root.start_implementation",
         "visit_count": 2,
@@ -958,7 +958,7 @@ def test_resume_planner_quarantines_provider_session_visits_without_current_step
     }
 
 
-def test_resume_planner_quarantines_provider_session_visits_when_legacy_step_order_drifts(tmp_path: Path):
+def test_resume_planner_reruns_interrupted_provider_session_visits_when_legacy_step_order_drifts(tmp_path: Path):
     workflow_path = _write_provider_session_projection_workflow(tmp_path)
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
@@ -977,7 +977,7 @@ def test_resume_planner_quarantines_provider_session_visits_when_legacy_step_ord
     )
 
     assert guard == {
-        "kind": "quarantine",
+        "kind": "rerun_interrupted_visit",
         "step_name": "StartImplementation",
         "step_id": "root.start_implementation",
         "visit_count": 2,
@@ -1013,7 +1013,7 @@ def test_resume_planner_requires_projection_for_restart_index() -> None:
         planner.determine_restart_index({"steps": {}})
 
 
-def test_resume_planner_quarantines_provider_session_visits_from_projection_without_runtime_steps(
+def test_resume_planner_reruns_interrupted_provider_session_visits_from_projection_without_runtime_steps(
     tmp_path: Path,
 ):
     workflow_path = _write_provider_session_projection_workflow(tmp_path)
@@ -1043,7 +1043,7 @@ def test_resume_planner_quarantines_provider_session_visits_from_projection_with
     )
 
     assert guard == {
-        "kind": "quarantine",
+        "kind": "rerun_interrupted_visit",
         "step_name": "StartImplementation",
         "step_id": "root.start_implementation",
         "visit_count": 2,

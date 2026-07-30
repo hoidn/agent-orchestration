@@ -884,7 +884,7 @@ def test_classic_authored_mapping_cannot_construct_provider_peer_group(
     )
 
 
-def test_production_projection_quarantines_interrupted_peer_group_visit() -> None:
+def test_production_projection_reruns_interrupted_peer_group_visit() -> None:
     _, node = _workflow(_config())
     projection = _production_projection(node)
 
@@ -911,7 +911,7 @@ def test_production_projection_quarantines_interrupted_peer_group_visit() -> Non
         == "provider_peer_group"
     )
     assert guard == {
-        "kind": "quarantine",
+        "kind": "rerun_interrupted_visit",
         "step_name": "Peers",
         "step_id": "root.peers",
         "node_id": "root.peers",
