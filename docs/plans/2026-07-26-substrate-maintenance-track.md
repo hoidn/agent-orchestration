@@ -1,15 +1,18 @@
 # Substrate Maintenance And Persistence Parsimony Track
 
 - **Status:** active substrate track; shape owner-approved 2026-07-26. M0 is
-  selected and in progress under the reviewed
+  an implemented closure candidate under the reviewed
   [M0 Green Baseline Implementation Plan](2026-07-29-m0-green-baseline-component-plan.md).
-  M1 remains ineligible until M0's green gate closes and then requires its
-  own reviewed component plan before selection. Amendment phases ML, MC, MR
-  and the M1 inventory extension were adopted into this shape 2026-07-26 by
-  owner direction (provider-repeat cost model and incorporation request). No
-  other phase is selected by listing: ML, MC, MR, and M4 each require their
-  own component plan, M2 requires an accepted design, and ML additionally
-  requires its ML-0 reviewed spec amendment before execution.
+  The focused and authoritative bare gates are green; only final ordered
+  reviews, the exact-byte commit, and the post-commit control remain. M0 is
+  not complete. M1 remains ineligible and unselected until the exact reviewed
+  M0 candidate is committed and its post-commit control passes, and then
+  requires its own reviewed component plan before selection. Amendment phases
+  ML, MC, MR and the M1 inventory extension were adopted into this shape
+  2026-07-26 by owner direction (provider-repeat cost model and incorporation
+  request). No other phase is selected by listing: ML, MC, MR, and M4 each
+  require their own component plan, M2 requires an accepted design, and ML
+  additionally requires its ML-0 reviewed spec amendment before execution.
 - **Relation:** parallel substrate track beside the active
   `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`
   (Q/L tracks). Two junctions: M2 consumes Q3's prompt/effect identity
@@ -38,12 +41,27 @@
   are recorded in the
   [M0 decision brief](../reports/2026-07-26-m0-decision-brief.md) and the
   reviewed
-  [M0 component plan](2026-07-29-m0-green-baseline-component-plan.md).
-- **Remaining M0 closure:** no M0 ruling remains pending. Only bounded M0
-  closure work remains pending under the reviewed component plan: the
-  replacement-rule diagnostic pointer, two landed `let-proc` fixture route
-  rows, the retirement-artifact diagnostic projection, and the green-baseline
-  gate and final reviews.
+  [M0 component plan](2026-07-29-m0-green-baseline-component-plan.md). The
+  fail-closed replacement-rule pointer landed at `b21679c7`, the two ordinary
+  `let-proc` route rows at `ebbcb8a3`, and the exact retirement diagnostic
+  projection at `1a049620`.
+- **Remaining M0 closure:** no M0 ruling remains pending. The implementation,
+  metadata repairs, focused gate, and authoritative bare green gate are an
+  implemented closure candidate. Only final ordered reviews, the exact-byte
+  commit, and the post-commit control remain; none may be inferred from the
+  candidate itself.
+- **Adjacent completed context:** L4 is complete at commit
+  `251d9d53674e863fddae4535ea4f7022914287cd`, tree
+  `e2417d395cbcabe9adaffb136759ebff3d42b677`, under external closure-record
+  SHA-256
+  `94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804`.
+  Q4 is complete at commit
+  `f3335637b90feb0a87ac4c538bafac7704ac0d87`, tree
+  `ccec170be8757c9e4fd5ed8ece6f93b04fc03299`, under external closure-record
+  SHA-256
+  `85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c`.
+  These hashes are non-authoritative M0 context only. Task 5 neither edits nor
+  re-reviews the unchanged owning Q/L routers and does not reopen either gate.
 - **Later-phase defaults remain recorded, not currently pending:** M2 defaults
   to pure-result replay only unless its named re-entry evidence appears; M4
   defaults to the bounded executor/validation split if its entry conditions
@@ -91,7 +109,7 @@ seams that loosening defines.
 
 | Phase | Work | Entry condition | Completion gate |
 | --- | --- | --- | --- |
-| M0 | Green baseline | selected and in progress under the reviewed [M0 component plan](2026-07-29-m0-green-baseline-component-plan.md) | bare `pytest` collects without error and passes with no retained-failure set |
+| M0 | Green baseline | implemented closure candidate under the reviewed [M0 component plan](2026-07-29-m0-green-baseline-component-plan.md); final ordered reviews, exact-byte commit, and post-commit control pending | bare `pytest` collects without error and passes with no retained-failure set; exact reviewed bytes are committed and the post-commit control passes |
 | M1 | Estate shrink + adopted inventory extension | completed M0 green gate; own reviewed component plan selected | broad non-security suite green after deletions; capability/routing docs flipped to historical |
 | ML | Provider at-least-once loosening | M1 complete; Q0 implementation gate passed; ML-0 spec amendment reviewed and landed | amendment per-tranche gates; kill-mid-provider crash-resume E2E green; broad non-security suite green |
 | MC | Common-helper consolidation | M0 complete; Q0-listed files deferred until Q0 closes | net LOC strictly negative; no residual private clones; touched-module suites green |
@@ -102,10 +120,11 @@ seams that loosening defines.
 
 ## Phase M0: Green Baseline
 
-**Selection:** selected and in progress under the reviewed
+**Selection:** implemented closure candidate under the reviewed
 [M0 Green Baseline Implementation Plan](2026-07-29-m0-green-baseline-component-plan.md).
-Its bounded work preserves the current fail-closed entry-bootstrap eligibility
-rule and does not begin or prepare M1.
+Its bounded implementation preserves the current fail-closed entry-bootstrap
+eligibility rule and does not begin or prepare M1. Final ordered reviews, the
+exact-byte commit, and the post-commit control remain pending.
 
 Scope:
 
@@ -125,14 +144,30 @@ Scope:
    hidden-context gate) per owner rulings; each is a small fix once ruled.
 5. Remove the inert capture-window commit hook and its closed marker file.
 
-Gate: fresh `pytest` output showing clean collection and a green run (or an
-explicit, minimal, per-test-adjudicated skip list), committed as evidence.
+Pre-review evidence at baseline HEAD
+`1a049620c01e8ee929f3d4fefec37b909b3a41ec`, tree
+`274cf99dbb0554d11bdf54307d9bb8fd918a4a5a`: exact focused ownership run
+**740 passed in 38.72s** (exit `0`, log SHA-256
+`9e7fb0a058cffa2e3eb6e8b7a5e0d6b42ec60f7afcabb2b982ca14d03b9ace81`);
+repository-standard xdist control **3 failed, 12,224 passed, 28 skipped,
+90 warnings in 168.46s** (exit `1`, log SHA-256
+`e78dd7862c555dec6109e3831195c750cdc44043d0508d994ff1a675a5675138`),
+with all three xdist-only shared-path races disclosed and passing together in
+serial isolation; authoritative bare run **12,227 passed, 28 skipped in
+1229.78s** (exit `0`, zero collection errors/failures, log SHA-256
+`5b63aca18c2c013395aecede0210e4b522f7c846549ed23d879505635f226810`).
+The xdist result is not a pass.
+
+Gate: the fresh bare result satisfies the implementation-side green
+requirement. M0 remains incomplete until ordered final reviews approve the
+exact candidate, those bytes are committed, and the post-commit focused
+control passes.
 
 ## Phase M1: Estate Shrink
 
-**Eligibility:** ineligible and unselected while M0 is in progress. M1 requires
-the completed M0 green gate and its own reviewed component plan before
-selection.
+**Eligibility:** ineligible and unselected while M0 is an uncommitted closure
+candidate. M1 requires that the exact reviewed M0 candidate is committed, its
+post-commit control passes, and its own reviewed component plan is selected.
 
 Scope:
 

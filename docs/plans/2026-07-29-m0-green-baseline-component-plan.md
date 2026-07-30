@@ -19,6 +19,11 @@ frozen historical artifacts.
 **Tech Stack:** Python 3.13, pytest, Workflow Lisp Stage-3/WCC M4 compiler,
 JSON route-readiness and retirement fixtures, Git.
 
+**Status:** implemented closure candidate. Tasks 1–4 are committed and the
+Task 5 focused and authoritative serial gates are green. Final ordered
+reviews, the exact-byte commit, and the post-commit control remain pending.
+M0 is not complete, and M1 remains ineligible and unselected.
+
 ---
 
 ## Authority, selection, and bounds
@@ -89,6 +94,20 @@ This is a disposition, not a claim that a name allowlist is the desired
 long-term model. It closes the unsafe Task 2 instruction in
 `docs/plans/2026-07-23-refusal-diagnosability-fixes-plan.md` without changing
 entry-bootstrap eligibility.
+
+Prior adjacent closure context is already settled outside M0: L4 is complete
+at commit `251d9d53674e863fddae4535ea4f7022914287cd`, tree
+`e2417d395cbcabe9adaffb136759ebff3d42b677`, under external closure-record
+SHA-256
+`94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804`;
+Q4 is complete at commit `f3335637b90feb0a87ac4c538bafac7704ac0d87`,
+tree `ccec170be8757c9e4fd5ed8ece6f93b04fc03299`, under external
+closure-record SHA-256
+`85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c`.
+These hashes are non-authoritative M0 context only. The unchanged owning Q/L
+routers were not edited or re-reviewed by Task 5. Recording this context does
+not reopen either gate and supplies no authority to alter Q4, L4, provider, or
+security behavior.
 
 ---
 
@@ -180,7 +199,7 @@ Select M0 green baseline closure
 - Test: `tests/test_workflow_lisp_key_migrations.py`
 - Test: `tests/test_resume_command.py`
 
-- [ ] **Step 1: Write the two RED assertions**
+- [x] **Step 1: Write the two RED assertions**
 
 Extend
 `test_compile_stage3_entrypoint_names_the_denied_gate_for_unexported_non_magic_name_entry_workflow`
@@ -199,7 +218,7 @@ to assert that the same coded note and replacement-rule ID accompany the
 existing `workflow_signature_mismatch`. Do not alter its rejection
 expectation.
 
-- [ ] **Step 2: Run the two tests and verify RED**
+- [x] **Step 2: Run the two tests and verify RED**
 
 Run:
 
@@ -212,7 +231,7 @@ pytest -q \
 Expected before implementation: both fail because the replacement-rule
 identifier/pointer is absent.
 
-- [ ] **Step 3: Change only the diagnostic**
+- [x] **Step 3: Change only the diagnostic**
 
 Keep `_selected_entry_hidden_context_omission_callees` byte-for-byte unchanged.
 Extend `_entry_bootstrap_name_gate_denial` so its existing note ends with:
@@ -226,7 +245,7 @@ The exact punctuation may be adjusted for one-line readability, but both the
 stable identifier and path must be literal and behavior must remain
 fail-closed.
 
-- [ ] **Step 4: Run the eight-control bootstrap gate**
+- [x] **Step 4: Run the eight-control bootstrap gate**
 
 Run:
 
@@ -266,7 +285,7 @@ accepted Task 1 head is the diagnostic-note text inside
 `_entry_bootstrap_name_gate_denial`; the eligibility helper and accept/deny
 branches are unchanged.
 
-- [ ] **Step 5: Close the bounded refusal-plan status**
+- [x] **Step 5: Close the bounded refusal-plan status**
 
 Before review, mark the refusal plan complete for its bounded diagnosability
 objective: Task 1 named the denial, the amended Task 2 records the rejected
@@ -274,7 +293,7 @@ unsafe widening and points to its deferred replacement rule, and Task 3 proves
 no promoted-route identity drift. This status change is part of the exact
 candidate reviewed in Step 6.
 
-- [ ] **Step 6: Obtain ordered task reviews and commit**
+- [x] **Step 6: Obtain ordered task reviews and commit**
 
 Required verdicts:
 
@@ -300,7 +319,7 @@ Point M0 entry refusal to its replacement rule
 - Test: `tests/test_workflow_lisp_route_readiness.py`
 - Test: `tests/test_workflow_lisp_design_delta_smoke.py`
 
-- [ ] **Step 1: Preserve the RED baseline**
+- [x] **Step 1: Preserve the RED baseline**
 
 Run:
 
@@ -317,7 +336,7 @@ tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse_let_p
 tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse_let_proc_in_proc.orc
 ```
 
-- [ ] **Step 2: Append two ordinary registry rows**
+- [x] **Step 2: Append two ordinary registry rows**
 
 Use the existing adjacent proc/proc-ref rows as the schema template. Add:
 
@@ -342,7 +361,7 @@ and the identical shape for
 ID `[item-ctx-let-proc-in-proc]` and the corresponding surface ID. Refresh
 only the registry's `updated` date.
 
-- [ ] **Step 3: Run the exact GREEN controls**
+- [x] **Step 3: Run the exact GREEN controls**
 
 Run:
 
@@ -357,7 +376,7 @@ python -m orchestrator workflow-lisp-route-readiness \
 
 Expected: tests pass; the CLI returns zero issues and `overall_pass: true`.
 
-- [ ] **Step 4: Commit the registry repair**
+- [x] **Step 4: Commit the registry repair**
 
 Suggested subject:
 
@@ -374,7 +393,7 @@ Register M0 let-proc route fixtures
 - Modify: `tests/test_workflow_lisp_procedure_identity_retirement.py`
 - Test: `tests/test_workflow_lisp_procedure_identity_retirement.py`
 
-- [ ] **Step 1: Preserve the RED baseline and semantic census**
+- [x] **Step 1: Preserve the RED baseline and semantic census**
 
 Run:
 
@@ -397,7 +416,7 @@ new typed workflow 0: entry_bootstrap_gate_denial = coded denial for `orchestrat
 All other production artifacts must be canonically equal. Fail closed if the
 delta contains any fourth row or any other field.
 
-- [ ] **Step 2: Write an exact diagnostic-only projection**
+- [x] **Step 2: Write an exact diagnostic-only projection**
 
 Add a test-local helper that deep-copies a typed frontend artifact and removes
 `signature.entry_bootstrap_gate_denial` only after asserting the complete
@@ -420,7 +439,7 @@ Do not add `entry_bootstrap_gate_denial` to
 `_canonical_production_artifact`'s general exclusions. Do not modify any
 fixture or hash.
 
-- [ ] **Step 3: Run exact both-direction checks**
+- [x] **Step 3: Run exact both-direction checks**
 
 Run:
 
@@ -436,7 +455,7 @@ unexpected signature field through the helper and assert both fail closed.
 Expected: four pass (one historical projection, two reproduction parameters,
 one negative).
 
-- [ ] **Step 4: Run the retirement module**
+- [x] **Step 4: Run the retirement module**
 
 Run:
 
@@ -448,7 +467,7 @@ Expected: the complete module passes, including literal-hash validation,
 production reproduction, identity-table coverage, tamper negatives, and
 root-independent reproduction.
 
-- [ ] **Step 5: Commit the exact reproduction projection**
+- [x] **Step 5: Commit the exact reproduction projection**
 
 Suggested subject:
 
@@ -466,11 +485,11 @@ Preserve retirement fixtures across M0 diagnostics
 - Modify: `docs/plans/2026-07-26-substrate-maintenance-track.md`
 - Modify: `docs/reports/2026-07-26-m0-decision-brief.md`
 - Modify: `docs/index.md`
-- Modify: `docs/capability_status_matrix.md`
+- Verify unchanged: `docs/capability_status_matrix.md`
 - Modify: `tests/test_workflow_lisp_drain_roadmap_routing.py`
 - Create externally: `/home/ollie/.tmp/m0-green-baseline-20260729/`
 
-- [ ] **Step 1: Run focused M0 ownership checks**
+- [x] **Step 1: Run focused M0 ownership checks**
 
 Run:
 
@@ -496,7 +515,7 @@ Expected: collection succeeds and the exact focused set passes with no
 M0-owned failure. The safety/secrets modules are unchanged verification inputs
 for the already-landed loader-test ports, not new security feature work.
 
-- [ ] **Step 2: Run the repository-standard broad control in tmux**
+- [x] **Step 2: Run the repository-standard broad control in tmux**
 
 Run from the repository root:
 
@@ -509,7 +528,7 @@ directory. Any failure must be classified from fresh output. An xdist-only
 repository-read-only digest race may be checked isolated, but it is not
 silently removed, skipped, or reclassified as a product pass.
 
-- [ ] **Step 3: Run the authoritative bare M0 gate in tmux**
+- [x] **Step 3: Run the authoritative bare M0 gate in tmux**
 
 Run:
 
@@ -521,7 +540,7 @@ The completion requirement is zero collection errors, zero failures, and no
 known-failure-set comparison. Store the complete log, exit status, totals,
 HEAD/tree, and SHA-256 under the external M0 evidence directory.
 
-- [ ] **Step 4: Update durable status**
+- [x] **Step 4: Update durable status**
 
 Only after the bare gate is green:
 
@@ -537,6 +556,58 @@ Only after the bare gate is green:
 - keep M1 **ineligible and unselected** until the exact reviewed M0 candidate
   is committed and its post-commit control passes; and
 - update routing tests to lock those statements.
+
+#### Pre-review Task 5 evidence
+
+All commands ran from the repository root against baseline HEAD
+`1a049620c01e8ee929f3d4fefec37b909b3a41ec`, tree
+`274cf99dbb0554d11bdf54307d9bb8fd918a4a5a`, before this metadata-only
+candidate. Complete logs and exit files are external under
+`/home/ollie/.tmp/m0-green-baseline-20260729/`.
+
+- Baseline capture: clean porcelain status, exit `0`; log SHA-256
+  `e8e87a490cde9e6b9e9692445d6a8f741a4374cbc6579e83a2f79bf96e91afc6`.
+- Exact collection command: **544 tests collected in 3.05s**, exit `0`;
+  log SHA-256
+  `52c46349ce072d993af985bf7f01edd730f43cb808d3abf5bd2cbd1c5832fa05`.
+- Exact focused command: **740 passed in 38.72s**, exit `0`; log SHA-256
+  `9e7fb0a058cffa2e3eb6e8b7a5e0d6b42ec60f7afcabb2b982ca14d03b9ace81`.
+- Repository-standard xdist control: **3 failed, 12,224 passed, 28 skipped, 90 warnings in 168.46s**,
+  exit `1`; log SHA-256
+  `e78dd7862c555dec6109e3831195c750cdc44043d0508d994ff1a675a5675138`.
+  The xdist control did not pass. Its three failures were classified from
+  their complete tracebacks: two provider-isolation tests observed concurrent
+  mutation of the shared `/tmp` ancestor identity while another worker
+  created pytest paths, and the real-repository L5 read-only test observed a
+  concurrent `.orchestrate/build` digest change. The exact three nodes passed
+  together in serial isolation: **3 passed in 60.82s**, exit `0`; log SHA-256
+  `86756ac89dd9a195d88082767e6e1510b016e505667818b73e6c91b4826cd759`.
+  This isolation is classification evidence only; it does not convert the
+  xdist result into a pass. No product change, skip, or reclassification was
+  made.
+- Authoritative bare command: **12,227 passed, 28 skipped in 1229.78s**,
+  exit `0`, with zero collection errors and zero failures; log SHA-256
+  `5b63aca18c2c013395aecede0210e4b522f7c846549ed23d879505635f226810`.
+- Routing metadata TDD: the new M0 selector first failed **1 test in 1.44s**
+  against the stale index, exit `1`; RED log SHA-256
+  `dd8d5b15dbba488ded8de02ba3e2449f0f3887e782229c2f07da0d1f29cc723d`.
+  Final module collection found **66 tests in 1.00s**, exit `0`, log SHA-256
+  `e39e910bf380104b56bc22f3af8b198b09c05be3f13527ad70e51e544b220ced`;
+  the full routing module then passed **66 tests in 1.45s**, exit `0`, log
+  SHA-256
+  `a477d3c4b5eb994c0e57b631ab6d6bbdc52e86b6cf1bc4d3c6c94fbbfa5dedef`.
+- Pre-review execution of the future post-commit selector passed **418 tests
+  in 15.46s**, exit `0`; log SHA-256
+  `b36409abda79f1d154db77a6314205b8aec1687c15ee8f3347855410c6f8e203`.
+  This is candidate evidence only and does not satisfy Step 6's required
+  post-commit control.
+
+The zero-valued exit files share SHA-256
+`9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa`;
+the xdist and RED-routing exit files contain `1` and share SHA-256
+`4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865`.
+The exact evidence-file inventory and candidate diff hash will be bound in
+the external candidate manifest before ordered review.
 
 - [ ] **Step 5: Obtain ordered final reviews**
 

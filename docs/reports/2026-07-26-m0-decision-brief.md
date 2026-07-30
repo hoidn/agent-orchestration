@@ -1,10 +1,12 @@
 # M0 Decision Brief: Retained Failures, Typecheck Divergences, And Frontloaded Defaults
 
-- **Status:** investigation brief with recommended rulings and recorded
-  defaults, produced 2026-07-26 to frontload the substrate track's open
-  owner decisions. Owner countersign happens at M0 component-plan review;
-  every default below names the evidence that reopens it. Fresh command
-  output cited here was produced on this checkout on 2026-07-26.
+- **Status:** recorded rulings and frontloaded defaults. The reviewed M0
+  component plan countersigned the decisions below, their bounded work is
+  landed, and no M0 ruling remains pending. M0 is an implemented closure
+  candidate with final ordered reviews, exact-byte commit, and post-commit
+  control still pending; this brief does not declare M0 complete. Every
+  future-phase default below retains the evidence that reopens it. The
+  original investigation command output was produced on 2026-07-26.
 - **Consumes:** `docs/plans/2026-07-26-substrate-maintenance-track.md`
   (decision list), `specs/io.md` (bundle/exit contract),
   `docs/plans/2026-07-07-typecheck-family-completion.md` (divergence
@@ -31,13 +33,13 @@ track's "four" dates from track creation and is stale.
 
 ### 1a. `test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence` — PASSES
 
-Recommended ruling: drop from the retained set; no code action. Fixed at
-some point between Stage 6 and tonight (the Stage-8 plan already recorded
-only two retained identities).
+Recorded disposition: drop from the retained set; no code action. It was
+already passing before the M0 adjudication commit (the Stage-8 plan already
+recorded only two retained identities).
 
 ### 1b. `test_compiled_bundle_semantic_ir_preserves_command_boundary_classification` — PASSES
 
-Recommended ruling: identical to 1a.
+Recorded disposition: identical to 1a.
 
 ### 1c. `test_provider_valid_output_bundle_overrides_raw_nonzero_exit` — FAILS (`assert 2 == 0`)
 
@@ -52,7 +54,7 @@ exactly the current behavior and passes. The failing test also runs on the
 YAML-era dict-workflow harness (`tests/workflow_fixture_loader.py`
 `WorkflowLoader`, `"version": "1.3"` mapping workflows).
 
-Recommended ruling: **retire the test node** with rationale
+Recorded ruling, landed at `b16a49f5`: **retire the test node** with rationale
 "asserts the retired bundle-overrides-exit contract; contradicted by
 `specs/io.md:44-48`; current behavior owned by
 `test_nonzero_exit_skips_output_bundle_validation`". Porting it to `.orc`
@@ -71,11 +73,11 @@ The test's other exclusions (`_surface_step`, `_surface_workflow`,
 `typed_workflow`) still hold — the surface-AST-leak ban remains valid; the
 blanket substring scan predates the provenance field.
 
-Recommended ruling: **update the test** to keep the surface-AST/internal
-exclusions and permit `form_path` only inside `provenance` records (e.g.
-strip `provenance` values before the substring scan). Companion doc
-action: record the `provenance` field in the executable-IR contract row of
-the owning design doc if it is not yet named there.
+Recorded ruling, landed at `b16a49f5`: **update the test** to keep the
+surface-AST/internal exclusions and permit `form_path` only inside
+`provenance` records by stripping provenance values before the substring
+scan. The same commit records the `provenance` field in the owning
+executable-IR design contract.
 
 ## 2. Typecheck-Family Deferred Divergences — Current State And Default Rulings
 
@@ -270,8 +272,10 @@ reopens an item.
 ## 4. Net Decision-Queue Effect
 
 Before: six open decision groups gating M0 items 2/4 and future phase
-entries. After: items (1)/(2) carry recommended rulings awaiting M0
-component-plan countersign; (3)/(4)/(6) are recorded defaults with named
-re-entry evidence; (5) is ruled. No open item requires a synchronous owner
-meeting; M0's component plan can be drafted immediately against this
-brief.
+entries. After: all M0 rulings are recorded and the reviewed component plan
+countersigned them. The output/IR dispositions landed at `b16a49f5`; the
+extern-operand, dead-local, and `let-proc` dispositions landed at `6620f186`,
+`ae67ea16`, `6182ae48`, and `7dcd177c`. Future-phase defaults retain their
+named re-entry evidence. No M0 decision remains open; only the closure
+candidate's final ordered reviews, exact-byte commit, and post-commit control
+remain outside this brief.

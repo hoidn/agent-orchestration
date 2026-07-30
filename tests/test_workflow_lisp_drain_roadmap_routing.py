@@ -4263,7 +4263,7 @@ def test_phased_contract_delivery_routes_completed_surface() -> None:
     )
 
 
-def test_m0_green_baseline_component_plan_is_selected_without_widening_entry_bootstrap() -> None:
+def test_m0_green_baseline_routes_an_uncommitted_closure_candidate_without_widening_entry_bootstrap() -> None:
     track = (REPO_ROOT / SUBSTRATE_MAINTENANCE_TRACK_PATH).read_text(
         encoding="utf-8"
     )
@@ -4274,6 +4274,9 @@ def test_m0_green_baseline_component_plan_is_selected_without_widening_entry_boo
         encoding="utf-8"
     )
     index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
+    decision_brief = (
+        REPO_ROOT / "docs/reports/2026-07-26-m0-decision-brief.md"
+    ).read_text(encoding="utf-8")
 
     assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in track
     assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in index
@@ -4284,9 +4287,13 @@ def test_m0_green_baseline_component_plan_is_selected_without_widening_entry_boo
             "### [M0 Green Baseline Implementation Plan]",
         )
     )
-    assert "selected and in progress" in normalized_index_section
+    assert "implemented closure candidate" in normalized_index_section
+    assert "final ordered reviews" in normalized_index_section
+    assert "exact byte commit" in normalized_index_section
+    assert "post commit control" in normalized_index_section
+    assert "m0 is not complete" in normalized_index_section
     assert "m1 remains ineligible" in normalized_index_section
-    assert "m0 green gate closes" in normalized_index_section
+    assert "exact reviewed m0 candidate is committed" in normalized_index_section
     assert "own reviewed component plan" in normalized_index_section
 
     m0_section = track.split("## Phase M0: Green Baseline", 1)[1].split(
@@ -4294,7 +4301,10 @@ def test_m0_green_baseline_component_plan_is_selected_without_widening_entry_boo
         1,
     )[0]
     normalized_m0 = _normalized_routing_text(m0_section)
-    assert "selected and in progress" in normalized_m0
+    assert "implemented closure candidate" in normalized_m0
+    assert "final ordered reviews" in normalized_m0
+    assert "exact byte commit" in normalized_m0
+    assert "post commit control" in normalized_m0
     assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in m0_section
 
     track_header = track.split("## Objective", 1)[0]
@@ -4313,19 +4323,16 @@ def test_m0_green_baseline_component_plan_is_selected_without_widening_entry_boo
         "ae67ea16",
         "6182ae48",
         "7dcd177c",
+        "b21679c7",
+        "ebbcb8a3",
+        "1a049620",
     ):
         assert landed_commit in track_header
     assert "no m0 ruling remains pending" in normalized_track_header
-    assert "only bounded m0 closure work remains pending" in (
+    assert "implemented closure candidate" in normalized_track_header
+    assert "only final ordered reviews, the exact byte commit, and the post commit control remain" in (
         normalized_track_header
     )
-    for bounded_remainder in (
-        "replacement rule diagnostic pointer",
-        "two landed let proc fixture route rows",
-        "retirement artifact diagnostic projection",
-        "green baseline gate and final reviews",
-    ):
-        assert bounded_remainder in normalized_track_header
     assert "later phase defaults remain recorded" in normalized_track_header
 
     m1_section = track.split("## Phase M1: Estate Shrink", 1)[1].split(
@@ -4334,12 +4341,77 @@ def test_m0_green_baseline_component_plan_is_selected_without_widening_entry_boo
     )[0]
     normalized_m1 = _normalized_routing_text(m1_section)
     assert "ineligible and unselected" in normalized_m1
-    assert "completed m0 green gate" in normalized_m1
+    assert "exact reviewed m0 candidate is committed" in normalized_m1
+    assert "post commit control passes" in normalized_m1
     assert "own reviewed component plan" in normalized_m1
 
     assert component_plan.index("M0_PLAN_SPEC_APPROVED") < component_plan.index(
         "M0_PLAN_QUALITY_APPROVED"
     )
+    normalized_component_plan = _normalized_routing_text(component_plan)
+    assert "status: implemented closure candidate" in normalized_component_plan
+    assert "m0 is not complete" in normalized_component_plan
+    assert "m1 remains ineligible and unselected" in normalized_component_plan
+    for exact_evidence in (
+        "544 tests collected in 3.05s",
+        "52c46349ce072d993af985bf7f01edd730f43cb808d3abf5bd2cbd1c5832fa05",
+        "740 passed in 38.72s",
+        "9e7fb0a058cffa2e3eb6e8b7a5e0d6b42ec60f7afcabb2b982ca14d03b9ace81",
+        "3 failed, 12,224 passed, 28 skipped, 90 warnings in 168.46s",
+        "e78dd7862c555dec6109e3831195c750cdc44043d0508d994ff1a675a5675138",
+        "3 passed in 60.82s",
+        "86756ac89dd9a195d88082767e6e1510b016e505667818b73e6c91b4826cd759",
+        "12,227 passed, 28 skipped in 1229.78s",
+        "5b63aca18c2c013395aecede0210e4b522f7c846549ed23d879505635f226810",
+    ):
+        assert exact_evidence in component_plan
+    task_5 = component_plan.split(
+        "### Task 5: Close M0 on fresh green evidence",
+        1,
+    )[1].split("## Completion gate", 1)[0]
+    for completed_step in range(1, 5):
+        assert f"- [x] **Step {completed_step}:" in task_5
+    assert "- [ ] **Step 5:" in task_5
+    assert "- [ ] **Step 6:" in task_5
+    assert "xdist control did not pass" in _normalized_routing_text(task_5)
+    assert "no product change" in _normalized_routing_text(task_5)
+
+    normalized_decision_status = _normalized_routing_text(
+        "\n".join(decision_brief.splitlines()[:18])
+    )
+    assert "recorded rulings" in normalized_decision_status
+    assert "component plan countersigned" in normalized_decision_status
+    assert "no m0 ruling remains pending" in normalized_decision_status
+    normalized_decision_effect = _normalized_routing_text(
+        _markdown_heading_section(
+            decision_brief,
+            "## 4. Net Decision-Queue Effect",
+        )
+    )
+    assert "all m0 rulings are recorded" in normalized_decision_effect
+    assert "awaiting m0 component plan countersign" not in normalized_decision_effect
+
+    adjacent_closure_context = _normalized_routing_text(
+        "\n".join(
+            (
+                component_plan,
+                track_header,
+            )
+        )
+    )
+    for prior_closure in (
+        "l4 is complete at commit 251d9d53674e863fddae4535ea4f7022914287cd",
+        "tree e2417d395cbcabe9adaffb136759ebff3d42b677",
+        "94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804",
+        "q4 is complete at commit f3335637b90feb0a87ac4c538bafac7704ac0d87",
+        "tree ccec170be8757c9e4fd5ed8ece6f93b04fc03299",
+        "85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c",
+    ):
+        assert prior_closure in adjacent_closure_context
+    assert "does not reopen either gate" in adjacent_closure_context
+    assert "non authoritative m0 context only" in adjacent_closure_context
+    assert "unchanged owning q/l routers" in adjacent_closure_context
+    assert "not edited or re reviewed" in adjacent_closure_context
 
     task_2 = refusal_plan.split(
         "## Task 2:",
