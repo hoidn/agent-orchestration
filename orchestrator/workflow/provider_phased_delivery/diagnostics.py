@@ -468,7 +468,7 @@ _STATIC_ROWS = (
     ),
     _static(
         "interrupted_nonterminal_visit",
-        "provider_phased_interrupted_visit_quarantined",
+        "provider_phased_interrupted_visit_failed",
         "P_LIFECYCLE_NULL",
         "S_LIFECYCLE",
     ),

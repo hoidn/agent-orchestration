@@ -5159,6 +5159,49 @@ def test_resume_interrupted_provider_session_reruns_with_next_attempt(
     assert rerun_events[0].next_visit == 2
 
 
+def test_resume_legacy_marker_with_live_cursor_fails_before_provider_launch(
+    temp_workspace: Path,
+) -> None:
+    run_id = "resume-conflicting-legacy-provider-session"
+    manager, bundle, invocation_marker = _seed_public_provider_session_resume(
+        temp_workspace,
+        run_id=run_id,
+        terminal_result=False,
+    )
+    assert manager.state is not None
+    manager.state.status = "running"
+    manager.state.current_step = {
+        "name": "Implement",
+        "index": 0,
+        "type": "provider",
+        "status": "running",
+        "step_id": "root.implement",
+        "visit_count": 1,
+    }
+    manager._write_state()
+
+    with patch(
+        "os.getcwd",
+        return_value=str(temp_workspace),
+    ), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=bundle,
+    ):
+        result = resume_workflow(
+            run_id=run_id,
+            max_retries=0,
+            retry_delay_ms=0,
+        )
+
+    persisted = manager.load()
+    assert result == 1
+    assert not invocation_marker.exists()
+    assert persisted.error is not None
+    assert persisted.error["type"] == (
+        "provider_session_resume_state_integrity_error"
+    )
+
+
 def test_resume_completed_provider_session_reuses_without_invocation(
     temp_workspace: Path,
 ) -> None:
@@ -5320,7 +5363,35 @@ def test_interrupted_provider_visit_default_resume_relaxes_only_missing_prior_bo
         assert result["diagnostics"] == [diagnostic]
 
 
-def test_interrupted_provider_session_at_least_once_legacy_quarantine_marker_is_distinct(
+def test_active_runtime_exposes_no_interrupted_visit_quarantine_error_type(
+) -> None:
+    source_root = Path(__file__).parents[1] / "orchestrator"
+    legacy_reader = (
+        source_root
+        / "workflow"
+        / "legacy_provider_quarantine.py"
+    )
+    retired_tokens = (
+        "provider_phased_interrupted_visit_quarantined",
+        "provider_session_interrupted_visit_quarantined",
+        "provider_supervision_interrupted_visit_quarantined",
+        "provider_peer_group_interrupted_visit_quarantined",
+        "quarantined_interrupted_visit",
+    )
+    active_matches = {
+        path.relative_to(source_root).as_posix(): [
+            token for token in retired_tokens if token in source
+        ]
+        for path in source_root.rglob("*.py")
+        if path != legacy_reader
+        and (source := path.read_text(encoding="utf-8"))
+        and any(token in source for token in retired_tokens)
+    }
+
+    assert active_matches == {}
+
+
+def test_legacy_provider_session_marker_is_read_only_compatibility(
 ) -> None:
     error = {
         "type": "provider_session_interrupted_visit_quarantined",
@@ -5332,12 +5403,12 @@ def test_interrupted_provider_session_at_least_once_legacy_quarantine_marker_is_
         },
     }
 
-    guard = ResumePlanner().detect_interrupted_provider_session_visit(
+    guard = WorkflowExecutor._legacy_interrupted_provider_guard(
         {"status": "failed", "error": error},
-        projection=_provider_session_resume_projection(),
+        family="session",
     )
 
-    assert guard == {"kind": "existing_quarantine", "error": error}
+    assert guard == {"kind": "legacy_interrupted_visit", "error": error}
 
 
 def _provider_supervision_resume_executor(
@@ -5962,7 +6033,7 @@ def test_provider_supervision_resume_guard_rejects_missing_projection_entry() ->
     assert (guard or {}).get("kind") == "integrity_error"
 
 
-def test_provider_supervision_quarantine_atomically_clears_exact_visit_and_preserves_older_result(
+def test_provider_supervision_recovery_clears_exact_visit_and_preserves_older_result(
     temp_workspace: Path,
 ) -> None:
     manager = StateManager(
@@ -6014,40 +6085,33 @@ def test_provider_supervision_quarantine_atomically_clears_exact_visit_and_prese
     executor = WorkflowExecutor.__new__(WorkflowExecutor)
     executor.state_manager = manager
 
-    result = executor._quarantine_provider_supervision_resume_guard(
+    result = executor._recover_interrupted_provider_resume_guard(
         manager.load().to_dict(),
         {
-            "kind": "quarantine",
+            "kind": "rerun_interrupted_visit",
             "step_name": "Live",
             "step_id": "root.live",
             "visit_count": 2,
         },
+        family="supervision",
     )
 
     persisted = manager.load()
-    assert result["status"] == "failed"
-    assert persisted.status == "failed"
+    assert result is None
+    assert persisted.status == "running"
     assert persisted.current_step is None
     assert persisted.steps["Live"] == older_result
-    assert persisted.error["type"] == (
-        "provider_supervision_interrupted_visit_quarantined"
-    )
-    assert persisted.error["context"]["step_id"] == "root.live"
-    assert persisted.error["context"]["visit_count"] == 2
-    assert persisted.error["context"]["metadata_path"] == str(metadata_path)
+    assert persisted.error is None
     metadata = manager.read_runtime_sidecar_json(metadata_path)
     assert metadata is not None
     assert metadata["status"] == "interrupted"
-    assert metadata["publication_state"] == "quarantined_interrupted_visit"
+    assert metadata["publication_state"] == "interrupted"
 
     repeated = ResumePlanner().detect_interrupted_provider_supervision_visit(
         persisted.to_dict(),
         projection=_provider_supervision_resume_projection(),
     )
-    assert repeated == {
-        "kind": "existing_quarantine",
-        "error": persisted.error,
-    }
+    assert repeated is None
 
 
 def test_resume_cli_malformed_legacy_supervision_marker_fails_before_member_launch(

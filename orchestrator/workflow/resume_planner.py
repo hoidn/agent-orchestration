@@ -26,17 +26,6 @@ class _ProjectedCurrentStep:
 class ResumePlanner:
     """Determine where a resumed run should re-enter top-level execution."""
 
-    PROVIDER_SESSION_QUARANTINE_ERROR_TYPE = (
-        "provider_session_interrupted_visit_quarantined"
-    )
-    PROVIDER_SUPERVISION_QUARANTINE_ERROR_TYPE = (
-        "provider_supervision_interrupted_visit_quarantined"
-    )
-    PROVIDER_PEER_GROUP_QUARANTINE_ERROR_TYPE = (
-        "provider_peer_group_interrupted_visit_quarantined"
-    )
-    QUARANTINE_ERROR_TYPE = PROVIDER_SESSION_QUARANTINE_ERROR_TYPE
-
     def entry_is_terminal(self, entry: Any) -> bool:
         """Return True when persisted step state is fully completed/skipped."""
         if isinstance(entry, dict):
@@ -392,14 +381,6 @@ class ResumePlanner:
         if not isinstance(projection, WorkflowStateProjection):
             raise TypeError("ResumePlanner requires a WorkflowStateProjection")
 
-        error = state.get("error")
-        if (
-            isinstance(error, dict)
-            and error.get("type")
-            == self.PROVIDER_SESSION_QUARANTINE_ERROR_TYPE
-        ):
-            return {"kind": "existing_quarantine", "error": error}
-
         current_step = state.get("current_step")
         if not isinstance(current_step, dict) or current_step.get("status") != "running":
             return None
@@ -499,14 +480,6 @@ class ResumePlanner:
         """Detect an interrupted provider-supervision visit for a fresh rerun."""
         if not isinstance(projection, WorkflowStateProjection):
             raise TypeError("ResumePlanner requires a WorkflowStateProjection")
-
-        error = state.get("error")
-        if (
-            isinstance(error, dict)
-            and error.get("type")
-            == self.PROVIDER_SUPERVISION_QUARANTINE_ERROR_TYPE
-        ):
-            return {"kind": "existing_quarantine", "error": error}
 
         current_step = state.get("current_step")
         if (
@@ -628,14 +601,6 @@ class ResumePlanner:
         """Detect an interrupted peer-group visit for a fresh whole-group rerun."""
         if not isinstance(projection, WorkflowStateProjection):
             raise TypeError("ResumePlanner requires a WorkflowStateProjection")
-
-        error = state.get("error")
-        if (
-            isinstance(error, dict)
-            and error.get("type")
-            == self.PROVIDER_PEER_GROUP_QUARANTINE_ERROR_TYPE
-        ):
-            return {"kind": "existing_quarantine", "error": error}
 
         current_step = state.get("current_step")
         if (

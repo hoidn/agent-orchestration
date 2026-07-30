@@ -184,6 +184,9 @@ from .references import (
     ReferenceResolver,
     parse_structured_ref,
 )
+from .legacy_provider_quarantine import (
+    read_legacy_provider_quarantine_error,
+)
 from .resume_planner import ResumePlanner, ResumeStateIntegrityError
 from .runtime_context import RuntimeContext
 from .runtime_step import RuntimeStep
@@ -2136,16 +2139,6 @@ class WorkflowExecutor:
     ) -> Optional[Dict[str, Any]]:
         """Detect only an unfinished explicit-phased current provider visit."""
 
-        existing_error = state.get("error")
-        if (
-            isinstance(existing_error, Mapping)
-            and existing_error.get("type")
-            == "provider_phased_interrupted_visit_quarantined"
-        ):
-            return {
-                "kind": "existing_quarantine",
-                "error": dict(existing_error),
-            }
         current = state.get("current_step")
         if not isinstance(current, Mapping):
             return None
@@ -2244,54 +2237,6 @@ class WorkflowExecutor:
             "visit_count": current.get("visit_count"),
             "node_id": node_id,
         }
-
-    def _quarantine_phased_provider_resume_guard(
-        self,
-        state: Dict[str, Any],
-        guard: Mapping[str, Any],
-    ) -> Dict[str, Any]:
-        """Persist one sticky failed result without reading phased sidecars."""
-
-        step_name = guard.get("step_name")
-        step_id = guard.get("step_id")
-        visit_count = guard.get("visit_count")
-        if (
-            not isinstance(step_name, str)
-            or not isinstance(step_id, str)
-            or isinstance(visit_count, bool)
-            or not isinstance(visit_count, int)
-        ):
-            return self._fail_resume_state_integrity(
-                "provider_phased_resume_state_integrity_error",
-                "Phased provider current-step identity is invalid.",
-                {
-                    "step_name": step_name,
-                    "step_id": step_id,
-                    "visit_count": visit_count,
-                },
-            )
-        error = {
-            "type": "provider_phased_interrupted_visit_quarantined",
-            "message": (
-                "An interrupted phased-provider visit was quarantined."
-            ),
-            "context": {
-                "step_name": step_name,
-                "step_id": step_id,
-                "visit_count": visit_count,
-                "node_id": guard.get("node_id"),
-                "sticky": True,
-            },
-        }
-        self.state_manager.fail_run(
-            error,
-            clear_current_step=True,
-            expected_step_id=step_id,
-            expected_visit_count=visit_count,
-        )
-        persisted = self.state_manager.load().to_dict()
-        persisted["status"] = "failed"
-        return persisted
 
     def _prepare_provider_session_visit(
         self,
@@ -2622,218 +2567,6 @@ class WorkflowExecutor:
             spool_path.unlink()
         self._active_provider_sessions.pop(step_name, None)
 
-    def _quarantine_provider_session_resume_guard(
-        self,
-        state: Dict[str, Any],
-        guard: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Project an interrupted provider-session visit into durable run-level failure state."""
-        step_name = guard["step_name"]
-        step_id = guard["step_id"]
-        visit_count = guard["visit_count"]
-        metadata_path, transport_spool_path = self.state_manager.provider_session_paths(step_id, visit_count)
-        metadata_synthesized = not metadata_path.exists()
-        if not transport_spool_path.exists():
-            transport_spool_path.write_text("", encoding="utf-8")
-
-        metadata_updates = {
-            "provider": guard.get("provider"),
-            "step_name": step_name,
-            "step_id": step_id,
-            "visit_count": visit_count,
-            "mode": guard.get("mode"),
-            "step_status": "interrupted",
-            "publication_state": "quarantined_interrupted_visit",
-            "metadata_synthesized": metadata_synthesized,
-            "captured_transport_bytes": transport_spool_path.stat().st_size if transport_spool_path.exists() else 0,
-            "transport_spool_path": str(transport_spool_path),
-        }
-        self.state_manager.update_provider_session_metadata(metadata_path, metadata_updates)
-
-        error = {
-            "type": "provider_session_interrupted_visit_quarantined",
-            "message": "An interrupted provider-session visit was quarantined.",
-            "context": {
-                "step_name": step_name,
-                "step_id": step_id,
-                "visit_count": visit_count,
-                "metadata_path": str(metadata_path),
-                "transport_spool_path": str(transport_spool_path),
-                "metadata_synthesized": metadata_synthesized,
-            },
-        }
-        self.state_manager.fail_run(
-            error,
-            clear_current_step=True,
-            expected_step_id=step_id,
-            expected_visit_count=visit_count,
-        )
-        persisted = self.state_manager.load().to_dict()
-        persisted["status"] = "failed"
-        return persisted
-
-    def _quarantine_provider_supervision_resume_guard(
-        self,
-        state: Dict[str, Any],
-        guard: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Atomically quarantine one exact interrupted live-group visit."""
-        step_name = guard["step_name"]
-        step_id = guard["step_id"]
-        visit_count = guard["visit_count"]
-        node_id = guard.get("node_id", step_id)
-        from urllib.parse import quote
-
-        encoded_node_id = quote(str(node_id), safe="-._")
-        metadata_path = (
-            Path(self.state_manager.run_root)
-            / "provider-supervision"
-            / encoded_node_id
-            / "visits"
-            / str(visit_count)
-            / "metadata.json"
-        ).resolve()
-        metadata_synthesized = not metadata_path.exists()
-        metadata = (
-            self.state_manager.read_runtime_sidecar_json(metadata_path)
-            if not metadata_synthesized
-            else {}
-        )
-        assert isinstance(metadata, dict)
-        expected = {
-            "step_name": step_name,
-            "step_id": step_id,
-            "visit_count": visit_count,
-        }
-        if not metadata_synthesized and any(
-            metadata.get(key) != value
-            for key, value in expected.items()
-        ):
-            return self._fail_resume_state_integrity(
-                "provider_supervision_resume_state_integrity_error",
-                "Provider-supervision visit metadata identity is invalid.",
-                {
-                    **expected,
-                    "metadata_path": str(metadata_path),
-                },
-            )
-        metadata.update(
-            {
-                "run_id": self.state_manager.run_id,
-                "node_id": node_id,
-                **expected,
-                "status": "interrupted",
-                "publication_state": "quarantined_interrupted_visit",
-                "metadata_synthesized": metadata_synthesized,
-            }
-        )
-        self.state_manager.write_runtime_sidecar_json(
-            metadata_path,
-            metadata,
-        )
-
-        error = {
-            "type": "provider_supervision_interrupted_visit_quarantined",
-            "message": (
-                "An interrupted provider-supervision visit was quarantined."
-            ),
-            "context": {
-                **expected,
-                "metadata_path": str(metadata_path),
-                "metadata_synthesized": metadata_synthesized,
-            },
-        }
-        self.state_manager.fail_run(
-            error,
-            clear_current_step=True,
-            expected_step_id=step_id,
-            expected_visit_count=visit_count,
-        )
-        persisted = self.state_manager.load().to_dict()
-        persisted["status"] = "failed"
-        return persisted
-
-    def _quarantine_provider_peer_group_resume_guard(
-        self,
-        state: Dict[str, Any],
-        guard: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Atomically quarantine one exact interrupted peer-group visit."""
-
-        step_name = guard["step_name"]
-        step_id = guard["step_id"]
-        visit_count = guard["visit_count"]
-        node_id = guard.get("node_id", step_id)
-        from urllib.parse import quote
-
-        encoded_node_id = quote(str(node_id), safe="-._")
-        metadata_path = (
-            Path(self.state_manager.run_root)
-            / "provider-peer-group"
-            / encoded_node_id
-            / "visit-metadata"
-            / f"{visit_count}.json"
-        ).resolve()
-        metadata_synthesized = not metadata_path.exists()
-        metadata = (
-            self.state_manager.read_runtime_sidecar_json(metadata_path)
-            if not metadata_synthesized
-            else {}
-        )
-        assert isinstance(metadata, dict)
-        expected = {
-            "step_name": step_name,
-            "step_id": step_id,
-            "visit_count": visit_count,
-        }
-        if not metadata_synthesized and any(
-            metadata.get(key) != value
-            for key, value in expected.items()
-        ):
-            return self._fail_resume_state_integrity(
-                "provider_peer_group_resume_state_integrity_error",
-                "Provider peer-group visit metadata identity is invalid.",
-                {
-                    **expected,
-                    "metadata_path": str(metadata_path),
-                },
-            )
-        metadata.update(
-            {
-                "run_id": self.state_manager.run_id,
-                "node_id": node_id,
-                **expected,
-                "status": "interrupted",
-                "publication_state": "quarantined_interrupted_visit",
-                "metadata_synthesized": metadata_synthesized,
-            }
-        )
-        self.state_manager.write_runtime_sidecar_json(
-            metadata_path,
-            metadata,
-        )
-
-        error = {
-            "type": "provider_peer_group_interrupted_visit_quarantined",
-            "message": (
-                "An interrupted provider peer-group visit was quarantined."
-            ),
-            "context": {
-                **expected,
-                "metadata_path": str(metadata_path),
-                "metadata_synthesized": metadata_synthesized,
-            },
-        }
-        self.state_manager.fail_run(
-            error,
-            clear_current_step=True,
-            expected_step_id=step_id,
-            expected_visit_count=visit_count,
-        )
-        persisted = self.state_manager.load().to_dict()
-        persisted["status"] = "failed"
-        return persisted
-
     def _interrupted_provider_metadata_path(
         self,
         family: str,
@@ -2954,6 +2687,36 @@ class WorkflowExecutor:
                 },
             )
 
+    @staticmethod
+    def _legacy_interrupted_provider_guard(
+        state: Mapping[str, Any],
+        *,
+        family: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Expose one old persisted marker only to exact reconstruction."""
+
+        try:
+            error = read_legacy_provider_quarantine_error(
+                state,
+                family=family,
+            )
+        except ValueError:
+            return {
+                "kind": "integrity_error",
+                "context": {
+                    "reason": "legacy_interrupted_provider_state_conflict",
+                    "family": family,
+                    "status": state.get("status"),
+                    "current_step": state.get("current_step"),
+                },
+            }
+        if error is None:
+            return None
+        return {
+            "kind": "legacy_interrupted_visit",
+            "error": error,
+        }
+
     def _reconstruct_legacy_interrupted_provider_guard(
         self,
         state: Mapping[str, Any],
@@ -3070,10 +2833,8 @@ class WorkflowExecutor:
         """Discard one exact partial visit and retain its ordinal as spent."""
 
         recovery_guard: Optional[Dict[str, Any]]
-        if guard.get("kind") == "existing_quarantine":
+        if guard.get("kind") == "legacy_interrupted_visit":
             error = guard.get("error")
-            if not isinstance(error, Mapping):
-                error = state.get("error")
             recovery_guard = (
                 self._reconstruct_legacy_interrupted_provider_guard(
                     state,
@@ -3811,7 +3572,13 @@ class WorkflowExecutor:
             self.state_manager.update_status('failed')
             return self.state_manager.load().to_dict()
         if resume:
-            phased_guard = self._interrupted_phased_provider_guard(state)
+            phased_guard = (
+                self._legacy_interrupted_provider_guard(
+                    state,
+                    family="phased",
+                )
+                or self._interrupted_phased_provider_guard(state)
+            )
             if phased_guard is not None:
                 if phased_guard.get("kind") == "integrity_error":
                     return self._fail_resume_state_integrity(
@@ -3828,9 +3595,15 @@ class WorkflowExecutor:
                 )
                 if recovery_failure is not None:
                     return recovery_failure
-            session_guard = self.resume_planner.detect_interrupted_provider_session_visit(
-                state,
-                projection=self.projection,
+            session_guard = (
+                self._legacy_interrupted_provider_guard(
+                    state,
+                    family="session",
+                )
+                or self.resume_planner.detect_interrupted_provider_session_visit(
+                    state,
+                    projection=self.projection,
+                )
             )
             if session_guard is not None:
                 if session_guard.get("kind") == "integrity_error":
@@ -3856,9 +3629,16 @@ class WorkflowExecutor:
                 if recovery_failure is not None:
                     return recovery_failure
             supervision_guard = (
-                self.resume_planner.detect_interrupted_provider_supervision_visit(
+                self._legacy_interrupted_provider_guard(
                     state,
-                    projection=self.projection,
+                    family="supervision",
+                )
+                or (
+                    self.resume_planner
+                    .detect_interrupted_provider_supervision_visit(
+                        state,
+                        projection=self.projection,
+                    )
                 )
             )
             if supervision_guard is not None:
@@ -3895,9 +3675,16 @@ class WorkflowExecutor:
                 if recovery_failure is not None:
                     return recovery_failure
             peer_group_guard = (
-                self.resume_planner.detect_interrupted_provider_peer_group_visit(
+                self._legacy_interrupted_provider_guard(
                     state,
-                    projection=self.projection,
+                    family="peer_group",
+                )
+                or (
+                    self.resume_planner
+                    .detect_interrupted_provider_peer_group_visit(
+                        state,
+                        projection=self.projection,
+                    )
                 )
             )
             if peer_group_guard is not None:

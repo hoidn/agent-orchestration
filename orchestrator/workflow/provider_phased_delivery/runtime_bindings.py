@@ -1577,22 +1577,16 @@ class _WorkflowPhasedProviderAttemptBindings:
         if type(result) is not PhasedProviderAttemptFailure:
             raise TypeError("coordinator returned an invalid result")
         diagnostic = result.first_diagnostic
-        sticky = diagnostic.reason == "interrupted_nonterminal_visit"
         return {
             "status": "failed",
             "exit_code": 1,
             "duration_ms": 0,
             "error": {
-                "type": (
-                    "provider_phased_interrupted_visit_quarantined"
-                    if sticky
-                    else diagnostic.code
-                ),
+                "type": diagnostic.code,
                 "message": diagnostic.rejected_value.summary,
                 "context": {
                     "reason": diagnostic.reason,
                     "terminalization_tier": result.terminalization_tier,
-                    "sticky": sticky,
                 },
             },
         }

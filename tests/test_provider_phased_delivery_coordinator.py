@@ -2930,7 +2930,6 @@ def test_physical_operational_failure_returns_closed_public_result(
             "context": {
                 "reason": reason,
                 "terminalization_tier": tier,
-                "sticky": False,
             },
         },
     }
@@ -3211,6 +3210,35 @@ def test_serialized_preproof_interruption_stops_before_next_action(
     assert forbidden_action not in bindings.actions
     assert bindings.actions.count("adapter.abort") == 1
     assert bindings.committed_material is None
+
+
+def test_interrupted_visit_projects_an_ordinary_nonquarantine_failure() -> None:
+    bindings = ControlEventBindings(
+        boundary="BEFORE_INITIAL_OFFER",
+        kind="interrupted",
+    )
+    coordinator = PhasedProviderAttemptCoordinator(bindings)
+    bindings.coordinator = coordinator
+
+    result = coordinator.run()
+    public_result = _WorkflowPhasedProviderAttemptBindings.runtime_result(
+        bindings,
+        result,
+    )
+
+    assert public_result == {
+        "status": "failed",
+        "exit_code": 1,
+        "duration_ms": 0,
+        "error": {
+            "type": "provider_phased_interrupted_visit_failed",
+            "message": "interrupted_nonterminal_visit",
+            "context": {
+                "reason": "interrupted_nonterminal_visit",
+                "terminalization_tier": "T1",
+            },
+        },
+    }
 
 
 def test_serialized_provider_exit_before_submit_maps_exact_boundary() -> None:

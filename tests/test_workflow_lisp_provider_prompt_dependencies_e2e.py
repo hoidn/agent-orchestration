@@ -142,7 +142,7 @@ def test_interrupted_provider_session_at_least_once_projection_mismatch_is_integ
     assert (guard or {}).get("kind") == "integrity_error"
 
 
-def test_interrupted_provider_session_at_least_once_legacy_quarantine_marker_is_distinct(
+def test_legacy_session_marker_bypasses_live_cursor_planner(
 ) -> None:
     error = {
         "type": "provider_session_interrupted_visit_quarantined",
@@ -154,12 +154,21 @@ def test_interrupted_provider_session_at_least_once_legacy_quarantine_marker_is_
         },
     }
 
-    guard = ResumePlanner().detect_interrupted_provider_session_visit(
-        {"status": "failed", "error": error},
+    state = {"status": "failed", "error": error}
+    live_guard = ResumePlanner().detect_interrupted_provider_session_visit(
+        state,
         projection=_session_resume_projection(),
     )
+    legacy_guard = WorkflowExecutor._legacy_interrupted_provider_guard(
+        state,
+        family="session",
+    )
 
-    assert guard == {"kind": "existing_quarantine", "error": error}
+    assert live_guard is None
+    assert legacy_guard == {
+        "kind": "legacy_interrupted_visit",
+        "error": error,
+    }
 
 
 @contextmanager

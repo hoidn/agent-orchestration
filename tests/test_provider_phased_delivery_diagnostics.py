@@ -143,7 +143,7 @@ _EXPECTED_CODE_REASON_PAIRS = {
         "adapter_cleanup_failed",
         "provider_zero_survivor_unproven",
     ),
-    "provider_phased_interrupted_visit_quarantined": (
+    "provider_phased_interrupted_visit_failed": (
         "interrupted_nonterminal_visit",
     ),
 }

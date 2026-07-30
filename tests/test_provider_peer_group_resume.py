@@ -183,26 +183,6 @@ def test_interrupted_peer_group_at_least_once_projection_mismatch_is_integrity_e
     assert (guard or {}).get("kind") == "integrity_error"
 
 
-def test_interrupted_peer_group_at_least_once_legacy_quarantine_marker_is_distinct(
-) -> None:
-    error = {
-        "type": "provider_peer_group_interrupted_visit_quarantined",
-        "message": "historical sticky quarantine",
-        "context": {
-            "step_name": "Peers",
-            "step_id": "root.peers",
-            "visit_count": 2,
-        },
-    }
-
-    guard = ResumePlanner().detect_interrupted_provider_peer_group_visit(
-        {"status": "failed", "error": error},
-        projection=_peer_group_projection(),
-    )
-
-    assert guard == {"kind": "existing_quarantine", "error": error}
-
-
 @pytest.mark.parametrize(
     ("persisted_result", "expected_kind"),
     [
@@ -312,21 +292,8 @@ def test_peer_group_resume_guard_rejects_missing_projection_entry() -> None:
     assert (guard or {}).get("kind") == "integrity_error"
 
 
-def test_peer_group_resume_guard_is_sticky_and_does_not_capture_v1_failure() -> None:
-    peer_error = {
-        "type": "provider_peer_group_interrupted_visit_quarantined",
-        "message": "An interrupted provider peer-group visit was quarantined.",
-        "context": {
-            "step_name": "Peers",
-            "step_id": "root.peers",
-            "visit_count": 2,
-        },
-    }
-    sticky = ResumePlanner().detect_interrupted_provider_peer_group_visit(
-        {"status": "failed", "error": peer_error},
-        projection=_peer_group_projection(),
-    )
-    v1 = ResumePlanner().detect_interrupted_provider_peer_group_visit(
+def test_peer_group_resume_guard_does_not_capture_supervision_cursor() -> None:
+    guard = ResumePlanner().detect_interrupted_provider_peer_group_visit(
         {
             "status": "running",
             "steps": {},
@@ -342,8 +309,7 @@ def test_peer_group_resume_guard_is_sticky_and_does_not_capture_v1_failure() -> 
         projection=_peer_group_projection("provider_supervision"),
     )
 
-    assert sticky == {"kind": "existing_quarantine", "error": peer_error}
-    assert v1 is None
+    assert guard is None
 
 
 def _attempt_scope(
@@ -446,7 +412,7 @@ def test_peer_group_bundle_enables_root_provider_attempt_coordination() -> None:
     )
 
 
-def test_executor_quarantine_retains_partial_peer_visit_and_clears_exact_step(
+def test_executor_recovery_retains_partial_peer_visit_and_clears_exact_step(
     tmp_path: Path,
 ) -> None:
     workflow = tmp_path / "workflow.orc"
@@ -488,16 +454,17 @@ def test_executor_quarantine_retains_partial_peer_visit_and_clears_exact_step(
     executor = object.__new__(WorkflowExecutor)
     executor.state_manager = manager
 
-    result = WorkflowExecutor._quarantine_provider_peer_group_resume_guard(
+    result = WorkflowExecutor._recover_interrupted_provider_resume_guard(
         executor,
         manager.load().to_dict(),
         {
-            "kind": "quarantine",
+            "kind": "rerun_interrupted_visit",
             "step_name": "Peers",
             "step_id": "root.peers",
             "node_id": "root.peers",
             "visit_count": 2,
         },
+        family="peer_group",
     )
 
     persisted = manager.load()
@@ -508,37 +475,17 @@ def test_executor_quarantine_retains_partial_peer_visit_and_clears_exact_step(
         / "visit-metadata"
         / "2.json"
     )
-    assert result["status"] == "failed"
+    assert result is None
+    assert persisted.status == "running"
     assert persisted.current_step is None
-    assert persisted.error == {
-        "type": "provider_peer_group_interrupted_visit_quarantined",
-        "message": (
-            "An interrupted provider peer-group visit was quarantined."
-        ),
-        "context": {
-            "step_name": "Peers",
-            "step_id": "root.peers",
-            "visit_count": 2,
-            "metadata_path": str(metadata_path.resolve()),
-            "metadata_synthesized": True,
-        },
-    }
+    assert persisted.error is None
     assert partial_ledger.read_text(encoding="ascii") == (
         '{"row_kind":"header"}\n'
     )
     assert partial_evidence.read_text(encoding="ascii") == (
         '{"status":"partial"}'
     )
-    assert manager.read_runtime_sidecar_json(metadata_path) == {
-        "run_id": "interrupted-peer-group",
-        "node_id": "root.peers",
-        "step_name": "Peers",
-        "step_id": "root.peers",
-        "visit_count": 2,
-        "status": "interrupted",
-        "publication_state": "quarantined_interrupted_visit",
-        "metadata_synthesized": True,
-    }
+    assert manager.read_runtime_sidecar_json(metadata_path) is None
 
 
 def test_interrupted_peer_group_visit_reruns_fresh_members(

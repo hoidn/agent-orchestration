@@ -782,10 +782,8 @@ def test_interrupted_phased_visit_reruns_from_task_turn_with_fresh_attempt(
     assert rerun_events[0].next_visit == 2
 
 
-def test_existing_phased_quarantine_is_sticky_after_current_step_is_cleared(
+def test_legacy_phased_marker_is_read_only_compatibility(
 ) -> None:
-    executor = _executor()
-    executor._step_node_ids = []
     error = {
         "type": "provider_phased_interrupted_visit_quarantined",
         "message": "sticky",
@@ -797,14 +795,17 @@ def test_existing_phased_quarantine_is_sticky_after_current_step_is_cleared(
         "error": error,
     }
 
-    assert executor._interrupted_phased_provider_guard(state) == {
-        "kind": "existing_quarantine",
+    assert WorkflowExecutor._legacy_interrupted_provider_guard(
+        state,
+        family="phased",
+    ) == {
+        "kind": "legacy_interrupted_visit",
         "error": error,
     }
     assert state["error"] is error
 
 
-def test_cleared_current_step_without_phased_quarantine_is_not_claimed() -> None:
+def test_cleared_current_step_without_live_phased_cursor_is_not_claimed() -> None:
     executor = _executor()
     executor._step_node_ids = []
 

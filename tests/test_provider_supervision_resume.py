@@ -125,26 +125,6 @@ def test_interrupted_supervision_at_least_once_projection_mismatch_is_integrity_
     assert (guard or {}).get("kind") == "integrity_error"
 
 
-def test_interrupted_supervision_at_least_once_legacy_quarantine_marker_is_distinct(
-) -> None:
-    error = {
-        "type": "provider_supervision_interrupted_visit_quarantined",
-        "message": "historical sticky quarantine",
-        "context": {
-            "step_name": "Live",
-            "step_id": "root.live",
-            "visit_count": 2,
-        },
-    }
-
-    guard = ResumePlanner().detect_interrupted_provider_supervision_visit(
-        {"status": "failed", "error": error},
-        projection=_ml1_supervision_projection(),
-    )
-
-    assert guard == {"kind": "existing_quarantine", "error": error}
-
-
 def _snapshot(
     *,
     status: str = "unique",
