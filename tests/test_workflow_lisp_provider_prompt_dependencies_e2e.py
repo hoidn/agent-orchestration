@@ -8,14 +8,17 @@ import json
 import os
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
-from orchestrator.workflow.executable_ir import ExecutableNodeKind
+from orchestrator.workflow.executable_ir import (
+    ExecutableNodeKind,
+    WorkflowRegion,
+)
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
 from orchestrator.workflow.prompt_dependency_evidence import (
@@ -26,6 +29,12 @@ from orchestrator.workflow.prompt_dependency_evidence import (
 )
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow.provider_attempts import ProviderAttemptScope
+from orchestrator.workflow.resume_planner import ResumePlanner
+from orchestrator.workflow.state_projection import (
+    CompatibilityNodeProjection,
+    CompatibilityStepDefinition,
+    WorkflowStateProjection,
+)
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.typed_prompt_inputs import (
     typed_prompt_input_value_digest,
@@ -49,6 +58,108 @@ class _ProviderBoundaryInterruption(BaseException):
 
 class _AttemptInterruption(BaseException):
     pass
+
+
+def _session_resume_projection() -> WorkflowStateProjection:
+    entry = CompatibilityNodeProjection(
+        node_id="root.review",
+        step_id="root.review",
+        presentation_key="Review",
+        display_name="Review",
+        region=WorkflowRegion.BODY,
+        compatibility_index=0,
+        step_definition=CompatibilityStepDefinition(
+            report_kind="provider",
+            provider="session-provider",
+            provider_session_enabled=True,
+            provider_session_mode="fresh",
+        ),
+    )
+    return WorkflowStateProjection(
+        entries_by_node_id=MappingProxyType({"root.review": entry}),
+        node_id_by_compatibility_index=MappingProxyType({0: "root.review"}),
+        compatibility_index_by_node_id=MappingProxyType({"root.review": 0}),
+        presentation_key_by_node_id=MappingProxyType({"root.review": "Review"}),
+        node_id_by_step_id=MappingProxyType({"root.review": "root.review"}),
+    )
+
+
+def _running_session_state(
+    *,
+    result: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "status": "running",
+        "steps": {} if result is None else {"Review": result},
+        "current_step": {
+            "name": "Review",
+            "index": 0,
+            "type": "provider",
+            "status": "running",
+            "step_id": "root.review",
+            "visit_count": 2,
+        },
+    }
+
+
+def test_interrupted_provider_session_requests_fresh_rerun_disposition() -> None:
+    guard = ResumePlanner().detect_interrupted_provider_session_visit(
+        _running_session_state(),
+        projection=_session_resume_projection(),
+    )
+
+    assert (guard or {}).get("kind") == "rerun_interrupted_visit"
+
+
+def test_interrupted_provider_session_at_least_once_does_not_claim_completed_same_visit(
+) -> None:
+    guard = ResumePlanner().detect_interrupted_provider_session_visit(
+        _running_session_state(
+            result={
+                "status": "completed",
+                "step_id": "root.review",
+                "visit_count": 2,
+            }
+        ),
+        projection=_session_resume_projection(),
+    )
+
+    assert guard is None
+
+
+def test_interrupted_provider_session_at_least_once_projection_mismatch_is_integrity_error_before_launch(
+) -> None:
+    state = _running_session_state()
+    current_step = state["current_step"]
+    assert isinstance(current_step, dict)
+    current_step["step_id"] = "root.other"
+
+    guard = ResumePlanner().detect_interrupted_provider_session_visit(
+        state,
+        projection=_session_resume_projection(),
+    )
+
+    assert (guard or {}).get("kind") == "integrity_error"
+
+
+def test_interrupted_provider_session_at_least_once_legacy_quarantine_marker_is_distinct(
+) -> None:
+    error = {
+        "type": "provider_session_interrupted_visit_quarantined",
+        "message": "historical sticky quarantine",
+        "context": {
+            "step_name": "Review",
+            "step_id": "root.review",
+            "visit_count": 2,
+        },
+    }
+
+    guard = ResumePlanner().detect_interrupted_provider_session_visit(
+        {"status": "failed", "error": error},
+        projection=_session_resume_projection(),
+    )
+
+    assert guard == {"kind": "existing_quarantine", "error": error}
 
 
 @contextmanager
@@ -906,7 +1017,7 @@ def test_nested_typed_carriage_uses_the_aggregate_prompt_evidence_owner(
 
 
 @pytest.mark.parametrize("evidence_disposition", ["deleted", "corrupt"])
-def test_completed_provider_boundary_reuse_ignores_prior_evidence_and_dependencies(
+def test_interrupted_ordinary_provider_at_least_once_completed_boundary_reuses_without_invocation(
     tmp_path: Path,
     evidence_disposition: str,
 ) -> None:
@@ -1426,7 +1537,7 @@ def test_resume_after_failed_allocation_persistence_reuses_first_ordinal(
     assert [row["attempt_ordinal"] for row in terminal.index["publications"]] == [1]
 
 
-def test_resume_after_provider_execution_interruption_uses_new_attempt_snapshot(
+def test_interrupted_ordinary_provider_at_least_once_uses_new_attempt_snapshot(
     tmp_path: Path,
 ) -> None:
     module_path, bundle = _compile_mixed_e2e(tmp_path, resumable=True)

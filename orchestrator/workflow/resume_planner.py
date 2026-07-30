@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from .state_projection import WorkflowStateProjection
+from .state_projection import CompatibilityNodeProjection, WorkflowStateProjection
 
 
 class ResumeStateIntegrityError(RuntimeError):
@@ -115,10 +115,58 @@ class ResumePlanner:
             step_result = steps_state.get(step_name)
             if step_result is None:
                 return node_id
+            if self._provider_visit_gap_has_pending_work(
+                state,
+                entry,
+                step_result,
+            ):
+                return node_id
             if not self.entry_is_terminal(step_result):
                 return node_id
 
         return None
+
+    def _provider_visit_gap_has_pending_work(
+        self,
+        state: Dict[str, Any],
+        entry: CompatibilityNodeProjection,
+        step_result: Any,
+    ) -> bool:
+        """Keep a cleared interrupted provider visit eligible for restart."""
+        if entry.step_definition.report_kind not in {
+            "provider",
+            "provider_supervision",
+            "provider_peer_group",
+        }:
+            return False
+        step_visits = state.get("step_visits")
+        persisted_visit_count = (
+            step_visits.get(entry.presentation_key)
+            if isinstance(step_visits, dict)
+            else None
+        )
+        if (
+            isinstance(persisted_visit_count, bool)
+            or not isinstance(persisted_visit_count, int)
+            or persisted_visit_count <= 0
+        ):
+            return False
+        if step_result is None:
+            return True
+        if not self.entry_is_terminal(step_result):
+            return False
+        result_visit_count = (
+            step_result.get("visit_count")
+            if isinstance(step_result, dict)
+            else None
+        )
+        if (
+            isinstance(result_visit_count, bool)
+            or not isinstance(result_visit_count, int)
+            or result_visit_count <= 0
+        ):
+            return False
+        return persisted_visit_count > result_visit_count
 
     def determine_lexical_restore_decision(
         self,
@@ -168,7 +216,7 @@ class ResumePlanner:
             determine_runtime_default_resume_decision,
         )
 
-        return determine_runtime_default_resume_decision(
+        decision = determine_runtime_default_resume_decision(
             state=state,
             runtime_plan=runtime_plan,
             restart_node_id=restart_node_id,
@@ -176,6 +224,52 @@ class ResumePlanner:
             loaded_workflow=loaded_workflow,
             executable_workflow=executable_workflow,
         )
+        entry = (
+            projection.entries_by_node_id.get(restart_node_id)
+            if isinstance(restart_node_id, str)
+            else None
+        )
+        steps = state.get("steps")
+        step_result = (
+            steps.get(entry.presentation_key)
+            if entry is not None and isinstance(steps, dict)
+            else None
+        )
+        diagnostics = tuple(decision.get("diagnostics", ()) or ())
+        diagnostic_codes = {
+            item.get("code") if isinstance(item, dict) else item
+            for item in diagnostics
+        }
+        if (
+            entry is not None
+            and self._provider_visit_gap_has_pending_work(
+                state,
+                entry,
+                step_result,
+            )
+            and decision.get("mode") == "FAIL_CLOSED"
+            and diagnostic_codes
+            == {"lexical_default_resume_prior_boundary_missing"}
+        ):
+            decision = dict(decision)
+            decision.update(
+                {
+                    "mode": "LEXICAL_CHECKPOINT_DEFAULT",
+                    "restore_decision": None,
+                    "restore_candidate": None,
+                    "checkpoint_id": None,
+                    "record_id": None,
+                    "source_map_origin_key": None,
+                    "selection_reason": (
+                        "validated_interrupted_provider_visit"
+                    ),
+                    "compatibility_reason": (
+                        "provider_interrupted_rerun"
+                    ),
+                    "diagnostics": [],
+                }
+            )
+        return decision
 
     def _projected_current_step(
         self,
@@ -252,12 +346,49 @@ class ResumePlanner:
             "context": dict(exc.context),
         }
 
+    def _interrupted_provider_result_relation(
+        self,
+        state: Dict[str, Any],
+        *,
+        step_name: str,
+        step_id: str,
+        visit_count: int,
+    ) -> str:
+        """Classify the latest same-name result against one live visit."""
+
+        steps_state = state.get("steps", {})
+        step_result = (
+            steps_state.get(step_name)
+            if isinstance(steps_state, dict)
+            else None
+        )
+        if step_result is None:
+            return "absent"
+        if (
+            not isinstance(step_result, dict)
+            or step_result.get("status")
+            not in {"completed", "failed", "skipped"}
+            or step_result.get("step_id") != step_id
+        ):
+            return "integrity_error"
+        result_visit_count = step_result.get("visit_count")
+        if (
+            isinstance(result_visit_count, bool)
+            or not isinstance(result_visit_count, int)
+            or result_visit_count <= 0
+            or result_visit_count > visit_count
+        ):
+            return "integrity_error"
+        if result_visit_count == visit_count:
+            return "exact_terminal"
+        return "older_terminal"
+
     def detect_interrupted_provider_session_visit(
         self,
         state: Dict[str, Any],
         projection: Optional[WorkflowStateProjection] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Detect whether resume must quarantine an interrupted provider-session visit."""
+        """Detect whether resume must rerun an interrupted provider-session visit."""
         if not isinstance(projection, WorkflowStateProjection):
             raise TypeError("ResumePlanner requires a WorkflowStateProjection")
 
@@ -331,18 +462,28 @@ class ResumePlanner:
                 "visit_count": visit_count,
             }
 
-        steps_state = state.get("steps", {})
-        step_result = steps_state.get(step_name) if isinstance(steps_state, dict) else None
-        if (
-            isinstance(step_result, dict)
-            and step_result.get("step_id") == step_id
-            and step_result.get("visit_count") == visit_count
-            and self.entry_is_terminal(step_result)
-        ):
+        result_relation = self._interrupted_provider_result_relation(
+            state,
+            step_name=step_name,
+            step_id=step_id,
+            visit_count=visit_count,
+        )
+        if result_relation == "integrity_error":
+            return {
+                "kind": "integrity_error",
+                "message": (
+                    "Provider-session result identity is invalid for the "
+                    "interrupted current visit."
+                ),
+                "step_name": step_name,
+                "step_id": step_id,
+                "visit_count": visit_count,
+            }
+        if result_relation == "exact_terminal":
             return None
 
         return {
-            "kind": "quarantine",
+            "kind": "rerun_interrupted_visit",
             "step_name": step_name,
             "step_id": step_id,
             "visit_count": visit_count,
@@ -355,7 +496,7 @@ class ResumePlanner:
         state: Dict[str, Any],
         projection: Optional[WorkflowStateProjection] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Detect an interrupted provider-supervision visit without replaying it."""
+        """Detect an interrupted provider-supervision visit for a fresh rerun."""
         if not isinstance(projection, WorkflowStateProjection):
             raise TypeError("ResumePlanner requires a WorkflowStateProjection")
 
@@ -451,31 +592,28 @@ class ResumePlanner:
                 "visit_count": visit_count,
             }
 
-        steps_state = state.get("steps", {})
-        step_result = (
-            steps_state.get(step_name)
-            if isinstance(steps_state, dict)
-            else None
+        result_relation = self._interrupted_provider_result_relation(
+            state,
+            step_name=step_name,
+            step_id=step_id,
+            visit_count=visit_count,
         )
-        result_visit_count = (
-            step_result.get("visit_count")
-            if isinstance(step_result, dict)
-            else None
-        )
-        if (
-            isinstance(step_result, dict)
-            and step_result.get("status")
-            in {"completed", "failed", "skipped"}
-            and step_result.get("step_id") == step_id
-            and isinstance(result_visit_count, int)
-            and not isinstance(result_visit_count, bool)
-            and result_visit_count > 0
-            and result_visit_count == visit_count
-        ):
+        if result_relation == "integrity_error":
+            return {
+                "kind": "integrity_error",
+                "message": (
+                    "Provider-supervision result identity is invalid for the "
+                    "interrupted current visit."
+                ),
+                "step_name": step_name,
+                "step_id": step_id,
+                "visit_count": visit_count,
+            }
+        if result_relation == "exact_terminal":
             return None
 
         return {
-            "kind": "quarantine",
+            "kind": "rerun_interrupted_visit",
             "step_name": step_name,
             "step_id": step_id,
             "node_id": projected_current_step.node_id,
@@ -487,7 +625,7 @@ class ResumePlanner:
         state: Dict[str, Any],
         projection: Optional[WorkflowStateProjection] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Detect an interrupted peer-group visit without resuming a member."""
+        """Detect an interrupted peer-group visit for a fresh whole-group rerun."""
         if not isinstance(projection, WorkflowStateProjection):
             raise TypeError("ResumePlanner requires a WorkflowStateProjection")
 
@@ -584,31 +722,28 @@ class ResumePlanner:
                 "visit_count": visit_count,
             }
 
-        steps_state = state.get("steps", {})
-        step_result = (
-            steps_state.get(step_name)
-            if isinstance(steps_state, dict)
-            else None
+        result_relation = self._interrupted_provider_result_relation(
+            state,
+            step_name=step_name,
+            step_id=step_id,
+            visit_count=visit_count,
         )
-        result_visit_count = (
-            step_result.get("visit_count")
-            if isinstance(step_result, dict)
-            else None
-        )
-        if (
-            isinstance(step_result, dict)
-            and step_result.get("status")
-            in {"completed", "failed", "skipped"}
-            and step_result.get("step_id") == step_id
-            and isinstance(result_visit_count, int)
-            and not isinstance(result_visit_count, bool)
-            and result_visit_count > 0
-            and result_visit_count == visit_count
-        ):
+        if result_relation == "integrity_error":
+            return {
+                "kind": "integrity_error",
+                "message": (
+                    "Provider peer-group result identity is invalid for the "
+                    "interrupted current visit."
+                ),
+                "step_name": step_name,
+                "step_id": step_id,
+                "visit_count": visit_count,
+            }
+        if result_relation == "exact_terminal":
             return None
 
         return {
-            "kind": "quarantine",
+            "kind": "rerun_interrupted_visit",
             "step_name": step_name,
             "step_id": step_id,
             "node_id": projected_current_step.node_id,

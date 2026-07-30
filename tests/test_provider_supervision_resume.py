@@ -5,7 +5,7 @@ from __future__ import annotations
 from concurrent.futures import Future
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 import threading
 import time
 from typing import Any
@@ -21,6 +21,7 @@ from orchestrator.providers.types import (
     ProviderSessionMode,
     ProviderSessionRequest,
 )
+from orchestrator.workflow.executable_ir import WorkflowRegion
 from orchestrator.workflow.provider_supervision.bindings import (
     ProviderSupervisionAttemptBinding,
     ProviderSupervisionInvocationSnapshot,
@@ -33,6 +34,113 @@ from orchestrator.workflow.provider_supervision.coordinator import (
     ProviderSupervisionCoordinator,
 )
 from orchestrator.workflow.provider_supervision import models as supervision_models
+from orchestrator.workflow.resume_planner import ResumePlanner
+from orchestrator.workflow.state_projection import (
+    CompatibilityNodeProjection,
+    CompatibilityStepDefinition,
+    WorkflowStateProjection,
+)
+
+
+def _ml1_supervision_projection(
+    report_kind: str = "provider_supervision",
+) -> WorkflowStateProjection:
+    entry = CompatibilityNodeProjection(
+        node_id="root.live",
+        step_id="root.live",
+        presentation_key="Live",
+        display_name="Live",
+        region=WorkflowRegion.BODY,
+        compatibility_index=0,
+        step_definition=CompatibilityStepDefinition(
+            report_kind=report_kind,
+        ),
+    )
+    return WorkflowStateProjection(
+        entries_by_node_id=MappingProxyType({"root.live": entry}),
+        node_id_by_compatibility_index=MappingProxyType({0: "root.live"}),
+        compatibility_index_by_node_id=MappingProxyType({"root.live": 0}),
+        presentation_key_by_node_id=MappingProxyType({"root.live": "Live"}),
+        node_id_by_step_id=MappingProxyType({"root.live": "root.live"}),
+    )
+
+
+def _ml1_running_supervision_state(
+    *,
+    result: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "status": "running",
+        "steps": {} if result is None else {"Live": result},
+        "current_step": {
+            "name": "Live",
+            "index": 0,
+            "type": "provider_supervision",
+            "status": "running",
+            "step_id": "root.live",
+            "visit_count": 2,
+        },
+    }
+
+
+def test_interrupted_supervision_visit_requests_fresh_rerun_disposition() -> None:
+    guard = ResumePlanner().detect_interrupted_provider_supervision_visit(
+        _ml1_running_supervision_state(),
+        projection=_ml1_supervision_projection(),
+    )
+
+    assert (guard or {}).get("kind") == "rerun_interrupted_visit"
+
+
+def test_interrupted_supervision_at_least_once_does_not_claim_completed_same_visit(
+) -> None:
+    guard = ResumePlanner().detect_interrupted_provider_supervision_visit(
+        _ml1_running_supervision_state(
+            result={
+                "status": "completed",
+                "step_id": "root.live",
+                "visit_count": 2,
+            }
+        ),
+        projection=_ml1_supervision_projection(),
+    )
+
+    assert guard is None
+
+
+def test_interrupted_supervision_at_least_once_projection_mismatch_is_integrity_error_before_launch(
+) -> None:
+    state = _ml1_running_supervision_state()
+    current_step = state["current_step"]
+    assert isinstance(current_step, dict)
+    current_step["type"] = "provider"
+
+    guard = ResumePlanner().detect_interrupted_provider_supervision_visit(
+        state,
+        projection=_ml1_supervision_projection(),
+    )
+
+    assert (guard or {}).get("kind") == "integrity_error"
+
+
+def test_interrupted_supervision_at_least_once_legacy_quarantine_marker_is_distinct(
+) -> None:
+    error = {
+        "type": "provider_supervision_interrupted_visit_quarantined",
+        "message": "historical sticky quarantine",
+        "context": {
+            "step_name": "Live",
+            "step_id": "root.live",
+            "visit_count": 2,
+        },
+    }
+
+    guard = ResumePlanner().detect_interrupted_provider_supervision_visit(
+        {"status": "failed", "error": error},
+        projection=_ml1_supervision_projection(),
+    )
+
+    assert guard == {"kind": "existing_quarantine", "error": error}
 
 
 def _snapshot(

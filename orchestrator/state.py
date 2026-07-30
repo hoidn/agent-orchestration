@@ -893,6 +893,65 @@ class StateManager:
 
             self._write_state()
 
+    def recover_interrupted_provider_visit(
+        self,
+        *,
+        expected_step_name: str,
+        expected_step_id: str,
+        expected_visit_count: int,
+        expected_status: str = "running",
+        legacy_error_type: Optional[str] = None,
+    ) -> None:
+        """Atomically clear one exact interrupted cursor for ordinary rerun."""
+
+        with self._state_mutation():
+            if self.state is None:
+                raise RuntimeError("State not initialized")
+            current = self.state.current_step
+            expected = {
+                "name": expected_step_name,
+                "step_id": expected_step_id,
+                "visit_count": expected_visit_count,
+                "status": expected_status,
+            }
+            current_matches = isinstance(current, dict) and all(
+                current.get(field) == value for field, value in expected.items()
+            )
+            error = self.state.error
+            error_context = (
+                error.get("context") if isinstance(error, dict) else None
+            )
+            legacy_matches = (
+                current is None
+                and isinstance(legacy_error_type, str)
+                and isinstance(error, dict)
+                and error.get("type") == legacy_error_type
+                and isinstance(error_context, dict)
+                and error_context.get("step_name") == expected_step_name
+                and error_context.get("step_id") == expected_step_id
+                and error_context.get("visit_count") == expected_visit_count
+            )
+            recorded_visit_count = self.state.step_visits.get(
+                expected_step_name
+            )
+            counter_matches = (
+                not isinstance(recorded_visit_count, bool)
+                and isinstance(recorded_visit_count, int)
+                and recorded_visit_count == expected_visit_count
+            )
+            if (
+                (not current_matches and not legacy_matches)
+                or not counter_matches
+            ):
+                raise TimeoutError(
+                    "interrupted provider visit cursor changed before recovery"
+                )
+
+            self.state.current_step = None
+            self.state.error = None
+            self.state.status = "running"
+            self._write_state()
+
     def _record_atomic_root_failure(self, error: Mapping[str, Any]) -> None:
         """Replace only the root failure envelope while preserving raw state."""
         with self._state_mutation():

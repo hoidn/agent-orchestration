@@ -2142,7 +2142,10 @@ class WorkflowExecutor:
             and existing_error.get("type")
             == "provider_phased_interrupted_visit_quarantined"
         ):
-            return {"kind": "existing_quarantine"}
+            return {
+                "kind": "existing_quarantine",
+                "error": dict(existing_error),
+            }
         current = state.get("current_step")
         if not isinstance(current, Mapping):
             return None
@@ -2235,7 +2238,7 @@ class WorkflowExecutor:
                 },
             }
         return {
-            "kind": "quarantine",
+            "kind": "rerun_interrupted_visit",
             "step_name": current.get("name"),
             "step_id": current.get("step_id"),
             "visit_count": current.get("visit_count"),
@@ -2830,6 +2833,349 @@ class WorkflowExecutor:
         persisted = self.state_manager.load().to_dict()
         persisted["status"] = "failed"
         return persisted
+
+    def _interrupted_provider_metadata_path(
+        self,
+        family: str,
+        guard: Mapping[str, Any],
+    ) -> Optional[Path]:
+        """Return an existing visit-metadata path for one recovery family."""
+
+        step_id = guard.get("step_id")
+        visit_count = guard.get("visit_count")
+        if (
+            not isinstance(step_id, str)
+            or not step_id
+            or isinstance(visit_count, bool)
+            or not isinstance(visit_count, int)
+            or visit_count <= 0
+        ):
+            return None
+        run_root = Path(self.state_manager.run_root)
+        if family == "session":
+            safe_step_id = step_id.replace("/", "_")
+            return (
+                run_root
+                / "provider_sessions"
+                / f"{safe_step_id}__v{visit_count}.json"
+            )
+        if family not in {"supervision", "peer_group"}:
+            return None
+
+        from urllib.parse import quote
+
+        node_id = guard.get("node_id", step_id)
+        encoded_node_id = quote(str(node_id), safe="-._")
+        if family == "supervision":
+            return (
+                run_root
+                / "provider-supervision"
+                / encoded_node_id
+                / "visits"
+                / str(visit_count)
+                / "metadata.json"
+            )
+        return (
+            run_root
+            / "provider-peer-group"
+            / encoded_node_id
+            / "visit-metadata"
+            / f"{visit_count}.json"
+        )
+
+    def _prepare_interrupted_provider_metadata(
+        self,
+        family: str,
+        guard: Mapping[str, Any],
+    ) -> tuple[
+        Optional[Dict[str, Any]],
+        Optional[tuple[Path, Dict[str, Any]]],
+    ]:
+        """Validate readable partial evidence before the state mutation."""
+
+        metadata_path = self._interrupted_provider_metadata_path(family, guard)
+        if metadata_path is None or not metadata_path.exists():
+            return None, None
+        try:
+            metadata = self.state_manager.read_runtime_sidecar_json(
+                metadata_path
+            )
+        except (OSError, UnicodeError, ValueError):
+            return None, None
+        if metadata is None:
+            return None, None
+
+        expected = {
+            "step_name": guard.get("step_name"),
+            "step_id": guard.get("step_id"),
+            "visit_count": guard.get("visit_count"),
+        }
+        if any(metadata.get(key) != value for key, value in expected.items()):
+            return (
+                self._fail_resume_state_integrity(
+                    f"provider_{family}_resume_state_integrity_error",
+                    "Interrupted provider metadata identity is invalid.",
+                    {
+                        "family": family,
+                        **expected,
+                        "metadata_path": str(metadata_path),
+                    },
+                ),
+                None,
+            )
+        return None, (metadata_path, metadata)
+
+    def _persist_interrupted_provider_metadata(
+        self,
+        family: str,
+        prepared: Optional[tuple[Path, Dict[str, Any]]],
+    ) -> None:
+        """Best-effort mark audit-only evidence after exact state recovery."""
+
+        if prepared is None:
+            return
+        metadata_path, metadata = prepared
+        if family == "session":
+            metadata["step_status"] = "interrupted"
+        else:
+            metadata["status"] = "interrupted"
+        metadata["publication_state"] = "interrupted"
+        try:
+            self.state_manager.write_runtime_sidecar_json(
+                metadata_path,
+                metadata,
+            )
+        except (OSError, TypeError, ValueError):
+            logger.warning(
+                "Interrupted provider audit metadata could not be updated",
+                extra={
+                    "provider_family": family,
+                    "provider_metadata_path": str(metadata_path),
+                },
+            )
+
+    def _reconstruct_legacy_interrupted_provider_guard(
+        self,
+        state: Mapping[str, Any],
+        *,
+        family: str,
+        error: Mapping[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Reconstruct an exact old sticky-quarantine visit, or fail closed."""
+
+        context = error.get("context")
+        if not isinstance(context, Mapping):
+            return None
+        step_name = context.get("step_name")
+        step_id = context.get("step_id")
+        visit_count = context.get("visit_count")
+        if (
+            not isinstance(step_name, str)
+            or not step_name
+            or not isinstance(step_id, str)
+            or not step_id
+            or isinstance(visit_count, bool)
+            or not isinstance(visit_count, int)
+            or visit_count <= 0
+        ):
+            return None
+
+        entry = self.projection.entry_for_step_id(step_id)
+        if entry is None or entry.presentation_key != step_name:
+            return None
+        report_kind = entry.step_definition.report_kind
+        if family == "session":
+            family_matches = (
+                report_kind == "provider"
+                and entry.step_definition.provider_session_enabled
+            )
+        elif family == "supervision":
+            family_matches = report_kind == "provider_supervision"
+        elif family == "peer_group":
+            family_matches = report_kind == "provider_peer_group"
+        elif family == "phased":
+            family_matches = report_kind == "provider"
+        else:
+            family_matches = False
+        if not family_matches:
+            return None
+
+        step_visits = state.get("step_visits")
+        recorded_visit_count = (
+            step_visits.get(step_name)
+            if isinstance(step_visits, Mapping)
+            else None
+        )
+        if (
+            not isinstance(step_visits, Mapping)
+            or isinstance(recorded_visit_count, bool)
+            or not isinstance(recorded_visit_count, int)
+            or recorded_visit_count != visit_count
+        ):
+            return None
+        steps = state.get("steps")
+        prior_result = (
+            steps.get(step_name) if isinstance(steps, Mapping) else None
+        )
+        if prior_result is not None:
+            if not isinstance(prior_result, Mapping):
+                return None
+            prior_visit = prior_result.get("visit_count")
+            if (
+                prior_result.get("status")
+                not in {"completed", "failed", "skipped"}
+                or prior_result.get("step_id") != step_id
+                or isinstance(prior_visit, bool)
+                or not isinstance(prior_visit, int)
+                or prior_visit <= 0
+                or prior_visit >= visit_count
+            ):
+                return None
+
+        node_id = entry.node_id
+        if family == "phased":
+            try:
+                step = self._runtime_step_for_node_id(node_id)
+                _provider_policy, runtime_policy = (
+                    partition_provider_call_policy(
+                        step.get("provider_call_policy") or {}
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                return None
+            if (
+                runtime_policy is None
+                or runtime_policy.delivery != "phased"
+            ):
+                return None
+
+        return {
+            "kind": "rerun_interrupted_visit",
+            "step_name": step_name,
+            "step_id": step_id,
+            "visit_count": visit_count,
+            "node_id": node_id,
+            "provider": context.get("provider"),
+            "mode": context.get("mode"),
+            "legacy_error_type": error.get("type"),
+        }
+
+    def _recover_interrupted_provider_resume_guard(
+        self,
+        state: Dict[str, Any],
+        guard: Mapping[str, Any],
+        *,
+        family: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Discard one exact partial visit and retain its ordinal as spent."""
+
+        recovery_guard: Optional[Dict[str, Any]]
+        if guard.get("kind") == "existing_quarantine":
+            error = guard.get("error")
+            if not isinstance(error, Mapping):
+                error = state.get("error")
+            recovery_guard = (
+                self._reconstruct_legacy_interrupted_provider_guard(
+                    state,
+                    family=family,
+                    error=error,
+                )
+                if isinstance(error, Mapping)
+                else None
+            )
+            if recovery_guard is None:
+                return self._fail_resume_state_integrity(
+                    f"provider_{family}_resume_state_integrity_error",
+                    "Legacy interrupted-provider state cannot be reconstructed.",
+                    {"family": family},
+                )
+        else:
+            recovery_guard = dict(guard)
+
+        step_name = recovery_guard.get("step_name")
+        step_id = recovery_guard.get("step_id")
+        visit_count = recovery_guard.get("visit_count")
+        if (
+            not isinstance(step_name, str)
+            or not step_name
+            or not isinstance(step_id, str)
+            or not step_id
+            or isinstance(visit_count, bool)
+            or not isinstance(visit_count, int)
+            or visit_count <= 0
+        ):
+            return self._fail_resume_state_integrity(
+                f"provider_{family}_resume_state_integrity_error",
+                "Interrupted provider current-step identity is invalid.",
+                {
+                    "family": family,
+                    "step_name": step_name,
+                    "step_id": step_id,
+                    "visit_count": visit_count,
+                },
+            )
+
+        step_visits = state.get("step_visits")
+        recorded_visit_count = (
+            step_visits.get(step_name)
+            if isinstance(step_visits, Mapping)
+            else None
+        )
+        if (
+            not isinstance(step_visits, Mapping)
+            or isinstance(recorded_visit_count, bool)
+            or not isinstance(recorded_visit_count, int)
+            or recorded_visit_count != visit_count
+        ):
+            return self._fail_resume_state_integrity(
+                f"provider_{family}_resume_state_integrity_error",
+                "Interrupted provider visit counter is invalid.",
+                {
+                    "family": family,
+                    "step_name": step_name,
+                    "step_id": step_id,
+                    "visit_count": visit_count,
+                    "recorded_visit_count": recorded_visit_count,
+                },
+            )
+
+        metadata_failure, prepared_metadata = (
+            self._prepare_interrupted_provider_metadata(
+                family,
+                recovery_guard,
+            )
+        )
+        if metadata_failure is not None:
+            return metadata_failure
+        try:
+            self.state_manager.recover_interrupted_provider_visit(
+                expected_step_name=step_name,
+                expected_step_id=step_id,
+                expected_visit_count=visit_count,
+                legacy_error_type=recovery_guard.get("legacy_error_type"),
+            )
+        except (RuntimeError, TimeoutError, ValueError) as exc:
+            return self._fail_resume_state_integrity(
+                f"provider_{family}_resume_state_integrity_error",
+                "Interrupted provider cursor changed before recovery.",
+                {
+                    "family": family,
+                    "step_name": step_name,
+                    "step_id": step_id,
+                    "visit_count": visit_count,
+                    "error": str(exc),
+                },
+            )
+
+        self._persist_interrupted_provider_metadata(
+            family,
+            prepared_metadata,
+        )
+
+        state["current_step"] = None
+        state.pop("error", None)
+        state["status"] = "running"
+        return None
 
     def _uses_qualified_identities(self) -> bool:
         """Return True when this workflow uses the post-Task-6 state model."""
@@ -3467,29 +3813,26 @@ class WorkflowExecutor:
         if resume:
             phased_guard = self._interrupted_phased_provider_guard(state)
             if phased_guard is not None:
-                if phased_guard.get("kind") == "existing_quarantine":
-                    state["status"] = "failed"
-                    return state
                 if phased_guard.get("kind") == "integrity_error":
                     return self._fail_resume_state_integrity(
                         "provider_phased_resume_state_integrity_error",
                         "Phased provider current-step identity is invalid.",
                         dict(phased_guard.get("context", {})),
                     )
-                return self._quarantine_phased_provider_resume_guard(
-                    state,
-                    phased_guard,
+                recovery_failure = (
+                    self._recover_interrupted_provider_resume_guard(
+                        state,
+                        phased_guard,
+                        family="phased",
+                    )
                 )
+                if recovery_failure is not None:
+                    return recovery_failure
             session_guard = self.resume_planner.detect_interrupted_provider_session_visit(
                 state,
                 projection=self.projection,
             )
             if session_guard is not None:
-                if session_guard.get("kind") == "existing_quarantine":
-                    state['status'] = 'failed'
-                    return state
-                if session_guard.get("kind") == "quarantine":
-                    return self._quarantine_provider_session_resume_guard(state, session_guard)
                 if session_guard.get("kind") == "integrity_error":
                     context = session_guard.get("context")
                     if not isinstance(context, dict):
@@ -3503,6 +3846,15 @@ class WorkflowExecutor:
                         str(session_guard.get("message", "Provider-session resume state is invalid.")),
                         context,
                     )
+                recovery_failure = (
+                    self._recover_interrupted_provider_resume_guard(
+                        state,
+                        session_guard,
+                        family="session",
+                    )
+                )
+                if recovery_failure is not None:
+                    return recovery_failure
             supervision_guard = (
                 self.resume_planner.detect_interrupted_provider_supervision_visit(
                     state,
@@ -3510,14 +3862,6 @@ class WorkflowExecutor:
                 )
             )
             if supervision_guard is not None:
-                if supervision_guard.get("kind") == "existing_quarantine":
-                    state["status"] = "failed"
-                    return state
-                if supervision_guard.get("kind") == "quarantine":
-                    return self._quarantine_provider_supervision_resume_guard(
-                        state,
-                        supervision_guard,
-                    )
                 if supervision_guard.get("kind") == "integrity_error":
                     context = supervision_guard.get("context")
                     if not isinstance(context, dict):
@@ -3541,6 +3885,15 @@ class WorkflowExecutor:
                         ),
                         context,
                     )
+                recovery_failure = (
+                    self._recover_interrupted_provider_resume_guard(
+                        state,
+                        supervision_guard,
+                        family="supervision",
+                    )
+                )
+                if recovery_failure is not None:
+                    return recovery_failure
             peer_group_guard = (
                 self.resume_planner.detect_interrupted_provider_peer_group_visit(
                     state,
@@ -3548,14 +3901,6 @@ class WorkflowExecutor:
                 )
             )
             if peer_group_guard is not None:
-                if peer_group_guard.get("kind") == "existing_quarantine":
-                    state["status"] = "failed"
-                    return state
-                if peer_group_guard.get("kind") == "quarantine":
-                    return self._quarantine_provider_peer_group_resume_guard(
-                        state,
-                        peer_group_guard,
-                    )
                 if peer_group_guard.get("kind") == "integrity_error":
                     context = peer_group_guard.get("context")
                     if not isinstance(context, dict):
@@ -3579,6 +3924,15 @@ class WorkflowExecutor:
                         ),
                         context,
                     )
+                recovery_failure = (
+                    self._recover_interrupted_provider_resume_guard(
+                        state,
+                        peer_group_guard,
+                        family="peer_group",
+                    )
+                )
+                if recovery_failure is not None:
+                    return recovery_failure
         state.pop('error', None)
         if state.get('status') != 'running':
             self.state_manager.update_status('running')
@@ -3778,6 +4132,135 @@ class WorkflowExecutor:
             self.state_manager.record_resume_projection_integrity_failure(exc.error)
             return self.state_manager.load().to_dict()
         return None
+
+    def _provider_recovery_family(
+        self,
+        step: RuntimeStepInput,
+    ) -> Optional[str]:
+        """Classify one provider-bearing top-level route for recovery logging."""
+
+        execution_kind = self._execution_kind_for_step(step)
+        if execution_kind is ExecutableNodeKind.PROVIDER_SUPERVISION:
+            return "supervision"
+        if execution_kind is ExecutableNodeKind.PROVIDER_PEER_GROUP:
+            return "peer_group"
+        if execution_kind is not ExecutableNodeKind.PROVIDER:
+            return None
+        _provider_policy, runtime_policy = partition_provider_call_policy(
+            step.get("provider_call_policy") or {}
+        )
+        if runtime_policy is not None and runtime_policy.delivery == "phased":
+            return "phased"
+        if self._provider_session_config(step) is not None:
+            return "session"
+        return "ordinary"
+
+    def _interrupted_provider_rerun_context(
+        self,
+        state: Mapping[str, Any],
+        step: RuntimeStepInput,
+        *,
+        step_name: str,
+        step_id: str,
+        visit_count: Any,
+        resume_current_step: bool,
+    ) -> Optional[Dict[str, Any]]:
+        """Describe a validated spent-visit gap at its fresh dispatch boundary."""
+
+        if (
+            not resume_current_step
+            or isinstance(visit_count, bool)
+            or not isinstance(visit_count, int)
+            or visit_count <= 1
+        ):
+            return None
+        discarded_visit = visit_count - 1
+        step_visits = state.get("step_visits")
+        if (
+            not isinstance(step_visits, Mapping)
+            or step_visits.get(step_name) != visit_count
+        ):
+            return None
+        steps = state.get("steps")
+        prior_result = (
+            steps.get(step_name) if isinstance(steps, Mapping) else None
+        )
+        if prior_result is not None:
+            if not isinstance(prior_result, Mapping):
+                return None
+            prior_visit = prior_result.get("visit_count")
+            if (
+                prior_result.get("status")
+                not in {"completed", "failed", "skipped"}
+                or prior_result.get("step_id") != step_id
+                or isinstance(prior_visit, bool)
+                or not isinstance(prior_visit, int)
+                or prior_visit <= 0
+                or prior_visit >= discarded_visit
+            ):
+                return None
+        family = self._provider_recovery_family(step)
+        if family is None:
+            return None
+        return {
+            "diagnostic": "provider_attempt_interrupted_rerun",
+            "family": family,
+            "step_id": step_id,
+            "discarded_visit": discarded_visit,
+            "next_visit": visit_count,
+        }
+
+    def _emit_interrupted_provider_rerun(
+        self,
+        context: Optional[Mapping[str, Any]],
+    ) -> None:
+        """Emit the stable re-spend diagnostic without adding prompt guidance."""
+
+        if context is None:
+            return
+        logger.warning(
+            "provider_attempt_interrupted_rerun",
+            extra={
+                "orchestrator_diagnostic": context["diagnostic"],
+                "provider_family": context["family"],
+                "provider_step_id": context["step_id"],
+                "discarded_visit": context["discarded_visit"],
+                "next_visit": context["next_visit"],
+            },
+        )
+
+    def _arm_interrupted_provider_rerun(
+        self,
+        context: Optional[Mapping[str, Any]],
+    ) -> None:
+        """Hold one bounded diagnostic until its exact provider dispatch."""
+
+        if context is not None:
+            self._pending_interrupted_provider_rerun = dict(context)
+
+    def _emit_pending_interrupted_provider_rerun(
+        self,
+        *,
+        family: str,
+        step_id: str,
+        visit_count: int,
+    ) -> None:
+        """Emit and consume only the diagnostic bound to this dispatch."""
+
+        context = getattr(
+            self,
+            "_pending_interrupted_provider_rerun",
+            None,
+        )
+        if (
+            not isinstance(context, Mapping)
+            or context.get("family") != family
+            or context.get("step_id") != step_id
+            or context.get("next_visit") != visit_count
+        ):
+            return
+        self._pending_interrupted_provider_rerun = None
+        self._emit_interrupted_provider_rerun(context)
 
     def _execute_step_loop(
         self,
@@ -4246,6 +4729,16 @@ class WorkflowExecutor:
                     current_node_id = next_node_id
                     continue
 
+                interrupted_rerun_context = (
+                    self._interrupted_provider_rerun_context(
+                        state,
+                        step,
+                        step_name=identity.name,
+                        step_id=identity.step_id,
+                        visit_count=visit_count,
+                        resume_current_step=resume_current_step,
+                    )
+                )
                 if isinstance(visit_count, int):
                     self._prepare_provider_session_visit(
                         step,
@@ -4272,6 +4765,9 @@ class WorkflowExecutor:
                     self._resolve_step_type(step),
                     step_id=identity.step_id,
                     visit_count=visit_count,
+                )
+                self._arm_interrupted_provider_rerun(
+                    interrupted_rerun_context
                 )
 
                 # Execute based on step type
@@ -6826,6 +7322,35 @@ class WorkflowExecutor:
                 runtime_step_id=runtime_step_id,
                 context={"error": str(exc)},
             )
+        pending_rerun = getattr(
+            self,
+            "_pending_interrupted_provider_rerun",
+            None,
+        )
+        if isinstance(pending_rerun, Mapping):
+            step_name = step.get("name", f"step_{self.current_step}")
+            visits = state.get("step_visits")
+            visit_count = (
+                visits.get(step_name)
+                if isinstance(visits, Mapping)
+                else None
+            )
+            resolved_step_id = (
+                runtime_step_id or pending_rerun.get("step_id")
+            )
+        else:
+            visit_count = None
+            resolved_step_id = None
+        if (
+            isinstance(resolved_step_id, str)
+            and not isinstance(visit_count, bool)
+            and isinstance(visit_count, int)
+        ):
+            self._emit_pending_interrupted_provider_rerun(
+                family="phased",
+                step_id=resolved_step_id,
+                visit_count=visit_count,
+            )
         result = self._run_phased_provider_attempt(bindings)
         return bindings.runtime_result(result)
 
@@ -7923,6 +8448,40 @@ class WorkflowExecutor:
                 )
 
             # Execute the prepared invocation
+            pending_rerun = getattr(
+                self,
+                "_pending_interrupted_provider_rerun",
+                None,
+            )
+            visit_count = (
+                state.get("step_visits", {}).get(step_name)
+                if (
+                    isinstance(pending_rerun, Mapping)
+                    and isinstance(state.get("step_visits"), Mapping)
+                )
+                else None
+            )
+            resolved_step_id = (
+                runtime_step_id or pending_rerun.get("step_id")
+                if isinstance(pending_rerun, Mapping)
+                else None
+            )
+            family = (
+                self._provider_recovery_family(step)
+                if isinstance(pending_rerun, Mapping)
+                else None
+            )
+            if (
+                isinstance(family, str)
+                and isinstance(resolved_step_id, str)
+                and not isinstance(visit_count, bool)
+                and isinstance(visit_count, int)
+            ):
+                self._emit_pending_interrupted_provider_rerun(
+                    family=family,
+                    step_id=resolved_step_id,
+                    visit_count=visit_count,
+                )
             with self._live_agent_note_watch(step_name, step, session_runtime):
                 exec_result = self._execute_provider_invocation(
                     invocation,
@@ -11632,6 +12191,11 @@ class WorkflowExecutor:
             step_name=step_name,
             runtime_step_id=runtime_step_id or config.node_id,
         )
+        self._emit_pending_interrupted_provider_rerun(
+            family="supervision",
+            step_id=runtime_step_id or config.node_id,
+            visit_count=visit_count,
+        )
         return ProviderSupervisionCoordinator(bindings).run(
             config,
             step_name=step_name,
@@ -11709,6 +12273,11 @@ class WorkflowExecutor:
             config=config,
             step_name=step_name,
             runtime_step_id=runtime_step_id or config.node_id,
+            visit_count=visit_count,
+        )
+        self._emit_pending_interrupted_provider_rerun(
+            family="peer_group",
+            step_id=runtime_step_id or config.node_id,
             visit_count=visit_count,
         )
         return ProviderPeerGroupCoordinator(bindings).run()

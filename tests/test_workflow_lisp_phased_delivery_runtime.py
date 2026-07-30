@@ -648,7 +648,7 @@ def test_phased_submit_wait_reports_whole_attempt_deadline(
     assert event.submit is None
 
 
-def test_interrupted_phased_current_visit_is_detected_without_sidecar_reads() -> None:
+def test_interrupted_phased_visit_reruns_from_task_turn_with_fresh_attempt() -> None:
     executor = _executor()
     executor._step_node_ids = ["root.review"]
     executor._runtime_step_for_node_id = MethodType(
@@ -684,7 +684,7 @@ def test_interrupted_phased_current_visit_is_detected_without_sidecar_reads() ->
     )
 
     assert guard == {
-        "kind": "quarantine",
+        "kind": "rerun_interrupted_visit",
         "step_name": "review",
         "step_id": "root.review",
         "visit_count": 1,
@@ -708,7 +708,8 @@ def test_existing_phased_quarantine_is_sticky_after_current_step_is_cleared(
     }
 
     assert executor._interrupted_phased_provider_guard(state) == {
-        "kind": "existing_quarantine"
+        "kind": "existing_quarantine",
+        "error": error,
     }
     assert state["error"] is error
 
@@ -745,7 +746,7 @@ def test_cleared_current_step_without_phased_quarantine_is_not_claimed() -> None
         ("visit_count", True),
     ],
 )
-def test_interrupted_phased_current_visit_identity_tamper_fails_integrity(
+def test_interrupted_phased_visit_malformed_cursor_fails_integrity(
     field: str,
     value: object,
 ) -> None:

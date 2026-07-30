@@ -535,6 +535,67 @@ class _CallFrameStateManager:
             self.state.current_step["failed_at"] = datetime.now(timezone.utc).isoformat()
         self._persist()
 
+    def recover_interrupted_provider_visit(
+        self,
+        *,
+        expected_step_name: str,
+        expected_step_id: str,
+        expected_visit_count: int,
+        expected_status: str = "running",
+        legacy_error_type: Optional[str] = None,
+    ) -> None:
+        """Atomically clear one exact nested interrupted cursor at the root."""
+
+        from .provider_attempts import resolve_aggregate_run_owner
+
+        owner = resolve_aggregate_run_owner(self)
+        expected = {
+            "name": expected_step_name,
+            "step_id": expected_step_id,
+            "visit_count": expected_visit_count,
+            "status": expected_status,
+        }
+
+        def exact_cursor(leaf: RunState) -> bool:
+            current = leaf.current_step
+            current_matches = isinstance(current, dict) and all(
+                current.get(field) == value
+                for field, value in expected.items()
+            )
+            error = leaf.error
+            error_context = (
+                error.get("context") if isinstance(error, dict) else None
+            )
+            legacy_matches = (
+                current is None
+                and isinstance(legacy_error_type, str)
+                and isinstance(error, dict)
+                and error.get("type") == legacy_error_type
+                and isinstance(error_context, dict)
+                and error_context.get("step_name") == expected_step_name
+                and error_context.get("step_id") == expected_step_id
+                and error_context.get("visit_count") == expected_visit_count
+            )
+            recorded_visit_count = leaf.step_visits.get(expected_step_name)
+            return (
+                (current_matches or legacy_matches)
+                and not isinstance(recorded_visit_count, bool)
+                and isinstance(recorded_visit_count, int)
+                and recorded_visit_count == expected_visit_count
+            )
+
+        def recover(leaf: RunState) -> None:
+            leaf.current_step = None
+            leaf.error = None
+            leaf.status = "running"
+
+        owner.root_manager._mutate_scoped_state(
+            owner.resume_scope_path,
+            commit_guard=exact_cursor,
+            mutation=recover,
+        )
+        self._refresh_state_chain_from_root()
+
     def start_step(
         self,
         step_name: str,

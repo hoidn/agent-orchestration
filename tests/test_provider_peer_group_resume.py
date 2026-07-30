@@ -142,6 +142,66 @@ def _running_peer_group_state(
     }
 
 
+def test_interrupted_peer_group_visit_requests_fresh_rerun_disposition() -> None:
+    guard = ResumePlanner().detect_interrupted_provider_peer_group_visit(
+        _running_peer_group_state(),
+        projection=_peer_group_projection(),
+    )
+
+    assert (guard or {}).get("kind") == "rerun_interrupted_visit"
+
+
+def test_interrupted_peer_group_at_least_once_does_not_claim_completed_same_visit(
+) -> None:
+    guard = ResumePlanner().detect_interrupted_provider_peer_group_visit(
+        _running_peer_group_state(
+            result={
+                "status": "completed",
+                "step_id": "root.peers",
+                "visit_count": 2,
+            }
+        ),
+        projection=_peer_group_projection(),
+    )
+
+    assert guard is None
+
+
+def test_interrupted_peer_group_at_least_once_projection_mismatch_is_integrity_error_before_launch(
+) -> None:
+    state = _running_peer_group_state()
+    current_step = state["current_step"]
+    assert isinstance(current_step, dict)
+    current_step["type"] = "provider_supervision"
+
+    guard = ResumePlanner().detect_interrupted_provider_peer_group_visit(
+        state,
+        projection=_peer_group_projection(),
+    )
+
+    assert (guard or {}).get("kind") == "integrity_error"
+
+
+def test_interrupted_peer_group_at_least_once_legacy_quarantine_marker_is_distinct(
+) -> None:
+    error = {
+        "type": "provider_peer_group_interrupted_visit_quarantined",
+        "message": "historical sticky quarantine",
+        "context": {
+            "step_name": "Peers",
+            "step_id": "root.peers",
+            "visit_count": 2,
+        },
+    }
+
+    guard = ResumePlanner().detect_interrupted_provider_peer_group_visit(
+        {"status": "failed", "error": error},
+        projection=_peer_group_projection(),
+    )
+
+    assert guard == {"kind": "existing_quarantine", "error": error}
+
+
 @pytest.mark.parametrize(
     ("persisted_result", "expected_kind"),
     [
@@ -152,7 +212,7 @@ def _running_peer_group_state(
                 "visit_count": 1,
                 "output": "older visit",
             },
-            "quarantine",
+            "rerun_interrupted_visit",
         ),
         (
             {
@@ -170,7 +230,7 @@ def _running_peer_group_state(
                 "visit_count": 2,
                 "output": "different terminal identity",
             },
-            "quarantine",
+            "integrity_error",
         ),
         (
             {

@@ -2,6 +2,7 @@
 
 import os
 import json
+import logging
 import pytest
 from pathlib import Path
 import stat
@@ -4972,6 +4973,197 @@ def _provider_supervision_resume_projection(
     )
 
 
+def _provider_session_resume_projection() -> WorkflowStateProjection:
+    entry = CompatibilityNodeProjection(
+        node_id="root.implement",
+        step_id="root.implement",
+        presentation_key="Implement",
+        display_name="Implement",
+        region=WorkflowRegion.BODY,
+        compatibility_index=0,
+        step_definition=CompatibilityStepDefinition(
+            report_kind=ExecutableNodeKind.PROVIDER.value,
+            provider="codex_session",
+            provider_session_enabled=True,
+            provider_session_mode="fresh",
+        ),
+    )
+    return WorkflowStateProjection(
+        entries_by_node_id=MappingProxyType({"root.implement": entry}),
+        node_id_by_compatibility_index=MappingProxyType({0: "root.implement"}),
+        compatibility_index_by_node_id=MappingProxyType({"root.implement": 0}),
+        presentation_key_by_node_id=MappingProxyType(
+            {"root.implement": "Implement"}
+        ),
+        node_id_by_step_id=MappingProxyType(
+            {"root.implement": "root.implement"}
+        ),
+    )
+
+
+def _running_provider_session_state(
+    *,
+    result: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "status": "running",
+        "steps": {} if result is None else {"Implement": result},
+        "current_step": {
+            "name": "Implement",
+            "index": 0,
+            "status": "running",
+            "step_id": "root.implement",
+            "visit_count": 2,
+        },
+    }
+
+
+def test_interrupted_provider_visit_disposition_requests_rerun(
+) -> None:
+    guard = ResumePlanner().detect_interrupted_provider_session_visit(
+        _running_provider_session_state(),
+        projection=_provider_session_resume_projection(),
+    )
+
+    assert (guard or {}).get("kind") == "rerun_interrupted_visit"
+
+
+def test_interrupted_provider_session_at_least_once_completed_visit_reuses_without_launch(
+) -> None:
+    with patch.object(
+        WorkflowExecutor,
+        "_execute_provider",
+        side_effect=AssertionError("completed provider boundary must not launch"),
+    ) as provider_launch:
+        guard = ResumePlanner().detect_interrupted_provider_session_visit(
+            _running_provider_session_state(
+                result={
+                    "status": "completed",
+                    "step_id": "root.implement",
+                    "visit_count": 2,
+                }
+            ),
+            projection=_provider_session_resume_projection(),
+        )
+
+    assert guard is None
+    provider_launch.assert_not_called()
+
+
+def test_interrupted_provider_visit_integrity_error_never_invokes_provider(
+) -> None:
+    state = _running_provider_session_state()
+    current_step = state["current_step"]
+    assert isinstance(current_step, dict)
+    current_step["index"] = 1
+
+    with patch.object(
+        WorkflowExecutor,
+        "_execute_provider",
+        side_effect=AssertionError("projection mismatch must not launch"),
+    ) as provider_launch:
+        guard = ResumePlanner().detect_interrupted_provider_session_visit(
+            state,
+            projection=_provider_session_resume_projection(),
+        )
+
+    assert (guard or {}).get("kind") == "integrity_error"
+    provider_launch.assert_not_called()
+
+
+def test_interrupted_provider_visit_cleared_cursor_still_reruns_from_visit_gap(
+) -> None:
+    state = {
+        "status": "running",
+        "steps": {
+            "Implement": {
+                "status": "completed",
+                "step_id": "root.implement",
+                "visit_count": 1,
+            }
+        },
+        "step_visits": {"Implement": 2},
+        "current_step": None,
+    }
+
+    restart = ResumePlanner().determine_restart_node_id(
+        state,
+        projection=_provider_session_resume_projection(),
+    )
+
+    assert restart == "root.implement"
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "expected_mode"),
+    [
+        (
+            "lexical_default_resume_prior_boundary_missing",
+            "LEXICAL_CHECKPOINT_DEFAULT",
+        ),
+        ("lexical_default_resume_schema_invalid", "FAIL_CLOSED"),
+    ],
+)
+def test_interrupted_provider_visit_default_resume_relaxes_only_missing_prior_boundary(
+    diagnostic: str,
+    expected_mode: str,
+) -> None:
+    state = {
+        "status": "running",
+        "steps": {},
+        "step_visits": {"Implement": 1},
+        "current_step": None,
+    }
+    decision = {
+        "mode": "FAIL_CLOSED",
+        "restart_node_id": "root.implement",
+        "restore_decision": None,
+        "restore_candidate": None,
+        "diagnostics": [diagnostic],
+    }
+
+    with patch(
+        "orchestrator.workflow_lisp.lexical_checkpoint_default_resume."
+        "determine_runtime_default_resume_decision",
+        return_value=decision,
+    ):
+        result = ResumePlanner().determine_default_resume_decision(
+            state,
+            runtime_plan=SimpleNamespace(),
+            state_manager=SimpleNamespace(),
+            projection=_provider_session_resume_projection(),
+        )
+
+    assert result["mode"] == expected_mode
+    if expected_mode == "LEXICAL_CHECKPOINT_DEFAULT":
+        assert result["selection_reason"] == (
+            "validated_interrupted_provider_visit"
+        )
+        assert result["diagnostics"] == []
+    else:
+        assert result["diagnostics"] == [diagnostic]
+
+
+def test_interrupted_provider_session_at_least_once_legacy_quarantine_marker_is_distinct(
+) -> None:
+    error = {
+        "type": resume_command.PROVIDER_SESSION_QUARANTINE_ERROR,
+        "message": "historical sticky quarantine",
+        "context": {
+            "step_name": "Implement",
+            "step_id": "root.implement",
+            "visit_count": 2,
+        },
+    }
+
+    guard = ResumePlanner().detect_interrupted_provider_session_visit(
+        {"status": "failed", "error": error},
+        projection=_provider_session_resume_projection(),
+    )
+
+    assert guard == {"kind": "existing_quarantine", "error": error}
+
+
 def _provider_supervision_resume_executor(
     workspace: Path,
     *,
@@ -5023,6 +5215,357 @@ def _provider_supervision_resume_executor(
         ),
         manager,
     )
+
+
+def test_interrupted_provider_recovery_preserves_spent_visit_and_older_result(
+    temp_workspace: Path,
+) -> None:
+    executor, manager = _provider_supervision_resume_executor(
+        temp_workspace,
+        run_id="provider-recovery-shared-mutation",
+    )
+    older_result = {
+        "status": "completed",
+        "step_id": "root.live",
+        "visit_count": 1,
+        "output": "older visit remains authoritative",
+    }
+    assert manager.state is not None
+    manager.state.status = "running"
+    manager.state.steps = {"Live": dict(older_result)}
+    manager.state.step_visits = {"Live": 2}
+    manager.state.current_step = {
+        "name": "Live",
+        "index": 0,
+        "type": "provider_supervision",
+        "status": "running",
+        "step_id": "root.live",
+        "visit_count": 2,
+    }
+    manager._write_state()
+    state = manager.load().to_dict()
+
+    failure = executor._recover_interrupted_provider_resume_guard(
+        state,
+        {
+            "kind": "rerun_interrupted_visit",
+            "step_name": "Live",
+            "step_id": "root.live",
+            "node_id": "root.live",
+            "visit_count": 2,
+        },
+        family="supervision",
+    )
+
+    persisted = manager.load()
+    assert failure is None
+    assert persisted.status == "running"
+    assert persisted.current_step is None
+    assert persisted.error is None
+    assert persisted.step_visits == {"Live": 2}
+    assert persisted.steps["Live"] == older_result
+    assert (
+        executor.resume_planner.determine_restart_node_id(
+            persisted.to_dict(),
+            projection=executor.projection,
+        )
+        == "root.live"
+    )
+
+
+@pytest.mark.parametrize("recorded_visit_count", [None, 1, 3, True])
+def test_interrupted_provider_recovery_rejects_nonexact_spent_visit_counter(
+    temp_workspace: Path,
+    recorded_visit_count: object,
+) -> None:
+    _executor, manager = _provider_supervision_resume_executor(
+        temp_workspace,
+        run_id=f"provider-recovery-counter-{recorded_visit_count}",
+    )
+    assert manager.state is not None
+    manager.state.status = "running"
+    manager.state.step_visits = (
+        {}
+        if recorded_visit_count is None
+        else {"Live": recorded_visit_count}
+    )
+    manager.state.current_step = {
+        "name": "Live",
+        "index": 0,
+        "type": "provider_supervision",
+        "status": "running",
+        "step_id": "root.live",
+        "visit_count": 2,
+    }
+    manager._write_state()
+
+    with pytest.raises(TimeoutError):
+        manager.recover_interrupted_provider_visit(
+            expected_step_name="Live",
+            expected_step_id="root.live",
+            expected_visit_count=2,
+        )
+
+    persisted = manager.load()
+    assert persisted.current_step is not None
+    assert persisted.current_step["visit_count"] == 2
+
+
+def test_interrupted_provider_recovery_metadata_mismatch_never_invokes_provider(
+    temp_workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor, manager = _provider_supervision_resume_executor(
+        temp_workspace,
+        run_id="provider-recovery-metadata-mismatch",
+    )
+    assert manager.state is not None
+    manager.state.status = "running"
+    manager.state.step_visits = {"Live": 1}
+    manager.state.current_step = {
+        "name": "Live",
+        "index": 0,
+        "type": "provider_supervision",
+        "status": "running",
+        "step_id": "root.live",
+        "visit_count": 1,
+    }
+    manager._write_state()
+    metadata_path = (
+        manager.run_root
+        / "provider-supervision"
+        / "root.live"
+        / "visits"
+        / "1"
+        / "metadata.json"
+    )
+    manager.write_runtime_sidecar_json(
+        metadata_path,
+        {
+            "step_name": "Live",
+            "step_id": "root.foreign",
+            "visit_count": 1,
+            "status": "running",
+            "publication_state": "pending",
+        },
+    )
+    provider_calls: list[str] = []
+    monkeypatch.setattr(
+        executor,
+        "_execute_provider_supervision",
+        lambda *_args, **_kwargs: provider_calls.append("provider"),
+    )
+
+    result = executor.execute(resume=True)
+
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == (
+        "provider_supervision_resume_state_integrity_error"
+    )
+    assert provider_calls == []
+    assert manager.load().current_step is not None
+
+
+def test_interrupted_provider_recovery_boolean_visit_counter_fails_closed(
+    temp_workspace: Path,
+) -> None:
+    executor, manager = _provider_supervision_resume_executor(
+        temp_workspace,
+        run_id="provider-recovery-boolean-counter",
+    )
+    assert manager.state is not None
+    manager.state.status = "running"
+    manager.state.step_visits = {"Live": True}
+    manager.state.current_step = {
+        "name": "Live",
+        "index": 0,
+        "type": "provider_supervision",
+        "status": "running",
+        "step_id": "root.live",
+        "visit_count": 1,
+    }
+    manager._write_state()
+
+    failure = executor._recover_interrupted_provider_resume_guard(
+        manager.load().to_dict(),
+        {
+            "kind": "rerun_interrupted_visit",
+            "step_name": "Live",
+            "step_id": "root.live",
+            "node_id": "root.live",
+            "visit_count": 1,
+        },
+        family="supervision",
+    )
+
+    assert failure is not None
+    assert failure["error"]["type"] == (
+        "provider_supervision_resume_state_integrity_error"
+    )
+    assert manager.load().current_step is not None
+
+
+def test_interrupted_provider_recovery_state_race_leaves_metadata_unchanged(
+    temp_workspace: Path,
+) -> None:
+    executor, manager = _provider_supervision_resume_executor(
+        temp_workspace,
+        run_id="provider-recovery-state-race",
+    )
+    assert manager.state is not None
+    manager.state.status = "running"
+    manager.state.step_visits = {"Live": 1}
+    manager.state.current_step = {
+        "name": "Live",
+        "index": 0,
+        "type": "provider_supervision",
+        "status": "running",
+        "step_id": "root.live",
+        "visit_count": 1,
+    }
+    manager._write_state()
+    metadata_path = (
+        manager.run_root
+        / "provider-supervision"
+        / "root.live"
+        / "visits"
+        / "1"
+        / "metadata.json"
+    )
+    metadata = {
+        "step_name": "Live",
+        "step_id": "root.live",
+        "visit_count": 1,
+        "status": "running",
+        "publication_state": "pending",
+    }
+    manager.write_runtime_sidecar_json(metadata_path, metadata)
+
+    with patch.object(
+        manager,
+        "recover_interrupted_provider_visit",
+        side_effect=TimeoutError("cursor changed"),
+    ):
+        failure = executor._recover_interrupted_provider_resume_guard(
+            manager.load().to_dict(),
+            {
+                "kind": "rerun_interrupted_visit",
+                "step_name": "Live",
+                "step_id": "root.live",
+                "node_id": "root.live",
+                "visit_count": 1,
+            },
+            family="supervision",
+        )
+
+    assert failure is not None
+    assert manager.read_runtime_sidecar_json(metadata_path) == metadata
+
+
+def test_interrupted_provider_recovery_torn_metadata_remains_non_authoritative(
+    temp_workspace: Path,
+) -> None:
+    executor, manager = _provider_supervision_resume_executor(
+        temp_workspace,
+        run_id="provider-recovery-torn-metadata",
+    )
+    assert manager.state is not None
+    manager.state.status = "running"
+    manager.state.step_visits = {"Live": 1}
+    manager.state.current_step = {
+        "name": "Live",
+        "index": 0,
+        "type": "provider_supervision",
+        "status": "running",
+        "step_id": "root.live",
+        "visit_count": 1,
+    }
+    manager._write_state()
+    metadata_path = (
+        manager.run_root
+        / "provider-supervision"
+        / "root.live"
+        / "visits"
+        / "1"
+        / "metadata.json"
+    )
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text('{"torn":', encoding="utf-8")
+
+    failure = executor._recover_interrupted_provider_resume_guard(
+        manager.load().to_dict(),
+        {
+            "kind": "rerun_interrupted_visit",
+            "step_name": "Live",
+            "step_id": "root.live",
+            "node_id": "root.live",
+            "visit_count": 1,
+        },
+        family="supervision",
+    )
+
+    assert failure is None
+    assert manager.load().current_step is None
+    assert metadata_path.read_text(encoding="utf-8") == '{"torn":'
+
+
+def test_interrupted_provider_rerun_diagnostic_has_bounded_dispatch_context(
+    temp_workspace: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    executor, _manager = _provider_supervision_resume_executor(
+        temp_workspace,
+        run_id="provider-recovery-diagnostic",
+    )
+    step = executor._runtime_step_for_node_id("root.live")
+    context = executor._interrupted_provider_rerun_context(
+        {
+            "steps": {
+                "Live": {
+                    "status": "completed",
+                    "step_id": "root.live",
+                    "visit_count": 1,
+                }
+            },
+            "step_visits": {"Live": 3},
+        },
+        step,
+        step_name="Live",
+        step_id="root.live",
+        visit_count=3,
+        resume_current_step=True,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        executor._arm_interrupted_provider_rerun(context)
+        executor._emit_pending_interrupted_provider_rerun(
+            family="supervision",
+            step_id="root.live",
+            visit_count=2,
+        )
+        assert not caplog.records
+        executor._emit_pending_interrupted_provider_rerun(
+            family="supervision",
+            step_id="root.live",
+            visit_count=3,
+        )
+        executor._emit_pending_interrupted_provider_rerun(
+            family="supervision",
+            step_id="root.live",
+            visit_count=3,
+        )
+
+    records = [
+        record
+        for record in caplog.records
+        if getattr(record, "orchestrator_diagnostic", None)
+        == "provider_attempt_interrupted_rerun"
+    ]
+    assert len(records) == 1
+    assert records[0].provider_family == "supervision"
+    assert records[0].provider_step_id == "root.live"
+    assert records[0].discarded_visit == 2
+    assert records[0].next_visit == 3
 
 
 def test_completed_resume_validates_phased_authority_before_running_activation(
@@ -5080,7 +5623,7 @@ def test_completed_resume_validates_phased_authority_before_running_activation(
                 "visit_count": 1,
                 "output": "older visit",
             },
-            "quarantine",
+            "rerun_interrupted_visit",
         ),
         (
             {
@@ -5098,7 +5641,7 @@ def test_completed_resume_validates_phased_authority_before_running_activation(
                 "visit_count": 2,
                 "output": "different terminal identity",
             },
-            "quarantine",
+            "integrity_error",
         ),
     ],
 )
@@ -5155,7 +5698,7 @@ def test_provider_supervision_resume_guard_rejects_malformed_terminal_result_vis
         projection=_provider_supervision_resume_projection(),
     )
 
-    assert (guard or {}).get("kind") == "quarantine"
+    assert (guard or {}).get("kind") == "integrity_error"
 
 
 @pytest.mark.parametrize("current_visit_count", [True, 1.0, 0, -1])
