@@ -21,10 +21,12 @@ logic enters provider prompts.
 **Tech stack:** Python 3.13, pytest/xdist, persisted schema-2.1 run state,
 Workflow Lisp runtime plans, and subprocess crash/resume fixtures.
 
-**Status:** ML-1 complete. ML-0 was selected at commit
+**Status:** historical complete at commit
+`9c14dae37310755bd9cbd3de03b9256433acd9fe`, tree
+`0b149f96ace8873b0381a4cd530468b1d24a083f`. ML-0 was selected at commit
 `e2e39422f8fe52ad35dd6a174bc108f65bcf2050`. Tasks 1–7, focused and broad
-non-security gates, and the final ordered reviews are complete. The commit
-containing this execution record closes ML-1 and hands off to ML-2.
+non-security gates, final ordered reviews, and the 72-pass postcommit control
+are complete. ML-2 is current.
 
 ## Authority and bounds
 
@@ -340,3 +342,7 @@ The next selected tranche is ML-2 under
 followed by ML-4 under
 `2026-07-30-adjudication-rerun-recovery-component-plan.md`. ML-3,
 provider-isolation implementation, and every security surface remain excluded.
+
+The closure commit is `9c14dae37310755bd9cbd3de03b9256433acd9fe`,
+tree `0b149f96ace8873b0381a4cd530468b1d24a083f`. Its postcommit subprocess
+acceptance plus roadmap-routing control passed 72 tests.

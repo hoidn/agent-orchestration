@@ -15,10 +15,11 @@
   and the external closure record has SHA-256
   `b5c0624bd6759e4cf2a3d0153c42a1aa9068ebcab2050c15237d9cb74b95470b`.
   ML was selected by the reviewed ML-0 commit
-  `e2e39422f8fe52ad35dd6a174bc108f65bcf2050`. ML-1 is complete under its
-  reviewed component plan: implementation, Task 7 verification, and final
-  ordered reviews passed. ML-2 is the current tranche. Amendment phases ML,
-  MC, MR and the M1 inventory extension were adopted into this shape
+  `e2e39422f8fe52ad35dd6a174bc108f65bcf2050`. ML-1 is historical complete
+  at commit `9c14dae37310755bd9cbd3de03b9256433acd9fe`, tree
+  `0b149f96ace8873b0381a4cd530468b1d24a083f`, under its reviewed component
+  plan; its postcommit control passed 72 tests. ML-2 is the current tranche.
+  Amendment phases ML, MC, MR and the M1 inventory extension were adopted into this shape
   2026-07-26 by owner direction (provider-repeat cost model and incorporation
   request). No other phase is selected by listing: ML, MC, MR, and M4 each
   require their own component plan, M2 requires an accepted design, and ML
@@ -120,7 +121,7 @@ seams that loosening defines.
 | --- | --- | --- | --- |
 | M0 | Historical green baseline | complete at `f15b888d` under the reviewed [M0 component plan](2026-07-29-m0-green-baseline-component-plan.md) and external exact-commit closure | satisfied: bare `pytest` green; exact reviewed bytes committed; 418-pass postcommit control |
 | M1 | Estate shrink + adopted inventory extension | selected at reviewed Task 0 commit `4e71093d` under the [M1 component plan](2026-07-29-m1-estate-shrink-component-plan.md) | satisfied at `57c2604e`, tree `fc0fdbef`; ordered reviews and postcommit selector passed |
-| ML | Provider at-least-once loosening | selected at `e2e39422`; ML-1 complete under its reviewed component plan; ML-2 current, then ML-4 | amendment per-tranche gates; kill-mid-provider crash-resume E2E green; broad non-security suite green |
+| ML | Provider at-least-once loosening | selected at `e2e39422`; ML-1 complete at `9c14dae3`; ML-2 current, then ML-4 | amendment per-tranche gates; kill-mid-provider crash-resume E2E green; broad non-security suite green |
 | MC | Common-helper consolidation | M0 complete; Q0-listed files deferred until Q0 closes | net LOC strictly negative; no residual private clones; touched-module suites green |
 | MR | Behavior-preserving structural refactors | per-tranche: MR-5a after M0; MR-1 after ML-1; MR-2 after ML; MR-3 with/after ML-2; MR-4 Q-coordinated | golden-parity gates per tranche; MR-1..MR-3 complete before M3 starts |
 | M2 | Persistence-parsimony design | ML complete; Q3 identity definition accepted; owner depth decision recorded | accepted design with executable feasibility fixtures for both components |
@@ -237,10 +238,13 @@ commit/tree above record it, and the postcommit selector passed.
 ## Phase ML: Provider At-Least-Once Loosening
 
 **Status:** selected at ML-0 commit
-`e2e39422f8fe52ad35dd6a174bc108f65bcf2050`. ML-1 is complete under its
-reviewed component plan: implementation, Task 7 verification, and final
-ordered reviews passed. ML-2 is current, followed by ML-4. The normative
-contract remains the owner-adopted amendment as expressed in `specs/`.
+`e2e39422f8fe52ad35dd6a174bc108f65bcf2050`. ML-1 is historical complete
+at commit `9c14dae37310755bd9cbd3de03b9256433acd9fe`, tree
+`0b149f96ace8873b0381a4cd530468b1d24a083f`, under its reviewed component
+plan. Implementation, Task 7 verification, and final ordered reviews passed;
+its postcommit control passed 72 tests. ML-2 is current, followed by ML-4. The
+normative contract remains the owner-adopted amendment as expressed in
+`specs/`.
 
 Adopted amendment phase; tranche scope and gates live in the amendment
 (§Phase ML). The reviewed-plan candidates are:

@@ -19,7 +19,9 @@ does not mutate an allocation event ledger.
 **Tech stack:** Python 3.13, `fcntl.flock`, multiprocessing/subprocess pytest
 fixtures, JSON schema-2.1 state, and atomic temp-file rename.
 
-**Status:** ML-0 reviewed-plan candidate. ML-2 starts only after ML-1 closes.
+**Status:** active. ML-1 closed at commit
+`9c14dae37310755bd9cbd3de03b9256433acd9fe`, tree
+`0b149f96ace8873b0381a4cd530468b1d24a083f`; ML-2 Task 1 is current.
 
 ## Authority and bounds
 
@@ -58,10 +60,10 @@ per-feature persistence stack.
 - Modify: `tests/test_runtime_failure_persistence.py`
 - Modify: `tests/test_resume_command.py`
 
-- [ ] Write RED subprocess fixtures proving a second writer for the same run
+- [x] Write RED subprocess fixtures proving a second writer for the same run
   fails fast with `run_already_active`, while distinct runs and read-only
   report operations remain independent.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest --collect-only -q tests/test_run_lock.py
@@ -70,12 +72,18 @@ per-feature persistence stack.
 
   Expected RED: import/collection fails because `orchestrator.run_lock` does
   not exist yet.
-- [ ] Implement a minimal context manager around non-blocking `flock` that
+- [x] Implement a minimal context manager around non-blocking `flock` that
   keeps the descriptor alive for the caller lifetime.
-- [ ] Reuse the existing run-root/path-opening policy without changing it.
+- [x] Reuse the existing run-root/path-opening policy without changing it.
   Add no path-hardening branch and do not add, alter, or run security tests.
-- [ ] Run focused tests, ordered specification then quality review, and commit
+- [x] Run focused tests, ordered specification then quality review, and commit
   with subject `Add run lifetime writer lock`.
+
+Task 1 evidence: collection first failed because `orchestrator.run_lock` did
+not exist, then collected 3 tests. The lock plus adjacent runtime/report
+selection passed 21 tests; the closure candidate plus roadmap routing passed
+88. Ordered review returned `ML2_TASK1_SPEC_APPROVED` followed by
+`ML2_TASK1_QUALITY_APPROVED`.
 
 ## Task 2: Hold the lock across run and resume
 

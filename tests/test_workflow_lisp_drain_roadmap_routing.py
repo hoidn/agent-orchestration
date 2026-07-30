@@ -4350,11 +4350,15 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "selected" in normalized_ml
     assert "ml 0" in normalized_ml
     assert "normative contract" in normalized_ml
-    assert "ml 1 is complete under its reviewed component plan" in normalized_ml
+    assert "ml 1 is historical complete at commit" in normalized_ml
+    assert "under its reviewed component plan" in normalized_ml
     assert "task 7 verification" in normalized_ml
     assert "final ordered reviews passed" in normalized_ml
     assert "ml 2 is current" in normalized_ml
     assert "e2e39422f8fe52ad35dd6a174bc108f65bcf2050" in ml_section
+    assert "9c14dae37310755bd9cbd3de03b9256433acd9fe" in ml_section
+    assert "0b149f96ace8873b0381a4cd530468b1d24a083f" in ml_section
+    assert "postcommit control passed 72 tests" in normalized_ml
     for component_plan in (
         ML1_PROVIDER_RECOVERY_PLAN_PATH,
         ML2_PROVIDER_ALLOCATOR_PLAN_PATH,
@@ -4372,7 +4376,16 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "m0 is historical complete" in normalized_substrate_index_route
     assert "m1 is historical complete" in normalized_substrate_index_route
     assert "ml was selected" in normalized_substrate_index_route
-    assert "is historical complete under its reviewed component plan" in (
+    assert "is historical complete at commit" in (
+        normalized_substrate_index_route
+    )
+    assert "9c14dae37310755bd9cbd3de03b9256433acd9fe" in (
+        substrate_index_route
+    )
+    assert "0b149f96ace8873b0381a4cd530468b1d24a083f" in (
+        substrate_index_route
+    )
+    assert "postcommit control passed 72 tests" in (
         normalized_substrate_index_route
     )
     assert "ml 2 allocator simplification" in normalized_substrate_index_route
