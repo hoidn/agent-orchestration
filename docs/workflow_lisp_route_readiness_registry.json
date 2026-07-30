@@ -788,6 +788,32 @@
       "route_label": "wcc_default",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_item_ctx_child_phase_reuse_proc_ref",
       "surface_kind": "test_fixture"
+    },
+    {
+      "copy_safety": "test_evidence_only",
+      "evidence": [
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[item-ctx-let-proc]"
+      ],
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "path": "tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse_let_proc.orc",
+      "readiness_label": "leaf_compile_candidate",
+      "route_label": "wcc_default",
+      "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_item_ctx_child_phase_reuse_let_proc",
+      "surface_kind": "test_fixture"
+    },
+    {
+      "copy_safety": "test_evidence_only",
+      "evidence": [
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[item-ctx-let-proc-in-proc]"
+      ],
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "path": "tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse_let_proc_in_proc.orc",
+      "readiness_label": "leaf_compile_candidate",
+      "route_label": "wcc_default",
+      "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_item_ctx_child_phase_reuse_let_proc_in_proc",
+      "surface_kind": "test_fixture"
     }
   ],
   "updated": "2026-07-29"
