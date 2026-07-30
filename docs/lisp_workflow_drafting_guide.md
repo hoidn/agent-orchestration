@@ -255,9 +255,10 @@ lowering/runtime own execution mechanics.
 
 Preferred authoring shape:
 
-- provider calls render supported scalar, record, and relpath values from
-  `:inputs` at the prompt consumer seam; other composite shapes require an
-  implemented checked route;
+- provider calls render supported scalar, record, relpath, target-2.19 exact
+  `Value`, and recursively renderer-admitted `List[T]` values from `:inputs`
+  at the prompt consumer seam; other composite shapes require an implemented
+  checked route;
 - private runtime context, generated paths, checkpoint identity, and write roots
   are hidden from public entrypoints and ordinary user-facing calls;
 - deterministic local reshaping uses pure typed projection instead of Python;
@@ -393,6 +394,9 @@ The currently implemented authoring surface includes:
   composed with the prompt-owned structured result
 - target-2.22 content-free prompt-attempt identity and drift reports for direct
   fragment-backed calls, with no additional authored call fields
+- target-2.23 read-only Q4 judgment inspection for the bounded
+  `review_revise_design_docs` explicit-composed panel sibling; this adds no
+  source form or workflow-readable value
 - modules, imports, and exports
 - `let*`
 - `if`, including computed pure `Bool` conditions
@@ -1139,12 +1143,14 @@ authored code never names `__result__`. A `Value` object, boolean, list, or
   ...)
 ```
 
-Supported scalar, record, and relpath values in `:inputs` are rendered at the
-provider prompt consumer seam without family-profile metadata. Scalars and
-records use the registered canonical-JSON default; relpaths use the registered
-POSIX-path default. Selection follows static structural type/kind rather than
-nominal type names. Typed state remains authority and the rendered bytes are
-ephemeral provider input.
+Supported scalar, record, relpath, target-2.19 exact `Value`, and recursively
+renderer-admitted `List[T]` values in `:inputs` are rendered at the provider
+prompt consumer seam without family-profile metadata. Scalars, records,
+`Value`, and admitted lists use the registered canonical-JSON default;
+relpaths use the registered POSIX-path default. Selection follows static
+structural type/kind recursively rather than nominal type names:
+`List[ReviewReportPath]` is admitted, while `List[RunId]` is not. Typed state
+remains authority and the rendered bytes are ephemeral provider input.
 
 Use `:prompt-dependencies` additionally when the provider needs a relpath
 target's file contents. Rendering a relpath value supplies the path, not the
@@ -1404,7 +1410,7 @@ Target 2.20 remains the compatibility route for fragments without `:out`.
 Target 2.21 does not add optional files, directories, globs, dynamic output
 sets, arbitrary file schemas, or a second result channel. Q3
 role-separated prompt identity/diagnostics are implemented at target 2.22;
-Q4 judgment views are not a current authoring surface.
+Q4 judgment inspection is separately bounded as described below.
 
 ### Inspecting Prompt-Attempt Identity - Target 2.22
 
@@ -1429,6 +1435,27 @@ unchanged. Reports still have the additive `prompt_context` key: a validated
 older fragment snapshot appears as `legacy_snapshot`, while an unqualified
 run has an empty attempt list. Coordinated-provider and extern-backed calls do
 not gain Q3 identity by implication.
+
+### Inspecting Judgment Views - Bounded Target 2.23 Panel
+
+Q4 adds no source syntax and is not a general annotation for provider calls.
+Use or adapt
+`workflows/examples/review_revise_design_docs_judgment_panel.orc` only when
+the exact panel shape applies: a non-empty ordered set of at most eight
+pairwise-distinct, path-safe lenses; one explicit
+`:delivery :composed` fragment-backed child review per lens; and one
+extern-backed synthesis over the resulting `List[ReviewReportPath]`.
+
+Eligible child results retain their authoritative typed value and Q3 evidence
+while runtime co-persists a non-authoritative locator. `orchestrator report`
+uses those existing authorities to derive the read-only `judgment_views`
+projection. Do not parse that projection, pass it to synthesis, or route,
+retry, resume, score, or promote from it.
+
+The production `workflows/examples/review_revise_design_docs.orc` call remains
+phased identity-v2/functional-v3 and Q4-ineligible. The panel's extern-backed
+synthesis is also ineligible. Target 2.23 alone does not make other phased,
+extern-backed, coordinated-provider, or non-fragment calls inspectable.
 
 ### Authoring Phased Contract Delivery - Target 2.23
 
@@ -1958,7 +1985,7 @@ Before adding a path field, decide who semantically owns that path:
 | Provider/command result bundle | structured `provider-result` or `command-result` bundle | Let the runtime bind the output target and validate the declared bundle. |
 | Generated internal path | write root, checkpoint path, temp path, result-bundle sidecar | Allocate through `StateLayout`; never expose as ordinary public input. |
 | Public report or summary | drain summary, review report, operator-facing artifact | Prefer boundary publication policy or observability rendering over body plumbing. |
-| Prompt rendering | provider prompt input text | Pass supported scalar, record, or relpath values in `:inputs`; use `:prompt-dependencies` when the provider also needs a relpath target's body. Other composite shapes require an implemented checked route. |
+| Prompt rendering | provider prompt input text | Pass supported scalar, record, relpath, target-2.19 exact `Value`, or recursively renderer-admitted `List[T]` values in `:inputs`; use `:prompt-dependencies` when the provider also needs a relpath target's body. Other composite shapes require an implemented checked route. |
 | Compatibility file | YAML-era pointer, selection bundle, legacy ledger view | Declare a labeled bridge with owner, source value, renderer/schema, and retirement condition. |
 | Durable workflow state | backlog item state, drain state, recovery state | Use `Resource<TState>` and `Transition<TRequest, TResult>`, not arbitrary file writes. |
 
@@ -2249,20 +2276,22 @@ provider inputs named, typed, and separate from runtime bookkeeping:
   :returns ImplementationAttempt)
 ```
 
-For supported scalar, record, and relpath bindings, the runtime renders each
+For supported scalar, record, relpath, target-2.19 exact `Value`, and
+recursively renderer-admitted `List[T]` bindings, the runtime renders each
 value at the provider prompt seam through the unique registered default.
 Missing, unknown, shape-incompatible, or ambiguous renderer selection fails
-before provider launch. The provider output still comes only from the declared
-structured result contract.
+before provider launch. The provider output still comes only from the
+declared structured result contract.
 
-Other composite shapes are not made generally visible by this tranche. Use a
-separately implemented checked route for those values. Explicit renderer
-override syntax and the remaining consumer-rendering ergonomics are future
-work. On an ordinary call, supported neighbors still use their implicit
-renderers, but the unsupported binding remains unavailable to the prompt.
-Phase lowerings with a whole-input materialization route select that fallback
-atomically; a phase-derived lowering without a recoverable fallback fails
-before provider launch rather than dropping the unsupported remainder.
+Optional, map, union, and lists whose element type has no default renderer are
+not made generally visible by this tranche. Use a separately implemented
+checked route for those values. Explicit renderer override syntax and the
+remaining consumer-rendering ergonomics are future work. On an ordinary call,
+supported neighbors still use their implicit renderers, but the unsupported
+binding remains unavailable to the prompt. Phase lowerings with a whole-input
+materialization route select that fallback atomically; a phase-derived
+lowering without a recoverable fallback fails before provider launch rather
+than dropping the unsupported remainder.
 
 Flat input lists are fine for small calls:
 
@@ -2437,10 +2466,11 @@ narrower named path family only when its rooted contract is load-bearing.
 `list/map-effect` has an explicit `:max` and erases to the existing
 loop/call/checkpoint machinery; it is not a higher-order runtime function.
 Record/union elements, indexing, filtering, folding, `ProcRef` mapping,
-nested effect bodies, and unbounded traversal remain outside this surface. If
-the body invokes a provider, remember that the target-2.18 runtime-cardinality
-fixture still uses its checked family-profile route for `List[T]`. This narrow
-generic tranche does not claim automatic list prompt carriage.
+nested effect bodies, and unbounded traversal remain outside this surface.
+The original target-2.18 runtime-cardinality fixture retains its checked
+family-profile route for `List[T]`; ordinary provider calls separately render
+a list only when its element type is recursively renderer-admitted. Traversal
+itself does not grant prompt visibility.
 
 ## 18. Effects
 
@@ -2493,7 +2523,7 @@ Rendering is also an effect boundary. Prefer the consumer-owned lane:
 | Consumer | Preferred authoring surface |
 | --- | --- |
 | typed workflow step | pass the typed value; no rendering |
-| provider prompt | supported scalar, record, or relpath value in `:inputs`; `:prompt-dependencies` additionally for relpath body content; checked routes for other composites |
+| provider prompt | supported scalar, record, relpath, target-2.19 exact `Value`, or recursively renderer-admitted `List[T]` value in `:inputs`; `:prompt-dependencies` additionally for relpath body content; checked routes for other composites |
 | public workflow output | entry publication policy / boundary view |
 | observability | typed terminal result rendered by report/dashboard surfaces |
 | legacy reader | labeled compatibility bridge |

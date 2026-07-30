@@ -1156,6 +1156,11 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     design_router_path = REPO_ROOT / "docs" / "design" / "README.md"
     capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
     index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    route_registry = json.loads(
+        (
+            REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json"
+        ).read_text(encoding="utf-8")
+    )
 
     normalized_successor = _normalized_routing_text(successor)
     assert "status: active" in normalized_successor
@@ -1234,10 +1239,15 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         in normalized_q4_row
     )
     assert "q5 era design amendment accepted at 3c21ceb4" in normalized_q4_row
-    assert "executable only after its q5 era amendment receives ordered specification then quality review" in (
+    assert "reviewed amended plan 0f21636b" in normalized_q4_row
+    assert "implemented closure candidate" in normalized_q4_row
+    assert "task 8 000bfcfe" in normalized_q4_row
+    assert "prompt binding correction 187336f7" in normalized_q4_row
+    assert "implicit list ecosystem correction landed at 0187392f" in (
         normalized_q4_row
     )
-    assert "implementation not started" in normalized_q4_row
+    assert "external task 9 and final ordered reviews" in normalized_q4_row
+    assert "implementation not started" not in normalized_q4_row
     assert "current target 2.23 phased production" in normalized_q4_row
     assert "target 2.23 explicit composed panel sibling" in normalized_q4_row
     assert "frozen target 2.21 compatibility control" in normalized_q4_row
@@ -1252,10 +1262,22 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "q4_plan_spec_approved then q4_plan_quality_approved" in (
         normalized_q4_stage
     )
-    assert "become the current execution authority only after their fresh ordered specification then quality review" in (
+    assert "reviewed amended implementation plan at 0f21636b" in (
         normalized_q4_stage
     )
-    assert "reviewed execution authority" not in normalized_q4_stage
+    assert "implemented closure candidate" in normalized_q4_stage
+    assert (
+        "1bdb694da1fda43fb0ed71e842cd16e54956b86bb5106aea380a5e17f681c7"
+        in normalized_q4_stage
+    )
+    assert "task 9 focused 643 passed" in normalized_q4_stage
+    assert "11,072 passed, 5 failed, 24 skipped, and 33 warnings" in (
+        normalized_q4_stage
+    )
+    assert "external task 9 and final ordered reviews" in normalized_q4_stage
+    assert "become the current execution authority only after" not in (
+        normalized_q4_stage
+    )
     assert "proposed" not in normalized_q4_stage
     assert "must receive ordered plan reviews" not in normalized_q4_stage
     assert "target 2.23 phased production" in normalized_q4_stage
@@ -1275,30 +1297,90 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     normalized_q4_capability_row = _normalized_routing_text(
         q4_capability_row
     )
-    assert "| Designed |" in q4_capability_row
+    assert "| Implemented |" in q4_capability_row
+    assert "| Designed |" not in q4_capability_row
     assert "| Planned |" not in q4_capability_row
     assert "original design and q5 era design amendment accepted" in (
         normalized_q4_capability_row
     )
-    assert "q5 era design amendment 3c21ceb4 accepted" in (
-        normalized_q4_capability_row
-    )
-    assert "only the q5 era plan amendment still requires fresh ordered review" in (
-        normalized_q4_capability_row
-    )
+    assert "d7fe4549" in normalized_q4_capability_row
+    assert "3c21ceb4" in normalized_q4_capability_row
+    assert "reviewed amended plan 0f21636b" in normalized_q4_capability_row
+    assert "implementation not started" not in normalized_q4_capability_row
     assert "target 2.23 explicit composed panel sibling" in normalized_q4_capability_row
     assert "current target 2.23 phased" in normalized_q4_capability_row
     assert "frozen target 2.21 control" in normalized_q4_capability_row
     assert "never an import owner" in normalized_q4_capability_row
     normalized_q4_design = _normalized_routing_text(q4_design)
     normalized_q4_plan = _normalized_routing_text(q4_plan)
-    assert "q5 era consumer binding" in normalized_q4_design
+    assert "adopted consumer binding" in normalized_q4_design
+    assert "status: implemented" in normalized_q4_design
     assert "target 2.23 sibling" in normalized_q4_design
     assert ":delivery :composed" in normalized_q4_design
     assert "frozen target 2.21" in normalized_q4_design
     assert "current target 2.23 phased production" in normalized_q4_plan
     assert "target 2.23 ordinary composed panel sibling" in normalized_q4_plan
     assert "frozen target 2.21 compatibility control" in normalized_q4_plan
+    panel_route_rows = [
+        surface
+        for surface in route_registry["surfaces"]
+        if surface["path"]
+        == "workflows/examples/review_revise_design_docs_judgment_panel.orc"
+    ]
+    assert len(panel_route_rows) == 1
+    [panel_route_row] = panel_route_rows
+    assert set(panel_route_row) == {
+        "copy_safety",
+        "evidence",
+        "lowering_route",
+        "lowering_schema_version",
+        "path",
+        "readiness_label",
+        "route_label",
+        "surface_id",
+        "surface_kind",
+    }
+    assert panel_route_row["surface_id"] == (
+        "workflows.examples.review_revise_design_docs_judgment_panel"
+    )
+    assert panel_route_row["surface_kind"] == "workflow_example"
+    assert panel_route_row["copy_safety"] == "preferred_current_guidance"
+    assert panel_route_row["lowering_route"] == "wcc_m4"
+    assert panel_route_row["lowering_schema_version"] == 2
+    assert panel_route_row["readiness_label"] == "leaf_runtime_candidate"
+    assert panel_route_row["route_label"] == "wcc_default"
+    assert panel_route_row["evidence"] == [
+        "tests/test_workflow_lisp_examples.py::"
+        "test_review_revise_design_docs_judgment_panel_compiles_from_current_owner",
+        "tests/test_workflow_lisp_judgment_views_e2e.py::"
+        "test_panel_executes_ordered_reviews_then_one_ineligible_synthesis",
+    ]
+    assert "reviewed amended plan 0f21636b" in normalized_q4_plan
+    assert "implemented closure candidate" in normalized_q4_plan
+    assert (
+        "1bdb694da1fda43fb0ed71e842cd16e54956b86bb5106aea380a5e17f681c7"
+        in normalized_q4_plan
+    )
+    assert "9e18f884" in normalized_q4_plan
+    assert "4b400e7a" in normalized_q4_plan
+    assert "7b96c547" in normalized_q4_plan
+    assert "88af8b91" in normalized_q4_plan
+    assert "a3b75d76" in normalized_q4_plan
+    assert "4ca9e628" in normalized_q4_plan
+    assert "19a77547" in normalized_q4_plan
+    assert "6e987e23" in normalized_q4_plan
+    assert "187336f7" in normalized_q4_plan
+    assert "000bfcfe" in normalized_q4_plan
+    assert "0187392f" in normalized_q4_plan
+    assert "11,072 passed" in normalized_q4_plan
+    assert "- [x] Re-run all Task 1–8 focused selectors." in q4_plan
+    assert "- [x] Update docs from designed/planned to implemented" in q4_plan
+    assert "- [ ] Obtain `Q4_TASK_9_SPEC_APPROVED`." in q4_plan
+    assert "- [ ] Obtain distinct `Q4_TASK_9_QUALITY_APPROVED`." in q4_plan
+    assert "- [ ] Obtain ordered `Q4_FINAL_SPEC_APPROVED`." in q4_plan
+    assert "- [ ] Obtain distinct `Q4_FINAL_QUALITY_APPROVED`." in q4_plan
+    assert "- [ ] Commit the reviewed closure bytes." in q4_plan
+    assert "- [ ] Run a fresh postcommit focused control" in q4_plan
     assert tuple(
         text.count("`q4_task2_export_compatibility.v1`")
         for text in (q4_design, q4_plan)
@@ -1617,9 +1699,9 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "q5 era design amendment is accepted at 3c21ceb4" in (
         normalized_successor_index
     )
-    assert "q5 era plan amendment becomes execution authority only after ordered review" in (
-        normalized_successor_index
-    )
+    assert "reviewed amended plan 0f21636b" in normalized_successor_index
+    assert "q4 is an implemented closure candidate" in normalized_successor_index
+    assert "external task 9 and final ordered reviews" in normalized_successor_index
     assert "q5 is complete at 70f4a759, tree fec729cb" in normalized_successor_index
     assert Path(PROMPT_IDENTITY_PLAN_PATH).name in index
     assert "owner reordered l5 authored reference navigation are complete" in (
@@ -1865,9 +1947,9 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     assert "q5 era design amendment is accepted at 3c21ceb4" in (
         active_roadmap_index
     )
-    assert "q5 era plan amendment becomes execution authority only after ordered review" in (
-        active_roadmap_index
-    )
+    assert "reviewed amended plan 0f21636b" in active_roadmap_index
+    assert "q4 is an implemented closure candidate" in active_roadmap_index
+    assert "external task 9 and final ordered reviews" in active_roadmap_index
     assert "q5 is complete at 70f4a759, tree fec729cb" in active_roadmap_index
     assert "owner reordered l5 authored reference navigation are complete" in (
         active_roadmap_index
@@ -3831,8 +3913,10 @@ def test_language_server_l4_routes_verified_final_review_correction() -> None:
     assert "frozen target 2.21 compatibility control" in q4_row
     assert "q5 era design amendment accepted at 3c21ceb4" in q4_row
     assert "implementation plan" in q4_row
-    assert "its q5 era amendment receives ordered specification then quality review" in q4_row
-    assert "implementation not started" in q4_row
+    assert "reviewed amended plan 0f21636b" in q4_row
+    assert "implemented closure candidate" in q4_row
+    assert "external task 9 and final ordered reviews" in q4_row
+    assert "implementation not started" not in q4_row
     assert "q5 task 14 and canonical transplant are complete" in q4_row
     assert "no q4 dependency" in q5_row
     assert "complete at 70f4a759, tree fec729cb" in q5_row

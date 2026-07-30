@@ -445,6 +445,20 @@
       "surface_kind": "workflow_example"
     },
     {
+      "copy_safety": "preferred_current_guidance",
+      "evidence": [
+        "tests/test_workflow_lisp_examples.py::test_review_revise_design_docs_judgment_panel_compiles_from_current_owner",
+        "tests/test_workflow_lisp_judgment_views_e2e.py::test_panel_executes_ordered_reviews_then_one_ineligible_synthesis"
+      ],
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "path": "workflows/examples/review_revise_design_docs_judgment_panel.orc",
+      "readiness_label": "leaf_runtime_candidate",
+      "route_label": "wcc_default",
+      "surface_id": "workflows.examples.review_revise_design_docs_judgment_panel",
+      "surface_kind": "workflow_example"
+    },
+    {
       "copy_safety": "not_current_guidance",
       "evidence": [
         "tests/test_workflow_lisp_examples.py::test_review_revise_parametric_design_docs_example_remains_one_off_source_shape"
@@ -776,5 +790,5 @@
       "surface_kind": "test_fixture"
     }
   ],
-  "updated": "2026-07-23"
+  "updated": "2026-07-29"
 }

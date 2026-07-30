@@ -76,7 +76,7 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | Q1 | Prompt core | Q0 complete; prompt-calculus design corrected and accepted | target-gated `defprompt`, imports, closed slot kinds, fully applied named fills, exact discharge/placeholder diagnostics, prompt-carried result derivation, deterministic flattening through existing prompt composition, one migrated real consumer | complete — implementation through `af45c4f1`; exact-tree gates and ordered final reviews accepted |
 | Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | complete — implementation through `d0bb9a1d`; clean Task-7 closure after exact `a40b536c`/`4e2c4911` boundary repair; ordered final reviews accepted |
 | Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | complete — target-2.22 carrier, one-render trace, content-free five-role evidence, prelaunch publication, fixed comparison, additive reports, compatibility E2E, and closure under the [reviewed implementation plan](2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md) |
-| Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | original design accepted at `d7fe4549` and Q5-era design amendment accepted at `3c21ceb4`; current binding keeps current target-2.23 phased production, adds a target-2.23 explicit-composed panel sibling, and preserves a frozen target-2.21 compatibility control; Q5 Task 14 and canonical transplant are complete; [implementation plan](2026-07-29-workflow-lisp-judgment-views-implementation-plan.md) is executable only after its Q5-era amendment receives ordered specification then quality review; implementation not started |
+| Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | implemented closure candidate under reviewed amended plan `0f21636b`; original design accepted at `d7fe4549` and Q5-era design amendment accepted at `3c21ceb4`; current binding keeps current target-2.23 phased production, adds a target-2.23 explicit-composed panel sibling, and preserves a frozen target-2.21 compatibility control; Q5 Task 14 and canonical transplant are complete; Tasks 1–8 landed through Task 8 `000bfcfe`, including Task 7 prompt-binding correction `187336f7`, and Task 9's implicit-list ecosystem correction landed at `0187392f`; external Task 9 and final ordered reviews, reviewed closure commit, and postcommit focused control remain under the [implementation plan](2026-07-29-workflow-lisp-judgment-views-implementation-plan.md) |
 | Q5 | Phased contract delivery | accepted design at `872a29af`; reviewed implementation plan at `45468c55`; Q3 complete; no Q4 dependency | explicit `:delivery :phased` plus bounded literal materialization attempts; exact `T1 || T2 == C` cut; identity-v2/evidence-v3 and report-v2 distinction between canonical `C`, legacy final-prompt identity, and ordered actual deliveries; proof-authoritative failed-start T0 with one handle-free Q5 cleanup-evidence union and exact active-handle validation before projecting unchanged adapter proofs; inert pre-start binding/locator values and post-start endpoint binding; T2 cleanup-pending/finished closure with one ingress outcome; full Q2 authority with no early publication; total reason projection with non-null reason-equal summaries; ledger-only digest validation; truthful terminal resource evidence; byte-identical omitted/composed path; real review consumer | complete at `70f4a759`, tree `fec729cb`, after the post-correction broad comparison, exact delta adjudication, and external ordered `Q5_FINAL_SPEC_APPROVED` then `Q5_FINAL_QUALITY_APPROVED`; Task 13's accepted real attempt and stop/supersession provenance remain historical evidence |
 
 ### L-Series: Language-Server Debugging Utility
@@ -265,8 +265,9 @@ content-addressed Q4 binding brief now selects the
 satisfied. The Q4 design was accepted at `d7fe4549` after ordered
 `Q4_DESIGN_SPEC_APPROVED` then `Q4_DESIGN_QUALITY_APPROVED`; its Q5-era binding
 amendment was accepted at `3c21ceb4` after ordered amendment specification then
-quality review. The corresponding Q5-era plan amendment becomes execution
-authority only after its own fresh ordered specification then quality review.
+quality review. The corresponding reviewed amended implementation plan at
+`0f21636b` passed ordered `Q4_PLAN_SPEC_APPROVED` then
+`Q4_PLAN_QUALITY_APPROVED`.
 
 Q3 is the sole roadmap owner of the E4P role-separation and diagnostic delta.
 The predecessor's separate E4P list item is absorbed here and must not be
@@ -290,10 +291,10 @@ Accepted authority:
 independent specification then quality review, plus its accepted Q5-era
 binding amendment at `3c21ceb4`. The original pre-Q5 plan at `fbcba410`
 passed ordered `Q4_PLAN_SPEC_APPROVED` then `Q4_PLAN_QUALITY_APPROVED`. The
-Q5-era amended bytes in
+reviewed amended implementation plan at `0f21636b` is the current execution
+authority in
 `docs/plans/2026-07-29-workflow-lisp-judgment-views-implementation-plan.md`
-become the current execution authority only after their fresh ordered
-specification then quality review.
+after fresh ordered `Q4_PLAN_SPEC_APPROVED` then `Q4_PLAN_QUALITY_APPROVED`.
 
 Q4 may add an inspection-layer judgment value only after Q3 provides stable
 attempt identity. The semantic authority remains the provider result plus
@@ -318,9 +319,20 @@ canonical working tree. The former Q4-only clone is not an implementation
 base. The current binding preserves target-2.23 phased production, imports its
 exports into a target-2.23 sibling whose review calls are explicitly composed,
 and retains the exact pre-Q5 target-2.21 source as a compatibility-only control
-that never owns imports. Q4 implementation remains gated only on the
-Q5-era plan amendment's ordered reviews and Task 0 census. M1 estate shrink
-remains outside Q4.
+that never owns imports. Q4 is an implemented closure candidate. Task 0 closed
+on external census record
+`sha256:1bdb694da1fda43fb0ed71e842cd16e54956b86bb5106aea380a5e17f681c7`;
+Tasks 1–8 landed through Task 8 `000bfcfe`, including prompt-binding
+correction `187336f7`, and Task 9's implicit-list ecosystem correction landed
+at `0187392f`. Task 9 focused 643 passed; new-module collection found 91
+tests; the final broad replay reported 11,072 passed, 5 failed, 24 skipped,
+and 33 warnings. The failures are four inherited routing/retirement rows plus
+one xdist-only read-only LSP build-digest race that passes in isolation, with
+no Q4-owned failure remaining. The exact panel row in
+`docs/workflow_lisp_route_readiness_registry.json` now binds its path and
+surface to compile and execution evidence. External Task 9 and final ordered
+reviews, the reviewed closure commit, and postcommit focused control remain.
+M1 estate shrink remains outside Q4.
 
 ## Stage Q5: Phased Contract Delivery
 

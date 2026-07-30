@@ -1,17 +1,27 @@
 # Workflow Lisp Judgment Views
 
-- **Status:** the base design and Q5-era consumer binding are accepted; the
-  Task 2 compatibility correction below is usable only after an external
-  ordered specification then quality review approves its exact bytes
+- **Status:** implemented for the bounded target-2.23 explicit-composed
+  sibling and read-only inspection surface through `000bfcfe`; the production
+  target-2.23 phased call remains Q4-ineligible
 - **Kind:** read-only result-plus-provenance inspection design
 - **Owner:** Workflow Lisp prompt calculus Q4
 - **Depends on:** implemented target-2.22 Q3 prompt-attempt identity and
   evidence
-- **Language delta:** no new source form or type; one existing-expression WCC
-  composition seam is required for `path/join-under` in a
+- **Language delta:** no new source form or type; the implemented
+  existing-expression WCC composition seam carries `path/join-under` in a
   `list/map-effect` child-call argument
-- **First consumer:** a target-2.23 ordinary-composed panel sibling in the
-  `review_revise_design_docs` family
+- **First consumer:** the implemented target-2.23 ordinary-composed panel
+  sibling in the `review_revise_design_docs` family
+- **Implementation evidence:** Tasks 1–8 landed through `000bfcfe`, with the
+  separate prompt-asset correction at `187336f7` and implicit-list ecosystem
+  correction at `0187392f`; focused verification passed 643 tests, the new
+  module collected 91 tests, and the broad closure comparison reported
+  11,072 passed, 5 failed, 24 skipped, and 33 warnings
+- **Closure-comparison disposition:** the five failures are four inherited
+  route/retirement rows plus one xdist-only LSP read-only build-digest race;
+  the LSP row passes in isolated replay
+- **Review provenance:** ordered external review verdicts remain
+  exact-tree records; this document does not self-attest them
 - **Design review order:** independent `Q4_DESIGN_SPEC_APPROVED`, then
   independent `Q4_DESIGN_QUALITY_APPROVED` (both approved against commit
   `d7fe454902ff2f5b5784a66c37fbb19f9332e4ac`)
@@ -86,7 +96,7 @@ The brief's re-entry conditions are resolved against the current tree:
    target-2.21 control, so the implementation-entry recensus below replaces
    the brief's superseded cross-target import premise without changing the
    Q4 identity contract; the remaining path-expression call-argument seam is
-   selected explicitly below rather than misreported as implemented;
+   selected explicitly below and is now implemented;
 2. Q3 landed with functional-v2/identity-v1 authority;
 3. no newer real panel displaced the selected consumer; and
 4. no owner routing act selected trial-runs adjudication.
@@ -163,9 +173,9 @@ The outer map sees exactly one workflow call and returns the already-supported
 The historical child-workflow and cross-target import compile probes are
 design feasibility results, not implementation evidence. The child-boundary
 identity result remains relevant, but Q5 superseded the probed import
-topology. The implementation plan must land a new maintained same-target
-import proof against the current production module and separately preserve
-the frozen compatibility control.
+topology. The implementation lands a maintained same-target import proof
+against the current production module and separately preserves the frozen
+compatibility control.
 
 ### Required existing-expression composition seam
 
@@ -717,7 +727,7 @@ to:
 
 ### Module and target
 
-The implementation plan must preserve the current target-2.23
+The implementation preserves the current target-2.23
 `review-revise-design-docs` entry's phased prompt, result, identity-v2,
 functional-v3, and runtime behavior. The required layout is a target-2.23
 sibling module in the same example family that imports the existing
@@ -1019,9 +1029,12 @@ Implementation follows TDD and proves both directions.
 6. direct `List[ReviewDecision]` and inline multi-boundary wrappers retain
    their existing refusals;
 7. exporting the exact three path types plus fragment compiles the sibling
-   while the current target-2.23 phased workflow projection remains byte- and
-   behavior-compatible and the frozen target-2.21 fixture remains
-   byte-identical.
+   while the current target-2.23 phased workflow retains its byte-identical
+   closed projection, exactly six characterized
+   `compiler_prompt_dependency_contract.source_workflow_sha256` leaf changes,
+   the complete offset-shift source-position relation, and the byte-identical
+   frozen target-2.21 control; ordinary checksum validation still rejects
+   cross-source-revision resume.
 
 ### Locator
 

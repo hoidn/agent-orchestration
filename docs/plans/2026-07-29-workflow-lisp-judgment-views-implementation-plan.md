@@ -51,11 +51,26 @@ authoritative.
 `docs/reports/2026-07-27-q4-binding-decision-brief.md`, digest
 `sha256:c309be8a683e12308d8250b357ac9e6999a58eece1073f8765855ae34af20165`.
 
-**Plan status:** the original plan was accepted after ordered independent
-`Q4_PLAN_SPEC_APPROVED` then distinct `Q4_PLAN_QUALITY_APPROVED`. The Q5-era
-plan amendment below becomes execution authority only after the
-same ordered reviews approve its exact bytes. Q5 Task 14 and canonical
-transplant prerequisites are complete; M1 remains outside this plan.
+**Plan status:** implemented closure candidate under reviewed amended plan
+`0f21636b`, accepted after ordered independent `Q4_PLAN_SPEC_APPROVED` then
+distinct `Q4_PLAN_QUALITY_APPROVED`. Q5 Task 14 and canonical transplant
+prerequisites are complete; M1 remains outside this plan.
+
+**Execution status:** Task 0 closed on the lean external census record
+`sha256:1bdb694da1fda43fb0ed71e842cd16e54956b86bb5106aea380a5e17f681c7`.
+Tasks 1–8 landed at `9e18f884`, `4b400e7a` plus `7b96c547`, `88af8b91`,
+`a3b75d76`, `4ca9e628`, `19a77547`, `6e987e23`, prompt-binding correction
+`187336f7`, and Task 8 `000bfcfe`. Task 9's implicit-list ecosystem
+correction landed at `0187392f`; focused verification passed 643 tests,
+new-module collection found 91 tests, and the final broad replay reported
+11,072 passed, 5 failed, 24 skipped, and 33 warnings. The five failures are
+four inherited routing/retirement failures plus one xdist-only read-only LSP
+build-digest race that passes in isolation. An earlier replay exposed a
+Q4-owned missing route-registry row; the load-bearing correction now binds the
+exact sibling path and surface in
+`docs/workflow_lisp_route_readiness_registry.json`, and the post-correction
+comparison has no Q4-owned failure. Only the external Task 9 and final ordered
+reviews, reviewed closure commit, and postcommit focused control remain.
 
 Task 2 later reached its explicit compatibility hard stop: the required
 export edit necessarily changes source-lineage values and consistently
@@ -208,21 +223,21 @@ bytes. Record exact reviewed commit/tree/digests factually after the verdict.
 
 **Files:** external execution record only; no plan or production edits.
 
-- [ ] Prove no Q5 real-provider attempt is live.
-- [ ] Record Q5's final landed commit/tree in the external execution record
+- [x] Prove no Q5 real-provider attempt is live.
+- [x] Record Q5's final landed commit/tree in the external execution record
       and compare its changed paths with the Q4 ownership table below. Do not
       write that volatile value back into this reviewed plan.
-- [ ] Confirm the current target-2.23 phased production projection, the exact
+- [x] Confirm the current target-2.23 phased production projection, the exact
       frozen target-2.21 control, and the original plus amended Q4 design
       bindings.
-- [ ] Confirm M1 is still held.
-- [ ] Confirm no protected/unrelated dirty file overlaps the task about to
+- [x] Confirm M1 is still held.
+- [x] Confirm no protected/unrelated dirty file overlaps the task about to
       start.
-- [ ] Capture the fresh pre-Q4 broad non-security baseline with the exact Task
+- [x] Capture the fresh pre-Q4 broad non-security baseline with the exact Task
       9 command and bind its commit, tree, command, totals, failure rows, and
       excluded selectors in the external execution record before Task 1.
-- [ ] Obtain `Q4_TASK_0_SPEC_APPROVED`.
-- [ ] Obtain distinct `Q4_TASK_0_QUALITY_APPROVED`.
+- [x] Obtain `Q4_TASK_0_SPEC_APPROVED`.
+- [x] Obtain distinct `Q4_TASK_0_QUALITY_APPROVED`.
 
 Expected production ownership:
 
@@ -271,20 +286,20 @@ Task 0 never edits this plan merely to record census or baseline facts.
 
 ### TDD and verification
 
-- [ ] Add routing/contract RED assertions for all four owners and the Q5
+- [x] Add routing/contract RED assertions for all four owners and the Q5
       exclusion.
-- [ ] Run the exact routing module and confirm RED.
-- [ ] Write the smallest normative deltas; do not copy the design wholesale.
-- [ ] Run:
+- [x] Run the exact routing module and confirm RED.
+- [x] Write the smallest normative deltas; do not copy the design wholesale.
+- [x] Run:
 
 ```bash
 pytest --collect-only -q tests/test_workflow_lisp_drain_roadmap_routing.py
 pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py
 ```
 
-- [ ] Obtain `Q4_TASK_1_SPEC_APPROVED`.
-- [ ] Obtain distinct `Q4_TASK_1_QUALITY_APPROVED`.
-- [ ] Commit Task 1.
+- [x] Obtain `Q4_TASK_1_SPEC_APPROVED`.
+- [x] Obtain distinct `Q4_TASK_1_QUALITY_APPROVED`.
+- [x] Commit Task 1.
 
 ---
 
@@ -397,24 +412,24 @@ checksum behavior.
 
 ### TDD and verification
 
-- [ ] Add a RED target-2.23 same-target import fixture requiring all four newly
+- [x] Add a RED target-2.23 same-target import fixture requiring all four newly
       exported names from current production.
-- [ ] Add a RED whole-entry comparison that exposes the raw source-lineage and
+- [x] Add a RED whole-entry comparison that exposes the raw source-lineage and
       parent generated-identity delta; do not accept a helper-only false
       green.
-- [ ] Add the exact named behavior projection, exact source
+- [x] Add the exact named behavior projection, exact source
       before/after digests and sizes, complete `+70` source-position relation,
       exact six-leaf helper diff, exact invariants, and an exact byte-digest
       control for the frozen target-2.21 fixture.
-- [ ] Show the sibling fails before the export delta.
-- [ ] Apply only the export delta.
-- [ ] Prove sibling compile GREEN, current phased-entry projection
+- [x] Show the sibling fails before the export delta.
+- [x] Apply only the export delta.
+- [x] Prove sibling compile GREEN, current phased-entry projection
       byte-identical, the helper diff exactly six source-SHA leaves, all
       invariants exact, and frozen target-2.21 bytes unchanged.
-- [ ] Run the two named modules plus their `--collect-only` selectors.
-- [ ] Obtain `Q4_TASK_2_SPEC_APPROVED`.
-- [ ] Obtain distinct `Q4_TASK_2_QUALITY_APPROVED`.
-- [ ] Commit Task 2.
+- [x] Run the two named modules plus their `--collect-only` selectors.
+- [x] Obtain `Q4_TASK_2_SPEC_APPROVED`.
+- [x] Obtain distinct `Q4_TASK_2_QUALITY_APPROVED`.
+- [x] Commit Task 2.
 
 **Hard stop:** do not bump or otherwise mutate current production beyond its
 export line, import from or modify the frozen fixture, copy/redeclare the
@@ -448,14 +463,14 @@ mapping, Classic/WCC value agreement, and existing
 
 ### TDD and verification
 
-- [ ] RED: generic map child-call argument fails at the current
+- [x] RED: generic map child-call argument fails at the current
       `workflow_return_not_exportable` seam.
-- [ ] RED opposite directions: invalid child and escaping child retain their
+- [x] RED opposite directions: invalid child and escaping child retain their
       exact diagnostics; a function-call/prompt-fill broadening remains
       refused.
-- [ ] Implement the smallest projection case.
-- [ ] GREEN: Classic and WCC produce the same typed child input and map result.
-- [ ] Run:
+- [x] Implement the smallest projection case.
+- [x] GREEN: Classic and WCC produce the same typed child input and map result.
+- [x] Run:
 
 ```bash
 pytest --collect-only -q tests/test_workflow_lisp_list_traversal.py
@@ -463,11 +478,11 @@ pytest -q tests/test_workflow_lisp_list_traversal.py
 pytest -q tests/test_workflow_lisp_expressions.py
 ```
 
-- [ ] Genericity scan production diff for consumer/family/module/provider
+- [x] Genericity scan production diff for consumer/family/module/provider
       names.
-- [ ] Obtain `Q4_TASK_3_SPEC_APPROVED`.
-- [ ] Obtain distinct `Q4_TASK_3_QUALITY_APPROVED`.
-- [ ] Commit Task 3.
+- [x] Obtain `Q4_TASK_3_SPEC_APPROVED`.
+- [x] Obtain distinct `Q4_TASK_3_QUALITY_APPROVED`.
+- [x] Commit Task 3.
 
 **Hard stop:** fragment-fill identity changes, new node kinds/operators,
 multiple map boundaries, pure-helper support, or collection widening return
@@ -502,27 +517,27 @@ state in the same existing mutation.
 
 ### TDD and verification
 
-- [ ] RED: eligible successful ordinary call has no locator.
-- [ ] RED/negative: provider, bundle, contract, Q2, and pre-commit
+- [x] RED: eligible successful ordinary call has no locator.
+- [x] RED/negative: provider, bundle, contract, Q2, and pre-commit
       interruption failures commit no locator.
-- [ ] RED/negative: malformed, missing, ambiguous, or contradictory retained
+- [x] RED/negative: malformed, missing, ambiguous, or contradictory retained
       publication/scope/ordinal data makes locator construction fail before
       the existing reached-result mutation; neither the result nor locator
       commits.
-- [ ] Positive coexistence: a target-2.23 `:delivery :composed` call retains
+- [x] Positive coexistence: a target-2.23 `:delivery :composed` call retains
       identity-v1/functional-v2 evidence and remains eligible for the same
       locator.
-- [ ] RED/negative: Q5 phased identity-v2 is excluded before construction and
+- [x] RED/negative: Q5 phased identity-v2 is excluded before construction and
       does not receive a missing-binding marker.
-- [ ] Cover top-level, child call, and generated `list/map-effect` iteration.
-- [ ] Cover failed-then-successful retry: only the committed ordinal binds.
-- [ ] Cover completed-boundary resume: no provider/evidence access and exact
+- [x] Cover top-level, child call, and generated `list/map-effect` iteration.
+- [x] Cover failed-then-successful retry: only the committed ordinal binds.
+- [x] Cover completed-boundary resume: no provider/evidence access and exact
       locator reuse.
-- [ ] Run new-module `--collect-only`, narrow locator tests, Q3 prompt identity,
+- [x] Run new-module `--collect-only`, narrow locator tests, Q3 prompt identity,
       subworkflow, loop, and resume selectors.
-- [ ] Obtain `Q4_TASK_4_SPEC_APPROVED`.
-- [ ] Obtain distinct `Q4_TASK_4_QUALITY_APPROVED`.
-- [ ] Commit Task 4.
+- [x] Obtain `Q4_TASK_4_SPEC_APPROVED`.
+- [x] Obtain distinct `Q4_TASK_4_QUALITY_APPROVED`.
+- [x] Commit Task 4.
 
 ---
 
@@ -548,18 +563,18 @@ or synthesizes a contract from the value.
 
 ### TDD and verification
 
-- [ ] RED: state-only nested call cannot resolve its exact persisted contract.
-- [ ] Positive: root, child-call, and loop coordinates resolve identically in
+- [x] RED: state-only nested call cannot resolve its exact persisted contract.
+- [x] Positive: root, child-call, and loop coordinates resolve identically in
       bundle-backed and state-only paths.
-- [ ] Both-direction tamper coverage: missing graph, digest mismatch, unknown
+- [x] Both-direction tamper coverage: missing graph, digest mismatch, unknown
       alias, missing/extra/ambiguous contract, old-source mutation, and
       coordinate mismatch fail closed.
-- [ ] Prove source compile entry points are not invoked.
-- [ ] Run new-module `--collect-only`, dashboard compiled-workflow tests,
+- [x] Prove source compile entry points are not invoked.
+- [x] Run new-module `--collect-only`, dashboard compiled-workflow tests,
       CLI-report state-only tests, and adjacent prompt-context parity tests.
-- [ ] Obtain `Q4_TASK_5_SPEC_APPROVED`.
-- [ ] Obtain distinct `Q4_TASK_5_QUALITY_APPROVED`.
-- [ ] Commit Task 5.
+- [x] Obtain `Q4_TASK_5_SPEC_APPROVED`.
+- [x] Obtain distinct `Q4_TASK_5_QUALITY_APPROVED`.
+- [x] Commit Task 5.
 
 ---
 
@@ -592,23 +607,23 @@ one validated projection. No execution/resume/parser module imports it.
 
 ### TDD and verification
 
-- [ ] RED stable empty sibling for old/ineligible runs in loaded and
+- [x] RED stable empty sibling for old/ineligible runs in loaded and
       state-only reports.
-- [ ] Positive/tamper rows for locator, publication, evidence, identity,
+- [x] Positive/tamper rows for locator, publication, evidence, identity,
       contract, value, and coordinate validation.
-- [ ] All four disagreement classifications in both directions.
-- [ ] Tri-state attempt series: `bound`, `not_bound`, and
+- [x] All four disagreement classifications in both directions.
+- [x] Tri-state attempt series: `bound`, `not_bound`, and
       `unknown_pre_q4`.
-- [ ] Deterministic order under reversed filesystem/discovery/completion
+- [x] Deterministic order under reversed filesystem/discovery/completion
       order.
-- [ ] JSON/Markdown equivalence and content-free Markdown provenance.
-- [ ] Import scans prove execution, resume, parser, and workflow code do not
+- [x] JSON/Markdown equivalence and content-free Markdown provenance.
+- [x] Import scans prove execution, resume, parser, and workflow code do not
       consume the projector.
-- [ ] Run new-module `--collect-only`, all three report modules,
+- [x] Run new-module `--collect-only`, all three report modules,
       prompt-context report regressions, and state-only CLI regressions.
-- [ ] Obtain `Q4_TASK_6_SPEC_APPROVED`.
-- [ ] Obtain distinct `Q4_TASK_6_QUALITY_APPROVED`.
-- [ ] Commit Task 6.
+- [x] Obtain `Q4_TASK_6_SPEC_APPROVED`.
+- [x] Obtain distinct `Q4_TASK_6_QUALITY_APPROVED`.
+- [x] Commit Task 6.
 
 ---
 
@@ -649,30 +664,30 @@ no second matrix. The public entry returns exact `DesignDocPanelResult`.
 
 ### TDD and verification
 
-- [ ] RED: the exact public sibling import/compile acceptance test fails on
+- [x] RED: the exact public sibling import/compile acceptance test fails on
       the Task 7 baseline because the sibling and its provider/prompt
       bindings do not yet exist. Do not cite the already-landed Task 3 seam
       as this task's RED.
-- [ ] Positive compile/runtime with ordered distinct lenses and exactly one
+- [x] Positive compile/runtime with ordered distinct lenses and exactly one
       matrix.
-- [ ] Prove the sibling imports current production at target 2.23, every
+- [x] Prove the sibling imports current production at target 2.23, every
       fragment-backed review call is explicitly composed and retains
       identity-v1/functional-v2, and the frozen target-2.21 control is not an
       import owner.
-- [ ] Prove the child retains the full union, Q2 output contract, identity-v1,
+- [x] Prove the child retains the full union, Q2 output contract, identity-v1,
       and source-map owner.
-- [ ] Prove synthesis has no fragment identity/locator/judgment row and its
+- [x] Prove synthesis has no fragment identity/locator/judgment row and its
       prompt receives no Q3/Q4 projection.
-- [ ] Unsafe/escaping lenses fail before provider launch.
-- [ ] Characterize duplicate destinations without claiming cross-iteration
+- [x] Unsafe/escaping lenses fail before provider launch.
+- [x] Characterize duplicate destinations without claiming cross-iteration
       uniqueness enforcement.
-- [ ] Retain direct `List[ReviewDecision]` and multi-boundary wrapper
+- [x] Retain direct `List[ReviewDecision]` and multi-boundary wrapper
       refusals.
-- [ ] Run all new/renamed `--collect-only` selectors and focused example,
+- [x] Run all new/renamed `--collect-only` selectors and focused example,
       calculus, list-traversal, and E2E modules.
-- [ ] Obtain `Q4_TASK_7_SPEC_APPROVED`.
-- [ ] Obtain distinct `Q4_TASK_7_QUALITY_APPROVED`.
-- [ ] Commit Task 7.
+- [x] Obtain `Q4_TASK_7_SPEC_APPROVED`.
+- [x] Obtain distinct `Q4_TASK_7_QUALITY_APPROVED`.
+- [x] Commit Task 7.
 
 ---
 
@@ -687,7 +702,7 @@ no second matrix. The public entry returns exact `DesignDocPanelResult`.
 
 ### Deterministic gate
 
-- [ ] Collect both owned modules exactly:
+- [x] Collect both owned modules exactly:
 
 ```bash
 pytest --collect-only -q \
@@ -695,15 +710,15 @@ pytest --collect-only -q \
   tests/e2e/test_e2e_workflow_lisp_judgment_views.py
 ```
 
-- [ ] Run one clean panel and one interrupted-after-committed-child/resumed
+- [x] Run one clean panel and one interrupted-after-committed-child/resumed
       panel in isolated roots.
-- [ ] Compare typed final result, artifact bytes, provider-attempt identities,
+- [x] Compare typed final result, artifact bytes, provider-attempt identities,
       locator bytes, judgment views, and synthesis-call count.
-- [ ] Prove completed children are not replayed and no result/evidence is read
+- [x] Prove completed children are not replayed and no result/evidence is read
       to prepare a provider.
-- [ ] Remove one evidence record after completion and prove only the affected
+- [x] Remove one evidence record after completion and prove only the affected
       view becomes unavailable while result/resume compatibility remains.
-- [ ] Run the complete deterministic module exactly:
+- [x] Run the complete deterministic module exactly:
 
 ```bash
 pytest -q tests/test_workflow_lisp_judgment_views_e2e.py
@@ -711,21 +726,21 @@ pytest -q tests/test_workflow_lisp_judgment_views_e2e.py
 
 ### Real-provider gate
 
-- [ ] Run only after every deterministic selector is green and no Q5 attempt
+- [x] Run only after every deterministic selector is green and no Q5 attempt
       is live.
-- [ ] Use a trusted checkout and the repo-standard dangerous-bypass provider
+- [x] Use a trusted checkout and the repo-standard dangerous-bypass provider
       launch so no directory-trust/approval prompt can stall the run.
-- [ ] Use the checked pairwise-distinct default lens set and a bounded
+- [x] Use the checked pairwise-distinct default lens set and a bounded
       deadline. Each of the three review calls and the synthesis call retains
       the design's exact `:timeout-sec 3600`; the outer acceptance command has
       a numeric 15,000-second deadline.
-- [ ] Do not steer panes or substitute split/synthetic proof.
-- [ ] Require natural terminal completion, ordered reports, one synthesis,
+- [x] Do not steer panes or substitute split/synthetic proof.
+- [x] Require natural terminal completion, ordered reports, one synthesis,
       one matrix, valid state-only/loaded views, and zero replay on resume.
-- [ ] Assert in the E2E preflight that every Codex provider argv contains
+- [x] Assert in the E2E preflight that every Codex provider argv contains
       `--dangerously-bypass-approvals-and-sandbox` and that every invocation
       cwd is the trusted checkout.
-- [ ] From that trusted checkout, preserve the exact command output at
+- [x] From that trusted checkout, preserve the exact command output at
       `artifacts/review/q4-task8-real-provider.log` and run:
 
 ```bash
@@ -740,13 +755,13 @@ timeout --foreground --signal=TERM --kill-after=30s 15000s \
   2>&1 | tee artifacts/review/q4-task8-real-provider.log
 ```
 
-- [ ] The Task 8 external execution record binds the exact commit/tree,
+- [x] The Task 8 external execution record binds the exact commit/tree,
       command, log SHA-256, start/finish timestamps, exit code, terminal run
       ID/root, provider call count, and the loaded/state-only view digests.
 
-- [ ] Obtain `Q4_TASK_8_SPEC_APPROVED`.
-- [ ] Obtain distinct `Q4_TASK_8_QUALITY_APPROVED`.
-- [ ] Commit Task 8 evidence/test bytes.
+- [x] Obtain `Q4_TASK_8_SPEC_APPROVED`.
+- [x] Obtain distinct `Q4_TASK_8_QUALITY_APPROVED`.
+- [x] Commit Task 8 evidence/test bytes.
 
 ---
 
@@ -759,6 +774,7 @@ timeout --foreground --signal=TERM --kill-after=30s 15000s \
 - `docs/index.md`;
 - `docs/capability_status_matrix.md`;
 - `docs/lisp_workflow_drafting_guide.md`;
+- `docs/workflow_lisp_route_readiness_registry.json`;
 - exact Q4 row/section in the active Q/L roadmap;
 - exact Q4 expectations in
   `tests/test_workflow_lisp_drain_roadmap_routing.py`; and
@@ -766,9 +782,9 @@ timeout --foreground --signal=TERM --kill-after=30s 15000s \
 
 ### Closure
 
-- [ ] Re-run all Task 1–8 focused selectors.
-- [ ] Run `pytest --collect-only` for every new/renamed test module.
-- [ ] Run the repository's broad non-security suite with required parallelism:
+- [x] Re-run all Task 1–8 focused selectors.
+- [x] Run `pytest --collect-only` for every new/renamed test module.
+- [x] Run the repository's broad non-security suite with required parallelism:
 
 ```bash
 pytest -q -n 16 --dist=worksteal \
@@ -796,14 +812,14 @@ pytest -q -n 16 --dist=worksteal \
   -k 'not security and not secret and not isolation and not safety'
 ```
 
-- [ ] Compare against Task 0's content-addressed fresh pre-Q4 baseline; do not
+- [x] Compare against Task 0's content-addressed fresh pre-Q4 baseline; do not
       repair external or excluded failures under Q4.
-- [ ] Run genericity scans and prove no consumer/family/module/provider/result
+- [x] Run genericity scans and prove no consumer/family/module/provider/result
       name controls mechanism behavior.
-- [ ] Verify current target-2.23 phased-entry projection compatibility and the
+- [x] Verify current target-2.23 phased-entry projection compatibility and the
       frozen target-2.21 byte control again.
-- [ ] Verify Q5 phased identity-v2 remains excluded and unchanged.
-- [ ] Update docs from designed/planned to implemented only after evidence is
+- [x] Verify Q5 phased identity-v2 remains excluded and unchanged.
+- [x] Update docs from designed/planned to implemented only after evidence is
       green.
 - [ ] Obtain `Q4_TASK_9_SPEC_APPROVED`.
 - [ ] Obtain distinct `Q4_TASK_9_QUALITY_APPROVED`.
