@@ -49,6 +49,9 @@ SUBSTRATE_MAINTENANCE_TRACK_PATH = (
 PURE_RESULT_REPLAY_DESIGN_PATH = (
     "docs/design/workflow_lisp_pure_result_replay.md"
 )
+PURE_RESULT_REPLAY_PLAN_PATH = (
+    "docs/plans/2026-07-30-pure-result-replay-feasibility-component-plan.md"
+)
 M0_GREEN_BASELINE_PLAN_PATH = (
     "docs/plans/2026-07-29-m0-green-baseline-component-plan.md"
 )
@@ -4376,11 +4379,16 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     pure_replay_design = (
         REPO_ROOT / PURE_RESULT_REPLAY_DESIGN_PATH
     ).read_text(encoding="utf-8")
+    pure_replay_plan = (
+        REPO_ROOT / PURE_RESULT_REPLAY_PLAN_PATH
+    ).read_text(encoding="utf-8")
 
     assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in track
     assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in index
     assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in track
     assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in index
+    assert Path(PURE_RESULT_REPLAY_PLAN_PATH).name in track
+    assert Path(PURE_RESULT_REPLAY_PLAN_PATH).name in index
     assert "### [M1 Estate Shrink Implementation Plan]" in index
 
     m0_section = track.split("## Phase M0: Green Baseline", 1)[1].split(
@@ -4525,6 +4533,7 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     )
     assert "m3a is not implementation selected" in normalized_m2
     assert Path(PURE_RESULT_REPLAY_DESIGN_PATH).name in m2_section
+    assert Path(PURE_RESULT_REPLAY_PLAN_PATH).name in m2_section
     assert "effect identity memo keys" in normalized_m2
     assert "not selected" in normalized_m2
     assert "three distinct post ml runs" in normalized_m2
@@ -4560,6 +4569,51 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "m2 is not complete" in normalized_pure_replay
     assert "m3a is not implementation selected" in normalized_pure_replay
     assert Path(PURE_RESULT_REPLAY_DESIGN_PATH).name in index
+
+    normalized_pure_replay_plan = _normalized_routing_text(pure_replay_plan)
+    assert "status: reviewed execution plan" in (
+        normalized_pure_replay_plan
+    )
+    assert "19a98c8b" in pure_replay_plan
+    assert "m2 remains incomplete" in normalized_pure_replay_plan
+    assert "m3a remains unselected" in normalized_pure_replay_plan
+    assert "task 1 is selected" in normalized_pure_replay_plan
+    assert "normal orchestrate run and orchestrate resume creation stays on the historical profile" in (
+        normalized_pure_replay_plan
+    )
+    assert "m2_feasibility_plan_spec_approved" in normalized_pure_replay_plan
+    assert "m2_feasibility_plan_quality_approved" in normalized_pure_replay_plan
+    assert "make only m3a eligible while leaving it unselected" in (
+        normalized_pure_replay_plan
+    )
+    for required_closure_doc in (
+        "specs/state.md",
+        "workflow_lisp_lexical_execution_checkpoints.md",
+        "workflow_lisp_state_layout.md",
+        "docs/capability_status_matrix.md",
+    ):
+        assert required_closure_doc in pure_replay_plan
+    assert "exact result address" in normalized_pure_replay_plan
+    assert "interrupted current spines for both a and b" in (
+        normalized_pure_replay_plan
+    )
+    assert "inactive branch" in normalized_pure_replay_plan
+    assert "settlement/finalization next cases" in normalized_pure_replay_plan
+    assert "prepare the complete closure candidate before review" in (
+        normalized_pure_replay_plan
+    )
+    assert "commit the exact reviewed closure bytes unchanged" in (
+        normalized_pure_replay_plan
+    )
+    assert "in tmux, run the full m2 feasibility matrix" in (
+        normalized_pure_replay_plan
+    )
+    assert "pytest q n 16 dist=worksteal" in normalized_pure_replay_plan
+    assert pure_replay_plan.index(
+        "prepare the complete closure\n  candidate before review"
+    ) < pure_replay_plan.index(
+        "repository-standard broad non-security suite against\n  the complete closure candidate"
+    )
 
     normalized_plan = _normalized_routing_text(m1_plan)
     normalized_plan_header = _normalized_routing_text(

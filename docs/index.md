@@ -180,6 +180,11 @@ navigation are complete.
 **Keywords:** workflow-lisp, persistence, resume, replay, pure-projection, m2
 **Use this when:** Reviewing or planning the selected M2 persistence-parsimony feasibility tranche. Its public run/resume fixture remains open, so it does not authorize memo-first effect reuse, recurrent/loop replay, or M3 implementation.
 
+### [Pure-Result Replay Feasibility Component Plan](plans/2026-07-30-pure-result-replay-feasibility-component-plan.md)
+**Description:** Reviewed four-implementation-task M2 component-(a) execution plan for the real compiler/state-manager/fresh-executor/new-executor-resume proof, including the transient typed dependency index, atomic value-free shells, audited persistence suppression, and checkpoint-safe replay.
+**Keywords:** workflow-lisp, persistence, resume, replay, feasibility, m2, component-plan
+**Use this when:** Executing the bounded M2 feasibility tranche. Ordered plan reviews approved the corrected candidate and Task 1 is selected; normal CLI state stays historical-profile, M2 remains incomplete, and M3a remains unselected.
+
 ### [M0 Green Baseline Implementation Plan](plans/2026-07-29-m0-green-baseline-component-plan.md)
 **Description:** Historical reviewed five-task M0 plan. The exact candidate closed at `f15b888d`, tree `8a75f24f`, after ordered external reviews and a 418-pass postcommit control.
 **Keywords:** workflow-lisp, substrate, m0, green-baseline, refusal-diagnostic, routing

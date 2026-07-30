@@ -31,8 +31,11 @@
   component-(a)-only depth; its candidate
   [Pure-Result Replay design](../design/workflow_lisp_pure_result_replay.md)
   passed ordered specification then quality review for the feasibility
-  tranche, with its executable prerequisite still open. MC, MR, M3, and M4
-  are not selected by listing and
+  tranche, with its executable prerequisite still open. The bounded
+  [Pure-Result Replay Feasibility Component Plan](2026-07-30-pure-result-replay-feasibility-component-plan.md)
+  passed ordered specification then quality review and selects its Task 1
+  feasibility work; it does not select M3a. MC, MR, M3, and M4 are not
+  selected by listing and
   still require their own component plans; M3 additionally requires accepted
   M2 design.
 - **Relation:** parallel substrate track beside the completed
@@ -313,7 +316,9 @@ candidate [Pure-Result Replay design](../design/workflow_lisp_pure_result_replay
 passed `M2_FEASIBILITY_SPEC_APPROVED` then
 `M2_FEASIBILITY_QUALITY_APPROVED`. Its required
 public run/resume feasibility fixture is not yet landed, so M2 is not complete
-and M3a is not implementation-selected.
+and M3a is not implementation-selected. The bounded
+[Pure-Result Replay Feasibility Component Plan](2026-07-30-pure-result-replay-feasibility-component-plan.md)
+is reviewed for execution, and its Task 1 fixture/index tranche is selected.
 
 The selected design stops persisting eligible successful compiler-generated
 pure-projection values and reconstructs them deterministically from validated
