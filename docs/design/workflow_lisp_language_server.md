@@ -1,7 +1,8 @@
 # Workflow Lisp Language Server
 
-- **Status:** implemented through L2/L3/L4/L5; L4 final-review metadata
-  correction requires fresh ordered exact-tree reviews
+- **Status:** implemented through L2/L3/L4/L5; L4 is complete at
+  `251d9d53674e863fddae4535ea4f7022914287cd`, tree
+  `e2417d395cbcabe9adaffb136759ebff3d42b677`
 - **Kind:** feature / developer tooling architecture decision
 - **Owner:** Workflow Lisp frontend (tooling consumer)
 - **Reviewers:** independent specification rereview
@@ -28,11 +29,14 @@
   received `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` before
   commit `1f64f153`, tree `7790ee0e`. That exact tree received
   `L4_FINAL_SPEC_APPROVED`; final quality returned `CHANGES_REQUIRED` solely
-  for stale review-status metadata, so that exact-tree verdict does not
-  transfer to corrected bytes. Completion requires fresh ordered
-  `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED` against the
-  corrected committed tree. The final verdict is an external exact-tree
-  record; no repository byte can self-attest its own post-commit review
+  for stale review-status metadata. The corrected routing/status diff
+  `29e0bc01037058f0c29dac15c0d461798a5e47a836fe8b3e8336beb937410951`
+  landed at `251d9d53674e863fddae4535ea4f7022914287cd`, tree
+  `e2417d395cbcabe9adaffb136759ebff3d42b677`, then passed a 357-test focused
+  control. External closure-record SHA-256
+  `94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804`
+  records ordered `L4_FINAL_SPEC_APPROVED` then
+  `L4_FINAL_QUALITY_APPROVED`; the prior rejection is superseded history
 - **Created:** 2026-07-13
 - **Last material update:** 2026-07-28
 - **Review history:** earlier design and quality changes-required rounds,

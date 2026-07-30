@@ -1184,7 +1184,10 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
 
     normalized_successor = _normalized_routing_text(successor)
-    assert "status: active" in normalized_successor
+    assert "status: complete" in normalized_successor
+    assert "all q0 q5 and l0 l5 completion gates are satisfied" in (
+        normalized_successor
+    )
     q0_row = _markdown_table_row(
         REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
         "| Q0 |",
@@ -1265,13 +1268,22 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "q5 era design amendment accepted at 3c21ceb4" in normalized_q4_row
     assert "reviewed amended plan 0f21636b" in normalized_q4_row
-    assert "implemented closure candidate" in normalized_q4_row
-    assert "task 8 000bfcfe" in normalized_q4_row
-    assert "prompt binding correction 187336f7" in normalized_q4_row
-    assert "implicit list ecosystem correction landed at 0187392f" in (
-        normalized_q4_row
+    assert (
+        "complete at commit f3335637b90feb0a87ac4c538bafac7704ac0d87"
+        in normalized_q4_row
     )
-    assert "external task 9 and final ordered reviews" in normalized_q4_row
+    assert "tree ccec170be8757c9e4fd5ed8ece6f93b04fc03299" in normalized_q4_row
+    assert (
+        "85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c"
+        in normalized_q4_row
+    )
+    assert "q4_task_9_spec_approved" in normalized_q4_row
+    assert "q4_task_9_quality_approved" in normalized_q4_row
+    assert "q4_final_spec_approved" in normalized_q4_row
+    assert "q4_final_quality_approved" in normalized_q4_row
+    assert "postcommit focused control passed 74 tests" in normalized_q4_row
+    assert "implemented closure candidate" not in normalized_q4_row
+    assert "external task 9 and final ordered reviews" not in normalized_q4_row
     assert "implementation not started" not in normalized_q4_row
     assert "current target 2.23 phased production" in normalized_q4_row
     assert "target 2.23 explicit composed panel sibling" in normalized_q4_row
@@ -1290,7 +1302,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "reviewed amended implementation plan at 0f21636b" in (
         normalized_q4_stage
     )
-    assert "implemented closure candidate" in normalized_q4_stage
+    assert "q4 is complete" in normalized_q4_stage
     assert (
         "1bdb694da1fda43fb0ed71e842cd16e54956b86bb5106aea380a5e17f681c7"
         in normalized_q4_stage
@@ -1299,7 +1311,16 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "11,072 passed, 5 failed, 24 skipped, and 33 warnings" in (
         normalized_q4_stage
     )
-    assert "external task 9 and final ordered reviews" in normalized_q4_stage
+    assert (
+        "closed at commit f3335637b90feb0a87ac4c538bafac7704ac0d87"
+        in normalized_q4_stage
+    )
+    assert "tree ccec170be8757c9e4fd5ed8ece6f93b04fc03299" in normalized_q4_stage
+    assert (
+        "85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c"
+        in normalized_q4_stage
+    )
+    assert "postcommit focused control passed 74 tests" in normalized_q4_stage
     assert "become the current execution authority only after" not in (
         normalized_q4_stage
     )
@@ -1381,7 +1402,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "test_panel_executes_ordered_reviews_then_one_ineligible_synthesis",
     ]
     assert "reviewed amended plan 0f21636b" in normalized_q4_plan
-    assert "implemented closure candidate" in normalized_q4_plan
+    assert "plan status: complete" in normalized_q4_plan
+    assert "implemented closure candidate" not in normalized_q4_plan
     assert (
         "1bdb694da1fda43fb0ed71e842cd16e54956b86bb5106aea380a5e17f681c7"
         in normalized_q4_plan
@@ -1400,12 +1422,19 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "11,072 passed" in normalized_q4_plan
     assert "- [x] Re-run all Task 1–8 focused selectors." in q4_plan
     assert "- [x] Update docs from designed/planned to implemented" in q4_plan
-    assert "- [ ] Obtain `Q4_TASK_9_SPEC_APPROVED`." in q4_plan
-    assert "- [ ] Obtain distinct `Q4_TASK_9_QUALITY_APPROVED`." in q4_plan
-    assert "- [ ] Obtain ordered `Q4_FINAL_SPEC_APPROVED`." in q4_plan
-    assert "- [ ] Obtain distinct `Q4_FINAL_QUALITY_APPROVED`." in q4_plan
-    assert "- [ ] Commit the reviewed closure bytes." in q4_plan
-    assert "- [ ] Run a fresh postcommit focused control" in q4_plan
+    assert "- [x] Obtain `Q4_TASK_9_SPEC_APPROVED`." in q4_plan
+    assert "- [x] Obtain distinct `Q4_TASK_9_QUALITY_APPROVED`." in q4_plan
+    assert "- [x] Obtain ordered `Q4_FINAL_SPEC_APPROVED`." in q4_plan
+    assert "- [x] Obtain distinct `Q4_FINAL_QUALITY_APPROVED`." in q4_plan
+    assert "- [x] Commit the reviewed closure bytes." in q4_plan
+    assert "- [x] Run a fresh postcommit focused control" in q4_plan
+    assert "f3335637b90feb0a87ac4c538bafac7704ac0d87" in q4_plan
+    assert "ccec170be8757c9e4fd5ed8ece6f93b04fc03299" in q4_plan
+    assert (
+        "85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c"
+        in q4_plan
+    )
+    assert "the 74 pass postcommit control" in normalized_q4_plan
     assert tuple(
         text.count("`q4_task2_export_compatibility.v1`")
         for text in (q4_design, q4_plan)
@@ -1581,12 +1610,12 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         normalized_index
     )
     assert "l3 completed over mr 4 under its reviewed plan" in normalized_index
-    assert "l4 diagnostic lifecycle and compile progress is implemented" in (
+    assert "l4 diagnostic lifecycle and compile progress" in normalized_index
+    assert "l4 closed at commit 251d9d53674e863fddae4535ea4f7022914287cd" in (
         normalized_index
     )
-    assert "task 4 focused 356 passed and broad comparison has zero new failures" in (
-        normalized_index
-    )
+    assert "focused selector reports 356 passed" in normalized_index
+    assert "broad comparison has zero new failures" in normalized_index
     assert "p1 diagnostic accumulation" in normalized_successor
     assert "p5 compile caching/incrementality" in normalized_successor
     assert "runtime debugging surface" in normalized_successor
@@ -1717,9 +1746,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
             "### [Workflow Lisp Language Quality And Domain Semantics Roadmap]",
         )
     )
-    assert "active post stage 8 selector" in normalized_successor_index
-    assert "q0 q3 are implemented" in normalized_successor_index
-    assert "q3 closes under its reviewed plan" in normalized_successor_index
+    assert "completed post stage 8 roadmap" in normalized_successor_index
+    assert "q0 q5 and l0 l5 are complete" in normalized_successor_index
     assert (
         "q4's concrete review_revise_design_docs panel consumer is bound"
         in normalized_successor_index
@@ -1729,8 +1757,16 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         normalized_successor_index
     )
     assert "reviewed amended plan 0f21636b" in normalized_successor_index
-    assert "q4 is an implemented closure candidate" in normalized_successor_index
-    assert "external task 9 and final ordered reviews" in normalized_successor_index
+    assert (
+        "q4 closed at commit f3335637b90feb0a87ac4c538bafac7704ac0d87"
+        in normalized_successor_index
+    )
+    assert "tree ccec170be8757c9e4fd5ed8ece6f93b04fc03299" in normalized_successor_index
+    assert (
+        "85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c"
+        in normalized_successor_index
+    )
+    assert "74 pass postcommit control" in normalized_successor_index
     assert "q5 is complete at 70f4a759, tree fec729cb" in normalized_successor_index
     assert Path(PROMPT_IDENTITY_PLAN_PATH).name in index
     assert "owner reordered l5 authored reference navigation are complete" in (
@@ -1739,9 +1775,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "l3 completed over mr 4 under its reviewed plan" in (
         normalized_successor_index
     )
-    assert "l4 diagnostic lifecycle and compile progress is implemented" in (
-        normalized_successor_index
-    )
+    assert "l4 diagnostic lifecycle and compile progress" in normalized_successor_index
     assert "task 4 focused 356 passed and broad comparison has zero new failures" in (
         normalized_successor_index
     )
@@ -1967,8 +2001,7 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
             "### [Workflow Lisp Language Quality And Domain Semantics Roadmap]",
         )
     )
-    assert "q0 q3 are implemented" in active_roadmap_index
-    assert "q3 closes under its reviewed plan" in active_roadmap_index
+    assert "q0 q5 and l0 l5 are complete" in active_roadmap_index
     assert "q4's concrete review_revise_design_docs panel consumer is bound" in (
         active_roadmap_index
     )
@@ -1977,8 +2010,14 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
         active_roadmap_index
     )
     assert "reviewed amended plan 0f21636b" in active_roadmap_index
-    assert "q4 is an implemented closure candidate" in active_roadmap_index
-    assert "external task 9 and final ordered reviews" in active_roadmap_index
+    assert (
+        "q4 closed at commit f3335637b90feb0a87ac4c538bafac7704ac0d87"
+        in active_roadmap_index
+    )
+    assert (
+        "85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c"
+        in active_roadmap_index
+    )
     assert "q5 is complete at 70f4a759, tree fec729cb" in active_roadmap_index
     assert "owner reordered l5 authored reference navigation are complete" in (
         active_roadmap_index
@@ -3769,7 +3808,7 @@ def test_language_server_l3_routes_shipped_per_source_entry_selection() -> None:
     assert "l3 target initialization" not in normalized_setup
 
 
-def test_language_server_l4_routes_verified_final_review_correction() -> None:
+def test_language_server_l4_routes_completed_external_review() -> None:
     roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH
     plan_path = REPO_ROOT / LANGUAGE_SERVER_L4_PLAN_PATH
     design_path = (
@@ -3806,11 +3845,18 @@ def test_language_server_l4_routes_verified_final_review_correction() -> None:
     assert "l4_final_spec_approved then l4_final_quality_approved" in (
         normalized_l4_row
     )
+    assert "complete at commit 251d9d53674e863fddae4535ea4f7022914287cd" in (
+        normalized_l4_row
+    )
+    assert "tree e2417d395cbcabe9adaffb136759ebff3d42b677" in normalized_l4_row
+    assert (
+        "94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804"
+        in normalized_l4_row
+    )
     assert "q5_f1_f2_fix_spec_approved" in normalized_l4_row
     assert "q5_f1_f2_fix_quality_approved" in normalized_l4_row
-    assert "complete" not in _normalized_routing_text(
-        l4_row.split("|")[-2]
-    )
+    assert "final review metadata correction" not in normalized_l4_row
+    assert "completion requires fresh ordered" not in normalized_l4_row
 
     capability_row = _markdown_table_row(
         REPO_ROOT / "docs" / "capability_status_matrix.md",
@@ -3824,25 +3870,35 @@ def test_language_server_l4_routes_verified_final_review_correction() -> None:
     assert "neovim" in normalized_capability_row
     assert "356 passed" in normalized_capability_row
     assert "zero new failures" in normalized_capability_row
-    assert "final quality returned changes_required solely" in (
+    assert "251d9d53674e863fddae4535ea4f7022914287cd" in (
         normalized_capability_row
     )
-    assert "external exact tree record" in normalized_capability_row
+    assert "e2417d395cbcabe9adaffb136759ebff3d42b677" in normalized_capability_row
+    assert (
+        "94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804"
+        in normalized_capability_row
+    )
+    assert "l4_final_spec_approved then l4_final_quality_approved" in (
+        normalized_capability_row
+    )
+    assert "completion requires fresh ordered" not in normalized_capability_row
 
     design = design_path.read_text(encoding="utf-8")
     normalized_design_status = _normalized_routing_text(
         "\n".join(design.splitlines()[:35])
     )
-    assert "status: implemented and incorporated" in normalized_design_status
+    assert "status: implemented, incorporated, and complete" in (
+        normalized_design_status
+    )
     assert "11629551" in normalized_design_status
     assert "0d5f7009" in normalized_design_status
     assert "l4_task3_spec_approved" in normalized_design_status
     assert "l4_task3_quality_approved" in normalized_design_status
-    assert "final quality returned changes_required solely" in (
-        normalized_design_status
-    )
-    assert "fresh ordered l4_final_spec_approved then l4_final_quality_approved" in (
-        normalized_design_status
+    assert "251d9d53674e863fddae4535ea4f7022914287cd" in normalized_design_status
+    assert "e2417d395cbcabe9adaffb136759ebff3d42b677" in normalized_design_status
+    assert (
+        "94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804"
+        in normalized_design_status
     )
     assert "implementation pending" not in normalized_design_status
 
@@ -3873,14 +3929,18 @@ def test_language_server_l4_routes_verified_final_review_correction() -> None:
     assert "10,895 passed, 41 failed, 0 errors, 22 skipped" in plan
     assert "6f071f35bf086f027ce6445f3c83114f4812f06025ec565fe32123c37ab627a4" in plan
     assert "zero new failures" in plan
-    assert "final quality returned changes_required solely" in plan
-    assert "external exact tree record" in plan
+    assert "251d9d53674e863fddae4535ea4f7022914287cd" in plan
+    assert "e2417d395cbcabe9adaffb136759ebff3d42b677" in plan
+    assert "94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804" in plan
+    assert "29e0bc01037058f0c29dac15c0d461798a5e47a836fe8b3e8336beb937410951" in plan
+    assert "357 passed in 72.49 seconds" in plan
+    assert "9512fd4ead25182d0460c579f5a33d80d100659077ab4f0393b2c8b126332fb0" in plan
+    assert "l4_final_spec_approved then l4_final_quality_approved" in plan
+    assert "completion requires fresh ordered" not in plan
 
     index = index_path.read_text(encoding="utf-8")
     normalized_index = _normalized_routing_text(index)
-    assert "l4 diagnostic lifecycle and compile progress is implemented" in (
-        normalized_index
-    )
+    assert "l4 diagnostic lifecycle and compile progress" in normalized_index
     assert "task 4 focused 356 passed and broad comparison has zero new failures" in (
         normalized_index
     )
@@ -3899,10 +3959,10 @@ def test_language_server_l4_routes_verified_final_review_correction() -> None:
         lifecycle_index
     )
     assert "l4_final_spec_approved then l4_final_quality_approved" in lifecycle_index
-    assert "changes_required" in lifecycle_index
-    assert "fresh ordered l4_final_spec_approved then l4_final_quality_approved" in (
-        lifecycle_index
-    )
+    assert "251d9d53674e863fddae4535ea4f7022914287cd" in lifecycle_index
+    assert "e2417d395cbcabe9adaffb136759ebff3d42b677" in lifecycle_index
+    assert "complete" in lifecycle_index
+    assert "completion requires fresh ordered" not in lifecycle_index
     assert "task 4 broad comparison and final closure are next" not in lifecycle_index
     plan_index = _normalized_routing_text(
         _markdown_heading_section(
@@ -3916,10 +3976,10 @@ def test_language_server_l4_routes_verified_final_review_correction() -> None:
     assert "zero new failures" in plan_index
     assert "l4_task4_spec_approved then l4_task4_quality_approved" in plan_index
     assert "l4_final_spec_approved then l4_final_quality_approved" in plan_index
-    assert "changes_required" in plan_index
-    assert "fresh ordered l4_final_spec_approved then l4_final_quality_approved" in (
-        plan_index
-    )
+    assert "251d9d53674e863fddae4535ea4f7022914287cd" in plan_index
+    assert "e2417d395cbcabe9adaffb136759ebff3d42b677" in plan_index
+    assert "complete" in plan_index
+    assert "completion requires fresh ordered" not in plan_index
     assert "task 4 broad comparison and final closure are next" not in plan_index
     normalized_setup = _normalized_routing_text(setup_path.read_text())
     assert "old squiggles disappear on an unsaved edit" in normalized_setup
@@ -3943,8 +4003,18 @@ def test_language_server_l4_routes_verified_final_review_correction() -> None:
     assert "q5 era design amendment accepted at 3c21ceb4" in q4_row
     assert "implementation plan" in q4_row
     assert "reviewed amended plan 0f21636b" in q4_row
-    assert "implemented closure candidate" in q4_row
-    assert "external task 9 and final ordered reviews" in q4_row
+    assert (
+        "complete at commit f3335637b90feb0a87ac4c538bafac7704ac0d87"
+        in q4_row
+    )
+    assert "tree ccec170be8757c9e4fd5ed8ece6f93b04fc03299" in q4_row
+    assert (
+        "85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c"
+        in q4_row
+    )
+    assert "postcommit focused control passed 74 tests" in q4_row
+    assert "implemented closure candidate" not in q4_row
+    assert "external task 9 and final ordered reviews" not in q4_row
     assert "implementation not started" not in q4_row
     assert "q5 task 14 and canonical transplant are complete" in q4_row
     assert "no q4 dependency" in q5_row
@@ -3954,7 +4024,7 @@ def test_language_server_l4_routes_verified_final_review_correction() -> None:
     assert "041754e6" in l5_row
 
 
-def test_language_server_l4_final_review_status_is_exact_tree_history() -> None:
+def test_language_server_l4_completion_routes_exact_external_review_record() -> None:
     roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH
     roadmap = roadmap_path.read_text(encoding="utf-8")
     capability_row = _markdown_table_row(
@@ -4027,26 +4097,29 @@ def test_language_server_l4_final_review_status_is_exact_tree_history() -> None:
 
     for surface in surfaces:
         normalized = _normalized_routing_text(surface)
+        assert "251d9d53674e863fddae4535ea4f7022914287cd" in normalized
+        assert "e2417d395cbcabe9adaffb136759ebff3d42b677" in normalized
         assert (
-            "c41e2e756f1d0c6bc27bbd9a8b8bbbfc57c59fc121b0bd46dc548709c286b990"
+            "94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804"
             in normalized
         )
-        assert "l4_task4_spec_approved then l4_task4_quality_approved" in normalized
-        assert "1f64f153" in normalized
-        assert "7790ee0e" in normalized
-        assert "l4_final_spec_approved" in normalized
-        assert "changes_required" in normalized
-        assert "stale review status metadata" in normalized
-        assert "does not transfer to corrected bytes" in normalized
-        assert (
-            "fresh ordered l4_final_spec_approved then l4_final_quality_approved"
-            in normalized
-        )
-        assert "external exact tree record" in normalized
-        assert "self attest" in normalized
-        assert "preparatory review" not in normalized
-        assert "preparatory l4_task4_spec_approved" not in normalized
-        assert "task 4 closure candidate" not in normalized
+        assert "l4_final_spec_approved then l4_final_quality_approved" in normalized
+        assert "complete" in normalized
+        assert "completion requires fresh ordered" not in normalized
+        assert "final review metadata correction" not in normalized
+
+    normalized_plan = _normalized_routing_text(plan)
+    assert "1f64f153" in normalized_plan
+    assert "7790ee0e" in normalized_plan
+    assert "changes_required" in normalized_plan
+    assert "superseded" in normalized_plan
+    assert "29e0bc01037058f0c29dac15c0d461798a5e47a836fe8b3e8336beb937410951" in (
+        normalized_plan
+    )
+    assert "357 passed in 72.49 seconds" in normalized_plan
+    assert "9512fd4ead25182d0460c579f5a33d80d100659077ab4f0393b2c8b126332fb0" in (
+        normalized_plan
+    )
 
 
 def test_language_server_l5_routes_shipped_admitted_shapes_and_closes_stage() -> None:

@@ -30,19 +30,18 @@ stdio, and headless Neovim.
 `0e0fd4df5d0943c0c176822a3584d6efecd22434`, after ordered
 `L4_DESIGN_SPEC_APPROVED` then `L4_DESIGN_QUALITY_APPROVED`.
 
-**Execution status:** Tasks 1–3 are implemented and committed after their
-ordered specification then quality reviews. The exact Task 4 focused rerun and
-broad non-security comparison are recorded below with zero new failures. The
-closure diff
-`c41e2e756f1d0c6bc27bbd9a8b8bbbfc57c59fc121b0bd46dc548709c286b990`
-received `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` before
-commit `1f64f153`, tree `7790ee0e`. That exact tree received
-`L4_FINAL_SPEC_APPROVED`; final quality returned `CHANGES_REQUIRED` solely for
-stale review-status metadata, so that exact-tree verdict does not transfer to
-corrected bytes. Completion requires fresh ordered `L4_FINAL_SPEC_APPROVED`
-then `L4_FINAL_QUALITY_APPROVED` against the corrected committed tree. The
-final verdict is an external exact-tree record; no repository byte can
-self-attest its own post-commit review.
+**Execution status:** complete at commit
+`251d9d53674e863fddae4535ea4f7022914287cd`, tree
+`e2417d395cbcabe9adaffb136759ebff3d42b677`, under external closure-record
+SHA-256
+`94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804`.
+The corrected routing/status diff
+`29e0bc01037058f0c29dac15c0d461798a5e47a836fe8b3e8336beb937410951`
+recorded 357 passed in 72.49 seconds (raw-output SHA-256
+`9512fd4ead25182d0460c579f5a33d80d100659077ab4f0393b2c8b126332fb0`)
+before ordered `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED`.
+Tasks 1–3, the Task 4 zero-new-failure comparison, and all prior ordered
+reviews remain recorded below.
 
 ---
 
@@ -737,34 +736,38 @@ Task 4 closure diff
 received `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` before
 commit `1f64f153`, tree `7790ee0e`. That exact committed tree received
 `L4_FINAL_SPEC_APPROVED`; final quality returned `CHANGES_REQUIRED` solely for
-stale review-status metadata. The prior exact-tree verdict does not transfer
-to corrected bytes. L4 completion therefore requires fresh ordered
-`L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED` against the corrected
-committed tree. The final verdict is an external exact-tree record; no
-repository byte can self-attest its own post-commit review.
+stale review-status metadata. That rejection is superseded historical review
+provenance. The corrected routing/status diff
+`29e0bc01037058f0c29dac15c0d461798a5e47a836fe8b3e8336beb937410951`
+committed at
+`251d9d53674e863fddae4535ea4f7022914287cd`, tree
+`e2417d395cbcabe9adaffb136759ebff3d42b677`, then recorded 357 passed in
+72.49 seconds with raw-output SHA-256
+`9512fd4ead25182d0460c579f5a33d80d100659077ab4f0393b2c8b126332fb0`.
+External closure-record SHA-256
+`94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804`
+records ordered `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED`;
+L4 is complete.
 
-After fresh final exact-tree reviews approve L4, the next eligible roadmap gate
-is the stopped Q5 lineage:
+The next eligible roadmap gate at that historical boundary was the stopped Q5
+lineage:
 `Q5_F1_F2_FIX_SPEC_APPROVED` then `Q5_F1_F2_FIX_QUALITY_APPROVED` over the
 exact merged F1/F2 evidence-surfacing correction from `492b1171`. Both labels
-are required and not issued. The unchanged combined invalid-then-valid
-real-provider gate follows. Q5 remains partial at activation `bceb03e4`, its
-Task 13 stop at `3fc3a09e` still governs, Task 14 has not started, and no
-split-proof substitution is claimed. Q4 remains blocked on its concrete
-consumer.
+were then required and had not yet been issued. The unchanged combined
+invalid-then-valid real-provider gate followed. At that boundary Q5 was
+partial at activation `bceb03e4`, its Task 13 stop at `3fc3a09e` governed,
+Task 14 had not started, and Q4 was blocked on its concrete consumer; no
+split-proof substitution was claimed. Q5 later completed at `70f4a759`, tree
+`fec729cb`, after its ordered final reviews, and Q4 later completed at
+`f3335637b90feb0a87ac4c538bafac7704ac0d87` under its external closure
+record. Those later closures do not alter this historical L4 gate sequence.
 
 ### Step 3: Final exact-tree review
 
-Refresh the clean committed `HEAD`/tree and rerun the exact focused selector
-from Step 2. Obtain final independent `L4_FINAL_SPEC_APPROVED`, then distinct
-`L4_FINAL_QUALITY_APPROVED` against that exact committed tree and the recorded
-broad comparison. The verdict belongs to an external exact-tree record because
-repository bytes cannot self-attest their own post-commit review. If either
-review requires a byte change, apply it, rerun affected verification, commit
-the correction, and restart both named final reviews in order against the new
-clean committed tree. Commit `1f64f153`, tree `7790ee0e`, exercised that rule:
-its specification verdict did not transfer after quality required the
-review-status metadata correction.
+The final exact-tree procedure was exercised by commit `1f64f153`, tree
+`7790ee0e`: its specification verdict did not transfer after quality required
+the review-status metadata correction. The corrected commit/tree and external
+ordered approvals recorded above then satisfied this step.
 
 ## Completion Gate
 
@@ -783,3 +786,9 @@ L4 is complete only when:
 - durable docs say implemented only after evidence;
 - final ordered reviews approve the exact tree; and
 - routing selects the next eligible roadmap gate without claiming it shipped.
+
+All completion conditions are satisfied at commit
+`251d9d53674e863fddae4535ea4f7022914287cd`, tree
+`e2417d395cbcabe9adaffb136759ebff3d42b677`, under external closure-record
+SHA-256
+`94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804`.

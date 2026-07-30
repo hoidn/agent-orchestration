@@ -51,8 +51,12 @@ authoritative.
 `docs/reports/2026-07-27-q4-binding-decision-brief.md`, digest
 `sha256:c309be8a683e12308d8250b357ac9e6999a58eece1073f8765855ae34af20165`.
 
-**Plan status:** implemented closure candidate under reviewed amended plan
-`0f21636b`, accepted after ordered independent `Q4_PLAN_SPEC_APPROVED` then
+**Plan status:** complete under reviewed amended plan `0f21636b` at commit
+`f3335637b90feb0a87ac4c538bafac7704ac0d87`, tree
+`ccec170be8757c9e4fd5ed8ece6f93b04fc03299`, under external closure-record
+SHA-256
+`85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c`.
+It was accepted after ordered independent `Q4_PLAN_SPEC_APPROVED` then
 distinct `Q4_PLAN_QUALITY_APPROVED`. Q5 Task 14 and canonical transplant
 prerequisites are complete; M1 remains outside this plan.
 
@@ -69,8 +73,12 @@ build-digest race that passes in isolation. An earlier replay exposed a
 Q4-owned missing route-registry row; the load-bearing correction now binds the
 exact sibling path and surface in
 `docs/workflow_lisp_route_readiness_registry.json`, and the post-correction
-comparison has no Q4-owned failure. Only the external Task 9 and final ordered
-reviews, reviewed closure commit, and postcommit focused control remain.
+comparison has no Q4-owned failure. The external Task 9 and final reviews
+approved the exact corrected candidate in the order
+`Q4_TASK_9_SPEC_APPROVED`, `Q4_TASK_9_QUALITY_APPROVED`,
+`Q4_FINAL_SPEC_APPROVED`, and `Q4_FINAL_QUALITY_APPROVED`. The reviewed bytes
+landed at the commit/tree above, and the postcommit focused control passed 74
+tests. No Q4 task or gate remains.
 
 Task 2 later reached its explicit compatibility hard stop: the required
 export edit necessarily changes source-lineage values and consistently
@@ -821,13 +829,21 @@ pytest -q -n 16 --dist=worksteal \
 - [x] Verify Q5 phased identity-v2 remains excluded and unchanged.
 - [x] Update docs from designed/planned to implemented only after evidence is
       green.
-- [ ] Obtain `Q4_TASK_9_SPEC_APPROVED`.
-- [ ] Obtain distinct `Q4_TASK_9_QUALITY_APPROVED`.
-- [ ] Obtain ordered `Q4_FINAL_SPEC_APPROVED`.
-- [ ] Obtain distinct `Q4_FINAL_QUALITY_APPROVED`.
-- [ ] Commit the reviewed closure bytes.
-- [ ] Run a fresh postcommit focused control and record the exact commit/tree.
+- [x] Obtain `Q4_TASK_9_SPEC_APPROVED`.
+- [x] Obtain distinct `Q4_TASK_9_QUALITY_APPROVED`.
+- [x] Obtain ordered `Q4_FINAL_SPEC_APPROVED`.
+- [x] Obtain distinct `Q4_FINAL_QUALITY_APPROVED`.
+- [x] Commit the reviewed closure bytes.
+- [x] Run a fresh postcommit focused control and record the exact commit/tree.
 
-Stage Q4 is complete only after every task, ordered review, deterministic
-gate, bounded real smoke, and broad non-security comparison above is complete.
+Stage Q4 completed at commit
+`f3335637b90feb0a87ac4c538bafac7704ac0d87`, tree
+`ccec170be8757c9e4fd5ed8ece6f93b04fc03299`. The external closure record at
+SHA-256
+`85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c`
+binds candidate-diff SHA-256
+`131e6cc7cc87e52f14a47a05d581fcb5770f0cf4923643ba3d398b739034aeb9`,
+Task-9 execution-record SHA-256
+`d3ab15956d3c742859cba839e11a660dd4c16fa19650eece4f24dad8da8a18d3`,
+the four ordered approval tokens above, and the 74-pass postcommit control.
 Q4 completion does not select M1 or any parked roadmap.

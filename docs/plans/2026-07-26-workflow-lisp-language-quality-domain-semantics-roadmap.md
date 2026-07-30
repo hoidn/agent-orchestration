@@ -1,6 +1,6 @@
 # Workflow Lisp Language Quality And Domain Semantics Roadmap
 
-- **Status:** active
+- **Status:** complete; all Q0–Q5 and L0–L5 completion gates are satisfied
 - **Selected:** 2026-07-26 by the owner's post-Stage-8 prompt-calculus
   direction, the `Value` prerequisite decision at `deb95c04`, the standing
   direction to continue roadmap execution without another confirmation stop,
@@ -25,11 +25,10 @@ a mandatory taxonomy. The sequence begins with the one loose transport
 contract the prompt surface needs, then lands prompt fragments in independently
 reviewed tranches whose consumers already exist.
 
-The same active roadmap now carries a bounded language-server quality track.
-That track improves the trustworthiness and actionability of the implemented
-Stage-8 editor surface by consuming existing compiler structure. It does not
-change Workflow Lisp runtime authority, create a second analyzer, or claim that
-planned L-series behavior is already implemented.
+The same completed roadmap carried a bounded language-server quality track.
+That track improved the trustworthiness and actionability of the implemented
+Stage-8 editor surface by consuming existing compiler structure. It did not
+change Workflow Lisp runtime authority or create a second analyzer.
 
 This roadmap is the separate selection act required by the predecessor's
 post-Stage-8 handoff. The predecessor remains historical and complete.
@@ -80,7 +79,7 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | Q1 | Prompt core | Q0 complete; prompt-calculus design corrected and accepted | target-gated `defprompt`, imports, closed slot kinds, fully applied named fills, exact discharge/placeholder diagnostics, prompt-carried result derivation, deterministic flattening through existing prompt composition, one migrated real consumer | complete — implementation through `af45c4f1`; exact-tree gates and ordered final reviews accepted |
 | Q2 | Output-position slots | Q1 complete; existing expected-output consumer and post-attempt wiring named in the accepted design | `:out` declaration and runtime postcondition share one path contract; both-direction runtime/E2E evidence | complete — implementation through `d0bb9a1d`; clean Task-7 closure after exact `a40b536c`/`4e2c4911` boundary repair; ordered final reviews accepted |
 | Q3 | Prompt identity and diagnostics | Q2 complete; E4P ownership reconciled to this stage | role-separated prompt identity and hang/context-drift/provenance diagnostics with no ambient/import noise, building on Q1's fragment-program digest | complete — target-2.22 carrier, one-render trace, content-free five-role evidence, prelaunch publication, fixed comparison, additive reports, compatibility E2E, and closure under the [reviewed implementation plan](2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md) |
-| Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | implemented closure candidate under reviewed amended plan `0f21636b`; original design accepted at `d7fe4549` and Q5-era design amendment accepted at `3c21ceb4`; current binding keeps current target-2.23 phased production, adds a target-2.23 explicit-composed panel sibling, and preserves a frozen target-2.21 compatibility control; Q5 Task 14 and canonical transplant are complete; Tasks 1–8 landed through Task 8 `000bfcfe`, including Task 7 prompt-binding correction `187336f7`, and Task 9's implicit-list ecosystem correction landed at `0187392f`; external Task 9 and final ordered reviews, reviewed closure commit, and postcommit focused control remain under the [implementation plan](2026-07-29-workflow-lisp-judgment-views-implementation-plan.md) |
+| Q4 | Judgment views | Q3 complete; a concrete generic-reviewer/panel consumer is bound | result-plus-provenance inspection value and deterministic views over the existing evidence authority; no new outcome union or report authority | complete at commit `f3335637b90feb0a87ac4c538bafac7704ac0d87`, tree `ccec170be8757c9e4fd5ed8ece6f93b04fc03299`, under external closure-record SHA-256 `85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c` after ordered `Q4_TASK_9_SPEC_APPROVED`, `Q4_TASK_9_QUALITY_APPROVED`, `Q4_FINAL_SPEC_APPROVED`, and `Q4_FINAL_QUALITY_APPROVED`; the postcommit focused control passed 74 tests; current binding keeps current target-2.23 phased production, adds a target-2.23 explicit-composed panel sibling, and preserves a frozen target-2.21 compatibility control; original design accepted at `d7fe4549`, Q5-era design amendment accepted at `3c21ceb4`, and reviewed amended plan `0f21636b` ([implementation plan](2026-07-29-workflow-lisp-judgment-views-implementation-plan.md)) remain the governing history; Q5 Task 14 and canonical transplant are complete |
 | Q5 | Phased contract delivery | accepted design at `872a29af`; reviewed implementation plan at `45468c55`; Q3 complete; no Q4 dependency | explicit `:delivery :phased` plus bounded literal materialization attempts; exact `T1 || T2 == C` cut; identity-v2/evidence-v3 and report-v2 distinction between canonical `C`, legacy final-prompt identity, and ordered actual deliveries; proof-authoritative failed-start T0 with one handle-free Q5 cleanup-evidence union and exact active-handle validation before projecting unchanged adapter proofs; inert pre-start binding/locator values and post-start endpoint binding; T2 cleanup-pending/finished closure with one ingress outcome; full Q2 authority with no early publication; total reason projection with non-null reason-equal summaries; ledger-only digest validation; truthful terminal resource evidence; byte-identical omitted/composed path; real review consumer | complete at `70f4a759`, tree `fec729cb`, after the post-correction broad comparison, exact delta adjudication, and external ordered `Q5_FINAL_SPEC_APPROVED` then `Q5_FINAL_QUALITY_APPROVED`; Task 13's accepted real attempt and stop/supersession provenance remain historical evidence |
 
 ### L-Series: Language-Server Debugging Utility
@@ -91,7 +90,7 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 | L1 | Authored symbols and callable signatures | L0 complete; closed navigation/completion amendment accepted | authored type/resource/transition symbols and namespace-preserving procedure/workflow signature completion use existing compiler spans/catalogs, exclude generated shapes, and retain fail-closed freshness | complete — implemented, reviewed, and repository-real stdio closure gate passed |
 | L2 | Recovery-safe static completion | L1 complete; two-tier completion design and component plan accepted | dirty/pending/invalidated/failed open entries receive only the process-frozen form registry as an incomplete list; stale callables remain closed and stale/closed/unassociated entries remain empty | complete — implementation through `10e3ccc3`; ordered `L2_FINAL_SPEC_APPROVED` then `L2_FINAL_QUALITY_APPROVED` |
 | L3 | Per-source entry selection | L2 complete; immutable initialization-schema amendment accepted; compile-path reentrancy proven by completed substrate MR-4 | one canonical workspace process can select an exported workflow for a named application source while compiling library entries with no selection, with exact CLI request parity and restart semantics | complete — implementation through `fc1b01ee`, `9e59929d`, and xdist-evidence correction `8c704f3f` after ordered `L3_TASK1_SPEC_APPROVED` / `L3_TASK1_QUALITY_APPROVED`, restarted `L3_TASK2_SPEC_APPROVED` / `L3_TASK2_QUALITY_APPROVED`, and final `L3_FINAL_SPEC_APPROVED` / `L3_FINAL_QUALITY_APPROVED` under the [reviewed three-task implementation plan](2026-07-28-workflow-lisp-language-server-l3-per-source-entry-selection-implementation-plan.md) |
-| L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and the current-only diagnostic/progress design are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | final-review metadata correction — design accepted after ordered `L4_DESIGN_SPEC_APPROVED` then `L4_DESIGN_QUALITY_APPROVED`; [reviewed implementation plan](2026-07-28-workflow-lisp-language-server-l4-diagnostic-lifecycle-progress-implementation-plan.md) accepted after `L4_PLAN_SPEC_APPROVED` then `L4_PLAN_QUALITY_APPROVED`; implemented through `11629551` and `0d5f7009` after ordered `L4_TASK1_SPEC_APPROVED` / `L4_TASK1_QUALITY_APPROVED` and `L4_TASK2_SPEC_APPROVED` / `L4_TASK2_QUALITY_APPROVED`; real Neovim acceptance passed in Task 3 `bdd1e822` after `L4_TASK3_SPEC_APPROVED` then `L4_TASK3_QUALITY_APPROVED`; Task 4 focused 356 passed and broad comparison has zero new failures; closure diff `c41e2e756f1d0c6bc27bbd9a8b8bbbfc57c59fc121b0bd46dc548709c286b990` received `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` before commit `1f64f153`, tree `7790ee0e`; that tree received `L4_FINAL_SPEC_APPROVED`, then final quality returned `CHANGES_REQUIRED` solely for stale review-status metadata, so that exact-tree verdict does not transfer to corrected bytes; completion requires fresh ordered `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED`; the final verdict is an external exact-tree record and no repository byte can self-attest its own post-commit review; historical routing named `Q5_F1_F2_FIX_SPEC_APPROVED` then `Q5_F1_F2_FIX_QUALITY_APPROVED` as Q5's next gates, and both were subsequently satisfied before Task 13 closed at `bb67f680`; Q5 Task 14 subsequently closed at `70f4a759`, tree `fec729cb`, after external ordered final reviews |
+| L4 | Diagnostic lifecycle and compile progress | L3 complete; editor evidence and the current-only diagnostic/progress design are accepted | dirty/pending diagnostic visibility follows the accepted policy without losing contribution ownership, and capability-gated serialized compile progress is balanced across completion, error, cancellation, and supersession | complete at commit `251d9d53674e863fddae4535ea4f7022914287cd`, tree `e2417d395cbcabe9adaffb136759ebff3d42b677`, under external closure-record SHA-256 `94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804`; design accepted after ordered `L4_DESIGN_SPEC_APPROVED` then `L4_DESIGN_QUALITY_APPROVED`; [reviewed implementation plan](2026-07-28-workflow-lisp-language-server-l4-diagnostic-lifecycle-progress-implementation-plan.md) accepted after ordered `L4_PLAN_SPEC_APPROVED` then `L4_PLAN_QUALITY_APPROVED`; implemented through `11629551` and `0d5f7009` after ordered `L4_TASK1_SPEC_APPROVED` / `L4_TASK1_QUALITY_APPROVED` and `L4_TASK2_SPEC_APPROVED` / `L4_TASK2_QUALITY_APPROVED`; real Neovim acceptance passed in Task 3 `bdd1e822` after `L4_TASK3_SPEC_APPROVED` then `L4_TASK3_QUALITY_APPROVED`; Task 4 focused 356 passed and broad comparison has zero new failures after `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED`; final ordered `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED` closed the corrected tree; historical routing named `Q5_F1_F2_FIX_SPEC_APPROVED` then `Q5_F1_F2_FIX_QUALITY_APPROVED` as Q5's next gates, and both were subsequently satisfied before Task 13 closed at `bb67f680`; Q5 Task 14 subsequently closed at `70f4a759`, tree `fec729cb`, after external ordered final reviews |
 | L5 | Authored reference navigation | accepted design at `b8a41172`; Q1 catalog and L1 index landed; read-only feasibility gates admitted prompt heads and only final unexpanded direct-retained `proc-ref` occurrences in non-generated, non-specialized authored owners; macro heads defer shape-wide; no L3/L4 dependency — selected under the owner-reordering rule | exact authored prompt-head and admitted proc-ref-name definition hits; macro-consumed, erased, expanded, generated-owner, specialized-owner proc-refs and every macro head remain null; existing direct procedure/`(call ...)` hits regression-locked; WCC/generated calls excluded; every hit uses the full common preflight; real stdio resolves the review workflow prompt head while its macro/proc-ref tokens remain null and its direct call stays exact | complete — implementation through `95e05c01`, `042c0bc3`, `870f7db2`, `7233138a`, and `041754e6`; durable incorporation and closure under the [reviewed implementation plan](2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md) |
 
 The Q-series implementation stages execute in Q-table order except for Q5's
@@ -124,20 +123,19 @@ initialization target passed ordered `L3_DESIGN_SPEC_APPROVED` then
 passed ordered `L3_PLAN_SPEC_APPROVED` then `L3_PLAN_QUALITY_APPROVED`;
 implementation landed through Task 1 `fc1b01ee`, Task 2 `9e59929d`, and
 Task 2's xdist-evidence correction `8c704f3f` after their ordered
-specification and quality reviews. L4's editor evidence, ordered design and
-plan reviews, current-only diagnostic publication `11629551`,
-compile-progress implementation `0d5f7009`, and repository-real Neovim/docs
-Task 3 `bdd1e822` are landed. The exact Task 4 focused selector passes 356
-tests and the broad comparison has zero new failures. Task 4 closure diff
-`c41e2e756f1d0c6bc27bbd9a8b8bbbfc57c59fc121b0bd46dc548709c286b990`
-received `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` before
-commit `1f64f153`, tree `7790ee0e`. That tree received
-`L4_FINAL_SPEC_APPROVED`; final quality returned `CHANGES_REQUIRED` solely for
-stale review-status metadata, so that exact-tree verdict does not transfer to
-corrected bytes. Completion requires fresh ordered `L4_FINAL_SPEC_APPROVED`
-then `L4_FINAL_QUALITY_APPROVED` against the corrected committed tree. The
-final verdict is an external exact-tree record; no repository byte can
-self-attest its own post-commit review.
+specification and quality reviews. L4 is complete at commit
+`251d9d53674e863fddae4535ea4f7022914287cd`, tree
+`e2417d395cbcabe9adaffb136759ebff3d42b677`, under external closure-record
+SHA-256
+`94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804`.
+The corrected routing/status diff
+`29e0bc01037058f0c29dac15c0d461798a5e47a836fe8b3e8336beb937410951`
+passed a corrected-tree focused rerun of 357 tests in 72.49 seconds
+(raw-output SHA-256
+`9512fd4ead25182d0460c579f5a33d80d100659077ab4f0393b2c8b126332fb0`)
+and ordered `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED`.
+The earlier `1f64f153` final-quality rejection remains superseded review
+history rather than a current gate.
 L5 completion did not bypass any L3 gate.
 The L-series is an owner-selected
 priority queue rather than a
@@ -323,7 +321,7 @@ canonical working tree. The former Q4-only clone is not an implementation
 base. The current binding preserves target-2.23 phased production, imports its
 exports into a target-2.23 sibling whose review calls are explicitly composed,
 and retains the exact pre-Q5 target-2.21 source as a compatibility-only control
-that never owns imports. Q4 is an implemented closure candidate. Task 0 closed
+that never owns imports. Q4 is complete. Task 0 closed
 on external census record
 `sha256:1bdb694da1fda43fb0ed71e842cd16e54956b86bb5106aea380a5e17f681c7`;
 Tasks 1–8 landed through Task 8 `000bfcfe`, including prompt-binding
@@ -334,9 +332,16 @@ and 33 warnings. The failures are four inherited routing/retirement rows plus
 one xdist-only read-only LSP build-digest race that passes in isolation, with
 no Q4-owned failure remaining. The exact panel row in
 `docs/workflow_lisp_route_readiness_registry.json` now binds its path and
-surface to compile and execution evidence. External Task 9 and final ordered
-reviews, the reviewed closure commit, and postcommit focused control remain.
-M1 estate shrink remains outside Q4.
+surface to compile and execution evidence. The external Task 9 and final
+reviews approved the corrected candidate in order as
+`Q4_TASK_9_SPEC_APPROVED`, `Q4_TASK_9_QUALITY_APPROVED`,
+`Q4_FINAL_SPEC_APPROVED`, and `Q4_FINAL_QUALITY_APPROVED`. The reviewed bytes
+closed at commit `f3335637b90feb0a87ac4c538bafac7704ac0d87`, tree
+`ccec170be8757c9e4fd5ed8ece6f93b04fc03299`, under external closure-record
+SHA-256
+`85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c`;
+the postcommit focused control passed 74 tests. No Q4 task or gate remains. M1
+estate shrink remains outside Q4.
 
 ## Stage Q5: Phased Contract Delivery
 
@@ -586,23 +591,25 @@ Authority target: an accepted editor-lifecycle amendment to the language
 server design, based on observed client behavior rather than assumed UI
 capabilities.
 
-**Status:** final-review metadata correction. Diagnostic publication `11629551`, compile
-progress `0d5f7009`, and repository-real Neovim/docs Task 3 `bdd1e822` passed
-their ordered task reviews. The
+**Status:** complete at commit
+`251d9d53674e863fddae4535ea4f7022914287cd`, tree
+`e2417d395cbcabe9adaffb136759ebff3d42b677`, under external closure-record
+SHA-256
+`94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804`.
+Diagnostic publication `11629551`, compile progress `0d5f7009`, and
+repository-real Neovim/docs Task 3 `bdd1e822` passed their ordered task
+reviews. The
 [reviewed implementation plan](2026-07-28-workflow-lisp-language-server-l4-diagnostic-lifecycle-progress-implementation-plan.md)
 passed ordered `L4_PLAN_SPEC_APPROVED` then `L4_PLAN_QUALITY_APPROVED`. Real
 stdio and repository-real Neovim acceptance pass. Task 4's exact focused
 selector passes 356 tests and its broad comparison introduces zero new
-failures. Task 4 closure diff
-`c41e2e756f1d0c6bc27bbd9a8b8bbbfc57c59fc121b0bd46dc548709c286b990`
-received `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` before
-commit `1f64f153`, tree `7790ee0e`. That tree received
-`L4_FINAL_SPEC_APPROVED`; final quality returned `CHANGES_REQUIRED` solely for
-stale review-status metadata, so that exact-tree verdict does not transfer to
-corrected bytes. Completion requires fresh ordered `L4_FINAL_SPEC_APPROVED`
-then `L4_FINAL_QUALITY_APPROVED` against the corrected committed tree. The
-final verdict is an external exact-tree record; no repository byte can
-self-attest its own post-commit review.
+failures. The corrected routing/status diff
+`29e0bc01037058f0c29dac15c0d461798a5e47a836fe8b3e8336beb937410951`
+passed a corrected-tree focused rerun of 357 tests in 72.49 seconds
+(raw-output SHA-256
+`9512fd4ead25182d0460c579f5a33d80d100659077ab4f0393b2c8b126332fb0`)
+before ordered `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED`.
+The superseded `1f64f153` review round is retained in the implementation plan.
 The implemented target is
 `docs/design/workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md`, with
 selection evidence in

@@ -160,9 +160,15 @@ document owns the answer.
 **Use this when:** Auditing the completed numbered stages or the provenance of the post-Stage-8 handoff. Do not use this historical roadmap to select current work; E-series shape and sequencing are owned by the incorporated evolution follow-on roadmap.
 
 ### [Workflow Lisp Language Quality And Domain Semantics Roadmap](plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md)
-**Description:** Active post-Stage-8 selector with two bounded series: Q0–Q3 are implemented and Q3 closes under its reviewed plan; Q4's concrete `review_revise_design_docs` panel consumer is bound to current target-2.23 phased production, a target-2.23 explicit-composed sibling, and a frozen target-2.21 compatibility control. Its original design is accepted at `d7fe4549`, its Q5-era design amendment is accepted at `3c21ceb4`, and its reviewed amended plan `0f21636b` has produced an implemented closure candidate through Task 8 `000bfcfe` plus Task 9 correction `0187392f`; external Task 9 and final ordered reviews, the reviewed closure commit, and postcommit focused control remain. Q5 is complete at `70f4a759`, tree `fec729cb`, after external ordered final reviews. In the parallel L-series, L0 reliability/actionability, L1 authored symbols/signatures, L2 recovery-safe static completion, L3 immutable per-source entry selection, and owner-reordered L5 authored reference navigation are complete. MR-4 closed L3's compile-path-reentrancy prerequisite before implementation, and L3 completed over MR-4 under its reviewed plan. After accepted editor evidence and ordered design reviews plus a reviewed implementation plan, L4 diagnostic lifecycle and compile progress is implemented through current-only diagnostic publication and capability-gated progress. Task 4 focused 356 passed and broad comparison has zero new failures. Closure diff `c41e2e756f1d0c6bc27bbd9a8b8bbbfc57c59fc121b0bd46dc548709c286b990` received `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` before commit `1f64f153`, tree `7790ee0e`. That tree received `L4_FINAL_SPEC_APPROVED`; final quality returned `CHANGES_REQUIRED` solely for stale review-status metadata, so that exact-tree verdict does not transfer to corrected bytes.
-**Keywords:** workflow-lisp, active-roadmap, value, prompt-calculus, prompt-identity, judgments, lsp, diagnostics, navigation, editor-tooling, principle-29
-**Use this when:** Selecting or sequencing current post-Stage-8 work. Q5 Task 14 and the canonical transplant are complete; Q4 is an implemented closure candidate under reviewed amended plan `0f21636b`, with only external Task 9 and final ordered reviews, the reviewed closure commit, and postcommit focused control remaining. M1 remains outside Q4. L4 completion requires fresh ordered `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED` against the corrected committed tree. The final verdict is an external exact-tree record; no repository byte can self-attest its own post-commit review. Do not select E0 or any E-series implementation from this route — E sequencing and gates live in the incorporated evolution follow-on roadmap — nor shelved parsimony candidates or P1–P5.
+**Description:** Completed post-Stage-8 roadmap with two bounded series: Q0–Q5 and L0–L5 are complete. Q4's concrete `review_revise_design_docs` panel consumer is bound to current target-2.23 phased production, a target-2.23 explicit-composed sibling, and a frozen target-2.21 compatibility control. Its original design is accepted at `d7fe4549`, its Q5-era design amendment is accepted at `3c21ceb4`, and its reviewed amended plan `0f21636b` governs; Q4 closed at commit `f3335637b90feb0a87ac4c538bafac7704ac0d87`, tree `ccec170be8757c9e4fd5ed8ece6f93b04fc03299`, under external closure-record SHA-256 `85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c` after ordered Task-9 then final specification/quality approvals and a 74-pass postcommit control. Q5 is complete at `70f4a759`, tree `fec729cb`, after external ordered final reviews. L4 closed at commit `251d9d53674e863fddae4535ea4f7022914287cd`, tree `e2417d395cbcabe9adaffb136759ebff3d42b677`, under external closure-record SHA-256 `94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804` after accepted editor evidence and ordered design reviews, its reviewed implementation plan, current-only diagnostic publication, capability-gated progress, and Task 4 focused 356 passed and broad comparison has zero new failures after `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED`, followed by `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED`.
+MR-4 closed L3's compile-path-reentrancy prerequisite, and L3 completed over
+MR-4 under its reviewed plan.
+L0 reliability/actionability, L1 authored symbols/signatures, L2 recovery-safe
+static completion, L3 immutable per-source entry selection, L4 diagnostic
+lifecycle and compile progress, and owner-reordered L5 authored reference
+navigation are complete.
+**Keywords:** workflow-lisp, completed-roadmap, value, prompt-calculus, prompt-identity, judgments, lsp, diagnostics, navigation, editor-tooling, principle-29
+**Use this when:** Auditing the completed Q/L sequence. Q4 and Q5 are historical complete at the exact commit/tree and external ordered review records above; no Q-series gate remains. M1 remains outside Q4. L4 is historical complete at its exact commit/tree and external ordered review record above. Do not select E0 or any E-series implementation from this route — E sequencing and gates live in the incorporated evolution follow-on roadmap — nor shelved parsimony candidates or P1–P5.
 
 ### [Substrate Maintenance And Persistence Parsimony Track](plans/2026-07-26-substrate-maintenance-track.md)
 **Description:** Active parallel substrate track. M0 is historical complete at `f15b888d`; M1 is historical complete at `57c2604e`, tree `fc0fdbef`, with its ordered reviews and postcommit selector closed. Phase ML is historical complete: ML-1 at `9c14dae3`, tree `0b149f96`; ML-2 at `b8783f66`, tree `b833b03c`; and ML-4 Tasks 1–4 at `c45928f4`, `b3370858`, `ed19624c`, and `758c67e0`, with closure through the commit containing this record.
@@ -197,7 +203,7 @@ document owns the answer.
 ### [Workflow Lisp Compiler Session State Implementation Plan](plans/2026-07-27-workflow-lisp-compiler-session-state-implementation-plan.md)
 **Description:** Reviewed MR-4 component plan for replacing mutable compiler-phase globals with one explicit per-compile session and proving direct-module, linked LEGACY/WCC_M4, and real-process LSP reentrancy.
 **Keywords:** workflow-lisp, compiler, session-state, reentrancy, lsp, mr-4
-**Use this when:** Auditing the completed MR-4 prerequisite for L3. L3 selection and per-source entry policy live in the active roadmap and language-server design.
+**Use this when:** Auditing the completed MR-4 prerequisite for L3. L3 selection and per-source entry policy live in the completed Q/L roadmap and language-server design.
 
 ### [Workflow Lisp Evolution Follow-On Roadmap](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md)
 **Description:** Tracked E-series program roadmap (incorporated 2026-07-30): records the current E0 trial-runs/C1 typed-program-gates drafting shape, the lean-pilot Layer-0 admission gate, and the E/M sequencing prerequisites, with the historical E0–E5 proposal retained as reference. No tranche is selectable by listing and no E implementation is selected.
@@ -331,11 +337,11 @@ document owns the answer.
 
 **Component-plan routing:** The refactoring, drain/G8 retirement, Stage-4 design, native returns, typed guidance, resolved-effect substrate, identity prerequisites, [tracked-plan pilot](plans/2026-07-13-procedure-first-pilot-plan.md), and [resume projection-integrity hardening implementation](plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md) are complete. The hardening design/specification/planning commits remain `1cd60767`, `52e2b05f`, `00135832`, and `26a5d3db`; runtime implementation and its reviewed gate closed at `fdf1e06b`. **The [procedure-first migration waves implementation plan](plans/2026-07-13-procedure-first-migration-waves-plan.md) is historical complete. Task 1 rebaselined at `4983afff` plus `fa16bcf0`; Task 2 completed at `daff694c`: Step 1's [tracked-design identity decision](plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md) and Step 2's [implementation-phase identity decision](plans/2026-07-16-design-plan-impl-implementation-phase-identity-retirement-plan.md) retained 26- and 24-consumer boundaries, while Step 3's [same-file strict-compatibility decision](plans/2026-07-16-same-file-build-checks-identity-retirement-plan.md) retained the live route. Task 3's [exported-workflow retention decision](plans/2026-07-16-design-delta-exported-workflow-retention-plan.md) retained seven calls. Task 4 closed at `c9687539`, `26d9ecd0`, and `848ceb52`. Task 5 retained 4 + 6 + 9 + 2 = 21 calls under the [finalizer-projection](plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md), [blocked-recovery](plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md), [phase-orchestration](plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md), and [completed-finalization](plans/2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md) decisions. Task 6's [drain-builder checkpoint-retention decision](plans/2026-07-16-design-delta-drain-builder-checkpoint-retention-plan.md) retained the sole private builder call; Task 6 is complete. Task 7 handed all 63 legacy-retire rows to Stage 6 at `7e6adc36`. Task 8 sealed 565 passed/6 skipped focused, 36 passed routing, and 4992 passed/17 skipped with six established unrelated broad failures adjudicated as four digest-exact plus two logger-location-only; specification PASS and quality APPROVED closed the wave. The final inventory is 0 procedure candidates, 32 effect adapters, 63 legacy-retire rows, 13 public entries, and one history row, so procedure-first adoption is not universal.** Stage 6 YAML retirement Tasks 1-7 are complete: the ORC-only frontend, parser removal, 1,020-passed/5-skipped focused gate, fresh smoke, zero-new-failure scoped broad comparison, and ordered specification PASS/quality APPROVED reviews closed the stage at `d9baa120`. Its owner is the [YAML retirement program](plans/2026-07-07-yaml-retirement-program.md). [Provider live binding](design/workflow_lisp_provider_live_binding.md) v1 implementation landed through `4d4f05c7` and is complete through Task 15 and Gate S7-v1 under its reviewed [execution plan](plans/2026-07-23-provider-live-binding-implementation-plan.md); the separate target-2.17 [v1.1 peer-messaging design](design/workflow_lisp_provider_peer_messaging.md) and reviewed [implementation plan](plans/2026-07-24-provider-peer-messaging-v1.1-implementation-plan.md) are implemented through `b08c04a6`. Task 12's documentation, verification, and ordered `TASK12_FINAL_SPEC_APPROVED` / `TASK12_FINAL_QUALITY_APPROVED` reviews close Gate S7-v1.1 and Stage 7. The [pure list-traversal design](design/workflow_lisp_pure_list_traversal.md) and its reviewed [implementation plan](plans/2026-07-25-workflow-lisp-pure-list-traversal-implementation-plan.md) are implemented and complete for the exact target-2.18 bounded surface. The final [language-server design](design/workflow_lisp_language_server.md) and its reviewed nine-task [implementation plan](plans/2026-07-25-workflow-lisp-language-server-implementation-plan.md) are implemented; Stage 8 and the numbered roadmap are complete. The completed pilot remains one narrow evidence-only exception. The [Stage-0 activation plan](plans/2026-07-09-procedure-first-roadmap-activation-plan.md) is historical activation evidence.
 
-**Current status:** Stages 6–8 and the selected target-2.18 list-traversal interstage are complete. Provider-supervision v1 closed Gate S7-v1 through `4d4f05c7`; cooperative peer messaging v1.1 closed Gate S7-v1.1 through `b08c04a6` plus Task 12's documentation, verification, and ordered `TASK12_FINAL_SPEC_APPROVED` / `TASK12_FINAL_QUALITY_APPROVED` reviews. The bounded structurally typed list surface is implemented under principle 29. Language-server v1 closed Gate S8 under its reviewed nine-task implementation plan. The active language-quality roadmap records Q0–Q3, L0–L3, and owner-reordered L5 complete. L4 behavior and evidence are implemented; Task 4 closure diff `c41e2e756f1d0c6bc27bbd9a8b8bbbfc57c59fc121b0bd46dc548709c286b990` received `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` before commit `1f64f153`, tree `7790ee0e`. That tree received `L4_FINAL_SPEC_APPROVED`; final quality returned `CHANGES_REQUIRED` solely for stale review-status metadata, so that exact-tree verdict does not transfer to corrected bytes. Completion requires fresh ordered `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED`; the final verdict is an external exact-tree record, and no repository byte can self-attest its own post-commit review. Q5 is complete at `70f4a759`, tree `fec729cb`, after the post-correction broad comparison and external ordered final reviews; stop `3fc3a09e` remains superseded history. The consolidated lineage is now canonical. Q4's accepted design amendment keeps production target 2.23 phased, adds a target-2.23 explicit-composed sibling, and preserves the frozen target-2.21 control; Q4 is an implemented closure candidate under reviewed amended plan `0f21636b`, with external Task 9 and final ordered reviews, the reviewed closure commit, and postcommit focused control remaining.
+**Current status:** Stages 6–8 and the selected target-2.18 list-traversal interstage are complete. Provider-supervision v1 closed Gate S7-v1 through `4d4f05c7`; cooperative peer messaging v1.1 closed Gate S7-v1.1 through `b08c04a6` plus Task 12's documentation, verification, and ordered `TASK12_FINAL_SPEC_APPROVED` / `TASK12_FINAL_QUALITY_APPROVED` reviews. The bounded structurally typed list surface is implemented under principle 29. Language-server v1 closed Gate S8 under its reviewed nine-task implementation plan. The completed language-quality roadmap records Q0–Q5 and L0–L5 complete. L4 closed at commit `251d9d53674e863fddae4535ea4f7022914287cd`, tree `e2417d395cbcabe9adaffb136759ebff3d42b677`, under external closure-record SHA-256 `94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804` after ordered `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED`. Q5 is complete at `70f4a759`, tree `fec729cb`, after the post-correction broad comparison and external ordered final reviews; stop `3fc3a09e` remains superseded history. The consolidated lineage is now canonical. Q4's accepted design amendment keeps production target 2.23 phased, adds a target-2.23 explicit-composed sibling, and preserves the frozen target-2.21 control; Q4 is complete at commit `f3335637b90feb0a87ac4c538bafac7704ac0d87`, tree `ccec170be8757c9e4fd5ed8ece6f93b04fc03299`, under external closure-record SHA-256 `85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c`, with its ordered reviews and 74-pass postcommit control closed.
 
 **Current substrate selection:** M0 is historical complete at commit `f15b888d0c4862f7e229b990255d5f34c7392591`, tree `8a75f24fde68b657d2f84b28aa8b4d34df5089cf`, under the reviewed [M0 Green Baseline Implementation Plan](plans/2026-07-29-m0-green-baseline-component-plan.md) and external closure-record SHA-256 `88f35cdd872ba9e5a9602d3e756ee81e2911c2384e74c6fa2388cdb907e2ba0e`; its postcommit control passed 418 tests. M1 is historical complete at commit `57c2604e595d22dc9d9d656409607f81b332b5f8`, tree `fc0fdbefe2cdd99cf0f9de604aa63582f79425ea`, under the [M1 Estate Shrink Implementation Plan](plans/2026-07-29-m1-estate-shrink-component-plan.md); its ordered final reviews and postcommit selector passed. Phase ML is historical complete. [ML-1 recovery](plans/2026-07-30-provider-at-least-once-recovery-component-plan.md) closed at commit `9c14dae37310755bd9cbd3de03b9256433acd9fe`, tree `0b149f96ace8873b0381a4cd530468b1d24a083f`; its postcommit control passed 72 tests. [ML-2 allocator simplification](plans/2026-07-30-provider-attempt-allocator-simplification-component-plan.md) closed at commit `b8783f66db4680bdec048e1b54ac14c1ae8b4d1b`, tree `b833b03cb91396cddf64a12cbbbc8d016cd306ad`. [ML-4 adjudication recovery](plans/2026-07-30-adjudication-rerun-recovery-component-plan.md) landed Tasks 1–4 at `c45928f4`, `b3370858`, `ed19624c`, and `758c67e0`, with final closure through the commit containing this record; its final controls passed 5 E2E, 156 owning adjudication, 3 lock-control tests with 120 deselected, and 9,714 broad non-security tests with 19 skipped and 5 warnings. No successor substrate phase is auto-selected. ML-3/provider-isolation and all security surfaces remain deferred; no Q5 or L-series gate is reopened or re-reviewed.
 
-**Current procedure-first substrate:** Native returns, typed guidance, the resolved-effect substrate, lowering/checkpoint/provenance prerequisites, generic resume projection-integrity hardening, the bounded migration wave, provider-supervision v1, cooperative peer messaging v1.1, bounded target-2.18 list traversal, prompt-calculus Q0–Q3, and language-server v1 plus its L0 reliability, L1 authored-symbol/signature, L2 recovery-static-completion, L3 per-source-entry-selection, and L5 authored-reference-navigation tranches are implemented and gated. The match-scoped retirement scanner/record implementation and the one reviewed internal pilot are historical evidence after M1, not a current generator route. The wave intentionally retains 32 effect adapters and therefore does not establish universal procedure-first conversion. Its 63 YAML legacy rows completed the Stage-6 deletion queues; no numbered roadmap stage remains active. Current non-numbered selection remains with the active language-quality and substrate tracks.
+**Current procedure-first substrate:** Native returns, typed guidance, the resolved-effect substrate, lowering/checkpoint/provenance prerequisites, generic resume projection-integrity hardening, the bounded migration wave, provider-supervision v1, cooperative peer messaging v1.1, bounded target-2.18 list traversal, prompt-calculus Q0–Q3, and language-server v1 plus its L0 reliability, L1 authored-symbol/signature, L2 recovery-static-completion, L3 per-source-entry-selection, and L5 authored-reference-navigation tranches are implemented and gated. The match-scoped retirement scanner/record implementation and the one reviewed internal pilot are historical evidence after M1, not a current generator route. The wave intentionally retains 32 effect adapters and therefore does not establish universal procedure-first conversion. Its 63 YAML legacy rows completed the Stage-6 deletion queues; no numbered roadmap stage remains active. Current non-numbered selection remains with the substrate track; the incorporated E track owns its own unselected gates.
 
 ### [Workflow Lisp Autonomous Drain Work Instructions](plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/work_instructions.md)
 **Description:** Procedural prescriptions for the active Workflow Lisp autonomous drain body of work, including objective, source material, work order, constraints, documentation expectations, completion target, and out-of-scope boundaries.
@@ -512,28 +518,34 @@ without adding workflow authority.
 **Use this when:** Reviewing Q4's accepted result/evidence association,
 persisted-surface contract resolution, pure report projection, or the bound
 target-2.23 explicit-composed generic-reviewer panel beside current phased
-production and its frozen target-2.21 control. The implementation is a closure
-candidate under the reviewed amended
+production and its frozen target-2.21 control. The implementation is complete
+at commit `f3335637b90feb0a87ac4c538bafac7704ac0d87`, tree
+`ccec170be8757c9e4fd5ed8ece6f93b04fc03299`, under external closure-record
+SHA-256
+`85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c`
+and the reviewed amended
 [implementation plan](plans/2026-07-29-workflow-lisp-judgment-views-implementation-plan.md)
-at `0f21636b`; external Task 9 and final ordered reviews, the reviewed closure
-commit, and postcommit focused control remain. The design amendment is accepted
-at `3c21ceb4`; Q5 closure and the canonical transplant are complete; M1
-remains outside Q4.
+at `0f21636b`; the postcommit focused control passed 74 tests. The design
+amendment is accepted at `3c21ceb4`; Q5 closure and the canonical transplant
+are complete; M1 remains outside Q4.
 
 ### [Workflow Lisp Judgment Views Implementation Plan](plans/2026-07-29-workflow-lisp-judgment-views-implementation-plan.md)
 **Description:** Reviewed amended Q4 execution plan at `0f21636b`, whose
 original pre-Q5 bytes were accepted at `fbcba410` and whose accepted design
-amendment is at `3c21ceb4`. Task 0 and Tasks 1–8 are complete; Task 9 has
-produced an implemented closure candidate. The plan has one Task 0 entry gate
+amendment is at `3c21ceb4`. Tasks 0–9 and their ordered reviews are complete.
+The plan has one Task 0 entry gate
 followed by nine implementation tasks for normative
 contracts, the exact export compatibility gate, the generic WCC
 path-expression seam, atomic result locators, persisted-surface contract
 resolution, closed reports, the panel consumer, deterministic resume, bounded
 real use, and closure.
 **Keywords:** lisp-frontend, judgments, provenance, implementation-plan, q4
-**Use this when:** Auditing or closing Q4 after Tasks 0–8 and Task 9
-verification. External Task 9 and final ordered reviews, the reviewed closure
-commit, and postcommit focused control remain. Q5 Task 14 and canonical
+**Use this when:** Auditing completed Q4. Its reviewed closure is commit
+`f3335637b90feb0a87ac4c538bafac7704ac0d87`, tree
+`ccec170be8757c9e4fd5ed8ece6f93b04fc03299`, under external closure-record
+SHA-256
+`85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c`,
+and its postcommit focused control passed 74 tests. Q5 Task 14 and canonical
 transplant are complete; M1 remains outside Q4.
 
 ### [Workflow Lisp Prompt Identity Diagnostics Implementation Plan](plans/2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md)
@@ -545,13 +557,14 @@ content-free report projection.
 focused/broad gates, and ordered closure reviews. The implementation is
 present; Q4's consumer gate and original design/plan acceptance are complete.
 Q5 Task 14 and the canonical transplant are complete; the Q5-era design
-amendment is accepted at `3c21ceb4`, and Q4 is an implemented closure candidate
-under reviewed amended plan `0f21636b`.
+amendment is accepted at `3c21ceb4`, and Q4 is complete at
+`f3335637b90feb0a87ac4c538bafac7704ac0d87` under reviewed amended plan
+`0f21636b`.
 
 ### [Workflow Lisp Language Server](design/workflow_lisp_language_server.md)
 **Description:** Implemented `.orc` LSP v1 plus L0 reliability/actionability, L1 authored symbols/signatures, L2 recovery-safe static completion, L3 immutable per-source entry selection, L4 current-only diagnostic lifecycle/progress, and L5 authored reference navigation: a read-only stdio consumer of the production Stage-3 compiler with one-probe no-watcher reverse invalidation, structured initialization failures, visible compiler notes/expansion roles, content-keyed pure-projection export reuse, clean-open/save diagnostics, exact direct-call/prompt-head/direct-retained-proc-ref go-to-definition, compiler-owned ten-kind document symbols, namespace-preserving callable/form completion, and exact source-path-to-export selection under one canonical workspace root. L2 gives valid recovery states only the process-frozen form rows with `isIncomplete=true` and no stale callable; L3 replaces the scalar with immutable `entry_workflows`; L4 hides non-current presentation while retaining ownership and emits capability-gated serialized progress; L5 adds only exact authored-to-authored prompt-head and final unexpanded direct-retained proc-ref edges.
-**Keywords:** lisp-frontend, lsp, editor-tooling, diagnostics, go-to-definition, language-server, active-roadmap
-**Use this when:** Auditing the implemented compiler/tooling contract. For installation, client initialization, editing behavior, freshness, progress, and current limits, use the [Workflow Lisp Language Server Setup](workflow_lisp_language_server_setup.md). L4 Task 4 closure diff `c41e2e756f1d0c6bc27bbd9a8b8bbbfc57c59fc121b0bd46dc548709c286b990` received `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` before commit `1f64f153`, tree `7790ee0e`. That tree received `L4_FINAL_SPEC_APPROVED`; final quality returned `CHANGES_REQUIRED` solely for stale review-status metadata, so that exact-tree verdict does not transfer to corrected bytes. Completion requires fresh ordered `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED`; the final verdict is an external exact-tree record, and no repository byte can self-attest its own post-commit review.
+**Keywords:** lisp-frontend, lsp, editor-tooling, diagnostics, go-to-definition, language-server, completed-roadmap
+**Use this when:** Auditing the implemented compiler/tooling contract. For installation, client initialization, editing behavior, freshness, progress, and current limits, use the [Workflow Lisp Language Server Setup](workflow_lisp_language_server_setup.md). L4 is complete at commit `251d9d53674e863fddae4535ea4f7022914287cd`, tree `e2417d395cbcabe9adaffb136759ebff3d42b677`, under external closure-record SHA-256 `94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804` after ordered `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED`.
 
 ### [Workflow Lisp LSP Diagnostic Lifecycle And Compile Progress](design/workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md)
 **Description:** Implemented L4 contract for a current-only diagnostic publication
@@ -563,15 +576,13 @@ and plan have their ordered approvals; implementation `11629551` and
 `0d5f7009` passed ordered Task 1/2 specification then quality reviews, and
 Neovim/docs Task 3 `bdd1e822` passed its ordered reviews. The Task 4 focused
 selector reports 356 passed and the broad comparison has zero new failures.
-Closure diff
-`c41e2e756f1d0c6bc27bbd9a8b8bbbfc57c59fc121b0bd46dc548709c286b990`
-received `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` before
-commit `1f64f153`, tree `7790ee0e`. That tree received
-`L4_FINAL_SPEC_APPROVED`; final quality returned `CHANGES_REQUIRED` solely for
-stale review-status metadata, so that exact-tree verdict does not transfer to
-corrected bytes. Completion requires fresh ordered `L4_FINAL_SPEC_APPROVED`
-then `L4_FINAL_QUALITY_APPROVED`; the final verdict is an external exact-tree
-record, and no repository byte can self-attest its own post-commit review.
+L4 is complete at commit
+`251d9d53674e863fddae4535ea4f7022914287cd`, tree
+`e2417d395cbcabe9adaffb136759ebff3d42b677`, under external closure-record
+SHA-256
+`94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804`
+after ordered `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED`, followed
+by `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED`.
 
 ### [Workflow Lisp L4 Diagnostic Lifecycle And Compile Progress Implementation Plan](plans/2026-07-28-workflow-lisp-language-server-l4-diagnostic-lifecycle-progress-implementation-plan.md)
 **Description:** Reviewed four-task TDD plan for current-only diagnostic
@@ -581,15 +592,14 @@ acceptance, and exact broad comparison plus closure.
 **Use this when:** Executing or auditing L4 task boundaries, controls, ordered
 reviews, and acceptance gates. Tasks 1–3 are committed through `bdd1e822`;
 repository-real Neovim acceptance passes, the focused selector reports 356
-passed, and the broad comparison has zero new failures. Closure diff
-`c41e2e756f1d0c6bc27bbd9a8b8bbbfc57c59fc121b0bd46dc548709c286b990`
-received `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` before
-commit `1f64f153`, tree `7790ee0e`. That tree received
-`L4_FINAL_SPEC_APPROVED`; final quality returned `CHANGES_REQUIRED` solely for
-stale review-status metadata, so that exact-tree verdict does not transfer to
-corrected bytes. Completion requires fresh ordered `L4_FINAL_SPEC_APPROVED`
-then `L4_FINAL_QUALITY_APPROVED`; the final verdict is an external exact-tree
-record, and no repository byte can self-attest its own post-commit review.
+passed, and the broad comparison has zero new failures. Task 4 focused 356
+passed and broad comparison has zero new failures after ordered
+`L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED`. L4 is complete at
+commit `251d9d53674e863fddae4535ea4f7022914287cd`, tree
+`e2417d395cbcabe9adaffb136759ebff3d42b677`, under external closure-record
+SHA-256
+`94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804`
+after ordered `L4_FINAL_SPEC_APPROVED` then `L4_FINAL_QUALITY_APPROVED`.
 
 ### [Workflow Lisp LSP Authored Reference Navigation](design/workflow_lisp_lsp_authored_reference_navigation.md)
 **Description:** Implemented and incorporated Stage-L5 authored-to-authored definition-index amendment for prompt application heads plus the feasibility-admitted narrow direct-retained `proc-ref` shape. The exact projection joins original syntax to compiler catalog identity fail closed; macro heads remain null shape-wide, macro-consumed/erased/expanded/generated-owner/specialized-owner proc-refs remain null, direct `(call ...)` navigation is unchanged regression coverage, and WCC/generated calls stay excluded.
@@ -604,7 +614,7 @@ record, and no repository byte can self-attest its own post-commit review.
 ### [Workflow Lisp Language Server Setup](workflow_lisp_language_server_setup.md)
 **Description:** Practical setup and operating guide for the implemented optional `.orc` language server, including installation, `python -m orchestrator.lsp`, one-root initialization, clean-save behavior, freshness/restart rules, closed navigation, and deliberate v1 limits.
 **Keywords:** lisp-frontend, lsp, setup, editor, diagnostics, navigation
-**Use this when:** Configuring a generic LSP client or interpreting current dirty, pending, failed, invalidated, stale, initialization-failure, no-watcher save, or work-done-progress behavior. L1–L5 are shipped here; L4's broad-comparison and final-review stage gate remains tracked in its implementation plan.
+**Use this when:** Configuring a generic LSP client or interpreting current dirty, pending, failed, invalidated, stale, initialization-failure, no-watcher save, or work-done-progress behavior. L1–L5 are shipped and complete; L4's historical evidence remains in its implementation plan.
 
 ### [Workflow Lisp Language Server Implementation Plan](plans/2026-07-25-workflow-lisp-language-server-implementation-plan.md)
 **Description:** Completed reviewed nine-task Stage-8 TDD record for exact-byte source tracing, a read-only in-memory build seam, immutable single-root state, diagnostic parity, stdio/watcher transport, compiler-owned callee provenance, closed navigation, packaging, and end-to-end closure.

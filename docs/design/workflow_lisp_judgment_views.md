@@ -1,8 +1,10 @@
 # Workflow Lisp Judgment Views
 
-- **Status:** implemented for the bounded target-2.23 explicit-composed
-  sibling and read-only inspection surface through `000bfcfe`; the production
-  target-2.23 phased call remains Q4-ineligible
+- **Status:** implemented and complete for the bounded target-2.23
+  explicit-composed sibling and read-only inspection surface at commit
+  `f3335637b90feb0a87ac4c538bafac7704ac0d87`, tree
+  `ccec170be8757c9e4fd5ed8ece6f93b04fc03299`; the production target-2.23
+  phased call remains Q4-ineligible
 - **Kind:** read-only result-plus-provenance inspection design
 - **Owner:** Workflow Lisp prompt calculus Q4
 - **Depends on:** implemented target-2.22 Q3 prompt-attempt identity and
@@ -20,8 +22,11 @@
 - **Closure-comparison disposition:** the five failures are four inherited
   route/retirement rows plus one xdist-only LSP read-only build-digest race;
   the LSP row passes in isolated replay
-- **Review provenance:** ordered external review verdicts remain
-  exact-tree records; this document does not self-attest them
+- **Review provenance:** ordered external `Q4_TASK_9_SPEC_APPROVED`,
+  `Q4_TASK_9_QUALITY_APPROVED`, `Q4_FINAL_SPEC_APPROVED`, then
+  `Q4_FINAL_QUALITY_APPROVED` are bound by closure-record SHA-256
+  `85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c`;
+  this document records rather than self-attests them
 - **Design review order:** independent `Q4_DESIGN_SPEC_APPROVED`, then
   independent `Q4_DESIGN_QUALITY_APPROVED` (both approved against commit
   `d7fe454902ff2f5b5784a66c37fbb19f9332e4ac`)
