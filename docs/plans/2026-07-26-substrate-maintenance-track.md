@@ -1,14 +1,17 @@
 # Substrate Maintenance And Persistence Parsimony Track
 
 - **Status:** active substrate track; shape owner-approved 2026-07-26. M0 is
-  an implemented closure candidate under the reviewed
-  [M0 Green Baseline Implementation Plan](2026-07-29-m0-green-baseline-component-plan.md).
-  The focused and authoritative bare gates are green; only final ordered
-  reviews, the exact-byte commit, and the post-commit control remain. M0 is
-  not complete. M1 remains ineligible and unselected until the exact reviewed
-  M0 candidate is committed and its post-commit control passes, and then
-  requires its own reviewed component plan before selection. Amendment phases
-  ML, MC, MR and the M1 inventory extension were adopted into this shape
+  complete at commit `f15b888d0c4862f7e229b990255d5f34c7392591`,
+  tree `8a75f24fde68b657d2f84b28aa8b4d34df5089cf`, under the reviewed
+  [M0 Green Baseline Implementation Plan](2026-07-29-m0-green-baseline-component-plan.md)
+  and external closure-record SHA-256
+  `88f35cdd872ba9e5a9602d3e756ee81e2911c2384e74c6fa2388cdb907e2ba0e`.
+  Its postcommit control passed 418 tests. M1 is selected only when the exact
+  Task 0 candidate in the
+  [M1 Estate Shrink Implementation Plan](2026-07-29-m1-estate-shrink-component-plan.md)
+  receives external ordered plan approval and is committed; that reviewed
+  commit is the selection act. Amendment phases ML, MC, MR and the M1
+  inventory extension were adopted into this shape
   2026-07-26 by owner direction (provider-repeat cost model and incorporation
   request). No other phase is selected by listing: ML, MC, MR, and M4 each
   require their own component plan, M2 requires an accepted design, and ML
@@ -45,11 +48,10 @@
   fail-closed replacement-rule pointer landed at `b21679c7`, the two ordinary
   `let-proc` route rows at `ebbcb8a3`, and the exact retirement diagnostic
   projection at `1a049620`.
-- **Remaining M0 closure:** no M0 ruling remains pending. The implementation,
-  metadata repairs, focused gate, and authoritative bare green gate are an
-  implemented closure candidate. Only final ordered reviews, the exact-byte
-  commit, and the post-commit control remain; none may be inferred from the
-  candidate itself.
+- **M0 closure:** no M0 ruling remains pending. The implementation, metadata
+  repairs, focused gate, authoritative bare green gate, ordered reviews,
+  exact-byte commit, and 418-pass postcommit control are complete at the
+  commit/tree and external closure record above.
 - **Adjacent completed context:** L4 is complete at commit
   `251d9d53674e863fddae4535ea4f7022914287cd`, tree
   `e2417d395cbcabe9adaffb136759ebff3d42b677`, under external closure-record
@@ -109,8 +111,8 @@ seams that loosening defines.
 
 | Phase | Work | Entry condition | Completion gate |
 | --- | --- | --- | --- |
-| M0 | Green baseline | implemented closure candidate under the reviewed [M0 component plan](2026-07-29-m0-green-baseline-component-plan.md); final ordered reviews, exact-byte commit, and post-commit control pending | bare `pytest` collects without error and passes with no retained-failure set; exact reviewed bytes are committed and the post-commit control passes |
-| M1 | Estate shrink + adopted inventory extension | completed M0 green gate; own reviewed component plan selected | broad non-security suite green after deletions; capability/routing docs flipped to historical |
+| M0 | Green baseline | complete at `f15b888d` under the reviewed [M0 component plan](2026-07-29-m0-green-baseline-component-plan.md) and external exact-commit closure | satisfied: bare `pytest` green; exact reviewed bytes committed; 418-pass postcommit control |
+| M1 | Estate shrink + adopted inventory extension | M0 complete; exact Task 0 candidate in the [M1 component plan](2026-07-29-m1-estate-shrink-component-plan.md) externally approved in order and committed | broad non-security suite green after deletions; capability/routing docs flipped to historical |
 | ML | Provider at-least-once loosening | M1 complete; Q0 implementation gate passed; ML-0 spec amendment reviewed and landed | amendment per-tranche gates; kill-mid-provider crash-resume E2E green; broad non-security suite green |
 | MC | Common-helper consolidation | M0 complete; Q0-listed files deferred until Q0 closes | net LOC strictly negative; no residual private clones; touched-module suites green |
 | MR | Behavior-preserving structural refactors | per-tranche: MR-5a after M0; MR-1 after ML-1; MR-2 after ML; MR-3 with/after ML-2; MR-4 Q-coordinated | golden-parity gates per tranche; MR-1..MR-3 complete before M3 starts |
@@ -120,11 +122,14 @@ seams that loosening defines.
 
 ## Phase M0: Green Baseline
 
-**Selection:** implemented closure candidate under the reviewed
+**Status:** complete under the reviewed
 [M0 Green Baseline Implementation Plan](2026-07-29-m0-green-baseline-component-plan.md).
 Its bounded implementation preserves the current fail-closed entry-bootstrap
-eligibility rule and does not begin or prepare M1. Final ordered reviews, the
-exact-byte commit, and the post-commit control remain pending.
+eligibility rule. Ordered reviews approved the exact candidate, commit
+`f15b888d0c4862f7e229b990255d5f34c7392591` records tree
+`8a75f24fde68b657d2f84b28aa8b4d34df5089cf`, and the postcommit control
+passed 418 tests. External closure-record SHA-256:
+`88f35cdd872ba9e5a9602d3e756ee81e2911c2384e74c6fa2388cdb907e2ba0e`.
 
 Scope:
 
@@ -158,34 +163,44 @@ serial isolation; authoritative bare run **12,227 passed, 28 skipped in
 `5b63aca18c2c013395aecede0210e4b522f7c846549ed23d879505635f226810`).
 The xdist result is not a pass.
 
-Gate: the fresh bare result satisfies the implementation-side green
-requirement. M0 remains incomplete until ordered final reviews approve the
-exact candidate, those bytes are committed, and the post-commit focused
-control passes.
+Gate: satisfied. The fresh bare result, ordered final reviews, exact candidate
+commit, and postcommit focused control all passed.
 
 ## Phase M1: Estate Shrink
 
-**Eligibility:** ineligible and unselected while M0 is an uncommitted closure
-candidate. M1 requires that the exact reviewed M0 candidate is committed, its
-post-commit control passes, and its own reviewed component plan is selected.
+**Selection:** the M0 prerequisite is complete. The exact Task 0 candidate in
+the
+[M1 Estate Shrink Implementation Plan](2026-07-29-m1-estate-shrink-component-plan.md)
+becomes selected when its external specification review and then quality
+review approve identical bytes and the reviewed candidate is committed. The
+component plan owns Tasks 0–9, the archive contract, and closure binding.
+That reviewed selection explicitly corrects two stale scope assumptions:
+route readiness is current and only its migration coupling retires; and
+“terminal-legacy-read compatibility” means the executable completed-YAML
+resume fast return, not read-only report/dashboard rendering. This paragraph
+supersedes the adopted inventory extension and older M1 wording only to those
+two bounded extents.
 
 Scope:
 
 1. Retirement-machinery closeout: delete `orchestrator/retirement/`
-   (broad_evidence, attempt_migration, materialization, state_store,
-   source_bindings) and
+   (`attempt_migration`, `broad_evidence`, `materialization`, `safe_io`,
+   `source_bindings`, and package exports) and
    `orchestrator/workflow_lisp/procedure_identity_retirement.py` with their
-   tests and fixtures (~19k lines). Preconditions verified in the component
-   plan: no live imports outside the deleted set, CLI surface pruned,
-   retirement evidence confirmed recorded under
-   `docs/plans/evidence/yaml-retirement/`.
-2. Run-store closeout: archive terminal runs in `.orchestrate/runs`
-   (~4,200), explicitly close or annotate the ~90 nonterminal legacy runs,
-   then delete the terminal-legacy-read compatibility path.
+   dedicated tests and fixtures. The fresh direct-estate census is 76 files /
+   55,289 physical lines. Surviving mixed tests are decoupled first, and the
+   217-file `docs/plans/evidence/yaml-retirement/` tree is preserved.
+2. Run-store closeout: after all run-creating checks, reversibly archive every
+   terminal run, the owner-dispositioned YAML/YML nonterminal set, and the
+   state-less orphan. Retain the six current-format nonterminal `.orc` runs.
+   Delete only the completed-YAML resume fast return; state-only report and
+   dashboard views remain.
 3. Adopted amendment inventory extension (amendment §M1 Inventory
-   Extension): fsq queue half plus `specs/queue.md` resolution, the
-   drain-gate CLI cluster, the two gate scripts, `frontend_kind` vestiges,
-   demo packaging, and loader strays.
+   Extension): fsq queue half plus `specs/queue.md` resolution, drained
+   migration-parity/post-WCC gates, two prompt gate scripts, nine redundant
+   executor `frontend_kind` compatibility lines, demo wheel exclusion, and
+   loader strays. Route readiness and `frontend_kind` provenance are retained
+   as current behavior.
 
 Gate: broad non-security suite green; `docs/capability_status_matrix.md`,
 `docs/index.md`, and design README rows for retirement surfaces flipped to

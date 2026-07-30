@@ -49,6 +49,9 @@ SUBSTRATE_MAINTENANCE_TRACK_PATH = (
 M0_GREEN_BASELINE_PLAN_PATH = (
     "docs/plans/2026-07-29-m0-green-baseline-component-plan.md"
 )
+M1_ESTATE_SHRINK_PLAN_PATH = (
+    "docs/plans/2026-07-29-m1-estate-shrink-component-plan.md"
+)
 REFUSAL_DIAGNOSABILITY_PLAN_PATH = (
     "docs/plans/2026-07-23-refusal-diagnosability-fixes-plan.md"
 )
@@ -4263,76 +4266,44 @@ def test_phased_contract_delivery_routes_completed_surface() -> None:
     )
 
 
-def test_m0_green_baseline_routes_an_uncommitted_closure_candidate_without_widening_entry_bootstrap() -> None:
+def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_plan() -> None:
     track = (REPO_ROOT / SUBSTRATE_MAINTENANCE_TRACK_PATH).read_text(
         encoding="utf-8"
     )
-    component_plan = (REPO_ROOT / M0_GREEN_BASELINE_PLAN_PATH).read_text(
+    m0_plan = (REPO_ROOT / M0_GREEN_BASELINE_PLAN_PATH).read_text(
         encoding="utf-8"
     )
-    refusal_plan = (REPO_ROOT / REFUSAL_DIAGNOSABILITY_PLAN_PATH).read_text(
+    m1_plan = (REPO_ROOT / M1_ESTATE_SHRINK_PLAN_PATH).read_text(
         encoding="utf-8"
     )
     index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
-    decision_brief = (
-        REPO_ROOT / "docs/reports/2026-07-26-m0-decision-brief.md"
-    ).read_text(encoding="utf-8")
 
     assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in track
     assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in index
-    assert "### [M0 Green Baseline Implementation Plan]" in index
-    normalized_index_section = _normalized_routing_text(
-        _markdown_heading_section(
-            index,
-            "### [M0 Green Baseline Implementation Plan]",
-        )
-    )
-    assert "implemented closure candidate" in normalized_index_section
-    assert "final ordered reviews" in normalized_index_section
-    assert "exact byte commit" in normalized_index_section
-    assert "post commit control" in normalized_index_section
-    assert "m0 is not complete" in normalized_index_section
-    assert "m1 remains ineligible" in normalized_index_section
-    assert "exact reviewed m0 candidate is committed" in normalized_index_section
-    assert "own reviewed component plan" in normalized_index_section
+    assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in track
+    assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in index
+    assert "### [M1 Estate Shrink Implementation Plan]" in index
 
     m0_section = track.split("## Phase M0: Green Baseline", 1)[1].split(
         "## Phase M1: Estate Shrink",
         1,
     )[0]
     normalized_m0 = _normalized_routing_text(m0_section)
-    assert "implemented closure candidate" in normalized_m0
-    assert "final ordered reviews" in normalized_m0
-    assert "exact byte commit" in normalized_m0
-    assert "post commit control" in normalized_m0
+    assert "complete" in normalized_m0
+    assert "f15b888d0c4862f7e229b990255d5f34c7392591" in m0_section
+    assert "8a75f24fde68b657d2f84b28aa8b4d34df5089cf" in m0_section
+    assert "passed 418 tests" in m0_section
+    assert (
+        "88f35cdd872ba9e5a9602d3e756ee81e2911c2384e74c6fa2388cdb907e2ba0e"
+        in m0_section
+    )
     assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in m0_section
 
     track_header = track.split("## Objective", 1)[0]
     normalized_track_header = _normalized_routing_text(track_header)
-    assert "owner decisions pending" not in normalized_track_header
-    assert "recorded m0 rulings and landed work" in normalized_track_header
-    assert "retained baseline output/ir failures were adjudicated" in (
-        normalized_track_header
-    )
-    assert "three typecheck family rulings are closed" in normalized_track_header
-    for landed_commit in (
-        "e1594634",
-        "b16a49f5",
-        "76452fdc",
-        "6620f186",
-        "ae67ea16",
-        "6182ae48",
-        "7dcd177c",
-        "b21679c7",
-        "ebbcb8a3",
-        "1a049620",
-    ):
-        assert landed_commit in track_header
-    assert "no m0 ruling remains pending" in normalized_track_header
-    assert "implemented closure candidate" in normalized_track_header
-    assert "only final ordered reviews, the exact byte commit, and the post commit control remain" in (
-        normalized_track_header
-    )
+    assert "m0 is complete" in normalized_track_header
+    assert "m1 is selected" in normalized_track_header
+    assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in track_header
     assert "later phase defaults remain recorded" in normalized_track_header
 
     m1_section = track.split("## Phase M1: Estate Shrink", 1)[1].split(
@@ -4340,110 +4311,62 @@ def test_m0_green_baseline_routes_an_uncommitted_closure_candidate_without_widen
         1,
     )[0]
     normalized_m1 = _normalized_routing_text(m1_section)
-    assert "ineligible and unselected" in normalized_m1
-    assert "exact reviewed m0 candidate is committed" in normalized_m1
-    assert "post commit control passes" in normalized_m1
-    assert "own reviewed component plan" in normalized_m1
+    assert "selected" in normalized_m1
+    assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in m1_section
+    assert "route readiness" in normalized_m1
+    assert "retained" in normalized_m1
+    assert "frontend_kind" in m1_section
+    assert "provenance" in normalized_m1
+    assert "55,289" in m1_section
 
-    assert component_plan.index("M0_PLAN_SPEC_APPROVED") < component_plan.index(
+    normalized_plan = _normalized_routing_text(m1_plan)
+    assert "status: selection candidate" in normalized_plan
+    assert m1_plan.index("M1_PLAN_SPEC_APPROVED") < m1_plan.index(
+        "M1_PLAN_QUALITY_APPROVED"
+    )
+    for task_number in range(10):
+        assert f"### Task {task_number}:" in m1_plan
+    for preserved_boundary in (
+        "docs/plans/evidence/yaml retirement/",
+        "route readiness",
+        "frontend_kind",
+        "six current format nonterminal runs",
+        "dashboard",
+        "security",
+    ):
+        assert preserved_boundary in normalized_plan
+    for archive_contract in (
+        "same filesystem rename",
+        "two identical censuses",
+        "60 seconds",
+        "restore",
+        "state less orphan",
+    ):
+        assert archive_contract in normalized_plan
+    assert "no q5 or l series gate" in normalized_plan
+    assert "no new evidence schema" in normalized_plan
+    assert "supersedes the amendment's 2026 07 26 blanket inclusion" in (
+        normalized_plan
+    )
+    assert "--deselect" not in m1_plan
+    for exact_path in (
+        "orchestrator/cli/commands/migration_parity.py",
+        "orchestrator/cli/commands/post_wcc_inventory.py",
+        "orchestrator/cli/commands/route_readiness.py",
+        "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json",
+        "specs/acceptance/index.md",
+        "specs/dsl.md",
+    ):
+        assert exact_path in m1_plan
+    assert "m1_final_spec_approved" in normalized_plan
+    assert "m1_final_quality_approved" in normalized_plan
+
+    assert m0_plan.index("M0_PLAN_SPEC_APPROVED") < m0_plan.index(
         "M0_PLAN_QUALITY_APPROVED"
     )
-    normalized_component_plan = _normalized_routing_text(component_plan)
-    assert "status: implemented closure candidate" in normalized_component_plan
-    assert "m0 is not complete" in normalized_component_plan
-    assert "m1 remains ineligible and unselected" in normalized_component_plan
-    for exact_evidence in (
-        "544 tests collected in 3.05s",
-        "52c46349ce072d993af985bf7f01edd730f43cb808d3abf5bd2cbd1c5832fa05",
-        "740 passed in 38.72s",
-        "9e7fb0a058cffa2e3eb6e8b7a5e0d6b42ec60f7afcabb2b982ca14d03b9ace81",
-        "3 failed, 12,224 passed, 28 skipped, 90 warnings in 168.46s",
-        "e78dd7862c555dec6109e3831195c750cdc44043d0508d994ff1a675a5675138",
-        "3 passed in 60.82s",
-        "86756ac89dd9a195d88082767e6e1510b016e505667818b73e6c91b4826cd759",
-        "12,227 passed, 28 skipped in 1229.78s",
-        "5b63aca18c2c013395aecede0210e4b522f7c846549ed23d879505635f226810",
-    ):
-        assert exact_evidence in component_plan
-    task_5 = component_plan.split(
-        "### Task 5: Close M0 on fresh green evidence",
-        1,
-    )[1].split("## Completion gate", 1)[0]
-    for completed_step in range(1, 5):
-        assert f"- [x] **Step {completed_step}:" in task_5
-    assert "- [ ] **Step 5:" in task_5
-    assert "- [ ] **Step 6:" in task_5
-    assert "xdist control did not pass" in _normalized_routing_text(task_5)
-    assert "no product change" in _normalized_routing_text(task_5)
-
-    normalized_decision_status = _normalized_routing_text(
-        "\n".join(decision_brief.splitlines()[:18])
-    )
-    assert "recorded rulings" in normalized_decision_status
-    assert "component plan countersigned" in normalized_decision_status
-    assert "no m0 ruling remains pending" in normalized_decision_status
-    normalized_decision_effect = _normalized_routing_text(
-        _markdown_heading_section(
-            decision_brief,
-            "## 4. Net Decision-Queue Effect",
-        )
-    )
-    assert "all m0 rulings are recorded" in normalized_decision_effect
-    assert "awaiting m0 component plan countersign" not in normalized_decision_effect
-
-    adjacent_closure_context = _normalized_routing_text(
-        "\n".join(
-            (
-                component_plan,
-                track_header,
-            )
-        )
-    )
-    for prior_closure in (
-        "l4 is complete at commit 251d9d53674e863fddae4535ea4f7022914287cd",
-        "tree e2417d395cbcabe9adaffb136759ebff3d42b677",
-        "94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804",
-        "q4 is complete at commit f3335637b90feb0a87ac4c538bafac7704ac0d87",
-        "tree ccec170be8757c9e4fd5ed8ece6f93b04fc03299",
-        "85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c",
-    ):
-        assert prior_closure in adjacent_closure_context
-    assert "does not reopen either gate" in adjacent_closure_context
-    assert "non authoritative m0 context only" in adjacent_closure_context
-    assert "unchanged owning q/l routers" in adjacent_closure_context
-    assert "not edited or re reviewed" in adjacent_closure_context
-
-    task_2 = refusal_plan.split(
-        "## Task 2:",
-        1,
-    )[1].split("## Task 3:", 1)[0]
-    assert "**Accepted disposition" in task_2
-    accepted_disposition = task_2.split(
-        "**Accepted disposition",
-        1,
-    )[1].split("**Original proposal", 1)[0]
-    normalized_disposition = _normalized_routing_text(accepted_disposition)
-    assert "export only eligibility is rejected" in normalized_disposition
-    assert (
-        "test_compile_stage3_entrypoint_rejects_hidden_context_omission_"
-        "for_unrelated_exported_sibling_in_item_ctx_proof_module"
-    ) in accepted_disposition
-    assert "separate accepted design" in normalized_disposition
-    assert "fail closed name gate remains" in normalized_disposition
-    assert "entry_bootstrap_name_gate_denied" in accepted_disposition
-    assert "explicit_entry_bootstrap_eligibility" in accepted_disposition
-    assert REFUSAL_DIAGNOSABILITY_PLAN_PATH in accepted_disposition
-    assert "no eligibility change" in normalized_disposition
-    for shipped_claim in (
-        "a selected exported entry qualifies",
-        "export only eligibility shipped",
-        "export only eligibility is implemented",
-        "export based rule is implemented",
-    ):
-        assert shipped_claim not in normalized_disposition
-
-    task_3 = refusal_plan.split("## Task 3:", 1)[1].split("## Non-goals", 1)[0]
-    assert (
-        "remains applicable because the gate logic is unchanged"
-        in _normalized_routing_text(task_3)
+    normalized_m0_plan = _normalized_routing_text(m0_plan)
+    assert "status: implemented closure candidate" in normalized_m0_plan
+    assert "12,227 passed, 28 skipped in 1229.78s" in m0_plan
+    assert "5b63aca18c2c013395aecede0210e4b522f7c846549ed23d879505635f226810" in (
+        m0_plan
     )
