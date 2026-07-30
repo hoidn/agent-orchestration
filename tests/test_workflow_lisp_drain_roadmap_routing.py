@@ -4331,7 +4331,11 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
         for clause in normalized_track_header.split(".")
         if "selected by listing" in clause
     )
-    assert all(phase in listing_guard for phase in ("ml", "mc", "mr"))
+    assert all(
+        phase in listing_guard
+        for phase in ("mc", "mr", "m2", "m3", "m4")
+    )
+    assert "ml" not in listing_guard
 
     m1_section = track.split("## Phase M1: Estate Shrink", 1)[1].split(
         "## Phase ML:",
@@ -4355,19 +4359,31 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
         1,
     )[1].split("## Phase MC:", 1)[0]
     normalized_ml = _normalized_routing_text(ml_section)
+    assert "status: historical complete" in normalized_ml
     assert "selected" in normalized_ml
     assert "ml 0" in normalized_ml
     assert "normative contract" in normalized_ml
-    assert "ml 1 is historical complete at commit" in normalized_ml
-    assert "under its reviewed component plan" in normalized_ml
+    assert "ml 1 closed at commit" in normalized_ml
     assert "task 7 verification" in normalized_ml
-    assert "final ordered reviews passed" in normalized_ml
-    assert "ml 2 is historical complete" in normalized_ml
-    assert "ml 4 is current" in normalized_ml
+    assert "ordered final reviews" in normalized_ml
+    assert "ml 2 closed at commit" in normalized_ml
+    assert "ml 4 tasks 1 4 landed" in normalized_ml
     assert "e2e39422f8fe52ad35dd6a174bc108f65bcf2050" in ml_section
     assert "9c14dae37310755bd9cbd3de03b9256433acd9fe" in ml_section
     assert "0b149f96ace8873b0381a4cd530468b1d24a083f" in ml_section
+    assert "b8783f66db4680bdec048e1b54ac14c1ae8b4d1b" in ml_section
+    assert "b833b03cb91396cddf64a12cbbbc8d016cd306ad" in ml_section
+    for task_commit in ("c45928f4", "b3370858", "ed19624c", "758c67e0"):
+        assert task_commit in ml_section
     assert "postcommit control passed 72 tests" in normalized_ml
+    for gate in (
+        "5 e2e",
+        "156 owning adjudication",
+        "3 lock control tests with 120 deselected",
+        "9,714 broad non security tests with 19 skipped and 5 warnings",
+    ):
+        assert gate in normalized_ml
+    assert "does not auto select" in normalized_ml
     for component_plan in (
         ML1_PROVIDER_RECOVERY_PLAN_PATH,
         ML2_PROVIDER_ALLOCATOR_PLAN_PATH,
@@ -4384,7 +4400,7 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     )
     assert "m0 is historical complete" in normalized_substrate_index_route
     assert "m1 is historical complete" in normalized_substrate_index_route
-    assert "ml was selected" in normalized_substrate_index_route
+    assert "phase ml is historical complete" in normalized_substrate_index_route
     assert "is historical complete at commit" in (
         normalized_substrate_index_route
     )
@@ -4398,7 +4414,10 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
         normalized_substrate_index_route
     )
     assert "ml 2 allocator simplification" in normalized_substrate_index_route
-    assert "is current" in normalized_substrate_index_route
+    assert "phase ml is historical complete" in normalized_substrate_index_route
+    assert "no successor substrate phase is auto selected" in (
+        normalized_substrate_index_route
+    )
 
     normalized_plan = _normalized_routing_text(m1_plan)
     normalized_plan_header = _normalized_routing_text(
@@ -4556,7 +4575,12 @@ def test_ml0_selects_at_least_once_recovery_with_reviewable_component_bounds() -
 
     normalized_versioning = _normalized_routing_text(versioning)
     assert "ml 0 contract pivot" in normalized_versioning
-    assert "runtime implementation is pending" in normalized_versioning
+    assert "at least once runtime contract is implemented" in (
+        normalized_versioning
+    )
+    assert "this closure does not select a successor phase" in (
+        normalized_versioning
+    )
     assert "provider isolation transfer journal remains unchanged" in (
         normalized_versioning
     )
@@ -4569,10 +4593,11 @@ def test_ml0_selects_at_least_once_recovery_with_reviewable_component_bounds() -
     assert "adjudication rerun recovery component plan" in normalized_index
 
     normalized_track = _normalized_routing_text(track)
-    assert "ml 2 is historical complete" in normalized_track
-    assert "ml 4 is current" in normalized_track
-    assert "ml 2 is historical complete" in normalized_index
-    assert "ml 4 is current" in normalized_index
+    assert "phase ml is historical complete" in normalized_track
+    assert "ml 2 closed at commit" in normalized_track
+    assert "ml 4 tasks 1 4 landed" in normalized_track
+    assert "phase ml is historical complete" in normalized_index
+    assert "no successor substrate phase is auto selected" in normalized_index
 
     normalized_ml2_plan = _normalized_routing_text(
         plans[ML2_PROVIDER_ALLOCATOR_PLAN_PATH]
@@ -4588,11 +4613,25 @@ def test_ml0_selects_at_least_once_recovery_with_reviewable_component_bounds() -
     ) < plans[ML2_PROVIDER_ALLOCATOR_PLAN_PATH].index(
         "ML2_TASK6_QUALITY_APPROVED"
     )
-    assert "status: active." in normalized_ml4_plan
-    assert "ml 4 is current" in normalized_ml4_plan
+    assert "status: historical complete ml 4" in normalized_ml4_plan
 
     capability_row = _markdown_table_row(
         REPO_ROOT / "docs/capability_status_matrix.md",
         "Provider at-least-once interrupted-visit recovery",
     )
-    assert "| Partial | No until ML-4 closes |" in capability_row
+    assert (
+        "| Implemented | Automatic runtime behavior; not an authored surface |"
+        in capability_row
+    )
+    normalized_capability_row = _normalized_routing_text(capability_row)
+    for closure_fact in (
+        "b8783f66",
+        "b833b03c",
+        "c45928f4",
+        "b3370858",
+        "ed19624c",
+        "758c67e0",
+        "9,714 broad non security tests passed",
+        "no successor phase is selected",
+    ):
+        assert closure_fact in normalized_capability_row

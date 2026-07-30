@@ -1482,7 +1482,14 @@ that those contracts already carry. The phase ledger, report, submit receipt,
 stdout, and provisional candidate files are diagnostic evidence only.
 Validated output files and the structured result bundle remain the sole
 workflow authority. Compatible completed resume does not replay the provider;
-an interrupted nonterminal phased visit is quarantined rather than resumed.
+after the ordinary source, checksum, projection, checkpoint, and
+completed-result guards validate an exact interrupted nonterminal phased
+visit, resume discards only its partial ledger/candidate authority, emits
+exactly one `provider_attempt_interrupted_rerun`, and lets ordinary dispatch
+rerun the whole phased visit from the task turn with a fresh attempt. It never
+reuses the interrupted provider session, attempt, or provisional candidate.
+Missing, malformed, conflicting, or ambiguous authoritative recovery state
+fails closed before provider launch.
 
 ## 8A. Bounded Live Provider Supervision
 
@@ -1659,9 +1666,16 @@ without inventing terminal group evidence.
 Do not use this form for same-turn steering, mixed peer messaging plus
 `STEER`, dynamic groups, cross-run messaging, effectful settlement, or
 unrecorded raw-pane input. A peer message cannot cancel, resume, replace,
-select, or settle a member. If a controller interruption leaves a nonterminal
-visit, ordinary resume quarantines the whole visit; it does not replay the
-group or retarget messages.
+select, or settle a member. Compatible completed groups remain
+invocation-free. If a controller interruption leaves an exact nonterminal
+visit, ordinary resume first applies every source, checkpoint, and integrity
+guard, preserves partial ledgers as audit-only evidence, discards that visit's
+partial result authority, emits exactly one
+`provider_attempt_interrupted_rerun`, and enters a fresh group visit through
+ordinary dispatch. It never retargets messages or reuses interrupted member
+sessions, attempts, endpoints, panes, bundles, or settlements. Missing,
+malformed, conflicting, or ambiguous authoritative recovery state fails
+closed before provider launch.
 
 ## 9. Structured Command Results
 

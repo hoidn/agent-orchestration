@@ -65,8 +65,12 @@ The implemented v1 contract remains authoritative for:
 - `LiveSupervisionEffect`; and
 - `provider_supervision.v1`.
 
-Nothing in this design changes those source, IR, runtime, state, evidence, or
-resume semantics. Existing target-`2.16` artifacts must remain identical.
+The v1.1 peer-messaging feature does not change those source, IR, successful
+runtime, state, evidence, or bounded-`STEER` semantics. Existing
+target-`2.16` artifacts remain identical. The later language-wide
+at-least-once contract changes only recovery of a validated exact interrupted
+visit as documented below; it does not retarget messages, reuse member
+sessions, or alter successful v1 behavior.
 
 V1.1 reuses only established infrastructure that is semantically compatible:
 
@@ -75,7 +79,8 @@ V1.1 reuses only established infrastructure that is semantically compatible:
 - provider-attempt allocation;
 - provisional typed output bundles;
 - atomic settlement publication;
-- group-visit quarantine after controller interruption; and
+- exact interrupted-visit classification, audit-evidence preservation, and
+  guarded fresh ordinary rerun; and
 - process-boundary cleanup proof.
 
 The v1 observation pane is not reused as an input path. It runs `tail -F`
@@ -561,23 +566,31 @@ Coordinator event order is authoritative:
 | duplicate request id, same payload | return original durable receipt |
 | duplicate request id, different payload | reject and fail group |
 | endpoint closes with waiting clients | resolve every waiter with failure before join |
-| controller crash | quarantine whole visit; never reuse endpoint, pane, attempt, or ledger |
+| controller crash | preserve partial ledgers as audit-only evidence; after exact-visit integrity validation, discard partial result authority and ordinary-rerun a fresh group without reusing endpoint, pane, attempt, session, bundle, or settlement and without retargeting any message |
 
-There is no attempt transition inside a peer group and therefore no
-fresh-to-resume retargeting rule.
+There is no attempt transition inside a peer group. Recovery transitions the
+whole discarded visit to a fresh group through ordinary dispatch; messages
+never retarget across visits or attempts.
 
 ## Checkpoint, Retry, And Resume
 
 - The whole form owns one checkpoint.
 - Members, interactive clients, messages, endpoints, and ledgers are not
   separately resumable.
+- Compatible completed-group reuse remains invocation-free.
 - Ordinary resume that finds a running peer-group visit without its exact
-  terminal result quarantines the visit before any provider launch.
-- Quarantine retains partial ledgers and evidence, clears the exact
-  `current_step`, and records a sticky interruption failure.
-- A later ordinary resume fails from that marker.
-- Only explicit force restart or a new run can start a new group visit, with
-  new attempts, endpoint, panes, and empty ledgers.
+  terminal result first applies every source, root/callee checksum, lexical
+  checkpoint, projection-integrity, cursor, and completed-result guard.
+- For a validated exact interrupted visit, recovery preserves partial ledgers
+  as audit-only evidence, marks available visit evidence `interrupted`,
+  discards partial result authority, clears only the exact `current_step`,
+  emits exactly one `provider_attempt_interrupted_rerun`, and enters a fresh
+  group visit through ordinary dispatch.
+- The fresh group receives new attempts, endpoint, panes, bundles, settlement,
+  and empty active ledgers. No member session is resumed and no prior message
+  is retargeted.
+- Missing, malformed, conflicting, or ambiguous authoritative recovery state
+  fails closed before provider launch.
 - Existing root/callee checksums, lexical checkpoint validation, and
   projection integrity remain unchanged.
 
@@ -666,7 +679,7 @@ fresh-to-resume retargeting rule.
 - peer failure cancels and joins all;
 - selected provisional bundle authority;
 - one atomic workflow-state write;
-- interruption quarantine; and
+- exact interrupted-visit discard plus fresh ordinary rerun; and
 - retry creates wholly new identities.
 
 ### Real gates

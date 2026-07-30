@@ -26,8 +26,10 @@ Workflow Lisp runtime plans, and subprocess crash/resume fixtures.
 `0b149f96ace8873b0381a4cd530468b1d24a083f`. ML-0 was selected at commit
 `e2e39422f8fe52ad35dd6a174bc108f65bcf2050`. Tasks 1–7, focused and broad
 non-security gates, final ordered reviews, and the 72-pass postcommit control
-are complete. ML-2 is historical complete via its execution-record commit;
-ML-4 is current.
+are complete. ML-2 closed at
+`b8783f66db4680bdec048e1b54ac14c1ae8b4d1b`, tree
+`b833b03cb91396cddf64a12cbbbc8d016cd306ad`; ML-4 and aggregate Phase ML
+close through the commit containing the ML-4 execution record.
 
 ## Authority and bounds
 
@@ -340,9 +342,17 @@ Task 7 verification:
 
 ML-2 is historical complete under
 `2026-07-30-provider-attempt-allocator-simplification-component-plan.md`.
-The current selected tranche is ML-4 under
-`2026-07-30-adjudication-rerun-recovery-component-plan.md`. ML-3,
-provider-isolation implementation, and every security surface remain excluded.
+ML-4 and aggregate Phase ML are historical complete under
+`2026-07-30-adjudication-rerun-recovery-component-plan.md`. The aggregate
+closure reran the five-family subprocess suite (5 passed), the four owning
+adjudication modules (156 passed), and the exact run-lock control (3 passed,
+120 deselected); the repository-standard 21-ignore non-security command
+`pytest -q -n 16 --dist=worksteal ... -k 'not security and not secret and not isolation and not safety'`
+passed 9,714, skipped 19, and emitted 5 multiprocessing deprecation warnings.
+The exact commands and ignore list, six bound test-file SHA-256 values, task
+commits, and ML-4-only net line accounting are preserved in the ML-4 execution
+record. ML-3, provider-isolation implementation, and every security surface
+remain excluded.
 
 The closure commit is `9c14dae37310755bd9cbd3de03b9256433acd9fe`,
 tree `0b149f96ace8873b0381a4cd530468b1d24a083f`. Its postcommit subprocess

@@ -9,10 +9,10 @@
     at-least-once discard-and-rerun without changing the DSL version or state
     schema version. This applies uniformly to ordinary, session, supervision,
     peer-group, phased, and exact-scope adjudication recovery.
-  - The normative contract is accepted before its runtime tranches, so runtime
-    implementation is pending until ML-1, ML-2, and ML-4 close. Capability
-    status must not describe the new behavior as implemented during that
-    interval.
+  - The normative contract was accepted before its runtime tranches. ML-1,
+    ML-2, and ML-4 are now historical complete, so the at-least-once runtime
+    contract is implemented across the named provider families and exact-scope
+    adjudication recovery. This closure does not select a successor phase.
   - Compatible completed-result reuse, managed jobs, declared resource
     transitions, source/checkpoint guards, lineage, atomic publication, and
     peer message ledgers remain unchanged.

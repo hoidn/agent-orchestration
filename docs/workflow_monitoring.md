@@ -64,11 +64,16 @@ member handle exists deliberately publishes no terminal group evidence; do
 not infer a successful or complete peer lifecycle from an ordinary failed
 step record in that case.
 
-If a process crash leaves a running peer-group visit, ordinary resume
-quarantines that whole visit before any new provider launch. The quarantine
-is sticky and messages are never retargeted to replacement attempts. Use the
-persisted failure/report evidence to decide whether an explicit force restart
-or a new run is appropriate.
+If a process crash leaves an exact running peer-group visit, ordinary resume
+first applies every source, checkpoint, and integrity guard. It preserves
+partial ledgers as audit-only evidence, discards that visit's partial result
+authority, emits exactly one `provider_attempt_interrupted_rerun`, and enters
+a fresh group visit through ordinary dispatch. Messages are never retargeted,
+and no interrupted member session, attempt, endpoint, pane, bundle, or
+settlement is reused. Compatible completed groups remain invocation-free;
+missing, malformed, conflicting, or ambiguous authoritative recovery state
+fails closed before any provider launch. An explicit force restart or new run
+is not required for a validated interrupted visit.
 
 ## Configuration
 

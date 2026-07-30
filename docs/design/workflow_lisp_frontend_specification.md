@@ -2702,8 +2702,15 @@ Lisp value.
 Omitted and explicit composed calls retain Q3 identity v1/functional-v2 bytes
 and the ordinary provider executor. A phased capability refusal launches no
 provider and has no composed fallthrough. Interrupted nonterminal phased
-visits are sticky-quarantined; compatible completed reuse validates the
-completed state/evidence boundary without reading the phase ledger.
+visits are at-least-once: after every ordinary integrity guard validates the
+exact visit, resume discards only its partial ledger/candidate authority,
+emits exactly one `provider_attempt_interrupted_rerun`, and ordinary dispatch
+reruns the whole phased visit from the task turn with a fresh attempt. No
+interrupted provider session, attempt, or provisional candidate is reused.
+Missing, malformed, conflicting, or ambiguous authoritative recovery state
+fails closed before provider launch. Compatible completed reuse remains
+invocation-free and validates the completed state/evidence boundary without
+reading the phase ledger.
 
 ## 23. Command Result
 
@@ -3930,8 +3937,15 @@ coordinator evaluate and atomically publish the pure settlement.
 The endpoint and client handles are ephemeral runtime values. Message content,
 pane text, transcripts, member provisional bundles, and message ledgers do not
 become workflow values or alternate result authorities. An interrupted
-nonterminal visit is quarantined on ordinary resume rather than retargeting
-messages or replaying member sessions.
+nonterminal visit is at-least-once: after exact-visit integrity validation,
+ordinary resume preserves partial ledgers as audit-only evidence, discards the
+partial result authority, emits exactly one
+`provider_attempt_interrupted_rerun`, and enters a fresh group visit through
+ordinary dispatch. Messages are never retargeted, and member sessions,
+attempts, endpoints, panes, bundles, and settlements from the interrupted
+visit are never reused. Missing, malformed, conflicting, or ambiguous
+authoritative recovery state fails closed before provider launch; compatible
+completed-group reuse remains invocation-free.
 
 Targets below `2.17` reject `with-live-provider-peers`. Target `2.17` continues
 to accept the target-`2.16` `with-live-providers` form without changing its
@@ -5573,8 +5587,13 @@ The target-2.16 v1 surface is implemented as the bounded
 Observation panes are process-local views. Provider transport and validated
 member bundles remain authoritative; pane bytes, transcripts, live targets,
 and unselected provisional bundles never become workflow values or result
-channels. Interrupted in-flight groups are quarantined rather than replayed by
-ordinary resume.
+channels. Compatible completed groups remain invocation-free. After
+exact-visit integrity validation, ordinary resume discards an interrupted
+group's partial result authority, emits exactly one
+`provider_attempt_interrupted_rerun`, and enters a fresh group through
+ordinary dispatch. It never resumes interrupted member sessions or retargets
+messages, and missing, malformed, conflicting, or ambiguous authoritative
+recovery state fails closed before provider launch.
 
 Target `2.17` implements the separate
 `with-live-provider-peers` surface described in Section 54.2 and

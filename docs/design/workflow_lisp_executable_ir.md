@@ -280,7 +280,11 @@ Workflow Lisp build path:
   `tests/e2e/test_e2e_provider_peer_delivery.py` provide current evidence for
   the closed peer-group node, target-`2.17` WCC route, executable/build
   projections, attempt-bound protocol and ledgers, atomic settlement,
-  interruption quarantine, real queued delivery, and natural cleanup.
+  invocation-free completed-boundary reuse, exact interrupted-visit integrity
+  gating, fail-closed malformed/ambiguous state, partial-authority discard and
+  fresh ordinary group rerun with exactly one
+  `provider_attempt_interrupted_rerun`, no message retarget or member-session
+  reuse, real queued delivery, and natural cleanup.
 
 Those artifacts are durable evidence for the implemented layer; they do not
 change the rule that validated executable IR is the authority and the other

@@ -224,6 +224,8 @@ class AdjudicationDeadline:
             raise TimeoutError(f"adjudicated provider deadline expired before {phase}")
 
 def adjudication_outcome(error_type: str) -> dict[str, Any]:
+    if error_type == "adjudication_resume_mismatch":
+        error_type = "adjudication_state_integrity_error"
     matrix = {
         "adjudication_no_valid_candidates": (2, "post_execution", "adjudication_no_valid_candidates", False),
         "adjudication_scorer_unavailable": (2, "execution", "adjudication_scorer_unavailable", False),
@@ -235,7 +237,6 @@ def adjudication_outcome(error_type: str) -> dict[str, Any]:
         "promotion_conflict": (2, "post_execution", "promotion_conflict", False),
         "promotion_validation_failed": (2, "post_execution", "promotion_validation_failed", False),
         "promotion_rollback_conflict": (2, "post_execution", "promotion_rollback_conflict", False),
-        "adjudication_resume_mismatch": (2, "pre_execution", "adjudication_resume_mismatch", False),
         "adjudication_state_integrity_error": (
             2,
             "pre_execution",

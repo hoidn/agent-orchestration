@@ -430,8 +430,15 @@ reason/value/source projection. Every diagnostic summary is the exact reason
 token and is never null. Offline digest validation partitions every field into
 a ledger-recomputable seal or opaque equality/order-bound reference and never
 opens external bytes. The ledger and new attempt evidence are neither result
-nor resume authority. Interrupted nonterminal visits use current sticky
-quarantine semantics.
+nor resume authority. Compatible completed visits remain invocation-free.
+After every ordinary source, checksum, projection, checkpoint, and
+completed-result guard validates an exact interrupted nonterminal phased
+visit, resume discards only that visit's partial ledger/candidate authority,
+emits exactly one `provider_attempt_interrupted_rerun`, and lets ordinary
+dispatch rerun the whole phased visit from the task turn with a fresh attempt.
+No interrupted provider session, attempt, or candidate is reused. Missing,
+malformed, conflicting, or ambiguous authoritative state still fails closed
+before a provider launch.
 
 Q5 design, plan, prerequisites, and implementation through Task 13 are landed.
 The evidence-surfacing and terminalization corrections after activation are

@@ -15,16 +15,22 @@
   and the external closure record has SHA-256
   `b5c0624bd6759e4cf2a3d0153c42a1aa9068ebcab2050c15237d9cb74b95470b`.
   ML was selected by the reviewed ML-0 commit
-  `e2e39422f8fe52ad35dd6a174bc108f65bcf2050`. ML-1 is historical complete
-  at commit `9c14dae37310755bd9cbd3de03b9256433acd9fe`, tree
-  `0b149f96ace8873b0381a4cd530468b1d24a083f`, under its reviewed component
-  plan; its postcommit control passed 72 tests. ML-2 is historical complete
-  via its execution-record commit; ML-4 is current.
-  Amendment phases ML, MC, MR and the M1 inventory extension were adopted into this shape
-  2026-07-26 by owner direction (provider-repeat cost model and incorporation
-  request). No other phase is selected by listing: ML, MC, MR, and M4 each
-  require their own component plan, M2 requires an accepted design, and ML
-  additionally requires its ML-0 reviewed spec amendment before execution.
+  `e2e39422f8fe52ad35dd6a174bc108f65bcf2050`. Phase ML is historical
+  complete. ML-1 closed at commit
+  `9c14dae37310755bd9cbd3de03b9256433acd9fe`, tree
+  `0b149f96ace8873b0381a4cd530468b1d24a083f`; ML-2 closed at commit
+  `b8783f66db4680bdec048e1b54ac14c1ae8b4d1b`, tree
+  `b833b03cb91396cddf64a12cbbbc8d016cd306ad`; and ML-4 Tasks 1–4 landed
+  at `c45928f4`, `b3370858`, `ed19624c`, and `758c67e0`, with final closure
+  through the commit containing this record. Final controls passed 5 E2E,
+  156 owning adjudication, 3 lock-control tests with 120 deselected, and
+  9,714 broad non-security tests with 19 skipped and 5 warnings.
+  Amendment phases ML, MC, MR and the M1 inventory extension were adopted into
+  this shape 2026-07-26 by owner direction (provider-repeat cost model and
+  incorporation request). Later-phase defaults remain recorded, but no
+  successor phase is selected by listing: MC, MR, and M4 each require their
+  own component plan, M2 requires an accepted design, and M3 requires M2
+  completion.
 - **Relation:** parallel substrate track beside the active
   `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`
   (Q/L tracks). Two junctions: M2 consumes Q3's prompt/effect identity
@@ -125,7 +131,7 @@ seams that loosening defines.
 | --- | --- | --- | --- |
 | M0 | Historical green baseline | complete at `f15b888d` under the reviewed [M0 component plan](2026-07-29-m0-green-baseline-component-plan.md) and external exact-commit closure | satisfied: bare `pytest` green; exact reviewed bytes committed; 418-pass postcommit control |
 | M1 | Estate shrink + adopted inventory extension | selected at reviewed Task 0 commit `4e71093d` under the [M1 component plan](2026-07-29-m1-estate-shrink-component-plan.md) | satisfied at `57c2604e`, tree `fc0fdbef`; ordered reviews and postcommit selector passed |
-| ML | Provider at-least-once loosening | selected at `e2e39422`; ML-1 complete at `9c14dae3`; ML-2 historical complete via its execution-record commit; ML-4 current | amendment per-tranche gates; kill-mid-provider crash-resume E2E green; broad non-security suite green |
+| ML | Provider at-least-once loosening | historical complete: selected at `e2e39422`; ML-1 at `9c14dae3`; ML-2 at `b8783f66`, tree `b833b03c`; ML-4 Tasks 1–4 at `c45928f4`, `b3370858`, `ed19624c`, and `758c67e0`, with closure through the commit containing this record | satisfied: 5 E2E passed; 156 owning adjudication tests passed; 3 lock-control tests passed with 120 deselected; broad non-security suite 9,714 passed, 19 skipped, 5 warnings |
 | MC | Common-helper consolidation | M0 complete; Q0-listed files deferred until Q0 closes | net LOC strictly negative; no residual private clones; touched-module suites green |
 | MR | Behavior-preserving structural refactors | per-tranche: MR-5a after M0; MR-1 after ML-1; MR-2 after ML; MR-3 with/after ML-2; MR-4 Q-coordinated | golden-parity gates per tranche; MR-1..MR-3 complete before M3 starts |
 | M2 | Persistence-parsimony design | ML complete; Q3 identity definition accepted; owner depth decision recorded | accepted design with executable feasibility fixtures for both components |
@@ -241,14 +247,19 @@ commit/tree above record it, and the postcommit selector passed.
 
 ## Phase ML: Provider At-Least-Once Loosening
 
-**Status:** selected at ML-0 commit
-`e2e39422f8fe52ad35dd6a174bc108f65bcf2050`. ML-1 is historical complete
-at commit `9c14dae37310755bd9cbd3de03b9256433acd9fe`, tree
-`0b149f96ace8873b0381a4cd530468b1d24a083f`, under its reviewed component
-plan. Implementation, Task 7 verification, and final ordered reviews passed;
-its postcommit control passed 72 tests. ML-2 is historical complete via its
-execution-record commit; ML-4 is current. The normative contract remains the
-owner-adopted amendment as expressed in `specs/`.
+**Status:** historical complete. ML was selected at ML-0 commit
+`e2e39422f8fe52ad35dd6a174bc108f65bcf2050`. ML-1 closed at commit
+`9c14dae37310755bd9cbd3de03b9256433acd9fe`, tree
+`0b149f96ace8873b0381a4cd530468b1d24a083f`, after implementation, Task 7
+verification, and ordered final reviews; its postcommit control passed 72
+tests. ML-2 closed at commit
+`b8783f66db4680bdec048e1b54ac14c1ae8b4d1b`, tree
+`b833b03cb91396cddf64a12cbbbc8d016cd306ad`. ML-4 Tasks 1–4 landed at
+`c45928f4`, `b3370858`, `ed19624c`, and `758c67e0`; final closure is through
+the commit containing this record. Its final controls passed 5 E2E, 156
+owning adjudication, 3 lock-control tests with 120 deselected, and 9,714 broad
+non-security tests with 19 skipped and 5 warnings. The normative contract
+remains the owner-adopted amendment as expressed in `specs/`.
 
 Adopted amendment phase; tranche scope and gates live in the amendment
 (§Phase ML). The reviewed-plan candidates are:
@@ -264,7 +275,8 @@ Adopted amendment phase; tranche scope and gates live in the amendment
 ML-3 bundle-transfer journal collapse remains deferred under the provider-
 isolation/security exclusion and is not selected. Committed-result reuse is
 preserved; recovery re-runs emit named re-spend diagnostics. No Q5 or L-series
-gate is reopened or re-reviewed.
+gate is reopened or re-reviewed. This closure does not auto-select MC, MR, M2,
+M3, or M4.
 
 ## Phase MC: Common-Helper Consolidation
 

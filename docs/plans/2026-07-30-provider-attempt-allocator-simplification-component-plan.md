@@ -19,8 +19,11 @@ does not mutate an allocation event ledger.
 **Tech stack:** Python 3.13, `fcntl.flock`, multiprocessing/subprocess pytest
 fixtures, JSON schema-2.1 state, and atomic temp-file rename.
 
-**Status:** historical complete ML-2 via the commit containing this execution
-record; ML-4 is current. ML-1 closed at commit
+**Status:** historical complete ML-2 at commit
+`b8783f66db4680bdec048e1b54ac14c1ae8b4d1b`, tree
+`b833b03cb91396cddf64a12cbbbc8d016cd306ad`. ML-4 and aggregate Phase ML
+close through the commit containing the ML-4 execution record. ML-1 closed at
+commit
 `9c14dae37310755bd9cbd3de03b9256433acd9fe`, tree
 `0b149f96ace8873b0381a4cd530468b1d24a083f`; ML-2 Task 3 closed at
 `fd93bf32`, Task 4 closed at `c98aa9e9`, Task 5 closed at `001c3326`, and
@@ -305,5 +308,14 @@ coordination inode, both affected modules pass 181 tests and the identical
 broad selection passes. Relative to the ML-1 close, the ML-2 candidate changes
 55 files with 2,381 additions and 2,756 deletions, for a net reduction of 375
 lines. Final ordered review returned `ML2_TASK6_SPEC_APPROVED` followed by
-`ML2_TASK6_QUALITY_APPROVED`, with no material findings and no replay. ML-4 is
-the current selected tranche.
+`ML2_TASK6_QUALITY_APPROVED`, with no material findings and no replay. ML-4 and
+aggregate Phase ML are historical complete through the ML-4 execution record.
+The aggregate closure reran the five-family subprocess suite (5 passed), the
+four owning adjudication modules (156 passed), and the exact run-lock control
+(3 passed, 120 deselected). The repository-standard 21-ignore non-security
+command
+`pytest -q -n 16 --dist=worksteal ... -k 'not security and not secret and not isolation and not safety'`
+passed 9,714, skipped 19, and emitted 5 multiprocessing deprecation warnings.
+The ML-4 record preserves the exact command/ignore list, six bound test-file
+SHA-256 values, task commits, and ML-4-only net line accounting. ML-3 and all
+provider-isolation/security work remain separately deferred.

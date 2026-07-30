@@ -18,7 +18,8 @@ as `adjudication_state_mismatch_rerun`.
 **Tech stack:** Python 3.13, pytest, adjudication state/sidecars, atomic
 filesystem operations, and Workflow Lisp end-to-end fixtures.
 
-**Status:** active. ML-4 is current after ML-2 closed at
+**Status:** historical complete ML-4. Phase ML closes through the commit
+containing this execution record after ML-2 closed at
 `b8783f66db4680bdec048e1b54ac14c1ae8b4d1b`, tree
 `b833b03cb91396cddf64a12cbbbc8d016cd306ad`; Task 1 closed at
 `c45928f4399dbe1cb1105136a320638b95b9c3a8`, tree
@@ -26,7 +27,9 @@ filesystem operations, and Workflow Lisp end-to-end fixtures.
 commit `b3370858b27b7d3924556193e499b2c6de106750`, tree
 `d26c9a6399a5c400a3d36aeaf9bf024a9891bc9d`; Task 3 closes at
 `ed19624cae6b8cc89c930c29ec7a3c6cc581d88f`, tree
-`2de3a125f357a2daa5db64e5986da11cd11cf2c6`, and Task 4 is current.
+`2de3a125f357a2daa5db64e5986da11cd11cf2c6`; and Task 4 closed at
+`758c67e0a57f08f3ab0de4e937d373a516a72f4e`, tree
+`dc88d91936e4e678e42c1e4fa52e2c51f3cacdc6`.
 
 ## Authority and bounds
 
@@ -242,16 +245,107 @@ Ordered review returned `ML4_TASK4_SPEC_APPROVED` followed by
 
 ## Task 5: Close ML-4 and Phase ML
 
-- [ ] Run the complete adjudication suite plus ML-1's five-family
+- [x] Run the complete adjudication suite plus ML-1's five-family
   kill-mid-provider crash/resume aggregate and ML-2's concurrent-run-lock
   control.
-- [ ] Run `pytest -q -n 16 --dist=worksteal` over the broad non-security
+- [x] Run `pytest -q -n 16 --dist=worksteal` over the broad non-security
   selection, excluding only owner-directed security selectors.
-- [ ] Grep active production and normative specs for obsolete quarantine and
+- [x] Grep active production and normative specs for obsolete quarantine and
   `adjudication_resume_mismatch` producers. Historical records need not be
   rewritten.
-- [ ] Record exact commands, counts, hashes, commits, and net line change in
+- [x] Record exact commands, counts, hashes, commits, and net line change in
   the three component plans and substrate track.
-- [ ] Request one final ordered specification review followed by one quality
+- [x] Request one final ordered specification review followed by one quality
   review. Replay only after a material finding.
-- [ ] Commit with subject `Close provider at least once loosening`.
+- [x] Commit with subject `Close provider at least once loosening`.
+
+## Execution record
+
+ML-4 implementation landed as four reviewed task commits:
+
+- Task 1: `c45928f4399dbe1cb1105136a320638b95b9c3a8`, tree
+  `c0ea1821d573ecfe9d3c5d98b1cab5d02be3e7f3`;
+- Task 2: `b3370858b27b7d3924556193e499b2c6de106750`, tree
+  `d26c9a6399a5c400a3d36aeaf9bf024a9891bc9d`;
+- Task 3: `ed19624cae6b8cc89c930c29ec7a3c6cc581d88f`, tree
+  `2de3a125f357a2daa5db64e5986da11cd11cf2c6`; and
+- Task 4: `758c67e0a57f08f3ab0de4e937d373a516a72f4e`, tree
+  `dc88d91936e4e678e42c1e4fa52e2c51f3cacdc6`.
+
+Task 5 verification:
+
+- `pytest -q tests/test_provider_rerun_subprocess_e2e.py` passed all 5
+  ordinary/session/supervision/peer/phased kill-resume cases.
+- `pytest -q tests/test_adjudicated_provider_runtime.py
+  tests/test_adjudicated_provider_resume.py
+  tests/test_adjudicated_provider_outcomes.py
+  tests/test_adjudicated_provider_promotion.py` passed 156.
+- `pytest -q tests/test_run_lock.py tests/test_runtime_failure_persistence.py
+  tests/test_resume_command.py -k 'second_writer or holds_writer_lock'`
+  passed 3 and deselected 120.
+- The exact broad command was:
+
+  ```bash
+  pytest -q -n 16 --dist=worksteal \
+    --ignore=tests/test_at61_at62_wait_for_path_safety.py \
+    --ignore=tests/test_cli_safety.py \
+    --ignore=tests/test_execution_safety.py \
+    --ignore=tests/test_provider_isolation_attestation.py \
+    --ignore=tests/test_provider_isolation_backend.py \
+    --ignore=tests/test_provider_isolation_backend_identity_negatives.py \
+    --ignore=tests/test_provider_isolation_bundle_broker.py \
+    --ignore=tests/test_provider_isolation_candidate.py \
+    --ignore=tests/test_provider_isolation_controller_lifecycle.py \
+    --ignore=tests/test_provider_isolation_environment.py \
+    --ignore=tests/test_provider_isolation_environment_cli.py \
+    --ignore=tests/test_provider_isolation_execution.py \
+    --ignore=tests/test_provider_isolation_network_preflight.py \
+    --ignore=tests/test_provider_isolation_policy.py \
+    --ignore=tests/test_provider_isolation_runtime_authority.py \
+    --ignore=tests/test_provider_isolation_schema_resources.py \
+    --ignore=tests/test_provider_isolation_workflow_continuation.py \
+    --ignore=tests/test_provider_isolation_workflow_lifecycle.py \
+    --ignore=tests/test_provider_launch_shim.py \
+    --ignore=tests/test_secrets.py \
+    --ignore=tests/test_workflow_provider_isolation_integration.py \
+    -k 'not security and not secret and not isolation and not safety'
+  ```
+
+  It passed 9,714, skipped 19, and emitted 5 multiprocessing fork
+  deprecation warnings in the final candidate rerun, which completed in
+  150.24 seconds.
+- Active runtime grep finds no producer of a
+  `provider_*_interrupted_visit_quarantined` outcome. The narrowly named
+  `legacy_provider_quarantine.py` remains a strict read-only decoder for
+  persisted old markers. `classify_adjudication_resume_mismatch` remains
+  current reconciliation terminology; a stale request to publish the retired
+  outcome now fail-closes as `adjudication_state_integrity_error`, proved by
+  the 22-pass outcome module. Active guidance now describes exact interrupted-
+  visit discard and fresh ordinary rerun; explicitly historical pre-ML design
+  provenance remains unchanged.
+- The final test-file SHA-256 values are
+  `8c6c9e1420ebbd8a26d2651bcc5f333363155701cda33802013e850cde12fd38`
+  (outcomes),
+  `c57f006ff84fe095c8708f14f47ca05cb5441a938cfff68b571c30feb66652f8`
+  (promotion),
+  `965b0fa8c4c014bf9501691adf26a1eeb35f6cb53e9ceb22964d1f2de004f447`
+  (resume),
+  `ecae2cf920754511d88ca2f9448d260fe4c128a2f1d643a6d0a613b7e4157d99`
+  (runtime),
+  `35a16613675d17ba7b186e61a212b2634f20c6c758fcbaf2897ad1e1cdb7a0b4`
+  (five-family subprocess E2E), and
+  `1da0f01f06eed7db39b585e739cb6f924a884c5d8d98566decb35b36996274b6`
+  (run lock).
+- Excluding interleaved owner E-roadmap commit `59b2c956`, the four ML-4 task
+  commits plus this closure candidate account for 3,165 additions and 248
+  deletions across production, tests, docs, and specs, a net increase of 2,917
+  lines. The closure record was updated against the final candidate
+  before review.
+- Candidate diff
+  `17a68a8251062040c1fb6a82b3cb78dfb9aa1a112bae1832ab8fe9ba84c381d5`
+  received `ML4_FINAL_SPEC_APPROVED` followed by
+  `ML4_FINAL_QUALITY_APPROVED`. The quality reviewer initially conflated the
+  earlier 159.35-second broad run with the final 150.24-second candidate
+  rerun; the captured summaries resolved that evidence-only question without
+  a byte change or review replay. Only this ordered-review metadata and the
+  completed checkboxes were added afterward.

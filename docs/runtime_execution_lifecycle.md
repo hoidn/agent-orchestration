@@ -65,7 +65,16 @@ Identity note:
 - When finalization is partially complete, `resume` restarts at the first unfinished cleanup step instead of replaying completed cleanup.
 - When a run stops inside a `call`, `resume` reuses the unfinished `call_frame_id` and restarts the callee from its first unfinished nested step instead of replaying completed nested work.
 - When a run stops inside `repeat_until`, `resume` uses `state.repeat_until` plus indexed nested step results to restart from the first unfinished nested step in the current iteration; if that iteration's condition already evaluated, resume advances without replaying the settled iteration.
-- When a run stops mid-visit on a v2.10 session-enabled provider step, `resume` quarantines that exact visit instead of replaying the provider and records the canonical metadata/spool paths in the run-level error.
+- Provider attempts are at-least-once across ordinary, session, supervision,
+  peer-group, and phased execution. Compatible completed results remain
+  invocation-free. After ordinary source, checksum, projection, checkpoint,
+  and completed-result guards validate an exact interrupted in-flight visit,
+  `resume` discards only that visit's partial result authority, emits exactly
+  one `provider_attempt_interrupted_rerun`, and lets ordinary dispatch enter a
+  fresh visit with fresh attempt identities. No interrupted provider session
+  is resumed and no peer message is retargeted.
+- Missing, malformed, conflicting, ambiguous, or checksum-incompatible
+  provider-recovery state still fails closed before provider launch.
 - During such revisits, `state.steps.<StepName>` still stores the latest completed/skipped/failed result for that top-level name, while `current_step` may refer to a later in-flight visit of the same step. The visit ordinals distinguish them: `current_step.visit_count` is the active visit, and `steps.<StepName>.visit_count` is the last persisted result visit.
 - Runtime code no longer needs workflow-path/import magic fields or helper-key inspection to resume/report typed runs; typed provenance/import metadata plus the compatibility projection are the maintained bridge back to the persisted compatibility surfaces.
 - `expanded.debug.yaml` is an intentionally historical filename for an optional
