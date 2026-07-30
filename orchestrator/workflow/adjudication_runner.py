@@ -53,9 +53,20 @@ class AdjudicationRunner(
                 "Missing adjudication execution context",
             )
 
-        resume_error = self._reconcile_adjudication_resume(execution)
-        if resume_error is not None:
-            return resume_error
+        resume_decision = self._reconcile_adjudication_resume(execution)
+        if resume_decision.kind == "integrity_error":
+            return self._adjudication_failure_result(
+                "adjudication_state_integrity_error",
+                str(resume_decision.message),
+            )
+        if resume_decision.kind == "rerun_exact_scope":
+            if resume_decision.scope is None:
+                raise AssertionError("exact-scope decision omitted its scope")
+            return self._adjudication_failure_result(
+                "adjudication_resume_mismatch",
+                str(resume_decision.message),
+                visit_paths=resume_decision.scope.visit_paths,
+            )
         baseline_error = self._ensure_adjudication_baseline(execution)
         if baseline_error is not None:
             return baseline_error

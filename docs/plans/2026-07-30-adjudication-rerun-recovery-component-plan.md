@@ -18,7 +18,10 @@ as `adjudication_state_mismatch_rerun`.
 **Tech stack:** Python 3.13, pytest, adjudication state/sidecars, atomic
 filesystem operations, and Workflow Lisp end-to-end fixtures.
 
-**Status:** active. ML-4 is current after historical-complete ML-2.
+**Status:** active. ML-4 is current after ML-2 closed at
+`b8783f66db4680bdec048e1b54ac14c1ae8b4d1b`, tree
+`b833b03cb91396cddf64a12cbbbc8d016cd306ad`; Task 1 closes through the
+commit containing this record, and Task 2 is current.
 
 ## Authority and bounds
 
@@ -50,11 +53,11 @@ that cost; promotion and ordinary state publication remain atomic.
 - Modify: `tests/test_adjudicated_provider_runtime.py`
 - Modify: `tests/test_adjudicated_provider_outcomes.py`
 
-- [ ] Convert existing mismatch fixtures into a closed
+- [x] Convert existing mismatch fixtures into a closed
   `reuse | rerun_exact_scope | integrity_error` classification.
-- [ ] Add RED cases for each mismatch family plus unknown/ambiguous/escaping
+- [x] Add RED cases for each mismatch family plus unknown/ambiguous/escaping
   scope. Only exact-scope mismatches are recoverable.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q \
@@ -65,10 +68,19 @@ that cost; promotion and ordinary state publication remain atomic.
 
   Expected RED: exact-scope mismatches still return
   `adjudication_resume_mismatch`; integrity negatives remain green.
-- [ ] Keep consistent-state reuse and all source/projection guard precedence
+- [x] Keep consistent-state reuse and all source/projection guard precedence
   unchanged.
-- [ ] Run focused tests, ordered specification then quality review, and commit
+- [x] Run focused tests, ordered specification then quality review, and commit
   with subject `Classify adjudication rerun recovery`.
+
+Task 1 candidate evidence: the new decision API first failed collection, and
+the fresh-sidecar integrity case then failed on the legacy diagnostic. The
+exact plan selector now passes 9 tests; both owning modules pass 94, the
+adjacent resume module passes 12, and compile/diff checks pass. Exact mismatches
+remain transitional failures until cleanup and redispatch land; no provider is
+launched by this task. Ordered review returned `ML4_TASK1_SPEC_APPROVED`
+followed by `ML4_TASK1_QUALITY_APPROVED`, with no material findings and no
+replay.
 
 ## Task 2: Discard one exact partial visit
 

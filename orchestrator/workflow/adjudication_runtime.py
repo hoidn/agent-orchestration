@@ -3,7 +3,20 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Protocol, Sequence, TypedDict
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Protocol,
+    Sequence,
+    TypedDict,
+)
+
+if TYPE_CHECKING:
+    from .adjudication_resume import AdjudicationResumeDecision
 
 from ..exec.retry import RetryPolicy
 from ..providers.executor import ProviderExecutionResult
@@ -243,7 +256,7 @@ class AdjudicationRuntime(Protocol):
     def _reconcile_adjudication_resume(
         self,
         execution: AdjudicationExecution,
-    ) -> Optional[Result]: ...
+    ) -> "AdjudicationResumeDecision": ...
 
     def _load_adjudication_resume_state(
         self,

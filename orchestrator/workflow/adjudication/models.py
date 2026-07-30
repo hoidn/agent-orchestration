@@ -198,6 +198,12 @@ def adjudication_outcome(error_type: str) -> dict[str, Any]:
         "promotion_validation_failed": (2, "post_execution", "promotion_validation_failed", False),
         "promotion_rollback_conflict": (2, "post_execution", "promotion_rollback_conflict", False),
         "adjudication_resume_mismatch": (2, "pre_execution", "adjudication_resume_mismatch", False),
+        "adjudication_state_integrity_error": (
+            2,
+            "pre_execution",
+            "adjudication_state_integrity_error",
+            False,
+        ),
     }
     exit_code, phase, klass, retryable = matrix.get(error_type, (2, "execution", error_type, False))
     return {

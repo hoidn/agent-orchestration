@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Literal, Mapping, Optional
 
 from .adjudication import (
     AdjudicationVisitPaths,
@@ -23,11 +24,120 @@ from .adjudication_bindings import AdjudicationExecution
 from .adjudication_runtime import AdjudicationRuntime
 
 
+@dataclass(frozen=True)
+class AdjudicationResumeScope:
+    """Canonical run-owned coordinates for one adjudication visit."""
+
+    run_root: Path
+    frame_scope: str
+    step_id: str
+    visit_count: int
+    visit_paths: AdjudicationVisitPaths
+
+
+@dataclass(frozen=True)
+class AdjudicationResumeDecision:
+    """Closed classification of adjudication resume reconciliation."""
+
+    kind: Literal["reuse", "rerun_exact_scope", "integrity_error"]
+    scope: AdjudicationResumeScope | None = None
+    message: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind == "reuse":
+            if self.scope is not None or self.message is not None:
+                raise ValueError("reuse decisions cannot carry cleanup state")
+            return
+        if self.kind == "rerun_exact_scope":
+            if self.scope is None or not self.message:
+                raise ValueError("exact-scope rerun decisions require scope and message")
+            return
+        if self.kind == "integrity_error":
+            if self.scope is not None or not self.message:
+                raise ValueError("integrity decisions require only a message")
+            return
+        raise ValueError(f"unsupported adjudication resume decision: {self.kind}")
+
+    @classmethod
+    def reuse(cls) -> "AdjudicationResumeDecision":
+        return cls(kind="reuse")
+
+    @classmethod
+    def integrity_error(cls, message: str) -> "AdjudicationResumeDecision":
+        return cls(kind="integrity_error", message=message)
+
+    @classmethod
+    def rerun_exact_scope(
+        cls,
+        *,
+        scope: AdjudicationResumeScope,
+        message: str,
+    ) -> "AdjudicationResumeDecision":
+        return cls(kind="rerun_exact_scope", scope=scope, message=message)
+
+
+def classify_adjudication_resume_mismatch(
+    *,
+    run_root: Path,
+    frame_scope: object,
+    step_id: object,
+    visit_count: object,
+    visit_paths: object,
+    message: str,
+) -> AdjudicationResumeDecision:
+    """Return an exact rerun scope only when every owned path is canonical."""
+
+    integrity_message = "adjudication resume scope is not provably canonical"
+    if (
+        not isinstance(run_root, Path)
+        or not isinstance(frame_scope, str)
+        or not frame_scope
+        or not isinstance(step_id, str)
+        or not step_id
+        or not isinstance(visit_count, int)
+        or isinstance(visit_count, bool)
+        or visit_count <= 0
+        or not isinstance(visit_paths, AdjudicationVisitPaths)
+    ):
+        return AdjudicationResumeDecision.integrity_error(integrity_message)
+
+    try:
+        expected_paths = adjudication_visit_paths(
+            run_root,
+            frame_scope,
+            step_id,
+            visit_count,
+        )
+        if visit_paths != expected_paths:
+            raise ValueError("adjudication visit paths are not canonical")
+
+        resolved_run_root = run_root.resolve()
+        for owned_path in expected_paths.__dict__.values():
+            relative_path = owned_path.relative_to(run_root)
+            if relative_path == Path(".") or ".." in relative_path.parts:
+                raise ValueError("adjudication visit path escapes its run root")
+            if owned_path.resolve() != resolved_run_root / relative_path:
+                raise ValueError("adjudication visit path is aliased")
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return AdjudicationResumeDecision.integrity_error(integrity_message)
+
+    return AdjudicationResumeDecision.rerun_exact_scope(
+        scope=AdjudicationResumeScope(
+            run_root=run_root,
+            frame_scope=frame_scope,
+            step_id=step_id,
+            visit_count=visit_count,
+            visit_paths=expected_paths,
+        ),
+        message=message,
+    )
+
+
 class AdjudicationResumeMixin:
     def _reconcile_adjudication_resume(
         self: AdjudicationRuntime,
         execution: AdjudicationExecution,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> AdjudicationResumeDecision:
         """Reconcile visit identity and load reusable sidecars when present."""
         candidate_roots = [
             candidate_paths(
@@ -72,6 +182,16 @@ class AdjudicationResumeMixin:
                 visit_paths=previous_visit_paths,
                 candidate_roots=previous_candidate_roots,
             ):
+                previous_scope = classify_adjudication_resume_mismatch(
+                    run_root=execution.run_root,
+                    frame_scope=execution.frame_scope,
+                    step_id=execution.step_id,
+                    visit_count=previous_visit_count,
+                    visit_paths=previous_visit_paths,
+                    message="previous adjudication visit scope is not canonical",
+                )
+                if previous_scope.kind == "integrity_error":
+                    return previous_scope
                 execution.visit_count = previous_visit_count
                 step_visits = execution.state.get("step_visits", {})
                 if isinstance(step_visits, dict):
@@ -82,10 +202,8 @@ class AdjudicationResumeMixin:
 
         if sidecars_exist:
             if not self.resume_mode:
-                return self._adjudication_failure_result(
-                    "adjudication_resume_mismatch",
+                return AdjudicationResumeDecision.integrity_error(
                     "existing adjudication sidecars require resume reconciliation before rerun",
-                    visit_paths=execution.visit_paths,
                 )
             resume_state = self._load_adjudication_resume_state(
                 candidates_config=execution.candidates_config,
@@ -99,7 +217,21 @@ class AdjudicationResumeMixin:
                 visit_paths=execution.visit_paths,
             )
             if isinstance(resume_state.get("error"), dict):
-                return resume_state["error"]
+                failure = resume_state["error"]
+                error = failure.get("error", {})
+                message = (
+                    error.get("message")
+                    if isinstance(error, dict) and isinstance(error.get("message"), str)
+                    else "adjudication resume state does not match its sidecars"
+                )
+                return classify_adjudication_resume_mismatch(
+                    run_root=execution.run_root,
+                    frame_scope=execution.frame_scope,
+                    step_id=execution.step_id,
+                    visit_count=execution.visit_count,
+                    visit_paths=execution.visit_paths,
+                    message=message,
+                )
             execution.resume_state = resume_state
             execution.baseline_manifest = resume_state["baseline_manifest"]
             execution.candidates = resume_state["candidates"]
@@ -110,12 +242,15 @@ class AdjudicationResumeMixin:
             execution.resume_loaded = not execution.resume_baseline_only
 
         if sidecars_exist and not execution.resume_loaded and not execution.resume_baseline_only:
-            return self._adjudication_failure_result(
-                "adjudication_resume_mismatch",
-                "existing adjudication sidecars require resume reconciliation before rerun",
+            return classify_adjudication_resume_mismatch(
+                run_root=execution.run_root,
+                frame_scope=execution.frame_scope,
+                step_id=execution.step_id,
+                visit_count=execution.visit_count,
                 visit_paths=execution.visit_paths,
+                message="existing adjudication sidecars require resume reconciliation before rerun",
             )
-        return None
+        return AdjudicationResumeDecision.reuse()
 
     def _load_adjudication_resume_state(
             self: AdjudicationRuntime,

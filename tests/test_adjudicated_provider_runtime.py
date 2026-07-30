@@ -2573,7 +2573,7 @@ def test_existing_adjudication_sidecars_fail_fast_without_rebaseline(tmp_path: P
 
     result = state["steps"]["Draft"]
     assert result["status"] == "failed"
-    assert result["error"]["type"] == "adjudication_resume_mismatch"
+    assert result["error"]["type"] == "adjudication_state_integrity_error"
     assert stale_baseline.read_text(encoding="utf-8") == "original baseline sidecar"
     assert stale_packet.read_text(encoding="utf-8") == '{"packet": "stale"}'
 
