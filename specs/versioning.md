@@ -4,6 +4,22 @@
   - DSL version: governs available fields and validation behavior.
   - State schema version: `schema_version` stored in `state.json`.
 
+- ML-0 contract pivot (provider attempts)
+  - Provider attempt recovery changes from exactly-once quarantine to
+    at-least-once discard-and-rerun without changing the DSL version or state
+    schema version. This applies uniformly to ordinary, session, supervision,
+    peer-group, phased, and exact-scope adjudication recovery.
+  - The normative contract is accepted before its runtime tranches, so runtime
+    implementation is pending until ML-1, ML-2, and ML-4 close. Capability
+    status must not describe the new behavior as implemented during that
+    interval.
+  - Compatible completed-result reuse, managed jobs, declared resource
+    transitions, source/checkpoint guards, lineage, atomic publication, and
+    peer message ledgers remain unchanged.
+  - The provider-isolation transfer journal remains unchanged. Its separately
+    owner-gated ML-3 simplification is deferred and no security surface is
+    selected by this pivot.
+
 - v1.1 baseline
   - Core DSL: steps with provider/command/wait_for, conditionals, for_each.
   - No dependency injection.
@@ -175,7 +191,10 @@
   - Fresh session handles are runtime-owned publications: the handle is materialized on `steps.<Step>.artifacts.<publish_artifact>` and appended to `artifact_versions` only after the exact visit's final step result, same-visit lineage appends, and matching `current_step` clearance are committed together.
   - Resume consumes still participate in ordinary lineage selection, but the reserved `session_id_from` consume is excluded from prompt injection and `consume_bundle`.
   - Session-enabled visits create canonical observability artifacts under `.orchestrate/runs/<run_id>/provider_sessions/`.
-  - `orchestrate resume` quarantines interrupted session-enabled visits instead of replaying them; `--force-restart` remains the explicit escape hatch.
+  - The original v2.10 release quarantined interrupted session-enabled visits.
+    The ML-0 contract pivot supersedes that recovery policy with validated
+    discard-and-rerun; the session schema and completed-result reuse are
+    unchanged.
 
 - v2.11 additions (adjudicated provider steps)
   - Step-level `adjudicated_provider` runs one logical artifact-producing provider step through one or more isolated candidates, scores output-valid candidates with an evaluator provider, selects the highest finite score, and promotes only the selected candidate's declared deterministic outputs.
@@ -207,8 +226,9 @@
     An older module's authored type with the same name therefore retains its
     prior meaning. There is no YAML spelling.
   - State schema remains `2.1`; the node's required
-    `provider_supervision.v1` config tag and interrupted-visit quarantine
-    provide the additive compatibility boundary.
+    `provider_supervision.v1` config tag provides the additive compatibility
+    boundary. The original interrupted-visit quarantine policy is superseded
+    by the ML-0 at-least-once recovery contract.
 
 - v2.17 additions (Workflow Lisp provider peer groups)
   - Target DSL `2.17` reserves and accepts the `.orc`-only
@@ -238,8 +258,9 @@
     spelling.
   - `workflow_executable_ir.v1`, runtime-plan v1, Semantic IR v1, source-map
     v1, and state schema `2.1` remain their envelope versions. Older runtimes
-    reject the unknown peer-group node kind; interrupted visits use the
-    additive peer-group quarantine contract rather than a schema migration.
+    reject the unknown peer-group node kind. The original additive peer-group
+    quarantine policy is superseded by ML-0 at-least-once recovery without a
+    schema migration.
 
 - v2.18 additions (Workflow Lisp bounded list traversal)
   - Target `2.18` adds the `(list ...)` constructor; total
@@ -357,7 +378,8 @@
     `provider_phased_delivery_diagnostic.v1`, and
     `workflow_prompt_context_report.v2` are additive, content-free,
     non-authoritative evidence/report surfaces. Completed reuse does not read
-    the ledger; interrupted nonterminal phased visits are sticky-quarantined.
+    the ledger; ML-0 supersedes sticky quarantine for interrupted nonterminal
+    phased visits with whole-visit discard and a fresh attempt.
   - The closed `provider_call_policy` ordering becomes `model`, `effort`,
     `delivery`, `materialization_attempts`. Only model/effort are
     provider-bound; delivery/attempts are runtime-only, and `timeout_sec`
@@ -523,14 +545,14 @@ Planned acceptance:
 | 2.7 | Top-level post-test `repeat_until` with loop-frame outputs and resume-safe iteration bookkeeping | Loop conditions read only `self.outputs.*`; downstream refs target the loop frame outputs on the authored step; direct nested `call`, `match`, and `if/else` bodies are allowed. |
 | 2.8 | Score-aware predicate helper `score` for thresholds and score bands | Thin sugar over numeric typed predicates; keeps benchmark gating inside the existing `when` / `assert` / structured-control surfaces. |
 | 2.9 | Advisory authoring linting / normalization hints surfaced in CLI dry-run and report output | Warns about migration candidates without turning valid workflows into validation failures. |
-| 2.10 | Scalar `string` contracts and first-class provider-session resume | Adds runtime-owned fresh/resume session handles for root-level provider steps plus interrupted-visit quarantine. |
+| 2.10 | Scalar `string` contracts and first-class provider-session resume | Adds runtime-owned fresh/resume session handles for root-level provider steps. Its original interrupted-visit quarantine is superseded by the ML-0 at-least-once recovery contract. |
 | 2.11 | `adjudicated_provider` steps | Runs isolated artifact-producing candidates, scores valid outputs through a same-trust-boundary evaluator, promotes the selected declared outputs, and records adjudication ledgers/state without stdout-derived step output. |
 | 2.12 | `repeat_until.on_exhausted.outputs` | Lets bounded post-test loops route deterministic non-convergence through authored scalar loop-frame outputs while preserving hard failures for body, output, and predicate errors. |
 | 2.13 | `managed_jobs` provider-step modifier | Adds runtime-owned managed job interception, guard/shim execution, watcher classification, audit/recovery state, and managed outcome routing for provider-launched training jobs. |
 | 2.14 | `materialize_artifacts`, `pre_snapshot`, `variant_output`, `select_variant_output`, and `requires_variant` | Adds deterministic typed materialization, durable snapshot-diff evidence, tagged-union output validation, atomic variant bundle selection, and author-time variant availability proof. |
 | 2.15 | Direct JSON root results (`output_bundle` fields with `json_pointer: ""`), public `optional\|list\|map` output and structured-result schemas, strict effect-boundary `guidance` / `guidance_context` / `guidance_by_variant`, and top-level workflow `result_guidance` | Promoted after the combined native-transportable-return and typed-result-guidance gate. Ordinary loader entrypoints, Workflow Lisp shared validation, CLI run/resume/report, dashboard projection, and imported-bundle loading accept the same version. v2.14 rejects the new guidance containers and retains its existing record/union contracts. Guidance is non-runtime metadata and does not change artifact names, value validity, source identities, checkpoint identities, or resume behavior. |
-| 2.16 | `.orc` `with-live-providers`, reserved `ProviderSteeringDirective`, structural `session_support.turn_boundary_resume`, default provider observation, and `provider_supervision.v1` | Adds exactly-two-member bounded provider overlap inside one atomic workflow node, one validated observation edge, pure settlement, at most one exact-session resume, and interrupted-visit quarantine. General authored concurrency and parallel blocks remain unsupported. State schema remains `2.1`. |
-| 2.17 | `.orc` `with-live-provider-peers`, structural `interactive_session_support`, exact-attempt peer ingress, and `provider_peer_group.v1` | Adds static two-through-eight-member bounded provider overlap with durable record-before-offer receiver ledgers, cooperative acknowledgement/finish, typed direct-root member bundles, pure atomic settlement, natural-shutdown proof, failed cleanup, and interrupted-visit quarantine. It adds no forcing edge and leaves target-2.16 supervision artifacts unchanged. State schema remains `2.1`. |
+| 2.16 | `.orc` `with-live-providers`, reserved `ProviderSteeringDirective`, structural `session_support.turn_boundary_resume`, default provider observation, and `provider_supervision.v1` | Adds exactly-two-member bounded provider overlap inside one atomic workflow node, one validated observation edge, pure settlement, and at most one exact-session resume. Its original interrupted-visit quarantine is superseded by ML-0 at-least-once recovery. General authored concurrency and parallel blocks remain unsupported. State schema remains `2.1`. |
+| 2.17 | `.orc` `with-live-provider-peers`, structural `interactive_session_support`, exact-attempt peer ingress, and `provider_peer_group.v1` | Adds static two-through-eight-member bounded provider overlap with durable record-before-offer receiver ledgers, cooperative acknowledgement/finish, typed direct-root member bundles, pure atomic settlement, natural-shutdown proof, and failed cleanup. Its original interrupted-visit quarantine is superseded by ML-0 at-least-once recovery. It adds no forcing edge and leaves target-2.16 supervision artifacts unchanged. State schema remains `2.1`. |
 | 2.18 | Workflow Lisp bounded list traversal, mapping, list loop state, and rooted path joining | Adds `(list ...)`, five total list operators, pure `list/map`, bounded `list/map-effect`, structurally eligible `List[T]` loop state, and pure containment-checked `path/join-under`. New pure expressions use payload schema 2 and effectful mapping erases to existing loop/call/checkpoint machinery; state schema remains `2.1`. |
 | 2.19 | Compiler-owned exact `Value`, `type: value`, and public `kind: value` | Adds an opaque strict-JSON transport contract with exact source compatibility, sole direct-root `__result__` carriage and no envelope, recursive failure paths, description/format-hint guidance without examples, and unchanged state schema `2.1`. Classic/WCC, state, checkpoint, and resume preserve the declared type rather than payload shape; targets below 2.19 reject it. |
 | 2.20 | Workflow Lisp `defprompt`, closed fragment slots, and prompt-owned structured returns | Adds fully applied importable fragments, exact v1 fragment identity/carriage, schema-2.1 prompt snapshots, and compatible completed-boundary reuse. |

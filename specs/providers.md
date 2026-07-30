@@ -4,6 +4,20 @@ Fresh authored workflows reach this contract through compiled `.orc` source
 only. The mapping snippets below describe the validated Core/executable provider
 shape; YAML-fenced snippets are schema notation, not accepted workflow files.
 
+- Provider attempt lifecycle
+  - At-least-once recovery applies to a validated interrupted in-flight
+    ordinary, session, supervision, peer-group, or phased provider visit.
+    Ordinary dispatch uses the next unused attempt ordinal and never reuses
+    partial attempt content. Compatible completed-result reuse remains
+    invocation-free.
+  - Recovery is runtime control, not provider guidance. It emits
+    `provider_attempt_interrupted_rerun` to the operator and does not add an
+    instruction to the prompt.
+  - Managed-job recovery, declared resource-transition replay, provider
+    isolation transfer reconciliation, root/callee checksum guards, checkpoint
+    validation, and atomic structured-result publication remain governed by
+    their existing contracts.
+
 - Provider templates
   - Define CLI command and input mode:
     - `command: string[]` may reference `${PROMPT}` in argv mode.
@@ -584,12 +598,12 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     The interactive adapter owns the provider client pane; the observation
     manager and its display pane are not an input path.
   - One runtime endpoint is created per group visit and is bound to the exact
-    run, step, node, visit, and endpoint instance. After crash-durable member
-    attempt allocation, each provider receives an opaque binding that resolves
-    server-side to one exact member id, attempt scope, attempt ordinal, and
-    endpoint instance. The endpoint and opaque bindings are process-local
-    handles, not workflow values, result state, checkpoint identity, or
-    reusable evidence.
+    run, step, node, visit, and endpoint instance. After root-owned monotonic
+    member attempt allocation, each provider receives an opaque binding that
+    resolves server-side to one exact member id, attempt scope, attempt
+    ordinal, and endpoint instance. The endpoint and opaque bindings are
+    process-local handles, not workflow values, result state, checkpoint
+    identity, or reusable evidence.
   - The member-visible client surface is exactly:
     `orchestrator peer-ready`, `orchestrator peer-send <target-binding>
     <message>`, `orchestrator peer-ack <message-id>`, and

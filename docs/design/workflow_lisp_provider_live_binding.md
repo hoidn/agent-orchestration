@@ -1,7 +1,10 @@
 # Workflow Lisp Provider Live Binding
 
 - **Status:** v1 target-`2.16` supervision and additive v1.1 target-`2.17`
-  peer messaging are implemented
+  peer messaging are implemented. Their original interrupted-visit quarantine
+  sections describe the pre-ML behavior and are superseded by the normative
+  at-least-once contract in `specs/state.md`; ML-1 runtime implementation is
+  pending and does not reopen the completed v1/v1.1 feature gates.
 - **Kind:** feature / provider observation, bounded concurrency, and
   turn-boundary supervision architecture
 - **Owner:** Workflow Lisp frontend + provider runtime
@@ -14,6 +17,10 @@
   implementation tasks received ordered specification and quality review
 - **Created:** 2026-07-13
 - **Last material update:** 2026-07-24
+- **Normative recovery note (2026-07-30):** preserve all member, settlement,
+  message-ledger, cleanup, and completed-result rules below. Read any
+  interrupted-visit quarantine wording as historical design provenance; the
+  ML-0 spec pivot replaces only that policy with guarded discard-and-rerun.
 - **Related docs / plans:**
   - `docs/design/workflow_lisp_frontend_specification.md`
   - `docs/design/workflow_lisp_executable_ir.md`

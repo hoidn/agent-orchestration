@@ -52,6 +52,15 @@ M0_GREEN_BASELINE_PLAN_PATH = (
 M1_ESTATE_SHRINK_PLAN_PATH = (
     "docs/plans/2026-07-29-m1-estate-shrink-component-plan.md"
 )
+ML1_PROVIDER_RECOVERY_PLAN_PATH = (
+    "docs/plans/2026-07-30-provider-at-least-once-recovery-component-plan.md"
+)
+ML2_PROVIDER_ALLOCATOR_PLAN_PATH = (
+    "docs/plans/2026-07-30-provider-attempt-allocator-simplification-component-plan.md"
+)
+ML4_ADJUDICATION_RECOVERY_PLAN_PATH = (
+    "docs/plans/2026-07-30-adjudication-rerun-recovery-component-plan.md"
+)
 REFUSAL_DIAGNOSABILITY_PLAN_PATH = (
     "docs/plans/2026-07-23-refusal-diagnosability-fixes-plan.md"
 )
@@ -4303,9 +4312,10 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     normalized_track_header = _normalized_routing_text(track_header)
     assert "m0 is historical complete" in normalized_track_header
     assert "m1 was selected" in normalized_track_header
-    assert "implemented closure candidate" in normalized_track_header
-    assert "task 9" in normalized_track_header
-    assert "postcommit" in normalized_track_header
+    assert "m1 is historical complete" in normalized_track_header
+    assert "57c2604e595d22dc9d9d656409607f81b332b5f8" in track_header
+    assert "fc0fdbefe2cdd99cf0f9de604aa63582f79425ea" in track_header
+    assert "postcommit selector passed" in normalized_track_header
     assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in track_header
     assert "later phase defaults remain recorded" in normalized_track_header
     listing_guard = next(
@@ -4320,11 +4330,11 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
         1,
     )[0]
     normalized_m1 = _normalized_routing_text(m1_section)
-    assert "status: implemented closure candidate" in normalized_m1
+    assert "status: historical complete" in normalized_m1
     assert "selected the exact task 0 candidate" in normalized_m1
-    assert "task 9" in normalized_m1
-    assert "commit" in normalized_m1
-    assert "postcommit" in normalized_m1
+    assert "57c2604e595d22dc9d9d656409607f81b332b5f8" in m1_section
+    assert "fc0fdbefe2cdd99cf0f9de604aa63582f79425ea" in m1_section
+    assert "postcommit selector passed" in normalized_m1
     assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in m1_section
     assert "route readiness" in normalized_m1
     assert "retained" in normalized_m1
@@ -4337,11 +4347,18 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
         1,
     )[1].split("## Phase MC:", 1)[0]
     normalized_ml = _normalized_routing_text(ml_section)
-    assert "eligible" in normalized_ml
-    assert "unselected" in normalized_ml
+    assert "selected" in normalized_ml
+    assert "ml 0" in normalized_ml
+    assert "normative contract" in normalized_ml
+    assert "implementation pending" in normalized_ml
     assert "ml 0" in normalized_ml
     assert "specification amendment" in normalized_ml
-    assert "component plan" in normalized_ml
+    for component_plan in (
+        ML1_PROVIDER_RECOVERY_PLAN_PATH,
+        ML2_PROVIDER_ALLOCATOR_PLAN_PATH,
+        ML4_ADJUDICATION_RECOVERY_PLAN_PATH,
+    ):
+        assert Path(component_plan).name in ml_section
 
     substrate_index_route = index.split(
         "**Current substrate selection:**",
@@ -4351,25 +4368,27 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
         substrate_index_route
     )
     assert "m0 is historical complete" in normalized_substrate_index_route
-    assert "m1 is the current selected tranche" in (
+    assert "m1 is historical complete" in normalized_substrate_index_route
+    assert "ml is selected" in normalized_substrate_index_route
+    assert "ml 0 is the current selection candidate" in (
         normalized_substrate_index_route
     )
-    assert "implemented closure candidate" in normalized_substrate_index_route
-    assert "task 9" in normalized_substrate_index_route
-    assert "postcommit" in normalized_substrate_index_route
-    assert "ml is eligible but unselected" in normalized_substrate_index_route
-    assert "ml 0 specification amendment" in normalized_substrate_index_route
-    assert "component plan" in normalized_substrate_index_route
+    assert "normative specification amendment" in (
+        normalized_substrate_index_route
+    )
+    assert "runtime implementation remains pending" in (
+        normalized_substrate_index_route
+    )
 
     normalized_plan = _normalized_routing_text(m1_plan)
     normalized_plan_header = _normalized_routing_text(
         "\n".join(m1_plan.splitlines()[:35])
     )
-    assert "status: implemented closure candidate" in normalized_plan_header
+    assert "status: historical complete" in normalized_plan_header
     assert "historical selection act" in normalized_plan_header
-    assert "task 9" in normalized_plan_header
-    assert "commit" in normalized_plan_header
-    assert "postcommit" in normalized_plan_header
+    assert "tasks 0 9" in normalized_plan_header
+    assert "57c2604e595d22dc9d9d656409607f81b332b5f8" in m1_plan
+    assert "fc0fdbefe2cdd99cf0f9de604aa63582f79425ea" in m1_plan
     assert m1_plan.index("M1_PLAN_SPEC_APPROVED") < m1_plan.index(
         "M1_PLAN_QUALITY_APPROVED"
     )
@@ -4431,3 +4450,100 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "5b63aca18c2c013395aecede0210e4b522f7c846549ed23d879505635f226810" in (
         m0_plan
     )
+
+
+def test_ml0_selects_at_least_once_recovery_with_reviewable_component_bounds() -> None:
+    track = (REPO_ROOT / SUBSTRATE_MAINTENANCE_TRACK_PATH).read_text(
+        encoding="utf-8"
+    )
+    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
+    state_spec = (REPO_ROOT / "specs/state.md").read_text(encoding="utf-8")
+    providers_spec = (REPO_ROOT / "specs/providers.md").read_text(
+        encoding="utf-8"
+    )
+    cli_spec = (REPO_ROOT / "specs/cli.md").read_text(encoding="utf-8")
+    observability_spec = (REPO_ROOT / "specs/observability.md").read_text(
+        encoding="utf-8"
+    )
+    acceptance = (REPO_ROOT / "specs/acceptance/index.md").read_text(
+        encoding="utf-8"
+    )
+    versioning = (REPO_ROOT / "specs/versioning.md").read_text(
+        encoding="utf-8"
+    )
+
+    plans = {
+        path: (REPO_ROOT / path).read_text(encoding="utf-8")
+        for path in (
+            ML1_PROVIDER_RECOVERY_PLAN_PATH,
+            ML2_PROVIDER_ALLOCATOR_PLAN_PATH,
+            ML4_ADJUDICATION_RECOVERY_PLAN_PATH,
+        )
+    }
+    for path, plan in plans.items():
+        assert Path(path).name in track
+        assert Path(path).name in index
+        assert "superpowers:subagent-driven-development" in plan
+        assert "RED" in plan
+        assert "specification review" in plan
+        assert "quality review" in plan
+        assert "security" in _normalized_routing_text(plan)
+
+    normalized_state = _normalized_routing_text(state_spec)
+    assert "provider attempts are at least once" in normalized_state
+    assert "provider_attempt_interrupted_rerun" in state_spec
+    attempt_contract = state_spec.split(
+        "Provider attempts are at-least-once across",
+        1,
+    )[1].split("provider execution", 1)[0]
+    for family in ("ordinary", "session", "supervision", "peer-group", "phased"):
+        assert family in attempt_contract
+    assert "completed result reuse" in normalized_state
+    integrity_contract = normalized_state.split(
+        "provider attempts are at least once",
+        1,
+    )[1].split("state backups and cleanup", 1)[0]
+    for guard in ("malformed", "ambiguous", "checksum incompatible", "fails closed"):
+        assert guard in integrity_contract
+    assert "provider isolation bundle transfer journal" in normalized_state
+    assert "not amended" in normalized_state
+    assert "plain monotonic counter" in normalized_state
+    assert "run lifetime lock" in normalized_state
+    assert "best effort audit evidence" in normalized_state
+    assert "adjudication_resume_mismatch" not in state_spec
+
+    normalized_providers = _normalized_routing_text(providers_spec)
+    assert "at least once recovery" in normalized_providers
+    assert "next unused attempt ordinal" in normalized_providers
+
+    normalized_cli = _normalized_routing_text(cli_spec)
+    assert "provider_attempt_interrupted_rerun" in cli_spec
+    assert "force restart is not required" in normalized_cli
+
+    normalized_observability = _normalized_routing_text(observability_spec)
+    assert "provider_attempt_interrupted_rerun" in observability_spec
+    assert "recovery diagnostic, not a run level failure" in (
+        normalized_observability
+    )
+    assert "provider_peer_group_interrupted_visit_quarantined" not in (
+        observability_spec
+    )
+
+    normalized_acceptance = _normalized_routing_text(acceptance)
+    assert "at least once interrupted visit recovery" in normalized_acceptance
+    assert "phased" in normalized_acceptance
+    assert "adjudication mismatch" in normalized_acceptance
+
+    normalized_versioning = _normalized_routing_text(versioning)
+    assert "ml 0 contract pivot" in normalized_versioning
+    assert "runtime implementation is pending" in normalized_versioning
+    assert "provider isolation transfer journal remains unchanged" in (
+        normalized_versioning
+    )
+
+    normalized_index = _normalized_routing_text(index)
+    assert "provider at least once recovery component plan" in normalized_index
+    assert "provider attempt allocator simplification component plan" in (
+        normalized_index
+    )
+    assert "adjudication rerun recovery component plan" in normalized_index

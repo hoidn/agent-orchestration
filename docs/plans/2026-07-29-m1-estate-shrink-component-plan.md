@@ -21,11 +21,14 @@ migration or compatibility coupling.
 **Tech stack:** Python 3.13, pytest/xdist, Workflow Lisp `.orc`, setuptools
 wheel discovery, Git, POSIX filesystem rename and SHA-256 manifests.
 
-**Status:** implemented closure candidate. Tasks 0–8 and Task 9 Steps 1–3 are
-complete. The ordered final reviews, reviewed closure commit, and postcommit
-control remain. Task 0's historical selection act was the externally reviewed
-commit `4e71093d`; no checked-in byte self-attests either that review or the
-still-pending final reviews.
+**Status:** historical complete. Tasks 0–9, ordered final reviews, reviewed
+closure commit, and postcommit control are complete at commit
+`57c2604e595d22dc9d9d656409607f81b332b5f8`, tree
+`fc0fdbefe2cdd99cf0f9de604aa63582f79425ea`. The external closure record
+currently has SHA-256
+`b5c0624bd6759e4cf2a3d0153c42a1aa9068ebcab2050c15237d9cb74b95470b`.
+Task 0's historical selection act was the externally reviewed commit
+`4e71093d`; no checked-in byte self-attests an external verdict.
 
 ---
 
@@ -139,7 +142,7 @@ appear in ordinary live-run listings until deliberately restored. Keeping the
 six old current-format nonterminal runs means M1 does not fully empty the live
 root; their later disposition remains separate work.
 
-## Execution closure candidate
+## Historical execution closure
 
 Tasks 0–7 landed in order:
 
@@ -909,7 +912,7 @@ Run the roadmap routing selector, route-readiness check, CLI help, package
 absence checks, and wheel-content check. Do not re-run a workflow or a test
 that writes the live run root after the Task 8 archive census.
 
-- [ ] **Step 4: Obtain ordered final reviews**
+- [x] **Step 4: Obtain ordered final reviews**
 
 Bind the exact closure diff, task-commit list, gate-log digests, and archive
 manifest digest. Required verdicts, once each:
@@ -921,7 +924,7 @@ If a material finding changes a byte or evidence binding, apply one batched
 correction and replay the ordered pair. Do not re-review unchanged M0, Q5, or
 L-series surfaces.
 
-- [ ] **Step 5: Commit the exact reviewed closure candidate**
+- [x] **Step 5: Commit the exact reviewed closure candidate**
 
 Commit only the reviewed repository bytes with subject:
 
@@ -932,12 +935,21 @@ Close M1 estate shrink
 Bind the resulting commit and tree to the external verdict record. The commit
 must contain exactly the reviewed index.
 
-- [ ] **Step 6: Run the postcommit control**
+- [x] **Step 6: Run the postcommit control**
 
 Run the non-mutating Task 9 selector against the committed tree. Record its
 result and log SHA-256 externally. Only then mark M1 complete and expose ML as
 eligible/unselected; selection of the next tranche requires its own governing
 gate and plan.
+
+Closure commit
+`57c2604e595d22dc9d9d656409607f81b332b5f8` has tree
+`fc0fdbefe2cdd99cf0f9de604aa63582f79425ea`. The postcommit selector passed in
+1.03 seconds; its log SHA-256 is
+`63666262609cff772df33f9b25c9d6a2f55668c9028953f476842f31ddc09e3b`.
+The external record contains `M1_FINAL_SPEC_APPROVED` followed by
+`M1_FINAL_QUALITY_APPROVED`; neither review was repeated because neither found
+a material issue.
 
 ---
 

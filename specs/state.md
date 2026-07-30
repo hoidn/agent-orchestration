@@ -14,10 +14,9 @@
   - `workflow_outputs`: v2.1+ typed workflow outputs exported after successful workflow completion
   - `finalization`: v2.3+ workflow finalization bookkeeping (`status`, `body_status`, `current_index`, `completed_indices`, `workflow_outputs_status`, optional `failure`)
   - `error`: optional run-level error object for workflow-boundary failures such as output export contract violations
-    - v2.10 also uses this surface for provider-session quarantine failures (`type: "provider_session_interrupted_visit_quarantined"`)
-    - v2.16 and v2.17 use this surface for interrupted composite-provider
-      visit quarantine failures (`provider_supervision_interrupted_visit_quarantined`
-      and `provider_peer_group_interrupted_visit_quarantined`)
+    - provider interruption recovery is not a run-level failure; a validated
+      in-flight visit is discarded and re-run under the at-least-once contract
+      below
   - `runtime_observability`: optional additive executor-session accounting used only for reports and status projections. It records one session per `run` or `resume` executor process under `executor_sessions[]`, with `session_id`, `entrypoint`, `pid`, optional `process_start_time`, `started_at`, `ended_at`, `status`, and `duration_ms`. Closed session durations contribute to active runtime; gaps between sessions do not.
   - `steps`: map of step results
   - `for_each`: loop bookkeeping: `items`, `completed_indices`, `current_index`
@@ -117,7 +116,10 @@
   - Atomic writes: write temp file then rename.
   - Include workflow checksum to detect modifications.
   - On corruption: `resume --repair` attempts recovery from latest valid backup; `resume --force-restart` creates a new run.
-  - v2.10 interrupted session-enabled visits are quarantined instead of replayed on resume; quarantine clears the matching `current_step`, preserves older same-name terminal results, and records a durable run-level error that points to the canonical metadata and transport-spool paths.
+  - Provider attempts are at-least-once. After all ordinary source, checksum,
+    projection, bound-input, checkpoint, and completed-result guards pass, an
+    exact interrupted in-flight visit is discarded and re-run; malformed,
+    ambiguous, or checksum-incompatible state still fails closed.
 
 - State backups and cleanup
   - When `--backup-state` is enabled or `--debug` is set, copy `state.json` to `state.json.step_<Step>.bak` before each step (keep last 3).
@@ -154,17 +156,26 @@
 
 ## Provider Prompt-Dependency Attempt State And Resume
 
+- Provider attempts are at-least-once across ordinary, session, supervision,
+  peer-group, and phased provider execution. An exact interrupted in-flight
+  visit is marked `interrupted` where truthful evidence is available, its
+  partial result authority is discarded, and ordinary dispatch allocates a
+  fresh attempt. The runtime emits the named operator-visible diagnostic
+  `provider_attempt_interrupted_rerun` exactly once before re-paying the
+  provider call. Provider prompts do not carry this runtime obligation.
 - A Workflow Lisp provider boundary with a typed prompt-dependency contract
   allocates its attempt ordinal in root `RunState.provider_attempt_allocations`.
   The member is omitted while empty. It is root-owned across ordinary, loop,
-  call-frame, and adjudicated execution; nested state managers do not maintain
-  competing counters.
-- Allocation is a crash-durable state transition. The state file and containing
-  directory are synchronized before the allocated ordinal is used, and the
-  state-mutation lock serializes allocation with other root-state writers.
-  Allocation events and later evidence-publication events form a closed,
-  append-only per-scope sequence. Filesystem evidence paths never allocate or
-  recover an ordinal.
+  call-frame, phased, supervision, peer-group, and adjudicated execution;
+  nested state managers do not maintain competing counters.
+- Each allocation entry is a plain monotonic counter: its closed current form
+  contains the exact scope plus `last_allocated_ordinal`. One exclusive
+  run-lifetime lock serializes all state writers for `run` or `resume`; inside
+  it, an in-process lock increments the counter and the ordinary atomic state
+  writer persists it. A discarded ordinal and any partial attempt directory
+  are never reused for different execution content. Historical lifecycle-event
+  lists may be read only to derive the same counter and are omitted by the next
+  write; evidence paths and records never allocate an ordinal.
 - The provider lexical checkpoint identity includes the typed dependency
   contract, including required/optional partition, position, and instruction.
   Changing that contract is incompatible program input. Mutable file-content
@@ -176,18 +187,28 @@
 - Workflow Lisp attempt records are content-free evidence views derived from
   the immutable in-memory snapshot. They do not contain dependency bodies or
   prompt text and are not provider selection, execution, checkpoint, or resume
-  authority. Runtime does not enumerate or validate earlier records when
-  resuming.
+  authority. They are best-effort audit evidence: absence, truncation, or an
+  incomplete record after interruption does not fail recovery. Runtime does
+  not enumerate or validate earlier records when resuming.
 - A terminal-only offline validator may derive a content-addressed validated
   index from a frozen authoritative allocation projection and immutable record
   digests. That index is reproducible, non-authoritative evidence; runtime and
   resume never read it. A later authoritative state change makes an older
   index stale rather than changing runtime behavior.
+- Compatible completed-result reuse remains authoritative and returns the
+  committed structured result without invoking the provider. At-least-once
+  discard-and-rerun applies only to a validated in-flight visit. Missing,
+  malformed, ambiguous, foreign, or checksum-incompatible state still fails
+  closed before any provider launch.
+- The Provider-Isolation Bundle-Transfer Journal section is not amended by this
+  contract pivot. Its transfer reconciliation and implementation remain
+  unchanged until the separately owner-gated ML-3 tranche; recovery may not
+  discard or bypass isolation-transfer authority.
 
 ## Workflow Lisp Prompt Fragment Attempt State And Resume
 
 - A target-2.20 fragment-backed provider boundary uses the same root-owned,
-  crash-durable provider-attempt allocation as typed prompt dependencies. Its
+  monotonic provider-attempt allocation as typed prompt dependencies. Its
   compiler dependency contract has origin `workflow_lisp_prompt_fragment`;
   even a fragment with no document slots allocates and publishes an explicit
   prompt snapshot for the receiving attempt.
@@ -356,10 +377,13 @@
   ledger, candidate files, or attempt-evidence records and does not reconstruct
   evidence from current source.
 - An interrupted nonterminal phased visit is detected from authoritative
-  `current_step` state and becomes a sticky
-  `provider_phased_interrupted_visit_quarantined` failure. It is never
-  ordinarily resumed or silently restarted. Missing, malformed, conflicting,
-  or ambiguous state/evidence needed to classify the boundary fails closed.
+  `current_step` state. After ordinary guards validate the exact visit, its
+  partial ledger/candidate authority is discarded and the whole phased visit
+  re-enters at the task turn with a fresh attempt and
+  `provider_attempt_interrupted_rerun`. Same-attempt materialization-only retry
+  remains unchanged. Missing, malformed, conflicting, or ambiguous
+  authoritative state needed to classify the boundary fails closed; missing
+  or torn evidence alone does not.
 
 ## Workflow Lisp Typed Prompt-Input Evidence
 
@@ -461,7 +485,7 @@
   atomic workflow step; its members do not publish independent workflow
   results or checkpoints.
 - The group visit is not a provider attempt. Worker-fresh and
-  supervisor-directive invocations each allocate a distinct crash-durable
+  supervisor-directive invocations each allocate a distinct root-owned
   root-owned provider-attempt ordinal; `STEER` allocates a third ordinal for
   the worker resume turn only after the prior boundary is validated. Attempt
   scopes are derived from group step id, visit, member id, and turn ordinal.
@@ -476,17 +500,16 @@
   dataflow publications, terminal step result, selected-attempt references,
   and exact matching `current_step` clearance as one state transaction.
 - If ordinary resume finds a matching running supervision visit without that
-  visit's terminal group result, it quarantines before restart-index planning,
-  state preparation for another visit, or provider launch. Quarantine sets the
-  run failed, clears only the exact matching `current_step`, preserves older
-  terminal results, records sticky
-  `provider_supervision_interrupted_visit_quarantined`, and marks the visit
-  `interrupted` with disposition `quarantined_interrupted_visit`.
+  visit's terminal group result, it first applies every ordinary integrity and
+  projection guard. It then marks available visit evidence `interrupted`,
+  clears only the exact matching `current_step`, preserves older terminal
+  results, emits `provider_attempt_interrupted_rerun`, and enters a fresh group
+  visit through ordinary dispatch. No member session, attempt, pane, or
+  provisional result from the interrupted visit is reused.
 - A mismatched or malformed supervision cursor/visit relationship fails with
   `provider_supervision_resume_state_integrity_error`. Ordinary resume never
-  replays a quarantined visit or reuses its member sessions. Only explicit
-  force restart or a new run may cross the quarantine boundary; existing root,
-  callee, checkpoint, and projection-integrity guards remain unchanged.
+  reuses an interrupted visit's member sessions. Existing root, callee,
+  checkpoint, and projection-integrity guards remain unchanged.
 
 ## Provider-Peer-Group State And Resume (v2.17)
 
@@ -496,7 +519,7 @@
   workflow step; members, messages, ledgers, and endpoints do not publish
   independent workflow results or checkpoints.
 - The group visit is not a provider attempt. Every member allocates one
-  distinct crash-durable root-owned provider-attempt ordinal in authored order
+  distinct root-owned provider-attempt ordinal in authored order
   before member launch. Attempt scopes derive from the group step identity,
   visit, and member id. A peer group has no member resume turn and no
   fresh-to-resume attempt transition.
@@ -537,18 +560,18 @@
   complete terminal peer evidence propagates after cleaning all known
   resources; it must not fabricate a terminal evidence record.
 - If ordinary resume finds a matching running peer-group visit without that
-  visit's terminal group result, it quarantines before restart-index planning,
-  state preparation for another visit, or provider launch. Quarantine sets the
-  run failed, clears only the exact matching `current_step`, preserves older
-  terminal results and partial ledgers/evidence, records sticky
-  `provider_peer_group_interrupted_visit_quarantined`, and marks the visit
-  `interrupted` with publication state `quarantined_interrupted_visit`.
+  visit's terminal group result, it first applies every ordinary integrity and
+  projection guard. It then preserves partial ledgers as audit-only evidence,
+  marks available visit evidence `interrupted`, clears only the exact matching
+  `current_step`, emits `provider_attempt_interrupted_rerun`, and enters a
+  fresh group visit through ordinary dispatch. No member attempt, endpoint,
+  pane, bundle, provisional result, or settlement from the interrupted visit
+  is reused.
 - A mismatched or malformed peer-group cursor/visit relationship fails with
   `provider_peer_group_resume_state_integrity_error`. Ordinary resume never
-  replays a quarantined visit or reuses its attempts, endpoint, panes, bundles,
-  or ledgers. Only explicit force restart or a new run may cross the
-  quarantine boundary; root/callee checksums, lexical checkpoint validation,
-  and projection-integrity guards remain unchanged.
+  reuses an interrupted visit's attempts, endpoint, panes, bundles, or ledgers.
+  Root/callee checksums, lexical checkpoint validation, and
+  projection-integrity guards remain unchanged.
 
 ## Reusable-Call State Contract (v2.5)
 
@@ -746,4 +769,13 @@ Schema boundary note:
 - Candidate/evaluator stdout-derived state is absent: `output`, `lines`, `json`, `truncated`, and `debug.json_parse_error` are not populated for adjudicated provider steps.
 - Run-local score ledgers live under `.orchestrate/runs/<run_id>/adjudication/<frame_scope>/<step_id>/<visit_count>/candidate_scores.jsonl`. Workspace-visible ledgers configured by `score_ledger_path` are terminal mirrors only.
 - Ledger rows are keyed by `candidate_run_key` and `score_run_key` and include candidate provider/model/prompt identity, scorer identity or scorer-unavailable metadata, packet hash when present, score status, selection status, promotion status, and attempt counts.
-- Resume must reconcile baseline manifest, candidate metadata, scorer snapshot or scorer-unavailable metadata, evaluation packets, ledger rows, and promotion manifests. Missing or mismatched state fails with `adjudication_resume_mismatch` unless a future explicit force-rerun path is used.
+- Resume reconciles the baseline manifest, candidate metadata, scorer snapshot
+  or scorer-unavailable metadata, evaluation packets, ledger rows, and
+  promotion manifests. A fully consistent completed visit is reused without
+  provider invocation. When inconsistent state can be bound to one exact
+  run-owned step/visit scope, the runtime discards only that visit's partial
+  adjudication state and sidecars, emits
+  `adjudication_state_mismatch_rerun`, and re-enters ordinary adjudicated-step
+  dispatch with fresh identities. Unknown, ambiguous, escaping, aliased, or
+  otherwise unprovable cleanup scope fails closed without mutation or provider
+  launch.

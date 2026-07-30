@@ -7,9 +7,8 @@
   tranche-level scope/gate owner for ML, MC, MR, and the M1 inventory
   extension. The track owns sequencing. Nothing is selected by listing:
   every phase still requires its own component plan (ML-0's reviewed spec
-  amendment first), and the two recorded bound conflicts (ML-3, M4 scope)
-  require explicit owner rulings before those tranches can enter a
-  component plan.
+  amendment first). ML-3 is now explicitly deferred under the owner's
+  security-surface exclusion; the M4 scope conflict remains separately gated.
 - **Driver:** owner direction recorded 2026-07-26: the no-provider-repeat
   constraint is too conservative — provider calls are not so expensive that
   they can never be repeated or "wasted". This amendment converts that
@@ -26,10 +25,11 @@
   (owner direction; ML-0's spec amendment still passes ordered
   specification/quality review before code changes); (4) phase-MR
   acceptance with MR-4's deletion-bound exception — RECORDED 2026-07-26
-  (incorporation request). Still pending, tracked as track decisions (5)
-  and (6): (2) ML-3's exception to the provider-isolation freeze, or
-  deferral until the freeze lifts; (3) whether boundary redraw (neutral IR
-  package) joins the M4 go/no-go scope.
+  (incorporation request); (2) ML-3 deferral — RECORDED by the owner's
+  instruction to skip security-related work, so no provider-isolation
+  implementation or normative journal section enters ML-0/1/2/4. Still
+  pending as the track's M4 go/no-go question: (3) whether boundary redraw
+  (neutral IR package) joins the M4 scope.
 - **Copy safety:** this is a plan, not authority. Runtime behavior stays
   owned by `specs/` until ML-0 lands; the audit appendix records evidence at
   the 2026-07-26 checkout and will go stale as phases execute.
@@ -237,16 +237,21 @@ track rules; this section fixes scope and gates only.
 ### ML-0 — Spec amendment (contract pivot, no code)
 
 Amend `specs/state.md`: §Provider Prompt-Dependency Attempt State And Resume
-(155-185: drop crash-durable allocation and closed append-only event
-sequences; ordinals become plain monotonic state), §Provider-Isolation
-Bundle-Transfer Journal (202-277: replace with write-tmp/fsync/rename/validate
-and discard-and-rerun recovery), §Provider-Supervision (279-313) and
-§Provider-Peer-Group (314-374) resume: quarantine paragraphs replaced by
-interrupted-visit discard-and-rerun, §Adjudicated Provider State (564-573):
-mismatch → re-run step, plus the v2.10 session-quarantine bullets (17-20,
-120). Touch `specs/providers.md` only where attempt allocation is referenced
-(~§391). Grep-audit remaining `quarantin`/`bundle_transfer` references across
-`specs/` and the `docs/index.md` clarification rows.
+(drop crash-durable allocation and closed append-only event sequences;
+ordinals become plain monotonic state), §Provider-Supervision and
+§Provider-Peer-Group resume (quarantine → interrupted-visit
+discard-and-rerun), the later-landed §Phased Contract Delivery route (whole
+interrupted visit → fresh attempt while same-attempt materialization retry
+stays unchanged), §Adjudicated Provider State (mismatch → exact-scope re-run),
+and the v2.10 session-quarantine bullets. Touch `specs/providers.md` where
+attempt allocation/recovery is referenced; align `specs/cli.md`,
+`specs/observability.md`, `specs/versioning.md`, and
+`specs/acceptance/index.md`. Grep-audit remaining active quarantine references
+across `specs/` and update `docs/index.md` clarification rows.
+
+The Provider-Isolation Bundle-Transfer Journal is explicitly not amended.
+ML-3 is deferred under the owner-directed security exclusion; its existing
+contract and implementation remain unchanged until a separate re-entry act.
 
 Gate: ordered independent specification and quality reviews of the amended
 spec text; capability/status rows updated.

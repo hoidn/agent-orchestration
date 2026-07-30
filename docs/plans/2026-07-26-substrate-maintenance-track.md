@@ -8,12 +8,16 @@
   `88f35cdd872ba9e5a9602d3e756ee81e2911c2384e74c6fa2388cdb907e2ba0e`.
   Its postcommit control passed 418 tests. M1 was selected by the externally
   reviewed Task 0 commit `4e71093d` in the
-  [M1 Estate Shrink Implementation Plan](2026-07-29-m1-estate-shrink-component-plan.md)
-  and is now an implemented closure candidate through Task 9's pre-review
-  controls. Ordered final reviews, the closure commit, and the postcommit
-  control remain. ML is the next eligible phase but remains unselected pending
-  its own ML-0 reviewed specification amendment and component plan. Amendment
-  phases ML, MC, MR and the M1
+  [M1 Estate Shrink Implementation Plan](2026-07-29-m1-estate-shrink-component-plan.md).
+  M1 is historical complete at commit
+  `57c2604e595d22dc9d9d656409607f81b332b5f8`, tree
+  `fc0fdbefe2cdd99cf0f9de604aa63582f79425ea`. Its postcommit selector passed,
+  and the external closure record has SHA-256
+  `b5c0624bd6759e4cf2a3d0153c42a1aa9068ebcab2050c15237d9cb74b95470b`.
+  ML-0 is the current selection candidate: this exact normative specification
+  amendment plus the linked ML-1, ML-2, and ML-4 component plans select ML only
+  after ordered external specification then quality approval and commit.
+  Runtime implementation remains pending. Amendment phases ML, MC, MR and the M1
   inventory extension were adopted into this shape
   2026-07-26 by owner direction (provider-repeat cost model and incorporation
   request). No other phase is selected by listing: ML, MC, MR, and M4 each
@@ -115,8 +119,8 @@ seams that loosening defines.
 | Phase | Work | Entry condition | Completion gate |
 | --- | --- | --- | --- |
 | M0 | Historical green baseline | complete at `f15b888d` under the reviewed [M0 component plan](2026-07-29-m0-green-baseline-component-plan.md) and external exact-commit closure | satisfied: bare `pytest` green; exact reviewed bytes committed; 418-pass postcommit control |
-| M1 | Estate shrink + adopted inventory extension | selected at reviewed Task 0 commit `4e71093d` under the [M1 component plan](2026-07-29-m1-estate-shrink-component-plan.md) | implemented closure candidate through Task 9's pre-review controls; final reviews, closure commit, and postcommit control remain |
-| ML | Provider at-least-once loosening | eligible after M1 closure and Q0; unselected pending its own component plan and reviewed ML-0 specification amendment | amendment per-tranche gates; kill-mid-provider crash-resume E2E green; broad non-security suite green |
+| M1 | Estate shrink + adopted inventory extension | selected at reviewed Task 0 commit `4e71093d` under the [M1 component plan](2026-07-29-m1-estate-shrink-component-plan.md) | satisfied at `57c2604e`, tree `fc0fdbef`; ordered reviews and postcommit selector passed |
+| ML | Provider at-least-once loosening | selection candidate: M1/Q0 complete; exact ML-0 spec amendment and three component plans require ordered review then commit | amendment per-tranche gates; kill-mid-provider crash-resume E2E green; broad non-security suite green |
 | MC | Common-helper consolidation | M0 complete; Q0-listed files deferred until Q0 closes | net LOC strictly negative; no residual private clones; touched-module suites green |
 | MR | Behavior-preserving structural refactors | per-tranche: MR-5a after M0; MR-1 after ML-1; MR-2 after ML; MR-3 with/after ML-2; MR-4 Q-coordinated | golden-parity gates per tranche; MR-1..MR-3 complete before M3 starts |
 | M2 | Persistence-parsimony design | ML complete; Q3 identity definition accepted; owner depth decision recorded | accepted design with executable feasibility fixtures for both components |
@@ -171,14 +175,19 @@ commit, and postcommit focused control all passed.
 
 ## Phase M1: Estate Shrink
 
-**Status:** implemented closure candidate. The M0 prerequisite is historical
+**Status:** historical complete. The M0 prerequisite is historical
 complete, and external specification-then-quality approval plus commit
 `4e71093d` selected the exact Task 0 candidate in the
 [M1 Estate Shrink Implementation Plan](2026-07-29-m1-estate-shrink-component-plan.md).
-Tasks 0–8 and Task 9's pre-review controls are complete; final ordered reviews,
-the reviewed closure commit, and postcommit control remain. The component plan
-owns Tasks 0–9, the archive contract, exact deletion/gate evidence, and closure
-binding. That reviewed selection explicitly corrected two stale scope assumptions:
+Tasks 0–9, final ordered reviews, the reviewed closure commit, and postcommit
+control are complete at commit
+`57c2604e595d22dc9d9d656409607f81b332b5f8`, tree
+`fc0fdbefe2cdd99cf0f9de604aa63582f79425ea`, under external closure-record
+SHA-256
+`b5c0624bd6759e4cf2a3d0153c42a1aa9068ebcab2050c15237d9cb74b95470b`.
+The postcommit selector passed. The component plan owns Tasks 0–9, the archive
+contract, exact deletion/gate evidence, and closure binding. That reviewed
+selection explicitly corrected two stale scope assumptions:
 route readiness is current and only its migration coupling retires; and
 “terminal-legacy-read compatibility” means the executable completed-YAML
 resume fast return, not read-only report/dashboard rendering. This paragraph
@@ -222,22 +231,33 @@ and retained-six digest
 Retirement generators and drained gates are historical; strict runtime
 contracts and route readiness remain current.
 
-Gate: pending only the ordered final reviews, reviewed closure commit, and
-postcommit control.
+Gate: satisfied. Ordered final reviews approved the exact candidate once,
+commit/tree above record it, and the postcommit selector passed.
 
 ## Phase ML: Provider At-Least-Once Loosening
 
-**Status:** eligible as the next gated phase but unselected. Execution requires
-M1's final closure plus ML's own reviewed ML-0 specification amendment and
-component plan; this listing is not a selection act.
+**Status:** ML-0 selection candidate; normative contract accepted by the
+owner-adopted amendment and expressed in `specs/`, with runtime implementation
+pending. This is the ML-0 specification amendment. ML becomes selected only
+when this exact specification-and-plan
+candidate receives ordered independent specification then quality approval and
+is committed; listing alone is not a selection act.
 
 Adopted amendment phase; tranche scope and gates live in the amendment
-(§Phase ML): ML-0 normative spec amendment, ML-1 quarantine →
-discard-and-rerun, ML-2 allocator simplification to a plain counter plus
-one run-lifetime lock, ML-3 bundle-transfer journal collapse (enters only
-under a recorded owner exception to the isolation freeze), ML-4
-adjudication-resume re-run. Committed-result reuse is preserved; recovery
-re-runs emit named re-spend diagnostics.
+(§Phase ML). The reviewed-plan candidates are:
+
+- [ML-1 Provider At-Least-Once Recovery](2026-07-30-provider-at-least-once-recovery-component-plan.md):
+  quarantine → guarded discard-and-rerun for ordinary, session, supervision,
+  peer-group, and the subsequently landed phased route;
+- [ML-2 Provider Attempt Allocator Simplification](2026-07-30-provider-attempt-allocator-simplification-component-plan.md):
+  plain monotonic counter plus one run-lifetime lock; and
+- [ML-4 Adjudication Rerun Recovery](2026-07-30-adjudication-rerun-recovery-component-plan.md):
+  exact-scope adjudication mismatch → discard-and-rerun.
+
+ML-3 bundle-transfer journal collapse remains deferred under the provider-
+isolation/security exclusion and is not selected. Committed-result reuse is
+preserved; recovery re-runs emit named re-spend diagnostics. No Q5 or L-series
+gate is reopened or re-reviewed.
 
 ## Phase MC: Common-Helper Consolidation
 

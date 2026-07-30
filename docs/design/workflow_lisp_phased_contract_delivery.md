@@ -5,6 +5,9 @@
   `bb67f680`; Task 14 closes at commit `70f4a759`, tree `fec729cb`, after the
   post-correction broad comparison and external ordered final reviews. The
   2026-07-28 stop at `3fc3a09e` remains superseded historical provenance.
+  The original interrupted-visit quarantine paragraphs are pre-ML behavior
+  superseded by `specs/state.md`; ML-1 implementation is pending and does not
+  reopen Q5.
 - **Kind:** target-2.23 frontend and provider-runtime design
 - **Owner:** Workflow Lisp call policy, prompt composition, and provider
   attempt runtime
@@ -26,6 +29,11 @@
     but not an ordinary-call coordinator)
   - `docs/design/workflow_language_design_principles.md` principles 27–30
   - `specs/providers.md` and `specs/state.md`
+- **Normative recovery note (2026-07-30):** same-attempt
+  materialization-only retry, turn receipts, candidate freeze, natural
+  close/join, and joint result publication remain unchanged. Only a
+  controller-interrupted whole visit moves from sticky quarantine to guarded
+  fresh-attempt rerun under ML-1.
 
 ## Summary
 

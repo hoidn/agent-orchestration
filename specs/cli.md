@@ -4,11 +4,21 @@
   - `orchestrate run <workflow.orc> [--context k=v ...] [--context-file path] [--input name=value ...] [--input-file path] [--clean-processed] [--archive-processed <dst>]`
     - `--dry-run` validates the workflow and may emit advisory lint warnings; warnings do not change the exit code for an otherwise valid workflow.
   - `orchestrate resume <run_id>`
-    - v2.10: if the persisted run stopped mid-visit on a session-enabled provider step, resume quarantines that exact visit instead of replaying the provider. Later resume attempts fail fast from the persisted quarantine marker until the operator chooses `--force-restart` or starts a new run.
+    - If persisted authoritative state proves an exact interrupted in-flight
+      ordinary, session, supervision, peer-group, phased, or adjudicated
+      provider visit, resume preserves completed-boundary reuse, discards only
+      the partial visit authority, emits
+      `provider_attempt_interrupted_rerun` (or the adjudication-specific
+      `adjudication_state_mismatch_rerun`), and re-enters normal execution with
+      fresh identities. Force restart is not required.
+    - Missing, malformed, ambiguous, checksum-incompatible, or otherwise
+      unprovable recovery state still fails before provider launch.
   - `orchestrate report [--run-id <id>] [--runs-root <dir>] [--format md|json] [--output <path>]`
     - Report output may include advisory lint warnings (`lint.warnings[]` in JSON or an appendix in Markdown); warnings remain informational only.
     - Report output may include active runtime fields derived from executor sessions, including `run.active_runtime_ms`, `run.active_runtime`, `run.executor_session_count`, and `run.excluded_suspended_ms`. These fields exclude suspended gaps between executor processes and are informational only.
-    - v2.10 report output may surface provider-session metadata paths and quarantine context from the persisted run-level error.
+    - Report output may surface provider-session metadata paths and bounded
+      interrupted-rerun diagnostic context; partial provider evidence remains
+      non-authoritative.
   - `orchestrate provider-isolation-environment-manifest --root <absolute-source> --provider-prefix <absolute-prefix> --output <absolute-manifest>`
     - Prospectively validates and canonicalizes one provider rootfs, including
       the runtime-reserved launch shim row, without mutating the source or
