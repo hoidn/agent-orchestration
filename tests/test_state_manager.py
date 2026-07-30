@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from orchestrator.state import StateManager, RunState, StepResult, ForEachState
+from orchestrator.workflow.pure_result_replay import PureReplayVisitWitness
 
 
 def _run_tree_snapshot(run_root: Path) -> dict[str, tuple[str, bytes]]:
@@ -24,6 +25,88 @@ def _run_tree_snapshot(run_root: Path) -> dict[str, tuple[str, bytes]]:
         else:
             snapshot[relative_path] = ("file", path.read_bytes())
     return snapshot
+
+
+def _pure_replay_witness() -> PureReplayVisitWitness:
+    return PureReplayVisitWitness(
+        presentation_key="ComputeDerived",
+        step_index=4,
+        step_id="root.compute_derived",
+        visit_count=1,
+    )
+
+
+def _expected_pure_completion_shell(
+    witness: PureReplayVisitWitness,
+) -> dict[str, object]:
+    return {
+        "name": witness.presentation_key,
+        "step_id": witness.step_id,
+        "visit_count": witness.visit_count,
+        "status": "completed",
+        "exit_code": 0,
+        "outcome": {
+            "status": "completed",
+            "phase": "execution",
+            "class": "completed",
+            "retryable": False,
+        },
+        "result_storage": "derived_pure_replay.v1",
+    }
+
+
+def _assert_matching_pure_cursor(
+    cursor: object,
+    witness: PureReplayVisitWitness,
+) -> None:
+    assert isinstance(cursor, dict)
+    assert set(cursor) == {
+        "name",
+        "index",
+        "type",
+        "status",
+        "started_at",
+        "last_heartbeat_at",
+        "step_id",
+        "visit_count",
+    }
+    assert cursor["name"] == witness.presentation_key
+    assert cursor["index"] == witness.step_index
+    assert cursor["type"] == "pure_projection"
+    assert cursor["status"] == "running"
+    assert cursor["step_id"] == witness.step_id
+    assert cursor["visit_count"] == witness.visit_count
+    assert isinstance(cursor["started_at"], str) and cursor["started_at"]
+    assert (
+        isinstance(cursor["last_heartbeat_at"], str)
+        and cursor["last_heartbeat_at"]
+    )
+
+
+def _inject_state_write_crash(
+    monkeypatch: pytest.MonkeyPatch,
+    manager: StateManager,
+    *,
+    timing: str,
+) -> None:
+    original_write = manager._write_state
+
+    if timing == "before":
+        def crash_before_write() -> None:
+            raise RuntimeError("injected before state write")
+
+        monkeypatch.setattr(manager, "_write_state", crash_before_write)
+        return
+
+    if timing == "after":
+        def crash_after_write() -> None:
+            original_write()
+            raise RuntimeError("injected after state write")
+
+        monkeypatch.setattr(manager, "_write_state", crash_after_write)
+        return
+
+    raise AssertionError(f"unsupported crash timing: {timing}")
 
 
 class TestStateManager:
@@ -98,6 +181,371 @@ steps:
         assert loaded_state.context == state.context
         assert loaded_state.transition_count == 0
         assert loaded_state.step_visits == {}
+
+    def test_persistence_profile_absent_round_trip_remains_omitted(self):
+        state = RunState(
+            schema_version=StateManager.SCHEMA_VERSION,
+            run_id="historical-profile-round-trip",
+            workflow_file="workflow.orc",
+            workflow_checksum="sha256:historical",
+            started_at="2026-07-30T00:00:00+00:00",
+            updated_at="2026-07-30T00:00:00+00:00",
+            status="running",
+        )
+
+        historical_payload = state.to_dict()
+        assert "result_persistence_profile" not in historical_payload
+
+        reloaded = RunState.from_dict(historical_payload)
+
+        assert reloaded.result_persistence_profile is None
+        assert reloaded.to_dict() == historical_payload
+        assert "result_persistence_profile" not in reloaded.to_dict()
+
+    def test_persistence_profile_unknown_direct_construction_fails_closed(self):
+        constructed_states = []
+
+        with pytest.raises(ValueError, match="profile"):
+            constructed_states.append(
+                RunState(
+                    schema_version=StateManager.SCHEMA_VERSION,
+                    run_id="unknown-profile-direct-construction",
+                    workflow_file="workflow.orc",
+                    workflow_checksum="sha256:unknown-profile",
+                    started_at="2026-07-30T00:00:00+00:00",
+                    updated_at="2026-07-30T00:00:00+00:00",
+                    status="running",
+                    result_persistence_profile="derived_pure_replay.v2",
+                )
+            )
+
+        assert constructed_states == []
+
+    def test_persistence_profile_exact_value_initializes_and_reloads(
+        self,
+        temp_workspace,
+        workflow_file,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id="derived-profile-initialize",
+        )
+
+        state = manager.initialize(
+            workflow_file,
+            result_persistence_profile="derived_pure_replay.v1",
+        )
+        persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        loaded = StateManager(
+            temp_workspace,
+            run_id=manager.run_id,
+        ).load()
+
+        assert state.result_persistence_profile == "derived_pure_replay.v1"
+        assert persisted["result_persistence_profile"] == "derived_pure_replay.v1"
+        assert loaded.result_persistence_profile == "derived_pure_replay.v1"
+
+    def test_persistence_profile_unknown_initialize_value_fails_closed(
+        self,
+        temp_workspace,
+        workflow_file,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id="unknown-profile-initialize",
+        )
+
+        with pytest.raises(ValueError, match="profile"):
+            manager.initialize(
+                workflow_file,
+                result_persistence_profile="derived_pure_replay.v2",
+            )
+
+        assert not manager.state_file.exists()
+
+    @pytest.mark.parametrize(
+        "invalid_profile",
+        [None, "derived_pure_replay.v2"],
+        ids=["explicit-null", "unknown-value"],
+    )
+    def test_persistence_profile_unknown_on_disk_fails_without_rewrite(
+        self,
+        temp_workspace,
+        workflow_file,
+        invalid_profile,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id=f"invalid-profile-{invalid_profile!s}",
+        )
+        manager.initialize(workflow_file)
+        payload = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        payload["result_persistence_profile"] = invalid_profile
+        manager.state_file.write_text(
+            json.dumps(payload, indent=2),
+            encoding="utf-8",
+        )
+        invalid_bytes = manager.state_file.read_bytes()
+
+        with pytest.raises(ValueError, match="profile"):
+            StateManager(
+                temp_workspace,
+                run_id=manager.run_id,
+            ).load()
+
+        assert manager.state_file.read_bytes() == invalid_bytes
+
+    def test_persistence_profile_absent_load_never_backfills(
+        self,
+        temp_workspace,
+        workflow_file,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id="historical-profile-no-backfill",
+        )
+        manager.initialize(workflow_file)
+        historical_bytes = manager.state_file.read_bytes()
+
+        loaded = StateManager(
+            temp_workspace,
+            run_id=manager.run_id,
+        ).load()
+
+        assert loaded.result_persistence_profile is None
+        assert manager.state_file.read_bytes() == historical_bytes
+        assert "result_persistence_profile" not in json.loads(
+            historical_bytes
+        )
+
+    @pytest.mark.parametrize("timing", ["before", "after"])
+    def test_atomic_pure_begin_exposes_only_unstarted_or_matching_cursor(
+        self,
+        temp_workspace,
+        workflow_file,
+        monkeypatch,
+        timing,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id=f"atomic-pure-begin-{timing}",
+        )
+        manager.initialize(
+            workflow_file,
+            result_persistence_profile="derived_pure_replay.v1",
+        )
+        witness = _pure_replay_witness()
+        _inject_state_write_crash(monkeypatch, manager, timing=timing)
+
+        with pytest.raises(RuntimeError, match=f"injected {timing} state write"):
+            manager.begin_eligible_pure_visit(
+                step_name=witness.presentation_key,
+                step_index=witness.step_index,
+                step_id=witness.step_id,
+            )
+
+        observed = StateManager(
+            temp_workspace,
+            run_id=manager.run_id,
+        ).load()
+        if timing == "before":
+            assert observed.step_visits == {}
+            assert observed.current_step is None
+            assert observed.steps == {}
+        else:
+            assert observed.step_visits == {witness.presentation_key: 1}
+            _assert_matching_pure_cursor(observed.current_step, witness)
+            assert observed.steps == {}
+
+        assert manager.state is not None
+        assert manager.state.to_dict() == observed.to_dict()
+
+    def test_atomic_pure_interrupted_visit_reuse_is_same_visit_and_read_only(
+        self,
+        temp_workspace,
+        workflow_file,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id="atomic-pure-same-visit",
+        )
+        manager.initialize(
+            workflow_file,
+            result_persistence_profile="derived_pure_replay.v1",
+        )
+        witness = _pure_replay_witness()
+        visit_count = manager.begin_eligible_pure_visit(
+            step_name=witness.presentation_key,
+            step_index=witness.step_index,
+            step_id=witness.step_id,
+        )
+        interrupted_bytes = manager.state_file.read_bytes()
+
+        reused_visit_count = manager.reuse_interrupted_eligible_pure_visit(
+            witness
+        )
+
+        assert visit_count == witness.visit_count
+        assert reused_visit_count == witness.visit_count
+        assert manager.state_file.read_bytes() == interrupted_bytes
+        assert manager.state is not None
+        assert manager.state.step_visits == {witness.presentation_key: 1}
+        _assert_matching_pure_cursor(manager.state.current_step, witness)
+
+    @pytest.mark.parametrize("settlement", ["success", "failure"])
+    @pytest.mark.parametrize("timing", ["before", "after"])
+    def test_atomic_pure_settlement_exposes_only_cursor_or_settled_row(
+        self,
+        temp_workspace,
+        workflow_file,
+        monkeypatch,
+        settlement,
+        timing,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id=f"atomic-pure-{settlement}-{timing}",
+        )
+        manager.initialize(
+            workflow_file,
+            result_persistence_profile="derived_pure_replay.v1",
+        )
+        witness = _pure_replay_witness()
+        manager.begin_eligible_pure_visit(
+            step_name=witness.presentation_key,
+            step_index=witness.step_index,
+            step_id=witness.step_id,
+        )
+        failure = StepResult(
+            status="failed",
+            name=witness.presentation_key,
+            step_id=witness.step_id,
+            visit_count=witness.visit_count,
+            exit_code=1,
+            error={
+                "type": "pure_evaluation_failed",
+                "message": "fixture failure",
+            },
+            outcome={
+                "status": "failed",
+                "phase": "execution",
+                "class": "failed",
+                "retryable": False,
+            },
+        )
+        _inject_state_write_crash(monkeypatch, manager, timing=timing)
+
+        with pytest.raises(RuntimeError, match=f"injected {timing} state write"):
+            if settlement == "success":
+                manager.settle_eligible_pure_success(witness)
+            else:
+                manager.settle_eligible_pure_failure(witness, failure)
+
+        observed = StateManager(
+            temp_workspace,
+            run_id=manager.run_id,
+        ).load()
+        assert observed.step_visits == {witness.presentation_key: 1}
+        if timing == "before":
+            _assert_matching_pure_cursor(observed.current_step, witness)
+            assert observed.steps == {}
+        else:
+            assert observed.current_step is None
+            if settlement == "success":
+                assert observed.steps == {
+                    witness.presentation_key: _expected_pure_completion_shell(
+                        witness
+                    )
+                }
+            else:
+                assert observed.steps == {
+                    witness.presentation_key: failure.to_dict()
+                }
+
+        assert manager.state is not None
+        assert manager.state.to_dict() == observed.to_dict()
+
+    def test_atomic_pure_success_returns_and_persists_exact_shell(
+        self,
+        temp_workspace,
+        workflow_file,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id="atomic-pure-success",
+        )
+        manager.initialize(
+            workflow_file,
+            result_persistence_profile="derived_pure_replay.v1",
+        )
+        witness = _pure_replay_witness()
+        manager.begin_eligible_pure_visit(
+            step_name=witness.presentation_key,
+            step_index=witness.step_index,
+            step_id=witness.step_id,
+        )
+
+        shell = manager.settle_eligible_pure_success(witness)
+        observed = StateManager(
+            temp_workspace,
+            run_id=manager.run_id,
+        ).load()
+
+        assert shell == _expected_pure_completion_shell(witness)
+        assert observed.steps == {witness.presentation_key: shell}
+        assert observed.current_step is None
+        assert observed.step_visits == {witness.presentation_key: 1}
+
+    def test_atomic_pure_failure_persists_full_result_and_clears_cursor(
+        self,
+        temp_workspace,
+        workflow_file,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id="atomic-pure-failure",
+        )
+        manager.initialize(
+            workflow_file,
+            result_persistence_profile="derived_pure_replay.v1",
+        )
+        witness = _pure_replay_witness()
+        manager.begin_eligible_pure_visit(
+            step_name=witness.presentation_key,
+            step_index=witness.step_index,
+            step_id=witness.step_id,
+        )
+        failure = StepResult(
+            status="failed",
+            name=witness.presentation_key,
+            step_id=witness.step_id,
+            visit_count=witness.visit_count,
+            exit_code=3,
+            output="ordinary failure evidence",
+            error={
+                "type": "output_contract_invalid",
+                "message": "fixture failure",
+            },
+            outcome={
+                "status": "failed",
+                "phase": "execution",
+                "class": "failed",
+                "retryable": False,
+            },
+        )
+
+        result = manager.settle_eligible_pure_failure(witness, failure)
+        observed = StateManager(
+            temp_workspace,
+            run_id=manager.run_id,
+        ).load()
+
+        assert result is None
+        assert observed.steps == {
+            witness.presentation_key: failure.to_dict()
+        }
+        assert observed.current_step is None
+        assert observed.step_visits == {witness.presentation_key: 1}
 
     def test_custom_state_dir_overrides_default_runs_root(self, temp_workspace, workflow_file):
         """Custom state-dir roots should store runs outside WORKSPACE/.orchestrate."""

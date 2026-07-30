@@ -12,8 +12,16 @@ from unittest.mock import patch
 import pytest
 
 from tests.workflow_fixture_loader import WorkflowLoader
-from orchestrator.state import StateManager
+from orchestrator.state import StateManager, StepResult
+from orchestrator.workflow.call_frame_state import _CallFrameStateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.outcomes import OutcomeRecorder
+from orchestrator.workflow.pure_result_replay import (
+    DERIVED_PURE_REPLAY_PROFILE,
+    PureReplayVisitWitness,
+    build_pure_completion_shell,
+)
+from orchestrator.workflow.resume_projection_integrity import ResumeScopePath
 from orchestrator.workflow.runtime_step import RuntimeStep
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from tests.workflow_bundle_helpers import historical_workflow_lisp_bundle_context
@@ -1376,3 +1384,467 @@ def test_projection_error_in_finalization_promotes_without_prior_sticky_error(
     assert result["error"] == cleanup_error
     assert persisted["error"] == cleanup_error
     assert persisted["finalization"]["failure"]["error"] == cleanup_error
+
+
+_PURE_FRAME_NAME = "DerivedProjection"
+_PURE_FRAME_INDEX = 2
+_PURE_FRAME_STEP_ID = "root.derived_projection"
+_PURE_FRAME_ID = "root.invoke_child::visit::1"
+
+
+def _pure_frame_witness(visit_count: int = 1) -> PureReplayVisitWitness:
+    return PureReplayVisitWitness(
+        presentation_key=_PURE_FRAME_NAME,
+        step_index=_PURE_FRAME_INDEX,
+        step_id=_PURE_FRAME_STEP_ID,
+        visit_count=visit_count,
+    )
+
+
+def _new_pure_profile_call_frame(
+    tmp_path: Path,
+    *,
+    run_id: str,
+    profile: str | None = DERIVED_PURE_REPLAY_PROFILE,
+) -> tuple[StateManager, _CallFrameStateManager]:
+    workflow_file = _write_workflow(
+        tmp_path,
+        {
+            "version": "2.0",
+            "name": "pure-profile-call-frame",
+            "steps": [
+                {
+                    "name": "Noop",
+                    "id": "noop",
+                    "command": ["bash", "-lc", "true"],
+                }
+            ],
+        },
+    )
+    bundle = WorkflowLoader(tmp_path).load(workflow_file)
+    parent = StateManager(tmp_path, run_id=run_id)
+    initialize_kwargs = (
+        {}
+        if profile is None
+        else {"result_persistence_profile": profile}
+    )
+    parent.initialize(workflow_file.name, **initialize_kwargs)
+    scope_path = ResumeScopePath.root(
+        parent.load().workflow_file
+    ).child(_PURE_FRAME_ID)
+    frame_kwargs = (
+        {}
+        if profile is None
+        else {"result_persistence_profile": profile}
+    )
+    frame = _CallFrameStateManager(
+        parent_manager=parent,
+        workflow=bundle,
+        frame_id=_PURE_FRAME_ID,
+        call_step_name="InvokeChild",
+        call_step_id="root.invoke_child",
+        import_alias="child",
+        bound_inputs={},
+        resume_scope_path=scope_path,
+        **frame_kwargs,
+    )
+    return parent, frame
+
+
+def _persisted_pure_frame_state(
+    parent: StateManager,
+) -> dict:
+    root = json.loads(parent.state_file.read_text(encoding="utf-8"))
+    return root["call_frames"][_PURE_FRAME_ID]["state"]
+
+
+def test_call_frame_persistence_profile_is_explicit_on_fresh_frame(
+    tmp_path: Path,
+) -> None:
+    parent, frame = _new_pure_profile_call_frame(
+        tmp_path,
+        run_id="pure-frame-profile",
+    )
+
+    assert (
+        frame.state.result_persistence_profile
+        == DERIVED_PURE_REPLAY_PROFILE
+    )
+    assert _persisted_pure_frame_state(parent)[
+        "result_persistence_profile"
+    ] == DERIVED_PURE_REPLAY_PROFILE
+
+
+def test_call_frame_persistence_profile_cannot_backfill_existing_frame(
+    tmp_path: Path,
+) -> None:
+    parent, frame = _new_pure_profile_call_frame(
+        tmp_path,
+        run_id="pure-frame-no-backfill",
+        profile=None,
+    )
+    existing_frame = json.loads(
+        json.dumps(parent.load().call_frames[_PURE_FRAME_ID])
+    )
+    before = parent.state_file.read_bytes()
+
+    with pytest.raises(ValueError, match="persistence profile"):
+        _CallFrameStateManager(
+            parent_manager=parent,
+            workflow=frame.workflow,
+            frame_id=_PURE_FRAME_ID,
+            call_step_name="InvokeChild",
+            call_step_id="root.invoke_child",
+            import_alias="child",
+            bound_inputs={},
+            existing_frame=existing_frame,
+            result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+            resume_scope_path=frame.resume_scope_path,
+        )
+
+    assert parent.state_file.read_bytes() == before
+    assert (
+        "result_persistence_profile"
+        not in _persisted_pure_frame_state(parent)
+    )
+
+
+@pytest.mark.parametrize(
+    "malformed_state",
+    ("missing", "non-mapping"),
+)
+def test_call_frame_persistence_profile_rejects_malformed_existing_state_before_write(
+    tmp_path: Path,
+    malformed_state: str,
+) -> None:
+    parent, frame = _new_pure_profile_call_frame(
+        tmp_path,
+        run_id=f"pure-frame-malformed-{malformed_state}",
+        profile=None,
+    )
+    existing_frame = json.loads(
+        json.dumps(parent.load().call_frames[_PURE_FRAME_ID])
+    )
+    if malformed_state == "missing":
+        existing_frame.pop("state")
+    else:
+        existing_frame["state"] = []
+    before = parent.state_file.read_bytes()
+
+    with patch.object(
+        parent,
+        "update_call_frame",
+        side_effect=AssertionError(
+            "malformed existing frame must be rejected before persistence"
+        ),
+    ) as rewrite:
+        with pytest.raises(
+            ValueError,
+            match="existing call-frame state",
+        ):
+            _CallFrameStateManager(
+                parent_manager=parent,
+                workflow=frame.workflow,
+                frame_id=_PURE_FRAME_ID,
+                call_step_name="InvokeChild",
+                call_step_id="root.invoke_child",
+                import_alias="child",
+                bound_inputs={},
+                existing_frame=existing_frame,
+                resume_scope_path=frame.resume_scope_path,
+            )
+
+    rewrite.assert_not_called()
+    assert parent.state_file.read_bytes() == before
+
+
+@pytest.mark.parametrize("crash_boundary", ("before", "after"))
+def test_call_frame_atomic_pure_begin_never_splits_visit_and_cursor(
+    tmp_path: Path,
+    crash_boundary: str,
+) -> None:
+    parent, frame = _new_pure_profile_call_frame(
+        tmp_path,
+        run_id=f"pure-frame-begin-{crash_boundary}",
+    )
+    original_write = parent._write_state
+
+    def crash_around_write() -> None:
+        if crash_boundary == "after":
+            original_write()
+        raise RuntimeError(f"crash {crash_boundary} root write")
+
+    with patch.object(parent, "_write_state", side_effect=crash_around_write):
+        with pytest.raises(RuntimeError, match="root write"):
+            frame.begin_eligible_pure_visit(
+                step_name=_PURE_FRAME_NAME,
+                step_index=_PURE_FRAME_INDEX,
+                step_id=_PURE_FRAME_STEP_ID,
+            )
+
+    persisted = _persisted_pure_frame_state(parent)
+    if crash_boundary == "before":
+        assert persisted["step_visits"] == {}
+        assert "current_step" not in persisted
+    else:
+        assert persisted["step_visits"] == {_PURE_FRAME_NAME: 1}
+        assert persisted["current_step"] == {
+            "name": _PURE_FRAME_NAME,
+            "index": _PURE_FRAME_INDEX,
+            "type": "pure_projection",
+            "status": "running",
+            "started_at": persisted["current_step"]["started_at"],
+            "last_heartbeat_at": persisted["current_step"][
+                "last_heartbeat_at"
+            ],
+            "step_id": _PURE_FRAME_STEP_ID,
+            "visit_count": 1,
+        }
+
+
+@pytest.mark.parametrize(
+    ("settlement", "crash_boundary"),
+    (
+        ("success", "before"),
+        ("success", "after"),
+        ("failure", "before"),
+        ("failure", "after"),
+    ),
+)
+def test_call_frame_atomic_pure_settlement_is_cursor_or_terminal_row(
+    tmp_path: Path,
+    settlement: str,
+    crash_boundary: str,
+) -> None:
+    parent, frame = _new_pure_profile_call_frame(
+        tmp_path,
+        run_id=f"pure-frame-settle-{settlement}-{crash_boundary}",
+    )
+    visit_count = frame.begin_eligible_pure_visit(
+        step_name=_PURE_FRAME_NAME,
+        step_index=_PURE_FRAME_INDEX,
+        step_id=_PURE_FRAME_STEP_ID,
+    )
+    witness = _pure_frame_witness(visit_count)
+    failed_result = StepResult(
+        status="failed",
+        name=_PURE_FRAME_NAME,
+        step_id=_PURE_FRAME_STEP_ID,
+        exit_code=2,
+        error={
+            "type": "pure_projection_failed",
+            "message": "Pure projection failed",
+        },
+        outcome={
+            "status": "failed",
+            "phase": "execution",
+            "class": "pre_execution_failed",
+            "retryable": False,
+        },
+        visit_count=visit_count,
+    )
+    original_write = parent._write_state
+
+    def crash_around_write() -> None:
+        if crash_boundary == "after":
+            original_write()
+        raise RuntimeError(f"crash {crash_boundary} root write")
+
+    with patch.object(parent, "_write_state", side_effect=crash_around_write):
+        with pytest.raises(RuntimeError, match="root write"):
+            if settlement == "success":
+                frame.settle_eligible_pure_success(witness)
+            else:
+                frame.settle_eligible_pure_failure(
+                    witness,
+                    result=failed_result,
+                )
+
+    persisted = _persisted_pure_frame_state(parent)
+    assert persisted["step_visits"] == {_PURE_FRAME_NAME: visit_count}
+    if crash_boundary == "before":
+        assert persisted["current_step"]["visit_count"] == visit_count
+        assert _PURE_FRAME_NAME not in persisted["steps"]
+    else:
+        assert "current_step" not in persisted
+        expected_row = (
+            build_pure_completion_shell(witness)
+            if settlement == "success"
+            else failed_result.to_dict()
+        )
+        assert persisted["steps"][_PURE_FRAME_NAME] == expected_row
+
+
+def test_call_frame_same_visit_reuse_is_read_only(
+    tmp_path: Path,
+) -> None:
+    parent, frame = _new_pure_profile_call_frame(
+        tmp_path,
+        run_id="pure-frame-same-visit",
+    )
+    visit_count = frame.begin_eligible_pure_visit(
+        step_name=_PURE_FRAME_NAME,
+        step_index=_PURE_FRAME_INDEX,
+        step_id=_PURE_FRAME_STEP_ID,
+    )
+    witness = _pure_frame_witness(visit_count)
+    before = parent.state_file.read_bytes()
+
+    with patch.object(
+        parent,
+        "_write_state",
+        side_effect=AssertionError(
+            "interrupted pure visit reuse must be read-only"
+        ),
+    ), patch.object(
+        frame,
+        "update_control_flow_counters",
+        side_effect=AssertionError(
+            "interrupted pure visit reuse must not increment ordinarily"
+        ),
+    ):
+        reused_visit = frame.reuse_interrupted_eligible_pure_visit(witness)
+
+    assert reused_visit == visit_count
+    assert parent.state_file.read_bytes() == before
+
+
+class _PureSettlementRecordingManager:
+    def __init__(self) -> None:
+        self.success_witnesses: list[PureReplayVisitWitness] = []
+        self.failure_settlements: list[
+            tuple[PureReplayVisitWitness, StepResult]
+        ] = []
+        self.historical_updates: list[tuple[str, StepResult]] = []
+
+    def settle_eligible_pure_success(
+        self,
+        witness: PureReplayVisitWitness,
+    ) -> dict:
+        self.success_witnesses.append(witness)
+        return build_pure_completion_shell(witness)
+
+    def settle_eligible_pure_failure(
+        self,
+        witness: PureReplayVisitWitness,
+        *,
+        result: StepResult,
+    ) -> None:
+        self.failure_settlements.append((witness, result))
+
+    def update_step(self, step_name: str, result: StepResult) -> None:
+        self.historical_updates.append((step_name, result))
+
+    def update_run_error(self, error: dict) -> None:
+        del error
+
+
+def _pure_outcome_recorder(
+    manager: _PureSettlementRecordingManager,
+    summaries: list[dict],
+) -> OutcomeRecorder:
+    return OutcomeRecorder(
+        state_manager=manager,
+        step_id_resolver=lambda _step: _PURE_FRAME_STEP_ID,
+        step_type_resolver=lambda _step: "pure_projection",
+        summary_emitter=lambda _name, _step, row: summaries.append(row),
+    )
+
+
+def test_outcome_recorder_atomic_pure_success_uses_exact_shell(
+) -> None:
+    manager = _PureSettlementRecordingManager()
+    summaries: list[dict] = []
+    recorder = _pure_outcome_recorder(manager, summaries)
+    witness = _pure_frame_witness()
+    state = {"step_visits": {_PURE_FRAME_NAME: 1}, "steps": {}}
+
+    finalized = recorder.persist_step_result(
+        state,
+        _PURE_FRAME_NAME,
+        {"id": _PURE_FRAME_STEP_ID},
+        {
+            "status": "completed",
+            "exit_code": 0,
+            "artifacts": {"return__value": 17},
+        },
+        eligible_pure_settlement=witness,
+    )
+
+    assert finalized["artifacts"] == {"return__value": 17}
+    assert state["steps"][_PURE_FRAME_NAME] == finalized
+    assert manager.success_witnesses == [witness]
+    assert manager.failure_settlements == []
+    assert manager.historical_updates == []
+    assert summaries == [build_pure_completion_shell(witness)]
+
+
+@pytest.mark.parametrize("status", ("failed", "skipped"))
+def test_outcome_recorder_atomic_pure_failure_or_skip_uses_full_row(
+    status: str,
+) -> None:
+    manager = _PureSettlementRecordingManager()
+    summaries: list[dict] = []
+    recorder = _pure_outcome_recorder(manager, summaries)
+    witness = _pure_frame_witness()
+    state = {"step_visits": {_PURE_FRAME_NAME: 1}, "steps": {}}
+    input_result = (
+        {
+            "status": "failed",
+            "exit_code": 2,
+            "error": {
+                "type": "pure_projection_failed",
+                "message": "Pure projection failed",
+            },
+        }
+        if status == "failed"
+        else {
+            "status": "skipped",
+            "exit_code": 0,
+            "skipped": True,
+        }
+    )
+
+    finalized = recorder.persist_step_result(
+        state,
+        _PURE_FRAME_NAME,
+        {"id": _PURE_FRAME_STEP_ID},
+        input_result,
+        eligible_pure_settlement=witness,
+    )
+
+    assert manager.success_witnesses == []
+    assert manager.historical_updates == []
+    assert len(manager.failure_settlements) == 1
+    settled_witness, settled_result = manager.failure_settlements[0]
+    assert settled_witness == witness
+    assert settled_result.to_dict() == {
+        **finalized,
+        "truncated": False,
+        **({} if status == "skipped" else {"skipped": False}),
+    }
+    assert summaries == [finalized]
+
+
+def test_outcome_recorder_absent_atomic_pure_authority_preserves_history(
+) -> None:
+    manager = _PureSettlementRecordingManager()
+    summaries: list[dict] = []
+    recorder = _pure_outcome_recorder(manager, summaries)
+    state = {"step_visits": {_PURE_FRAME_NAME: 1}, "steps": {}}
+
+    finalized = recorder.persist_step_result(
+        state,
+        _PURE_FRAME_NAME,
+        {"id": _PURE_FRAME_STEP_ID},
+        {"status": "completed", "exit_code": 0, "output": "historical"},
+    )
+
+    assert manager.success_witnesses == []
+    assert manager.failure_settlements == []
+    assert len(manager.historical_updates) == 1
+    assert (
+        manager.historical_updates[0][1].to_dict()["output"]
+        == "historical"
+    )
+    assert summaries == [finalized]

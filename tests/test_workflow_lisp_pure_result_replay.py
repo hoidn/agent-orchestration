@@ -11,7 +11,8 @@ from unittest.mock import patch
 
 import pytest
 
-from orchestrator.state import StateManager
+from orchestrator.state import StateManager, StepResult
+from orchestrator.workflow import pure_result_replay
 from orchestrator.workflow.executable_ir import (
     NodeResultAddress,
     WorkflowInputAddress,
@@ -903,3 +904,595 @@ def test_pure_replay_dependency_index_propagates_reasons_deterministically(
         "transitive": DEPENDENCY_INDEX_INVALID,
         "consumer": MULTIPLE_VISIT_REGION,
     }
+
+
+_PURE_PRESENTATION_KEY = "DerivedProjection"
+_PURE_STEP_INDEX = 3
+_PURE_STEP_ID = "root.derived_projection"
+_PURE_VISIT_COUNT = 1
+
+
+def _pure_replay_witness():
+    return pure_result_replay.PureReplayVisitWitness(
+        presentation_key=_PURE_PRESENTATION_KEY,
+        step_index=_PURE_STEP_INDEX,
+        step_id=_PURE_STEP_ID,
+        visit_count=_PURE_VISIT_COUNT,
+    )
+
+
+def _exact_pure_completion_shell(
+    *,
+    step_id: str = _PURE_STEP_ID,
+    visit_count: int = _PURE_VISIT_COUNT,
+) -> dict[str, Any]:
+    return {
+        "name": _PURE_PRESENTATION_KEY,
+        "step_id": step_id,
+        "visit_count": visit_count,
+        "status": "completed",
+        "exit_code": 0,
+        "outcome": {
+            "status": "completed",
+            "phase": "execution",
+            "class": "completed",
+            "retryable": False,
+        },
+        "result_storage": "derived_pure_replay.v1",
+    }
+
+
+def _pure_running_cursor(
+    *,
+    presentation_key: str = _PURE_PRESENTATION_KEY,
+    step_index: int = _PURE_STEP_INDEX,
+    step_type: str = "pure_projection",
+    step_id: str = _PURE_STEP_ID,
+    visit_count: int = _PURE_VISIT_COUNT,
+    status: str = "running",
+) -> dict[str, Any]:
+    return {
+        "name": presentation_key,
+        "index": step_index,
+        "type": step_type,
+        "step_id": step_id,
+        "visit_count": visit_count,
+        "status": status,
+        "started_at": "2026-07-30T12:00:00+00:00",
+        "last_heartbeat_at": "2026-07-30T12:00:00+00:00",
+    }
+
+
+def _unrelated_running_cursor() -> dict[str, Any]:
+    return _pure_running_cursor(
+        presentation_key="EffectBoundary",
+        step_index=_PURE_STEP_INDEX + 1,
+        step_type="command",
+        step_id="root.effect_boundary",
+        visit_count=1,
+    )
+
+
+def _pure_failed_row(
+    *,
+    presentation_key: str = _PURE_PRESENTATION_KEY,
+    step_id: str = _PURE_STEP_ID,
+    visit_count: int = _PURE_VISIT_COUNT,
+) -> dict[str, Any]:
+    return {
+        "name": presentation_key,
+        "step_id": step_id,
+        "visit_count": visit_count,
+        "status": "failed",
+        "exit_code": 2,
+        "error": {
+            "type": "pure_projection_failed",
+            "message": "Pure projection failed",
+        },
+        "outcome": {
+            "status": "failed",
+            "phase": "execution",
+            "class": "pre_execution_failed",
+            "retryable": False,
+        },
+    }
+
+
+def _pure_skipped_row(
+    *,
+    presentation_key: str = _PURE_PRESENTATION_KEY,
+    step_id: str = _PURE_STEP_ID,
+    visit_count: int = _PURE_VISIT_COUNT,
+) -> dict[str, Any]:
+    return {
+        "name": presentation_key,
+        "step_id": step_id,
+        "visit_count": visit_count,
+        "status": "skipped",
+        "exit_code": 0,
+        "skipped": True,
+        "outcome": {
+            "status": "skipped",
+            "phase": "pre_execution",
+            "class": "skipped",
+            "retryable": False,
+        },
+    }
+
+
+def _pure_progress_state(
+    *,
+    visit_count: int | None,
+    current_step: Mapping[str, Any] | None,
+    result_row: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "step_visits": (
+            {}
+            if visit_count is None
+            else {_PURE_PRESENTATION_KEY: visit_count}
+        ),
+        "current_step": (
+            None if current_step is None else dict(current_step)
+        ),
+        "steps": (
+            {}
+            if result_row is None
+            else {_PURE_PRESENTATION_KEY: dict(result_row)}
+        ),
+    }
+
+
+def test_pure_completion_shell_has_exact_shape_without_step_result_serialization(
+) -> None:
+    witness = _pure_replay_witness()
+
+    with patch.object(
+        StepResult,
+        "to_dict",
+        side_effect=AssertionError(
+            "pure completion shells must not use StepResult.to_dict()"
+        ),
+    ):
+        shell = pure_result_replay.build_pure_completion_shell(witness)
+
+    assert shell == _exact_pure_completion_shell()
+    pure_result_replay.validate_pure_completion_shell(
+        shell,
+        witness=witness,
+    )
+
+
+@pytest.mark.parametrize(
+    "forbidden_extra",
+    (
+        pytest.param({"value": 17}, id="value"),
+        pytest.param({"output": "17"}, id="output"),
+        pytest.param({"text": "17"}, id="text"),
+        pytest.param({"json": 17}, id="json"),
+        pytest.param(
+            {"artifacts": {"return__value": 17}},
+            id="artifacts",
+        ),
+        pytest.param(
+            {"debug": {"pure_projection": {"reused_bundle": False}}},
+            id="debug",
+        ),
+        pytest.param({"duration_ms": 0}, id="duration"),
+        pytest.param(
+            {"output_bundle": {"path": "state/private-result.json"}},
+            id="bundle-reference",
+        ),
+    ),
+)
+def test_pure_completion_shell_rejects_forbidden_extra_field(
+    forbidden_extra: dict[str, Any],
+) -> None:
+    row = {
+        **_exact_pure_completion_shell(),
+        **forbidden_extra,
+    }
+
+    with pytest.raises(ValueError):
+        pure_result_replay.validate_pure_completion_shell(
+            row,
+            witness=_pure_replay_witness(),
+        )
+
+
+@pytest.mark.parametrize(
+    "missing_key",
+    tuple(_exact_pure_completion_shell()),
+)
+def test_pure_completion_shell_rejects_missing_required_field(
+    missing_key: str,
+) -> None:
+    row = _exact_pure_completion_shell()
+    row.pop(missing_key)
+
+    with pytest.raises(ValueError):
+        pure_result_replay.validate_pure_completion_shell(
+            row,
+            witness=_pure_replay_witness(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "wrong_value"),
+    (
+        pytest.param("name", "OtherProjection", id="name"),
+        pytest.param("step_id", "root.other_projection", id="step-id"),
+        pytest.param("visit_count", 2, id="visit-count"),
+        pytest.param("visit_count", True, id="visit-count-bool"),
+        pytest.param("status", "failed", id="status"),
+        pytest.param("exit_code", 1, id="exit-code"),
+        pytest.param("exit_code", False, id="exit-code-bool"),
+        pytest.param(
+            "result_storage",
+            "bundle_backed.v1",
+            id="result-storage",
+        ),
+    ),
+)
+def test_pure_completion_shell_rejects_wrong_required_field(
+    field: str,
+    wrong_value: Any,
+) -> None:
+    row = {
+        **_exact_pure_completion_shell(),
+        field: wrong_value,
+    }
+
+    with pytest.raises(ValueError):
+        pure_result_replay.validate_pure_completion_shell(
+            row,
+            witness=_pure_replay_witness(),
+        )
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    (
+        pytest.param(
+            {
+                "status": "completed",
+                "phase": "execution",
+                "class": "completed",
+            },
+            id="missing-field",
+        ),
+        pytest.param(
+            {
+                "status": "completed",
+                "phase": "execution",
+                "class": "completed",
+                "retryable": False,
+                "extra": "not-authority",
+            },
+            id="extra-field",
+        ),
+        pytest.param(
+            {
+                "status": "failed",
+                "phase": "execution",
+                "class": "completed",
+                "retryable": False,
+            },
+            id="wrong-status",
+        ),
+        pytest.param(
+            {
+                "status": "completed",
+                "phase": "pre_execution",
+                "class": "completed",
+                "retryable": False,
+            },
+            id="wrong-phase",
+        ),
+        pytest.param(
+            {
+                "status": "completed",
+                "phase": "execution",
+                "class": "pre_execution_failed",
+                "retryable": False,
+            },
+            id="wrong-class",
+        ),
+        pytest.param(
+            {
+                "status": "completed",
+                "phase": "execution",
+                "class": "completed",
+                "retryable": True,
+            },
+            id="wrong-retryable",
+        ),
+    ),
+)
+def test_pure_completion_shell_rejects_non_exact_outcome(
+    outcome: dict[str, Any],
+) -> None:
+    row = {
+        **_exact_pure_completion_shell(),
+        "outcome": outcome,
+    }
+
+    with pytest.raises(ValueError):
+        pure_result_replay.validate_pure_completion_shell(
+            row,
+            witness=_pure_replay_witness(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("state", "expected_classification"),
+    (
+        pytest.param(
+            _pure_progress_state(
+                visit_count=None,
+                current_step=None,
+                result_row=None,
+            ),
+            "unstarted",
+            id="unstarted",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=None,
+                current_step=_unrelated_running_cursor(),
+                result_row=None,
+            ),
+            "unstarted",
+            id="unstarted-while-unrelated-step-is-current",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=_pure_running_cursor(),
+                result_row=None,
+            ),
+            "interrupted",
+            id="interrupted",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=None,
+                result_row=_exact_pure_completion_shell(),
+            ),
+            "derived_complete",
+            id="derived-complete",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=_unrelated_running_cursor(),
+                result_row=_exact_pure_completion_shell(),
+            ),
+            "derived_complete",
+            id="derived-complete-while-unrelated-step-is-current",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=None,
+                result_row=_pure_failed_row(),
+            ),
+            "durable_failure_skip",
+            id="durable-failure",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=None,
+                result_row=_pure_skipped_row(),
+            ),
+            "durable_failure_skip",
+            id="durable-skip",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=None,
+                result_row=None,
+            ),
+            "progress_witness_invalid",
+            id="visit-without-witness",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=None,
+                current_step=_pure_running_cursor(),
+                result_row=None,
+            ),
+            "progress_witness_invalid",
+            id="cursor-without-visit",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=None,
+                current_step=None,
+                result_row=_exact_pure_completion_shell(),
+            ),
+            "progress_witness_invalid",
+            id="shell-without-visit",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=_pure_running_cursor(),
+                result_row=_exact_pure_completion_shell(),
+            ),
+            "progress_witness_invalid",
+            id="cursor-and-row",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=_pure_running_cursor(visit_count=2),
+                result_row=None,
+            ),
+            "progress_witness_invalid",
+            id="cursor-visit-mismatch",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=_pure_running_cursor(
+                    step_id="root.other_projection"
+                ),
+                result_row=None,
+            ),
+            "progress_witness_invalid",
+            id="cursor-identity-mismatch",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=_pure_running_cursor(
+                    presentation_key="AliasedProjection"
+                ),
+                result_row=None,
+            ),
+            "progress_witness_invalid",
+            id="cursor-presentation-key-mismatch",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=_pure_running_cursor(
+                    step_index=_PURE_STEP_INDEX + 1
+                ),
+                result_row=None,
+            ),
+            "progress_witness_invalid",
+            id="cursor-index-mismatch",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=_pure_running_cursor(step_type="command"),
+                result_row=None,
+            ),
+            "progress_witness_invalid",
+            id="cursor-kind-mismatch",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=_pure_running_cursor(status="completed"),
+                result_row=None,
+            ),
+            "progress_witness_invalid",
+            id="cursor-status-mismatch",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=None,
+                result_row=_exact_pure_completion_shell(
+                    visit_count=2
+                ),
+            ),
+            "progress_witness_invalid",
+            id="row-visit-mismatch",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=None,
+                result_row=_exact_pure_completion_shell(
+                    step_id="root.other_projection"
+                ),
+            ),
+            "progress_witness_invalid",
+            id="row-identity-mismatch",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=None,
+                result_row={
+                    **_exact_pure_completion_shell(),
+                    "name": "AliasedProjection",
+                },
+            ),
+            "progress_witness_invalid",
+            id="row-presentation-key-mismatch",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=None,
+                current_step=None,
+                result_row=_pure_failed_row(),
+            ),
+            "progress_witness_invalid",
+            id="failure-without-visit",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=None,
+                result_row=_pure_failed_row(visit_count=2),
+            ),
+            "progress_witness_invalid",
+            id="failure-visit-mismatch",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=None,
+                result_row=_pure_skipped_row(
+                    step_id="root.other_projection"
+                ),
+            ),
+            "progress_witness_invalid",
+            id="skip-identity-mismatch",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=None,
+                result_row={
+                    **_exact_pure_completion_shell(),
+                    "artifacts": {"return__value": 17},
+                },
+            ),
+            "progress_witness_invalid",
+            id="value-bearing-completion",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=None,
+                result_row={
+                    "name": _PURE_PRESENTATION_KEY,
+                    "step_id": _PURE_STEP_ID,
+                    "visit_count": _PURE_VISIT_COUNT,
+                    "status": "running",
+                },
+            ),
+            "progress_witness_invalid",
+            id="nonterminal-row",
+        ),
+        pytest.param(
+            _pure_progress_state(
+                visit_count=_PURE_VISIT_COUNT,
+                current_step=_pure_running_cursor(),
+                result_row=_pure_failed_row(),
+            ),
+            "progress_witness_invalid",
+            id="cursor-and-failure",
+        ),
+    ),
+)
+def test_pure_replay_progress_witness_classifies_closed_matrix(
+    state: dict[str, Any],
+    expected_classification: str,
+) -> None:
+    classification = pure_result_replay.classify_pure_replay_progress(
+        state,
+        witness=_pure_replay_witness(),
+    )
+
+    assert classification == expected_classification

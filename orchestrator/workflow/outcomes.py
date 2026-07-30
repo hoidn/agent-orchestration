@@ -12,6 +12,10 @@ from .resume_projection_integrity import (
     classify_terminal_result,
 )
 from .runtime_types import NormalizedStepOutcome
+from .pure_result_replay import (
+    PureReplayVisitWitness,
+    validate_pure_completion_shell,
+)
 
 
 class OutcomeRecorder:
@@ -44,6 +48,9 @@ class OutcomeRecorder:
         phase_hint: Optional[str] = None,
         class_hint: Optional[str] = None,
         retryable_hint: Optional[bool] = None,
+        eligible_pure_settlement: Optional[
+            PureReplayVisitWitness
+        ] = None,
     ) -> Dict[str, Any]:
         if "steps" not in state:
             state["steps"] = {}
@@ -53,11 +60,64 @@ class OutcomeRecorder:
         finalized.setdefault("step_id", self.step_id_resolver(step))
         step_visits = state.get("step_visits", {})
         visit_count = step_visits.get(step_name) if isinstance(step_visits, dict) else None
-        if isinstance(visit_count, int):
+        if isinstance(visit_count, int) and not isinstance(visit_count, bool):
             finalized.setdefault("visit_count", visit_count)
+        if eligible_pure_settlement is not None:
+            if not isinstance(
+                eligible_pure_settlement,
+                PureReplayVisitWitness,
+            ):
+                raise TypeError("PureReplayVisitWitness required")
+            if (
+                finalized.get("name")
+                != eligible_pure_settlement.presentation_key
+                or finalized.get("step_id")
+                != eligible_pure_settlement.step_id
+                or type(finalized.get("visit_count")) is not int
+                or finalized.get("visit_count")
+                != eligible_pure_settlement.visit_count
+            ):
+                raise ValueError(
+                    "eligible pure settlement authority does not match result"
+                )
         state["steps"][step_name] = finalized
 
-        self.state_manager.update_step(step_name, self.to_step_result(finalized, finalized.get("name", step_name)))
+        summary_row = finalized
+        eligible_success = (
+            eligible_pure_settlement is not None
+            and finalized.get("status") == "completed"
+        )
+        if eligible_success:
+            summary_row = self.state_manager.settle_eligible_pure_success(
+                eligible_pure_settlement
+            )
+            validate_pure_completion_shell(
+                summary_row,
+                witness=eligible_pure_settlement,
+            )
+        elif eligible_pure_settlement is not None:
+            if finalized.get("status") not in {"failed", "skipped"}:
+                raise ValueError(
+                    "eligible pure settlement requires a terminal result"
+                )
+            self.state_manager.settle_eligible_pure_failure(
+                eligible_pure_settlement,
+                result=StepResult(
+                    **{
+                        key: value
+                        for key, value in finalized.items()
+                        if key in StepResult.__dataclass_fields__
+                    }
+                ),
+            )
+        else:
+            self.state_manager.update_step(
+                step_name,
+                self.to_step_result(
+                    finalized,
+                    finalized.get("name", step_name),
+                ),
+            )
         if (
             classify_terminal_result(finalized)
             is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
@@ -70,9 +130,9 @@ class OutcomeRecorder:
             if isinstance(error, dict) and not existing_sticky_error:
                 state["error"] = error
                 self.state_manager.update_run_error(error)
-        if self.post_persist_hook is not None:
+        if self.post_persist_hook is not None and not eligible_success:
             self.post_persist_hook(state, step_name, step, finalized)
-        self.summary_emitter(step_name, step, finalized)
+        self.summary_emitter(step_name, step, summary_row)
         return finalized
 
     def attach_outcome(

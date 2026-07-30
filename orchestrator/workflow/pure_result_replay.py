@@ -35,6 +35,32 @@ PURE_RESULT_REPLAY_DIAGNOSTIC = "pure_result_replay_unavailable"
 DEPENDENCY_INDEX_INVALID = "dependency_index_invalid"
 REACHABILITY_AMBIGUOUS = "reachability_ambiguous"
 MULTIPLE_VISIT_REGION = "multiple_visit_region"
+DERIVED_PURE_REPLAY_PROFILE = "derived_pure_replay.v1"
+PROGRESS_WITNESS_INVALID = "progress_witness_invalid"
+
+_PURE_COMPLETION_SHELL_KEYS = frozenset(
+    {
+        "name",
+        "step_id",
+        "visit_count",
+        "status",
+        "exit_code",
+        "outcome",
+        "result_storage",
+    }
+)
+_PURE_RUNNING_CURSOR_KEYS = frozenset(
+    {
+        "name",
+        "index",
+        "type",
+        "status",
+        "started_at",
+        "last_heartbeat_at",
+        "step_id",
+        "visit_count",
+    }
+)
 
 BindingPathPart = str | int
 ReplayAddress = WorkflowInputAddress | NodeResultAddress
@@ -55,6 +81,200 @@ class PureResultReplayIndexError(ValueError):
         super().__init__(message)
         self.reason = reason
         self.context = MappingProxyType(dict(context or {}))
+
+
+@dataclass(frozen=True)
+class PureReplayVisitWitness:
+    """Exact identity of one single-visit pure projection execution."""
+
+    presentation_key: str
+    step_index: int
+    step_id: str
+    visit_count: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.presentation_key, str) or not self.presentation_key:
+            raise ValueError("pure replay presentation key must be non-empty")
+        if (
+            isinstance(self.step_index, bool)
+            or not isinstance(self.step_index, int)
+            or self.step_index < 0
+        ):
+            raise ValueError("pure replay step index must be a non-negative integer")
+        if not isinstance(self.step_id, str) or not self.step_id:
+            raise ValueError("pure replay step identity must be non-empty")
+        if (
+            isinstance(self.visit_count, bool)
+            or not isinstance(self.visit_count, int)
+            or self.visit_count < 1
+        ):
+            raise ValueError("pure replay visit count must be a positive integer")
+
+
+def build_pure_completion_shell(
+    witness: PureReplayVisitWitness,
+) -> dict[str, Any]:
+    """Build the only successful durable row admitted by the replay profile."""
+
+    if not isinstance(witness, PureReplayVisitWitness):
+        raise TypeError("PureReplayVisitWitness required")
+    return {
+        "name": witness.presentation_key,
+        "step_id": witness.step_id,
+        "visit_count": witness.visit_count,
+        "status": "completed",
+        "exit_code": 0,
+        "outcome": {
+            "status": "completed",
+            "phase": "execution",
+            "class": "completed",
+            "retryable": False,
+        },
+        "result_storage": DERIVED_PURE_REPLAY_PROFILE,
+    }
+
+
+def validate_pure_completion_shell(
+    row: Mapping[str, Any],
+    *,
+    witness: PureReplayVisitWitness,
+) -> None:
+    """Reject any successful replay row that is not the exact value-free shell."""
+
+    if not isinstance(row, Mapping):
+        raise ValueError("pure replay completion shell must be an object")
+    if set(row) != _PURE_COMPLETION_SHELL_KEYS:
+        raise ValueError("pure replay completion shell fields are invalid")
+    if not _same_json_shape_and_value(
+        row,
+        build_pure_completion_shell(witness),
+    ):
+        raise ValueError("pure replay completion shell does not match its visit")
+
+
+def _same_json_shape_and_value(left: Any, right: Any) -> bool:
+    """Compare JSON-like values without Python's bool/int equivalence."""
+
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, Mapping):
+        return (
+            set(left) == set(right)
+            and all(
+                _same_json_shape_and_value(left[key], right[key])
+                for key in left
+            )
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            _same_json_shape_and_value(left_item, right_item)
+            for left_item, right_item in zip(left, right)
+        )
+    return bool(left == right)
+
+
+def _progress_state_mapping(state: Any) -> Mapping[str, Any]:
+    if isinstance(state, Mapping):
+        return state
+    to_dict = getattr(state, "to_dict", None)
+    if callable(to_dict):
+        payload = to_dict()
+        if isinstance(payload, Mapping):
+            return payload
+    raise TypeError("pure replay progress state must be an object")
+
+
+def _is_matching_running_cursor(
+    cursor: Any,
+    witness: PureReplayVisitWitness,
+) -> bool:
+    if not isinstance(cursor, Mapping) or set(cursor) != _PURE_RUNNING_CURSOR_KEYS:
+        return False
+    expected = {
+        "name": witness.presentation_key,
+        "index": witness.step_index,
+        "type": "pure_projection",
+        "status": "running",
+        "step_id": witness.step_id,
+        "visit_count": witness.visit_count,
+    }
+    if any(
+        not _same_json_shape_and_value(cursor.get(field), value)
+        for field, value in expected.items()
+    ):
+        return False
+    return all(
+        isinstance(cursor.get(field), str) and bool(cursor.get(field))
+        for field in ("started_at", "last_heartbeat_at")
+    )
+
+
+def _is_matching_failure_or_skip(
+    row: Any,
+    witness: PureReplayVisitWitness,
+) -> bool:
+    if not isinstance(row, Mapping) or row.get("status") not in {"failed", "skipped"}:
+        return False
+    return (
+        row.get("name") == witness.presentation_key
+        and row.get("step_id") == witness.step_id
+        and type(row.get("visit_count")) is int
+        and row.get("visit_count") == witness.visit_count
+    )
+
+
+def classify_pure_replay_progress(
+    state: Any,
+    *,
+    witness: PureReplayVisitWitness,
+) -> str:
+    """Classify the closed visit/cursor/result witness state."""
+
+    if not isinstance(witness, PureReplayVisitWitness):
+        raise TypeError("PureReplayVisitWitness required")
+    payload = _progress_state_mapping(state)
+    visits = payload.get("step_visits", {})
+    steps = payload.get("steps", {})
+    cursor = payload.get("current_step")
+    if not isinstance(visits, Mapping) or not isinstance(steps, Mapping):
+        return PROGRESS_WITNESS_INVALID
+
+    recorded_visit = visits.get(witness.presentation_key)
+    row = steps.get(witness.presentation_key)
+    cursor_is_relevant = (
+        isinstance(cursor, Mapping)
+        and (
+            cursor.get("name") == witness.presentation_key
+            or cursor.get("step_id") == witness.step_id
+        )
+    )
+    if cursor is not None and not cursor_is_relevant:
+        cursor = None
+    if recorded_visit is None and cursor is None and row is None:
+        return "unstarted"
+    if (
+        isinstance(recorded_visit, bool)
+        or not isinstance(recorded_visit, int)
+        or recorded_visit != witness.visit_count
+    ):
+        return PROGRESS_WITNESS_INVALID
+    if cursor is not None and row is not None:
+        return PROGRESS_WITNESS_INVALID
+    if cursor is not None:
+        return (
+            "interrupted"
+            if _is_matching_running_cursor(cursor, witness)
+            else PROGRESS_WITNESS_INVALID
+        )
+    if row is None:
+        return PROGRESS_WITNESS_INVALID
+    try:
+        validate_pure_completion_shell(row, witness=witness)
+    except ValueError:
+        if _is_matching_failure_or_skip(row, witness):
+            return "durable_failure_skip"
+        return PROGRESS_WITNESS_INVALID
+    return "derived_complete"
 
 
 @dataclass(frozen=True)

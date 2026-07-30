@@ -12,7 +12,16 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional
 
-from ..state import ForEachState, RunState, StateManager, StepResult
+from ..state import (
+    ForEachState,
+    RunState,
+    StateManager,
+    StepResult,
+    _begin_eligible_pure_visit_state,
+    _require_interrupted_eligible_pure_visit,
+    _settle_eligible_pure_failure_state,
+    _settle_eligible_pure_success_state,
+)
 from .executable_ir import ManagedJobsConfig, ManagedJobsRoutes
 from .executor_runtime import ParentCallStateManager
 from .loaded_bundle import (
@@ -99,7 +108,27 @@ class _CallFrameStateManager:
         existing_frame: Optional[Dict[str, Any]] = None,
         observability: Optional[Dict[str, Any]] = None,
         resume_scope_path: Optional[ResumeScopePath] = None,
+        result_persistence_profile: Optional[str] = None,
     ) -> None:
+        from .pure_result_replay import DERIVED_PURE_REPLAY_PROFILE
+
+        if (
+            result_persistence_profile is not None
+            and result_persistence_profile != DERIVED_PURE_REPLAY_PROFILE
+        ):
+            raise ValueError("result persistence profile is unsupported")
+        existing_state: Optional[Mapping[str, Any]] = None
+        if existing_frame is not None:
+            if not isinstance(existing_frame, Mapping):
+                raise ValueError(
+                    "existing call-frame state container is invalid"
+                )
+            candidate_existing_state = existing_frame.get("state")
+            if not isinstance(candidate_existing_state, Mapping):
+                raise ValueError(
+                    "existing call-frame state is missing or invalid"
+                )
+            existing_state = candidate_existing_state
         self.parent_manager = parent_manager
         self.workspace = parent_manager.workspace
         self.workflow = workflow
@@ -112,8 +141,6 @@ class _CallFrameStateManager:
         frame_root_name = _path_safe_frame_scope_token(frame_id)
         self.run_root = parent_manager.run_root / "call_frames" / frame_root_name
         self.logs_dir = self.run_root / "logs"
-        self.run_root.mkdir(parents=True, exist_ok=True)
-        self.logs_dir.mkdir(exist_ok=True)
         recorded_validation = (
             existing_frame.get("bound_input_resume_validation")
             if isinstance(existing_frame, dict)
@@ -127,9 +154,17 @@ class _CallFrameStateManager:
                 "diagnostics": [],
             }
 
-        existing_state = existing_frame.get("state") if isinstance(existing_frame, dict) else None
-        if isinstance(existing_state, dict):
-            self.state = RunState.from_dict(existing_state)
+        if existing_state is not None:
+            self.state = RunState.from_dict(dict(existing_state))
+            if (
+                result_persistence_profile is not None
+                and self.state.result_persistence_profile
+                != result_persistence_profile
+            ):
+                raise ValueError(
+                    "existing call-frame result persistence profile "
+                    "cannot be changed"
+                )
         else:
             provenance = workflow_provenance(workflow)
             workflow_path = str(provenance.workflow_path) if provenance is not None else ""
@@ -145,11 +180,14 @@ class _CallFrameStateManager:
                 started_at=now,
                 updated_at=now,
                 status="running",
+                result_persistence_profile=result_persistence_profile,
                 run_root=str(self.run_root),
                 context=dict(workflow_context(workflow)),
                 bound_inputs=dict(bound_inputs),
                 observability=observability,
             )
+        self.run_root.mkdir(parents=True, exist_ok=True)
+        self.logs_dir.mkdir(exist_ok=True)
         self._persist()
 
     def _snapshot(self) -> Dict[str, Any]:
@@ -480,6 +518,96 @@ class _CallFrameStateManager:
         self.state.transition_count = transition_count
         self.state.step_visits = step_visits
         self._persist()
+
+    def _mutate_eligible_pure_state(
+        self,
+        mutation: Callable[[RunState], Any],
+    ) -> Any:
+        """Commit one eligible-pure frame mutation through the aggregate root."""
+
+        from .provider_attempts import resolve_aggregate_run_owner
+
+        owner = resolve_aggregate_run_owner(self)
+        result: list[Any] = []
+
+        def apply(leaf: RunState) -> None:
+            result.append(mutation(leaf))
+
+        try:
+            owner.root_manager._mutate_scoped_state(
+                owner.resume_scope_path,
+                commit_guard=lambda _leaf: True,
+                mutation=apply,
+            )
+        finally:
+            self._refresh_state_chain_from_root()
+        return result[0] if result else None
+
+    def begin_eligible_pure_visit(
+        self,
+        *,
+        step_name: str,
+        step_index: int,
+        step_id: str,
+    ) -> int:
+        """Atomically publish one nested eligible-pure visit and cursor."""
+
+        result = self._mutate_eligible_pure_state(
+            lambda state: _begin_eligible_pure_visit_state(
+                state,
+                step_name=step_name,
+                step_index=step_index,
+                step_id=step_id,
+            )
+        )
+        if isinstance(result, bool) or not isinstance(result, int):
+            raise RuntimeError("eligible pure visit allocation failed")
+        return result
+
+    def reuse_interrupted_eligible_pure_visit(
+        self,
+        witness: Any,
+    ) -> int:
+        """Validate and reuse one nested interrupted visit read-only."""
+
+        from .provider_attempts import resolve_aggregate_run_owner
+
+        owner = resolve_aggregate_run_owner(self)
+        with owner.root_manager._state_mutation():
+            self._refresh_state_chain_from_root()
+            _require_interrupted_eligible_pure_visit(self.state, witness)
+            return witness.visit_count
+
+    def settle_eligible_pure_success(
+        self,
+        witness: Any,
+    ) -> Dict[str, Any]:
+        """Atomically replace a nested pure cursor with its exact shell."""
+
+        result = self._mutate_eligible_pure_state(
+            lambda state: _settle_eligible_pure_success_state(
+                state,
+                witness,
+            )
+        )
+        if not isinstance(result, dict):
+            raise RuntimeError("eligible pure success settlement failed")
+        return result
+
+    def settle_eligible_pure_failure(
+        self,
+        witness: Any,
+        result: StepResult,
+    ) -> None:
+        """Atomically replace a nested pure cursor with its full failure."""
+
+        self._mutate_eligible_pure_state(
+            lambda state: _settle_eligible_pure_failure_state(
+                state,
+                witness,
+                result,
+            )
+        )
 
     def update_status(self, status: str) -> None:
         self.state.status = status

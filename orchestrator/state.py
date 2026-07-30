@@ -82,6 +82,7 @@ class RunState:
     started_at: str
     updated_at: str
     status: StateStatus
+    result_persistence_profile: Optional[str] = None
     run_root: Optional[str] = None  # Path to .orchestrate/runs/<run_id>
     context: Dict[str, Any] = field(default_factory=dict)
     bound_inputs: Dict[str, Any] = field(default_factory=dict)
@@ -102,6 +103,14 @@ class RunState:
     transition_count: int = 0
     step_visits: Dict[str, int] = field(default_factory=dict)
     provider_attempt_allocations: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.result_persistence_profile is None:
+            return
+        from .workflow.pure_result_replay import DERIVED_PURE_REPLAY_PROFILE
+
+        if self.result_persistence_profile != DERIVED_PURE_REPLAY_PROFILE:
+            raise ValueError("result persistence profile is unsupported")
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict for JSON serialization."""
@@ -132,6 +141,10 @@ class RunState:
         # Include run_root if set
         if self.run_root:
             result["run_root"] = self.run_root
+        if self.result_persistence_profile is not None:
+            result[
+                "result_persistence_profile"
+            ] = self.result_persistence_profile
         if self.observability is not None:
             result["observability"] = self.observability
         if self.runtime_observability is not None:
@@ -164,6 +177,17 @@ class RunState:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RunState":
         """Create RunState from dict."""
+        result_persistence_profile = data.get("result_persistence_profile")
+        if "result_persistence_profile" in data:
+            from .workflow.pure_result_replay import (
+                DERIVED_PURE_REPLAY_PROFILE,
+            )
+
+            if result_persistence_profile != DERIVED_PURE_REPLAY_PROFILE:
+                raise ValueError(
+                    "result persistence profile is unsupported"
+                )
+
         # Convert for_each entries to ForEachState objects
         for_each = {}
         if "for_each" in data:
@@ -196,6 +220,7 @@ class RunState:
             started_at=data["started_at"],
             updated_at=data["updated_at"],
             status=data["status"],
+            result_persistence_profile=result_persistence_profile,
             run_root=data.get("run_root"),  # Optional, may not be present in older states
             context=data.get("context", {}),
             bound_inputs=data.get("bound_inputs", {}),
@@ -217,6 +242,116 @@ class RunState:
             step_visits=data.get("step_visits", {}),
             provider_attempt_allocations=provider_attempt_allocations,
         )
+
+
+def _require_derived_pure_replay_profile(state: RunState) -> None:
+    from .workflow.pure_result_replay import DERIVED_PURE_REPLAY_PROFILE
+
+    if state.result_persistence_profile != DERIVED_PURE_REPLAY_PROFILE:
+        raise ValueError(
+            "eligible pure witness operations require the derived pure "
+            "replay persistence profile"
+        )
+
+
+def _begin_eligible_pure_visit_state(
+    state: RunState,
+    *,
+    step_name: str,
+    step_index: int,
+    step_id: str,
+) -> int:
+    from .workflow.pure_result_replay import (
+        PROGRESS_WITNESS_INVALID,
+        PureReplayVisitWitness,
+        classify_pure_replay_progress,
+    )
+
+    _require_derived_pure_replay_profile(state)
+    witness = PureReplayVisitWitness(
+        presentation_key=step_name,
+        step_index=step_index,
+        step_id=step_id,
+        visit_count=1,
+    )
+    if (
+        state.current_step is not None
+        or classify_pure_replay_progress(state, witness=witness)
+        != "unstarted"
+    ):
+        raise ValueError(PROGRESS_WITNESS_INVALID)
+
+    now = datetime.now(timezone.utc).isoformat()
+    state.step_visits[step_name] = witness.visit_count
+    state.current_step = {
+        "name": witness.presentation_key,
+        "index": witness.step_index,
+        "type": "pure_projection",
+        "status": "running",
+        "started_at": now,
+        "last_heartbeat_at": now,
+        "step_id": witness.step_id,
+        "visit_count": witness.visit_count,
+    }
+    return witness.visit_count
+
+
+def _require_interrupted_eligible_pure_visit(
+    state: RunState,
+    witness: Any,
+) -> None:
+    from .workflow.pure_result_replay import (
+        PROGRESS_WITNESS_INVALID,
+        PureReplayVisitWitness,
+        classify_pure_replay_progress,
+    )
+
+    _require_derived_pure_replay_profile(state)
+    if not isinstance(witness, PureReplayVisitWitness):
+        raise TypeError("PureReplayVisitWitness required")
+    if (
+        classify_pure_replay_progress(state, witness=witness)
+        != "interrupted"
+    ):
+        raise ValueError(PROGRESS_WITNESS_INVALID)
+
+
+def _settle_eligible_pure_success_state(
+    state: RunState,
+    witness: Any,
+) -> Dict[str, Any]:
+    from .workflow.pure_result_replay import build_pure_completion_shell
+
+    _require_interrupted_eligible_pure_visit(state, witness)
+    shell = build_pure_completion_shell(witness)
+    state.steps[witness.presentation_key] = shell
+    state.current_step = None
+    return shell
+
+
+def _settle_eligible_pure_failure_state(
+    state: RunState,
+    witness: Any,
+    result: StepResult,
+) -> None:
+    _require_interrupted_eligible_pure_visit(state, witness)
+    if not isinstance(result, StepResult):
+        raise TypeError("StepResult required")
+    if result.status not in {"failed", "skipped"}:
+        raise ValueError(
+            "eligible pure failure settlement requires a failed or skipped result"
+        )
+    if (
+        result.name != witness.presentation_key
+        or result.step_id != witness.step_id
+        or isinstance(result.visit_count, bool)
+        or result.visit_count != witness.visit_count
+    ):
+        raise ValueError(
+            "eligible pure failure result does not match its visit"
+        )
+    state.steps[witness.presentation_key] = deepcopy(result)
+    state.current_step = None
 
 
 class StateManager:
@@ -294,11 +429,11 @@ class StateManager:
                 raise RuntimeError("State not initialized")
             try:
                 yield self.state
-            except BaseException:
-                self.state = self._read_state_from_disk()
-                raise
-            else:
                 self._write_state()
+            except BaseException:
+                if self.state_file.exists():
+                    self.state = self._read_state_from_disk()
+                raise
 
     def allocate_provider_attempt(
         self,
@@ -411,6 +546,7 @@ class StateManager:
         context: Optional[Dict[str, Any]] = None,
         bound_inputs: Optional[Dict[str, Any]] = None,
         observability: Optional[Dict[str, Any]] = None,
+        result_persistence_profile: Optional[str] = None,
     ) -> RunState:
         """Initialize a new run state.
 
@@ -421,6 +557,16 @@ class StateManager:
         Returns:
             Initialized RunState
         """
+        if result_persistence_profile is not None:
+            from .workflow.pure_result_replay import (
+                DERIVED_PURE_REPLAY_PROFILE,
+            )
+
+            if result_persistence_profile != DERIVED_PURE_REPLAY_PROFILE:
+                raise ValueError(
+                    "result persistence profile is unsupported"
+                )
+
         with self._state_mutation():
             # Create run directory structure
             self.run_root.mkdir(parents=True, exist_ok=True)
@@ -443,6 +589,7 @@ class StateManager:
                 started_at=now,
                 updated_at=now,
                 status="running",
+                result_persistence_profile=result_persistence_profile,
                 run_root=str(self.run_root),  # Store run_root path
                 context=context or {},
                 bound_inputs=bound_inputs or {},
@@ -1084,7 +1231,12 @@ class StateManager:
                 updated_child = parent
 
             self.state = candidate_root
-            self._write_state()
+            try:
+                self._write_state()
+            except BaseException:
+                if self.state_file.exists():
+                    self.state = self._read_state_from_disk()
+                raise
             return committed_leaf
 
     def update_call_frame(self, frame_id: str, frame_state: Dict[str, Any]):
@@ -1145,6 +1297,58 @@ class StateManager:
             self.state.transition_count = transition_count
             self.state.step_visits = step_visits
             self._write_state()
+
+    def begin_eligible_pure_visit(
+        self,
+        *,
+        step_name: str,
+        step_index: int,
+        step_id: str,
+    ) -> int:
+        """Atomically publish one new eligible-pure visit and cursor."""
+
+        visit_count = 0
+        with self.state_transaction() as state:
+            visit_count = _begin_eligible_pure_visit_state(
+                state,
+                step_name=step_name,
+                step_index=step_index,
+                step_id=step_id,
+            )
+        return visit_count
+
+    def reuse_interrupted_eligible_pure_visit(
+        self,
+        witness: Any,
+    ) -> int:
+        """Validate and reuse one interrupted eligible-pure visit read-only."""
+
+        with self._state_mutation():
+            if self.state is None:
+                raise RuntimeError("State not initialized")
+            _require_interrupted_eligible_pure_visit(self.state, witness)
+            return witness.visit_count
+
+    def settle_eligible_pure_success(
+        self,
+        witness: Any,
+    ) -> Dict[str, Any]:
+        """Atomically replace one eligible-pure cursor with its exact shell."""
+
+        shell: Dict[str, Any] = {}
+        with self.state_transaction() as state:
+            shell = _settle_eligible_pure_success_state(state, witness)
+        return shell
+
+    def settle_eligible_pure_failure(
+        self,
+        witness: Any,
+        result: StepResult,
+    ) -> None:
+        """Atomically replace one eligible-pure cursor with a full failure."""
+
+        with self.state_transaction() as state:
+            _settle_eligible_pure_failure_state(state, witness, result)
 
     def update_status(self, status: StateStatus):
         """Update overall run status.
