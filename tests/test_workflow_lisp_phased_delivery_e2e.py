@@ -13,6 +13,7 @@ from dataclasses import (
 from enum import Enum
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 from queue import Empty, Queue
@@ -791,9 +792,10 @@ def _clean_after_simulated_crash(
         ("VALID_FROZEN", "invalid_artifact"),
     ),
 )
-def test_public_phased_crash_resume_quarantines_without_reentry(
+def test_public_phased_crash_resume_reruns_whole_visit_from_task_turn(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
     boundary: str,
     first_mode: str,
 ) -> None:
@@ -804,6 +806,12 @@ def test_public_phased_crash_resume_quarantines_without_reentry(
         run_id=f"crash-{boundary.lower()}",
     )
     harness = _ControlledPhasedHarness(tmp_path, first_mode)
+    original_adapter_factory = (
+        interactive_terminal_module.InteractiveTerminalTurnQueueAdapter
+    )
+    original_create_endpoint = (
+        _WorkflowPhasedProviderAttemptBindings.create_endpoint
+    )
     _install_harness(monkeypatch, harness)
     original_receive = (
         _WorkflowPhasedProviderAttemptBindings.receive_attempt_event
@@ -839,45 +847,121 @@ def test_public_phased_crash_resume_quarantines_without_reentry(
     interrupted = _state(manager)
     assert interrupted["status"] == "running"
     assert interrupted["current_step"]["status"] == "running"
+    assert interrupted["current_step"]["visit_count"] == 1
     _clean_after_simulated_crash(harness)
     assert all(not path.exists() for path in harness.socket_paths)
     if harness.adapter is not None and harness.adapter.thread is not None:
         assert not harness.adapter.thread.is_alive()
+    [interrupted_ledger] = list(
+        manager.run_root.rglob(
+            "attempt-*-provider-prompt-phases.jsonl"
+        )
+    )
+    interrupted_attempt_root = interrupted_ledger.parent
+    interrupted_attempt_bytes = {
+        path.relative_to(interrupted_attempt_root).as_posix():
+        path.read_bytes()
+        for path in interrupted_attempt_root.rglob("*")
+        if path.is_file()
+    }
+    [interrupted_invocation] = harness.invocations
 
+    monkeypatch.setattr(
+        interactive_terminal_module,
+        "InteractiveTerminalTurnQueueAdapter",
+        original_adapter_factory,
+    )
+    monkeypatch.setattr(
+        _WorkflowPhasedProviderAttemptBindings,
+        "create_endpoint",
+        original_create_endpoint,
+    )
+    monkeypatch.setattr(
+        _WorkflowPhasedProviderAttemptBindings,
+        "receive_attempt_event",
+        original_receive,
+    )
+    resumed_harness = _ControlledPhasedHarness(
+        tmp_path,
+        first_mode,
+    )
+    _install_harness(monkeypatch, resumed_harness)
     resume_manager = StateManager(tmp_path, run_id=manager.run_id)
     resume_manager.load()
-    original_open = Path.open
 
-    def guarded_open(path: Path, *args: Any, **kwargs: Any) -> Any:
-        if path.name.endswith("-provider-prompt-phases.jsonl"):
-            raise AssertionError("quarantine resume opened phased ledger")
-        return original_open(path, *args, **kwargs)
-
-    with patch.object(
-        WorkflowExecutor,
-        "_build_phased_provider_attempt_bindings",
-        side_effect=AssertionError("quarantine reentered provider route"),
-    ), patch.object(Path, "open", guarded_open):
+    with caplog.at_level(logging.WARNING):
         resumed = WorkflowExecutor(
             bundle,
             tmp_path,
             resume_manager,
             retry_delay_ms=0,
         ).execute(on_error="stop", resume=True)
-        assert resumed["status"] == "failed"
-        assert resumed["error"]["type"] == (
-            "provider_phased_interrupted_visit_quarantined"
+
+    assert resumed["status"] == "completed"
+    assert resumed.get("current_step") is None
+    [step] = resumed["steps"].values()
+    assert step["status"] == "completed"
+    assert step["visit_count"] == 2
+    assert step["artifacts"]["approved"] is True
+    assert step["artifacts"]["report"] == "VALID_REPORT_2\n"
+    [resumed_invocation] = resumed_harness.invocations
+    assert resumed_invocation.invocation_id != (
+        interrupted_invocation.invocation_id
+    )
+    assert resumed_invocation.attempt_scope_key != (
+        interrupted_invocation.attempt_scope_key
+    )
+    assert resumed_invocation.attempt_ordinal == 1
+    assert resumed_harness.adapter is not None
+    assert resumed_harness.adapter.joined is True
+    assert resumed_harness.adapter.aborted is False
+    assert [receipt.status for receipt in resumed_harness.receipts] == [
+        "retry_queued",
+        "accepted_closing",
+    ]
+
+    ledgers = list(
+        manager.run_root.rglob(
+            "attempt-*-provider-prompt-phases.jsonl"
         )
-        assert resumed["error"]["context"]["sticky"] is True
-        sticky = StateManager(tmp_path, run_id=manager.run_id)
-        sticky.load()
-        again = WorkflowExecutor(
-            bundle,
-            tmp_path,
-            sticky,
-            retry_delay_ms=0,
-        ).execute(on_error="stop", resume=True)
-    assert again["error"] == resumed["error"]
+    )
+    assert len(ledgers) == 2
+    [fresh_ledger] = [
+        path for path in ledgers if path != interrupted_ledger
+    ]
+    assert validate_ledger_bytes(fresh_ledger.read_bytes())["status"] == (
+        "complete"
+    )
+    fresh_rows = [
+        json.loads(line)
+        for line in fresh_ledger.read_text(
+            encoding="ascii"
+        ).splitlines()
+    ]
+    fresh_events = [
+        row for row in fresh_rows if row["record_kind"] == "event"
+    ]
+    assert [row["event"] for row in fresh_events[:2]] == [
+        "task_start_requested",
+        "task_started",
+    ]
+    assert fresh_events[1]["payload"]["turn"]["phase"] == "task"
+    assert {
+        path.relative_to(interrupted_attempt_root).as_posix():
+        path.read_bytes()
+        for path in interrupted_attempt_root.rglob("*")
+        if path.is_file()
+    } == interrupted_attempt_bytes
+    rerun_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "orchestrator_diagnostic", None)
+        == "provider_attempt_interrupted_rerun"
+    ]
+    assert len(rerun_records) == 1
+    assert rerun_records[0].provider_family == "phased"
+    assert rerun_records[0].discarded_visit == 1
+    assert rerun_records[0].next_visit == 2
 
 
 def test_completed_phased_reuse_opens_no_provider_endpoint_or_phase_ledger(

@@ -3,6 +3,8 @@ from __future__ import annotations
 from concurrent.futures import Future
 from copy import deepcopy
 from datetime import datetime, timezone
+import json
+import logging
 from pathlib import Path
 from types import MappingProxyType, MethodType, SimpleNamespace
 from typing import Any, cast
@@ -648,48 +650,136 @@ def test_phased_submit_wait_reports_whole_attempt_deadline(
     assert event.submit is None
 
 
-def test_interrupted_phased_visit_reruns_from_task_turn_with_fresh_attempt() -> None:
-    executor = _executor()
-    executor._step_node_ids = ["root.review"]
-    executor._runtime_step_for_node_id = MethodType(
-        lambda self, node_id: {
-            "name": "review",
-            "provider_call_policy": {
-                "delivery": "phased",
-                "materialization_attempts": 2,
-            }
-        },
-        executor,
-    )
-    executor._execution_kind_for_step = MethodType(
-        lambda self, step: ExecutableNodeKind.PROVIDER,
-        executor,
-    )
-    executor._step_id = MethodType(
-        lambda self, step, fallback_index=None: "root.review",
-        executor,
-    )
+def test_interrupted_phased_visit_reruns_from_task_turn_with_fresh_attempt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import tests.test_workflow_lisp_phased_delivery_e2e as phased_e2e
 
-    guard = executor._interrupted_phased_provider_guard(
-        {
-            "current_step": {
-                "name": "review",
-                "index": 0,
-                "type": "provider",
-                "status": "running",
-                "step_id": "root.review",
-                "visit_count": 1,
-            }
-        }
+    bundle = phased_e2e._compile_public(tmp_path)
+    manager = phased_e2e._manager(
+        tmp_path,
+        bundle=bundle,
+        run_id="interrupted-phased-fresh-attempt",
     )
+    interrupted_harness = phased_e2e._ControlledPhasedHarness(
+        tmp_path,
+        "invalid_artifact",
+    )
+    phased_e2e._install_harness(monkeypatch, interrupted_harness)
+    original_receive = (
+        _WorkflowPhasedProviderAttemptBindings.receive_attempt_event
+    )
+    crashed = False
 
-    assert guard == {
-        "kind": "rerun_interrupted_visit",
-        "step_name": "review",
-        "step_id": "root.review",
-        "visit_count": 1,
-        "node_id": "root.review",
-    }
+    def crash_with_frozen_candidate(
+        self,
+        *,
+        boundary: str,
+        endpoint,
+        deadline: float,
+    ):
+        nonlocal crashed
+        if not crashed and boundary == "VALID_FROZEN":
+            crashed = True
+            raise phased_e2e._SimulatedProcessCrash
+        return original_receive(
+            self,
+            boundary=boundary,
+            endpoint=endpoint,
+            deadline=deadline,
+        )
+
+    monkeypatch.setattr(
+        _WorkflowPhasedProviderAttemptBindings,
+        "receive_attempt_event",
+        crash_with_frozen_candidate,
+    )
+    with pytest.raises(phased_e2e._SimulatedProcessCrash):
+        WorkflowExecutor(
+            bundle,
+            tmp_path,
+            manager,
+            retry_delay_ms=0,
+        ).execute(on_error="stop")
+    phased_e2e._clean_after_simulated_crash(interrupted_harness)
+
+    interrupted = phased_e2e._state(manager)
+    assert interrupted["current_step"]["visit_count"] == 1
+    [old_ledger_path] = list(
+        manager.run_root.rglob(
+            "attempt-000001-provider-prompt-phases.jsonl"
+        )
+    )
+    old_ledger_bytes = old_ledger_path.read_bytes()
+    assert b'"event":"task_started"' in old_ledger_bytes
+    assert b'"event":"submit_received"' in old_ledger_bytes
+    assert (tmp_path / "artifacts/review.md").read_text(
+        encoding="utf-8"
+    ) == "VALID_REPORT_2\n"
+
+    fresh_harness = phased_e2e._ControlledPhasedHarness(
+        tmp_path,
+        "invalid_artifact",
+    )
+    phased_e2e._install_harness(monkeypatch, fresh_harness)
+
+    def write_fresh_candidates(
+        workspace: Path,
+        *,
+        output_path: Path,
+        mode: str,
+        submission_ordinal: int,
+    ) -> None:
+        del mode
+        report = workspace / "artifacts/review.md"
+        if submission_ordinal == 2:
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text("FRESH_VISIT_REPORT\n", encoding="utf-8")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            json.dumps({"approved": False}) + "\n",
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(
+        phased_e2e,
+        "_write_candidates",
+        write_fresh_candidates,
+    )
+    resume_manager = StateManager(tmp_path, run_id=manager.run_id)
+    resume_manager.load()
+    with caplog.at_level(logging.WARNING):
+        resumed = WorkflowExecutor(
+            bundle,
+            tmp_path,
+            resume_manager,
+            retry_delay_ms=0,
+        ).execute(on_error="stop", resume=True)
+    phased_e2e._clean_after_simulated_crash(fresh_harness)
+
+    rerun_events = [
+        record
+        for record in caplog.records
+        if record.getMessage() == "provider_attempt_interrupted_rerun"
+    ]
+    assert resumed["status"] == "completed", resumed.get("error")
+    assert interrupted_harness.invocations[0].attempt_ordinal == 1
+    assert fresh_harness.invocations[0].attempt_ordinal == 1
+    assert fresh_harness.invocations[0].attempt_scope_key != (
+        interrupted_harness.invocations[0].attempt_scope_key
+    )
+    assert len(fresh_harness.invocations) == 1
+    assert resumed["workflow_outputs"] == {"return__approved": False}
+    assert (tmp_path / "artifacts/review.md").read_text(
+        encoding="utf-8"
+    ) == "FRESH_VISIT_REPORT\n"
+    assert old_ledger_path.read_bytes() == old_ledger_bytes
+    assert len(rerun_events) == 1
+    assert rerun_events[0].provider_family == "phased"
+    assert rerun_events[0].discarded_visit == 1
+    assert rerun_events[0].next_visit == 2
 
 
 def test_existing_phased_quarantine_is_sticky_after_current_step_is_cleared(
@@ -733,60 +823,53 @@ def test_cleared_current_step_without_phased_quarantine_is_not_claimed() -> None
     )
 
 
-@pytest.mark.parametrize(
-    ("field", "value"),
-    [
-        ("name", "other"),
-        ("type", "command"),
-        ("status", "completed"),
-        ("step_id", "root.other"),
-        ("index", 1),
-        ("index", "0"),
-        ("visit_count", 0),
-        ("visit_count", True),
-    ],
-)
 def test_interrupted_phased_visit_malformed_cursor_fails_integrity(
-    field: str,
-    value: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    executor = _executor()
-    executor._step_node_ids = ["root.review"]
-    executor._runtime_step_for_node_id = MethodType(
-        lambda self, node_id: {
-            "name": "review",
-            "provider_call_policy": {
-                "delivery": "phased",
-                "materialization_attempts": 2,
-            },
-        },
-        executor,
+    import tests.test_workflow_lisp_phased_delivery_e2e as phased_e2e
+
+    bundle = phased_e2e._compile_public(tmp_path)
+    manager = phased_e2e._manager(
+        tmp_path,
+        bundle=bundle,
+        run_id="interrupted-phased-malformed",
     )
-    executor._execution_kind_for_step = MethodType(
-        lambda self, step: ExecutableNodeKind.PROVIDER,
-        executor,
+    executor = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        manager,
+        retry_delay_ms=0,
     )
-    executor._step_id = MethodType(
-        lambda self, step, fallback_index=None: "root.review",
-        executor,
-    )
-    current_step = {
-        "name": "review",
+    [node_id] = executor._step_node_ids
+    step = executor._runtime_step_for_node_id(node_id)
+    step_name = step.get("name")
+    step_id = executor._step_id(step, 0)
+    assert isinstance(step_name, str)
+    assert manager.state is not None
+    manager.state.status = "running"
+    manager.state.step_visits = {step_name: 1}
+    manager.state.current_step = {
+        "name": step_name,
         "index": 0,
         "type": "provider",
         "status": "running",
-        "step_id": "root.review",
+        "step_id": step_id + ".foreign",
         "visit_count": 1,
     }
-    current_step[field] = value
-
-    guard = executor._interrupted_phased_provider_guard(
-        {"current_step": current_step}
+    manager._write_state()
+    provider_launches: list[str] = []
+    monkeypatch.setattr(
+        executor,
+        "_build_phased_provider_attempt_bindings",
+        lambda **_kwargs: provider_launches.append("provider"),
     )
 
-    assert guard is not None
-    assert guard["kind"] == "integrity_error"
-    assert guard["context"]["current_step"] == current_step
+    result = executor.execute(resume=True, on_error="stop")
+
+    assert result["status"] == "failed"
+    assert result["error"]["type"].endswith("integrity_error")
+    assert provider_launches == []
 
 
 def test_completed_phased_result_needs_no_provider_endpoint_or_ledger_read() -> None:

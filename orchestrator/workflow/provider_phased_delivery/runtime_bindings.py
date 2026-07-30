@@ -133,6 +133,16 @@ class _WorkflowPhasedProviderAttemptBindings:
         self._validated_structured_artifacts: Dict[str, Any] = {}
         self._prepared_result: Dict[str, Any] | None = None
         self._failure: Any = None
+        pending_rerun = getattr(
+            executor,
+            "_pending_interrupted_provider_rerun",
+            None,
+        )
+        self._interrupted_rerun = (
+            dict(pending_rerun)
+            if isinstance(pending_rerun, Mapping)
+            else None
+        )
         runtime_root = (
             Path(executor.state_manager.run_root)
             / "provider-phased-delivery"
@@ -695,6 +705,15 @@ class _WorkflowPhasedProviderAttemptBindings:
             )
         )
         preflight = CandidatePreflight.create(bindings=tuple(bindings))
+        if self._is_exact_interrupted_rerun():
+            try:
+                self._discard_interrupted_candidates(preflight)
+            except PhasedOperationFailure:
+                raise
+            except OSError as exc:
+                raise PhasedOperationFailure(
+                    self._diagnostic("candidate_reset_failed")
+                ) from exc
         for binding in preflight.bindings:
             path = self.executor._resolve_workspace_path(
                 binding.workspace_relative_path
@@ -705,6 +724,64 @@ class _WorkflowPhasedProviderAttemptBindings:
                 )
         self.preflight = preflight
         return preflight
+
+    def _is_exact_interrupted_rerun(self) -> bool:
+        context = self._interrupted_rerun
+        visits = self.state.get("step_visits")
+        visit_count = (
+            visits.get(self.step_name)
+            if isinstance(visits, Mapping)
+            else None
+        )
+        discarded_visit = (
+            context.get("discarded_visit")
+            if isinstance(context, Mapping)
+            else None
+        )
+        next_visit = (
+            context.get("next_visit")
+            if isinstance(context, Mapping)
+            else None
+        )
+        return (
+            isinstance(context, Mapping)
+            and context.get("diagnostic")
+            == "provider_attempt_interrupted_rerun"
+            and context.get("family") == "phased"
+            and context.get("step_id") == self.runtime_step_id
+            and not isinstance(discarded_visit, bool)
+            and isinstance(discarded_visit, int)
+            and discarded_visit > 0
+            and not isinstance(next_visit, bool)
+            and isinstance(next_visit, int)
+            and next_visit == discarded_visit + 1
+            and visit_count == next_visit
+        )
+
+    def _discard_interrupted_candidates(self, preflight) -> None:
+        from .bindings import PhasedOperationFailure
+
+        paths: list[Path] = []
+        for binding in preflight.bindings:
+            path = self.executor._resolve_workspace_path(
+                binding.workspace_relative_path
+            )
+            if (
+                path is None
+                or path.is_symlink()
+                or (path.exists() and not path.is_file())
+            ):
+                raise PhasedOperationFailure(
+                    self._diagnostic("candidate_reset_failed")
+                )
+            paths.append(path)
+        for path in paths:
+            if path.exists():
+                path.unlink()
+        if any(path.exists() or path.is_symlink() for path in paths):
+            raise PhasedOperationFailure(
+                self._diagnostic("candidate_reset_failed")
+            )
 
     def create_ledger(self, allocation, composition):
         from .ledger import (
