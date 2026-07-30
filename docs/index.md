@@ -210,6 +210,11 @@ navigation are complete.
 **Keywords:** workflow-lisp, evolution, variants, trials, genetic-search, prompt-evolution, roadmap, e-series, trial-runs, typed-program-gates
 **Use this when:** Checking the E-series shape, gates, and sequencing prerequisites, or tracing the historical proposal. Select current implementation work from the [Workflow Lisp Language Quality And Domain Semantics Roadmap](plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md): E implementation is gated on ML closure plus the lean-pilot owner-decision handoff, E0 remains unselected, and E4P is exclusively absorbed by successor Stage Q3.
 
+### [LSP Frontend Prerequisites P-Series Roadmap](plans/2026-07-30-lsp-frontend-prerequisites-p-series-roadmap.md)
+**Description:** Tracked P-series roadmap (2026-07-30): P1 diagnostic accumulation, P2 reader recovery, P3 span-to-type metadata, P4 source overlays, and P5 compile caching/incrementality, sequenced after the E program. Technical definitions stay owned by the language server design; no P item is selected by listing.
+**Keywords:** workflow-lisp, lsp, language-server, frontend, prerequisites, p-series, hover, incrementality, diagnostics, roadmap
+**Use this when:** Checking P-series tracking, ordering, entry conditions, or gates. P selection requires E-program completion (or an explicit owner closure/re-park decision), a language-server design amendment, and a reviewed component plan; owner acceleration is the sole early path.
+
 ### [Procedure-First Reuse Contract](design/workflow_lisp_procedure_first_reuse_contract.md)
 **Description:** Accepted boundary and migration contract: workflows own durable public run/resume/invocation/publication identity, while typed procedures are the normal internal reuse unit with explicit lowering and caller-visible effects.
 **Keywords:** workflow-lisp, procedures, workflows, reuse, effects, lowering, migration

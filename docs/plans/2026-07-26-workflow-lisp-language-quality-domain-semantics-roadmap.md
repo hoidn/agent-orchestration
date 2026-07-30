@@ -64,7 +64,10 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
 - P1 diagnostic accumulation, P2 reader recovery, P3 span-to-type metadata, P4
   source overlays, P5 compile caching/incrementality, and any runtime debug
   transport remain deferred. Listing their dependent features below does not
-  select those prerequisites.
+  select those prerequisites. The P-series is tracked in the
+  [P-series roadmap](2026-07-30-lsp-frontend-prerequisites-p-series-roadmap.md),
+  sequenced after the E program (2026-07-30 owner decision); tracking does
+  not select it.
 - A roadmap status is routing, not capability evidence. Current authoring
   guidance continues to describe v1 until the owning L stage is implemented,
   verified, reviewed, and reflected in the capability matrix.
@@ -702,7 +705,9 @@ The completed surface remains limited to the admitted shapes.
 - LSP multi-diagnostic recovery, malformed-buffer partial ASTs, arbitrary
   expression hover, unsaved-buffer diagnostics/navigation, and incremental
   compilation remain deferred behind P1–P5 and require separate owner
-  selection.
+  selection. The P-series itself is tracked in the
+  [P-series roadmap](2026-07-30-lsp-frontend-prerequisites-p-series-roadmap.md),
+  sequenced after the E program.
 - Type-reference definition, complete references, and rename remain
   unselected until the compiler retains exact authored occurrence spans and a
   complete namespace-aware reference graph; the LSP must not guess from text.

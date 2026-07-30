@@ -1219,6 +1219,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "tracked e series program" in normalized_successor
     )
     assert "nothing e is selectable from this roadmap" in normalized_successor
+    assert "sequenced after the e program" in normalized_successor
     l0_row = _markdown_table_row(
         REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
         "Reliability and diagnostic actionability",
@@ -1628,6 +1629,8 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         in normalized_evolution_status
     )
     assert "gated on ml closure" in normalized_evolution_status
+    assert "p series roadmap" in normalized_evolution_status
+    assert "sequenced after this e program" in normalized_evolution_status
     assert "not a selector" in normalized_evolution_status
     assert "e0 probe remains unselected" in normalized_evolution_status
     assert (

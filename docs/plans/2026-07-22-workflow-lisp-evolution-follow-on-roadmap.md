@@ -68,6 +68,12 @@ Sequencing prerequisites (owner-directed 2026-07-30):
 Incorporation is not selection: no E implementation may start from this
 document alone.
 
+Successor ordering (owner-directed 2026-07-30): the
+[LSP frontend prerequisites P-series roadmap](2026-07-30-lsp-frontend-prerequisites-p-series-roadmap.md)
+is sequenced after this E program; the P-series enters selection only after
+E's recorded completion or an explicit owner closure/re-park decision, with
+owner acceleration as the sole exception.
+
 ## Purpose
 
 Define a conditional, evidence-driven program for:
