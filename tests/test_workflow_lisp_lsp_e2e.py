@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import shutil
 
 from tests.test_workflow_lisp_lsp_integration import (
     _LspProcess,
@@ -82,32 +83,57 @@ def _tree_digest(root: Path) -> str:
     return digest.hexdigest()
 
 
-def test_real_repository_cycle_guard_editor_session_is_read_only() -> None:
+def _copy_repository_inputs(
+    tmp_path: Path,
+    source_paths: tuple[Path, ...],
+) -> tuple[Path, dict[Path, Path]]:
+    workspace = (tmp_path / "workspace").resolve()
+    copied_paths: dict[Path, Path] = {}
+    for source_path in source_paths:
+        destination = workspace / source_path.relative_to(REPO_ROOT)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, destination)
+        copied_paths[source_path] = destination
+    return workspace, copied_paths
+
+
+def test_real_repository_cycle_guard_editor_session_is_read_only(
+    tmp_path: Path,
+) -> None:
+    workspace, copied_paths = _copy_repository_inputs(
+        tmp_path,
+        (CYCLE_GUARD_ENTRY, CYCLE_GUARD_COMMANDS),
+    )
+    entry_path = copied_paths[CYCLE_GUARD_ENTRY]
+    commands_path = copied_paths[CYCLE_GUARD_COMMANDS]
     entry_bytes = CYCLE_GUARD_ENTRY.read_bytes()
     command_bytes = CYCLE_GUARD_COMMANDS.read_bytes()
-    build_digest = _tree_digest(REPO_ROOT / ".orchestrate" / "build")
+    build_root = workspace / ".orchestrate" / "build"
+    build_digest = _tree_digest(build_root)
     source_text = entry_bytes.decode("utf-8")
-    process = _LspProcess(REPO_ROOT)
+    process = _LspProcess(workspace)
     try:
         _initialize(
             process,
-            workspace=REPO_ROOT,
+            workspace=workspace,
             initialization_options={
-                "source_roots": [str(REPO_ROOT / "workflows" / "examples")],
+                "source_roots": [
+                    str(workspace / "workflows" / "examples")
+                ],
                 "entry_workflows": {
-                    str(CYCLE_GUARD_ENTRY): "cycle-guard-demo",
+                    str(entry_path): "cycle-guard-demo",
                 },
-                "command_boundaries_path": str(CYCLE_GUARD_COMMANDS),
+                "command_boundaries_path": str(commands_path),
             },
         )
-        _open(process, source_path=CYCLE_GUARD_ENTRY, text=source_text)
+        _open(process, source_path=entry_path, text=source_text)
 
         symbols, observed = _request_until(
             process,
             request_id=2,
             method="textDocument/documentSymbol",
             params={
-                "textDocument": {"uri": CYCLE_GUARD_ENTRY.as_uri()},
+                "textDocument": {"uri": entry_path.as_uri()},
             },
             result_predicate=lambda result: isinstance(result, list),
         )
@@ -127,7 +153,7 @@ def test_real_repository_cycle_guard_editor_session_is_read_only() -> None:
             request_id=3,
             method="textDocument/completion",
             params={
-                "textDocument": {"uri": CYCLE_GUARD_ENTRY.as_uri()},
+                "textDocument": {"uri": entry_path.as_uri()},
                 "position": {"line": 14, "character": 5},
             },
         )
@@ -141,7 +167,7 @@ def test_real_repository_cycle_guard_editor_session_is_read_only() -> None:
             request_id=4,
             method="textDocument/definition",
             params={
-                "textDocument": {"uri": CYCLE_GUARD_ENTRY.as_uri()},
+                "textDocument": {"uri": entry_path.as_uri()},
                 "position": {"line": 14, "character": 20},
             },
         )
@@ -149,7 +175,7 @@ def test_real_repository_cycle_guard_editor_session_is_read_only() -> None:
 
         _change(
             process,
-            source_path=CYCLE_GUARD_ENTRY,
+            source_path=entry_path,
             text=source_text + "\n; unsaved editor buffer\n",
             version=2,
         )
@@ -158,7 +184,7 @@ def test_real_repository_cycle_guard_editor_session_is_read_only() -> None:
             request_id=5,
             method="textDocument/documentSymbol",
             params={
-                "textDocument": {"uri": CYCLE_GUARD_ENTRY.as_uri()},
+                "textDocument": {"uri": entry_path.as_uri()},
             },
         )
         assert dirty_symbols["result"] is None
@@ -166,9 +192,9 @@ def test_real_repository_cycle_guard_editor_session_is_read_only() -> None:
     finally:
         process.close()
 
-    assert CYCLE_GUARD_ENTRY.read_bytes() == entry_bytes
-    assert CYCLE_GUARD_COMMANDS.read_bytes() == command_bytes
-    assert _tree_digest(REPO_ROOT / ".orchestrate" / "build") == build_digest
+    assert entry_path.read_bytes() == entry_bytes
+    assert commands_path.read_bytes() == command_bytes
+    assert _tree_digest(build_root) == build_digest
 
 
 def test_real_repository_l3_mixed_entry_editor_session_is_read_only() -> None:
@@ -216,7 +242,9 @@ def test_real_repository_l3_mixed_entry_editor_session_is_read_only() -> None:
     assert not (L3_ENTRY_SELECTION_ROOT / ".orchestrate").exists()
 
 
-def test_real_repository_l2_recovery_to_full_is_read_only() -> None:
+def test_real_repository_l2_recovery_to_full_is_read_only(
+    tmp_path: Path,
+) -> None:
     configuration_paths = (
         KISS_BACKLOG_ENTRY,
         KISS_BACKLOG_PROVIDERS,
@@ -232,37 +260,45 @@ def test_real_repository_l2_recovery_to_full_is_read_only() -> None:
             configuration_bytes[KISS_BACKLOG_PROMPTS]
         ).values()
     )
-    protected_paths = (*configuration_paths, *prompt_assets)
+    workspace, copied_paths = _copy_repository_inputs(
+        tmp_path,
+        (*configuration_paths, *prompt_assets),
+    )
+    entry_path = copied_paths[KISS_BACKLOG_ENTRY]
+    providers_path = copied_paths[KISS_BACKLOG_PROVIDERS]
+    prompts_path = copied_paths[KISS_BACKLOG_PROMPTS]
+    protected_paths = tuple(copied_paths.values())
     protected_bytes = {
-        path: path.read_bytes()
-        for path in protected_paths
+        copied_paths[path]: path.read_bytes()
+        for path in (*configuration_paths, *prompt_assets)
     }
-    build_digest = _tree_digest(REPO_ROOT / ".orchestrate" / "build")
-    source_text = protected_bytes[KISS_BACKLOG_ENTRY].decode("utf-8")
-    process = _LspProcess(REPO_ROOT)
+    build_root = workspace / ".orchestrate" / "build"
+    build_digest = _tree_digest(build_root)
+    source_text = protected_bytes[entry_path].decode("utf-8")
+    process = _LspProcess(workspace)
     try:
         _initialize(
             process,
-            workspace=REPO_ROOT,
+            workspace=workspace,
             initialization_options={
                 "source_roots": [
-                    str(REPO_ROOT / "workflows" / "examples")
+                    str(workspace / "workflows" / "examples")
                 ],
                 "entry_workflows": {
-                    str(KISS_BACKLOG_ENTRY): "run-backlog-item",
+                    str(entry_path): "run-backlog-item",
                 },
-                "provider_externs_path": str(KISS_BACKLOG_PROVIDERS),
-                "prompt_externs_path": str(KISS_BACKLOG_PROMPTS),
+                "provider_externs_path": str(providers_path),
+                "prompt_externs_path": str(prompts_path),
             },
         )
-        _open(process, source_path=KISS_BACKLOG_ENTRY, text=source_text)
+        _open(process, source_path=entry_path, text=source_text)
 
         symbols, observed = _request_until(
             process,
             request_id=20,
             method="textDocument/documentSymbol",
             params={
-                "textDocument": {"uri": KISS_BACKLOG_ENTRY.as_uri()},
+                "textDocument": {"uri": entry_path.as_uri()},
             },
             result_predicate=lambda result: isinstance(result, list),
             timeout=30.0,
@@ -307,7 +343,7 @@ def test_real_repository_l2_recovery_to_full_is_read_only() -> None:
             request_id=21,
             method="textDocument/completion",
             params={
-                "textDocument": {"uri": KISS_BACKLOG_ENTRY.as_uri()},
+                "textDocument": {"uri": entry_path.as_uri()},
                 "position": {"line": 155, "character": 2},
             },
         )
@@ -344,7 +380,7 @@ def test_real_repository_l2_recovery_to_full_is_read_only() -> None:
 
         _change(
             process,
-            source_path=KISS_BACKLOG_ENTRY,
+            source_path=entry_path,
             text=source_text + "\n; unsaved editor buffer\n",
             version=2,
         )
@@ -353,7 +389,7 @@ def test_real_repository_l2_recovery_to_full_is_read_only() -> None:
             request_id=22,
             method="textDocument/documentSymbol",
             params={
-                "textDocument": {"uri": KISS_BACKLOG_ENTRY.as_uri()},
+                "textDocument": {"uri": entry_path.as_uri()},
             },
         )
         assert dirty_symbols["result"] is None
@@ -362,7 +398,7 @@ def test_real_repository_l2_recovery_to_full_is_read_only() -> None:
             request_id=23,
             method="textDocument/definition",
             params={
-                "textDocument": {"uri": KISS_BACKLOG_ENTRY.as_uri()},
+                "textDocument": {"uri": entry_path.as_uri()},
                 "position": {"line": 161, "character": 15},
             },
         )
@@ -372,7 +408,7 @@ def test_real_repository_l2_recovery_to_full_is_read_only() -> None:
             request_id=24,
             method="textDocument/completion",
             params={
-                "textDocument": {"uri": KISS_BACKLOG_ENTRY.as_uri()},
+                "textDocument": {"uri": entry_path.as_uri()},
                 "position": {"line": 155, "character": 2},
             },
         )
@@ -383,7 +419,7 @@ def test_real_repository_l2_recovery_to_full_is_read_only() -> None:
 
         _change(
             process,
-            source_path=KISS_BACKLOG_ENTRY,
+            source_path=entry_path,
             text=source_text,
             version=3,
         )
@@ -393,7 +429,7 @@ def test_real_repository_l2_recovery_to_full_is_read_only() -> None:
                 "method": "textDocument/didSave",
                 "params": {
                     "textDocument": {
-                        "uri": KISS_BACKLOG_ENTRY.as_uri(),
+                        "uri": entry_path.as_uri(),
                     },
                 },
             }
@@ -403,7 +439,7 @@ def test_real_repository_l2_recovery_to_full_is_read_only() -> None:
             request_id=25,
             method="textDocument/completion",
             params={
-                "textDocument": {"uri": KISS_BACKLOG_ENTRY.as_uri()},
+                "textDocument": {"uri": entry_path.as_uri()},
                 "position": {"line": 155, "character": 2},
             },
             result_predicate=lambda result: result == completion["result"],
@@ -416,21 +452,21 @@ def test_real_repository_l2_recovery_to_full_is_read_only() -> None:
             request_id=26,
             method="textDocument/definition",
             params={
-                "textDocument": {"uri": KISS_BACKLOG_ENTRY.as_uri()},
+                "textDocument": {"uri": entry_path.as_uri()},
                 "position": {"line": 161, "character": 15},
             },
             result_predicate=lambda result: result is not None,
             timeout=30.0,
         )
         assert restored_definition["result"]["uri"] == (
-            KISS_BACKLOG_ENTRY.as_uri()
+            entry_path.as_uri()
         )
         restored_symbols, _ = _request(
             process,
             request_id=27,
             method="textDocument/documentSymbol",
             params={
-                "textDocument": {"uri": KISS_BACKLOG_ENTRY.as_uri()},
+                "textDocument": {"uri": entry_path.as_uri()},
             },
         )
         assert restored_symbols["result"] == symbols["result"]
@@ -442,10 +478,12 @@ def test_real_repository_l2_recovery_to_full_is_read_only() -> None:
         path: path.read_bytes()
         for path in protected_paths
     } == protected_bytes
-    assert _tree_digest(REPO_ROOT / ".orchestrate" / "build") == build_digest
+    assert _tree_digest(build_root) == build_digest
 
 
-def test_real_repository_l5_authored_reference_navigation_is_read_only() -> None:
+def test_real_repository_l5_authored_reference_navigation_is_read_only(
+    tmp_path: Path,
+) -> None:
     configuration_paths = (
         REVIEW_DESIGN_DOCS_ENTRY,
         REVIEW_DESIGN_DOCS_PROVIDERS,
@@ -461,16 +499,25 @@ def test_real_repository_l5_authored_reference_navigation_is_read_only() -> None
             configuration_bytes[REVIEW_DESIGN_DOCS_PROMPTS]
         ).values()
     )
-    protected_paths = (*configuration_paths, *prompt_assets)
+    workspace, copied_paths = _copy_repository_inputs(
+        tmp_path,
+        (*configuration_paths, *prompt_assets),
+    )
+    entry_path = copied_paths[REVIEW_DESIGN_DOCS_ENTRY]
+    providers_path = copied_paths[REVIEW_DESIGN_DOCS_PROVIDERS]
+    prompts_path = copied_paths[REVIEW_DESIGN_DOCS_PROMPTS]
+    protected_paths = tuple(copied_paths.values())
     protected_bytes = {
-        path: path.read_bytes()
-        for path in protected_paths
+        copied_paths[path]: path.read_bytes()
+        for path in (*configuration_paths, *prompt_assets)
     }
-    build_digest = _tree_digest(REPO_ROOT / ".orchestrate" / "build")
-    runs_root = REPO_ROOT / ".orchestrate" / "runs"
+    build_root = workspace / ".orchestrate" / "build"
+    build_digest = _tree_digest(build_root)
+    runs_root = workspace / ".orchestrate" / "runs"
     runs_digest = _tree_digest(runs_root)
-    artifact_digest = _tree_digest(REPO_ROOT / "artifacts")
-    source_text = protected_bytes[REVIEW_DESIGN_DOCS_ENTRY].decode("utf-8")
+    artifacts_root = workspace / "artifacts"
+    artifact_digest = _tree_digest(artifacts_root)
+    source_text = protected_bytes[entry_path].decode("utf-8")
 
     def position(offset: int) -> dict[str, int]:
         prefix = source_text[:offset]
@@ -509,36 +556,36 @@ def test_real_repository_l5_authored_reference_navigation_is_read_only() -> None
         fill_keyword_start,
     )
     expected_prompt_definition = {
-        "uri": REVIEW_DESIGN_DOCS_ENTRY.as_uri(),
+        "uri": entry_path.as_uri(),
         "range": {
             "start": {"line": 72, "character": 2},
             "end": {"line": 80, "character": 1666},
         },
     }
     expected_workflow_definition = {
-        "uri": REVIEW_DESIGN_DOCS_ENTRY.as_uri(),
+        "uri": entry_path.as_uri(),
         "range": {
             "start": {"line": 32, "character": 2},
             "end": {"line": 39, "character": 48},
         },
     }
 
-    process = _LspProcess(REPO_ROOT)
+    process = _LspProcess(workspace)
     try:
         _initialize(
             process,
-            workspace=REPO_ROOT,
+            workspace=workspace,
             initialization_options={
                 "source_roots": [
-                    str(REPO_ROOT / "workflows" / "examples")
+                    str(workspace / "workflows" / "examples")
                 ],
-                "provider_externs_path": str(REVIEW_DESIGN_DOCS_PROVIDERS),
-                "prompt_externs_path": str(REVIEW_DESIGN_DOCS_PROMPTS),
+                "provider_externs_path": str(providers_path),
+                "prompt_externs_path": str(prompts_path),
             },
         )
         _open(
             process,
-            source_path=REVIEW_DESIGN_DOCS_ENTRY,
+            source_path=entry_path,
             text=source_text,
         )
 
@@ -548,7 +595,7 @@ def test_real_repository_l5_authored_reference_navigation_is_read_only() -> None
             method="textDocument/definition",
             params={
                 "textDocument": {
-                    "uri": REVIEW_DESIGN_DOCS_ENTRY.as_uri(),
+                    "uri": entry_path.as_uri(),
                 },
                 "position": position(prompt_reference_start + 1),
             },
@@ -588,7 +635,7 @@ def test_real_repository_l5_authored_reference_navigation_is_read_only() -> None
                 method="textDocument/definition",
                 params={
                     "textDocument": {
-                        "uri": REVIEW_DESIGN_DOCS_ENTRY.as_uri(),
+                        "uri": entry_path.as_uri(),
                     },
                     "position": position(offset),
                 },
@@ -603,9 +650,9 @@ def test_real_repository_l5_authored_reference_navigation_is_read_only() -> None
         path: path.read_bytes()
         for path in protected_paths
     } == protected_bytes
-    assert _tree_digest(REPO_ROOT / ".orchestrate" / "build") == build_digest
+    assert _tree_digest(build_root) == build_digest
     assert _tree_digest(runs_root) == runs_digest
-    assert _tree_digest(REPO_ROOT / "artifacts") == artifact_digest
+    assert _tree_digest(artifacts_root) == artifact_digest
 
 
 def test_watcher_disabled_helper_save_recompiles_clean_importer(
