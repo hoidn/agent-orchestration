@@ -8,8 +8,6 @@ import hashlib
 import os
 from pathlib import Path
 import stat
-from contextlib import contextmanager
-from types import SimpleNamespace
 
 import pytest
 
@@ -91,21 +89,6 @@ def _actual_nested_manager(
 
 def _attempt_module():
     return importlib.import_module("orchestrator.workflow.provider_attempts")
-
-
-def _affected_coordination_bundle() -> SimpleNamespace:
-    return SimpleNamespace(
-        ir=SimpleNamespace(
-            nodes={
-                "provider": SimpleNamespace(
-                    execution_config=SimpleNamespace(
-                        compiler_prompt_dependency_contract=object()
-                    )
-                )
-            }
-        ),
-        imports={},
-    )
 
 
 def _direct_scope_payload(root: StateManager, *, candidate: str | None = None) -> dict:
@@ -595,145 +578,9 @@ def test_unaffected_state_write_creates_no_process_lock(tmp_path: Path) -> None:
     )  # updated_at changes as it did before this feature
 
 
-def test_explicit_durable_enablement_coordinates_all_root_writes(tmp_path: Path) -> None:
-    manager = StateManager(tmp_path, run_id="affected")
-    manager.initialize(_workflow(tmp_path))
-
-    manager.enable_durable_state_writes()
-    manager.update_status("completed")
-
-    assert (manager.run_root / ".state-mutation.lock").is_file()
-
-
-def test_recursive_typed_contract_hook_only_reports_affected_bundle(
-    tmp_path: Path,
-) -> None:
-    attempts = _attempt_module()
-    hook = getattr(
-        attempts,
-        "enable_provider_attempt_coordination_for_bundle",
-        None,
-    )
-    assert hook is not None
-    affected_leaf = _affected_coordination_bundle()
-    affected_root = SimpleNamespace(
-        ir=SimpleNamespace(nodes={}),
-        imports={"nested": affected_leaf},
-    )
-    unaffected_bundle = SimpleNamespace(
-        ir=SimpleNamespace(
-            nodes={
-                "provider": SimpleNamespace(
-                    execution_config=SimpleNamespace(
-                        compiler_prompt_dependency_contract=None
-                    )
-                )
-            }
-        ),
-        imports={},
-    )
-
-    affected = StateManager(tmp_path, run_id="affected-bundle")
-    assert hook(affected, affected_root) is True
-    affected.initialize(_workflow(tmp_path))
-    assert not (affected.run_root / ".state-mutation.lock").exists()
-
-    unaffected = StateManager(tmp_path, run_id="unaffected-bundle")
-    assert hook(unaffected, unaffected_bundle) is False
-    unaffected.initialize(_workflow(tmp_path))
-    assert not (unaffected.run_root / ".state-mutation.lock").exists()
-
-
-def test_recursive_typed_contract_detector_handles_shared_cycles_and_malformed_graphs() -> None:
-    detector = _attempt_module().bundle_requires_provider_attempt_coordination
-    first = SimpleNamespace(ir=SimpleNamespace(nodes={}), imports={})
-    second = SimpleNamespace(ir=SimpleNamespace(nodes={}), imports={"first": first})
-    first.imports["second"] = second
-    assert detector(first) is False
-
-    affected = _affected_coordination_bundle()
-    shared_root = SimpleNamespace(
-        ir=SimpleNamespace(nodes={}),
-        imports={"left": affected, "right": affected},
-    )
-    assert detector(shared_root) is True
-
-    malformed = SimpleNamespace(
-        ir=SimpleNamespace(nodes={}),
-        imports={"invalid": object()},
-    )
-    with pytest.raises(TypeError, match="executable workflow bundle"):
-        detector(malformed)
-
-
-@pytest.mark.parametrize(
-    "import_order",
-    [("affected", "malformed"), ("malformed", "affected")],
-)
-def test_recursive_typed_contract_detector_rejects_malformed_affected_siblings_in_any_order(
-    import_order: tuple[str, str],
-) -> None:
-    detector = _attempt_module().bundle_requires_provider_attempt_coordination
-    children = {
-        "affected": _affected_coordination_bundle(),
-        "malformed": object(),
-    }
-    root = SimpleNamespace(
-        ir=SimpleNamespace(nodes={}),
-        imports={name: children[name] for name in import_order},
-    )
-
-    with pytest.raises(TypeError, match="executable workflow bundle"):
-        detector(root)
-
-
-def test_recursive_typed_contract_detector_rejects_malformed_import_below_local_contract() -> None:
-    detector = _attempt_module().bundle_requires_provider_attempt_coordination
-    affected = _affected_coordination_bundle()
-    affected.imports["malformed"] = object()
-
-    with pytest.raises(TypeError, match="executable workflow bundle"):
-        detector(affected)
-
-
-def test_direct_durable_write_preserves_callers_current_context_mutation(
-    tmp_path: Path,
-) -> None:
-    manager = StateManager(tmp_path, run_id="direct-durable-context")
-    manager.initialize(_workflow(tmp_path))
-    manager.enable_durable_state_writes()
-    assert manager.state is not None
-    manager.state.context["session_marker"] = "persist-me"
-
-    manager._write_state()
-
-    persisted = json.loads(manager.state_file.read_bytes())
-    assert persisted["context"]["session_marker"] == "persist-me"
-
-
-def test_state_transaction_reloads_before_external_session_style_mutation(
-    tmp_path: Path,
-) -> None:
-    root = StateManager(tmp_path, run_id="external-transaction")
-    root.initialize(_workflow(tmp_path))
-    root.enable_durable_state_writes()
-    stale = StateManager(tmp_path, run_id=root.run_id)
-    stale.load()
-    stale.enable_durable_state_writes()
-    root.update_run_error({"type": "newer-error"})
-
-    with stale.state_transaction() as transaction_state:
-        transaction_state.context["session_marker"] = "kept"
-
-    persisted = json.loads(root.state_file.read_bytes())
-    assert persisted["error"] == {"type": "newer-error"}
-    assert persisted["context"]["session_marker"] == "kept"
-
-
 def test_state_transaction_exception_rolls_back_memory_and_disk(tmp_path: Path) -> None:
     manager = StateManager(tmp_path, run_id="transaction-rollback")
     manager.initialize(_workflow(tmp_path))
-    manager.enable_durable_state_writes()
 
     with pytest.raises(RuntimeError, match="abort transaction"):
         with manager.state_transaction() as transaction_state:
@@ -829,63 +676,6 @@ def test_workflow_boundary_persistence_after_allocation_keeps_bound_inputs(
         "last_allocated_ordinal"
     ] == 1
 
-def test_ordinary_affected_write_acquires_process_lock_before_root_rlock(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import orchestrator.state as state_module
-
-    manager = StateManager(tmp_path, run_id="lock-order")
-    manager.initialize(_workflow(tmp_path))
-    manager.enable_durable_state_writes()
-    events: list[str] = []
-
-    class TrackingRLock:
-        def __enter__(self):
-            events.append("rlock-acquire")
-            return self
-
-        def __exit__(self, exc_type, exc, traceback):
-            events.append("rlock-release")
-            return False
-
-    @contextmanager
-    def tracking_process_lock(path: Path):
-        del path
-        events.append("process-acquire")
-        try:
-            yield
-        finally:
-            events.append("process-release")
-
-    manager._lock = TrackingRLock()  # type: ignore[assignment]
-    monkeypatch.setattr(state_module, "exclusive_file_lock", tracking_process_lock)
-
-    manager.update_status("completed")
-
-    assert events[:2] == ["process-acquire", "rlock-acquire"]
-    assert events[-2:] == ["rlock-release", "process-release"]
-
-
-def test_record_only_publication_takes_only_two_process_locks(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    acquired: list[str] = []
-
-    @contextmanager
-    def tracking_lock(path: Path):
-        acquired.append(path.name)
-        yield
-
-    monkeypatch.setattr(state_locking, "exclusive_file_lock", tracking_lock)
-
-    with state_locking.record_only_publication_locks(tmp_path):
-        acquired.append("body")
-
-    assert acquired == [".state-mutation.lock", ".aggregate.lock", "body"]
-
-
 def test_durable_writer_retries_short_writes_and_syncs_file_and_directory(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -926,90 +716,6 @@ def test_durable_writer_retries_short_writes_and_syncs_file_and_directory(
     assert replaces and replaces[0][1] == destination
 
 
-@pytest.mark.parametrize("failure_point", ["open", "write", "file_fsync", "replace", "dir_fsync"])
-def test_affected_root_write_never_reports_success_after_durability_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    failure_point: str,
-) -> None:
-    manager = StateManager(tmp_path, run_id=f"fault-{failure_point}")
-    manager.initialize(_workflow(tmp_path))
-    manager.enable_durable_state_writes()
-    real_open = state_locking.os.open
-    real_write = state_locking.os.write
-    real_fsync = state_locking.os.fsync
-    real_replace = state_locking.os.replace
-    fsync_count = 0
-
-    def failing_open(path: Path | str, flags: int, mode: int = 0o777) -> int:
-        if failure_point == "open" and str(path).endswith(".tmp"):
-            raise OSError("injected open failure")
-        return real_open(path, flags, mode)
-
-    def failing_write(fd: int, data: bytes | memoryview) -> int:
-        if failure_point == "write":
-            raise OSError("injected write failure")
-        return real_write(fd, data)
-
-    def failing_fsync(fd: int) -> None:
-        nonlocal fsync_count
-        fsync_count += 1
-        if failure_point == "file_fsync" and fsync_count == 1:
-            raise OSError("injected file fsync failure")
-        if failure_point == "dir_fsync" and stat.S_ISDIR(os.fstat(fd).st_mode):
-            raise OSError("injected directory fsync failure")
-        real_fsync(fd)
-
-    def failing_replace(source: Path | str, target: Path | str) -> None:
-        if failure_point == "replace":
-            raise OSError("injected replace failure")
-        real_replace(source, target)
-
-    monkeypatch.setattr(state_locking.os, "open", failing_open)
-    monkeypatch.setattr(state_locking.os, "write", failing_write)
-    monkeypatch.setattr(state_locking.os, "fsync", failing_fsync)
-    monkeypatch.setattr(state_locking.os, "replace", failing_replace)
-
-    with pytest.raises(OSError, match="injected"):
-        manager.update_status("completed")
-
-
-def test_affected_backup_repair_uses_durable_root_writer(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import orchestrator.state as state_module
-
-    manager = StateManager(tmp_path, run_id="durable-repair", backup_enabled=True)
-    manager.initialize(_workflow(tmp_path))
-    manager.backup_state("Provider")
-    manager.enable_durable_state_writes()
-    calls: list[Path] = []
-    real_writer = state_module.durable_atomic_write
-
-    def tracking_writer(path: Path, payload: bytes) -> None:
-        calls.append(path)
-        real_writer(path, payload)
-
-    monkeypatch.setattr(state_module, "durable_atomic_write", tracking_writer)
-
-    assert manager.attempt_repair() is True
-    assert calls == [manager.state_file]
-
-
-def test_affected_durable_repair_uses_backup_without_reloading_corrupt_primary(
-    tmp_path: Path,
-) -> None:
-    manager = StateManager(tmp_path, run_id="durable-corrupt-repair", backup_enabled=True)
-    manager.initialize(_workflow(tmp_path))
-    manager.backup_state("Valid")
-    manager.enable_durable_state_writes()
-    manager.state_file.write_text("invalid json {")
-
-    assert manager.attempt_repair() is True
-    assert StateManager(tmp_path, run_id=manager.run_id).load().status == "running"
-
-
 def test_repair_skips_semantically_invalid_newest_backup_for_older_valid_backup(
     tmp_path: Path,
 ) -> None:
@@ -1047,31 +753,6 @@ def test_counter_only_allocation_creates_no_repair_barrier_or_aggregate_lock(
         / "prompt_dependencies"
         / ".aggregate.lock"
     ).exists()
-
-
-def test_repair_refuses_legacy_aggregate_lock_without_new_barrier(
-    tmp_path: Path,
-) -> None:
-    manager = StateManager(tmp_path, run_id="legacy-aggregate-repair", backup_enabled=True)
-    manager.initialize(_workflow(tmp_path))
-    manager.backup_state("Provider")
-    backup = manager.run_root / "state.json.step_Provider.bak"
-    backup_bytes = backup.read_bytes()
-    legacy_lock = (
-        manager.run_root
-        / "workflow_lisp"
-        / "prompt_dependencies"
-        / ".aggregate.lock"
-    )
-    legacy_lock.parent.mkdir(parents=True, exist_ok=True)
-    legacy_lock.touch()
-    corrupt_primary = b"invalid json {"
-    manager.state_file.write_bytes(corrupt_primary)
-    repairing = StateManager(tmp_path, run_id=manager.run_id)
-
-    assert repairing.attempt_repair() is False
-    assert repairing.state_file.read_bytes() == corrupt_primary
-    assert backup.read_bytes() == backup_bytes
 
 
 def test_repair_refuses_allocator_bearing_backup_without_legacy_signal(
@@ -1118,53 +799,15 @@ def test_allocator_bearing_repair_fails_closed_without_mutating_files(
     root.state_file.write_bytes(corrupt_primary)
     repairing = StateManager(tmp_path, run_id=root.run_id)
 
-    assert repairing._durable_state_writes is False
     assert repairing.attempt_repair() is False
-    assert repairing._durable_state_writes is False
     assert repairing.state is None
     assert repairing.state_file.read_bytes() == corrupt_primary
     assert backup.read_bytes() == backup_bytes
 
 
-def test_allocator_bearing_repair_never_invokes_state_writer(
+def test_unaffected_repair_retains_ordinary_backup_copy(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import orchestrator.state as state_module
-
-    root = _prepare_direct_scope_root(tmp_path, run_id="allocator-repair-writer")
-    root.update_control_flow_counters(1, {"Provider": 1})
-    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
-    scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
-    assert root.allocate_provider_attempt(scope) == 1
-    backup = root.run_root / "state.json.step_allocator.bak"
-    backup.write_bytes(root.state_file.read_bytes())
-    backup_bytes = backup.read_bytes()
-    corrupt_primary = b"invalid json {"
-    root.state_file.write_bytes(corrupt_primary)
-    repairing = StateManager(tmp_path, run_id=root.run_id)
-    calls: list[tuple[Path, bytes]] = []
-    real_writer = state_module.durable_atomic_write
-
-    def tracking_writer(path: Path, payload: bytes) -> None:
-        calls.append((path, payload))
-        real_writer(path, payload)
-
-    monkeypatch.setattr(state_module, "durable_atomic_write", tracking_writer)
-
-    assert repairing.attempt_repair() is False
-    assert calls == []
-    assert repairing.state_file.read_bytes() == corrupt_primary
-    assert backup.read_bytes() == backup_bytes
-    assert repairing._durable_state_writes is False
-
-
-def test_unaffected_repair_retains_legacy_copy_without_durable_writer(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import orchestrator.state as state_module
-
     manager = StateManager(tmp_path, run_id="unaffected-repair-writer")
     manager.initialize(_workflow(tmp_path))
     expected = manager.state_file.read_bytes()
@@ -1172,18 +815,10 @@ def test_unaffected_repair_retains_legacy_copy_without_durable_writer(
     backup.write_bytes(expected)
     manager.state_file.write_text("invalid json {")
     repairing = StateManager(tmp_path, run_id=manager.run_id)
-    calls: list[tuple[Path, bytes]] = []
-
-    def tracking_writer(path: Path, payload: bytes) -> None:
-        calls.append((path, payload))
-
-    monkeypatch.setattr(state_module, "durable_atomic_write", tracking_writer)
 
     assert repairing.attempt_repair() is True
-    assert calls == []
     assert repairing.state_file.read_bytes() == expected
-    assert repairing._durable_state_writes is False
-    assert (repairing.run_root / ".state-mutation.lock").is_file()
+    assert not (repairing.run_root / ".state-mutation.lock").exists()
 
 
 def test_resolve_aggregate_owner_returns_root_scope_and_leaf(tmp_path: Path) -> None:
@@ -1808,13 +1443,6 @@ def test_counter_only_allocation_persists_strictly_increasing_ordinals_without_l
     scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
 
     ordinals = [root.allocate_provider_attempt(scope) for _ in range(4)]
-    root.record_provider_attempt_publication(
-        scope,
-        ordinals[-1],
-        relative_path="records/attempt-000004.json",
-        file_sha256="sha256:" + "a" * 64,
-        record_kind="prompt_snapshot",
-    )
 
     assert ordinals == [1, 2, 3, 4]
     assert all(left < right for left, right in zip(ordinals, ordinals[1:]))
@@ -1976,85 +1604,33 @@ def test_allocator_rejects_corrupt_persisted_projection_before_increment(
         StateManager(tmp_path, run_id=root.run_id).load()
 
 
-def test_publication_validation_accepts_allocated_ordinal_without_state_write(
+def test_provider_attempt_membership_accepts_only_allocated_scope_and_ordinal(
     tmp_path: Path,
 ) -> None:
-    root = _prepare_direct_scope_root(tmp_path, run_id="publication-event")
+    root = _prepare_direct_scope_root(tmp_path, run_id="attempt-membership")
     root.update_control_flow_counters(1, {"Provider": 1})
     root.start_step("Provider", 0, "provider", "ProviderStep", 1)
     scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
     ordinal = root.allocate_provider_attempt(scope)
     before = root.state_file.read_bytes()
 
-    root.record_provider_attempt_publication(
+    entry = _attempt_module().validate_provider_attempt_membership(
+        root,
         scope,
         ordinal,
-        relative_path="workflow_lisp/prompt_dependencies/step/visit/attempt-000001.json",
-        file_sha256="sha256:" + "a" * 64,
-        record_kind="prompt_snapshot",
     )
 
-    assert root.state_file.read_bytes() == before
+    assert entry == {
+        "scope": scope.to_dict(),
+        "last_allocated_ordinal": ordinal,
+    }
     with pytest.raises(ValueError, match="ordinal is missing"):
-        root.record_provider_attempt_publication(
+        _attempt_module().validate_provider_attempt_membership(
+            root,
             scope,
             ordinal + 1,
-            relative_path="other.json",
-            file_sha256="sha256:" + "b" * 64,
-            record_kind="failure",
         )
     assert root.state_file.read_bytes() == before
-
-
-def test_publication_validation_rejects_non_hex_digest_without_state_write(
-    tmp_path: Path,
-) -> None:
-    root = _prepare_direct_scope_root(tmp_path, run_id="publication-digest")
-    root.update_control_flow_counters(1, {"Provider": 1})
-    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
-    scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
-    ordinal = root.allocate_provider_attempt(scope)
-    before = root.state_file.read_bytes()
-
-    with pytest.raises(ValueError, match="file_sha256"):
-        root.record_provider_attempt_publication(
-            scope,
-            ordinal,
-            relative_path="record.json",
-            file_sha256="sha256:" + "g" * 64,
-            record_kind="failure",
-        )
-    assert root.state_file.read_bytes() == before
-
-
-@pytest.mark.parametrize("publication_order", [(1, 2), (2, 1)])
-def test_publication_validation_accepts_allocated_ordinals_in_any_order_without_state_write(
-    tmp_path: Path,
-    publication_order: tuple[int, int],
-) -> None:
-    root = _prepare_direct_scope_root(tmp_path, run_id="interleaved-publication")
-    root.update_control_flow_counters(1, {"Provider": 1})
-    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
-    scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
-    first = root.allocate_provider_attempt(scope)
-    second = root.allocate_provider_attempt(scope)
-
-    assert (first, second) == (1, 2)
-    before = root.state_file.read_bytes()
-    for ordinal in publication_order:
-        root.record_provider_attempt_publication(
-            scope,
-            ordinal,
-            relative_path=f"records/attempt-{ordinal:06d}.json",
-            file_sha256="sha256:" + f"{ordinal:064x}",
-            record_kind="prompt_snapshot",
-        )
-
-    assert root.state_file.read_bytes() == before
-    assert json.loads(before)["provider_attempt_allocations"][scope.key] == {
-        "scope": scope.to_dict(),
-        "last_allocated_ordinal": 2,
-    }
 
 
 def test_counter_only_allocation_uses_ordinary_state_writer_and_rolls_back_failed_write(
@@ -2070,11 +1646,6 @@ def test_counter_only_allocation_uses_ordinary_state_writer_and_rolls_back_faile
 
     monkeypatch.setattr(
         root,
-        "_persist_state_durably",
-        lambda: pytest.fail("counter-only allocation used the durable writer"),
-    )
-    monkeypatch.setattr(
-        root,
         "_write_state",
         lambda: (_ for _ in ()).throw(OSError("ordinary write failed")),
     )
@@ -2087,126 +1658,36 @@ def test_counter_only_allocation_uses_ordinary_state_writer_and_rolls_back_faile
 
 
 def test_allocator_uses_no_repair_barrier_or_process_lock_layer(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import orchestrator.state as state_module
+    import orchestrator.workflow.provider_attempts as attempt_module
 
-    root = _prepare_direct_scope_root(tmp_path, run_id="no-durable-layer")
-    root.update_control_flow_counters(1, {"Provider": 1})
-    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
-    scope = _attempt_module().ProviderAttemptScope.from_dict(
-        _direct_scope_payload(root)
-    )
-    assert root.allocate_provider_attempt(scope) == 1
-
-    loaded = StateManager(tmp_path, run_id=root.run_id)
-    layer_calls: list[str] = []
-    real_enable = getattr(loaded, "enable_durable_state_writes", None)
-    real_process_locks = getattr(state_module, "provider_attempt_process_locks", None)
-    real_durable_persist = getattr(loaded, "_persist_state_durably", None)
-
-    def tracking_enable() -> None:
-        layer_calls.append("enable_durable_state_writes")
-        if real_enable is not None:
-            real_enable()
-
-    @contextmanager
-    def tracking_process_locks(run_root: Path):
-        layer_calls.append("provider_attempt_process_locks")
-        if real_process_locks is None:
-            yield
-        else:
-            with real_process_locks(run_root):
-                yield
-
-    def tracking_durable_persist() -> None:
-        layer_calls.append("_persist_state_durably")
-        if real_durable_persist is not None:
-            real_durable_persist()
-
-    monkeypatch.setattr(
-        loaded,
+    obsolete_state_symbols = {
+        "PROVIDER_ATTEMPT_REPAIR_BARRIER_NAME",
+        "PROVIDER_ATTEMPT_REPAIR_BARRIER_BYTES",
         "enable_durable_state_writes",
-        tracking_enable,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        state_module,
-        "provider_attempt_process_locks",
-        tracking_process_locks,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        loaded,
         "_persist_state_durably",
-        tracking_durable_persist,
-        raising=False,
-    )
-
-    loaded.load()
-    loaded.record_provider_attempt_publication(
-        scope,
-        1,
-        relative_path="records/attempt-000001.json",
-        file_sha256="sha256:" + "a" * 64,
-        record_kind="prompt_snapshot",
-    )
-    assert loaded.allocate_provider_attempt(scope) == 2
-
-    coordination_paths = [
-        loaded.run_root / ".provider-attempt-allocation-started",
-        loaded.run_root / ".state-mutation.lock",
-        loaded.run_root
-        / "workflow_lisp"
-        / "prompt_dependencies"
-        / ".aggregate.lock",
-    ]
-    assert (
-        layer_calls,
-        [
-            path.relative_to(loaded.run_root).as_posix()
-            for path in coordination_paths
-            if path.exists()
-        ],
-    ) == ([], [])
-
-
-def test_publication_validation_performs_no_allocator_write_and_next_is_larger(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    root = _prepare_direct_scope_root(tmp_path, run_id="publication-crash")
-    root.update_control_flow_counters(1, {"Provider": 1})
-    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
-    scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
-    assert root.allocate_provider_attempt(scope) == 1
-    real_persist = root._persist_state_durably
-    before = root.state_file.read_bytes()
-    monkeypatch.setattr(
-        root,
-        "_persist_state_durably",
-        lambda: (_ for _ in ()).throw(
-            AssertionError("publication validation attempted allocator state write")
-        ),
-    )
-    root.record_provider_attempt_publication(
-        scope,
-        1,
-        relative_path="record.json",
-        file_sha256="sha256:" + "a" * 64,
-        record_kind="failure",
-    )
-    assert root.state_file.read_bytes() == before
-    monkeypatch.setattr(root, "_persist_state_durably", real_persist)
-
-    assert root.allocate_provider_attempt(scope) == 2
-    assert json.loads(root.state_file.read_bytes())[
-        "provider_attempt_allocations"
-    ][scope.key] == {
-        "scope": scope.to_dict(),
-        "last_allocated_ordinal": 2,
+        "_ensure_provider_attempt_repair_barrier",
+        "_reload_state_for_coordinated_mutation",
+        "_allocate_provider_attempt_from",
+        "record_provider_attempt_publication",
+        "_record_provider_attempt_publication_from",
+        "_record_provider_attempt_publication_already_process_locked",
+        "_validate_provider_attempt_publication_already_process_locked",
     }
+    obsolete_lock_symbols = {
+        "exclusive_file_lock",
+        "provider_attempt_process_locks",
+        "record_only_publication_locks",
+    }
+    obsolete_coordination_symbols = {
+        "bundle_requires_provider_attempt_coordination",
+        "enable_provider_attempt_coordination_for_bundle",
+    }
+
+    assert not (obsolete_state_symbols & set(vars(state_module.StateManager)))
+    assert not (obsolete_lock_symbols & set(vars(state_locking)))
+    assert not (obsolete_coordination_symbols & set(vars(attempt_module)))
 
 
 def test_legacy_allocation_events_read_then_canonicalize_counter_only(

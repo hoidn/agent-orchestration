@@ -223,35 +223,12 @@ class _CallFrameStateManager:
         from .provider_attempts import resolve_aggregate_run_owner
 
         owner = resolve_aggregate_run_owner(self)
-        return owner.root_manager._allocate_provider_attempt_from(
-            self,
+        return owner.root_manager.allocate_provider_attempt(
             scope,
             prompt_fragment_identity_schema_version=(
                 prompt_fragment_identity_schema_version
             ),
-        )
-
-    def record_provider_attempt_publication(
-        self,
-        scope: Any,
-        ordinal: int,
-        *,
-        relative_path: str,
-        file_sha256: str,
-        record_kind: str,
-    ) -> None:
-        """Delegate one publication event through the aggregate root owner."""
-
-        from .provider_attempts import resolve_aggregate_run_owner
-
-        owner = resolve_aggregate_run_owner(self)
-        owner.root_manager._record_provider_attempt_publication_from(
-            self,
-            scope,
-            ordinal,
-            relative_path=relative_path,
-            file_sha256=file_sha256,
-            record_kind=record_kind,
+            _origin_manager=self,
         )
 
     def read_runtime_sidecar_json(self, path: Path | str) -> Optional[Dict[str, Any]]:

@@ -21,9 +21,6 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_public_input_contracts,
 )
 from orchestrator.workflow.linting import lint_workflow
-from orchestrator.workflow.provider_attempts import (
-    enable_provider_attempt_coordination_for_bundle,
-)
 from orchestrator.monitor.process import process_start_time_token, write_process_metadata
 from orchestrator.runtime_observability import close_executor_session, open_executor_session
 from orchestrator.runtime_observability import record_compiled_frontend_provenance
@@ -435,9 +432,6 @@ def run_workflow(args: Namespace) -> int:
         writer_lock_stack.enter_context(
             run_writer_lock(state_manager.run_root)
         )
-        if bundle is not None:
-            enable_provider_attempt_coordination_for_bundle(state_manager, bundle)
-
         # Create new run
         run_state = state_manager.initialize(
             _workflow_path_for_state(workspace, workflow_path),

@@ -82,16 +82,6 @@ class ParentCallStateManager(CallStateManager, Protocol):
         prompt_fragment_identity_schema_version: str | None = None,
     ) -> int: ...
 
-    def record_provider_attempt_publication(
-        self,
-        scope: Any,
-        ordinal: int,
-        *,
-        relative_path: str,
-        file_sha256: str,
-        record_kind: str,
-    ) -> None: ...
-
     def read_runtime_sidecar_json(
         self,
         path: Path | str,

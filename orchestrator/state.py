@@ -14,12 +14,7 @@ from typing import Callable, Dict, Any, Optional, List, Literal, Mapping
 from dataclasses import dataclass, asdict, field
 import random
 import string
-from contextlib import contextmanager, nullcontext
-
-from .state_locking import (
-    durable_atomic_write,
-    exclusive_file_lock,
-)
+from contextlib import contextmanager
 
 
 StateStatus = Literal["running", "completed", "failed"]
@@ -228,10 +223,6 @@ class StateManager:
     """Manages run state with atomic writes and recovery."""
 
     SCHEMA_VERSION = "2.1"
-    PROVIDER_ATTEMPT_REPAIR_BARRIER_NAME = ".provider-attempt-allocation-started"
-    PROVIDER_ATTEMPT_REPAIR_BARRIER_BYTES = (
-        b'{"schema_version":"provider_attempt_repair_barrier.v1"}\n'
-    )
 
     def __init__(
         self,
@@ -277,61 +268,13 @@ class StateManager:
         # Current state (loaded or new)
         self.state: Optional[RunState] = None
         self._lock = threading.RLock()
-        self._mutation_local = threading.local()
-        self._durable_state_writes = False
-
-    def enable_durable_state_writes(self) -> None:
-        """Coordinate subsequent root-state writes across processes."""
-
-        self._durable_state_writes = True
 
     @contextmanager
-    def _state_mutation(
-        self,
-        *,
-        reload_from_disk: bool = True,
-        force_process_lock: bool = False,
-    ):
-        """Acquire process coordination before the root in-process lock.
+    def _state_mutation(self):
+        """Hold the ordinary in-process state mutation lock."""
 
-        Public read-modify-write methods use the default authoritative reload
-        before applying their mutation. ``_write_state`` disables that reload
-        because its caller has already mutated the current state object.
-        Allocator transitions retain their own explicit reload while holding
-        both process locks and the root lock.
-        """
-
-        depth = getattr(self._mutation_local, "depth", 0)
-        if depth:
-            self._mutation_local.depth = depth + 1
-            try:
-                yield
-            finally:
-                self._mutation_local.depth = depth
-            return
-        process_lock = (
-            exclusive_file_lock(self.run_root / ".state-mutation.lock")
-            if self._durable_state_writes or force_process_lock
-            else nullcontext()
-        )
-        with process_lock:
-            with self._lock:
-                if (
-                    reload_from_disk
-                    and self._durable_state_writes
-                    and self.state is not None
-                    and self.state_file.exists()
-                ):
-                    self._reload_state_for_coordinated_mutation()
-                self._mutation_local.depth = depth + 1
-                try:
-                    yield
-                finally:
-                    self._mutation_local.depth = depth
-
-    def _reload_state_for_coordinated_mutation(self) -> RunState:
-        self.state = self._read_state_from_disk()
-        return self.state
+        with self._lock:
+            yield
 
     def _read_state_from_disk(self) -> RunState:
         """Read and validate state without changing the manager's current object."""
@@ -344,7 +287,7 @@ class StateManager:
 
     @contextmanager
     def state_transaction(self):
-        """Reload, mutate, and persist root state under one coordinated lock."""
+        """Mutate and persist root state under the ordinary in-process lock."""
 
         with self._state_mutation():
             if self.state is None:
@@ -352,54 +295,20 @@ class StateManager:
             try:
                 yield self.state
             except BaseException:
-                self._reload_state_for_coordinated_mutation()
+                self.state = self._read_state_from_disk()
                 raise
             else:
                 self._write_state()
-
-    def _persist_state_durably(self) -> None:
-        if self.state is None:
-            raise RuntimeError("No state to write")
-        self.state.updated_at = datetime.now(timezone.utc).isoformat()
-        payload = json.dumps(self.state.to_dict(), indent=2).encode("utf-8")
-        durable_atomic_write(self.state_file, payload)
-
-    def _ensure_provider_attempt_repair_barrier(self) -> None:
-        """Durably record that backup repair can no longer prove allocator freshness."""
-
-        barrier = self.run_root / self.PROVIDER_ATTEMPT_REPAIR_BARRIER_NAME
-        if barrier.exists():
-            if barrier.read_bytes() != self.PROVIDER_ATTEMPT_REPAIR_BARRIER_BYTES:
-                raise ValueError("provider attempt repair barrier is invalid")
-            return
-        durable_atomic_write(
-            barrier,
-            self.PROVIDER_ATTEMPT_REPAIR_BARRIER_BYTES,
-        )
 
     def allocate_provider_attempt(
         self,
         scope: Any,
         *,
         prompt_fragment_identity_schema_version: str | None = None,
+        _origin_manager: Any | None = None,
     ) -> int:
-        """Allocate and durably persist one root-owned provider attempt ordinal."""
+        """Allocate and persist one root-owned provider attempt ordinal."""
 
-        return self._allocate_provider_attempt_from(
-            self,
-            scope,
-            prompt_fragment_identity_schema_version=(
-                prompt_fragment_identity_schema_version
-            ),
-        )
-
-    def _allocate_provider_attempt_from(
-        self,
-        origin_manager: Any,
-        scope: Any,
-        *,
-        prompt_fragment_identity_schema_version: str | None = None,
-    ) -> int:
         from .workflow.provider_attempts import (
             PROMPT_FRAGMENT_IDENTITY_SCHEMA_VERSIONS,
             ProviderAttemptScope,
@@ -425,14 +334,11 @@ class StateManager:
                 "provider attempt prompt fragment identity schema authority "
                 "is invalid"
             )
+        origin_manager = self if _origin_manager is None else _origin_manager
         owner = resolve_aggregate_run_owner(origin_manager)
         if owner.root_manager is not self:
-            return owner.root_manager._allocate_provider_attempt_from(
-                origin_manager,
-                scope,
-                prompt_fragment_identity_schema_version=(
-                    prompt_fragment_identity_schema_version
-                ),
+            raise ValueError(
+                "provider attempt allocation must execute on aggregate root"
             )
         try:
             with self.state_transaction() as transaction_state:
@@ -473,132 +379,13 @@ class StateManager:
                         )
                     ordinal = entry["last_allocated_ordinal"] + 1
                     entry["last_allocated_ordinal"] = ordinal
-                    entry.pop("events", None)
                 transaction_state.provider_attempt_allocations = allocations
         except BaseException:
             if self.state_file.exists():
                 with self._lock:
-                    self._reload_state_for_coordinated_mutation()
+                    self.state = self._read_state_from_disk()
             raise
         return ordinal
-
-    def record_provider_attempt_publication(
-        self,
-        scope: Any,
-        ordinal: int,
-        *,
-        relative_path: str,
-        file_sha256: str,
-        record_kind: str,
-    ) -> None:
-        """Durably persist one closed publication event beside its allocation."""
-
-        self._record_provider_attempt_publication_from(
-            self,
-            scope,
-            ordinal,
-            relative_path=relative_path,
-            file_sha256=file_sha256,
-            record_kind=record_kind,
-        )
-
-    def _record_provider_attempt_publication_from(
-        self,
-        origin_manager: Any,
-        scope: Any,
-        ordinal: int,
-        *,
-        relative_path: str,
-        file_sha256: str,
-        record_kind: str,
-    ) -> None:
-        from .workflow.provider_attempts import (
-            ProviderAttemptScope,
-            resolve_aggregate_run_owner,
-            validate_provider_attempt_allocations,
-            validate_provider_attempt_scope,
-        )
-
-        if not isinstance(scope, ProviderAttemptScope):
-            raise TypeError("ProviderAttemptScope required")
-        if isinstance(ordinal, bool) or not isinstance(ordinal, int) or ordinal <= 0:
-            raise ValueError("provider attempt ordinal must be positive")
-        if not isinstance(relative_path, str) or not relative_path:
-            raise ValueError("publication relative_path must be non-empty")
-        if (
-            not isinstance(file_sha256, str)
-            or len(file_sha256) != 71
-            or not file_sha256.startswith("sha256:")
-            or any(character not in "0123456789abcdef" for character in file_sha256[7:])
-        ):
-            raise ValueError("publication file_sha256 is invalid")
-        if record_kind not in {"prompt_snapshot", "failure"}:
-            raise ValueError("publication record_kind is invalid")
-        owner = resolve_aggregate_run_owner(origin_manager)
-        if owner.root_manager is not self:
-            owner.root_manager._record_provider_attempt_publication_from(
-                origin_manager,
-                scope,
-                ordinal,
-                relative_path=relative_path,
-                file_sha256=file_sha256,
-                record_kind=record_kind,
-            )
-            return
-        with self._lock:
-            self._record_provider_attempt_publication_already_process_locked(
-                origin_manager,
-                scope,
-                ordinal,
-                relative_path=relative_path,
-                file_sha256=file_sha256,
-                record_kind=record_kind,
-            )
-
-    def _record_provider_attempt_publication_already_process_locked(
-        self,
-        origin_manager: Any,
-        scope: Any,
-        ordinal: int,
-        *,
-        relative_path: str,
-        file_sha256: str,
-        record_kind: str,
-    ) -> None:
-        """Validate a publication while the caller holds both process locks and RLock."""
-
-        self._validate_provider_attempt_publication_already_process_locked(
-            origin_manager, scope, ordinal
-        )
-
-    def _validate_provider_attempt_publication_already_process_locked(
-        self,
-        origin_manager: Any,
-        scope: Any,
-        ordinal: int,
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Validate publication eligibility while both process locks and RLock are held."""
-
-        from .workflow.provider_attempts import (
-            resolve_aggregate_run_owner,
-            validate_provider_attempt_allocations,
-            validate_provider_attempt_scope,
-        )
-
-        owner = resolve_aggregate_run_owner(origin_manager)
-        if owner.root_manager is not self:
-            raise ValueError("already-locked publication must execute on aggregate root")
-        validate_provider_attempt_scope(scope, owner)
-        assert self.state is not None
-        allocations = validate_provider_attempt_allocations(
-            self.state.provider_attempt_allocations
-        )
-        entry = allocations.get(scope.key)
-        if entry is None:
-            raise ValueError("provider attempt allocation is missing")
-        if ordinal > entry["last_allocated_ordinal"]:
-            raise ValueError("provider attempt allocation ordinal is missing")
-        return allocations, entry
 
     def _generate_run_id(self) -> str:
         """Generate run ID in format: YYYYMMDDTHHMMSSZ-<6char>."""
@@ -689,37 +476,17 @@ class StateManager:
 
     def _write_state(self):
         """Write state atomically (temp file + rename)."""
-        top_level_direct_write = getattr(self._mutation_local, "depth", 0) == 0
-        with self._state_mutation(reload_from_disk=False):
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("No state to write")
-
-            if (
-                top_level_direct_write
-                and self._durable_state_writes
-                and self.state_file.exists()
-            ):
-                # Allocator projection is root-owned and may advance in another
-                # process after a legacy direct caller mutates another field.
-                # A blind direct commit may preserve its caller mutation, but it
-                # must never roll this independently concurrent projection back.
-                persisted_state = self._read_state_from_disk()
-                self.state.provider_attempt_allocations = (
-                    persisted_state.provider_attempt_allocations
-                )
 
             # Update timestamp
             self.state.updated_at = datetime.now(timezone.utc).isoformat()
 
-            if self._durable_state_writes:
-                payload = json.dumps(self.state.to_dict(), indent=2).encode("utf-8")
-                durable_atomic_write(self.state_file, payload)
-            else:
-                # Preserve the established unaffected-run serialization path.
-                temp_file = self.state_file.with_suffix('.tmp')
-                with open(temp_file, 'w') as f:
-                    json.dump(self.state.to_dict(), f, indent=2)
-                temp_file.replace(self.state_file)
+            temp_file = self.state_file.with_suffix('.tmp')
+            with open(temp_file, 'w') as f:
+                json.dump(self.state.to_dict(), f, indent=2)
+            temp_file.replace(self.state_file)
 
     def _write_json_atomic(self, path: Path, payload: Dict[str, Any]) -> None:
         """Write an arbitrary JSON payload atomically."""
@@ -933,13 +700,7 @@ class StateManager:
             payload["status"] = "failed"
             payload["error"] = dict(error)
             payload["updated_at"] = datetime.now(timezone.utc).isoformat()
-            if self._durable_state_writes:
-                durable_atomic_write(
-                    self.state_file,
-                    json.dumps(payload, indent=2).encode("utf-8"),
-                )
-            else:
-                self._write_json_atomic(self.state_file, payload)
+            self._write_json_atomic(self.state_file, payload)
             self.state = RunState.from_dict(payload)
 
     def record_resume_projection_integrity_failure(
@@ -1538,22 +1299,7 @@ class StateManager:
         Returns:
             True if repair successful, False otherwise
         """
-        with self._state_mutation(
-            reload_from_disk=False,
-            force_process_lock=True,
-        ):
-            repair_barrier = (
-                self.run_root / self.PROVIDER_ATTEMPT_REPAIR_BARRIER_NAME
-            )
-            legacy_aggregate_lock = (
-                self.run_root
-                / "workflow_lisp"
-                / "prompt_dependencies"
-                / ".aggregate.lock"
-            )
-            if repair_barrier.exists() or legacy_aggregate_lock.exists():
-                return False
-
+        with self._state_mutation():
             backup_pattern = "state.json.step_*.bak"
             backups = sorted(self.state_file.parent.glob(backup_pattern), reverse=True)
             valid_backups: list[tuple[Path, RunState]] = []
@@ -1570,10 +1316,7 @@ class StateManager:
 
             if valid_backups:
                 backup, state = valid_backups[0]
-                if self._durable_state_writes:
-                    durable_atomic_write(self.state_file, backup.read_bytes())
-                else:
-                    shutil.copy2(backup, self.state_file)
+                shutil.copy2(backup, self.state_file)
                 self.state = state
                 return True
 

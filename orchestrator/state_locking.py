@@ -1,46 +1,10 @@
-"""Cross-process coordination primitives for durable root state mutation."""
+"""Shared durable atomic-write primitive."""
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-import fcntl
 import os
 from pathlib import Path
 import secrets
-from typing import Iterator
-
-
-@contextmanager
-def exclusive_file_lock(path: Path) -> Iterator[None]:
-    """Hold one ordinary exclusive process lock for the context lifetime."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+b") as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-
-
-@contextmanager
-def provider_attempt_process_locks(run_root: Path) -> Iterator[None]:
-    """Acquire state then aggregate-evidence process locks in canonical order."""
-
-    root = Path(run_root)
-    evidence_root = root / "workflow_lisp" / "prompt_dependencies"
-    with exclusive_file_lock(root / ".state-mutation.lock"):
-        evidence_root.mkdir(parents=True, exist_ok=True)
-        with exclusive_file_lock(evidence_root / ".aggregate.lock"):
-            yield
-
-
-@contextmanager
-def record_only_publication_locks(run_root: Path) -> Iterator[None]:
-    """Hold only the two process locks used by record publication."""
-
-    with provider_attempt_process_locks(run_root):
-        yield
 
 
 def durable_atomic_write(path: Path, payload: bytes) -> None:

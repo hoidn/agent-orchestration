@@ -355,49 +355,6 @@ def _ordinary_absolute(path: Any) -> Path:
     return Path(path).absolute()
 
 
-def bundle_requires_provider_attempt_coordination(bundle: Any) -> bool:
-    """Return whether a recursive executable bundle contains an allocator contract."""
-
-    from .executable_ir import PROVIDER_PEER_GROUP_SCHEMA_VERSION
-
-    pending = [bundle]
-    seen: set[int] = set()
-    affected = False
-    while pending:
-        current = pending.pop()
-        identity = id(current)
-        if identity in seen:
-            continue
-        seen.add(identity)
-        ir = getattr(current, "ir", None)
-        nodes = getattr(ir, "nodes", None)
-        imports = getattr(current, "imports", None)
-        if not isinstance(nodes, Mapping) or not isinstance(imports, Mapping):
-            raise TypeError("executable workflow bundle required")
-        for node in nodes.values():
-            config = getattr(node, "execution_config", None)
-            if (
-                getattr(config, "compiler_prompt_dependency_contract", None)
-                is not None
-                or getattr(config, "schema_version", None)
-                == PROVIDER_PEER_GROUP_SCHEMA_VERSION
-            ):
-                affected = True
-        pending.extend(imports.values())
-    return affected
-
-
-def enable_provider_attempt_coordination_for_bundle(
-    manager: StateManager,
-    bundle: Any,
-) -> bool:
-    """Report whether a bundle uses provider-attempt allocation."""
-
-    if not isinstance(manager, StateManager):
-        raise TypeError("StateManager required")
-    return bundle_requires_provider_attempt_coordination(bundle)
-
-
 def resolve_aggregate_run_owner(manager: Any) -> AggregateRunOwner:
     """Resolve and validate the terminal root owner for ``manager``."""
 
@@ -724,3 +681,30 @@ def validate_provider_attempt_allocations(value: Any) -> dict[str, Any]:
             )
         normalized[key] = normalized_entry
     return normalized
+
+
+def validate_provider_attempt_membership(
+    manager: Any,
+    scope: ProviderAttemptScope,
+    ordinal: int,
+) -> dict[str, Any]:
+    """Return the exact counter entry containing ``scope`` and ``ordinal``."""
+
+    if not isinstance(scope, ProviderAttemptScope):
+        raise TypeError("ProviderAttemptScope required")
+    ordinal = _ordinary_integer(
+        ordinal,
+        "provider attempt ordinal",
+        minimum=1,
+    )
+    owner = resolve_aggregate_run_owner(manager)
+    validate_provider_attempt_scope(scope, owner)
+    allocations = validate_provider_attempt_allocations(
+        owner.root_manager.state.provider_attempt_allocations
+    )
+    entry = allocations.get(scope.key)
+    if entry is None:
+        raise ValueError("provider attempt allocation is missing")
+    if ordinal > entry["last_allocated_ordinal"]:
+        raise ValueError("provider attempt allocation ordinal is missing")
+    return entry

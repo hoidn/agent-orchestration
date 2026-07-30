@@ -379,39 +379,6 @@ def test_peer_group_member_scope_cannot_retarget_an_existing_member_attempt() ->
         )
 
 
-def test_peer_group_bundle_enables_root_provider_attempt_coordination() -> None:
-    group = SimpleNamespace(
-        schema_version="provider_peer_group.v1",
-        members=(
-            SimpleNamespace(
-                provider_config=SimpleNamespace(
-                    compiler_prompt_dependency_contract=object(),
-                )
-            ),
-            SimpleNamespace(
-                provider_config=SimpleNamespace(
-                    compiler_prompt_dependency_contract=object(),
-                )
-            ),
-        ),
-    )
-    bundle = SimpleNamespace(
-        ir=SimpleNamespace(
-            nodes={
-                "peers": SimpleNamespace(
-                    execution_config=group,
-                )
-            }
-        ),
-        imports={},
-    )
-
-    assert (
-        provider_attempts.bundle_requires_provider_attempt_coordination(bundle)
-        is True
-    )
-
-
 def test_executor_recovery_retains_partial_peer_visit_and_clears_exact_step(
     tmp_path: Path,
 ) -> None:

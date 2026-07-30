@@ -46,6 +46,7 @@ from orchestrator.workflow.provider_attempts import (
     ProviderAttemptScope,
     resolve_aggregate_run_owner,
     validate_provider_attempt_allocations,
+    validate_provider_attempt_membership,
 )
 
 
@@ -1146,9 +1147,7 @@ def publish_evidence_file(
     with root._lock:
         if record["run"] != _run(root.state, scope):
             raise ValueError("record run identity contradicts current state")
-        root._validate_provider_attempt_publication_already_process_locked(
-            manager, scope, ordinal
-        )
+        validate_provider_attempt_membership(manager, scope, ordinal)
         destination = root.run_root / relative
         _write_current_no_replace(destination, payload, root.run_root)
     return PublicationResult(relative, digest, payload, kind)

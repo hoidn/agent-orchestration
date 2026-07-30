@@ -26,9 +26,6 @@ from orchestrator.workflow.resume_projection_integrity import (
     ResumeScopePath,
     audit_scope,
 )
-from orchestrator.workflow.provider_attempts import (
-    enable_provider_attempt_coordination_for_bundle,
-)
 from orchestrator.monitor.process import (
     process_start_time_token,
     read_process_metadata,
@@ -434,8 +431,6 @@ def _resume_workflow_with_writer_lock_held(
         print("Use --force-restart to start a new run with the candidate schema.", file=sys.stderr)
         return 1
 
-    enable_provider_attempt_coordination_for_bundle(state_manager, workflow_bundle)
-
     if force_restart:
         observability = _merge_observability_overrides(
             state.observability,
@@ -526,10 +521,6 @@ def _resume_workflow_with_writer_lock_held(
             _writer_locks.enter_context(
                 run_writer_lock(state_manager.run_root)
             )
-        enable_provider_attempt_coordination_for_bundle(
-            state_manager,
-            workflow_bundle,
-        )
         state_manager.initialize(
             workflow_file=str(workflow_path),
                 context=(

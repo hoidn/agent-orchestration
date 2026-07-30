@@ -21,7 +21,8 @@ fixtures, JSON schema-2.1 state, and atomic temp-file rename.
 
 **Status:** active. ML-1 closed at commit
 `9c14dae37310755bd9cbd3de03b9256433acd9fe`, tree
-`0b149f96ace8873b0381a4cd530468b1d24a083f`; ML-2 Task 3 is current.
+`0b149f96ace8873b0381a4cd530468b1d24a083f`; ML-2 Task 3 closed at
+`fd93bf32`, and Task 4 is current.
 
 ## Authority and bounds
 
@@ -183,7 +184,7 @@ single replay, followed by `ML2_TASK3_QUALITY_APPROVED`.
 - Modify: `tests/test_prompt_contract_injection.py`
 - Modify: `tests/test_prompt_attempt_result_binding.py`
 
-- [ ] First add
+- [x] First add
   `test_allocator_uses_no_repair_barrier_or_process_lock_layer` to
   `tests/test_provider_attempt_allocation.py`, then run:
 
@@ -193,18 +194,30 @@ single replay, followed by `ML2_TASK3_QUALITY_APPROVED`.
   ```
 
   Expected RED: the repair barrier and process-lock helpers remain active.
-- [ ] Delete the provider-attempt repair barrier, durable-mode latch,
+- [x] Delete the provider-attempt repair barrier, durable-mode latch,
   state-reload allocator projection merge, allocation lifecycle-event
-  validation, `_from`/`_already_process_locked` method variants, and
-  allocation/publication process-lock helpers.
-- [ ] Keep general atomic IO and any non-allocation lock owner still used by
+  writer/consumer machinery, `_from`/`_already_process_locked` method variants,
+  and allocation/publication process-lock helpers. Retain only the strict
+  legacy-input event parser required by the authority bounds and Task 5.
+- [x] Keep general atomic IO and any non-allocation lock owner still used by
   current features.
-- [ ] Consolidate `RunState.to_dict`/`from_dict` only where the removed layers
+- [x] Consolidate `RunState.to_dict`/`from_dict` only where the removed layers
   leave direct duplication; do not perform unrelated state-module refactoring.
-- [ ] Prove production grep contains no removed capability sentinel, repair
+- [x] Prove production grep contains no removed capability sentinel, repair
   barrier, or lifecycle-event writer.
-- [ ] Run focused tests, ordered specification then quality review, and commit
+- [x] Run focused tests, ordered specification then quality review, and commit
   with subject `Delete durable allocator ledger machinery`.
+
+Task 4 candidate evidence: the architecture selector failed on the obsolete
+symbols before deletion, and the direct membership selector failed because its
+validator did not yet exist. Both pass after the deletion. Changed test modules
+collect 104 tests; the exact seven-module state/allocation/evidence/call-frame
+gate passes 422 tests. Production grep finds no removed symbol and no current
+lifecycle-event writer or consumer; the only non-isolation event references are
+inside the strict legacy-read parser. Excluding this execution record, the
+candidate removes 999 lines while adding 89. Ordered review returned
+`ML2_TASK4_SPEC_APPROVED` after deleting one dead compatibility-field pop and
+its single replay, followed by `ML2_TASK4_QUALITY_APPROVED`.
 
 ## Task 5: Preserve old-state read compatibility
 
