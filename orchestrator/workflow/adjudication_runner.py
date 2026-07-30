@@ -8,7 +8,13 @@ from typing import Any, Dict, Optional
 from .adjudication import (
     AdjudicationDeadline,
     AdjudicationMismatchRerun,
+    adjudication_cleanup_guard_path,
     adjudication_visit_paths,
+)
+from .adjudication.utils import (
+    _atomic_write_text,
+    _canonical_json,
+    _require_canonical_child,
 )
 from .adjudication_bindings import (
     AdjudicationBindings,
@@ -60,6 +66,24 @@ class AdjudicationRunner(
                 "Missing adjudication execution context",
             )
 
+        try:
+            cleanup_guard = adjudication_cleanup_guard_path(
+                execution.run_root,
+                execution.frame_scope,
+                execution.step_id,
+            )
+            _require_canonical_child(cleanup_guard, execution.run_root)
+            if cleanup_guard.exists() or cleanup_guard.is_symlink():
+                return self._adjudication_failure_result(
+                    "adjudication_state_integrity_error",
+                    "adjudication cleanup was interrupted",
+                )
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return self._adjudication_failure_result(
+                "adjudication_state_integrity_error",
+                "adjudication cleanup guard is not provably canonical",
+            )
+
         mismatch_rerun: AdjudicationMismatchRerun | None = None
         resume_decision = self._reconcile_adjudication_resume(execution)
         if resume_decision.kind == "integrity_error":
@@ -102,6 +126,36 @@ class AdjudicationRunner(
                     "adjudication_state_integrity_error",
                     "fresh adjudication rerun coordinates are not provably canonical",
                 )
+            mismatch_rerun = AdjudicationMismatchRerun(
+                mismatch_class="sidecar_reconciliation_mismatch",
+                step_id=execution.step_id,
+                frame_scope=execution.frame_scope,
+                discarded_visit=scope.visit_count,
+                next_visit=live_scope.scope.visit_count,
+            )
+            try:
+                _require_canonical_child(cleanup_guard, execution.run_root)
+                if cleanup_guard.exists() or cleanup_guard.is_symlink():
+                    raise ValueError("adjudication cleanup guard already exists")
+                _atomic_write_text(
+                    cleanup_guard,
+                    _canonical_json(
+                        {
+                            "schema": "adjudication.rerun_cleanup_guard.v1",
+                            "mismatch_class": mismatch_rerun.mismatch_class,
+                            "frame_scope": mismatch_rerun.frame_scope,
+                            "step_id": mismatch_rerun.step_id,
+                            "discarded_visit": mismatch_rerun.discarded_visit,
+                            "next_visit": mismatch_rerun.next_visit,
+                        }
+                    )
+                    + "\n",
+                )
+            except (OSError, RuntimeError, TypeError, ValueError):
+                return self._adjudication_failure_result(
+                    "adjudication_state_integrity_error",
+                    "adjudication cleanup guard could not be established",
+                )
             cleanup_error = self._discard_exact_adjudication_visit(
                 execution,
                 scope,
@@ -111,13 +165,22 @@ class AdjudicationRunner(
                     "adjudication_state_integrity_error",
                     cleanup_error,
                 )
-            mismatch_rerun = AdjudicationMismatchRerun(
-                mismatch_class="sidecar_reconciliation_mismatch",
-                step_id=execution.step_id,
-                frame_scope=execution.frame_scope,
-                discarded_visit=scope.visit_count,
-                next_visit=live_scope.scope.visit_count,
-            )
+            try:
+                cleanup_guard.unlink()
+                for empty_guard_dir in (
+                    cleanup_guard.parent,
+                    cleanup_guard.parent.parent,
+                    cleanup_guard.parent.parent.parent,
+                ):
+                    try:
+                        empty_guard_dir.rmdir()
+                    except OSError:
+                        break
+            except OSError:
+                return self._adjudication_failure_result(
+                    "adjudication_state_integrity_error",
+                    "adjudication cleanup guard could not be cleared",
+                )
         baseline_error = self._ensure_adjudication_baseline(execution)
         if baseline_error is not None:
             return baseline_error

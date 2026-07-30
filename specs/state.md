@@ -782,4 +782,8 @@ Schema boundary note:
   `adjudication_state_mismatch_rerun`, and re-enters ordinary adjudicated-step
   dispatch with fresh identities. Unknown, ambiguous, escaping, aliased, or
   otherwise unprovable cleanup scope fails closed without mutation or provider
-  launch.
+  launch. Before removing one visit across its run-owned roots, the runtime
+  writes a frame/step-scoped cleanup guard bound to the discarded and next
+  visit coordinates. Successful cleanup removes that guard before dispatch; a
+  surviving guard proves cleanup was interrupted and blocks later provider
+  dispatch or publication with `adjudication_state_integrity_error`.

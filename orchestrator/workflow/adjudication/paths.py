@@ -7,6 +7,25 @@ from pathlib import Path
 from .models import AdjudicationVisitPaths, CandidateRuntimePaths
 from .utils import _safe_token, _safe_visit_count
 
+
+def adjudication_cleanup_guard_path(
+    run_root: Path,
+    frame_scope: str,
+    step_id: str,
+) -> Path:
+    """Return the run-owned cleanup guard for one adjudicated step."""
+
+    frame = _safe_token(frame_scope, "frame_scope")
+    step = _safe_token(step_id, "step_id")
+    return (
+        run_root
+        / "adjudication-cleanup-guards"
+        / frame
+        / step
+        / "guard.json"
+    )
+
+
 def adjudication_visit_paths(
     run_root: Path,
     frame_scope: str,

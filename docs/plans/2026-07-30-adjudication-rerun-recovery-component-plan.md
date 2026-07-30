@@ -24,7 +24,9 @@ filesystem operations, and Workflow Lisp end-to-end fixtures.
 `c45928f4399dbe1cb1105136a320638b95b9c3a8`, tree
 `c0ea1821d573ecfe9d3c5d98b1cab5d02be3e7f3`; Task 2 closes through the
 commit `b3370858b27b7d3924556193e499b2c6de106750`, tree
-`d26c9a6399a5c400a3d36aeaf9bf024a9891bc9d`, and Task 3 is current.
+`d26c9a6399a5c400a3d36aeaf9bf024a9891bc9d`; Task 3 closes at
+`ed19624cae6b8cc89c930c29ec7a3c6cc581d88f`, tree
+`2de3a125f357a2daa5db64e5986da11cd11cf2c6`, and Task 4 is current.
 
 ## Authority and bounds
 
@@ -193,11 +195,14 @@ complete with `ML4_TASK3_SPEC_APPROVED` followed by
 
 **Files:**
 
-- Modify: `tests/test_adjudicated_provider_runtime.py`
+- Modify: `orchestrator/workflow/adjudication/__init__.py`
+- Modify: `orchestrator/workflow/adjudication/paths.py`
+- Modify: `orchestrator/workflow/adjudication_runner.py`
+- Modify: `specs/state.md`
 - Modify: `tests/test_adjudicated_provider_resume.py`
 - Modify: `tests/test_adjudicated_provider_promotion.py`
 
-- [ ] First add the kill-during-cleanup/fresh-rerun cases and a discarded-
+- [x] First add the kill-during-cleanup/fresh-rerun cases and a discarded-
   promotion non-authority assertion. Run:
 
   ```bash
@@ -208,14 +213,32 @@ complete with `ML4_TASK3_SPEC_APPROVED` followed by
   ```
 
   Expected RED: there is no rerun recovery path to survive either interruption.
-- [ ] Prove consistent completed state invokes neither candidate nor evaluator.
-- [ ] Prove a rerun publishes only its newly selected outputs and lineage, with
+- [x] Prove consistent completed state invokes neither candidate nor evaluator.
+- [x] Prove a rerun publishes only its newly selected outputs and lineage, with
   no discarded-visit score or promotion authority.
-- [ ] Kill during cleanup and during fresh rerun; both subsequent resumes must
+- [x] Kill during cleanup and during fresh rerun; both subsequent resumes must
   either classify one exact recoverable visit or fail closed without duplicate
   publication.
-- [ ] Run focused tests, ordered specification then quality review, and commit
+- [x] Run focused tests, ordered specification then quality review, and commit
   with subject `Prove adjudication rerun invariants`.
+
+Task 4 candidate evidence: the plan selector first returned one failure and
+two passes. An interruption after candidate-root deletion stranded visit 1,
+and the next resume incorrectly published visit 3; interruption during the
+fresh provider rerun already discarded visits 1 and 2, completed visit 3 with
+candidate/evaluator counts `3/2`, and published one artifact version. A
+deterministic run-owned cleanup guard now binds the mismatch class, frame,
+step, discarded visit, and next visit before multi-root cleanup. Successful
+cleanup retires the guard before ordinary dispatch; an interruption preserves
+the exact guard and every later resume fails with
+`adjudication_state_integrity_error` before provider or publication. The
+discarded-promotion fixture commits candidate `a` only as pre-publication
+state, then proves the replacement visit alone selects and publishes candidate
+`b`, with fresh candidate/score keys, one artifact version, and no old visit
+roots. The selector now passes 3, the four owning adjudication modules pass
+156, the two modified test modules collect 58, and compile/diff checks pass.
+Ordered review returned `ML4_TASK4_SPEC_APPROVED` followed by
+`ML4_TASK4_QUALITY_APPROVED`, with no material findings and no replay.
 
 ## Task 5: Close ML-4 and Phase ML
 

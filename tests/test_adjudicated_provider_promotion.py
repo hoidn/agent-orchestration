@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import orchestrator.workflow.adjudication as adjudication
+import orchestrator.workflow.executor as executor_module
 from orchestrator.contracts.output_contract import ContractViolation, OutputContractError
 from orchestrator.workflow.adjudication import (
     PromotionConflictError,
@@ -17,6 +18,7 @@ from orchestrator.workflow.adjudication.promotion import (
     derive_promotion_rollback_authority,
     discard_partial_promotion_visit,
 )
+from tests.test_adjudicated_provider_runtime import _resume, _run, _workflow
 
 
 def _baseline(tmp_path: Path, parent: Path):
@@ -678,6 +680,134 @@ def test_discard_partial_promotion_accepts_exact_baseline_before_source_hash(
 
     assert destination.read_text(encoding="utf-8") == "same\n"
     assert not manifest_path.parent.exists()
+
+
+def test_discarded_visit_cannot_become_publication_or_lineage_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator_attempts = tmp_path / "evaluator_attempts.txt"
+    workflow = _workflow()
+    workflow["providers"]["evaluator"]["command"] = [
+        "python",
+        "-c",
+        (
+            "import json, sys\n"
+            "from pathlib import Path\n"
+            f"attempt_file = Path({evaluator_attempts.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "packet = json.loads(sys.stdin.read().split('Evaluator Packet:', 1)[1])\n"
+            "old_scores = {'a': 0.9, 'b': 0.1}\n"
+            "new_scores = {'a': 0.1, 'b': 0.9}\n"
+            "scores = old_scores if attempt <= 2 else new_scores\n"
+            "print(json.dumps({'candidate_id': packet['candidate_id'], 'score': scores[packet['candidate_id']], 'summary': 'scored'}))\n"
+        ),
+    ]
+    original_promote = executor_module.promote_candidate_outputs
+
+    def interrupt_after_committed_promotion(**kwargs: object) -> object:
+        promotion = original_promote(**kwargs)
+        assert promotion.status == "committed"
+        raise SystemExit("interrupted after discarded visit promotion")
+
+    monkeypatch.setattr(
+        executor_module,
+        "promote_candidate_outputs",
+        interrupt_after_committed_promotion,
+    )
+    with pytest.raises(SystemExit):
+        _run(tmp_path, workflow)
+
+    run_root = tmp_path / ".orchestrate/runs/run-1"
+    discarded_visit = adjudication_visit_paths(
+        run_root,
+        "root",
+        "root.draft",
+        1,
+    )
+    discarded_rows = [
+        json.loads(line)
+        for line in discarded_visit.run_score_ledger_path.read_text(
+            encoding="utf-8"
+        ).splitlines()
+    ]
+    discarded_manifest = json.loads(
+        discarded_visit.promotion_manifest_path.read_text(encoding="utf-8")
+    )
+    discarded_keys = {
+        row[key]
+        for row in discarded_rows
+        for key in ("candidate_run_key", "score_run_key")
+    }
+    assert discarded_manifest["selected_candidate_id"] == "a"
+    assert next(row for row in discarded_rows if row["selected"])["candidate_id"] == "a"
+    assert (tmp_path / "state/result_path.txt").read_text(
+        encoding="utf-8"
+    ) == "docs/plans/a.md\n"
+
+    (tmp_path / "evaluator.md").write_text(
+        "Use the replacement scoring identity.",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "promote_candidate_outputs",
+        original_promote,
+    )
+    state = _resume(tmp_path, workflow)
+
+    replacement_visit = adjudication_visit_paths(
+        run_root,
+        "root",
+        "root.draft",
+        2,
+    )
+    replacement_rows = [
+        json.loads(line)
+        for line in replacement_visit.run_score_ledger_path.read_text(
+            encoding="utf-8"
+        ).splitlines()
+    ]
+    replacement_manifest = json.loads(
+        replacement_visit.promotion_manifest_path.read_text(encoding="utf-8")
+    )
+    published_score_rows = [
+        json.loads(line)
+        for line in (
+            tmp_path / "artifacts/evaluations/draft_scores.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+    ]
+    result = state["steps"]["Draft"]
+
+    assert state["status"] == "completed"
+    assert result["visit_count"] == 2
+    assert result["artifacts"]["result_path"] == "docs/plans/b.md"
+    assert result["adjudication"]["selected_candidate_id"] == "b"
+    assert result["adjudication"]["selected_score"] == 0.9
+    assert (
+        result["adjudication"]["run_score_ledger_path"]
+        == replacement_visit.run_score_ledger_path.as_posix()
+    )
+    assert (
+        result["adjudication"]["promotion_manifest_path"]
+        == replacement_visit.promotion_manifest_path.as_posix()
+    )
+    published_versions = state["artifact_versions"]["result_path"]
+    assert len(published_versions) == 1
+    assert published_versions[0]["value"] == "docs/plans/b.md"
+    assert not (tmp_path / "docs/plans/a.md").exists()
+    assert (tmp_path / "docs/plans/b.md").read_text(encoding="utf-8") == "better"
+    assert all(row["visit_count"] == 2 for row in replacement_rows)
+    assert all(
+        row[key] not in discarded_keys
+        for row in replacement_rows
+        for key in ("candidate_run_key", "score_run_key")
+    )
+    assert published_score_rows == replacement_rows
+    assert replacement_manifest["selected_candidate_id"] == "b"
+    assert not discarded_visit.adjudication_root.exists()
+    assert not discarded_visit.promotion_manifest_path.parent.exists()
 
 
 @pytest.mark.parametrize("tamper", ["hash", "mode"])

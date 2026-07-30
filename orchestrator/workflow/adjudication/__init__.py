@@ -37,6 +37,7 @@ from .models import (
     adjudication_outcome,
 )
 from .paths import (
+    adjudication_cleanup_guard_path,
     adjudication_visit_paths,
     candidate_metadata_path,
     candidate_paths,
@@ -90,6 +91,7 @@ __all__ = [
     "SelectionResult",
     "adjudication_outcome",
     "adjudication_sidecars_exist",
+    "adjudication_cleanup_guard_path",
     "adjudication_visit_paths",
     "build_evaluation_packet",
     "candidate_metadata_path",
