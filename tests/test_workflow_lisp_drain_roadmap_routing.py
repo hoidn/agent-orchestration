@@ -43,6 +43,15 @@ LANGUAGE_SERVER_PLAN_PATH = (
 LANGUAGE_QUALITY_ROADMAP_PATH = (
     "docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md"
 )
+SUBSTRATE_MAINTENANCE_TRACK_PATH = (
+    "docs/plans/2026-07-26-substrate-maintenance-track.md"
+)
+M0_GREEN_BASELINE_PLAN_PATH = (
+    "docs/plans/2026-07-29-m0-green-baseline-component-plan.md"
+)
+REFUSAL_DIAGNOSABILITY_PLAN_PATH = (
+    "docs/plans/2026-07-23-refusal-diagnosability-fixes-plan.md"
+)
 TRANSPORTABLE_VALUE_DESIGN_PATH = (
     "docs/design/workflow_lisp_transportable_value_type.md"
 )
@@ -4251,4 +4260,118 @@ def test_phased_contract_delivery_routes_completed_surface() -> None:
     )
     assert (
         "provider_phased_delivery_contract_suffix_required" not in dsl_spec
+    )
+
+
+def test_m0_green_baseline_component_plan_is_selected_without_widening_entry_bootstrap() -> None:
+    track = (REPO_ROOT / SUBSTRATE_MAINTENANCE_TRACK_PATH).read_text(
+        encoding="utf-8"
+    )
+    component_plan = (REPO_ROOT / M0_GREEN_BASELINE_PLAN_PATH).read_text(
+        encoding="utf-8"
+    )
+    refusal_plan = (REPO_ROOT / REFUSAL_DIAGNOSABILITY_PLAN_PATH).read_text(
+        encoding="utf-8"
+    )
+    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
+
+    assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in track
+    assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in index
+    assert "### [M0 Green Baseline Implementation Plan]" in index
+    normalized_index_section = _normalized_routing_text(
+        _markdown_heading_section(
+            index,
+            "### [M0 Green Baseline Implementation Plan]",
+        )
+    )
+    assert "selected and in progress" in normalized_index_section
+    assert "m1 remains ineligible" in normalized_index_section
+    assert "m0 green gate closes" in normalized_index_section
+    assert "own reviewed component plan" in normalized_index_section
+
+    m0_section = track.split("## Phase M0: Green Baseline", 1)[1].split(
+        "## Phase M1: Estate Shrink",
+        1,
+    )[0]
+    normalized_m0 = _normalized_routing_text(m0_section)
+    assert "selected and in progress" in normalized_m0
+    assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in m0_section
+
+    track_header = track.split("## Objective", 1)[0]
+    normalized_track_header = _normalized_routing_text(track_header)
+    assert "owner decisions pending" not in normalized_track_header
+    assert "recorded m0 rulings and landed work" in normalized_track_header
+    assert "retained baseline output/ir failures were adjudicated" in (
+        normalized_track_header
+    )
+    assert "three typecheck family rulings are closed" in normalized_track_header
+    for landed_commit in (
+        "e1594634",
+        "b16a49f5",
+        "76452fdc",
+        "6620f186",
+        "ae67ea16",
+        "6182ae48",
+        "7dcd177c",
+    ):
+        assert landed_commit in track_header
+    assert "no m0 ruling remains pending" in normalized_track_header
+    assert "only bounded m0 closure work remains pending" in (
+        normalized_track_header
+    )
+    for bounded_remainder in (
+        "replacement rule diagnostic pointer",
+        "two landed let proc fixture route rows",
+        "retirement artifact diagnostic projection",
+        "green baseline gate and final reviews",
+    ):
+        assert bounded_remainder in normalized_track_header
+    assert "later phase defaults remain recorded" in normalized_track_header
+
+    m1_section = track.split("## Phase M1: Estate Shrink", 1)[1].split(
+        "## Phase ML:",
+        1,
+    )[0]
+    normalized_m1 = _normalized_routing_text(m1_section)
+    assert "ineligible and unselected" in normalized_m1
+    assert "completed m0 green gate" in normalized_m1
+    assert "own reviewed component plan" in normalized_m1
+
+    assert component_plan.index("M0_PLAN_SPEC_APPROVED") < component_plan.index(
+        "M0_PLAN_QUALITY_APPROVED"
+    )
+
+    task_2 = refusal_plan.split(
+        "## Task 2:",
+        1,
+    )[1].split("## Task 3:", 1)[0]
+    assert "**Accepted disposition" in task_2
+    accepted_disposition = task_2.split(
+        "**Accepted disposition",
+        1,
+    )[1].split("**Original proposal", 1)[0]
+    normalized_disposition = _normalized_routing_text(accepted_disposition)
+    assert "export only eligibility is rejected" in normalized_disposition
+    assert (
+        "test_compile_stage3_entrypoint_rejects_hidden_context_omission_"
+        "for_unrelated_exported_sibling_in_item_ctx_proof_module"
+    ) in accepted_disposition
+    assert "separate accepted design" in normalized_disposition
+    assert "fail closed name gate remains" in normalized_disposition
+    assert "entry_bootstrap_name_gate_denied" in accepted_disposition
+    assert "explicit_entry_bootstrap_eligibility" in accepted_disposition
+    assert REFUSAL_DIAGNOSABILITY_PLAN_PATH in accepted_disposition
+    assert "no eligibility change" in normalized_disposition
+    for shipped_claim in (
+        "a selected exported entry qualifies",
+        "export only eligibility shipped",
+        "export only eligibility is implemented",
+        "export based rule is implemented",
+    ):
+        assert shipped_claim not in normalized_disposition
+
+    task_3 = refusal_plan.split("## Task 3:", 1)[1].split("## Non-goals", 1)[0]
+    assert (
+        "remains applicable because the gate logic is unchanged"
+        in _normalized_routing_text(task_3)
     )

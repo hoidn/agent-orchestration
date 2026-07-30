@@ -1,8 +1,9 @@
 # Refusal Diagnosability Fixes Plan
 
-**Status:** queued; not a competing selector. Execute after the YAML-retirement
-program's current task completes, or opportunistically as a small independent
-fix between capture windows.
+**Status:** active; not a competing selector. Task 1 and Task 3 are done,
+Task 2 has an accepted disposition, and only the replacement-rule diagnostic
+pointer remains pending under Task 2 of
+`docs/plans/2026-07-29-m0-green-baseline-component-plan.md`.
 
 **Goal:** Apply design principle 28 ("Refusals Must Name Their Rule",
 `docs/design/workflow_language_design_principles.md`) to the one known
@@ -46,45 +47,53 @@ raise, not the lowering-phase raise the plan's file pointer implied) via
 this. New test:
 `tests/test_workflow_lisp_lowering.py::test_compile_stage3_entrypoint_names_the_denied_gate_for_unexported_non_magic_name_entry_workflow`.
 
-## Task 2: Replace the name key with the declared-property rule
+## Task 2: Disposition the declared-property rule
 
-The exports branch already implements the principled rule: exported workflows
-qualify as entry-bootstrap candidates. Replace the name allowlist with that
-rule for selected entries (a selected exported entry qualifies; a selected
-non-exported entry does not), preserving current behavior for the three
-currently allowlisted names via the general rule rather than by spelling.
-Tests: positive (arbitrary-named exported entry with omitted RunCtx-rooted
-call compiles), negative (non-exported selected entry still denied, with the
-Task 1 diagnostic). Run the focused promoted-entry/hidden-context selectors
-plus one selection-free and one selected compile of
-`workflows/examples/review_revise_design_docs.orc`; then revert that
-example's two build-artifact tests and README compile command to the selected
-form if desired (optional follow-up, not required by this plan).
+**Accepted disposition (2026-07-29): no eligibility change.** Export-only
+eligibility is rejected by
+`tests/test_workflow_lisp_lowering.py::test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_unrelated_exported_sibling_in_item_ctx_proof_module`.
+That control proves that an exported selected sibling is not necessarily
+authorized for hidden-context bootstrap. A new explicit authored property is
+deferred to a separate accepted design that must distinguish legitimate
+wrappers from that negative control. The current fail-closed name gate remains,
+as does its `entry_bootstrap_name_gate_denied` note. The only pending work is
+diagnostic: point that note to the stable replacement-rule ID
+`explicit_entry_bootstrap_eligibility` and this disposition at
+`docs/plans/2026-07-23-refusal-diagnosability-fixes-plan.md`. The gate logic is
+unchanged, so Task 3's recorded non-drift comparison remains applicable.
 
-**Status: blocked on a design question — not implemented.** Drafted the
-literal change (export-based `_entry_bootstrap_name_gate_denial`, reusing a
-new `_exported_workflow_names` helper) and both tests, then ran the full
-focused selector set before committing. One pre-existing test regressed:
-`tests/test_workflow_lisp_lowering.py::test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_unrelated_exported_sibling_in_item_ctx_proof_module`
-(fixture: `item_ctx_child_phase_reuse_leak_probe`, entry_workflow
-`unrelated-phase-entry`) went from a required raise to a clean compile.
-That fixture explicitly exports an unrelated sibling workflow specifically
-to prove that *selecting* it as the compile entrypoint must still be denied
-hidden-context bootstrap, even though it is exported — i.e. an existing test
-encodes "exported is necessary but not sufficient for a selected entry to
-qualify," which directly contradicts this task's literal instruction
-("a selected exported entry qualifies," full stop). Both readings have a
-textual source (the task's own wording vs. this pre-existing regression
-test), so this is a real policy fork, not a mechanical detail — reverted the
-draft change (`git restore`) rather than pick a side. Options for whoever
-resolves this: (a) implement literally as specified and update/retire the
-"unrelated sibling" test's expectation to match the new, intentionally
-broader rule; (b) narrow the declared property so export alone is
-insufficient — e.g. require the callee's hidden-context requirement to
-independently mark `allows_entry_bootstrap`, or require membership in the
-route-readiness registry's promoted set, in addition to being exported; (c)
-keep the name allowlist for now and only land Task 1's diagnostic naming
-(no rule change). Not resolved here.
+**Original proposal (rejected):** The exports branch already implements the
+broader candidate source used by selection-free compilation. The original Task
+2 instruction proposed replacing the selected-entry name allowlist with that
+rule (a selected exported entry qualifies; a selected non-exported entry does
+not), preserving behavior for the three currently allowlisted names through a
+general rule rather than by spelling. Its proposed tests were a positive
+arbitrary-named exported entry with an omitted RunCtx-rooted call and a
+negative non-exported selected entry retaining the Task 1 diagnostic. It also
+called for the focused promoted-entry/hidden-context selectors plus one
+selection-free and one selected compile of
+`workflows/examples/review_revise_design_docs.orc`.
+
+**Incident history and rejected alternatives (preserved):** The literal change
+(export-based `_entry_bootstrap_name_gate_denial`, reusing a new
+`_exported_workflow_names` helper) and both tests were drafted, then the full
+focused selector set ran before commit. One pre-existing test regressed: the
+named unrelated-exported-sibling control (fixture
+`item_ctx_child_phase_reuse_leak_probe`, entry workflow
+`unrelated-phase-entry`) went from a required raise to a clean compile. That
+fixture explicitly exports an unrelated sibling workflow to prove that
+selecting it as the compile entrypoint must still be denied hidden-context
+bootstrap. In other words, the existing test encodes "exported is necessary
+but not sufficient for a selected entry to qualify," directly contradicting
+the original instruction. Both readings had a textual source, so the draft
+change was reverted (`git restore`) rather than silently choosing policy.
+Considered alternatives were: (a) implement the original instruction and
+retire the unrelated-sibling expectation; (b) narrow a new property so export
+alone is insufficient, for example through an independently declared
+`allows_entry_bootstrap` property or promoted-route membership; or (c) retain
+the name allowlist and land only its named diagnostic. The accepted
+disposition selects (c) for this bounded plan and defers (b) to a separate
+accepted design; (a) is rejected.
 
 ## Task 3: Verify no identity drift
 
@@ -93,8 +102,8 @@ already-promoted routes (`drain`, the retained public entries). Compare
 compiled boundary projections for the two promoted `.orc` ports before and
 after; byte-identical hidden-input contracts are the acceptance bar.
 
-**Status: done, against Task 1's change** (Task 2 is unimplemented, so
-"before/after" here brackets Task 1 only). Compiled
+**Status: done, against Task 1's change.** The comparison brackets Task 1's
+diagnostic-only change. It compiled
 `workflows/library/verified_iteration_drain/drain.orc`
 (`verified_iteration_drain/drain::drain`) and
 `workflows/library/lisp_frontend_design_delta/drain.orc`
@@ -108,9 +117,9 @@ afterward). The two dumps are byte-identical (matching MD5). Expected: Task 1
 only threads a diagnostic note through the existing accept/deny decision and
 does not change the gate's logic, so both `drain` routes' hidden-input
 contracts were never at risk; this closes the loop with a runnable check
-rather than inspection alone. Re-run this comparison once Task 2 lands,
-since Task 2's rule change is the one that can actually alter which
-workflows qualify.
+rather than inspection alone. This comparison remains applicable because the
+gate logic is unchanged by Task 2's accepted disposition. Re-run it only if a
+separate accepted design later changes entry-bootstrap eligibility.
 
 ## Non-goals
 

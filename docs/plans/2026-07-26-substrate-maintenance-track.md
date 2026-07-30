@@ -1,12 +1,15 @@
 # Substrate Maintenance And Persistence Parsimony Track
 
-- **Status:** proposed track; shape owner-approved 2026-07-26. Amendment
-  phases ML, MC, MR and the M1 inventory extension were adopted into this
-  shape 2026-07-26 by owner direction (provider-repeat cost model and
-  incorporation request). No phase is selected by listing: M0, M1, ML, MC,
-  MR, and M4 each require their own component plan, M2 requires an
-  accepted design, and ML additionally requires its ML-0 reviewed spec
-  amendment, before execution.
+- **Status:** active substrate track; shape owner-approved 2026-07-26. M0 is
+  selected and in progress under the reviewed
+  [M0 Green Baseline Implementation Plan](2026-07-29-m0-green-baseline-component-plan.md).
+  M1 remains ineligible until M0's green gate closes and then requires its
+  own reviewed component plan before selection. Amendment phases ML, MC, MR
+  and the M1 inventory extension were adopted into this shape 2026-07-26 by
+  owner direction (provider-repeat cost model and incorporation request). No
+  other phase is selected by listing: ML, MC, MR, and M4 each require their
+  own component plan, M2 requires an accepted design, and ML additionally
+  requires its ML-0 reviewed spec amendment before execution.
 - **Relation:** parallel substrate track beside the active
   `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`
   (Q/L tracks). Two junctions: M2 consumes Q3's prompt/effect identity
@@ -25,13 +28,28 @@
   (`docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`)
   and its Stage 6 YAML retirement, whose served-purpose machinery this track
   deletes.
-- **Owner decisions pending:** (1) adjudication of the four retained
-  baseline test failures; (2) rulings on the three recorded typecheck-family
-  deferred divergences; (3) M2 depth (pure-replay only, or memo-first
-  resume; (b) presupposes the adopted at-least-once contract); (4) M4
-  go/no-go; (5) ML-3's exception to the provider-isolation freeze, or
-  deferral until the freeze lifts; (6) whether boundary redraw (neutral IR
-  package) joins the M4 go/no-go scope.
+- **Recorded M0 rulings and landed work:** the three deleted-loader safety
+  test modules were ported at `e1594634`; the retained baseline output/IR
+  failures were adjudicated at `b16a49f5`; and the entry-bootstrap refusal
+  was named at `76452fdc`. The three typecheck-family rulings are closed:
+  the extern-operand narrow/wide fork at `6620f186`, the dead
+  semantic-adapter local at `ae67ea16`, and `let-proc` hidden-context
+  equivalence at `6182ae48` plus `7dcd177c`. Their evidence and dispositions
+  are recorded in the
+  [M0 decision brief](../reports/2026-07-26-m0-decision-brief.md) and the
+  reviewed
+  [M0 component plan](2026-07-29-m0-green-baseline-component-plan.md).
+- **Remaining M0 closure:** no M0 ruling remains pending. Only bounded M0
+  closure work remains pending under the reviewed component plan: the
+  replacement-rule diagnostic pointer, two landed `let-proc` fixture route
+  rows, the retirement-artifact diagnostic projection, and the green-baseline
+  gate and final reviews.
+- **Later-phase defaults remain recorded, not currently pending:** M2 defaults
+  to pure-result replay only unless its named re-entry evidence appears; M4
+  defaults to the bounded executor/validation split if its entry conditions
+  still hold; ML-3 remains deferred until the provider-isolation freeze lifts;
+  and neutral-IR boundary redraw remains outside M4 absent its own accepted
+  design.
 
 ## Objective
 
@@ -73,8 +91,8 @@ seams that loosening defines.
 
 | Phase | Work | Entry condition | Completion gate |
 | --- | --- | --- | --- |
-| M0 | Green baseline | none — may start immediately | bare `pytest` collects without error and passes with no retained-failure set |
-| M1 | Estate shrink + adopted inventory extension | M0 complete | broad non-security suite green after deletions; capability/routing docs flipped to historical |
+| M0 | Green baseline | selected and in progress under the reviewed [M0 component plan](2026-07-29-m0-green-baseline-component-plan.md) | bare `pytest` collects without error and passes with no retained-failure set |
+| M1 | Estate shrink + adopted inventory extension | completed M0 green gate; own reviewed component plan selected | broad non-security suite green after deletions; capability/routing docs flipped to historical |
 | ML | Provider at-least-once loosening | M1 complete; Q0 implementation gate passed; ML-0 spec amendment reviewed and landed | amendment per-tranche gates; kill-mid-provider crash-resume E2E green; broad non-security suite green |
 | MC | Common-helper consolidation | M0 complete; Q0-listed files deferred until Q0 closes | net LOC strictly negative; no residual private clones; touched-module suites green |
 | MR | Behavior-preserving structural refactors | per-tranche: MR-5a after M0; MR-1 after ML-1; MR-2 after ML; MR-3 with/after ML-2; MR-4 Q-coordinated | golden-parity gates per tranche; MR-1..MR-3 complete before M3 starts |
@@ -83,6 +101,11 @@ seams that loosening defines.
 | M4 | Structural decomposition | M3 complete or owner-recorded M2/M3 no-go; owner M4 go decision | touched modules split along the then-current seams; full suite green; no behavior change |
 
 ## Phase M0: Green Baseline
+
+**Selection:** selected and in progress under the reviewed
+[M0 Green Baseline Implementation Plan](2026-07-29-m0-green-baseline-component-plan.md).
+Its bounded work preserves the current fail-closed entry-bootstrap eligibility
+rule and does not begin or prepare M1.
 
 Scope:
 
@@ -106,6 +129,10 @@ Gate: fresh `pytest` output showing clean collection and a green run (or an
 explicit, minimal, per-test-adjudicated skip list), committed as evidence.
 
 ## Phase M1: Estate Shrink
+
+**Eligibility:** ineligible and unselected while M0 is in progress. M1 requires
+the completed M0 green gate and its own reviewed component plan before
+selection.
 
 Scope:
 
