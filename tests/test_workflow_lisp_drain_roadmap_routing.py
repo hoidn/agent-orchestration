@@ -1211,7 +1211,11 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "implementation plan pending" not in normalized_successor
     assert "q1" in normalized_successor and "prompt core" in normalized_successor
     assert "e0" in normalized_successor and "unselected" in normalized_successor
-    assert "evolution follow on roadmap remains parked" in normalized_successor
+    assert (
+        "evolution follow on roadmap is incorporated (2026 07 30) as the "
+        "tracked e series program" in normalized_successor
+    )
+    assert "nothing e is selectable from this roadmap" in normalized_successor
     l0_row = _markdown_table_row(
         REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
         "Reliability and diagnostic actionability",
@@ -1590,7 +1594,11 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     normalized_evolution_status = _normalized_routing_text(
         evolution.split("## Purpose", 1)[0]
     )
-    assert "status: parked" in normalized_evolution_status
+    assert (
+        "status: incorporated as the tracked e series program"
+        in normalized_evolution_status
+    )
+    assert "gated on ml closure" in normalized_evolution_status
     assert "not a selector" in normalized_evolution_status
     assert "e0 probe remains unselected" in normalized_evolution_status
     assert (

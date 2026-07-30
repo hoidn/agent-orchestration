@@ -852,6 +852,11 @@ prerequisite as stages Q0-Q4. The slimmed E0 probe remains unselected, the
 parsimony candidates remain shelved, and the parked evolution roadmap remains
 non-selectable.
 
+**Amendment 2026-07-30:** the evolution follow-on roadmap is since
+incorporated as the tracked E-series program (see its status header and
+current-shape section). It remains not a selector, and E implementation
+remains unselected pending the gates recorded there.
+
 Provenance: items 1 and 4 are the two salvaged survivors of the parked
 2026-07-22 evolution follow-on roadmap (owner decision 2026-07-24, per the
 architectural critique at

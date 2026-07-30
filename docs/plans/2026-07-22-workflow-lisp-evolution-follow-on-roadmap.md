@@ -1,24 +1,72 @@
 # Workflow Lisp Evolution Follow-On Roadmap
 
-Status: parked (2026-07-24 owner decision, per the architectural critique at
-`artifacts/review/roadmap-follow-on/architectural-critique.md`). Not active
-work instructions and not a selector. The durable boundary invariants were
-extracted to
-`docs/design/workflow_lisp_program_search_boundaries.md`; a slimmed E0 probe
-remains unselected, while the E4P prompt-identity discipline is owned only by
-Stage Q3 of the active language-quality successor roadmap. This document
-remains the detailed historical reference for those items and for any future
-revival, which would require an explicit owner decision and a fresh
-proportionality review.
+Status: incorporated as the tracked E-series program (2026-07-30 owner
+decision), superseding the 2026-07-24 parked disposition that was recorded
+per the architectural critique at
+`artifacts/review/roadmap-follow-on/architectural-critique.md`. Not active
+work instructions and not a selector. The durable boundary invariants live in
+`docs/design/workflow_lisp_program_search_boundaries.md`; the historical
+slimmed E0 probe remains unselected and its framing is superseded by the
+canonical E0 trial-runs design now drafting externally, while the E4P
+prompt-identity discipline is owned only by Stage Q3 of the active
+language-quality successor roadmap. The current program shape and its
+sequencing gates are recorded in the section below; the remainder of this
+document is the detailed historical reference.
 
 Created: 2026-07-22
 
-Last materially updated: 2026-07-24
+Last materially updated: 2026-07-30
 
-Current implementation status: Future; no tranche in this document is selected
+Current implementation status: E0/C1 drafting proceeds concurrently outside
+this repository's selected work; no tranche in this document is selected and
+no E implementation is selected
 
 Copy safety: planning reference only; do not use this document as evidence that
 any evolution, variant, trial, prompt-program, or sandbox surface is implemented
+
+## Current E Program Shape And Gates (2026-07-30)
+
+This section is the authoritative E-series sequencing surface. Where it
+conflicts with the historical proposal below, this section governs. The
+historical Stage-6/Gate-S8 activation language below is obsolete: Gate S8 is
+complete.
+
+Current shape:
+
+- **E0 (canonical):** the trial-runs design (`workflow_lisp_trial_runs.md`,
+  drafting in an external session; not yet in this repository). It supersedes
+  the slimmed E0 discriminating-benchmark probe framing.
+- **C1 (companion):** the typed program gates design
+  (`workflow_lisp_typed_program_gates.md`, drafting; `check-workflow`
+  companion primitives).
+- **Governing invariants:**
+  `docs/design/workflow_lisp_program_search_boundaries.md` (adopted) binds
+  any search/evolution execution.
+- **Layer-0 admission gate:** the orc-effectiveness lean pilot
+  (`docs/superpowers/specs/2026-07-26-orc-effectiveness-lean-pilot-design.md`
+  with plan `docs/plans/2026-07-26-orc-effectiveness-lean-pilot.md`). Its
+  owner-decision handoff gates E1+ implementation.
+
+Sequencing prerequisites (owner-directed 2026-07-30):
+
+1. E0/C1 drafting proceeds concurrently now, but both drafts must state that
+   trial execution assumes the landed ML at-least-once plus single-writer
+   run contract (not the retired provider-interruption quarantine), and that
+   trial persistence shapes are subordinate to the accepted M2
+   persistence-parsimony design.
+2. E0/E1 implementation is gated on ML closure (kill-mid-provider
+   crash-resume E2E green) and the lean-pilot owner-decision handoff; both
+   are required.
+3. M2 design acceptance precedes freezing E0 persistence/evidence contracts,
+   so E0 adopts the parsimonious state shapes and effect-identity memo keys
+   rather than creating a migration for M3.
+4. MC, MR, and M4 substrate phases never block E work.
+5. Under at-least-once semantics the lean pilot's no-resume rule is
+   load-bearing: pilot runs are never resumed; interrupted pilot blocks stay
+   outcomes per the pilot specification.
+
+Incorporation is not selection: no E implementation may start from this
+document alone.
 
 ## Purpose
 

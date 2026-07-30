@@ -100,9 +100,12 @@ seams that loosening defines.
 - **No weakened gates.** Fixing the baseline means porting or explicitly
   adjudicating tests, never skipping them to force green. Security-relevant
   coverage (path safety, CLI safety, secrets) must survive any porting.
-- **No re-litigation.** The shelved type/union-parsimony candidates, the
-  unselected E0 experiment, and the parked evolution roadmap stay out;
-  consumer-triggered re-entry rules are unchanged.
+- **No re-litigation.** The shelved type/union-parsimony candidates and all
+  E-series work stay out of this track; the evolution follow-on roadmap
+  (incorporated 2026-07-30 as the tracked E-series program) owns E
+  sequencing, including the rules that M2 design acceptance precedes
+  freezing E0 persistence/evidence contracts and that MC/MR/M4 never block
+  E work. Consumer-triggered re-entry rules are unchanged.
 - **One identity.** M2/M3 must consume the Q3 identity definition, not mint
   a second one. If Q3 is unstarted when M2 is wanted, M2 waits.
 - **Loud re-spend.** Any memo miss or interrupted-attempt recovery re-run

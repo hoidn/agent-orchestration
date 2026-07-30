@@ -11,8 +11,11 @@
 - **Scope:** the Q-series `Value`/prompt-calculus direction plus a parallel
   L-series of bounded `.orc` language-server reliability, diagnostic,
   navigation, recovery, and lifecycle improvements
-- **Not selected:** the parked evolution roadmap, the slimmed E0 experiment,
-  the shelved type/union-parsimony candidates, and the deferred LSP frontend
+- **Not selected:** E-series implementation — the evolution follow-on
+  roadmap is incorporated (2026-07-30) as a tracked drafting-concurrent
+  program that records its own gates, but nothing E is selected by this
+  roadmap — plus the superseded slimmed E0 experiment framing, the shelved
+  type/union-parsimony candidates, and the deferred LSP frontend
   prerequisites P1–P5
 
 ## Objective
@@ -43,8 +46,9 @@ post-Stage-8 handoff. The predecessor remains historical and complete.
   transport values.
 - Prompt identity is role-separated and used-dependency-minimal under
   `docs/design/workflow_lisp_program_search_boundaries.md`.
-- No optimization, search, evolution, fitness, or parked E-series machinery is
-  part of this roadmap.
+- No optimization, search, evolution, fitness, or E-series machinery is part
+  of this roadmap; the E-series is tracked in the incorporated evolution
+  follow-on roadmap under its own gates.
 - Each behavior change uses TDD, narrow checks before broad non-security
   checks, and ordered independent specification then quality review.
 - Security, safety, secrets, and provider-isolation work remain outside scope.
@@ -655,9 +659,13 @@ The completed surface remains limited to the admitted shapes.
 
 ## Explicitly Unselected Work
 
-- The evolution follow-on roadmap remains parked and non-selectable.
-- The slimmed E0 discriminating-benchmark probe remains eligible but
-  unselected.
+- The evolution follow-on roadmap is incorporated (2026-07-30) as the
+  tracked E-series program: E0 trial-runs and C1 typed-program-gates
+  drafting proceeds concurrently outside this roadmap, and E implementation
+  is gated on ML closure plus the lean-pilot owner-decision handoff. Nothing
+  E is selectable from this roadmap.
+- The slimmed E0 discriminating-benchmark probe framing is superseded by the
+  canonical E0 trial-runs draft; E0 remains unselected for implementation.
 - Authored failure channels, structural union coercion, structural record
   admissibility, and named constraint bundles remain shelved until a live
   post-calculus consumer independently justifies one.
