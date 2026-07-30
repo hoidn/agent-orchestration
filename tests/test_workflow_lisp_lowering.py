@@ -2953,7 +2953,7 @@ def test_provider_result_mixed_unsupported_shape_carries_supported_bindings_with
     (status String))
   (defworkflow run
     ((count Int)
-     (items List[Int]))
+     (items List[RunId]))
     -> TrialResult
     (provider-result providers.execute
       :prompt prompts.execute

@@ -1363,7 +1363,7 @@ def test_wcc_lifted_phase_provider_rejects_partial_implicit_input_carriage(
   (defworkflow run
     ((phase-ctx PhaseCtx)
      (count Int)
-     (items List[Int]))
+     (items List[RunId]))
     -> Bool
     (loop/recur :max 1 :state false
       (fn (state)

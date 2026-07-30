@@ -322,16 +322,16 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
   - Do not modify files on disk; only the composed prompt is delivered to the provider.
 
 - Workflow Lisp typed provider inputs
-  - Every supported scalar, record, relpath, or target-2.19 exact `Value`
-    binding declared in
+  - Every supported scalar, record, relpath, target-2.19 exact `Value`, or
+    recursively renderer-admitted `List[T]` binding declared in
     `provider-result :inputs` lowers to one typed prompt-input row, including
     calls with no census, family-profile, or route metadata.
   - Static structural type/kind selects exactly one registered default
-    renderer: canonical JSON for supported scalars, records, and opaque
-    `Value`, and POSIX path-line rendering for relpaths. Rendering a `Value`
-    preserves its JSON shape without granting field or collection semantics.
-    Missing, unknown, shape-incompatible, or ambiguous selection fails before
-    provider launch.
+    renderer: canonical JSON for supported scalars, records, opaque `Value`,
+    and recursively renderer-admitted `List[T]`; POSIX path-line rendering for
+    relpaths. Rendering a `Value` preserves its JSON shape without granting
+    field or collection semantics. Missing, unknown, shape-incompatible, or
+    ambiguous selection fails before provider launch.
   - Ordinary calls lower each binding with a registered implicit default.
     Unsupported bindings do not acquire a renderer or prompt visibility merely
     because a supported binding is adjacent; they require a separately

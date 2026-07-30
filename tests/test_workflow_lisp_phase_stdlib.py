@@ -998,7 +998,7 @@ def test_run_provider_phase_mixed_implicit_shapes_keep_whole_input_materializati
     mixed_workflow = """
   (defworkflow run-provider-phase-mixed-inputs
     ((phase-ctx PhaseCtx)
-     (items List[Int]))
+     (items List[RunId]))
     -> ImplementationSummary
     (with-phase phase-ctx implementation
       (let* ((attempt
@@ -1740,7 +1740,7 @@ def test_phase_scoped_provider_result_mixed_shapes_keep_whole_input_fallback(
                 "  (defworkflow run-review",
                 "    ((phase-ctx PhaseCtx)",
                 "     (count Int)",
-                "     (items List[Int]))",
+                "     (items List[RunId]))",
                 "    -> ReviewSurfaceResult",
                 "    (with-phase phase-ctx implementation-review",
                 "      (provider-result providers.execute",
