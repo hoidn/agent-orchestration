@@ -134,8 +134,6 @@ evidence.
 - `route_readiness.py`: validation and lookup for
   `docs/workflow_lisp_route_readiness_registry.json`, including route labels,
   schema identity, and target/example readiness checks.
-- `post_wcc_inventory.py`: post-WCC current-state inventory validation and
-  generated reconciliation index support.
 - `compiler.py`: compile-stage coordinator facade and compatibility surface for
   procedure typing/specialization entrypoints.
 - `typecheck.py`: stable compatibility facade for callers and tests. Keep

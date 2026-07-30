@@ -333,7 +333,7 @@ The following component docs define the missing implementation contracts:
 16. [Workflow Lisp Runtime Migration Foundation](workflow_lisp_runtime_migration_foundation.md)
     Runtime-migration contract for runtime-owned command/provider
     structured-output targets, private frontend-lowered typed value transport,
-    strict migration-parity gates, prompt extern source semantics, and the
+    historical promotion-gate rationale, prompt extern source semantics, and the
     `StateLayout` / `PathAllocator` boundary.
 
 17. [Workflow Lisp Post-Foundation Composition And Stdlib Migration](workflow_lisp_post_foundation_composition_stdlib_migration.md)
@@ -4758,11 +4758,11 @@ lower
 execute
 ```
 
-### 78.1 Migration Parity Gates
+### 78.1 Historical Migration Promotion Gates
 
-Replacing a YAML primary with a `.orc` candidate requires machine-readable
-migration evidence, not compile/dry-run success alone. The runtime migration
-foundation defines two strict gate modes:
+Replacing a historical YAML primary with a `.orc` candidate required
+machine-readable migration evidence, not compile/dry-run success alone. The
+retired manifest-driven gate had two strict modes:
 
 - `--require-non-regressive`: selected targets must have schema-valid, fresh,
   complete evidence and tooling-computed `non_regressive=true`;
@@ -4773,6 +4773,10 @@ foundation defines two strict gate modes:
 authored manifest field and not a per-target report authority field. A
 non-regressive but ineligible candidate may pass evidence checks and still must
 not replace the YAML primary.
+
+The generator and manifest are retired. Current route claims use
+`docs/workflow_lisp_route_readiness_registry.json` plus the direct owner tests
+cited there; preserved reports remain frozen history.
 
 ## 79. Explain Expansion
 
@@ -5290,7 +5294,7 @@ the current compiler-lane roadmap where they conflict with WCC. The current
 compiler substrate is WCC/schema 2 for the migrated M0-M5 route subset, with
 legacy schema 1 retained for compatibility and historical-run resume.
 
-Post-WCC compiler-lane work is governed by this baseline plus the component
+WCC compiler-lane work is governed by this baseline plus the component
 contracts it routes to: private executable context, typed projection,
 certified adapters/resource transitions, parent-callable family parity,
 promotion evidence, and post-promotion simplification.

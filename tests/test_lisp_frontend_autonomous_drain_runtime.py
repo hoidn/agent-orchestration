@@ -70,7 +70,6 @@ def _copy_runtime_files(workspace: Path) -> None:
     files = [
         "docs/design/workflow_command_adapter_contract.md",
         "docs/design/workflow_lisp_proc_refs_partial_application.md",
-        "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json",
         "docs/plans/LISP-PROC-REFS-PARTIAL-APPLICATION/work_instructions.md",
         "state/LISP-PROC-REFS-PARTIAL-APPLICATION/progress_ledger.json",
         "workflows/library/scripts/build_lisp_frontend_architecture_index.py",
@@ -157,9 +156,6 @@ def _design_delta_workflow_inputs() -> dict:
         "steering_path": "docs/steering.md",
         "target_design_path": "docs/design/workflow_lisp_frontend_specification.md",
         "baseline_design_path": "docs/design/workflow_lisp_frontend_mvp_specification.md",
-        "post_wcc_inventory_path": (
-            "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json"
-        ),
         "progress_ledger_path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/progress_ledger.json",
     }
 

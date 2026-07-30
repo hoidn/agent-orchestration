@@ -32,10 +32,6 @@ def _retired_backlog_drain_structure_sites(package_root: Path) -> list[str]:
         package_root / "form_registry.py",
         package_root / "stdlib_contracts.py",
     }
-    frozen_evidence_and_inventory = {
-        package_root / "migration_parity.py",
-        package_root / "post_wcc_inventory.py",
-    }
     forbidden_nodes: list[str] = []
 
     def retired_key(value: object) -> str | None:
@@ -80,8 +76,6 @@ def _retired_backlog_drain_structure_sites(package_root: Path) -> list[str]:
                     forbidden_nodes.append(
                         f"{source_path.relative_to(package_root)}:{node.lineno}:{name}"
                     )
-            if source_path in frozen_evidence_and_inventory:
-                continue
             if isinstance(node, ast.Compare):
                 for operand in (node.left, *node.comparators):
                     for value in comparison_key_values(operand):

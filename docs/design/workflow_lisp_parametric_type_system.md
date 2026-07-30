@@ -80,8 +80,8 @@ this document.
 5. No runtime dispatch, runtime type values, runtime closures, or
    runtime-transported procedure/provider/prompt references, in any tranche.
    This prohibition is load-bearing for checkpoint identity, effect
-   visibility, census surfaces, and migration-parity gates, all of which
-   compare compiled artifacts.
+   visibility, census surfaces, route-readiness identity, and direct owner
+   behavioral checks over compiled artifacts.
 
 ## Non-Goals
 
@@ -95,7 +95,8 @@ this document.
   a declared constraint fails with `parametric_capability_undeclared`
   (`typecheck_proofs.py`), with an invalid fixture covering it.
 - No weakening of effect visibility, source maps, structured result
-  validation, shared validation, or migration-parity gates.
+  validation, shared validation, route-readiness validation, or the direct
+  owner behavioral tests cited by the registry.
 - No monomorphic-stdlib fallback for reusable definitions: fixed stdlib
   payload records with caller adapters force typed caller data through
   file round-trips (pointer-as-state), which the frontend specification

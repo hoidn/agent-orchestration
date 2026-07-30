@@ -4,14 +4,8 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from types import SimpleNamespace
-
 import pytest
 
-from orchestrator.workflow_lisp.migration_parity import (
-    load_parity_targets,
-    validate_parity_targets_against_route_readiness,
-)
 from orchestrator.workflow_lisp.route_readiness import (
     ROUTE_READINESS_SCHEMA_VERSION,
     RouteReadinessError,
@@ -19,7 +13,6 @@ from orchestrator.workflow_lisp.route_readiness import (
     discover_required_orc_surfaces,
     load_route_readiness_registry,
     registry_entry_for_path,
-    validate_migration_targets_against_route_readiness,
     validate_route_readiness_registry,
 )
 from orchestrator.workflow_lisp.wcc.route import DEFAULT_LOWERING_ROUTE
@@ -27,9 +20,6 @@ from orchestrator.workflow_lisp.wcc.route import DEFAULT_LOWERING_ROUTE
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_PATH = REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json"
-PARITY_TARGETS_PATH = (
-    REPO_ROOT / "workflows" / "examples" / "inputs" / "workflow_lisp_migrations" / "parity_targets.json"
-)
 HISTORICAL_DESIGN_DELTA_REPORT_PATH = (
     REPO_ROOT
     / "artifacts"
@@ -629,50 +619,6 @@ def test_registry_evidence_canonicalizes_path_before_self_reference_check(
     )
 
 
-def test_registry_evidence_accepts_checked_empty_parity_manifest(
-    tmp_path: Path,
-) -> None:
-    registry = load_route_readiness_registry(
-        _write_registry(
-            tmp_path,
-            [
-                _base_entry(
-                    evidence=[
-                        "workflows/examples/inputs/workflow_lisp_migrations/"
-                        "parity_targets.json"
-                    ]
-                )
-            ],
-        )
-    )
-
-    validation = validate_route_readiness_registry(registry, REPO_ROOT)
-
-    assert _evidence_codes(validation) == set()
-
-
-def test_registry_evidence_rejects_retired_parity_target_selector(
-    tmp_path: Path,
-) -> None:
-    registry = load_route_readiness_registry(
-        _write_registry(
-            tmp_path,
-            [
-                _base_entry(
-                    evidence=[
-                        "workflows/examples/inputs/workflow_lisp_migrations/"
-                        "parity_targets.json::design_delta_parent_drain"
-                    ]
-                )
-            ],
-        )
-    )
-
-    validation = validate_route_readiness_registry(registry, REPO_ROOT)
-
-    assert "route_readiness_evidence_selector_unknown" in _codes(validation)
-
-
 def test_registry_evidence_does_not_infer_targets_from_arbitrary_json(
     tmp_path: Path,
 ) -> None:
@@ -718,7 +664,7 @@ def test_checked_in_registry_uses_proving_evidence_not_registry_self_validation(
     )
 
 
-def test_checked_in_registry_omits_retired_design_delta_evidence() -> None:
+def test_checked_in_registry_omits_retired_generator_evidence() -> None:
     registry = load_route_readiness_registry(REGISTRY_PATH)
     evidence = {
         item
@@ -732,9 +678,13 @@ def test_checked_in_registry_omits_retired_design_delta_evidence() -> None:
         for item in evidence
     )
     assert (
-        "workflows/examples/inputs/workflow_lisp_migrations/"
-        "parity_targets.json::design_delta_parent_drain"
-        not in evidence
+        "tests/test_workflow_lisp_migration_parity.py::"
+        "test_promoted_design_delta_target_is_retired_from_live_manifest_but_historical_report_is_preserved"
+    ) not in evidence
+    assert all(
+        "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
+        not in item
+        for item in evidence
     )
 
 
@@ -772,43 +722,7 @@ def test_malformed_registry_raises_loader_error(tmp_path: Path) -> None:
         raise AssertionError("expected RouteReadinessError")
 
 
-def test_migration_target_identity_mismatch_codes(tmp_path: Path) -> None:
-    target = SimpleNamespace(
-        workflow_family="example_family",
-        candidate="workflows/examples/effectful_match_arm_normalization.orc",
-        readiness_label="promotion_eligible",
-        lowering_route="wcc_m4",
-        lowering_schema_version=2,
-        required_family_evidence_roles=("parent_callable_compile",),
-        promotion_eligibility={"eligible_for_primary_surface": True},
-    )
-    entry = _base_entry(
-        surface_id="workflows.library.lisp_frontend_design_delta.drain",
-        path=target.candidate,
-        surface_kind="migration_target",
-        route_label="migration_candidate",
-        readiness_label="leaf_compile_candidate",
-        lowering_route="legacy",
-        lowering_schema_version=1,
-    )
-    registry = load_route_readiness_registry(_write_registry(tmp_path, [entry]))
-
-    issues = validate_migration_targets_against_route_readiness([target], registry, REPO_ROOT)
-
-    assert {issue["code"] for issue in issues} == {"route_readiness_migration_target_mismatch"}
-
-
-def test_current_parity_targets_and_checked_in_registry_agree() -> None:
-    targets = load_parity_targets(PARITY_TARGETS_PATH)
-    registry = load_route_readiness_registry(REGISTRY_PATH)
-
-    issues = validate_migration_targets_against_route_readiness(targets, registry, REPO_ROOT)
-
-    assert issues == []
-    assert validate_parity_targets_against_route_readiness(targets, registry, REPO_ROOT) == []
-
-
-def test_verified_route_is_promotion_eligible_and_parity_constrained() -> None:
+def test_verified_route_is_promotion_eligible_and_copy_safe() -> None:
     registry = load_route_readiness_registry(REGISTRY_PATH)
     entry = registry_entry_for_path(
         registry,
@@ -823,10 +737,9 @@ def test_verified_route_is_promotion_eligible_and_parity_constrained() -> None:
     assert entry.lowering_route == "wcc_m4"
     assert entry.lowering_schema_version == 2
     assert entry.copy_safety == "preferred_current_guidance"
-    assert entry.parity_constrained is True
 
 
-def test_watchdog_route_is_promotion_eligible_and_parity_constrained() -> None:
+def test_watchdog_route_is_promotion_eligible_and_copy_safe() -> None:
     registry = load_route_readiness_registry(REGISTRY_PATH)
     entry = registry_entry_for_path(
         registry,
@@ -841,14 +754,9 @@ def test_watchdog_route_is_promotion_eligible_and_parity_constrained() -> None:
     assert entry.lowering_route == "wcc_m4"
     assert entry.lowering_schema_version == 2
     assert entry.copy_safety == "preferred_current_guidance"
-    assert entry.parity_constrained is True
 
 
 def test_design_delta_parent_drain_historical_promotion_matches_registry() -> None:
-    targets = load_parity_targets(PARITY_TARGETS_PATH)
-    assert "design_delta_parent_drain" not in {
-        target.workflow_family for target in targets
-    }
     report = json.loads(
         HISTORICAL_DESIGN_DELTA_REPORT_PATH.read_text(encoding="utf-8")
     )
@@ -865,7 +773,6 @@ def test_design_delta_parent_drain_historical_promotion_matches_registry() -> No
     assert entry.readiness_label == "promotion_eligible"
     assert entry.route_label == "wcc_default"
     assert entry.copy_safety == "preferred_current_guidance"
-    assert entry.parity_constrained is True
 
 
 def test_cli_route_readiness_check_valid_registry() -> None:

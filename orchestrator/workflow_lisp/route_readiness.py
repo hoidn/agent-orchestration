@@ -6,7 +6,7 @@ import ast
 import json
 import re
 import shlex
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -53,9 +53,6 @@ READINESS_LABELS = frozenset(
 )
 
 DEFAULT_REGISTRY_RELPATH = "docs/workflow_lisp_route_readiness_registry.json"
-PARITY_TARGETS_RELPATH = "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
-PARITY_TARGETS_SCHEMA_VERSION = "workflow_lisp_migration_parity_targets.v1"
-LEAF_ONLY_READINESS_LABELS = frozenset({"leaf_compile_candidate", "leaf_runtime_candidate"})
 STALE_COPY_SAFETY_VALUES = frozenset({"stale", "not_copy_safe", "not_current_guidance"})
 SELF_REFERENTIAL_EVIDENCE_PATHS = frozenset(
     {"tests/test_workflow_lisp_route_readiness.py"}
@@ -86,7 +83,6 @@ class RouteReadinessEntry:
     notes: str | None = None
     owner: str | None = None
     replacement_or_retirement_path: str | None = None
-    parity_constrained: bool | None = None
     raw: Mapping[str, Any] | None = None
 
 
@@ -247,19 +243,6 @@ def discover_required_orc_surfaces(repo_root: Path) -> set[str]:
     for path in workflow_library.glob("*/*.orc"):
         required.add(_repo_relative(path, repo_root))
 
-    parity_targets_path = repo_root / PARITY_TARGETS_RELPATH
-    if parity_targets_path.exists():
-        try:
-            payload = json.loads(parity_targets_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            payload = {}
-        for target in payload.get("targets", []) if isinstance(payload, Mapping) else []:
-            if not isinstance(target, Mapping):
-                continue
-            candidate = target.get("candidate")
-            if isinstance(candidate, str) and candidate.endswith(".orc"):
-                required.add(_normalize_path(candidate))
-
     characterization_sources = repo_root / "tests/fixtures/workflow_lisp/characterization/sources"
     for path in characterization_sources.glob("*.orc"):
         required.add(_repo_relative(path, repo_root))
@@ -282,72 +265,6 @@ def registry_entry_for_path(
         if entry.path == normalized:
             return entry
     return None
-
-
-def validate_migration_targets_against_route_readiness(
-    targets: Sequence[object],
-    registry: RouteReadinessRegistry,
-    repo_root: Path,
-) -> list[Mapping[str, object]]:
-    """Compare migration-parity target identity fields with registry entries."""
-
-    issues: list[dict[str, object]] = []
-    for target in targets:
-        candidate = getattr(target, "candidate", None)
-        if not isinstance(candidate, str):
-            continue
-        entry = registry_entry_for_path(registry, candidate)
-        workflow_family = getattr(target, "workflow_family", None)
-        if entry is None:
-            issues.append(
-                {
-                    "code": "route_readiness_migration_target_missing",
-                    "message": f"migration target candidate `{candidate}` is missing from route/readiness registry",
-                    "path": _normalize_path(candidate),
-                    "workflow_family": workflow_family,
-                }
-            )
-            continue
-
-        mismatch_fields: list[str] = []
-        target_readiness = getattr(target, "readiness_label", None)
-        if target_readiness is not None and target_readiness != entry.readiness_label:
-            mismatch_fields.append("readiness_label")
-        target_route = getattr(target, "lowering_route", None)
-        if target_route is not None and target_route != entry.lowering_route:
-            mismatch_fields.append("lowering_route")
-        target_schema = getattr(target, "lowering_schema_version", None)
-        if target_schema is not None and target_schema != entry.lowering_schema_version:
-            mismatch_fields.append("lowering_schema_version")
-
-        family_roles = tuple(getattr(target, "required_family_evidence_roles", ()) or ())
-        if family_roles and entry.readiness_label in LEAF_ONLY_READINESS_LABELS:
-            mismatch_fields.append("required_family_evidence_roles")
-
-        promotion = getattr(target, "promotion_eligibility", {}) or {}
-        if (
-            entry.readiness_label == "promotion_eligible"
-            and isinstance(promotion, Mapping)
-            and promotion.get("eligible_for_primary_surface") is not True
-        ):
-            mismatch_fields.append("promotion_eligibility.eligible_for_primary_surface")
-
-        if mismatch_fields:
-            issues.append(
-                {
-                    "code": "route_readiness_migration_target_mismatch",
-                    "message": (
-                        f"migration target `{candidate}` route/readiness identity disagrees with registry: "
-                        + ", ".join(sorted(set(mismatch_fields)))
-                    ),
-                    "path": entry.path,
-                    "surface_id": entry.surface_id,
-                    "workflow_family": workflow_family,
-                    "fields": sorted(set(mismatch_fields)),
-                }
-            )
-
-    return issues
 
 
 def compile_registered_route_case(
@@ -433,7 +350,6 @@ def _parse_entry(raw_entry: Mapping[str, Any], *, index: int) -> RouteReadinessE
         notes=_optional_string(raw_entry, "notes"),
         owner=_optional_string(raw_entry, "owner"),
         replacement_or_retirement_path=_optional_string(raw_entry, "replacement_or_retirement_path"),
-        parity_constrained=_optional_bool(raw_entry, "parity_constrained"),
         raw=dict(raw_entry),
     )
 
@@ -602,13 +518,6 @@ def _validate_evidence_reference(
             selector=selector or "",
             repo_root=repo_root,
         )
-    if evidence_kind == "parity_target_selector":
-        return _validate_parity_target_evidence_reference(
-            entry,
-            evidence_path_text=evidence_path_text,
-            selector=selector or "",
-            repo_root=repo_root,
-        )
     if evidence_kind == "invalid":
         return [
             _issue(
@@ -649,8 +558,6 @@ def _classify_evidence_reference(
     selector_path, separator, selector = stripped.partition("::")
     if separator and Path(selector_path).suffix == ".py":
         return "pytest_selector", selector_path, selector
-    if separator and Path(selector_path).suffix == ".json":
-        return "parity_target_selector", selector_path, selector
     if separator:
         return "invalid", stripped, None
     if "/" in stripped or Path(stripped).suffix:
@@ -1014,97 +921,6 @@ def _assignment_names(statement: ast.Assign | ast.AnnAssign) -> set[str]:
     return {target.id for target in targets if isinstance(target, ast.Name)}
 
 
-def _validate_parity_target_evidence_reference(
-    entry: RouteReadinessEntry,
-    *,
-    evidence_path_text: str,
-    selector: str,
-    repo_root: Path,
-) -> list[RouteReadinessIssue]:
-    canonical_path = _canonical_evidence_path(
-        evidence_path_text,
-        repo_root=repo_root,
-    )
-    if canonical_path is None:
-        return [_invalid_evidence_path_issue(entry, evidence_path_text)]
-    canonical_relpath, evidence_path = canonical_path
-    if canonical_relpath != PARITY_TARGETS_RELPATH:
-        return [
-            _issue(
-                "route_readiness_evidence_selector_invalid",
-                entry,
-                (
-                    f"structured evidence selectors are supported only for "
-                    f"`{PARITY_TARGETS_RELPATH}`"
-                ),
-                field="evidence",
-            )
-        ]
-    if not evidence_path.is_file():
-        return [
-            _issue(
-                "route_readiness_evidence_path_unknown",
-                entry,
-                f"evidence path `{evidence_path_text}` does not exist",
-                field="evidence",
-            )
-        ]
-
-    try:
-        payload = json.loads(evidence_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return [
-            _issue(
-                "route_readiness_evidence_selector_invalid",
-                entry,
-                f"structured evidence `{evidence_path_text}` is not valid JSON",
-                field="evidence",
-            )
-        ]
-
-    if not isinstance(payload, Mapping) or payload.get("schema_version") != (
-        PARITY_TARGETS_SCHEMA_VERSION
-    ):
-        return [
-            _issue(
-                "route_readiness_evidence_selector_invalid",
-                entry,
-                (
-                    f"structured evidence `{evidence_path_text}` must use "
-                    f"schema `{PARITY_TARGETS_SCHEMA_VERSION}`"
-                ),
-                field="evidence",
-            )
-        ]
-
-    targets = payload.get("targets")
-    if not isinstance(targets, list):
-        return [
-            _issue(
-                "route_readiness_evidence_selector_invalid",
-                entry,
-                f"structured evidence `{evidence_path_text}` must declare `targets`",
-                field="evidence",
-            )
-        ]
-    if any(
-        isinstance(target, Mapping) and target.get("workflow_family") == selector
-        for target in targets
-    ):
-        return []
-    return [
-        _issue(
-            "route_readiness_evidence_selector_unknown",
-            entry,
-            (
-                f"structured evidence selector `{selector}` does not name a current "
-                f"target in `{evidence_path_text}`"
-            ),
-            field="evidence",
-        )
-    ]
-
-
 def _compile_result_lowering_schema(result: object) -> int | None:
     entry_result = getattr(result, "entry_result", None)
     if entry_result is not None and isinstance(getattr(entry_result, "lowering_schema_version", None), int):
@@ -1147,15 +963,6 @@ def _optional_int(mapping: Mapping[str, Any], field_name: str) -> int | None:
     if isinstance(value, int) and not isinstance(value, bool):
         return value
     raise RouteReadinessError(f"`{field_name}` must be an integer when present")
-
-
-def _optional_bool(mapping: Mapping[str, Any], field_name: str) -> bool | None:
-    value = mapping.get(field_name)
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return value
-    raise RouteReadinessError(f"`{field_name}` must be a boolean when present")
 
 
 def _normalize_path(path: str) -> str:

@@ -457,37 +457,6 @@ def create_parser() -> argparse.ArgumentParser:
         help='Override notification ledger path'
     )
 
-    migration_parity_parser = subparsers.add_parser(
-        'migration-parity',
-        help='Generate Workflow Lisp migration parity reports',
-    )
-    migration_parity_parser.add_argument(
-        '--targets-file',
-        required=True,
-        help='Path to migration parity target manifest JSON'
-    )
-    migration_parity_parser.add_argument(
-        '--output-root',
-        required=True,
-        help='Directory where parity reports and logs will be written'
-    )
-    migration_parity_parser.add_argument(
-        '--target',
-        action='append',
-        help='Optional workflow_family filter; repeatable'
-    )
-    migration_parity_gate_group = migration_parity_parser.add_mutually_exclusive_group()
-    migration_parity_gate_group.add_argument(
-        '--require-non-regressive',
-        action='store_true',
-        help='Exit nonzero unless selected targets have valid complete non-regressive evidence'
-    )
-    migration_parity_gate_group.add_argument(
-        '--require-promotable',
-        action='store_true',
-        help='Exit nonzero unless selected targets are promotable to the primary surface'
-    )
-
     route_readiness_parser = subparsers.add_parser(
         'workflow-lisp-route-readiness',
         help='Validate Workflow Lisp route/readiness registry'
@@ -501,21 +470,6 @@ def create_parser() -> argparse.ArgumentParser:
         '--check',
         action='store_true',
         help='Validate registry and exit nonzero on stale or invalid labels'
-    )
-
-    post_wcc_inventory_parser = subparsers.add_parser(
-        'workflow-lisp-post-wcc-inventory',
-        help='Validate Workflow Lisp post-WCC current-state inventory'
-    )
-    post_wcc_inventory_parser.add_argument(
-        '--inventory',
-        default='docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json',
-        help='Path to Workflow Lisp post-WCC current-state inventory JSON'
-    )
-    post_wcc_inventory_parser.add_argument(
-        '--check',
-        action='store_true',
-        help='Validate inventory and exit nonzero on stale or invalid authority state'
     )
 
     subparsers.add_parser(
@@ -618,15 +572,9 @@ def main(args: Optional[list] = None) -> int:
             dry_run_mark_sent=parsed_args.dry_run_mark_sent,
             ledger=parsed_args.ledger,
         )
-    elif parsed_args.command == 'migration-parity':
-        from orchestrator.cli.commands import migration_parity_workflow
-        return migration_parity_workflow(parsed_args)
     elif parsed_args.command == 'workflow-lisp-route-readiness':
         from orchestrator.cli.commands import route_readiness_workflow
         return route_readiness_workflow(parsed_args)
-    elif parsed_args.command == 'workflow-lisp-post-wcc-inventory':
-        from orchestrator.cli.commands import post_wcc_inventory_workflow
-        return post_wcc_inventory_workflow(parsed_args)
     elif parsed_args.command == 'peer-ready':
         from orchestrator.cli.commands import peer_ready_workflow
         return peer_ready_workflow()

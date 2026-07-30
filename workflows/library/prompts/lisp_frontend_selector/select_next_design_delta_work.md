@@ -1,9 +1,8 @@
 Read the consumed steering, target design, and selector manifest before acting.
 Use `attempt_history_summary` when present to avoid repeating failed or
 completed attempts.
-Treat `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json`
-as the authority for post-WCC current-state inventory and DONE eligibility when
-it is provided as an input.
+Use the target design, current source/runtime behavior, and compact selector
+manifest to determine remaining work and DONE eligibility.
 
 Select exactly one next implementation unit for the target design.
 

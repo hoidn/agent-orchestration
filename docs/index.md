@@ -38,7 +38,7 @@ These are the highest-impact terminology and contract confusions.
 | Docs vs specs precedence | "Any docs page is authoritative." | `specs/` are normative. `docs/` are explanatory. | [Master Spec](../specs/index.md) |
 | Workflow authoring surfaces | "Workflow inputs, prompt files, dependencies, and artifacts are all the same kind of input." | Keep four surfaces separate: workflow boundary (`inputs`/`outputs`), runtime dependencies (`depends_on`/`consumes`), provider prompt sources (`input_file`/`asset_file`/`asset_depends_on`), and artifact storage or lineage (`artifacts`, `expected_outputs`, `output_bundle`, `publishes`). | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md) |
 | Semantic authority | "Reports, pointer files, debug YAML, and typed state can all decide workflow meaning." | Structured state, artifact values, contracts, snapshots, and semantic IR are authority. Reports, pointer files, rendered plans, and debug YAML are views or representations unless a specific contract says otherwise. | [Workflow Language Design Principles](design/workflow_language_design_principles.md), [Workflow Drafting Guide](workflow_drafting_guide.md) |
-| Migration promotion | "If a `.orc` workflow compiles and dry-runs, it can replace the YAML primary." | Promotion requires computed parity evidence for output contracts, terminal states, artifacts, resume/reuse behavior, accepted differences, and deprecated mechanics. | [Workflow Lisp Key Migration Parity Architecture](design/workflow_lisp_key_migration_parity_architecture.md), [Workflow Language Design Principles](design/workflow_language_design_principles.md), [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) |
+| Migration promotion | "If a `.orc` workflow compiles and dry-runs, it can replace a historical YAML primary." | Historical promotions required explicit behavioral evidence. Current route claims come from the route-readiness registry and direct owner tests; preserved parity reports are frozen history, not a live generator input. | [Workflow Lisp Key Migration Parity Architecture](design/workflow_lisp_key_migration_parity_architecture.md), [Workflow Language Design Principles](design/workflow_language_design_principles.md), [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) |
 | Inline command glue | "Python and shell commands should either be banned entirely or accepted as normal workflow authoring." | Command steps are allowed for external tools and certified adapters. Hidden workflow semantics in inline Python/shell, ad hoc JSON rewrites, pointer-as-state, or report parsing are migration debt and need typed procedures, certified command adapters, or runtime-native effects. | [Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md), [Workflow Drafting Guide](workflow_drafting_guide.md) |
 | Adjudicated provider output | "The best candidate's stdout becomes the step output." | `adjudicated_provider` scores output-valid candidates, promotes only declared deterministic outputs, and suppresses candidate/evaluator stdout from normal step output state. | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Step IO](../specs/io.md) |
 | Managed provider jobs | "Managed training jobs should be encoded as manual guard and recovery command steps." | `managed_jobs` remains a v2.13 runtime modifier documented for historical lowered workflows: policy, watch roots, backend, poll budget, and managed outcome routes let runtime-owned guard, shim, audit, recovery, and resumable state replace hand-authored recovery glue. Runnable authoring starts in Workflow Lisp and must use an implemented `.orc` lowering surface. | [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md), [Historical Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md) |
@@ -81,16 +81,19 @@ document owns the answer.
   frontend specification first and then the Semantic IR / State Layout
   component docs for `pure_projection` / `materialize_view` /
   `resource_transition` visibility and bundle ownership.
-- For promoted workflow migration, also read
-  [Workflow Lisp Key Migration Parity Architecture](design/workflow_lisp_key_migration_parity_architecture.md).
+- For a historical promotion decision, read the frozen
+  [Workflow Lisp Key Migration Parity Architecture](design/workflow_lisp_key_migration_parity_architecture.md);
+  use route readiness and direct owner tests for current claims.
 
-### When Migrating YAML To `.orc`
+### When Auditing Historical YAML-To-`.orc` Migrations
 
 - Start with [Workflow Lisp Key Migration Parity Architecture](design/workflow_lisp_key_migration_parity_architecture.md).
 - Read [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) and
   [Workflow Language Design Principles](design/workflow_language_design_principles.md).
-- Check the relevant runtime specs for the behavior being preserved.
-- Treat compile, validation, and dry-run as necessary evidence, not promotion.
+- Check the relevant runtime specs and preserved reports for the behavior that
+  was promoted.
+- Treat compile, validation, and dry-run as current regression evidence, not a
+  request to regenerate the retired manifest/report gate.
 
 ### When Authoring Workflows
 
@@ -666,18 +669,18 @@ and closure. The plan passed `L3_PLAN_SPEC_APPROVED` then
 **Use this when:** Auditing the completed 2026-07-07 program or tracing its prerequisite history. The [Procedure-First Roadmap Execution Sequence](plans/2026-07-09-procedure-first-roadmap-execution-sequence.md) is also complete through Stage 8; its successor handoff is not a selector. Do not restart Phase 1.
 
 ### [Workflow Lisp Key Migration Parity Architecture](design/workflow_lisp_key_migration_parity_architecture.md)
-**Description:** Draft architecture for closing the DSL/compiler/runtime parity gaps that block promoting key `.orc` workflow migrations over YAML primaries, including command-result bundles, review/revise loops, carried findings, reusable state, defaults, and promotion evidence.
-**Keywords:** lisp-frontend, migration, parity, command-result, review-revise-loop, resume-or-start
-**Use this when:** Planning or reviewing the system changes required before key YAML workflows can be replaced by `.orc` equivalents.
+**Description:** Historical architecture for the former manifest-driven promotion gate, preserved with its command-result, review/revise, carried-findings, reusable-state, defaults, and evidence rationale.
+**Keywords:** lisp-frontend, migration, parity, historical, command-result, review-revise-loop, resume-or-start
+**Use this when:** Auditing a frozen historical promotion decision; use route readiness and direct owner tests for current route claims.
 
 ### [Workflow Lisp Runtime Migration Foundation](design/workflow_lisp_runtime_migration_foundation.md)
-**Description:** Completed foundation target for Workflow Lisp promotion, covering command/provider structured-output authority, private lowered value transport, strict migration promotion gates, prompt extern source semantics, and generated state/path allocation.
-**Keywords:** lisp-frontend, migration, parity, command-output, provider-output, private-values, statelayout, pathallocator, promotion-gate
-**Use this when:** Auditing or extending the implemented runtime foundation beneath `.orc` promotion, especially structured-output binding, private value transport, strict parity gates, prompt externs, or generated path ownership.
+**Description:** Completed foundation target covering command/provider structured-output authority, private lowered-value transport, prompt extern source semantics, and generated state/path allocation; its manifest-driven promotion-gate tranche is retired history.
+**Keywords:** lisp-frontend, migration, historical-parity, command-output, provider-output, private-values, statelayout, pathallocator
+**Use this when:** Auditing or extending the implemented structured-output, private-value, prompt-extern, or generated-path baseline.
 
 ### [Workflow Lisp Post-Foundation Composition And Stdlib Migration](design/workflow_lisp_post_foundation_composition_stdlib_migration.md)
-**Description:** Active post-foundation roadmap after the runtime foundation, now consuming WCC as the accepted compiler substrate for nested-control composition and focused on remaining typed result translation, private executable context bridging, certified adapter/state-transition ownership, typed bundle-publication projection, entrypoint bootstrap/defaults, canonical `resume-or-start` validation, and parent-callable parity promotion.
-**Keywords:** lisp-frontend, post-foundation, stdlib, composition, nested-control, private-context, certified-adapters, backlog-drain, parity
+**Description:** Historical post-foundation roadmap whose landed WCC, composition, and stdlib contracts are incorporated into current component docs. Its generated post-WCC inventory and manifest-driven parity gate are retired.
+**Keywords:** lisp-frontend, post-foundation, stdlib, composition, nested-control, private-context, certified-adapters, historical
 
 ### [Workflow Lisp Generic Core, Expression Surface, And Adapter Retirement](design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md)
 **Description:** Historical target design whose architectural contracts are now reflected in the Workflow Lisp frontend baseline: a generic runtime core (`RunCtx`, `Resource<TState>`, `Transition<TRequest, TResult>`), minimal total pure-expression surface, typed projection, materialized value views, runtime-native typed transitions, boundary authority classes, stdlib-owned domain contexts, and adapter-retirement policy.

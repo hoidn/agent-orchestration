@@ -1,6 +1,13 @@
 # Workflow Lisp Runtime Migration Foundation
 
-Status: completed foundation / implemented baseline; retained as authority boundary and regression checklist
+Status: implemented foundation; manifest-driven promotion-gate tranche retired
+
+The manifest-driven parity generator described in the historical tranche below
+is retired. Structured-output, private-value, prompt-extern, and generated-path
+contracts remain current; current route claims use the route-readiness registry
+and direct owner tests, while checked-in parity reports remain frozen history.
+
+Historical status at completion: completed foundation / implemented baseline
 Kind: architecture decision / migration foundation
 Created: 2026-06-08
 Updated: 2026-06-11
@@ -95,7 +102,7 @@ This document defines the implementation and evidence boundary required before f
 - `specs/dsl.md` owns `output_bundle`, `variant_output`, `materialize_artifacts`, `publishes`, `consumes`, authored public contract families, and version gating.
 - `specs/state.md` owns runtime state authority and resume identity.
 - `docs/design/workflow_lisp_state_layout.md` owns target state/path derivation principles.
-- `docs/design/workflow_lisp_key_migration_parity_architecture.md` owns the existing parity evidence shape and non-regression computation.
+- `docs/design/workflow_lisp_key_migration_parity_architecture.md` preserves the historical parity evidence shape and non-regression rationale.
 - `docs/design/workflow_command_adapter_contract.md` owns the policy boundary between legitimate command adapters and hidden semantic glue.
 - `docs/lisp_workflow_drafting_guide.md` owns author-facing migration discipline and semantic-authority rules.
 - `docs/reports/2026-06-08-generic-review-revise-orc-runtime-gap-report.md` supplies concrete runtime-gap evidence from launching the generic review/revise `.orc` workflow.
@@ -105,7 +112,7 @@ This document defines the implementation and evidence boundary required before f
 - the required runtime hardening for command structured-output authority;
 - the private executable/runtime value-transport contract needed by frontend-lowered Workflow Lisp values;
 - the provider structured-output target-binding conformance needed for provider `output_bundle` and `variant_output` steps;
-- the strict-gate behavior needed before `migration-parity` is used as a release gate;
+- the historical strict-gate behavior that was used before the manifest-driven generator retired;
 - the first implementation boundary for `StateLayout` / `PathAllocator`; and
 - the minimum acceptance evidence before additional `.orc` primary-promotion work depends on these surfaces.
 
@@ -246,8 +253,8 @@ claim.
 | scalar/list/map materialized value views | Private value-view lane; public YAML `pointer.path` remains relpath-compatible unless widened | string/list/map view tests; pointer-as-view invariants |
 | collection publish/consume | Private executable artifact lineage with embedded contracts/provenance | private artifact catalog + state persistence tests; collection artifact publish/consume tests |
 | prompt extern source semantics | `asset_file` is source-relative; `input_file` is workspace-relative | explicit extern manifest model and docs/examples |
-| `migration-parity` report generation | Tool/evidence surface; promotion policy in migration docs | schema validation, strict gate mode, stable nonzero exit tests |
-| `non_regressive` | Tooling-computed only | target-manifest and hand-authored-report negative tests |
+| historical parity report generation | Retired tool/evidence surface; frozen reports remain in history | preserved report bytes and historical plans |
+| `non_regressive` | Frozen historical derived field | preserved reports; never hand-edit or regenerate |
 | StateLayout / PathAllocator | Ownership boundary in `workflow_lisp_state_layout.md` plus this foundation | allocation/provenance, run-isolated private path, source-map, and Semantic IR tests |
 | hidden `__write_root__...` inputs | Compatibility mechanism, not public API | public-boundary inspection tests and runtime-contract visibility tests |
 
@@ -645,9 +652,11 @@ Reusable stdlib/library prompts should normally be bundled assets. Workspace-own
 
 ## 13. Tranche 4: Migration Promotion Gate Hardening
 
-### 13.1 Contract
+### 13.1 Historical Contract
 
-Keep the existing manifest-driven `migration-parity` model, but harden it into a release gate. The promotion command must define strict gate modes with stable exit semantics.
+This tranche hardened the former manifest-driven parity generator into a
+release gate. The generator and its manifest are now retired; the following
+mode semantics are retained only to interpret frozen reports and plans.
 
 At minimum, `--require-non-regressive` exits nonzero when any selected target lacks valid, complete, current, computed non-regression evidence.
 
@@ -1031,9 +1040,10 @@ Projection ownership stays separate:
 
 ### 16.2 CLI
 
-- `migration-parity` remains the machine-readable promotion evidence command.
-- Strict gate modes exit nonzero according to the explicit `--require-non-regressive` and `--require-promotable` semantics above.
-- CLI docs/specs must describe the command once it is relied on as a release gate.
+- The manifest-driven promotion-evidence command is retired and absent from the
+  current CLI.
+- `workflow-lisp-route-readiness` remains the current machine-readable
+  validation command for registry route/schema/copy-safety state.
 
 ### 16.3 Workflow Lisp Frontend
 
@@ -1046,10 +1056,11 @@ Projection ownership stays separate:
 
 - `source_map.json` records generated paths, value views, and generated internal inputs from allocation metadata plus source provenance.
 - Semantic IR records corresponding state-layout entries derived from the same allocation metadata.
-- Validated parity JSON reports are machine-readable gate evidence.
-- Parity JSON reports are not workflow semantic authority and do not redefine runtime behavior.
-- Any persisted `gate_evaluation` JSON is a separate machine-readable gate-decision artifact derived from current selection context.
-- Markdown parity reports and indexes are views.
+- Preserved parity JSON reports are frozen historical gate evidence.
+- They are not workflow semantic authority and do not redefine current runtime
+  or route behavior.
+- Persisted gate-evaluation JSON and Markdown reports/indexes are historical
+  derived views.
 
 ## 17. Dependencies And Sequencing
 
@@ -1059,14 +1070,16 @@ Tranche 2 should land next or in parallel with the first StateLayout facade beca
 
 Tranche 3 should land with provider/spec/runtime conformance checks before generic provider-result review loops are used as migration evidence. Provider wrong-path structured output must remain fail-closed, and provider structured-output target binding should reduce avoidable wrong-path failures.
 
-Tranche 4 can land after or alongside Tranche 1 because the command exists; hardening it does not require StateLayout to be complete. It should include any spec/CLI doc updates needed to treat the command as a gate.
+Tranche 4 landed historically and its generator was later retired after the
+migration estate drained. No current work should recreate that command or
+manifest.
 
 Tranche 5 should follow as a staged refactor. It has broader blast radius, but its first patch still needs to make promotion-relevant private generated paths run-isolated while routing the existing allocation families through a shared boundary. Broader public-path cleanup or compatibility-shape retirement can happen later.
 
 Work that can proceed in parallel:
 
-- report-schema validation for existing parity reports;
-- CLI spec/doc alignment for `migration-parity`;
+- direct owner regression tests for current promoted routes;
+- route-readiness registry validation;
 - focused tests for command bundle env precedence;
 - focused tests for provider structured-output binding;
 - runtime validation tests for private collection values;
@@ -1277,19 +1290,13 @@ Expected result: runtime resolves the variant bundle target, exposes it through 
 
 Forbidden result: the provider writes `.../__result_bundle/result_bundle.json`, runtime copies it to `.../__result_bundle.json`, and the workflow treats that as valid structured state.
 
-### 22.4 Promotion Gate
+### 22.4 Historical Promotion Gate
 
 Initial state: a parity target has compile and dry-run evidence but missing resume parity.
 
-Entrypoint:
-
-```bash
-python -m orchestrator migration-parity \
-  workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json \
-  --require-non-regressive
-```
-
-Expected result: the report is generated, `non_regressive=false`, and the CLI exits nonzero for an eligible promotion target.
+Historical result: the former gate recorded `non_regressive=false` when resume
+evidence was missing. Today, inspect the frozen report for that decision and
+run the registry-cited direct owner tests for current behavior.
 
 Forbidden result: the target appears as primary `.orc` because it compiled.
 
@@ -1309,8 +1316,9 @@ Forbidden result: generated path strings are synthesized independently by loweri
 - Frontend-lowered private collection values validate, materialize, publish, consume, and render through shared runtime contracts.
 - Provider structured-output target binding exists for `output_bundle.path` and `variant_output.path`, with wrong-path bundle writes failing closed.
 - Prompt extern source semantics are explicit, documented, and covered by examples/tests.
-- `migration-parity` has a strict gate mode with focused CLI tests.
-- Existing parity reports and indexes are still generated, but reused reports are schema/version checked.
+- The retired parity command and manifest are absent from the current CLI and
+  route-readiness implementation.
+- Existing parity reports and indexes remain frozen historical evidence.
 - A `StateLayout` / `PathAllocator` implementation boundary exists and at least command-result, provider-result, variant-projection, reusable-call write-root, entrypoint managed write-root, and value-view allocation route through it.
 - Promotion-relevant private generated paths are run-isolated by default, with any preserved non-isolated shapes labeled compatibility-only and excluded from promotion evidence.
 - Source-map and Semantic IR tests prove generated path provenance survives.

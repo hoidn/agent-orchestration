@@ -117,7 +117,7 @@ Before copying a checked-in `.orc` example or fixture, check
 `docs/workflow_lisp_route_readiness_registry.json`. Registry labels provide
 the copy-safety and route/readiness classification: `wcc_default` is current
 WCC/schema-2 evidence, `legacy_schema1_compat` is compatibility evidence,
-`migration_candidate` needs migration parity before promotion claims, and
+`migration_candidate` is not a promotion claim, and
 `stale_needs_update` is not current guidance. Compiler and lowering tests that
 cover registry entries should pin `LoweringRoute` explicitly unless the test
 intentionally exercises `DEFAULT_LOWERING_ROUTE`; route identity and
@@ -131,8 +131,8 @@ Migration promotion checklist:
   evidence, not as promotion approval.
 - Require output contract parity, terminal-state parity, artifact parity, and
   resume/reuse parity against the characterized historical baseline.
-- Let migration tooling compute `non_regressive`; do not write or approve that
-  value by hand.
+- Treat `non_regressive` values in preserved reports as frozen historical
+  evidence; do not edit or regenerate them.
 - Keep structured bundles, typed artifacts, runtime state, and variant proof as
   authority. Do not route migration behavior through reports, stdout, pointer
   files, or `expanded.debug.yaml`.
@@ -156,29 +156,11 @@ Migration promotion checklist:
   `selection_bundle_path`; do not add a helper script or pointer file that only
   echoes the same bundle identity.
 
-When promotion evidence is evaluated with `python -m orchestrator
-migration-parity`, treat the per-target JSON report as evidence authority only.
-The tool computes `non_regressive`; it does not accept that field from the
-manifest, and strict reuse validation can invalidate stale reports even when
-their embedded evidence still looks superficially complete.
-
-Use strict modes only when you want the command to act as a release gate:
-
-- advisory mode (no extra flag) still writes reports and derived views, but it
-  exits `0` whenever generation and validation succeed;
-- `--require-non-regressive` exits `1` unless each selected target has a valid,
-  complete, current report whose embedded evidence recomputes to
-  `non_regressive=true`;
-- `--require-promotable` exits `1` unless each selected target is both
-  non-regressive and eligible for primary-surface promotion.
-
-`non_regressive` and promotable are intentionally different. Historical reports
-may record a non-regressive target as `primary_surface=yaml` because the
-migration design still blocked promotion at capture time; that label is
-provenance, not a current execution route. The machine-readable gate decision lives in
-`gate_evaluation.json`, not in the per-target report payload. Keep
-`primary_surface`, `report_valid`, and `evidence_complete` as derived gate or
-index views rather than authoring or editing them into parity reports.
+The manifest-driven parity generator is retired. Preserved per-target JSON and
+Markdown reports remain immutable historical evidence, not current route
+authority. For current claims, validate
+`docs/workflow_lisp_route_readiness_registry.json` and run the direct owner
+compile/runtime/resume tests cited by the selected registry entry.
 
 For the most useful Workflow Lisp review/fix model for targeted design-doc
 reviews, read `workflows/examples/review_revise_design_docs.orc`. It runs a
@@ -425,9 +407,9 @@ The currently implemented authoring surface includes:
 - `run-provider-phase`
 - `resume-or-start`
 - `review-revise-loop` as an implemented authoring surface; the ordinary
-  imported stdlib lowering route exists in the current checkout, while
-  primary-migration parity evidence for each workflow family remains governed
-  by
+  imported stdlib lowering route exists in the current checkout; current route
+  claims come from registry-cited direct owner tests, while historical
+  promotion rationale remains in
   `docs/design/workflow_lisp_key_migration_parity_architecture.md`
 - `resource-transition` through declared runtime-native transitions, with
   certified adapters only as explicit compatibility backends

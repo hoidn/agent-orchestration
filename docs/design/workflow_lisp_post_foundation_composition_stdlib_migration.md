@@ -1,7 +1,7 @@
 # Workflow Lisp Post-Foundation Composition And Stdlib Migration
 
-Status: draft design
-Kind: architecture decision / migration target design
+Status: incorporated historical target
+Kind: historical architecture decision / migration target design
 Created: 2026-06-08
 Updated: 2026-06-10
 Scope: post-foundation Workflow Lisp composition: nested structured control,
@@ -10,6 +10,11 @@ first-class composition, private executable context, typed projection,
 certified adapter/resource-transition ownership, entrypoint
 bootstrap/defaults, canonical `resume-or-start` validation, parent-callable
 workflow-family migration, and promotion evidence.
+
+The landed WCC/composition/stdlib contracts are reflected in the current
+frontend and component docs. The generated post-WCC inventory/reconciliation
+views and manifest-driven parity generator are retired; use route readiness and
+direct owner tests for current claims.
 
 Authority:
 
@@ -50,7 +55,6 @@ Related docs:
   (revision provenance folded into this target; not separate implementation
   authority)
 - `docs/plans/2026-06-10-wcc-post-foundation-reconciliation-inventory.md`
-- `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/post_wcc_reconciliation_index.md`
 - `docs/plans/LISP-FRONTEND-DESIGN-DELTA-DRAIN-ORC-MIGRATION/parent_drain_readiness_blockers.md`
 - `docs/lisp_workflow_drafting_guide.md`
 - `specs/dsl.md`
@@ -178,7 +182,7 @@ promotion evidence is valid only while these foundation contracts remain true:
   provider-session/managed-job wrappers preserve the binding;
 - prompt extern source semantics distinguish `asset_file` from `input_file`
   and preserve string shorthand as source-relative assets;
-- `migration-parity` has strict gate behavior and schema/version validation;
+- frozen historical parity reports preserve the former gate outcome;
 - `StateLayout` / `PathAllocator` owns the blocking generated path families;
 - generated path provenance is present in source maps and Semantic IR;
 - compiler-owned `__write_root__...` inputs are not exposed at public workflow
@@ -238,12 +242,9 @@ The 2026-06-10 WCC reconciliation added a second findings layer:
   finding about example/evidence labeling, not WCC architecture failure;
 - the reconciliation inventory:
   `docs/plans/2026-06-10-wcc-post-foundation-reconciliation-inventory.md`; and
-- the current implementation-status inventory:
-  `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json`;
-- the per-gap reconciliation index:
-  `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/post_wcc_reconciliation_index.md`,
-  whose `implemented_by_wcc` / `superseded_by_wcc` / `remaining_post_wcc`
-  statuses are implementation-planning labels, not durable design contracts.
+- the generated implementation-status inventory and per-gap reconciliation
+  index, now retired after their queues drained; their former labels were
+  implementation-planning state, not durable design contracts.
 
 ### 4.2 Evidence And Status Routing
 
@@ -251,12 +252,11 @@ This design owns durable contracts, invariants, dependency directions,
 acceptance boundaries, and evidence requirements. It does not own live
 implementation status, current blockers, or next-work sequencing.
 
-Current implementation status for this target is tracked in
-`docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json`.
-Per-gap reconciliation labels are tracked in
-`docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/post_wcc_reconciliation_index.md`.
-Parity status for the parent drain is tracked in
-`artifacts/work/review-parity-check/design_delta_parent_drain.json`.
+Current implementation status is owned by the frontend/component docs, the
+capability status matrix, route readiness, and direct owner tests. The parent
+drain's preserved report at
+`artifacts/work/review-parity-check/design_delta_parent_drain.json` is frozen
+historical evidence, not live routing state.
 
 ### 4.3 Findings Traceability Map
 
@@ -429,9 +429,9 @@ candidate family manifest
 -> compile/shared-validation/runtime evidence
 -> parent-callable readiness evidence
 -> output/terminal/artifact/resume/resource parity
--> schema-validated migration-parity report
--> computed non_regressive
--> --require-promotable before primary-surface replacement
+-> reviewed route-readiness identity
+-> direct owner compile/runtime/resume evidence
+-> preserved historical promotion report when auditing the original decision
 ```
 
 ## 7. Prohibited Dependency Directions
@@ -763,11 +763,9 @@ intentionally checks the default route.
 
 ### 11.3 Tasks
 
-- Consult the post-WCC reconciliation index
-  (`docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/post_wcc_reconciliation_index.md`)
-  before gap selection: do not select `superseded_by_wcc` gaps, and do not
-  reselect `implemented_by_wcc` gaps except as explicit regression or
-  retirement-evidence items.
+- Consult the current frontend/component docs, capability matrix, and compact
+  selector manifest before gap selection; do not recreate work recorded as
+  landed or retired except for an explicit regression.
 - Verify current source routes for `std/phase.orc`, `review-revise-loop`,
   imported `.orc` expansion, `ProcRef` specialization, and structural context
   recognition.
@@ -1881,7 +1879,8 @@ A promotable family target must carry evidence for:
 - resource-transition parity;
 - resume/reuse parity;
 - deprecated-mechanic replacement or accepted waiver; and
-- strict `migration-parity` computation.
+- the preserved historical promotion decision, plus fresh direct owner
+  regression evidence for the current route.
 
 Route identity is part of evidence freshness (UAF-01/UAF-02). Every evidence
 role above records the specific lowering route (`LoweringRoute` enum value)
@@ -2188,15 +2187,13 @@ A workflow is parent-callable when:
 - Rejects inline heredoc/raw shell/Python semantic glue in new high-level
   `.orc`.
 
-### 21.6 Migration parity CLI
+### 21.6 Historical Migration Gate
 
-- Keeps `migration-parity` as machine-readable promotion evidence.
-- Computes `non_regressive` from evidence; manifests and hand-authored reports
-  cannot assert it.
-- Adds parent-callable readiness labels and evidence roles.
-- Requires valid, complete, current, parent-callable family evidence for
-  `--require-non-regressive` where a family target is selected.
-- Requires `eligible_for_primary_surface=true` for `--require-promotable`.
+- The former manifest-driven parity command computed `non_regressive` and
+  promotion eligibility from evidence.
+- That generator and manifest are retired. Current route/schema/copy-safety
+  state is validated through `workflow-lisp-route-readiness`; behavioral
+  claims come from the direct owner tests cited by the registry.
 
 ## 22. Dependencies And Sequencing
 
@@ -2748,14 +2745,10 @@ state/routing to opaque YAML-era scripts.
 Initial state: all leaves compile, but parent-callable drain evidence is
 missing.
 
-Entrypoint:
-
-```bash
-python -m orchestrator migration-parity <targets> --require-promotable
-```
-
-Expected result: gate exits nonzero and reports leaf evidence as insufficient
-for promotion.
+Historical expected result: the former gate rejected leaf-only evidence as
+insufficient for promotion. Current regressions are evaluated through
+route-readiness validation and the complete direct owner test set for the
+promoted family.
 
 Forbidden result: YAML primary is replaced because leaf compile/dry-run
 evidence exists.

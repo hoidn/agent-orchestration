@@ -1,6 +1,13 @@
 # Workflow Lisp Key Migration Parity Architecture
 
-Status: draft
+Status: historical architecture
+
+The manifest-driven parity generator described below is retired. Preserve this
+document and its frozen reports as promotion-history rationale; current route
+readiness comes from `docs/workflow_lisp_route_readiness_registry.json` and the
+direct owner tests cited there.
+
+Historical status at last material update: draft
 Kind: architecture decision / migration design
 Created: 2026-06-01
 Last material update: 2026-06-02
@@ -13,8 +20,8 @@ Scope:
 Authority:
 
 - Normative DSL/runtime behavior remains in `specs/`.
-- This document is authoritative as a migration architecture, not as a runtime
-  spec, until the required spec deltas and promotion-report schema are accepted.
+- This document preserves the former migration architecture and is not current
+  runtime or route authority.
 - A `.orc` workflow must not replace a YAML primary solely because this document
   describes a target behavior.
 

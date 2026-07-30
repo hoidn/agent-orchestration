@@ -28,11 +28,12 @@ Authority:
 - `docs/design/workflow_lisp_runtime_migration_foundation.md` owns validated
   structured output and private value transport — the only channel through
   which completed effect results may be reused.
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-  (Tranche 8) owns near-term canonical resume/reuse validation and the
-  migration-parity resume evidence for family promotion. This design is the
-  long-term substrate beyond that tranche and must not be used to relitigate
-  or block it.
+- Current resume/reuse behavior is owned by the runtime/state contracts and
+  direct owner behavioral tests. Route identity and copy safety are owned by
+  `docs/workflow_lisp_route_readiness_registry.json`; frozen promotion reports
+  are historical evidence only. This design remains the long-term checkpoint
+  substrate and must not be used to relitigate completed historical promotion
+  decisions.
 
 Related docs:
 
@@ -631,9 +632,10 @@ families; narrow `resume-or-start` usage to genuine domain reuse.
 - The reference family compiles and passes its full resume scenario suite
   with zero `resume_only` public surfaces, and boundary inspection proves
   it mechanically.
-- Migration parity for the re-expressed family remains `non_regressive`
-  (the resume behavior change is invisible at the domain ledger, which is
-  the parity surface).
+- The direct owner resume suite remains green and the reviewed route-readiness
+  identity remains valid. Any frozen `non_regressive` report remains unchanged
+  historical evidence; the resume behavior change is invisible at the domain
+  ledger captured by that historical report.
 
 ## 15. Tranche R6 (Evidence-Gated): Default Flip And Legacy Cleanup
 

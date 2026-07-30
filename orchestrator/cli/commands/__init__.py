@@ -7,8 +7,6 @@ from .resume import resume_workflow
 from .report import report_workflow
 from .dashboard import dashboard_workflow
 from .monitor import monitor_workflows
-from .migration_parity import migration_parity_workflow
-from .post_wcc_inventory import post_wcc_inventory_workflow
 from .provider_isolation_environment_manifest import (
     provider_isolation_environment_manifest_workflow,
 )
@@ -31,8 +29,6 @@ __all__ = [
     'report_workflow',
     'dashboard_workflow',
     'monitor_workflows',
-    'migration_parity_workflow',
-    'post_wcc_inventory_workflow',
     'provider_isolation_environment_manifest_workflow',
     'route_readiness_workflow',
     'peer_ack_workflow',

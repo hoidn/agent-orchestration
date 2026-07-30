@@ -96,7 +96,6 @@ SAME_FILE_RETIREMENT_DECISION = (
     / "2026-07-16-same-file-build-checks-identity-retirement-plan.md"
 )
 ROUTE_READINESS_REGISTRY = REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json"
-PARITY_TARGETS = MIGRATION_INPUTS / "parity_targets.json"
 DESIGN_DELTA_DRAIN = (
     WORKFLOWS / "library" / "lisp_frontend_design_delta" / "drain.orc"
 )
@@ -377,13 +376,6 @@ _YAML_RETIREMENT_EVIDENCE = {
             "path": "docs/workflow_lisp_route_readiness_registry.json",
         },
         {
-            "role": "parity_target_manifest",
-            "path": (
-                "workflows/examples/inputs/workflow_lisp_migrations/"
-                "parity_targets.json"
-            ),
-        },
-        {
             "role": "family_contract_tests",
             "path": "tests/test_workflow_lisp_verified_iteration_drain.py",
         },
@@ -403,13 +395,6 @@ _YAML_RETIREMENT_EVIDENCE = {
         {
             "role": "route_readiness_registry",
             "path": "docs/workflow_lisp_route_readiness_registry.json",
-        },
-        {
-            "role": "parity_target_manifest",
-            "path": (
-                "workflows/examples/inputs/workflow_lisp_migrations/"
-                "parity_targets.json"
-            ),
         },
         {
             "role": "family_contract_tests",
@@ -708,10 +693,6 @@ def test_yaml_retirement_handoff_names_both_promoted_port_replacements() -> None
             "promoted_orc_primary": orc_path,
             "route_readiness_registry": (
                 "docs/workflow_lisp_route_readiness_registry.json"
-            ),
-            "parity_target_manifest": (
-                "workflows/examples/inputs/workflow_lisp_migrations/"
-                "parity_targets.json"
             ),
             "family_contract_tests": contract_tests,
             "task_5_execution_plan": (
@@ -2344,7 +2325,6 @@ def test_design_delta_drain_builder_row_retains_private_workflow_boundary(
     assert route["readiness_label"] == "promotion_eligible"
     assert route["route_label"] == "wcc_default"
     assert route["copy_safety"] == "preferred_current_guidance"
-    assert route["parity_constrained"] is True
 
     source = DESIGN_DELTA_DRAIN.read_text(encoding="utf-8")
     builder = "build-drain-runtime-owned"

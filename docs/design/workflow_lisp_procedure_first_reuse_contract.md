@@ -57,7 +57,10 @@ The parent
 owns the durable source-language contract. This document records the focused
 decision rationale, migration test, non-candidate rules, and feasibility
 evidence. The effect graph, state layout, source map, ProcRef, native-return,
-and migration-parity documents continue to own their component contracts.
+and other current component documents continue to own their contracts. Current
+route claims are owned by the route-readiness registry and its cited direct
+owner behavioral tests; the migration-parity architecture and frozen reports
+remain historical evidence only.
 
 This decision resolves the type/runtime boundary report's procedure-first
 recommendations without treating that historical diagnostic as implementation
@@ -178,10 +181,12 @@ evidence, not a substitute for the resolved summary.
 
 The substrate's existence does not authorize a family migration by itself.
 Each adoption still requires explicit lowering, effect visibility through
-Semantic IR, migration parity, identity compatibility, runtime evidence, and
-the family-specific review gates. The classic schema-1 iteration-scope
-inline-to-private override remains compatibility behavior only and cannot be
-used to support a WCC migration or promotion claim.
+Semantic IR, route-readiness identity, direct owner behavioral evidence,
+identity compatibility, and the family-specific review gates. Frozen parity
+reports may explain a historical promotion decision but do not authorize a
+current change. The classic schema-1 iteration-scope inline-to-private override
+remains compatibility behavior only and cannot be used to support a WCC
+migration or promotion claim.
 
 Procedure composition may use the supported typed boundaries below only when
 the selected lowering path preserves their ordinary validation and Semantic IR
@@ -288,7 +293,8 @@ Retain a `defworkflow` when any of these is true:
 - an independent persisted checkpoint/state namespace is contractual and no
   accepted mapping preserves it;
 - its effects require an unsupported procedure substrate; or
-- migration parity cannot be computed from production-path evidence.
+- route/readiness and behavioral compatibility cannot be established from
+  production-path direct owner evidence.
 
 A unit that needs a private state/resume/debug namespace but no public role may
 become a `defproc :lowering private-workflow`; this is not an exception to the

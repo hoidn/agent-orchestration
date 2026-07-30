@@ -6,8 +6,7 @@
   "scope": {
     "roots": [
       "workflows",
-      "docs/workflow_lisp_route_readiness_registry.json",
-      "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
+      "docs/workflow_lisp_route_readiness_registry.json"
     ],
     "excluded_roots": [
       "docs/plans",
@@ -415,10 +414,6 @@
           "path": "docs/workflow_lisp_route_readiness_registry.json"
         },
         {
-          "role": "parity_target_manifest",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
-        },
-        {
           "role": "family_contract_tests",
           "path": "tests/test_workflow_lisp_verified_iteration_drain.py"
         },
@@ -459,10 +454,6 @@
         {
           "role": "route_readiness_registry",
           "path": "docs/workflow_lisp_route_readiness_registry.json"
-        },
-        {
-          "role": "parity_target_manifest",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
         },
         {
           "role": "family_contract_tests",
@@ -4199,7 +4190,7 @@
       "effect_summary": [],
       "public_boundary_evidence": [
         "exported entry",
-        "migration parity manifest entry"
+        "route-readiness registry entry"
       ],
       "named_substrate_gap": null,
       "reason": "The demo entry remains its externally selected workflow boundary even though it is not primary-promotion eligible.",
@@ -4209,7 +4200,7 @@
       },
       "evidence_paths": [
         "workflows/examples/cycle_guard_demo.orc",
-        "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
+        "docs/workflow_lisp_route_readiness_registry.json"
       ]
     },
     {
@@ -4233,7 +4224,7 @@
       ],
       "public_boundary_evidence": [
         "exported entry",
-        "promotion-eligible parity manifest entry",
+        "promotion-eligible route-readiness registry entry",
         "public typed input/output contract"
       ],
       "named_substrate_gap": null,
@@ -4244,7 +4235,6 @@
       },
       "evidence_paths": [
         "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
-        "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json",
         "docs/workflow_lisp_route_readiness_registry.json"
       ]
     }
