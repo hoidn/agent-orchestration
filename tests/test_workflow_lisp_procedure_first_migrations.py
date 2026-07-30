@@ -4272,8 +4272,12 @@ def _run_tree_facts(root: Path) -> dict[str, object]:
         current_path = Path(current)
         for name in (*directories, *filenames):
             path = current_path / name
-            assert not path.is_symlink()
             relative = path.relative_to(root).as_posix()
+            if relative == "run.lock":
+                # The command-lifetime coordination inode is not persisted
+                # workflow state or evidence.
+                continue
+            assert not path.is_symlink()
             rows.append(
                 (relative, "directory", None)
                 if path.is_dir()

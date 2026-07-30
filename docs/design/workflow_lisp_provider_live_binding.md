@@ -3,8 +3,9 @@
 - **Status:** v1 target-`2.16` supervision and additive v1.1 target-`2.17`
   peer messaging are implemented. Their original interrupted-visit quarantine
   sections describe the pre-ML behavior and are superseded by the normative
-  at-least-once contract in `specs/state.md`; ML-1 runtime implementation is
-  pending and does not reopen the completed v1/v1.1 feature gates.
+  at-least-once contract in `specs/state.md`; historical-complete ML-1
+  implements runtime recovery without reopening the completed v1/v1.1 feature
+  gates.
 - **Kind:** feature / provider observation, bounded concurrency, and
   turn-boundary supervision architecture
 - **Owner:** Workflow Lisp frontend + provider runtime

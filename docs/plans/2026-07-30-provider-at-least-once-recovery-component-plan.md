@@ -26,7 +26,8 @@ Workflow Lisp runtime plans, and subprocess crash/resume fixtures.
 `0b149f96ace8873b0381a4cd530468b1d24a083f`. ML-0 was selected at commit
 `e2e39422f8fe52ad35dd6a174bc108f65bcf2050`. Tasks 1–7, focused and broad
 non-security gates, final ordered reviews, and the 72-pass postcommit control
-are complete. ML-2 is current.
+are complete. ML-2 is historical complete via its execution-record commit;
+ML-4 is current.
 
 ## Authority and bounds
 
@@ -337,9 +338,9 @@ Task 7 verification:
   permitted replay returned `ML1_FINAL_SPEC_APPROVED` followed by
   `ML1_FINAL_QUALITY_APPROVED`. No other final review replay occurred.
 
-The next selected tranche is ML-2 under
-`2026-07-30-provider-attempt-allocator-simplification-component-plan.md`,
-followed by ML-4 under
+ML-2 is historical complete under
+`2026-07-30-provider-attempt-allocator-simplification-component-plan.md`.
+The current selected tranche is ML-4 under
 `2026-07-30-adjudication-rerun-recovery-component-plan.md`. ML-3,
 provider-isolation implementation, and every security surface remain excluded.
 

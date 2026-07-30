@@ -4354,7 +4354,8 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "under its reviewed component plan" in normalized_ml
     assert "task 7 verification" in normalized_ml
     assert "final ordered reviews passed" in normalized_ml
-    assert "ml 2 is current" in normalized_ml
+    assert "ml 2 is historical complete" in normalized_ml
+    assert "ml 4 is current" in normalized_ml
     assert "e2e39422f8fe52ad35dd6a174bc108f65bcf2050" in ml_section
     assert "9c14dae37310755bd9cbd3de03b9256433acd9fe" in ml_section
     assert "0b149f96ace8873b0381a4cd530468b1d24a083f" in ml_section
@@ -4558,3 +4559,32 @@ def test_ml0_selects_at_least_once_recovery_with_reviewable_component_bounds() -
         normalized_index
     )
     assert "adjudication rerun recovery component plan" in normalized_index
+
+    normalized_track = _normalized_routing_text(track)
+    assert "ml 2 is historical complete" in normalized_track
+    assert "ml 4 is current" in normalized_track
+    assert "ml 2 is historical complete" in normalized_index
+    assert "ml 4 is current" in normalized_index
+
+    normalized_ml2_plan = _normalized_routing_text(
+        plans[ML2_PROVIDER_ALLOCATOR_PLAN_PATH]
+    )
+    normalized_ml4_plan = _normalized_routing_text(
+        plans[ML4_ADJUDICATION_RECOVERY_PLAN_PATH]
+    )
+    assert "status: historical complete ml 2" in normalized_ml2_plan
+    assert "ml2_task6_spec_approved" in normalized_ml2_plan
+    assert "ml2_task6_quality_approved" in normalized_ml2_plan
+    assert plans[ML2_PROVIDER_ALLOCATOR_PLAN_PATH].index(
+        "ML2_TASK6_SPEC_APPROVED"
+    ) < plans[ML2_PROVIDER_ALLOCATOR_PLAN_PATH].index(
+        "ML2_TASK6_QUALITY_APPROVED"
+    )
+    assert "status: active." in normalized_ml4_plan
+    assert "ml 4 is current" in normalized_ml4_plan
+
+    capability_row = _markdown_table_row(
+        REPO_ROOT / "docs/capability_status_matrix.md",
+        "Provider at-least-once interrupted-visit recovery",
+    )
+    assert "| Partial | No until ML-4 closes |" in capability_row

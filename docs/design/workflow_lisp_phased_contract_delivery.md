@@ -6,8 +6,8 @@
   post-correction broad comparison and external ordered final reviews. The
   2026-07-28 stop at `3fc3a09e` remains superseded historical provenance.
   The original interrupted-visit quarantine paragraphs are pre-ML behavior
-  superseded by `specs/state.md`; ML-1 implementation is pending and does not
-  reopen Q5.
+  superseded by `specs/state.md`; historical-complete ML-1 implements runtime
+  recovery without reopening Q5.
 - **Kind:** target-2.23 frontend and provider-runtime design
 - **Owner:** Workflow Lisp call policy, prompt composition, and provider
   attempt runtime

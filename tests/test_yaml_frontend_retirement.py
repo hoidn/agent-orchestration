@@ -113,10 +113,12 @@ def _write_run_state(
 
 
 def _run_tree_snapshot(run_root: Path) -> dict[str, bytes]:
+    # The command-lifetime coordination inode is not persisted workflow state
+    # or evidence.
     return {
         path.relative_to(run_root).as_posix(): path.read_bytes()
         for path in run_root.rglob("*")
-        if path.is_file()
+        if path.is_file() and path.relative_to(run_root).as_posix() != "run.lock"
     }
 
 

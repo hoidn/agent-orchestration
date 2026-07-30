@@ -19,10 +19,12 @@ does not mutate an allocation event ledger.
 **Tech stack:** Python 3.13, `fcntl.flock`, multiprocessing/subprocess pytest
 fixtures, JSON schema-2.1 state, and atomic temp-file rename.
 
-**Status:** active. ML-1 closed at commit
+**Status:** historical complete ML-2 via the commit containing this execution
+record; ML-4 is current. ML-1 closed at commit
 `9c14dae37310755bd9cbd3de03b9256433acd9fe`, tree
 `0b149f96ace8873b0381a4cd530468b1d24a083f`; ML-2 Task 3 closed at
-`fd93bf32`, Task 4 closed at `c98aa9e9`, and Task 5 is current.
+`fd93bf32`, Task 4 closed at `c98aa9e9`, Task 5 closed at `001c3326`, and
+Task 6 closes through this record.
 
 ## Authority and bounds
 
@@ -285,11 +287,23 @@ material findings.
 
 ## Task 6: Close ML-2
 
-- [ ] Run the concurrent-resume process fixture, allocation property suite,
+- [x] Run the concurrent-resume process fixture, allocation property suite,
   prompt-evidence suites, and the unchanged committed-result reuse E2E.
-- [ ] Run `pytest -q -n 16 --dist=worksteal` over the broad non-security
+- [x] Run `pytest -q -n 16 --dist=worksteal` over the broad non-security
   selection, excluding only owner-directed security selectors.
-- [ ] Record exact deletion/addition totals; ML-2 must be net-negative.
-- [ ] Request one final ordered specification review followed by one quality
+- [x] Record exact deletion/addition totals; ML-2 must be net-negative.
+- [x] Request one final ordered specification review followed by one quality
   review. Replay only after a material finding.
-- [ ] Commit with subject `Close ML2 allocator simplification`.
+- [x] Commit with subject `Close ML2 allocator simplification`.
+
+Task 6 candidate evidence: the allocation, prompt-evidence, phased-runtime, and
+committed-result-reuse gates pass 396 tests plus the three exact resume
+selectors. The broad non-security selection passes 8,740 tests with 15 skips
+and five deprecation warnings. The first broad pass exposed four semantic-tree
+fixtures that counted the new root `run.lock`; after excluding only that
+coordination inode, both affected modules pass 181 tests and the identical
+broad selection passes. Relative to the ML-1 close, the ML-2 candidate changes
+55 files with 2,381 additions and 2,756 deletions, for a net reduction of 375
+lines. Final ordered review returned `ML2_TASK6_SPEC_APPROVED` followed by
+`ML2_TASK6_QUALITY_APPROVED`, with no material findings and no replay. ML-4 is
+the current selected tranche.

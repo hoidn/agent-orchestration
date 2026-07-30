@@ -18,7 +18,7 @@ as `adjudication_state_mismatch_rerun`.
 **Tech stack:** Python 3.13, pytest, adjudication state/sidecars, atomic
 filesystem operations, and Workflow Lisp end-to-end fixtures.
 
-**Status:** ML-0 reviewed-plan candidate. ML-4 starts after ML-2 closes.
+**Status:** active. ML-4 is current after historical-complete ML-2.
 
 ## Authority and bounds
 
