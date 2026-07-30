@@ -105,6 +105,17 @@ def _is_within(path: Path, root: Path) -> bool:
         return False
 
 
+def _require_canonical_child(path: Path, root: Path) -> Path:
+    """Return one lexical child only when no component aliases outside it."""
+
+    relative = path.relative_to(root)
+    if relative == Path(".") or ".." in relative.parts:
+        raise ValueError("owned path must be a strict child of its root")
+    if path.resolve() != root.resolve() / relative:
+        raise ValueError("owned path contains an aliased component")
+    return path
+
+
 def _is_finite_score(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
 

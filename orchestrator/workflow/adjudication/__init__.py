@@ -35,7 +35,12 @@ from .models import (
     SelectionResult,
     adjudication_outcome,
 )
-from .paths import adjudication_visit_paths, candidate_metadata_path, candidate_paths
+from .paths import (
+    adjudication_visit_paths,
+    candidate_metadata_path,
+    candidate_paths,
+    candidate_visit_root,
+)
 from . import promotion as _promotion_module
 from .promotion import _validate_promotion_parent, _validate_promotion_staging
 from .resume import (
@@ -87,6 +92,7 @@ __all__ = [
     "build_evaluation_packet",
     "candidate_metadata_path",
     "candidate_paths",
+    "candidate_visit_root",
     "create_baseline_snapshot",
     "generate_score_ledger_rows",
     "load_baseline_manifest",

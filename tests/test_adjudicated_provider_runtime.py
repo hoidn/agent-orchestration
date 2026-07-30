@@ -1,4 +1,5 @@
 import json
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,6 +19,7 @@ from orchestrator.workflow.adjudication import (
     adjudication_visit_paths,
     candidate_metadata_path,
     candidate_paths,
+    candidate_visit_root,
 )
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.prompting import PromptComposer
@@ -53,6 +55,18 @@ def _write_yaml(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
     return path
+
+
+def _file_bytes_under(*roots: Path) -> dict[str, bytes]:
+    snapshot: dict[str, bytes] = {}
+    for index, root in enumerate(roots):
+        if root.is_file():
+            snapshot[f"{index}:."] = root.read_bytes()
+            continue
+        for path in sorted(root.rglob("*")):
+            if path.is_file():
+                snapshot[f"{index}:{path.relative_to(root).as_posix()}"] = path.read_bytes()
+    return snapshot
 
 
 def _candidate_command(label: str, body: str, pointer_dir: str = "state") -> list[str]:
@@ -2385,6 +2399,315 @@ def test_resume_rejects_mismatched_adjudication_sidecars(
     assert result["status"] == "failed"
     assert result["error"]["type"] == "adjudication_resume_mismatch"
     assert expected_message in result["error"]["message"]
+
+
+def test_exact_mismatch_discards_only_bound_adjudication_visit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate_attempts = tmp_path / "candidate_attempts.txt"
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({candidate_attempts.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/a.md').write_text('selected once', encoding='utf-8')\n"
+        ),
+    ]
+    original_promote = executor_module.promote_candidate_outputs
+
+    def interrupt_before_promotion(**_: object) -> object:
+        raise SystemExit("interrupted before promotion")
+
+    monkeypatch.setattr(
+        executor_module,
+        "promote_candidate_outputs",
+        interrupt_before_promotion,
+    )
+    with pytest.raises(SystemExit):
+        _run(tmp_path, workflow)
+
+    run_root = tmp_path / ".orchestrate/runs/run-1"
+    old_visit = adjudication_visit_paths(run_root, "root", "root.draft", 1)
+    old_candidate_visit = candidate_visit_root(
+        run_root,
+        "root",
+        "root.draft",
+        1,
+    )
+    old_promotion_visit = old_visit.promotion_manifest_path.parent
+    metadata_path = candidate_metadata_path(
+        candidate_paths(run_root, "root", "root.draft", 1, "a")
+    )
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["candidate_config_hash"] = "sha256:" + ("0" * 64)
+    metadata_path.write_text(
+        json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+
+    sibling_sentinels = [
+        run_root / "adjudication/root/root.draft/2/sentinel",
+        run_root / "adjudication/root/root.sibling/1/sentinel",
+        run_root / "candidates/root/root.draft/2/sentinel",
+        run_root / "candidates/root/root.sibling/1/sentinel",
+        run_root / "promotions/root/root.draft/2/sentinel",
+        run_root / "promotions/root/root.sibling/1/sentinel",
+    ]
+    for index, sentinel in enumerate(sibling_sentinels):
+        sentinel.parent.mkdir(parents=True, exist_ok=True)
+        sentinel.write_bytes(f"sibling-{index}".encode())
+    score_ledger_mirror = tmp_path / "artifacts/evaluations/draft_scores.jsonl"
+    score_ledger_mirror.parent.mkdir(parents=True, exist_ok=True)
+    score_ledger_mirror.write_bytes(b"workspace-ledger-sentinel\n")
+    preserved_before = {
+        path: path.read_bytes()
+        for path in [*sibling_sentinels, score_ledger_mirror]
+    }
+
+    monkeypatch.setattr(
+        executor_module,
+        "promote_candidate_outputs",
+        original_promote,
+    )
+    state = _resume(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    persisted = json.loads((run_root / "state.json").read_text(encoding="utf-8"))
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "adjudication_resume_mismatch"
+    assert "adjudication" not in result
+    assert not old_visit.adjudication_root.exists()
+    assert not old_candidate_visit.exists()
+    assert not old_promotion_visit.exists()
+    assert {
+        path: path.read_bytes()
+        for path in [*sibling_sentinels, score_ledger_mirror]
+    } == preserved_before
+    assert persisted["steps"]["Draft"]["error"]["type"] == "adjudication_resume_mismatch"
+    assert "adjudication" not in persisted["steps"]["Draft"]
+    assert persisted["step_visits"]["Draft"] == 2
+    assert persisted.get("current_step") is None
+    assert candidate_attempts.read_text(encoding="utf-8") == "1"
+
+
+def test_unprovable_cleanup_scope_makes_no_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate_attempts = tmp_path / "candidate_attempts.txt"
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({candidate_attempts.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/a.md').write_text('selected once', encoding='utf-8')\n"
+        ),
+    ]
+    original_promote = executor_module.promote_candidate_outputs
+
+    def interrupt_before_promotion(**_: object) -> object:
+        raise SystemExit("interrupted before promotion")
+
+    monkeypatch.setattr(
+        executor_module,
+        "promote_candidate_outputs",
+        interrupt_before_promotion,
+    )
+    with pytest.raises(SystemExit):
+        _run(tmp_path, workflow)
+
+    run_root = tmp_path / ".orchestrate/runs/run-1"
+    metadata_path = candidate_metadata_path(
+        candidate_paths(run_root, "root", "root.draft", 1, "a")
+    )
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["candidate_config_hash"] = "sha256:" + ("0" * 64)
+    metadata_path.write_text(
+        json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+
+    canonical_component = run_root / "adjudication"
+    moved_component = run_root / "moved-adjudication"
+    canonical_component.rename(moved_component)
+    canonical_component.symlink_to(moved_component, target_is_directory=True)
+    candidate_visit = candidate_visit_root(
+        run_root,
+        "root",
+        "root.draft",
+        1,
+    )
+    promotion_visit = (
+        adjudication_visit_paths(
+            run_root,
+            "root",
+            "root.draft",
+            1,
+        ).promotion_manifest_path.parent
+    )
+    (promotion_visit / "sentinel").parent.mkdir(parents=True, exist_ok=True)
+    (promotion_visit / "sentinel").write_bytes(b"promotion sentinel")
+    (candidate_visit / "sentinel").write_bytes(b"candidate sentinel")
+    score_ledger_mirror = tmp_path / "artifacts/evaluations/draft_scores.jsonl"
+    score_ledger_mirror.parent.mkdir(parents=True, exist_ok=True)
+    score_ledger_mirror.write_bytes(b"workspace-ledger-sentinel\n")
+    sidecars_before = _file_bytes_under(
+        moved_component,
+        candidate_visit,
+        promotion_visit,
+        score_ledger_mirror,
+    )
+
+    monkeypatch.setattr(
+        executor_module,
+        "promote_candidate_outputs",
+        original_promote,
+    )
+    state = _resume(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "adjudication_state_integrity_error"
+    assert canonical_component.is_symlink()
+    assert _file_bytes_under(
+        moved_component,
+        candidate_visit,
+        promotion_visit,
+        score_ledger_mirror,
+    ) == sidecars_before
+    assert candidate_attempts.read_text(encoding="utf-8") == "1"
+
+
+def test_unbound_promotion_manifest_destination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate_attempts = tmp_path / "candidate_attempts.txt"
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({candidate_attempts.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/a.md').write_text('selected once', encoding='utf-8')\n"
+        ),
+    ]
+    original_promote = executor_module.promote_candidate_outputs
+
+    def interrupt_before_promotion(**_: object) -> object:
+        raise SystemExit("interrupted before promotion")
+
+    monkeypatch.setattr(
+        executor_module,
+        "promote_candidate_outputs",
+        interrupt_before_promotion,
+    )
+    with pytest.raises(SystemExit):
+        _run(tmp_path, workflow)
+
+    run_root = tmp_path / ".orchestrate/runs/run-1"
+    old_visit = adjudication_visit_paths(run_root, "root", "root.draft", 1)
+    old_candidate_visit = candidate_visit_root(
+        run_root,
+        "root",
+        "root.draft",
+        1,
+    )
+    old_promotion_visit = old_visit.promotion_manifest_path.parent
+    metadata_path = candidate_metadata_path(
+        candidate_paths(run_root, "root", "root.draft", 1, "a")
+    )
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["candidate_config_hash"] = "sha256:" + ("0" * 64)
+    metadata_path.write_text(
+        json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+
+    victim_bytes = b"unrelated owner bytes\n"
+    victim_rel = "unrelated/victim.txt"
+    victim = tmp_path / victim_rel
+    victim.parent.mkdir(parents=True, exist_ok=True)
+    victim.write_bytes(victim_bytes)
+    forged_source = old_promotion_visit / "candidate-source" / victim_rel
+    forged_source.parent.mkdir(parents=True, exist_ok=True)
+    forged_source.write_bytes(victim_bytes)
+    victim_digest = f"sha256:{sha256(victim_bytes).hexdigest()}"
+    forged_manifest = {
+        "schema": "adjudicated_provider.promotion.v1",
+        "status": "committing",
+        "selected_candidate_id": "a",
+        "files": [
+            {
+                "role": "value_file",
+                "artifact": "result_path",
+                "source": forged_source.as_posix(),
+                "dest_rel": victim_rel,
+                "source_sha256": victim_digest,
+                "baseline_preimage": {"state": "absent"},
+                "current_preimage": {"state": "absent"},
+            }
+        ],
+        "promoted_paths": {"result_path": victim_rel},
+        "created_parent_dirs": [],
+    }
+    old_visit.promotion_manifest_path.write_text(
+        json.dumps(forged_manifest, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    visit_bytes_before = _file_bytes_under(
+        old_visit.adjudication_root,
+        old_candidate_visit,
+        old_promotion_visit,
+    )
+
+    monkeypatch.setattr(
+        executor_module,
+        "promote_candidate_outputs",
+        original_promote,
+    )
+    state = _resume(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "adjudication_state_integrity_error"
+    assert victim.read_bytes() == victim_bytes
+    assert _file_bytes_under(
+        old_visit.adjudication_root,
+        old_candidate_visit,
+        old_promotion_visit,
+    ) == visit_bytes_before
+    assert candidate_attempts.read_text(encoding="utf-8") == "1"
 
 
 def test_resume_source_mutation_reports_root_checksum_mismatch_before_adjudication(

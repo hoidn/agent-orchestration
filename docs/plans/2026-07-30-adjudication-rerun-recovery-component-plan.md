@@ -20,8 +20,10 @@ filesystem operations, and Workflow Lisp end-to-end fixtures.
 
 **Status:** active. ML-4 is current after ML-2 closed at
 `b8783f66db4680bdec048e1b54ac14c1ae8b4d1b`, tree
-`b833b03cb91396cddf64a12cbbbc8d016cd306ad`; Task 1 closes through the
-commit containing this record, and Task 2 is current.
+`b833b03cb91396cddf64a12cbbbc8d016cd306ad`; Task 1 closed at
+`c45928f4399dbe1cb1105136a320638b95b9c3a8`, tree
+`c0ea1821d573ecfe9d3c5d98b1cab5d02be3e7f3`; Task 2 closes through the
+commit containing this record, and Task 3 is current.
 
 ## Authority and bounds
 
@@ -93,7 +95,7 @@ replay.
 - Modify: `orchestrator/workflow/adjudication/promotion.py`
 - Modify: `tests/test_adjudicated_provider_runtime.py`
 
-- [ ] First add
+- [x] First add
   `test_exact_mismatch_discards_only_bound_adjudication_visit` and
   `test_unprovable_cleanup_scope_makes_no_mutation`. Run:
 
@@ -104,17 +106,36 @@ replay.
 
   Expected RED: the exact mismatch fails instead of cleaning/rerunning; the
   no-mutation negative remains green.
-- [ ] Implement cleanup from canonical run-owned coordinates rather than
+- [x] Implement cleanup from canonical run-owned coordinates rather than
   trusting sidecar-provided paths.
-- [ ] Remove only partial candidate metadata, scorer snapshots, packets,
+- [x] Remove only partial candidate metadata, scorer snapshots, packets,
   ledgers, and promotion staging for the exact discarded visit; clear its
   partial `steps.<Step>.adjudication` and matching live cursor atomically
   enough that a second interruption remains classifiable.
-- [ ] Preserve already promoted, consistent completed visits.
-- [ ] Prove cleanup failure stops before provider launch and reports an
+- [x] Preserve already promoted, consistent completed visits.
+- [x] Prove cleanup failure stops before provider launch and reports an
   integrity error rather than claiming a clean rerun.
-- [ ] Run focused tests, ordered specification then quality review, and commit
+- [x] Run focused tests, ordered specification then quality review, and commit
   with subject `Discard mismatched adjudication visits`.
+
+Task 2 candidate evidence: the exact selector first failed collection on the
+missing candidate-visit path API, then failed behaviorally because the
+transitional mismatch retained its adjudication block and visit trees. It now
+passes both exact-scope cleanup and aliased-scope no-mutation cases. Promotion
+discard coverage proves absent-root idempotence, prepared-state verification,
+rollback for every later manifest status, exact backup hash/mode validation,
+already-restored preimages, and fail-closed malformed or unrelated manifest
+authority. The live retry counter remains at the new visit while prior-visit
+state is inspected; only a successfully reusable prior visit rolls that
+counter back. The first specification review found that a syntactically valid
+manifest could otherwise nominate an unrelated workspace destination.
+Correction now reconstructs the ordered promotion table and promoted-path map
+from the current output contract, canonical selected-candidate workspace, and
+digest-checked baseline snapshot, then requires exact manifest equality before
+rollback. The focused four-module candidate passes 151 tests; compile and diff
+checks pass. The required specification replay returned
+`ML4_TASK2_SPEC_APPROVED`, followed by
+`ML4_TASK2_QUALITY_APPROVED`; no further replay was needed.
 
 ## Task 3: Re-enter ordinary adjudication dispatch
 

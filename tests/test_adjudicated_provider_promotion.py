@@ -1,4 +1,5 @@
 import json
+import shutil
 from hashlib import sha256
 from pathlib import Path
 
@@ -11,6 +12,10 @@ from orchestrator.workflow.adjudication import (
     adjudication_visit_paths,
     create_baseline_snapshot,
     promote_candidate_outputs,
+)
+from orchestrator.workflow.adjudication.promotion import (
+    derive_promotion_rollback_authority,
+    discard_partial_promotion_visit,
 )
 
 
@@ -493,6 +498,509 @@ def _write_resume_manifest(
         payload["failure_type"] = failure_type
         payload["failure_message"] = "recorded failure"
     manifest_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+
+
+def _write_discard_manifest(
+    manifest_path: Path,
+    *,
+    status: str,
+    baseline_text: str | None,
+    selected_text: str = "selected\n",
+) -> tuple[Path, Path, dict[str, object]]:
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    dest_rel = "state/result.txt"
+    source = manifest_path.parent / "candidate-source" / dest_rel
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(selected_text, encoding="utf-8")
+    baseline_preimage: dict[str, object]
+    if baseline_text is None:
+        baseline_preimage = {"state": "absent"}
+    else:
+        backup = manifest_path.parent / "backups" / dest_rel
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        backup.write_text(baseline_text, encoding="utf-8")
+        baseline_preimage = {
+            "state": "file",
+            "sha256": _hash_text(baseline_text),
+            "mode": backup.stat().st_mode & 0o777,
+        }
+    payload = {
+        "schema": "adjudicated_provider.promotion.v1",
+        "status": status,
+        "selected_candidate_id": "candidate-a",
+        "files": [
+            {
+                "role": "value_file",
+                "artifact": "result",
+                "source": source.as_posix(),
+                "dest_rel": dest_rel,
+                "source_sha256": _hash_text(selected_text),
+                "baseline_preimage": baseline_preimage,
+                "current_preimage": baseline_preimage,
+            }
+        ],
+        "promoted_paths": {"result": dest_rel},
+        "created_parent_dirs": ["state"],
+    }
+    manifest_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    expected_rollback = {
+        "selected_candidate_id": "candidate-a",
+        "files": payload["files"],
+        "promoted_paths": payload["promoted_paths"],
+    }
+    return source, manifest_path.parent / "backups" / dest_rel, expected_rollback
+
+
+def test_discard_partial_promotion_visit_absent_root_is_noop(tmp_path: Path) -> None:
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    manifest_path = tmp_path / "run/promotions/root/draft/1/manifest.json"
+
+    discard_partial_promotion_visit(
+        parent_workspace=parent,
+        promotion_manifest_path=manifest_path,
+        expected_rollback={
+            "selected_candidate_id": None,
+            "files": [],
+            "promoted_paths": {},
+        },
+    )
+
+    assert not manifest_path.parent.exists()
+
+
+def test_discard_prepared_promotion_verifies_preimages_before_removing_visit(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    destination = parent / "state/result.txt"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("baseline\n", encoding="utf-8")
+    manifest_path = tmp_path / "run/promotions/root/draft/1/manifest.json"
+    _, backup, expected_rollback = _write_discard_manifest(
+        manifest_path,
+        status="prepared",
+        baseline_text="baseline\n",
+    )
+    backup.chmod(destination.stat().st_mode & 0o777)
+
+    discard_partial_promotion_visit(
+        parent_workspace=parent,
+        promotion_manifest_path=manifest_path,
+        expected_rollback=expected_rollback,
+    )
+
+    assert destination.read_text(encoding="utf-8") == "baseline\n"
+    assert not manifest_path.parent.exists()
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["committing", "rolling_back", "failed", "committed"],
+)
+def test_discard_partial_promotion_visit_restores_parent_preimage_idempotently(
+    tmp_path: Path,
+    status: str,
+) -> None:
+    parent = tmp_path / "parent"
+    destination = parent / "state/result.txt"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("selected\n", encoding="utf-8")
+    manifest_path = tmp_path / "run/promotions/root/draft/1/manifest.json"
+    _, backup, expected_rollback = _write_discard_manifest(
+        manifest_path,
+        status=status,
+        baseline_text="baseline\n",
+    )
+    destination.chmod(backup.stat().st_mode & 0o777)
+
+    discard_partial_promotion_visit(
+        parent_workspace=parent,
+        promotion_manifest_path=manifest_path,
+        expected_rollback=expected_rollback,
+    )
+    discard_partial_promotion_visit(
+        parent_workspace=parent,
+        promotion_manifest_path=manifest_path,
+        expected_rollback=expected_rollback,
+    )
+
+    assert destination.read_text(encoding="utf-8") == "baseline\n"
+    assert not manifest_path.parent.exists()
+
+
+def test_discard_partial_promotion_removes_file_with_absent_preimage(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    destination = parent / "state/result.txt"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("selected\n", encoding="utf-8")
+    manifest_path = tmp_path / "run/promotions/root/draft/1/manifest.json"
+    _, _, expected_rollback = _write_discard_manifest(
+        manifest_path,
+        status="committing",
+        baseline_text=None,
+    )
+
+    discard_partial_promotion_visit(
+        parent_workspace=parent,
+        promotion_manifest_path=manifest_path,
+        expected_rollback=expected_rollback,
+    )
+
+    assert not destination.exists()
+    assert destination.parent.is_dir()
+    assert not manifest_path.parent.exists()
+
+
+def test_discard_partial_promotion_accepts_exact_baseline_before_source_hash(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    destination = parent / "state/result.txt"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("same\n", encoding="utf-8")
+    manifest_path = tmp_path / "run/promotions/root/draft/1/manifest.json"
+    _, _, expected_rollback = _write_discard_manifest(
+        manifest_path,
+        status="failed",
+        baseline_text="same\n",
+        selected_text="same\n",
+    )
+    shutil.rmtree(manifest_path.parent / "backups")
+
+    discard_partial_promotion_visit(
+        parent_workspace=parent,
+        promotion_manifest_path=manifest_path,
+        expected_rollback=expected_rollback,
+    )
+
+    assert destination.read_text(encoding="utf-8") == "same\n"
+    assert not manifest_path.parent.exists()
+
+
+@pytest.mark.parametrize("tamper", ["hash", "mode"])
+def test_discard_partial_promotion_rejects_invalid_backup_and_preserves_visit(
+    tmp_path: Path,
+    tamper: str,
+) -> None:
+    parent = tmp_path / "parent"
+    destination = parent / "state/result.txt"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("selected\n", encoding="utf-8")
+    manifest_path = tmp_path / "run/promotions/root/draft/1/manifest.json"
+    _, backup, expected_rollback = _write_discard_manifest(
+        manifest_path,
+        status="committing",
+        baseline_text="baseline\n",
+    )
+    if tamper == "hash":
+        backup.write_text("tampered\n", encoding="utf-8")
+    else:
+        backup.chmod(0o600 if backup.stat().st_mode & 0o777 != 0o600 else 0o644)
+
+    with pytest.raises(PromotionConflictError) as exc_info:
+        discard_partial_promotion_visit(
+            parent_workspace=parent,
+            promotion_manifest_path=manifest_path,
+            expected_rollback=expected_rollback,
+        )
+
+    assert exc_info.value.failure_type == "promotion_rollback_conflict"
+    assert destination.read_text(encoding="utf-8") == "selected\n"
+    assert manifest_path.parent.exists()
+
+
+def test_discard_prepared_promotion_rejects_parent_change_and_preserves_visit(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    destination = parent / "state/result.txt"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("changed\n", encoding="utf-8")
+    manifest_path = tmp_path / "run/promotions/root/draft/1/manifest.json"
+    _, _, expected_rollback = _write_discard_manifest(
+        manifest_path,
+        status="prepared",
+        baseline_text="baseline\n",
+    )
+
+    with pytest.raises(PromotionConflictError) as exc_info:
+        discard_partial_promotion_visit(
+            parent_workspace=parent,
+            promotion_manifest_path=manifest_path,
+            expected_rollback=expected_rollback,
+        )
+
+    assert exc_info.value.failure_type == "promotion_rollback_conflict"
+    assert destination.read_text(encoding="utf-8") == "changed\n"
+    assert manifest_path.parent.exists()
+
+
+def test_discard_partial_promotion_rejects_unrelated_created_parent_directory(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    destination = parent / "state/result.txt"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("selected\n", encoding="utf-8")
+    unrelated = parent / "unrelated-empty"
+    unrelated.mkdir()
+    manifest_path = tmp_path / "run/promotions/root/draft/1/manifest.json"
+    _, _, expected_rollback = _write_discard_manifest(
+        manifest_path,
+        status="committing",
+        baseline_text=None,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["created_parent_dirs"] = ["unrelated-empty"]
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+
+    with pytest.raises(PromotionConflictError) as exc_info:
+        discard_partial_promotion_visit(
+            parent_workspace=parent,
+            promotion_manifest_path=manifest_path,
+            expected_rollback=expected_rollback,
+        )
+
+    assert exc_info.value.failure_type == "promotion_rollback_conflict"
+    assert destination.read_text(encoding="utf-8") == "selected\n"
+    assert unrelated.is_dir()
+    assert manifest_path.parent.exists()
+
+
+def test_discard_partial_promotion_rejects_valid_shaped_unrelated_destination(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    expected_destination = parent / "state/result.txt"
+    expected_destination.parent.mkdir(parents=True)
+    expected_destination.write_text("selected\n", encoding="utf-8")
+    unrelated_destination = parent / "unrelated/result.txt"
+    unrelated_destination.parent.mkdir(parents=True)
+    unrelated_destination.write_text("selected\n", encoding="utf-8")
+    manifest_path = tmp_path / "run/promotions/root/draft/1/manifest.json"
+    _, _, expected_rollback = _write_discard_manifest(
+        manifest_path,
+        status="committing",
+        baseline_text=None,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["files"][0]["dest_rel"] = "unrelated/result.txt"
+    manifest["created_parent_dirs"] = ["unrelated"]
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+
+    with pytest.raises(PromotionConflictError) as exc_info:
+        discard_partial_promotion_visit(
+            parent_workspace=parent,
+            promotion_manifest_path=manifest_path,
+            expected_rollback=expected_rollback,
+        )
+
+    assert exc_info.value.failure_type == "promotion_rollback_conflict"
+    assert expected_destination.read_text(encoding="utf-8") == "selected\n"
+    assert unrelated_destination.read_text(encoding="utf-8") == "selected\n"
+    assert manifest_path.parent.exists()
+
+
+def test_discard_partial_promotion_requires_authoritative_promoted_paths(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    destination = parent / "state/result.txt"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("selected\n", encoding="utf-8")
+    manifest_path = tmp_path / "run/promotions/root/draft/1/manifest.json"
+    _, _, expected_rollback = _write_discard_manifest(
+        manifest_path,
+        status="committing",
+        baseline_text=None,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["promoted_paths"] = {"result": "unrelated/result.txt"}
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+
+    with pytest.raises(PromotionConflictError) as exc_info:
+        discard_partial_promotion_visit(
+            parent_workspace=parent,
+            promotion_manifest_path=manifest_path,
+            expected_rollback=expected_rollback,
+        )
+
+    assert exc_info.value.failure_type == "promotion_rollback_conflict"
+    assert destination.read_text(encoding="utf-8") == "selected\n"
+    assert manifest_path.parent.exists()
+
+
+def test_discard_partial_promotion_requires_authoritative_file_order(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    (parent / "state").mkdir(parents=True)
+    (parent / "state/result.txt").write_text("selected\n", encoding="utf-8")
+    (parent / "state/other.txt").write_text("selected\n", encoding="utf-8")
+    manifest_path = tmp_path / "run/promotions/root/draft/1/manifest.json"
+    source, _, expected_rollback = _write_discard_manifest(
+        manifest_path,
+        status="committing",
+        baseline_text=None,
+    )
+    other_row = dict(expected_rollback["files"][0])
+    other_row["artifact"] = "other"
+    other_row["dest_rel"] = "state/other.txt"
+    other_row["source"] = source.as_posix()
+    expected_rollback["files"].append(other_row)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["files"] = [other_row, manifest["files"][0]]
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+
+    with pytest.raises(PromotionConflictError) as exc_info:
+        discard_partial_promotion_visit(
+            parent_workspace=parent,
+            promotion_manifest_path=manifest_path,
+            expected_rollback=expected_rollback,
+        )
+
+    assert exc_info.value.failure_type == "promotion_rollback_conflict"
+    assert (parent / "state/result.txt").exists()
+    assert (parent / "state/other.txt").exists()
+    assert manifest_path.parent.exists()
+
+
+def test_derive_promotion_rollback_authority_binds_snapshot_and_candidate(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    candidate = tmp_path / "candidate"
+    (parent / "state").mkdir(parents=True)
+    (parent / "state/result.txt").write_text("baseline\n", encoding="utf-8")
+    (candidate / "state").mkdir(parents=True)
+    (candidate / "state/result.txt").write_text("selected\n", encoding="utf-8")
+    _, baseline_manifest = _baseline(tmp_path, parent)
+
+    authority = derive_promotion_rollback_authority(
+        expected_outputs=[
+            {"name": "result", "path": "state/result.txt", "type": "string"}
+        ],
+        output_bundle=None,
+        candidate_workspace=candidate,
+        parent_workspace=parent,
+        baseline_manifest=baseline_manifest,
+        selected_candidate_id="candidate-a",
+    )
+
+    assert authority["selected_candidate_id"] == "candidate-a"
+    assert authority["promoted_paths"] == {"result": "state/result.txt"}
+    assert authority["files"] == [
+        {
+            "role": "value_file",
+            "artifact": "result",
+            "source": (candidate / "state/result.txt").resolve().as_posix(),
+            "dest_rel": "state/result.txt",
+            "source_sha256": _hash_text("selected\n"),
+            "baseline_preimage": {
+                "state": "file",
+                "sha256": _hash_text("baseline\n"),
+                "mode": (parent / "state/result.txt").stat().st_mode & 0o777,
+            },
+            "current_preimage": {
+                "state": "file",
+                "sha256": _hash_text("baseline\n"),
+                "mode": (parent / "state/result.txt").stat().st_mode & 0o777,
+            },
+        }
+    ]
+
+
+def test_derive_promotion_rollback_authority_rejects_tampered_baseline_snapshot(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    candidate = tmp_path / "candidate"
+    (parent / "state").mkdir(parents=True)
+    (parent / "state/result.txt").write_text("baseline\n", encoding="utf-8")
+    (candidate / "state").mkdir(parents=True)
+    (candidate / "state/result.txt").write_text("selected\n", encoding="utf-8")
+    _, baseline_manifest = _baseline(tmp_path, parent)
+    baseline_copy = Path(baseline_manifest.baseline_workspace) / "state/result.txt"
+    baseline_copy.write_text("tampered\n", encoding="utf-8")
+
+    with pytest.raises(PromotionConflictError) as exc_info:
+        derive_promotion_rollback_authority(
+            expected_outputs=[
+                {"name": "result", "path": "state/result.txt", "type": "string"}
+            ],
+            output_bundle=None,
+            candidate_workspace=candidate,
+            parent_workspace=parent,
+            baseline_manifest=baseline_manifest,
+            selected_candidate_id="candidate-a",
+        )
+
+    assert exc_info.value.failure_type == "promotion_rollback_conflict"
+
+
+@pytest.mark.parametrize(
+    "manifest_payload",
+    [
+        "{not json",
+        json.dumps({"schema": "wrong", "status": "prepared", "files": []}),
+        json.dumps(
+            {
+                "schema": "adjudicated_provider.promotion.v1",
+                "status": "unknown",
+                "files": [],
+            }
+        ),
+    ],
+)
+def test_discard_partial_promotion_rejects_malformed_manifest_and_preserves_visit(
+    tmp_path: Path,
+    manifest_payload: str,
+) -> None:
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    manifest_path = tmp_path / "run/promotions/root/draft/1/manifest.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(manifest_payload, encoding="utf-8")
+
+    with pytest.raises(PromotionConflictError) as exc_info:
+        discard_partial_promotion_visit(
+            parent_workspace=parent,
+            promotion_manifest_path=manifest_path,
+            expected_rollback={
+                "selected_candidate_id": None,
+                "files": [],
+                "promoted_paths": {},
+            },
+        )
+
+    assert exc_info.value.failure_type == "promotion_rollback_conflict"
+    assert manifest_path.parent.exists()
+
+
+def test_discard_partial_promotion_rejects_missing_manifest_in_existing_root(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    manifest_path = tmp_path / "run/promotions/root/draft/1/manifest.json"
+    manifest_path.parent.mkdir(parents=True)
+
+    with pytest.raises(PromotionConflictError) as exc_info:
+        discard_partial_promotion_visit(
+            parent_workspace=parent,
+            promotion_manifest_path=manifest_path,
+            expected_rollback={
+                "selected_candidate_id": None,
+                "files": [],
+                "promoted_paths": {},
+            },
+        )
+
+    assert exc_info.value.failure_type == "promotion_rollback_conflict"
+    assert manifest_path.parent.exists()
 
 
 def test_promotion_resumes_committing_manifest_without_candidate_workspace(

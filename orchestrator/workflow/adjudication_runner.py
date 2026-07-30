@@ -62,10 +62,18 @@ class AdjudicationRunner(
         if resume_decision.kind == "rerun_exact_scope":
             if resume_decision.scope is None:
                 raise AssertionError("exact-scope decision omitted its scope")
+            cleanup_error = self._discard_exact_adjudication_visit(
+                execution,
+                resume_decision.scope,
+            )
+            if cleanup_error is not None:
+                return self._adjudication_failure_result(
+                    "adjudication_state_integrity_error",
+                    cleanup_error,
+                )
             return self._adjudication_failure_result(
                 "adjudication_resume_mismatch",
                 str(resume_decision.message),
-                visit_paths=resume_decision.scope.visit_paths,
             )
         baseline_error = self._ensure_adjudication_baseline(execution)
         if baseline_error is not None:

@@ -19,6 +19,7 @@ from .utils import (
     _hash_file,
     _is_within,
     _matching_exclusion,
+    _require_canonical_child,
     _replace_file,
     _resolve_json_pointer,
     _safe_relpath,
@@ -258,6 +259,332 @@ def _load_promotion_manifest(path: Path) -> dict[str, Any]:
     if not isinstance(document, dict):
         raise PromotionConflictError("promotion manifest must be a JSON object")
     return document
+
+
+def derive_promotion_rollback_authority(
+    *,
+    expected_outputs: list[dict] | None,
+    output_bundle: dict | None,
+    candidate_workspace: Path,
+    parent_workspace: Path,
+    baseline_manifest: BaselineManifest,
+    selected_candidate_id: str | None,
+) -> dict[str, Any]:
+    """Derive rollback authority from contracts, candidate bytes, and snapshot."""
+
+    candidate_workspace = candidate_workspace.resolve()
+    parent_workspace = parent_workspace.resolve()
+    try:
+        if output_bundle:
+            artifacts = validate_output_bundle(
+                output_bundle,
+                workspace=candidate_workspace,
+            )
+        else:
+            artifacts = validate_expected_outputs(
+                expected_outputs or [],
+                workspace=candidate_workspace,
+            )
+        files, promoted_paths = _promotion_file_plan(
+            expected_outputs=expected_outputs,
+            output_bundle=output_bundle,
+            candidate_workspace=candidate_workspace,
+            parent_workspace=parent_workspace,
+            artifacts=artifacts,
+        )
+        _reject_duplicate_destinations(files)
+        baseline_workspace = Path(baseline_manifest.baseline_workspace)
+        for file_entry in files:
+            dest_rel = str(file_entry["dest_rel"])
+            _require_canonical_child(
+                parent_workspace / dest_rel,
+                parent_workspace,
+            )
+            baseline_preimage = _baseline_preimage(
+                baseline_manifest,
+                dest_rel,
+            )
+            if baseline_preimage.get("state") == "unavailable":
+                raise PromotionConflictError(
+                    f"promotion destination '{dest_rel}' has unavailable baseline preimage"
+                )
+            _require_canonical_child(
+                baseline_workspace / dest_rel,
+                baseline_workspace,
+            )
+            if _current_preimage(baseline_workspace, dest_rel) != baseline_preimage:
+                raise PromotionConflictError(
+                    f"promotion baseline snapshot does not match manifest for '{dest_rel}'"
+                )
+            file_entry["source_sha256"] = _hash_file(file_entry["source"])
+            file_entry["baseline_preimage"] = baseline_preimage
+            file_entry["current_preimage"] = baseline_preimage
+    except (OutputContractError, PromotionConflictError, OSError, TypeError, ValueError) as exc:
+        raise PromotionConflictError(
+            f"promotion rollback authority cannot be derived: {exc}",
+            failure_type="promotion_rollback_conflict",
+        ) from exc
+
+    return {
+        "selected_candidate_id": selected_candidate_id,
+        "files": [_promotion_manifest_file_entry(file_entry) for file_entry in files],
+        "promoted_paths": promoted_paths,
+    }
+
+
+def discard_partial_promotion_visit(
+    *,
+    parent_workspace: Path,
+    promotion_manifest_path: Path,
+    expected_rollback: Mapping[str, Any],
+) -> None:
+    """Restore one partial promotion's preimages, then remove its visit root."""
+
+    promotion_root = promotion_manifest_path.parent
+    if not promotion_root.exists() and not promotion_root.is_symlink():
+        return
+
+    try:
+        if promotion_root.is_symlink() or not promotion_root.is_dir():
+            raise PromotionConflictError("promotion visit root is not a canonical directory")
+        if (
+            promotion_manifest_path.parent != promotion_root
+            or promotion_manifest_path.name != "manifest.json"
+            or promotion_manifest_path.is_symlink()
+        ):
+            raise PromotionConflictError("promotion manifest path is not canonical")
+
+        manifest = _load_promotion_manifest(promotion_manifest_path)
+        status = _validate_discard_promotion_manifest(
+            manifest,
+            parent_workspace=parent_workspace,
+            promotion_root=promotion_root,
+        )
+        _require_expected_rollback_authority(
+            manifest=manifest,
+            expected_rollback=expected_rollback,
+        )
+        if status == "prepared":
+            _verify_manifest_preimages(manifest, parent_workspace)
+        else:
+            _rollback_promoted_files(
+                files=manifest["files"],
+                parent_workspace=parent_workspace,
+                backups_root=promotion_root / "backups",
+            )
+    except PromotionConflictError as exc:
+        if exc.failure_type == "promotion_rollback_conflict":
+            raise
+        raise PromotionConflictError(
+            str(exc),
+            failure_type="promotion_rollback_conflict",
+        ) from exc
+    except (KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise PromotionConflictError(
+            f"promotion visit cannot be discarded: {exc}",
+            failure_type="promotion_rollback_conflict",
+        ) from exc
+
+    try:
+        shutil.rmtree(promotion_root)
+    except OSError as exc:
+        raise PromotionConflictError(
+            f"promotion visit cannot be removed: {exc}",
+            failure_type="promotion_rollback_conflict",
+        ) from exc
+
+
+def _require_expected_rollback_authority(
+    *,
+    manifest: Mapping[str, Any],
+    expected_rollback: Mapping[str, Any],
+) -> None:
+    if not isinstance(expected_rollback, Mapping):
+        raise PromotionConflictError("expected promotion rollback authority is invalid")
+    if "selected_candidate_id" not in manifest or "selected_candidate_id" not in expected_rollback:
+        raise PromotionConflictError("promotion rollback candidate authority is missing")
+    expected_candidate_id = expected_rollback.get("selected_candidate_id")
+    if expected_candidate_id is not None and (
+        not isinstance(expected_candidate_id, str) or not expected_candidate_id
+    ):
+        raise PromotionConflictError("expected promotion rollback candidate is invalid")
+    if manifest.get("selected_candidate_id") != expected_candidate_id:
+        raise PromotionConflictError(
+            "promotion manifest selected candidate does not match rollback authority"
+        )
+    if _normalized_promoted_paths(
+        manifest.get("promoted_paths")
+    ) != _normalized_promoted_paths(expected_rollback.get("promoted_paths")):
+        raise PromotionConflictError(
+            "promotion manifest promoted paths do not match rollback authority"
+        )
+    if _normalized_rollback_files(manifest.get("files")) != _normalized_rollback_files(
+        expected_rollback.get("files")
+    ):
+        raise PromotionConflictError(
+            "promotion manifest files do not match rollback authority"
+        )
+
+
+def _normalized_promoted_paths(value: Any) -> dict[str, str]:
+    if not isinstance(value, Mapping):
+        raise PromotionConflictError("promotion rollback promoted paths are invalid")
+    normalized: dict[str, str] = {}
+    for artifact, raw_path in value.items():
+        if (
+            not isinstance(artifact, str)
+            or not artifact
+            or not isinstance(raw_path, str)
+            or _safe_relpath(raw_path) != raw_path
+        ):
+            raise PromotionConflictError("promotion rollback promoted paths are invalid")
+        normalized[artifact] = raw_path
+    return normalized
+
+
+def _normalized_rollback_files(files: Any) -> tuple[tuple[str, ...], ...]:
+    if not isinstance(files, Sequence) or isinstance(files, (str, bytes)):
+        raise PromotionConflictError("promotion rollback files must be a sequence")
+    normalized: list[tuple[str, ...]] = []
+    for file_entry in files:
+        if not isinstance(file_entry, Mapping):
+            raise PromotionConflictError("promotion rollback contains an invalid file entry")
+        role = file_entry.get("role")
+        artifact = file_entry.get("artifact")
+        source = file_entry.get("source")
+        dest_rel = file_entry.get("dest_rel")
+        source_sha256 = file_entry.get("source_sha256")
+        if (
+            not isinstance(role, str)
+            or not role
+            or not isinstance(artifact, str)
+            or not artifact
+            or not isinstance(source, str)
+            or not source
+            or not isinstance(dest_rel, str)
+            or _safe_relpath(dest_rel) != dest_rel
+            or not _is_sha256_digest(source_sha256)
+        ):
+            raise PromotionConflictError("promotion rollback contains an invalid file entry")
+        baseline_preimage = file_entry.get("baseline_preimage")
+        current_preimage = file_entry.get("current_preimage")
+        _validate_baseline_preimage(baseline_preimage, dest_rel=dest_rel)
+        _validate_baseline_preimage(current_preimage, dest_rel=dest_rel)
+        normalized.append(
+            (
+                role,
+                artifact,
+                Path(source).resolve().as_posix(),
+                dest_rel,
+                str(source_sha256),
+                _canonical_json(baseline_preimage),
+                _canonical_json(current_preimage),
+            )
+        )
+    return tuple(normalized)
+
+
+def _validate_discard_promotion_manifest(
+    manifest: Mapping[str, Any],
+    *,
+    parent_workspace: Path,
+    promotion_root: Path,
+) -> str:
+    if manifest.get("schema") != "adjudicated_provider.promotion.v1":
+        raise PromotionConflictError("promotion manifest has an unsupported schema")
+    status = manifest.get("status")
+    if status not in {"prepared", "committing", "rolling_back", "failed", "committed"}:
+        raise PromotionConflictError(f"promotion manifest has unsupported status '{status}'")
+
+    files = manifest.get("files")
+    if not isinstance(files, list):
+        raise PromotionConflictError("promotion manifest files must be a list")
+    seen: dict[str, tuple[str, str]] = {}
+    allowed_created_parent_dirs: set[str] = set()
+    for file_entry in files:
+        if not isinstance(file_entry, Mapping):
+            raise PromotionConflictError("promotion manifest contains an invalid file entry")
+        dest_rel = file_entry.get("dest_rel")
+        if not isinstance(dest_rel, str) or _safe_relpath(dest_rel) != dest_rel:
+            raise PromotionConflictError("promotion manifest contains an invalid destination")
+        parent = Path(dest_rel).parent
+        while parent != Path("."):
+            allowed_created_parent_dirs.add(parent.as_posix())
+            parent = parent.parent
+        _require_canonical_child(
+            parent_workspace.resolve() / dest_rel,
+            parent_workspace.resolve(),
+        )
+        source_sha256 = file_entry.get("source_sha256")
+        if not _is_sha256_digest(source_sha256):
+            raise PromotionConflictError(
+                f"promotion manifest contains an invalid source hash for '{dest_rel}'"
+            )
+        baseline_preimage = file_entry.get("baseline_preimage")
+        _validate_baseline_preimage(baseline_preimage, dest_rel=dest_rel)
+        fingerprint = (
+            str(source_sha256),
+            _canonical_json(baseline_preimage),
+        )
+        previous = seen.setdefault(dest_rel, fingerprint)
+        if previous != fingerprint:
+            raise PromotionConflictError(
+                f"promotion manifest contains ambiguous duplicate destination '{dest_rel}'"
+            )
+
+    created_parent_dirs = manifest.get("created_parent_dirs")
+    if not isinstance(created_parent_dirs, list):
+        raise PromotionConflictError("promotion manifest created_parent_dirs must be a list")
+    for rel in created_parent_dirs:
+        if not isinstance(rel, str) or _safe_relpath(rel) != rel:
+            raise PromotionConflictError(
+                "promotion manifest contains an invalid created parent directory"
+            )
+        if rel not in allowed_created_parent_dirs:
+            raise PromotionConflictError(
+                "promotion manifest contains an unrelated created parent directory"
+            )
+        _require_canonical_child(
+            parent_workspace.resolve() / rel,
+            parent_workspace.resolve(),
+        )
+
+    backups_root = promotion_root / "backups"
+    if backups_root.is_symlink():
+        raise PromotionConflictError("promotion backup root is aliased")
+    return str(status)
+
+
+def _validate_baseline_preimage(preimage: Any, *, dest_rel: str) -> None:
+    if not isinstance(preimage, Mapping):
+        raise PromotionConflictError(
+            f"promotion destination '{dest_rel}' has an invalid baseline preimage"
+        )
+    state = preimage.get("state")
+    if state == "absent":
+        return
+    if state != "file":
+        raise PromotionConflictError(
+            f"promotion destination '{dest_rel}' has unavailable baseline preimage"
+        )
+    mode = preimage.get("mode")
+    if (
+        not _is_sha256_digest(preimage.get("sha256"))
+        or not isinstance(mode, int)
+        or isinstance(mode, bool)
+        or mode < 0
+        or mode > 0o777
+    ):
+        raise PromotionConflictError(
+            f"promotion destination '{dest_rel}' has an invalid baseline preimage"
+        )
+
+
+def _is_sha256_digest(value: Any) -> bool:
+    if not isinstance(value, str) or not value.startswith("sha256:"):
+        return False
+    digest = value.removeprefix("sha256:")
+    return len(digest) == 64 and all(char in "0123456789abcdef" for char in digest)
 
 
 def _resume_promotion_manifest(
@@ -526,24 +853,37 @@ def _rollback_promoted_files(
     parent_workspace: Path,
     backups_root: Path,
 ) -> None:
+    actions: list[tuple[Path, str, dict[str, Any], str, Path | None]] = []
+    parent_root = parent_workspace.resolve()
+    backups_root = backups_root.resolve()
     for file_entry in reversed(files):
-        dest_rel = str(file_entry["dest_rel"])
+        if not isinstance(file_entry, Mapping):
+            raise PromotionConflictError(
+                "promotion manifest contains an invalid file entry",
+                failure_type="promotion_rollback_conflict",
+            )
+        dest_rel = _safe_relpath(str(file_entry["dest_rel"]))
         baseline_preimage = dict(file_entry["baseline_preimage"])
         source_sha256 = str(file_entry["source_sha256"])
         current_preimage = _current_preimage(parent_workspace, dest_rel)
-        dest = parent_workspace / dest_rel
+        dest = _require_canonical_child(parent_root / dest_rel, parent_root)
 
         if baseline_preimage.get("state") == "file":
+            if current_preimage == baseline_preimage:
+                continue
             if _preimage_matches_hash(current_preimage, source_sha256):
-                backup = backups_root / dest_rel
-                if not backup.exists():
+                backup = _require_canonical_child(
+                    backups_root / dest_rel,
+                    backups_root,
+                )
+                if _current_preimage(backups_root, dest_rel) != baseline_preimage:
                     raise PromotionConflictError(
-                        f"promotion rollback backup missing for '{dest_rel}'",
+                        f"promotion rollback backup does not match baseline for '{dest_rel}'",
                         failure_type="promotion_rollback_conflict",
                     )
-                _replace_file(backup, dest)
-                continue
-            if _same_file_preimage(current_preimage, baseline_preimage):
+                actions.append(
+                    (dest, dest_rel, baseline_preimage, source_sha256, backup)
+                )
                 continue
             raise PromotionConflictError(
                 f"promotion destination '{dest_rel}' changed before rollback",
@@ -551,11 +891,12 @@ def _rollback_promoted_files(
             )
 
         if baseline_preimage.get("state") == "absent":
-            if _preimage_matches_hash(current_preimage, source_sha256):
-                if dest.exists():
-                    dest.unlink()
-                continue
             if current_preimage.get("state") == "absent":
+                continue
+            if _preimage_matches_hash(current_preimage, source_sha256):
+                actions.append(
+                    (dest, dest_rel, baseline_preimage, source_sha256, None)
+                )
                 continue
             raise PromotionConflictError(
                 f"promotion destination '{dest_rel}' changed before rollback",
@@ -567,14 +908,30 @@ def _rollback_promoted_files(
             failure_type="promotion_rollback_conflict",
         )
 
+    for dest, dest_rel, baseline_preimage, source_sha256, backup in actions:
+        current_preimage = _current_preimage(parent_workspace, dest_rel)
+        if current_preimage == baseline_preimage:
+            continue
+        if not _preimage_matches_hash(current_preimage, source_sha256):
+            raise PromotionConflictError(
+                f"promotion destination '{dest_rel}' changed during rollback",
+                failure_type="promotion_rollback_conflict",
+            )
+        if backup is None:
+            dest.unlink()
+        else:
+            if _current_preimage(backups_root, dest_rel) != baseline_preimage:
+                raise PromotionConflictError(
+                    f"promotion rollback backup changed for '{dest_rel}'",
+                    failure_type="promotion_rollback_conflict",
+                )
+            _replace_file(backup, dest)
+        if _current_preimage(parent_workspace, dest_rel) != baseline_preimage:
+            raise PromotionConflictError(
+                f"promotion destination '{dest_rel}' was not restored",
+                failure_type="promotion_rollback_conflict",
+            )
+
 
 def _preimage_matches_hash(preimage: Mapping[str, Any], sha256_value: str) -> bool:
     return preimage.get("state") == "file" and preimage.get("sha256") == sha256_value
-
-
-def _same_file_preimage(current: Mapping[str, Any], expected: Mapping[str, Any]) -> bool:
-    if current.get("state") != expected.get("state"):
-        return False
-    if current.get("state") != "file":
-        return current.get("state") == expected.get("state")
-    return current.get("sha256") == expected.get("sha256")

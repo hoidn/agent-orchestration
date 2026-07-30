@@ -3,23 +3,34 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import shutil
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, Literal, Mapping, Optional
 
 from .adjudication import (
     AdjudicationVisitPaths,
     BASELINE_COPY_POLICY,
+    BaselineManifest,
+    LOCAL_SECRET_DENYLIST,
+    PromotionConflictError,
+    SCORE_ROW_SCHEMA,
     adjudication_sidecars_exist,
     adjudication_visit_paths,
     candidate_metadata_path,
     candidate_paths,
+    candidate_visit_root,
     load_baseline_manifest,
     load_candidate_metadata,
     load_score_ledger_rows,
     load_scorer_resolution_failure,
     load_scorer_snapshot,
 )
+from .adjudication.promotion import (
+    derive_promotion_rollback_authority,
+    discard_partial_promotion_visit,
+)
+from .adjudication.utils import _require_canonical_child, _stable_hash
 from .adjudication_bindings import AdjudicationExecution
 from .adjudication_runtime import AdjudicationRuntime
 
@@ -111,13 +122,8 @@ def classify_adjudication_resume_mismatch(
         if visit_paths != expected_paths:
             raise ValueError("adjudication visit paths are not canonical")
 
-        resolved_run_root = run_root.resolve()
         for owned_path in expected_paths.__dict__.values():
-            relative_path = owned_path.relative_to(run_root)
-            if relative_path == Path(".") or ".." in relative_path.parts:
-                raise ValueError("adjudication visit path escapes its run root")
-            if owned_path.resolve() != resolved_run_root / relative_path:
-                raise ValueError("adjudication visit path is aliased")
+            _require_canonical_child(owned_path, run_root)
     except (OSError, RuntimeError, TypeError, ValueError):
         return AdjudicationResumeDecision.integrity_error(integrity_message)
 
@@ -134,26 +140,262 @@ def classify_adjudication_resume_mismatch(
 
 
 class AdjudicationResumeMixin:
+    def _discard_exact_adjudication_visit(
+        self: AdjudicationRuntime,
+        execution: AdjudicationExecution,
+        scope: AdjudicationResumeScope,
+    ) -> str | None:
+        """Discard only one independently authorized partial visit."""
+
+        revalidated = classify_adjudication_resume_mismatch(
+            run_root=scope.run_root,
+            frame_scope=scope.frame_scope,
+            step_id=scope.step_id,
+            visit_count=scope.visit_count,
+            visit_paths=scope.visit_paths,
+            message="adjudication visit requires exact-scope cleanup",
+        )
+        if revalidated.kind != "rerun_exact_scope" or revalidated.scope != scope:
+            return "adjudication cleanup scope is not provably canonical"
+
+        expected_paths = adjudication_visit_paths(
+            scope.run_root,
+            scope.frame_scope,
+            scope.step_id,
+            scope.visit_count,
+        )
+        candidate_root = candidate_visit_root(
+            scope.run_root,
+            scope.frame_scope,
+            scope.step_id,
+            scope.visit_count,
+        )
+        promotion_root = expected_paths.promotion_manifest_path.parent
+        owned_roots = (
+            expected_paths.adjudication_root,
+            candidate_root,
+            promotion_root,
+        )
+        try:
+            for owned_root in owned_roots:
+                _require_canonical_child(owned_root, scope.run_root)
+                if owned_root.exists() and not owned_root.is_dir():
+                    raise ValueError("owned adjudication visit root is not a directory")
+
+            expected_rollback: Mapping[str, Any] = {
+                "selected_candidate_id": None,
+                "files": [],
+            }
+            if promotion_root.exists():
+                baseline_manifest = self._validated_cleanup_baseline(
+                    execution,
+                    scope,
+                )
+                selected_candidate_id = self._cleanup_selected_candidate_id(
+                    execution,
+                    scope,
+                )
+                selected_workspace = candidate_paths(
+                    scope.run_root,
+                    scope.frame_scope,
+                    scope.step_id,
+                    scope.visit_count,
+                    selected_candidate_id,
+                ).workspace
+                expected_rollback = derive_promotion_rollback_authority(
+                    expected_outputs=execution.resolved_expected_outputs,
+                    output_bundle=execution.resolved_output_bundle,
+                    candidate_workspace=selected_workspace,
+                    parent_workspace=self.workspace,
+                    baseline_manifest=baseline_manifest,
+                    selected_candidate_id=selected_candidate_id,
+                )
+
+            discard_partial_promotion_visit(
+                parent_workspace=self.workspace,
+                promotion_manifest_path=expected_paths.promotion_manifest_path,
+                expected_rollback=expected_rollback,
+            )
+            for owned_root in (
+                candidate_root,
+                expected_paths.adjudication_root,
+            ):
+                if owned_root.exists():
+                    shutil.rmtree(owned_root)
+        except (OSError, PromotionConflictError, RuntimeError, TypeError, ValueError):
+            return "adjudication cleanup failed before a fresh provider attempt"
+        return None
+
+    def _validated_cleanup_baseline(
+        self: AdjudicationRuntime,
+        execution: AdjudicationExecution,
+        scope: AdjudicationResumeScope,
+    ) -> BaselineManifest:
+        manifest = load_baseline_manifest(
+            scope.visit_paths.baseline_manifest_path
+        )
+        payload = {
+            "copy_policy": manifest.copy_policy,
+            "local_secret_denylist": manifest.local_secret_denylist,
+            "workflow_checksum": manifest.workflow_checksum,
+            "parent_workspace": manifest.parent_workspace,
+            "baseline_workspace": manifest.baseline_workspace,
+            "resolved_consumes": manifest.resolved_consumes,
+            "included": [asdict(entry) for entry in manifest.included],
+            "excluded": [asdict(entry) for entry in manifest.excluded],
+            "null_path_results": manifest.null_path_results,
+        }
+        if (
+            manifest.copy_policy != BASELINE_COPY_POLICY
+            or manifest.local_secret_denylist != LOCAL_SECRET_DENYLIST
+            or manifest.workflow_checksum
+            != execution.state.get("workflow_checksum", "")
+            or Path(manifest.parent_workspace).resolve()
+            != self.workspace.resolve()
+            or Path(manifest.baseline_workspace).resolve()
+            != scope.visit_paths.baseline_workspace.resolve()
+            or _stable_hash(payload) != manifest.baseline_digest
+        ):
+            raise ValueError(
+                "adjudication cleanup baseline is not independently valid"
+            )
+        return manifest
+
+    def _cleanup_selected_candidate_id(
+        self: AdjudicationRuntime,
+        execution: AdjudicationExecution,
+        scope: AdjudicationResumeScope,
+    ) -> str:
+        candidates: list[dict[str, Any]] = []
+        candidate_configs: dict[str, tuple[int, dict[str, Any]]] = {}
+        for index, candidate_config in enumerate(execution.candidates_config):
+            if not isinstance(candidate_config, dict):
+                raise ValueError("adjudication candidate config is invalid")
+            candidate_id = candidate_config.get("id")
+            if not isinstance(candidate_id, str) or not candidate_id:
+                raise ValueError("adjudication candidate id is invalid")
+            if candidate_id in candidate_configs:
+                raise ValueError("adjudication candidate id is ambiguous")
+            candidate_configs[candidate_id] = (index, candidate_config)
+            paths = candidate_paths(
+                scope.run_root,
+                scope.frame_scope,
+                scope.step_id,
+                scope.visit_count,
+                candidate_id,
+            )
+            candidate = load_candidate_metadata(paths)
+            if (
+                candidate.get("candidate_id") != candidate_id
+                or candidate.get("candidate_index") != index
+                or candidate.get("candidate_config_hash")
+                != self._stable_runtime_hash(candidate_config)
+            ):
+                raise ValueError(
+                    "adjudication candidate metadata is not authoritative"
+                )
+            candidates.append(candidate)
+
+        selection = self._bindings.select_candidate(
+            candidates,
+            require_score_for_single_candidate=bool(
+                execution.selection_config.get(
+                    "require_score_for_single_candidate"
+                )
+                is True
+            ),
+        )
+        selected_candidate_id = selection.selected_candidate_id
+        if selection.error_type is not None or not isinstance(
+            selected_candidate_id, str
+        ):
+            raise ValueError("adjudication cleanup selection is not unique")
+
+        rows = load_score_ledger_rows(
+            scope.visit_paths.run_score_ledger_path
+        )
+        if len(rows) != len(candidates):
+            raise ValueError("adjudication cleanup ledger is incomplete")
+        rows_by_candidate: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            candidate_id = row.get("candidate_id")
+            if (
+                not isinstance(candidate_id, str)
+                or candidate_id in rows_by_candidate
+                or candidate_id not in candidate_configs
+            ):
+                raise ValueError("adjudication cleanup ledger is ambiguous")
+            rows_by_candidate[candidate_id] = row
+
+        selected_rows = [
+            row for row in rows if row.get("selected") is True
+        ]
+        if (
+            len(selected_rows) != 1
+            or selected_rows[0].get("candidate_id")
+            != selected_candidate_id
+        ):
+            raise ValueError(
+                "adjudication cleanup ledger selection does not match"
+            )
+        for candidate in candidates:
+            candidate_id = str(candidate["candidate_id"])
+            index, candidate_config = candidate_configs[candidate_id]
+            row = rows_by_candidate[candidate_id]
+            expected_fields = {
+                "row_schema": SCORE_ROW_SCHEMA,
+                "run_id": execution.state.get("run_id"),
+                "workflow_file": execution.state.get("workflow_file"),
+                "workflow_checksum": execution.state.get(
+                    "workflow_checksum"
+                ),
+                "execution_frame_id": execution.execution_frame_id,
+                "call_frame_id": execution.call_frame_id,
+                "step_id": scope.step_id,
+                "step_name": execution.step_name,
+                "visit_count": scope.visit_count,
+                "candidate_id": candidate_id,
+                "candidate_index": index,
+                "candidate_config_hash": self._stable_runtime_hash(
+                    candidate_config
+                ),
+                "candidate_status": candidate.get("candidate_status"),
+                "score_status": candidate.get("score_status"),
+                "score": candidate.get("score"),
+                "selected": candidate_id == selected_candidate_id,
+            }
+            if any(
+                row.get(field) != value
+                for field, value in expected_fields.items()
+            ):
+                raise ValueError(
+                    "adjudication cleanup ledger is not authoritative"
+                )
+        return selected_candidate_id
+
     def _reconcile_adjudication_resume(
         self: AdjudicationRuntime,
         execution: AdjudicationExecution,
     ) -> AdjudicationResumeDecision:
         """Reconcile visit identity and load reusable sidecars when present."""
-        candidate_roots = [
+        resume_visit_count = int(execution.visit_count or 1)
+        resume_visit_paths = execution.visit_paths
+        resume_candidate_roots = [
             candidate_paths(
                 execution.run_root,
                 execution.frame_scope,
                 execution.step_id,
-                int(execution.visit_count or 1),
+                resume_visit_count,
                 str(candidate_config.get("id")),
             ).candidate_root
             for candidate_config in execution.candidates_config
             if isinstance(candidate_config, dict)
         ]
         sidecars_exist = adjudication_sidecars_exist(
-            visit_paths=execution.visit_paths,
-            candidate_roots=candidate_roots,
+            visit_paths=resume_visit_paths,
+            candidate_roots=resume_candidate_roots,
         )
+        using_previous_visit = False
         if (
             not sidecars_exist
             and self.resume_mode
@@ -192,13 +434,11 @@ class AdjudicationResumeMixin:
                 )
                 if previous_scope.kind == "integrity_error":
                     return previous_scope
-                execution.visit_count = previous_visit_count
-                step_visits = execution.state.get("step_visits", {})
-                if isinstance(step_visits, dict):
-                    step_visits[execution.step_name] = previous_visit_count
-                    self._persist_control_flow_state(execution.state)
-                execution.visit_paths = previous_visit_paths
+                resume_visit_count = previous_visit_count
+                resume_visit_paths = previous_visit_paths
+                resume_candidate_roots = previous_candidate_roots
                 sidecars_exist = True
+                using_previous_visit = True
 
         if sidecars_exist:
             if not self.resume_mode:
@@ -213,8 +453,8 @@ class AdjudicationResumeMixin:
                 run_root=execution.run_root,
                 frame_scope=execution.frame_scope,
                 step_id=execution.step_id,
-                visit_count=int(execution.visit_count or 1),
-                visit_paths=execution.visit_paths,
+                visit_count=resume_visit_count,
+                visit_paths=resume_visit_paths,
             )
             if isinstance(resume_state.get("error"), dict):
                 failure = resume_state["error"]
@@ -228,10 +468,17 @@ class AdjudicationResumeMixin:
                     run_root=execution.run_root,
                     frame_scope=execution.frame_scope,
                     step_id=execution.step_id,
-                    visit_count=execution.visit_count,
-                    visit_paths=execution.visit_paths,
+                    visit_count=resume_visit_count,
+                    visit_paths=resume_visit_paths,
                     message=message,
                 )
+            execution.visit_count = resume_visit_count
+            execution.visit_paths = resume_visit_paths
+            if using_previous_visit:
+                step_visits = execution.state.get("step_visits", {})
+                if isinstance(step_visits, dict):
+                    step_visits[execution.step_name] = resume_visit_count
+                    self._persist_control_flow_state(execution.state)
             execution.resume_state = resume_state
             execution.baseline_manifest = resume_state["baseline_manifest"]
             execution.candidates = resume_state["candidates"]

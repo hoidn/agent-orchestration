@@ -36,11 +36,12 @@ def candidate_paths(
     visit_count: int,
     candidate_id: str,
 ) -> CandidateRuntimePaths:
-    frame = _safe_token(frame_scope, "frame_scope")
-    step = _safe_token(step_id, "step_id")
-    visit = _safe_visit_count(visit_count)
-    candidate = _safe_token(candidate_id, "candidate_id")
-    candidate_root = run_root / "candidates" / frame / step / str(visit) / candidate
+    candidate_root = candidate_visit_root(
+        run_root,
+        frame_scope,
+        step_id,
+        visit_count,
+    ) / _safe_token(candidate_id, "candidate_id")
     return CandidateRuntimePaths(
         candidate_root=candidate_root,
         workspace=candidate_root / "workspace",
@@ -52,6 +53,18 @@ def candidate_paths(
         evaluation_stderr_log=candidate_root / "evaluation_stderr.log",
         evaluator_workspace=candidate_root / "evaluator" / "workspace",
     )
+
+
+def candidate_visit_root(
+    run_root: Path,
+    frame_scope: str,
+    step_id: str,
+    visit_count: int,
+) -> Path:
+    frame = _safe_token(frame_scope, "frame_scope")
+    step = _safe_token(step_id, "step_id")
+    visit = _safe_visit_count(visit_count)
+    return run_root / "candidates" / frame / step / str(visit)
 
 
 def candidate_metadata_path(paths: CandidateRuntimePaths) -> Path:
