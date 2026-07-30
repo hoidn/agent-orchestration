@@ -44,12 +44,6 @@ from orchestrator.workflow_lisp.wcc.route import (
 
 
 logger = logging.getLogger(__name__)
-PROVIDER_SUPERVISION_QUARANTINE_ERROR = (
-    "provider_supervision_interrupted_visit_quarantined"
-)
-PROVIDER_PEER_GROUP_QUARANTINE_ERROR = (
-    "provider_peer_group_interrupted_visit_quarantined"
-)
 
 
 @dataclass(frozen=True)
@@ -478,26 +472,6 @@ def resume_workflow(
             print(f"Error: {exc}", file=sys.stderr)
             return 1
 
-        if (
-            isinstance(state.error, dict)
-            and state.error.get("type")
-            in {
-                PROVIDER_SUPERVISION_QUARANTINE_ERROR,
-                PROVIDER_PEER_GROUP_QUARANTINE_ERROR,
-            }
-        ):
-            print(f"Error: {state.error.get('message')}", file=sys.stderr)
-            context = state.error.get("context", {})
-            if isinstance(context, dict):
-                metadata_path = context.get("metadata_path")
-                transport_spool_path = context.get("transport_spool_path")
-                if metadata_path:
-                    print(f"Metadata: {metadata_path}", file=sys.stderr)
-                if transport_spool_path:
-                    print(f"Transport spool: {transport_spool_path}", file=sys.stderr)
-            print("Use --force-restart to start a new run.", file=sys.stderr)
-            return 1
-
         observability = _merge_observability_overrides(
             state.observability,
             summary_mode=summary_mode,
@@ -633,24 +607,7 @@ def resume_workflow(
 
         final_status = result.get('status', 'unknown')
         run_error = result.get('error') if isinstance(result, dict) else None
-        if (
-            isinstance(run_error, dict)
-            and run_error.get("type")
-            in {
-                PROVIDER_SUPERVISION_QUARANTINE_ERROR,
-                PROVIDER_PEER_GROUP_QUARANTINE_ERROR,
-            }
-        ):
-            print(f"Error: {run_error.get('message')}", file=sys.stderr)
-            context = run_error.get("context", {})
-            if isinstance(context, dict):
-                metadata_path = context.get("metadata_path")
-                transport_spool_path = context.get("transport_spool_path")
-                if metadata_path:
-                    print(f"Metadata: {metadata_path}", file=sys.stderr)
-                if transport_spool_path:
-                    print(f"Transport spool: {transport_spool_path}", file=sys.stderr)
-        elif final_status == 'failed' and isinstance(run_error, dict):
+        if final_status == 'failed' and isinstance(run_error, dict):
             message = run_error.get("message")
             if isinstance(message, str) and message:
                 print(f"Error: {message}", file=sys.stderr)

@@ -949,7 +949,7 @@ def test_public_run_rejects_unusable_steer_resume_boundary(
     _assert_closed_observations(runtime)
 
 
-def test_public_resume_quarantines_interrupted_visit_before_provider_launch(
+def test_public_resume_reruns_interrupted_supervision_visit_with_fresh_members(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1008,31 +1008,31 @@ def test_public_resume_quarantines_interrupted_visit_before_provider_launch(
         "derive_turn_bindings",
         original_derive,
     )
+    runtime = _install_fake_provider_runtime(monkeypatch)
 
-    assert resume_workflow(run_id=run_id, force_restart=False) == 1
+    assert resume_workflow(run_id=run_id, force_restart=False) == 0
 
-    _run_root, quarantined = _only_run(tmp_path)
-    assert quarantined["status"] == "failed"
-    assert quarantined.get("current_step") is None
-    error = quarantined["error"]
-    assert error["type"] == (
-        "provider_supervision_interrupted_visit_quarantined"
+    _run_root, resumed = _only_run(tmp_path)
+    assert resumed["status"] == "completed"
+    assert resumed.get("current_step") is None
+    [step] = resumed["steps"].values()
+    assert step["status"] == "completed"
+    assert step["step_id"] == current_step["step_id"]
+    assert step["visit_count"] == current_step["visit_count"] + 1
+    assert {
+        invocation.metadata["provider_supervision"]["turn_role"]
+        for invocation in runtime.executed
+    } == {"worker_fresh", "supervisor_directive"}
+    metadata_path = (
+        run_root
+        / "provider-supervision"
+        / current_step["step_id"]
+        / "visits"
+        / str(current_step["visit_count"])
+        / "metadata.json"
     )
-    assert error["context"]["step_id"] == current_step["step_id"]
-    assert error["context"]["visit_count"] == current_step["visit_count"]
-    metadata_path = Path(error["context"]["metadata_path"])
-    if not metadata_path.is_absolute():
-        metadata_path = tmp_path / metadata_path
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     assert metadata["status"] == "interrupted"
-    assert metadata["publication_state"] == (
-        "quarantined_interrupted_visit"
-    )
+    assert metadata["publication_state"] == "interrupted"
     assert launches == []
-
-    frozen_error = json.loads(json.dumps(error))
-    assert resume_workflow(run_id=run_id, force_restart=False) == 1
-    _run_root, repeated = _only_run(tmp_path)
-    assert repeated["error"] == frozen_error
-    assert repeated.get("current_step") is None
-    assert launches == []
+    _assert_closed_observations(runtime)

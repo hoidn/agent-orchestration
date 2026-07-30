@@ -6050,100 +6050,7 @@ def test_provider_supervision_quarantine_atomically_clears_exact_visit_and_prese
     }
 
 
-def test_direct_resume_quarantines_before_restart_or_launch_and_stays_sticky(
-    temp_workspace: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    executor, manager = _provider_supervision_resume_executor(
-        temp_workspace,
-        run_id="provider-supervision-direct-interruption",
-    )
-    older_result = {
-        "status": "completed",
-        "step_id": "root.live",
-        "visit_count": 1,
-        "output": "older visit remains authoritative",
-    }
-    assert manager.state is not None
-    manager.state.status = "running"
-    manager.state.steps = {"Live": dict(older_result)}
-    manager.state.step_visits = {"Live": 2}
-    manager.state.current_step = {
-        "name": "Live",
-        "index": 0,
-        "type": ExecutableNodeKind.PROVIDER_SUPERVISION.value,
-        "status": "running",
-        "step_id": "root.live",
-        "visit_count": 2,
-    }
-    manager._write_state()
-    metadata_path = (
-        manager.run_root
-        / "provider-supervision"
-        / "root.live"
-        / "visits"
-        / "2"
-        / "metadata.json"
-    )
-    manager.write_runtime_sidecar_json(
-        metadata_path,
-        {
-            "step_name": "Live",
-            "step_id": "root.live",
-            "visit_count": 2,
-            "status": "running",
-            "publication_state": "pending",
-        },
-    )
-    restart_calls: list[str] = []
-    provider_calls: list[str] = []
-
-    def unexpected_restart(*_args, **_kwargs):
-        restart_calls.append("restart")
-        raise AssertionError("quarantine must precede restart planning")
-
-    def unexpected_provider(*_args, **_kwargs):
-        provider_calls.append("provider")
-        raise AssertionError("ordinary resume must not launch a provider")
-
-    monkeypatch.setattr(
-        executor.resume_planner,
-        "determine_restart_node_id",
-        unexpected_restart,
-    )
-    monkeypatch.setattr(
-        executor,
-        "_execute_provider_supervision",
-        unexpected_provider,
-    )
-
-    first = executor.execute(resume=True)
-    after_first = manager.load()
-    first_error = json.loads(json.dumps(after_first.error))
-
-    assert first["status"] == "failed"
-    assert first_error["type"] == (
-        "provider_supervision_interrupted_visit_quarantined"
-    )
-    assert after_first.current_step is None
-    assert after_first.step_visits == {"Live": 2}
-    assert after_first.steps["Live"] == older_result
-    assert restart_calls == []
-    assert provider_calls == []
-
-    second = executor.execute(resume=True)
-    after_second = manager.load()
-
-    assert second["status"] == "failed"
-    assert after_second.error == first_error
-    assert after_second.current_step is None
-    assert after_second.step_visits == {"Live": 2}
-    assert after_second.steps["Live"] == older_result
-    assert restart_calls == []
-    assert provider_calls == []
-
-
-def test_resume_cli_sticky_provider_supervision_quarantine_fails_before_executor(
+def test_resume_cli_malformed_legacy_supervision_marker_fails_before_member_launch(
     temp_workspace: Path,
     sample_workflow,
 ) -> None:
@@ -6165,17 +6072,25 @@ def test_resume_cli_sticky_provider_supervision_quarantine_fails_before_executor
     }
     manager._write_state()
 
-    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
-        "orchestrator.cli.commands.resume.WorkflowExecutor",
-        side_effect=AssertionError("sticky quarantine must precede provider launch"),
-    ) as executor:
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch.object(
+        WorkflowExecutor,
+        "_execute_provider_supervision",
+        side_effect=AssertionError(
+            "malformed legacy state must fail before member launch"
+        ),
+    ) as member_launch:
         result = resume_workflow(run_id=run_id, force_restart=False)
 
     assert result == 1
-    executor.assert_not_called()
+    member_launch.assert_not_called()
+    persisted = manager.load()
+    assert persisted.error is not None
+    assert persisted.error["type"] == (
+        "provider_supervision_resume_state_integrity_error"
+    )
 
 
-def test_resume_cli_sticky_provider_peer_group_quarantine_fails_before_executor(
+def test_resume_cli_malformed_legacy_peer_group_marker_fails_before_member_launch(
     temp_workspace: Path,
     sample_workflow,
 ) -> None:
@@ -6199,16 +6114,22 @@ def test_resume_cli_sticky_provider_peer_group_quarantine_fails_before_executor(
     }
     manager._write_state()
 
-    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
-        "orchestrator.cli.commands.resume.WorkflowExecutor",
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch.object(
+        WorkflowExecutor,
+        "_execute_provider_peer_group",
         side_effect=AssertionError(
-            "sticky peer-group quarantine must precede provider launch"
+            "malformed legacy state must fail before member launch"
         ),
-    ) as executor:
+    ) as member_launch:
         result = resume_workflow(run_id=run_id, force_restart=False)
 
     assert result == 1
-    executor.assert_not_called()
+    member_launch.assert_not_called()
+    persisted = manager.load()
+    assert persisted.error is not None
+    assert persisted.error["type"] == (
+        "provider_peer_group_resume_state_integrity_error"
+    )
 
 
 def test_resume_cli_force_restart_from_peer_group_quarantine_uses_clean_new_run(
@@ -6296,24 +6217,6 @@ def test_resume_cli_force_restart_from_peer_group_quarantine_uses_clean_new_run(
     partial_evidence.write_bytes(b'{"status":"partial"}\n')
     endpoint_evidence.write_bytes(b'{"endpoint_instance_id":"stale"}\n')
     old_root_before = _persisted_tree_snapshot(manager.run_root)
-
-    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
-        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
-        return_value=bundle,
-    ), patch(
-        "orchestrator.cli.commands.resume.WorkflowExecutor",
-        side_effect=AssertionError(
-            "sticky peer-group quarantine must precede provider launch"
-        ),
-    ) as ordinary_executor:
-        ordinary_result = resume_workflow(
-            run_id=run_id,
-            force_restart=False,
-        )
-
-    assert ordinary_result == 1
-    ordinary_executor.assert_not_called()
-    assert _persisted_tree_snapshot(manager.run_root) == old_root_before
 
     captured: dict[str, object] = {}
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import replace
 import json
+import logging
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 from unittest.mock import patch
@@ -540,20 +541,34 @@ def test_executor_quarantine_retains_partial_peer_visit_and_clears_exact_step(
     }
 
 
-def test_controller_interruption_quarantines_stickily_and_force_restarts_fresh(
+def test_interrupted_peer_group_visit_reruns_fresh_members(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     from orchestrator.workflow.provider_peer_group import (
         coordinator as coordinator_module,
     )
-
-    workflow_path = tmp_path / "peer_group.orc"
-    workflow_path.write_text(
-        "; typed peer-group lifecycle test\n",
-        encoding="utf-8",
+    from orchestrator.workflow.provider_peer_group.bindings import (
+        WorkflowProviderPeerGroupBindings,
     )
-    bundle = _peer_group_bundle(workflow_path)
+    from orchestrator.workflow.provider_peer_group.ledger import (
+        PeerMessageLedger,
+    )
+    from tests.test_workflow_lisp_provider_peer_group_e2e import (
+        _compile_peer_group,
+        _install_controlled_public_adapters,
+        _public_two_member_source,
+    )
+
+    compiled = _compile_peer_group(
+        tmp_path,
+        source=_public_two_member_source(),
+        validate_shared=True,
+        member_ids=("planner", "reviewer"),
+    )
+    bundle = compiled.validated_bundles["orchestrate"]
+    workflow_path = tmp_path / "provider_peer_group.orc"
     interrupted_run_id = "interrupted-peer-group-lifecycle"
     manager = StateManager(tmp_path, run_id=interrupted_run_id)
     manager.initialize(
@@ -591,13 +606,16 @@ def test_controller_interruption_quarantines_stickily_and_force_restarts_fresh(
 
     [interrupted_allocation] = interrupted_allocations
     interrupted_state = manager.load()
-    assert "Peers" not in interrupted_state.steps
+    assert interrupted_state.current_step is not None
+    step_name = interrupted_state.current_step["name"]
+    step_id = interrupted_state.current_step["step_id"]
+    assert step_name not in interrupted_state.steps
     assert interrupted_state.current_step == {
-        "name": "Peers",
+        "name": step_name,
         "index": 0,
         "type": PEER_GROUP_KIND,
         "status": "running",
-        "step_id": "root.peers",
+        "step_id": step_id,
         "visit_count": 1,
         "started_at": interrupted_state.current_step["started_at"],
         "last_heartbeat_at": interrupted_state.current_step[
@@ -605,77 +623,34 @@ def test_controller_interruption_quarantines_stickily_and_force_restarts_fresh(
         ],
     }
     interrupted_visit_root = interrupted_allocation.realized_paths.visit_root
+    interrupted_planner, interrupted_reviewer = (
+        interrupted_allocation.members
+    )
+    partial_ledger = PeerMessageLedger.create(
+        interrupted_reviewer.realized_paths.injected_messages_path,
+        group_visit=interrupted_allocation.runtime.visit,
+        receiver_attempt=interrupted_reviewer.runtime.attempt,
+    )
+    partial_ledger.append_recorded(
+        coordinator_sequence=1,
+        request_id="discarded-request",
+        message_id="discarded-message",
+        sender_attempt=interrupted_planner.runtime.attempt,
+        content="immutable partial message",
+    )
+    partial_ledger.finalize()
+    interrupted_reviewer.realized_paths.provisional_bundle_path.write_bytes(
+        b'"discarded provisional result"'
+    )
+    interrupted_reviewer.realized_paths.evidence_path.write_bytes(
+        b'{"status":"partial"}'
+    )
     interrupted_visit_snapshot = _run_tree_snapshot(
         interrupted_visit_root
     )
     interrupted_attempt_allocations = deepcopy(
         interrupted_state.provider_attempt_allocations
     )
-    launched_after_interrupt = 0
-
-    class ForbidPeerLaunchCoordinator:
-        def __init__(self, _bindings) -> None:
-            nonlocal launched_after_interrupt
-            launched_after_interrupt += 1
-            raise AssertionError(
-                "ordinary resume must not relaunch a quarantined peer group"
-            )
-
-    monkeypatch.setattr(
-        coordinator_module,
-        "ProviderPeerGroupCoordinator",
-        ForbidPeerLaunchCoordinator,
-    )
-    monkeypatch.chdir(tmp_path)
-    with patch(
-        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
-        return_value=bundle,
-    ):
-        assert (
-            resume_workflow(
-                run_id=interrupted_run_id,
-                force_restart=False,
-            )
-            == 1
-        )
-
-    quarantined = manager.load()
-    assert quarantined.status == "failed"
-    assert quarantined.current_step is None
-    assert quarantined.error is not None
-    assert quarantined.error["type"] == (
-        "provider_peer_group_interrupted_visit_quarantined"
-    )
-    assert launched_after_interrupt == 0
-    assert _run_tree_snapshot(interrupted_visit_root) == (
-        interrupted_visit_snapshot
-    )
-    assert quarantined.provider_attempt_allocations == (
-        interrupted_attempt_allocations
-    )
-    quarantined_run_snapshot = _run_tree_snapshot(manager.run_root)
-    quarantined_semantics = quarantined.to_dict()
-
-    with patch(
-        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
-        return_value=bundle,
-    ):
-        assert (
-            resume_workflow(
-                run_id=interrupted_run_id,
-                force_restart=False,
-            )
-            == 1
-        )
-
-    assert launched_after_interrupt == 0
-    assert _run_tree_snapshot(manager.run_root) == quarantined_run_snapshot
-    assert manager.load().to_dict() == quarantined_semantics
-
-    from tests.test_workflow_lisp_provider_peer_group_e2e import (
-        _install_controlled_public_adapters,
-    )
-
     controlled = _install_controlled_public_adapters(
         monkeypatch,
         member_ids=("planner", "reviewer"),
@@ -689,9 +664,64 @@ def test_controller_interruption_quarantines_stickily_and_force_restarts_fresh(
         "ProviderPeerGroupCoordinator",
         ProviderPeerGroupCoordinator,
     )
+    fresh_allocations = []
+    original_allocate_group = (
+        WorkflowProviderPeerGroupBindings.allocate_group
+    )
+
+    def capture_fresh_allocation(self):
+        allocation = original_allocate_group(self)
+        fresh_allocations.append(allocation)
+        return allocation
+
+    monkeypatch.setattr(
+        WorkflowProviderPeerGroupBindings,
+        "allocate_group",
+        capture_fresh_allocation,
+    )
+    record_before_offer: list[tuple[str, list[str]]] = []
+    original_create_adapter = (
+        WorkflowProviderPeerGroupBindings.create_adapter
+    )
+
+    def create_adapter_with_ledger_probe(self, member):
+        adapter = original_create_adapter(self, member)
+        original_offer = adapter.offer
+
+        def offer_after_record(
+            handle,
+            literal_message,
+            *,
+            deadline,
+        ):
+            rows = [
+                json.loads(line)
+                for line in (
+                    member.realized_paths.injected_messages_path
+                ).read_text(encoding="ascii").splitlines()
+            ]
+            row_kinds = [row["row_kind"] for row in rows]
+            assert row_kinds == ["header", "recorded"]
+            record_before_offer.append(
+                (member.runtime.attempt.member_id, row_kinds)
+            )
+            return original_offer(
+                handle,
+                literal_message,
+                deadline=deadline,
+            )
+
+        adapter.offer = offer_after_record
+        return adapter
+
+    monkeypatch.setattr(
+        WorkflowProviderPeerGroupBindings,
+        "create_adapter",
+        create_adapter_with_ledger_probe,
+    )
     real_executor = WorkflowExecutor
 
-    def fresh_executor(**kwargs):
+    def resumed_executor(**kwargs):
         created = real_executor(
             **kwargs,
             provider_observation_enabled=False,
@@ -700,35 +730,76 @@ def test_controller_interruption_quarantines_stickily_and_force_restarts_fresh(
         _register_peer_test_providers(created)
         return created
 
-    fresh_run_id = "force-restarted-peer-group-lifecycle"
-    with patch(
+    monkeypatch.chdir(tmp_path)
+    with caplog.at_level(logging.WARNING), patch(
         "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
         return_value=bundle,
     ), patch(
         "orchestrator.cli.commands.resume.WorkflowExecutor",
-        side_effect=fresh_executor,
-    ), patch(
-        "uuid.uuid4",
-        return_value=SimpleNamespace(hex=fresh_run_id),
+        side_effect=resumed_executor,
     ):
         assert (
             resume_workflow(
                 run_id=interrupted_run_id,
-                force_restart=True,
+                force_restart=False,
             )
             == 0
         )
 
-    fresh_manager = StateManager(tmp_path, run_id=fresh_run_id)
-    fresh_state = fresh_manager.load()
+    fresh_state = manager.load()
     assert fresh_state.status == "completed"
-    assert fresh_state.steps["Peers"]["status"] == "completed"
-    assert fresh_state.steps["Peers"]["artifacts"] == {
-        "__result__": "planner"
+    assert fresh_state.steps[step_name]["status"] == "completed"
+    assert fresh_state.steps[step_name]["visit_count"] == 2
+    assert fresh_state.steps[step_name]["artifacts"] == {
+        "__result__": "reviewer"
     }
+    [fresh_allocation] = fresh_allocations
+    assert fresh_allocation.runtime.visit.run_id == interrupted_run_id
+    assert fresh_allocation.runtime.visit.visit_count == 2
+    assert fresh_allocation.runtime.visit != (
+        interrupted_allocation.runtime.visit
+    )
+    assert fresh_allocation.endpoint.endpoint_instance_id != (
+        interrupted_allocation.endpoint.endpoint_instance_id
+    )
+    assert fresh_allocation.endpoint_socket_path != (
+        interrupted_allocation.endpoint_socket_path
+    )
+    assert {
+        member.runtime.attempt.attempt_scope_key
+        for member in fresh_allocation.members
+    }.isdisjoint(
+        {
+            member.runtime.attempt.attempt_scope_key
+            for member in interrupted_allocation.members
+        }
+    )
+    assert {
+        member.invocation.invocation_id
+        for member in fresh_allocation.members
+    }.isdisjoint(
+        {
+            member.invocation.invocation_id
+            for member in interrupted_allocation.members
+        }
+    )
+    assert set(fresh_allocation.realized_paths.leaf_paths()).isdisjoint(
+        interrupted_allocation.realized_paths.leaf_paths()
+    )
+    assert _run_tree_snapshot(interrupted_visit_root) == (
+        interrupted_visit_snapshot
+    )
+    assert record_before_offer == [
+        ("reviewer", ["header", "recorded"])
+    ]
+    for scope_key, allocation in interrupted_attempt_allocations.items():
+        assert (
+            fresh_state.provider_attempt_allocations[scope_key]
+            == allocation
+        )
     terminal_evidence_path = (
-        fresh_manager.run_root
-        / fresh_state.steps["Peers"]["debug"]["provider_peer_group"][
+        manager.run_root
+        / fresh_state.steps[step_name]["debug"]["provider_peer_group"][
             "terminal_evidence_path"
         ]
     )
@@ -736,7 +807,7 @@ def test_controller_interruption_quarantines_stickily_and_force_restarts_fresh(
     terminal_evidence = json.loads(
         terminal_evidence_path.read_text(encoding="ascii")
     )
-    assert terminal_evidence["group_visit"]["run_id"] == fresh_run_id
+    assert terminal_evidence["group_visit"]["run_id"] == interrupted_run_id
     assert terminal_evidence["group_visit"] != (
         interrupted_allocation.runtime.visit.to_dict()
     )
@@ -754,5 +825,14 @@ def test_controller_interruption_quarantines_stickily_and_force_restarts_fresh(
         adapter.error is None and adapter.joined
         for adapter in controlled.adapters.values()
     )
-    assert _run_tree_snapshot(manager.run_root) == quarantined_run_snapshot
-    assert manager.load().to_dict() == quarantined_semantics
+    rerun_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "orchestrator_diagnostic", None)
+        == "provider_attempt_interrupted_rerun"
+    ]
+    assert len(rerun_records) == 1
+    assert rerun_records[0].provider_family == "peer_group"
+    assert rerun_records[0].provider_step_id == step_id
+    assert rerun_records[0].discarded_visit == 1
+    assert rerun_records[0].next_visit == 2

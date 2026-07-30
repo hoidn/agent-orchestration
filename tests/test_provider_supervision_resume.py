@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import Future
 from dataclasses import replace
+import logging
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 import threading
@@ -12,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.providers.control import ProviderCancellationResult
 from orchestrator.providers.executor import ProviderExecutionResult
 from orchestrator.providers.session_transport import SessionIdentitySnapshot
@@ -3546,4 +3548,299 @@ def test_live_coordinator_authored_retry_waits_for_durable_failed_visit_and_uses
     assert (
         first_requests["worker_fresh"].control.session_snapshot.session_ids
         != retry_requests["worker_fresh"].control.session_snapshot.session_ids
+    )
+
+
+def test_interrupted_supervision_visit_reruns_fresh_members(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import orchestrator.workflow.executor as executor_module
+    from orchestrator.state import StateManager
+    from orchestrator.workflow_lisp.build import build_frontend_bundle
+    from tests.test_workflow_lisp_provider_supervision_e2e import (
+        _build_request,
+        _copy_fixture,
+    )
+    from tests.workflow_bundle_helpers import bundle_context_dict
+
+    run_id = "provider-supervision-interrupted-fresh-group"
+    fixture_files = _copy_fixture(tmp_path)
+    built = build_frontend_bundle(
+        _build_request(tmp_path, fixture_files)
+    )
+    bundle = built.validated_bundle
+    [projection_entry] = bundle.projection.entries_by_node_id.values()
+    step_name = projection_entry.presentation_key
+    step_id = projection_entry.step_id
+    node_id = projection_entry.node_id
+    workflow_path = fixture_files["provider_supervision_continue.orc"]
+    manager = StateManager(tmp_path, run_id=run_id)
+    manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+    )
+    old_visit = 1
+    old_member_identities = {
+        role: {
+            "runtime_step_id": f"{node_id}:{role}:visit:{old_visit}",
+            "evidence_path": (
+                manager.run_root
+                / "provider-supervision"
+                / node_id
+                / "visits"
+                / str(old_visit)
+                / role
+                / "evidence.json"
+            ),
+            "provisional_bundle_path": (
+                manager.run_root
+                / "provider-supervision"
+                / node_id
+                / "visits"
+                / str(old_visit)
+                / role
+                / "provisional.json"
+            ),
+            "endpoint": f"pane:{role}:visit:{old_visit}",
+            "attempt_scope": f"scope:{role}:visit:{old_visit}",
+            "attempt_snapshot": f"snapshot:{role}:visit:{old_visit}",
+            "attempt_ordinal": old_visit,
+        }
+        for role in ("worker_fresh", "supervisor_directive")
+    }
+    partial_evidence = old_member_identities["worker_fresh"][
+        "evidence_path"
+    ]
+    assert isinstance(partial_evidence, Path)
+    partial_evidence.parent.mkdir(parents=True, exist_ok=True)
+    partial_evidence.write_text(
+        '{"status":"provider_started"}',
+        encoding="utf-8",
+    )
+    metadata_path = (
+        manager.run_root
+        / "provider-supervision"
+        / node_id
+        / "visits"
+        / str(old_visit)
+        / "metadata.json"
+    )
+    manager.write_runtime_sidecar_json(
+        metadata_path,
+        {
+            "step_name": step_name,
+            "step_id": step_id,
+            "visit_count": old_visit,
+            "status": "interrupted",
+            "publication_state": "quarantined_interrupted_visit",
+        },
+    )
+    assert manager.state is not None
+    manager.state.status = "failed"
+    manager.state.steps = {}
+    manager.state.step_visits = {step_name: old_visit}
+    manager.state.current_step = None
+    manager.state.error = {
+        "type": "provider_supervision_interrupted_visit_quarantined",
+        "message": "Historical interrupted supervision visit.",
+        "context": {
+            "step_name": step_name,
+            "step_id": step_id,
+            "visit_count": old_visit,
+            "metadata_path": str(metadata_path),
+        },
+    }
+    manager._write_state()
+
+    created_bindings: list[_FreshResumeBindings] = []
+
+    class _FreshResumeBindings(_EarlyArbitrationBindings):
+        def __init__(
+            self,
+            runtime_executor: Any,
+            *,
+            step: Any,
+            state: dict[str, Any],
+            step_name: str,
+        ) -> None:
+            super().__init__(
+                tmp_path / "fresh-supervision-group",
+                directive={"variant": "CONTINUE"},
+                worker_completes_naturally=True,
+            )
+            self.runtime_executor = runtime_executor
+            self.runtime_step = step
+            self.runtime_state = state
+            self.step_name = step_name
+            self.visit_count: int | None = None
+
+        def derive_turn_bindings(
+            self,
+            *,
+            config: Any,
+            visit_count: int,
+        ) -> dict[str, ProviderSupervisionTurnBinding]:
+            self.visit_count = visit_count
+            turns = super().derive_turn_bindings(
+                config=config,
+                visit_count=visit_count,
+            )
+            return {
+                role: replace(
+                    turn,
+                    runtime_step_id=(
+                        f"{config.node_id}:{role}:visit:{visit_count}"
+                    ),
+                    evidence_path=(
+                        self.tmp_path
+                        / f"visit-{visit_count}"
+                        / role
+                        / "evidence.json"
+                    ),
+                    provisional_bundle_path=(
+                        self.tmp_path
+                        / f"visit-{visit_count}"
+                        / role
+                        / "provisional.json"
+                    ),
+                )
+                for role, turn in turns.items()
+            }
+
+        def open_observation(
+            self,
+            turn: ProviderSupervisionTurnBinding,
+        ) -> ProviderSupervisionObservationBinding:
+            observation = super().open_observation(turn)
+            assert self.visit_count is not None
+            return replace(
+                observation,
+                target=(
+                    f"pane:{turn.turn_role}:visit:{self.visit_count}"
+                ),
+            )
+
+        def allocate_attempt(
+            self,
+            *,
+            turn: ProviderSupervisionTurnBinding,
+            prompt: str,
+        ) -> ProviderSupervisionAttemptBinding:
+            del prompt
+            assert self.visit_count is not None
+            ordinal = (
+                self.visit_count
+                if turn.turn_role == "worker_fresh"
+                else self.visit_count + 1
+            )
+            return ProviderSupervisionAttemptBinding(
+                scope_key=(
+                    f"scope:{turn.turn_role}:visit:{self.visit_count}"
+                ),
+                ordinal=ordinal,
+                snapshot_key=(
+                    f"snapshot:{turn.turn_role}:visit:{self.visit_count}"
+                ),
+            )
+
+        def finalize_settlement(
+            self,
+            *,
+            selected_request: ProviderSupervisionMemberRequest,
+            settlement_value: Any,
+            **_kwargs: Any,
+        ) -> dict[str, Any]:
+            return self.runtime_executor._finalize_provider_supervision_settlement(
+                self.runtime_step,
+                self.runtime_state,
+                step_name=self.step_name,
+                result={
+                    "status": "completed",
+                    "exit_code": 0,
+                    "duration_ms": 0,
+                    "artifacts": {"__result__": settlement_value},
+                    "debug": {
+                        "provider_supervision": {
+                            "selected_attempt": {
+                                "scope_key": (
+                                    selected_request.attempt.scope_key
+                                ),
+                                "ordinal": selected_request.attempt.ordinal,
+                            }
+                        }
+                    },
+                },
+            )
+
+    def build_bindings(
+        runtime_executor: Any,
+        *,
+        step: Any,
+        state: dict[str, Any],
+        step_name: str,
+        **_kwargs: Any,
+    ) -> _FreshResumeBindings:
+        bindings = _FreshResumeBindings(
+            runtime_executor,
+            step=step,
+            state=state,
+            step_name=step_name,
+        )
+        created_bindings.append(bindings)
+        return bindings
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        lambda **_kwargs: bundle,
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "WorkflowProviderSupervisionBindings",
+        build_bindings,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = resume_workflow(
+            run_id=run_id,
+            max_retries=0,
+            retry_delay_ms=0,
+        )
+
+    assert result == 0
+    assert len(created_bindings) == 1
+    bindings = created_bindings[0]
+    assert bindings.visit_count == old_visit + 1
+    assert set(bindings.requests) == {
+        "worker_fresh",
+        "supervisor_directive",
+    }
+    for role, request in bindings.requests.items():
+        old = old_member_identities[role]
+        assert request.turn.runtime_step_id != old["runtime_step_id"]
+        assert request.turn.evidence_path != old["evidence_path"]
+        assert (
+            request.turn.provisional_bundle_path
+            != old["provisional_bundle_path"]
+        )
+        assert request.observation is not None
+        assert request.observation.target != old["endpoint"]
+        assert request.attempt.scope_key != old["attempt_scope"]
+        assert request.attempt.snapshot_key != old["attempt_snapshot"]
+        assert request.attempt.ordinal != old["attempt_ordinal"]
+        assert request.invocation.materialize().session_request is None
+    rerun_events = [
+        record
+        for record in caplog.records
+        if record.getMessage() == "provider_attempt_interrupted_rerun"
+    ]
+    assert len(rerun_events) == 1
+    assert rerun_events[0].provider_family == "supervision"
+    assert rerun_events[0].provider_step_id == step_id
+    assert rerun_events[0].discarded_visit == old_visit
+    assert rerun_events[0].next_visit == old_visit + 1
+    assert partial_evidence.read_text(encoding="utf-8") == (
+        '{"status":"provider_started"}'
     )
