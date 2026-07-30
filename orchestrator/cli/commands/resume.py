@@ -3,12 +3,14 @@
 import json
 import logging
 import os
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Optional, Dict, Any
 import sys
 from dataclasses import dataclass
 
 from orchestrator.state import StateManager
+from orchestrator.run_lock import RunAlreadyActiveError, run_writer_lock
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
     workflow_boundary_projection,
@@ -244,7 +246,7 @@ def _load_resume_workflow_bundle(
     )
 
 
-def resume_workflow(
+def _resume_workflow_with_writer_lock_held(
     run_id: str,
     repair: bool = False,
     force_restart: bool = False,
@@ -265,6 +267,7 @@ def resume_workflow(
     live_agent_note_interval_sec: Optional[float] = None,
     live_agent_note_timeout_sec: Optional[int] = None,
     live_agent_note_max_tail_chars: Optional[int] = None,
+    _writer_locks: ExitStack | None = None,
     **kwargs
 ) -> int:
     """Resume an interrupted workflow run.
@@ -518,6 +521,11 @@ def resume_workflow(
             debug=debug,
             state_dir=state_dir_override,
         )
+        state_manager.run_root.mkdir(parents=True, exist_ok=True)
+        if _writer_locks is not None:
+            _writer_locks.enter_context(
+                run_writer_lock(state_manager.run_root)
+            )
         enable_provider_attempt_coordination_for_bundle(
             state_manager,
             workflow_bundle,
@@ -640,3 +648,76 @@ def resume_workflow(
                 )
             state = state_manager.state
             assert state is not None
+
+
+def resume_workflow(
+    run_id: str,
+    repair: bool = False,
+    force_restart: bool = False,
+    state_dir: Optional[str] = None,
+    on_error: str = 'stop',
+    max_retries: Optional[int] = None,
+    retry_delay_ms: Optional[int] = None,
+    backup_state: bool = False,
+    debug: bool = False,
+    stream_output: bool = False,
+    summary_mode: Optional[str] = None,
+    summary_provider: Optional[str] = None,
+    summary_timeout_sec: Optional[int] = None,
+    summary_max_input_chars: Optional[int] = None,
+    summary_profile: Optional[str] = None,
+    live_agent_notes: Optional[bool] = None,
+    live_agent_note_provider: Optional[str] = None,
+    live_agent_note_interval_sec: Optional[float] = None,
+    live_agent_note_timeout_sec: Optional[int] = None,
+    live_agent_note_max_tail_chars: Optional[int] = None,
+    **kwargs
+) -> int:
+    """Hold the selected run's writer lock for the complete resume command."""
+
+    workspace_dir = Path.cwd()
+    state_dir_override = (
+        Path(state_dir).expanduser().resolve()
+        if state_dir
+        else None
+    )
+    runs_root = state_dir_override or (
+        workspace_dir / '.orchestrate' / 'runs'
+    )
+    run_root = runs_root / run_id
+    if not run_root.exists():
+        logger.error(f"Run directory not found: {run_root}")
+        print(f"Error: No run found with ID '{run_id}'", file=sys.stderr)
+        return 1
+
+    try:
+        with ExitStack() as writer_locks:
+            writer_locks.enter_context(run_writer_lock(run_root))
+            return _resume_workflow_with_writer_lock_held(
+                run_id=run_id,
+                repair=repair,
+                force_restart=force_restart,
+                state_dir=state_dir,
+                on_error=on_error,
+                max_retries=max_retries,
+                retry_delay_ms=retry_delay_ms,
+                backup_state=backup_state,
+                debug=debug,
+                stream_output=stream_output,
+                summary_mode=summary_mode,
+                summary_provider=summary_provider,
+                summary_timeout_sec=summary_timeout_sec,
+                summary_max_input_chars=summary_max_input_chars,
+                summary_profile=summary_profile,
+                live_agent_notes=live_agent_notes,
+                live_agent_note_provider=live_agent_note_provider,
+                live_agent_note_interval_sec=live_agent_note_interval_sec,
+                live_agent_note_timeout_sec=live_agent_note_timeout_sec,
+                live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
+                _writer_locks=writer_locks,
+                **kwargs,
+            )
+    except RunAlreadyActiveError as exc:
+        logger.error(str(exc))
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1

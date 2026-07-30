@@ -21,7 +21,7 @@ fixtures, JSON schema-2.1 state, and atomic temp-file rename.
 
 **Status:** active. ML-1 closed at commit
 `9c14dae37310755bd9cbd3de03b9256433acd9fe`, tree
-`0b149f96ace8873b0381a4cd530468b1d24a083f`; ML-2 Task 1 is current.
+`0b149f96ace8873b0381a4cd530468b1d24a083f`; ML-2 Task 3 is current.
 
 ## Authority and bounds
 
@@ -94,7 +94,7 @@ selection passed 21 tests; the closure candidate plus roadmap routing passed
 - Modify: `tests/test_runtime_failure_persistence.py`
 - Modify: `tests/test_resume_command.py`
 
-- [ ] First add
+- [x] First add
   `test_run_holds_writer_lock_through_executor_exit` to
   `tests/test_runtime_failure_persistence.py` and
   `test_resume_rejects_second_writer_before_state_or_provider_mutation` to
@@ -109,14 +109,21 @@ selection passed 21 tests; the closure candidate plus roadmap routing passed
 
   Expected RED: both commands can currently enter mutable execution
   concurrently.
-- [ ] Acquire after the exact run root exists and before mutable run state is
+- [x] Acquire after the exact run root exists and before mutable run state is
   created or loaded for execution; release on every terminal or exceptional
   exit.
-- [ ] Ensure resume projection validation and the complete executor lifetime
+- [x] Ensure resume projection validation and the complete executor lifetime
   stay inside the lock.
-- [ ] Prove the second command makes no provider invocation or state mutation.
-- [ ] Run focused tests, ordered specification then quality review, and commit
+- [x] Prove the second command makes no provider invocation or state mutation.
+- [x] Run focused tests, ordered specification then quality review, and commit
   with subject `Serialize run writers for command lifetime`.
+
+Task 2 candidate evidence: both named tests failed before command integration
+and passed afterward. The adjacent run-lock, run, resume, and report command
+surface passes 138 tests. Resume immutability comparisons continue to cover
+all persisted state and evidence while excluding only the required root
+`run.lock` coordination inode. Ordered review returned
+`ML2_TASK2_SPEC_APPROVED` followed by `ML2_TASK2_QUALITY_APPROVED`.
 
 ## Task 3: Make allocation counter-only
 

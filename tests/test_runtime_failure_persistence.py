@@ -9,6 +9,7 @@ import pytest
 
 from orchestrator.cli.commands.report import report_workflow
 from orchestrator.cli.commands.run import run_workflow
+from orchestrator.run_lock import RunAlreadyActiveError, run_writer_lock
 from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
@@ -137,6 +138,52 @@ def test_run_command_persists_unexpected_executor_exception(tmp_path: Path):
     assert persisted["error"]["exception_type"] == "RuntimeError"
     assert "cli executor crash" in persisted["error"]["message"]
     assert "traceback" in persisted["error"]
+
+
+def test_run_holds_writer_lock_through_executor_exit(tmp_path: Path) -> None:
+    workflow_path = tmp_path / "writer_lock.orc"
+    workflow_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule writer_lock)",
+                "  (export orchestrate)",
+                "  (defrecord RunSummary (ready Bool))",
+                "  (defworkflow orchestrate",
+                "    ((approved Bool) (status String))",
+                "    -> RunSummary",
+                "    (record RunSummary :ready approved)))",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    observed_run_root: list[Path] = []
+
+    def complete_while_probing_lock(
+        executor: WorkflowExecutor,
+        **_kwargs,
+    ) -> dict[str, str]:
+        run_root = executor.state_manager.run_root
+        observed_run_root.append(run_root)
+        with pytest.raises(RunAlreadyActiveError) as exc_info:
+            with run_writer_lock(run_root):
+                pytest.fail("executor lifetime did not hold the run writer lock")
+        assert exc_info.value.code == "run_already_active"
+        return {"status": "completed"}
+
+    with patch.object(
+        WorkflowExecutor,
+        "execute",
+        new=complete_while_probing_lock,
+    ):
+        exit_code = run_workflow(_run_args(workflow_path))
+
+    assert exit_code == 0
+    assert len(observed_run_root) == 1
+    assert (observed_run_root[0] / "run.lock").is_file()
 
 
 def test_report_handles_orc_run_state_without_yaml_loader_error(

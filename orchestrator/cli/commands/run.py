@@ -6,12 +6,14 @@ import os
 import shutil
 import traceback
 import zipfile
+from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
 from argparse import Namespace
 
 from orchestrator.state import StateManager
+from orchestrator.run_lock import RunAlreadyActiveError, run_writer_lock
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
     workflow_bundle as loaded_workflow_bundle,
@@ -314,6 +316,7 @@ def run_workflow(args: Namespace) -> int:
     )
 
     state_manager: StateManager | None = None
+    writer_lock_stack = ExitStack()
 
     try:
         # Determine workspace
@@ -428,6 +431,10 @@ def run_workflow(args: Namespace) -> int:
             debug=args.debug if hasattr(args, 'debug') else False,
             state_dir=state_dir_override,
         )
+        state_manager.run_root.mkdir(parents=True, exist_ok=True)
+        writer_lock_stack.enter_context(
+            run_writer_lock(state_manager.run_root)
+        )
         if bundle is not None:
             enable_provider_attempt_coordination_for_bundle(state_manager, bundle)
 
@@ -505,6 +512,9 @@ def run_workflow(args: Namespace) -> int:
                         status=session_status,
                     )
 
+    except RunAlreadyActiveError as e:
+        logger.error(str(e))
+        return 1
     except FileNotFoundError as e:
         logger.error(f"File not found: {e}")
         return 1
@@ -516,3 +526,5 @@ def run_workflow(args: Namespace) -> int:
         if state_manager is not None and state_manager.state is not None:
             state_manager.fail_run(_cli_exception_error(e))
         return 1
+    finally:
+        writer_lock_stack.close()

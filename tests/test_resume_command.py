@@ -22,6 +22,7 @@ import orchestrator.workflow_lisp.lexical_checkpoint_restore as checkpoint_resto
 from orchestrator.cli.main import main as cli_main
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.monitor.process import write_process_metadata
+from orchestrator.run_lock import run_writer_lock
 from orchestrator.state import StateManager
 from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
@@ -59,6 +60,10 @@ def _persisted_tree_entries(run_root: Path) -> tuple[tuple[str, bytes, bytes], .
         for child in sorted_children:
             relative_path = relative_directory / child.name
             relative_text = relative_path.as_posix()
+            if relative_text == "run.lock":
+                # The command-lifetime coordination inode is not persisted
+                # workflow state or evidence.
+                continue
             mode = child.stat(follow_symlinks=False).st_mode
             if stat.S_ISDIR(mode):
                 entries.append((relative_text, b"d", b""))
@@ -3112,6 +3117,58 @@ def test_resume_preserves_bound_inputs_in_loaded_state(
         "approved": False,
         "status": "pending",
     }
+
+
+def test_resume_rejects_second_writer_before_state_or_provider_mutation(
+    temp_workspace: Path,
+    sample_workflow,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workflow_path, _checksum = sample_workflow
+    compiled = compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(temp_workspace,),
+        validate_shared=True,
+        workspace_root=temp_workspace,
+    )
+    bundle = next(
+        candidate
+        for name, candidate in compiled.validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
+    run_id = "resume-writer-lock"
+    manager = StateManager(temp_workspace, run_id=run_id)
+    state = manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs={"approved": True, "status": "ready"},
+    )
+    state.status = "failed"
+    manager._write_state()
+
+    with run_writer_lock(manager.run_root):
+        before = _persisted_tree_snapshot(manager.run_root)
+        with patch("os.getcwd", return_value=str(temp_workspace)), patch(
+            "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+            return_value=bundle,
+        ), patch(
+            "orchestrator.cli.commands.resume.WorkflowExecutor"
+        ) as mock_executor:
+            mock_executor.return_value.execute.return_value = {
+                "status": "completed"
+            }
+            result = resume_workflow(
+                run_id=run_id,
+                repair=False,
+                force_restart=False,
+            )
+        after = _persisted_tree_snapshot(manager.run_root)
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "run_already_active" in captured.err
+    assert not mock_executor.called
+    assert after == before
 
 
 def test_at4_resume_completed_run(temp_workspace, sample_workflow):
