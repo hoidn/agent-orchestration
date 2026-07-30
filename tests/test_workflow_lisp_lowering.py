@@ -6397,10 +6397,14 @@ def test_compile_stage3_entrypoint_names_the_denied_gate_for_unexported_non_magi
 
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.code == "workflow_signature_mismatch"
-    assert any(
-        "entry_bootstrap_name_gate_denied" in note and "unexported-custom-entry" in note
+    denial_note = next(
+        note
         for note in diagnostic.notes
+        if "entry_bootstrap_name_gate_denied" in note
+        and "unexported-custom-entry" in note
     )
+    assert "explicit_entry_bootstrap_eligibility" in denial_note
+    assert "docs/plans/2026-07-23-refusal-diagnosability-fixes-plan.md" in denial_note
 
 
 def test_compile_stage3_entrypoint_rejects_private_compatibility_bridge_omission_for_arbitrary_caller(
@@ -6542,6 +6546,13 @@ def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_unrelated
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.code == "workflow_signature_mismatch"
     assert "phase-ctx" in diagnostic.message
+    denial_note = next(
+        note
+        for note in diagnostic.notes
+        if "entry_bootstrap_name_gate_denied" in note
+    )
+    assert "unrelated-phase-entry" in denial_note
+    assert "explicit_entry_bootstrap_eligibility" in denial_note
 
 
 def test_compile_stage3_entrypoint_allows_unrelated_exported_sibling_after_project_selected_compat_bridge_retirement(

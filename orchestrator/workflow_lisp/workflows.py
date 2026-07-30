@@ -1173,7 +1173,9 @@ def _entry_bootstrap_name_gate_denial(*, selected_local_name: str) -> str | None
     return (
         "entry_bootstrap_name_gate_denied: selected entry "
         f"`{selected_local_name}` is not in the accepted set "
-        f"({', '.join(accepted_names)})"
+        f"({', '.join(accepted_names)}); replacement rule "
+        "`explicit_entry_bootstrap_eligibility` is deferred to "
+        "docs/plans/2026-07-23-refusal-diagnosability-fixes-plan.md"
     )
 
 

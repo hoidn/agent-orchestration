@@ -1,9 +1,9 @@
 # Refusal Diagnosability Fixes Plan
 
-**Status:** active; not a competing selector. Task 1 and Task 3 are done,
-Task 2 has an accepted disposition, and only the replacement-rule diagnostic
-pointer remains pending under Task 2 of
-`docs/plans/2026-07-29-m0-green-baseline-component-plan.md`.
+**Status:** complete for its bounded diagnosability objective; not a competing
+selector. Task 1 names the denial, Task 2 rejects unsafe export-only widening
+while pointing to its deferred replacement rule, and Task 3 records no
+promoted-route identity drift.
 
 **Goal:** Apply design principle 28 ("Refusals Must Name Their Rule",
 `docs/design/workflow_language_design_principles.md`) to the one known
@@ -49,15 +49,15 @@ this. New test:
 
 ## Task 2: Disposition the declared-property rule
 
-**Accepted disposition (2026-07-29): no eligibility change.** Export-only
-eligibility is rejected by
+**Accepted disposition (2026-07-29; implemented): no eligibility change.**
+Export-only eligibility is rejected by
 `tests/test_workflow_lisp_lowering.py::test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_unrelated_exported_sibling_in_item_ctx_proof_module`.
 That control proves that an exported selected sibling is not necessarily
 authorized for hidden-context bootstrap. A new explicit authored property is
 deferred to a separate accepted design that must distinguish legitimate
 wrappers from that negative control. The current fail-closed name gate remains,
-as does its `entry_bootstrap_name_gate_denied` note. The only pending work is
-diagnostic: point that note to the stable replacement-rule ID
+as does its `entry_bootstrap_name_gate_denied` note. The completed
+diagnostic-only change points that note to the stable replacement-rule ID
 `explicit_entry_bootstrap_eligibility` and this disposition at
 `docs/plans/2026-07-23-refusal-diagnosability-fixes-plan.md`. The gate logic is
 unchanged, so Task 3's recorded non-drift comparison remains applicable.
