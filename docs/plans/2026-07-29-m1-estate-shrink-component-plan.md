@@ -21,11 +21,11 @@ migration or compatibility coupling.
 **Tech stack:** Python 3.13, pytest/xdist, Workflow Lisp `.orc`, setuptools
 wheel discovery, Git, POSIX filesystem rename and SHA-256 manifests.
 
-**Status:** selection candidate. This exact Task 0 candidate becomes selected
-for execution only after an external specification review records
-`M1_PLAN_SPEC_APPROVED`, a distinct external quality review then records
-`M1_PLAN_QUALITY_APPROVED` against the same bytes, and the reviewed Task 0
-candidate is committed. No checked-in byte self-attests those reviews.
+**Status:** implemented closure candidate. Tasks 0–8 and Task 9 Steps 1–3 are
+complete. The ordered final reviews, reviewed closure commit, and postcommit
+control remain. Task 0's historical selection act was the externally reviewed
+commit `4e71093d`; no checked-in byte self-attests either that review or the
+still-pending final reviews.
 
 ---
 
@@ -43,8 +43,8 @@ commit record is
 That record binds ordered final approval, commit
 `f15b888d0c4862f7e229b990255d5f34c7392591`, tree
 `8a75f24fde68b657d2f84b28aa8b4d34df5089cf`, and a 418-pass postcommit
-control. M0 is complete; this plan does not reopen M0, Q5, or any L-series
-gate and does not re-review an unchanged surface.
+control. M0 is historical complete; this plan does not reopen M0, Q5, or any
+L-series gate and does not re-review an unchanged surface.
 
 Three read-only censuses at the M0 closure tree establish M1's starting
 boundary:
@@ -139,6 +139,67 @@ appear in ordinary live-run listings until deliberately restored. Keeping the
 six old current-format nonterminal runs means M1 does not fully empty the live
 root; their later disposition remains separate work.
 
+## Execution closure candidate
+
+Tasks 0–7 landed in order:
+
+| Task | Commit |
+| --- | --- |
+| 0 — selection | `4e71093d` |
+| 1 — surviving-consumer decoupling | `0f4db4fa` |
+| 2 — retirement-estate deletion | `2f7d736f` |
+| 3 — queue/prompt-gate retirement | `95644b8f` |
+| 4 — migration-gate retirement | `cb96425d` |
+| 5 — frontend/demo compatibility narrowing | `96a02c9f` |
+| 6 — YAML resume compatibility retirement | `3f5008fc` |
+| 7 — repository-real LSP test isolation | `dae747e7` |
+
+Task 8 was an archive-only operation and created no repository commit. Across
+Tasks 1–7, the exact tracked deletion census from the M0 closure tree is:
+
+| Estate | Files | Physical lines | Bytes |
+| --- | ---: | ---: | ---: |
+| Production | 14 | 29,155 | 1,199,106 |
+| Tests excluding fixtures | 10 | 30,261 | 1,157,018 |
+| Fixtures | 64 | 10,065 | 392,435 |
+| Documentation/configuration/other | 3 | 429 | 21,121 |
+| **Total** | **91** | **69,910** | **2,769,680** |
+
+The frozen YAML-retirement evidence stayed byte-for-byte at Git tree
+`8df00515e3d88a7d9783dd3ff76286cff973044b`: 217 files and 29,750,265
+bytes. The retired generators, queue helpers, and migration gates are
+historical; the strict runtime contracts, route-readiness registry,
+`frontend_kind` provenance, and state-only report/dashboard views remain
+current.
+
+Task 7's exact non-security verification record is:
+
+- collection: 9,692 discovered, 9,675 selected, and 17 owner-excluded
+  security tests; log SHA-256
+  `5d464250787c2149d251679ab31dc0381f719d4a6dbc5e380e97a4650782d0e7`;
+- focused aggregate: 1,858 passed and 1 skipped; log SHA-256
+  `81604f3bfbd39cfc4a58c8975bde1e9dbb9718c67f7165979ec3d12b1e68bb73`;
+- final broad xdist: 9,656 passed and 19 skipped; log SHA-256
+  `1a78dcf6ad66ae7ed2b109c7f4013a334d142d6b8cb963e5d0a9755a00e678cf`;
+  and
+- the clean wheel contains neither `orchestrator/demo/` nor `.pt` members.
+
+Task 8 moved exactly 4,168 closed/legacy run directories into
+`.orchestrate/archive/m1-estate-shrink/20260730T103533Z-063385d73b1f` and
+retained exactly the six bound current-format nonterminal `.orc` runs. The two
+quiet censuses share SHA-256
+`063385d73b1f4f222ac2ebf4f44c3190363af4b74c952c8540c0ac1610136922`;
+the archived regular-file manifest has SHA-256
+`7c240c68c3a4b6067fb8315aee9a174e12e45c8cf943ad791181c3d0ffbfc213`;
+and the retained live-root ID-set has SHA-256
+`a0f6f197e1cf9d0b5c6c5f2581007c50d31658397c6fa297c89042b5e87c1c0b`.
+Both ordered Task 8 reviews approved the archive record.
+
+Task 9's routing selector, 59-surface route-readiness check, CLI-help check,
+retired-package absence checks, and clean wheel-content test all passed without
+workflow execution or a live-run-root write. Their combined log has SHA-256
+`892ffa2926f8fef700c1be75fe6916010f3e6fab9591d67e34e52812edb3a5cc`.
+
 ---
 
 ### Task 0: Select M1 on the completed census
@@ -178,7 +239,7 @@ Replace the stale M0-candidate assertion with an M1 assertion that requires:
 Before the plan and routing edits, the selector must fail because this plan
 does not exist.
 
-- [ ] **Step 4: Route the completed M0 boundary and M1 candidate**
+- [x] **Step 4: Route the completed M0 boundary and M1 candidate**
 
 Update the substrate-track header, phase table, M0 section, and M1 section.
 Update both substrate routing entries and the current-substrate selection
@@ -186,7 +247,7 @@ paragraph in `docs/index.md`. Keep the M0 plan entry as historical evidence.
 The text must say that selection is effected by external ordered approval and
 commit of the exact Task 0 candidate, not by its own status prose.
 
-- [ ] **Step 5: Run the routing selector**
+- [x] **Step 5: Run the routing selector**
 
 ```bash
 pytest -q \
@@ -195,7 +256,7 @@ pytest -q \
 
 Expected: one pass.
 
-- [ ] **Step 6: Obtain the single ordered plan-review pass**
+- [x] **Step 6: Obtain the single ordered plan-review pass**
 
 Bind both reviewers to the same `git diff` hash and plan-file SHA-256.
 Specification review runs first; quality review runs only after specification
@@ -207,7 +268,7 @@ approval. Required verdicts:
 If either reviewer identifies a material issue, apply one batched correction
 and replay the ordered pair once. Otherwise do not repeat either review.
 
-- [ ] **Step 7: Commit the reviewed Task 0 candidate**
+- [x] **Step 7: Commit the reviewed Task 0 candidate**
 
 Stage only the four Task 0 paths and commit with subject:
 
@@ -230,13 +291,13 @@ closure workspace. Begin Task 1 immediately.
 - Modify: `tests/test_loader_validation.py`
 - Test: `tests/test_yaml_frontend_retirement.py`
 
-- [ ] **Step 1: Prove the current coupling**
+- [x] **Step 1: Prove the current coupling**
 
 Collect the five surviving modules and inventory only references to
 `orchestrator.retirement` and
 `orchestrator.workflow_lisp.procedure_identity_retirement`.
 
-- [ ] **Step 2: Write the replacement boundary assertions**
+- [x] **Step 2: Write the replacement boundary assertions**
 
 Keep current runtime behavior coverage while removing served-purpose
 generators:
@@ -252,13 +313,13 @@ generators:
 
 Do not weaken `tests/test_yaml_frontend_retirement.py`.
 
-- [ ] **Step 3: Remove the mixed-module imports and obsolete cases**
+- [x] **Step 3: Remove the mixed-module imports and obsolete cases**
 
 Delete private retirement-tool imports, helpers, patches, and tests. Keep the
 remaining modules collectible without `create=True` patches or import
 fallbacks.
 
-- [ ] **Step 4: Run collection and focused behavior checks**
+- [x] **Step 4: Run collection and focused behavior checks**
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 pytest --collect-only -q -p no:cacheprovider \
@@ -276,7 +337,7 @@ PYTHONDONTWRITEBYTECODE=1 pytest -q \
   tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor
 ```
 
-- [ ] **Step 5: Run ordered Task 1 reviews and commit**
+- [x] **Step 5: Run ordered Task 1 reviews and commit**
 
 Review the exact diff for preservation of surviving behavior, then quality.
 Required verdicts:
@@ -307,20 +368,20 @@ Decouple M1 retirement consumers
   `tests/fixtures/workflow_lisp/procedure_identity_retirement/`
 - Preserve: `docs/plans/evidence/yaml-retirement/`
 
-- [ ] **Step 1: Reconfirm the pre-deletion boundary**
+- [x] **Step 1: Reconfirm the pre-deletion boundary**
 
 Require no production consumer outside the deletion set and no surviving test
 import after Task 1. Reconfirm the evidence Git tree is
 `8df00515e3d88a7d9783dd3ff76286cff973044b` before deletion.
 
-- [ ] **Step 2: Delete in dependency order**
+- [x] **Step 2: Delete in dependency order**
 
 Delete dedicated tests/fixtures, the standalone identity-retirement module,
 then `attempt_migration`, `source_bindings`, `materialization`,
 `broad_evidence`, `safe_io`, and the retirement package initializer. There is
 no `state_store.py`; do not invent or search for a replacement.
 
-- [ ] **Step 3: Prove package and reference absence**
+- [x] **Step 3: Prove package and reference absence**
 
 ```bash
 rg -n \
@@ -345,12 +406,12 @@ PY
 Any remaining current code/test reference is a failure. Historical docs and
 evidence references are permitted.
 
-- [ ] **Step 4: Run the surviving focused boundary**
+- [x] **Step 4: Run the surviving focused boundary**
 
 Repeat Task 1's collection and focused run. Confirm the YAML-retirement
 evidence tree and file count are unchanged.
 
-- [ ] **Step 5: Run ordered Task 2 reviews and commit**
+- [x] **Step 5: Run ordered Task 2 reviews and commit**
 
 Required verdicts:
 `M1_TASK2_SPEC_APPROVED`, then `M1_TASK2_QUALITY_APPROVED`.
@@ -383,7 +444,7 @@ Retire served-purpose migration evidence tooling
   `orchestrator/__pycache__/loader.cpython-311.pyc` and
   `orchestrator/__pycache__/loader.cpython-313.pyc`
 
-- [ ] **Step 1: Amend queue authority before deleting its helper**
+- [x] **Step 1: Amend queue authority before deleting its helper**
 
 Change `specs/queue.md` so atomic `*.tmp` to `*.task` publication is an
 author/tool convention rather than a promised framework `QueueManager` API.
@@ -391,7 +452,7 @@ Apply the same ownership wording to the normative inbox-atomicity row in
 `specs/acceptance/index.md`, and update the stale `MIND_MAP.md` edge. Preserve
 `WaitFor` and the independent CLI processed-item clean/archive behavior.
 
-- [ ] **Step 2: Write RED absence and retention controls**
+- [x] **Step 2: Write RED absence and retention controls**
 
 Require `QueueManager` and its re-exports absent while `WaitFor` remains
 importable. Require both removed prompt-gate scripts absent while the live
@@ -399,14 +460,14 @@ importable. Require both removed prompt-gate scripts absent while the live
 wrapper-specific AST assertions with assertions against the live validator
 module only.
 
-- [ ] **Step 3: Delete utilities and correct loader wording**
+- [x] **Step 3: Delete utilities and correct loader wording**
 
 Delete the queue half, gate scripts, dedicated test, and gate-owned known
 failure baseline. Correct only the stale loader docstring in
 `orchestrator/exceptions.py`. Remove the two ignored bytecode files from the
 local filesystem; they are not commit content.
 
-- [ ] **Step 4: Run focused checks**
+- [x] **Step 4: Run focused checks**
 
 ```bash
 pytest -q \
@@ -425,7 +486,7 @@ python -m orchestrator --help
 
 Security- and safety-named modules are not part of this M1 selector.
 
-- [ ] **Step 5: Run ordered Task 3 reviews and commit**
+- [x] **Step 5: Run ordered Task 3 reviews and commit**
 
 Required verdicts:
 `M1_TASK3_SPEC_APPROVED`, then `M1_TASK3_QUALITY_APPROVED`.
@@ -474,14 +535,14 @@ Retire dead queue and prompt gates
 - Modify the current, non-historical migration/authoring authorities and
   prompts that still route through the drained generators
 
-- [ ] **Step 1: Freeze active versus retired ownership**
+- [x] **Step 1: Freeze active versus retired ownership**
 
 Retain route-registry compilation, copy-safety checks, CLI validation, and
 ordinary route fixtures. Remove only migration-manifest comparison and
 post-WCC inventory generation. Preserve frozen parity reports as historical
 evidence.
 
-- [ ] **Step 2: Write RED CLI and registry controls**
+- [x] **Step 2: Write RED CLI and registry controls**
 
 Require the migration-parity and post-WCC verbs absent from
 `python -m orchestrator --help`. Require the route-readiness verb and current
@@ -489,14 +550,14 @@ registry cases to remain valid. Remove only the retired evidence row and
 parity-only test cases; do not hard-code a replacement count until the edited
 registry validates.
 
-- [ ] **Step 3: Delete the drained clusters and update current authority**
+- [x] **Step 3: Delete the drained clusters and update current authority**
 
 Remove CLI parser/dispatch/imports, modules, dedicated tests, manifests, and
 generated post-WCC views. Strip migration coupling from route readiness.
 Update current architecture/drafting/README/prompt/inventory references.
 Historical plans and reports retain their commands and paths.
 
-- [ ] **Step 4: Run focused and CLI integration checks**
+- [x] **Step 4: Run focused and CLI integration checks**
 
 ```bash
 pytest --collect-only -q \
@@ -520,7 +581,7 @@ python -m orchestrator workflow-lisp-route-readiness \
 python -m orchestrator --help
 ```
 
-- [ ] **Step 5: Run ordered Task 4 reviews and commit**
+- [x] **Step 5: Run ordered Task 4 reviews and commit**
 
 Required verdicts:
 `M1_TASK4_SPEC_APPROVED`, then `M1_TASK4_QUALITY_APPROVED`.
@@ -542,7 +603,7 @@ Retire drained Workflow Lisp migration gates
 - Create: `tests/test_packaging_contract.py`
 - Test: active demo and runtime-observability suites
 
-- [ ] **Step 1: Write the frontend RED boundary**
+- [x] **Step 1: Write the frontend RED boundary**
 
 Change the three runtime-observability fixtures that assign
 `_compiled_frontend_kind` directly so they construct
@@ -550,13 +611,13 @@ Change the three runtime-observability fixtures that assign
 drives observability. Do not remove the persisted `frontend_kind` field,
 producer, validation guards, resume logic, or presentation consumers.
 
-- [ ] **Step 2: Remove only the redundant executor shim**
+- [x] **Step 2: Remove only the redundant executor shim**
 
 Delete the seven-line compatibility property and duplicate two-line outer
 guard identified by the census. A zero-context grep/diff check must show that
 no other `frontend_kind` behavior changed.
 
-- [ ] **Step 3: Write the wheel RED and exclude demo packages**
+- [x] **Step 3: Write the wheel RED and exclude demo packages**
 
 Build a wheel before the change and demonstrate it contains
 `orchestrator/demo/`. Add:
@@ -569,7 +630,7 @@ to setuptools package discovery. Add a wheel-content assertion that the built
 wheel contains neither `orchestrator/demo/` nor `.pt` files. Keep repository
 demo sources, fixtures, and tests.
 
-- [ ] **Step 4: Run focused behavior and packaging checks**
+- [x] **Step 4: Run focused behavior and packaging checks**
 
 ```bash
 pytest -q tests/test_runtime_observability.py -k compiled_frontend
@@ -592,7 +653,7 @@ pytest -q \
 Build a clean wheel and inspect its archive contents. Do not install torch or
 add a demo extra.
 
-- [ ] **Step 5: Run ordered Task 5 reviews and commit**
+- [x] **Step 5: Run ordered Task 5 reviews and commit**
 
 Required verdicts:
 `M1_TASK5_SPEC_APPROVED`, then `M1_TASK5_QUALITY_APPROVED`.
@@ -615,27 +676,27 @@ Narrow frontend and demo compatibility
 - Modify: `docs/runtime_execution_lifecycle.md`
 - Modify current CLI/state documentation only if it promises the fast-return
 
-- [ ] **Step 1: Write the RED legacy-resume assertion**
+- [x] **Step 1: Write the RED legacy-resume assertion**
 
 Change the completed YAML/YML resume cases in `tests/test_resume_command.py`
 and `tests/test_yaml_frontend_retirement.py` to require nonzero failure with
 `.orc required`, no executor construction, and an unchanged run-directory
 snapshot. Keep current `.orc` completed-resume behavior green.
 
-- [ ] **Step 2: Delete only the completed-YAML fast return**
+- [x] **Step 2: Delete only the completed-YAML fast return**
 
 Remove the `workflow_suffix in {".yaml", ".yml"}` plus completed-state
 success branch. Leave the single non-`.orc` fail-closed guard. Do not touch
 report or dashboard rendering.
 
-- [ ] **Step 3: Update the explanatory compatibility boundary**
+- [x] **Step 3: Update the explanatory compatibility boundary**
 
 Amend the normative frontend/resume boundary in `specs/dsl.md`, then its
 explanation in `docs/runtime_execution_lifecycle.md`: every non-`.orc` resume
 now fails closed after state lookup. State-only report/dashboard views remain
 non-executable observability.
 
-- [ ] **Step 4: Run focused CLI and state checks**
+- [x] **Step 4: Run focused CLI and state checks**
 
 ```bash
 pytest -q \
@@ -648,7 +709,7 @@ pytest -q \
 python -m orchestrator --help
 ```
 
-- [ ] **Step 5: Run ordered Task 6 reviews and commit**
+- [x] **Step 5: Run ordered Task 6 reviews and commit**
 
 Required verdicts:
 `M1_TASK6_SPEC_APPROVED`, then `M1_TASK6_QUALITY_APPROVED`.
@@ -666,12 +727,12 @@ Retire completed YAML resume compatibility
 reproduces an xdist-only repository-sharing race, a test-isolation correction
 may touch the owning test without changing product or LSP behavior.
 
-- [ ] **Step 1: Run collection before execution**
+- [x] **Step 1: Run collection before execution**
 
 Run collection using the exact non-security exclusions below. A collection
 failure must be fixed at its owning earlier M1 seam; it is not reclassified.
 
-- [ ] **Step 2: Run the focused ownership aggregate**
+- [x] **Step 2: Run the focused ownership aggregate**
 
 Run all surviving modules named in Tasks 1–6 together plus:
 
@@ -683,7 +744,7 @@ pytest -q \
   tests/test_workflow_lisp_drain_roadmap_routing.py
 ```
 
-- [ ] **Step 3: Run the exact broad non-security gate in tmux**
+- [x] **Step 3: Run the exact broad non-security gate in tmux**
 
 From the repository root:
 
@@ -713,19 +774,20 @@ pytest -q -n 16 --dist=worksteal \
   -k 'not security and not secret and not isolation and not safety'
 ```
 
-Expected: exit `0` with no deselections or retained-failure comparison.
+Expected: exit `0` with only the 17 owner-excluded security selectors
+deselected and no retained-failure comparison.
 
-- [ ] **Step 4: Fail closed on any broad failure**
+- [x] **Step 4: Fail closed on any broad failure**
 
 Do not reclassify a nonzero xdist result. If the established
 shared-repository L5 race reproduces, prove it passes serially, make the
 smallest test-only workspace-isolation correction, obtain
 `M1_TASK7_SPEC_APPROVED` then `M1_TASK7_QUALITY_APPROVED` for that correction,
-and rerun the complete undeselected broad command to exit `0`. This is gate
-reliability work, not an L5 behavior change or gate reopening. Any other
-failure returns to its owning M1 task.
+and rerun the complete exact broad command over all 9,675 selected tests to
+exit `0`. This is gate reliability work, not an L5 behavior change or gate
+reopening. Any other failure returns to its owning M1 task.
 
-- [ ] **Step 5: Record fresh logs and continue**
+- [x] **Step 5: Record fresh logs and continue**
 
 Store logs outside Git under the M1 closure workspace, record their SHA-256
 digests, and proceed directly to Task 8. Do not add an evidence schema or
@@ -737,7 +799,7 @@ baseline-comparison lifecycle.
 
 **Files:** filesystem move under `.orchestrate/`; no product source edit.
 
-- [ ] **Step 1: Establish a final quiet census**
+- [x] **Step 1: Establish a final quiet census**
 
 Require no live `orchestrator run` or `orchestrator resume` process. Capture
 two identical censuses, normalized by run ID, at least 60 seconds apart. Fail closed
@@ -745,7 +807,7 @@ if any run changes, a seventh current-format nonterminal appears, one of the
 six retained IDs changes status/content, or a top-level run entry is a
 symlink.
 
-- [ ] **Step 2: Create the archive directory and plain manifests**
+- [x] **Step 2: Create the archive directory and plain manifests**
 
 Create:
 
@@ -772,7 +834,7 @@ each internal symlink path and target without dereferencing it.
 `disposition.txt` cites this plan and the owner disposition for legacy
 nonterminal runs.
 
-- [ ] **Step 3: Move exactly the bound set by same-filesystem rename**
+- [x] **Step 3: Move exactly the bound set by same-filesystem rename**
 
 Move:
 
@@ -790,7 +852,7 @@ duplicated, or mismatched, stop and restore already-moved rows in reverse
 lexicographic order, only into absent source IDs; never continue across an
 invalid partial move.
 
-- [ ] **Step 4: Verify content and retained-live state**
+- [x] **Step 4: Verify content and retained-live state**
 
 From the archive `runs/` directory, verify every regular-file hash and
 internal symlink entry. Require the archived census to equal the selected
@@ -801,7 +863,7 @@ Restoration is intentionally simple: while no run/resume process is live,
 rename an archived run directory back only when the destination ID is absent,
 then re-run its manifest check. Never overwrite a live run ID.
 
-- [ ] **Step 5: Run ordered Task 8 reviews**
+- [x] **Step 5: Run ordered Task 8 reviews**
 
 Review the pre/post census, manifest verification, exact retained IDs, and
 restore instructions. Required verdicts:
@@ -826,7 +888,7 @@ manifest digests in the external closure record.
 - Modify: `tests/test_workflow_lisp_drain_roadmap_routing.py`
 - Modify any current drafting/architecture route left stale by Tasks 2–6
 
-- [ ] **Step 1: Record exact closure facts**
+- [x] **Step 1: Record exact closure facts**
 
 Record exact production/test/fixture LOC and tracked-byte deletion totals,
 focused/broad/package gate results and log digests, archive census/manifest
@@ -834,14 +896,14 @@ digests, the retained six-run live-root digest, and each task commit. Mark
 retirement generators and drained migration gates historical while keeping
 the strict runtime contracts and route readiness current.
 
-- [ ] **Step 2: Update routing and capability status**
+- [x] **Step 2: Update routing and capability status**
 
 Mark M1 an implemented closure candidate, M0 historical complete, and ML
 eligible but unselected pending its own ML-0 specification amendment and
 component plan. Do not select ML, MC, or MR by listing. Keep Q/L completion
 wording unchanged.
 
-- [ ] **Step 3: Run post-archive non-mutating controls**
+- [x] **Step 3: Run post-archive non-mutating controls**
 
 Run the roadmap routing selector, route-readiness check, CLI help, package
 absence checks, and wheel-content check. Do not re-run a workflow or a test

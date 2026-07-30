@@ -4289,7 +4289,7 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
         1,
     )[0]
     normalized_m0 = _normalized_routing_text(m0_section)
-    assert "complete" in normalized_m0
+    assert "historical complete" in normalized_m0
     assert "f15b888d0c4862f7e229b990255d5f34c7392591" in m0_section
     assert "8a75f24fde68b657d2f84b28aa8b4d34df5089cf" in m0_section
     assert "passed 418 tests" in m0_section
@@ -4301,17 +4301,30 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
 
     track_header = track.split("## Objective", 1)[0]
     normalized_track_header = _normalized_routing_text(track_header)
-    assert "m0 is complete" in normalized_track_header
-    assert "m1 is selected" in normalized_track_header
+    assert "m0 is historical complete" in normalized_track_header
+    assert "m1 was selected" in normalized_track_header
+    assert "implemented closure candidate" in normalized_track_header
+    assert "task 9" in normalized_track_header
+    assert "postcommit" in normalized_track_header
     assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in track_header
     assert "later phase defaults remain recorded" in normalized_track_header
+    listing_guard = next(
+        clause
+        for clause in normalized_track_header.split(".")
+        if "selected by listing" in clause
+    )
+    assert all(phase in listing_guard for phase in ("ml", "mc", "mr"))
 
     m1_section = track.split("## Phase M1: Estate Shrink", 1)[1].split(
         "## Phase ML:",
         1,
     )[0]
     normalized_m1 = _normalized_routing_text(m1_section)
-    assert "selected" in normalized_m1
+    assert "status: implemented closure candidate" in normalized_m1
+    assert "selected the exact task 0 candidate" in normalized_m1
+    assert "task 9" in normalized_m1
+    assert "commit" in normalized_m1
+    assert "postcommit" in normalized_m1
     assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in m1_section
     assert "route readiness" in normalized_m1
     assert "retained" in normalized_m1
@@ -4319,8 +4332,44 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "provenance" in normalized_m1
     assert "55,289" in m1_section
 
+    ml_section = track.split(
+        "## Phase ML: Provider At-Least-Once Loosening",
+        1,
+    )[1].split("## Phase MC:", 1)[0]
+    normalized_ml = _normalized_routing_text(ml_section)
+    assert "eligible" in normalized_ml
+    assert "unselected" in normalized_ml
+    assert "ml 0" in normalized_ml
+    assert "specification amendment" in normalized_ml
+    assert "component plan" in normalized_ml
+
+    substrate_index_route = index.split(
+        "**Current substrate selection:**",
+        1,
+    )[1].split("\n\n", 1)[0]
+    normalized_substrate_index_route = _normalized_routing_text(
+        substrate_index_route
+    )
+    assert "m0 is historical complete" in normalized_substrate_index_route
+    assert "m1 is the current selected tranche" in (
+        normalized_substrate_index_route
+    )
+    assert "implemented closure candidate" in normalized_substrate_index_route
+    assert "task 9" in normalized_substrate_index_route
+    assert "postcommit" in normalized_substrate_index_route
+    assert "ml is eligible but unselected" in normalized_substrate_index_route
+    assert "ml 0 specification amendment" in normalized_substrate_index_route
+    assert "component plan" in normalized_substrate_index_route
+
     normalized_plan = _normalized_routing_text(m1_plan)
-    assert "status: selection candidate" in normalized_plan
+    normalized_plan_header = _normalized_routing_text(
+        "\n".join(m1_plan.splitlines()[:35])
+    )
+    assert "status: implemented closure candidate" in normalized_plan_header
+    assert "historical selection act" in normalized_plan_header
+    assert "task 9" in normalized_plan_header
+    assert "commit" in normalized_plan_header
+    assert "postcommit" in normalized_plan_header
     assert m1_plan.index("M1_PLAN_SPEC_APPROVED") < m1_plan.index(
         "M1_PLAN_QUALITY_APPROVED"
     )
@@ -4360,6 +4409,18 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
         assert exact_path in m1_plan
     assert "m1_final_spec_approved" in normalized_plan
     assert "m1_final_quality_approved" in normalized_plan
+
+    # M1 closure must not rewrite or reopen the already-closed parallel Q/L
+    # surfaces.
+    assert (
+        "l4 is complete at commit "
+        "251d9d53674e863fddae4535ea4f7022914287cd"
+    ) in normalized_track_header
+    assert (
+        "q4 is complete at commit "
+        "f3335637b90feb0a87ac4c538bafac7704ac0d87"
+    ) in normalized_track_header
+    assert "does not reopen either gate" in normalized_track_header
 
     assert m0_plan.index("M0_PLAN_SPEC_APPROVED") < m0_plan.index(
         "M0_PLAN_QUALITY_APPROVED"

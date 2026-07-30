@@ -1,13 +1,14 @@
 # Workflow Lisp Procedure-Migration Identity Compatibility
 
-- **Status:** accepted and implemented for generic prerequisites plus exactly
-  one reviewed internal pilot; the evidence-only exception remains narrow
+- **Status:** accepted durable compatibility contract; generic runtime
+  prerequisites remain implemented, while the served-purpose retirement
+  generator and exactly one reviewed internal pilot are historical after M1
 - **Kind:** migration architecture decision and compatibility clarification
 - **Owner:** Workflow Lisp frontend and runtime-state owners
 - **Reviewers:** procedure-first specification review, runtime-state review, and
   the owner of each known state store named by a retirement record
 - **Created:** 2026-07-13
-- **Last material update:** 2026-07-15
+- **Last material update:** 2026-07-30
 - **Related docs / plans:**
   - `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
   - `docs/design/workflow_lisp_state_layout.md`
@@ -23,9 +24,9 @@
   - `specs/state.md`
 - **Implementation dependency:** satisfied at `fdf1e06b`; the accepted resume
   projection-integrity design and its reviewed implementation plan define the
-  separate runtime hardening gate. The migration-wave plan's Task 1 rebaseline
-  completed at `4983afff` plus correction `fa16bcf0`; Task 2 is now its current
-  sub-selector.
+  separate runtime hardening gate. The migration-wave plan completed as
+  historical execution evidence after its Task 1 rebaseline at `4983afff`
+  plus correction `fa16bcf0`.
 
 Acceptance establishes the compatibility contract and reviewed implementation
 sequence. Generic prerequisite Tasks 1-8 completed at handoff `f5adcb79`. The
@@ -35,8 +36,18 @@ not a general cross-source resume/compatibility, family-wave, promotion, or
 YAML-retirement claim. The separate generic projection-integrity hardening
 completed later at `fdf1e06b`; it satisfies a production-wave prerequisite but
 does not broaden the pilot's claim.
-Live roadmap selection is owned by the governing execution sequence, not this
-durable compatibility design.
+Live roadmap selection is owned by the active roadmap tracks, not this durable
+compatibility design or the completed numbered execution sequence.
+
+M1 later removed the served-purpose retirement record/scanner implementation
+and its dedicated tests and fixtures. Sections below that specify its record,
+scan, and validation contract describe the historically executed pilot
+machinery; they are not commands or a selectable implementation in the current
+checkout. The frozen pilot and YAML-retirement evidence plus Git history remain
+the audit route. The strict root/callee checksum rules and generic
+projection-integrity hardening remain current runtime behavior. A future
+identity retirement would therefore need its own reviewed implementation
+authority rather than assuming the historical generator still exists.
 
 ## Summary
 
@@ -82,7 +93,8 @@ the normative owner of persisted call frames, step identities, checkpoint
 state, resume rejection, and any future state upgrader. The state-layout and
 source-map designs own generated state and provenance respectively.
 
-Current repository evidence closes the generic design gaps:
+Current runtime evidence plus preserved historical evidence close the generic
+design gaps:
 
 - `compiler.py::_resolve_stage3_procedure_lowering` invokes the shared
   `lowering/procedures.py::_resolve_procedure_lowering` decision once after
@@ -102,12 +114,12 @@ Current repository evidence closes the generic design gaps:
   `_merge_origin_notes`, so persisted provider, `match`, and checkpoint
   lineage retain procedure-definition and consuming-call-site notes without a
   source-map schema change.
-- `orchestrator/workflow_lisp/procedure_identity_retirement.py` provides the
-  versioned evidence-only record parser, known-store scanner, and fail-closed
-  validator without CLI or runtime coupling. Focused resume tests characterize
-  root rejection before executor construction with a byte-identical run tree
-  and callee rejection before child execution/remap with ordinary parent
-  metadata permitted.
+- Historical commit/evidence records preserve the versioned evidence-only
+  record parser, known-store scanner, and fail-closed validator that governed
+  the one pilot; M1 removed that served-purpose module from the live checkout.
+  Current focused resume tests still characterize root rejection before
+  executor construction and callee rejection before child execution/remap with
+  ordinary parent metadata permitted.
 - `specs/state.md` makes call-frame IDs, step IDs, and nested call-frame state
   durable resume/lineage keys and already rejects incompatible older state in
   other schema migrations unless a tested upgrader ships.
@@ -709,8 +721,9 @@ design and implementation plan and completed at `fdf1e06b` before production
 migration waves. It was not a pilot prerequisite or a normative impact of this
 design. Its capability and routing status changed only after focused acceptance
 evidence, deterministic public smoke, broad baseline equivalence, and final
-independent reviews passed. The governing execution sequence now owns live
-selection of `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`.
+independent reviews passed. The completed
+`docs/plans/2026-07-13-procedure-first-migration-waves-plan.md` is historical
+execution evidence; current selection belongs to the active roadmap tracks.
 
 ## Open Questions
 
