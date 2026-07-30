@@ -527,14 +527,6 @@ class WorkflowExecutor:
         return index
 
     @property
-    def _compiled_frontend_kind(self):
-        return self._legacy_frontend_index().frontend_kind
-
-    @_compiled_frontend_kind.setter
-    def _compiled_frontend_kind(self, value) -> None:
-        self._legacy_frontend_index().frontend_kind = value
-
-    @property
     def _compiled_frontend_node_origins(self):
         return self._legacy_frontend_index().node_origins
 
@@ -631,8 +623,6 @@ class WorkflowExecutor:
     ) -> None:
         """Delegate display while preserving runtime-plan boundary fallback."""
         index = self._legacy_frontend_index()
-        if index.frontend_kind != "workflow_lisp":
-            return
         boundary = None
         if isinstance(index.origin_for_step(step_name, step_id, node_id=node_id), Mapping):
             boundary = self._compiled_frontend_command_boundary_for_step(

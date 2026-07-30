@@ -23,6 +23,7 @@ lsp = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["orchestrator*"]
+exclude = ["orchestrator.demo", "orchestrator.demo.*"]
 
 [tool.setuptools.package-data]
 "orchestrator.experiments.schemas" = ["*.json"]

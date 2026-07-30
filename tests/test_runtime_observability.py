@@ -911,9 +911,7 @@ def test_compiled_frontend_source_context_prefers_executable_node_lineage_over_s
         frontend_source_trace_path=source_map,
         frontend_entry_workflow="pkg/entry::run",
     )
-    executor._compiled_frontend_kind = "workflow_lisp"
-    executor._compiled_frontend_step_origins = executor._load_compiled_frontend_step_origins(provenance)
-    executor._compiled_frontend_node_origins = executor._load_compiled_frontend_node_origins(provenance)
+    executor._frontend_index = CompiledFrontendIndex(provenance)
 
     origin = executor._compiled_frontend_origin_for_step(
         "run__command",
@@ -921,7 +919,12 @@ def test_compiled_frontend_source_context_prefers_executable_node_lineage_over_s
         node_id="root.run__command",
     )
 
+    assert executor._frontend_index.frontend_kind == "workflow_lisp"
     assert origin["path"] == "workflow.orc"
+
+
+def test_compiled_frontend_kind_compatibility_property_is_absent():
+    assert "_compiled_frontend_kind" not in WorkflowExecutor.__dict__
 
 
 def test_compiled_frontend_source_context_logs_certified_adapter_metadata(tmp_path: Path, caplog):
@@ -1010,15 +1013,13 @@ def test_compiled_frontend_source_context_logs_certified_adapter_metadata(tmp_pa
         frontend_source_trace_path=source_map,
         frontend_entry_workflow="pkg/entry::run",
     )
-    executor._compiled_frontend_kind = "workflow_lisp"
-    executor._compiled_frontend_node_origins = executor._load_compiled_frontend_node_origins(provenance)
-    executor._compiled_frontend_step_origins = executor._load_compiled_frontend_step_origins(provenance)
-    executor._compiled_frontend_command_boundaries = executor._load_compiled_frontend_command_boundaries(provenance)
+    executor._frontend_index = CompiledFrontendIndex(provenance)
 
     with caplog.at_level("INFO", logger="orchestrator.workflow.executor"):
         executor._emit_compiled_frontend_step_display("run__adapter", "run__adapter")
 
     messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert executor._frontend_index.frontend_kind == "workflow_lisp"
     assert "certified adapter: apply_resource_transition" in messages
     assert "source-map behavior: step" in messages
 
@@ -1153,10 +1154,7 @@ def test_compiled_frontend_source_context_can_use_runtime_plan_command_hints(tmp
         frontend_source_trace_path=source_map,
         frontend_entry_workflow="pkg/entry::run",
     )
-    executor._compiled_frontend_kind = "workflow_lisp"
-    executor._compiled_frontend_node_origins = executor._load_compiled_frontend_node_origins(provenance)
-    executor._compiled_frontend_step_origins = executor._load_compiled_frontend_step_origins(provenance)
-    executor._compiled_frontend_command_boundaries = {}
+    executor._frontend_index = CompiledFrontendIndex(provenance)
     executor.runtime_plan = SimpleNamespace(
         nodes={
             "root.run__adapter": SimpleNamespace(
@@ -1178,6 +1176,7 @@ def test_compiled_frontend_source_context_can_use_runtime_plan_command_hints(tmp
         )
 
     messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert executor._frontend_index.frontend_kind == "workflow_lisp"
     assert "source: adapter.orc:7:3" in messages
     assert "certified adapter: apply_resource_transition" in messages
 
