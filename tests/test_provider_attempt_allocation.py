@@ -1534,6 +1534,18 @@ def test_no_ordinal_reuse_after_partial_attempt_consumes_counter(
         "conflicting",
         "allocation_gap",
         "noncanonical_publication",
+        pytest.param(
+            "counter_ahead",
+            id="event_counter_disagreement-counter_ahead",
+        ),
+        pytest.param(
+            "events_ahead",
+            id="event_counter_disagreement-events_ahead",
+        ),
+        pytest.param(
+            "malformed_legacy_scope",
+            id="legacy_allocation_events-malformed_scope",
+        ),
     ],
 )
 def test_allocator_rejects_corrupt_persisted_projection_before_increment(
@@ -1598,6 +1610,12 @@ def test_allocator_rejects_corrupt_persisted_projection_before_increment(
                     "record_kind": "failure",
                 },
             ]
+        elif corruption == "counter_ahead":
+            entry["last_allocated_ordinal"] = 2
+        elif corruption == "events_ahead":
+            entry["events"].append({"ordinal": 2, "event": "allocated"})
+        elif corruption == "malformed_legacy_scope":
+            entry["scope"]["resume_scope"]["call_frame_ids"] = "not-a-list"
     root.state_file.write_text(json.dumps(persisted, indent=2))
 
     with pytest.raises(ValueError, match="provider attempt allocation"):

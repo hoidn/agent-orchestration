@@ -22,7 +22,7 @@ fixtures, JSON schema-2.1 state, and atomic temp-file rename.
 **Status:** active. ML-1 closed at commit
 `9c14dae37310755bd9cbd3de03b9256433acd9fe`, tree
 `0b149f96ace8873b0381a4cd530468b1d24a083f`; ML-2 Task 3 closed at
-`fd93bf32`, and Task 4 is current.
+`fd93bf32`, Task 4 closed at `c98aa9e9`, and Task 5 is current.
 
 ## Authority and bounds
 
@@ -221,6 +221,17 @@ its single replay, followed by `ML2_TASK4_QUALITY_APPROVED`.
 
 ## Task 5: Preserve old-state read compatibility
 
+Task 5 feasibility correction: the previously planned filesystem-derived
+partial-directory lower bound is superseded. Enumerating earlier audit evidence
+would contradict `specs/state.md`, which makes allocation state the sole ordinal
+authority and forbids runtime/resume from enumerating or validating earlier
+records. Instead, current allocation persists the attempted counter first; each
+attempt-specific evidence or runtime path then uses its existing no-replace or
+preflight collision guard before provider launch. A stale-counter collision
+leaves prior bytes unchanged, launches no provider for that ordinal, and the
+next ordinary allocation advances again. This preserves identity uniqueness
+without promoting evidence into resume authority.
+
 **Files:**
 
 - Modify: `orchestrator/state.py`
@@ -233,25 +244,44 @@ its single replay, followed by `ML2_TASK4_QUALITY_APPROVED`.
 - Modify:
   `tests/fixtures/workflow_lisp/phased_contract_delivery/ordinary_compatibility.golden`
 
-- [ ] First add
+- [x] Retain
   `test_legacy_allocation_events_read_then_canonicalize_counter_only` plus
-  event/counter disagreement and partial-directory lower-bound negatives.
+  explicit both-direction event/counter disagreement negatives. Retain the
+  allocator no-enumeration test and add a stale-counter collision
+  characterization proving prior bytes stay unchanged and the next allocation
+  advances.
   Run:
 
   ```bash
-  pytest -q tests/test_provider_attempt_allocation.py \
-    -k 'legacy_allocation_events or event_counter_disagreement or partial_directory_lower_bound'
+  pytest -q \
+    tests/test_provider_attempt_allocation.py \
+    tests/test_prompt_dependency_evidence.py \
+    -k 'legacy_allocation_events or event_counter_disagreement or stale_counter_collision or allocator_never_enumerates'
   ```
 
-  Expected RED: current writers preserve lifecycle events and do not implement
-  the counter-only canonicalization contract.
-- [ ] Read a valid historical `events` sequence, derive its canonical
+  The original RED was captured in Task 3 when current writers still preserved
+  lifecycle events. Task 3 pulled the counter-only canonicalization and
+  downstream consumer/golden updates forward; Task 5 closes the remaining
+  explicit compatibility and collision characterization only.
+- [x] Read a valid historical `events` sequence, derive its canonical
   `last_allocated_ordinal`, and omit `events` on the next write.
-- [ ] Reject event/counter disagreement, duplicate ordinals, malformed scopes,
-  and a counter lower than a bound on-disk partial attempt.
-- [ ] Update golden fixtures mechanically only after semantic tests pass.
-- [ ] Run focused tests, ordered specification then quality review, and commit
+- [x] Reject event/counter disagreement, duplicate ordinals, and malformed
+  scopes. Reject an attempt-specific destination collision without changing
+  prior bytes or deriving an ordinal from evidence.
+- [x] Confirm the golden fixtures and downstream report/judgment consumers
+  already updated in Task 3 remain unchanged after the focused semantic tests.
+- [x] Run focused tests, ordered specification then quality review, and commit
   with subject `Read legacy provider allocation ledgers`.
+
+Task 5 candidate evidence: the legacy/counter disagreement selector passes four
+tests, the stale-collision selector passes one, and the existing ordinary
+publication-failure guard passes one. Changed modules collect 172 tests; the
+six-module allocation/evidence/report/judgment gate passes 364 tests. The phased
+golden and companion remain byte-identical to `c98aa9e9`. Production is
+unchanged, allocator path-enumeration grep is empty, and lifecycle events remain
+isolated to the strict legacy parser. Ordered review returned
+`ML2_TASK5_SPEC_APPROVED` followed by `ML2_TASK5_QUALITY_APPROVED` with no
+material findings.
 
 ## Task 6: Close ML-2
 

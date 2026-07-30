@@ -1279,6 +1279,33 @@ def test_publish_rejects_same_or_conflicting_crash_orphan(tmp_path: Path) -> Non
     assert manager.state_file.read_bytes() == state_before
 
 
+def test_stale_counter_collision_preserves_prior_evidence_and_advances(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.prompt_dependency_evidence import (
+        evidence_relative_path,
+        publish_evidence_file,
+    )
+
+    manager = _manager_with_allocations(tmp_path, count=1)
+    destination = manager.run_root / evidence_relative_path(_scope(), 2)
+    destination.parent.mkdir(parents=True)
+    sentinel = b'{"partial":"stale-counter-collision"'
+    destination.write_bytes(sentinel)
+
+    assert manager.allocate_provider_attempt(_scope()) == 2
+    with pytest.raises(FileExistsError):
+        publish_evidence_file(
+            manager,
+            _scope(),
+            2,
+            _success_record(ordinal=2, run_state=manager.state),
+        )
+
+    assert destination.read_bytes() == sentinel
+    assert manager.allocate_provider_attempt(_scope()) == 3
+
+
 def test_publish_link_failure_leaves_allocator_state_unchanged(
     tmp_path: Path, monkeypatch
 ) -> None:
