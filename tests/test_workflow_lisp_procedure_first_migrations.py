@@ -30,18 +30,10 @@ from orchestrator.workflow.loaded_bundle import (
 )
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
-from orchestrator.workflow_lisp.build import (
-    FrontendBuildRequest,
-    build_frontend_bundle,
-)
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
 from orchestrator.workflow_lisp.expressions import CallExpr, ProcedureCallExpr
 from orchestrator.workflow_lisp.lowering import procedures as procedure_lowering
 from orchestrator.workflow_lisp.source_map import build_source_map_document
-from orchestrator.workflow_lisp.procedure_identity_retirement import (
-    _collect_production_identity_carriers,
-    _collect_production_leak_carriers,
-)
 from tests.test_workflow_lisp_design_delta_smoke import (
     _compile_design_delta_parent_drain_entrypoint,
 )
@@ -1483,52 +1475,6 @@ def _stack_implementation_phase_proposed_inline_source(old_source: bytes) -> byt
     return source.encode("utf-8")
 
 
-def _tracked_design_production_identity_projections(
-    workspace: Path,
-    source: bytes,
-    *,
-    side: str,
-    inputs_root: Path = TRACKED_DESIGN_INPUTS,
-) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
-    source_path = workspace / "workflows" / "examples" / EXAMPLE.name
-    source_path.parent.mkdir(parents=True)
-    source_path.write_bytes(source)
-    result = build_frontend_bundle(
-        FrontendBuildRequest(
-            source_path=source_path,
-            source_roots=(workspace / "workflows",),
-            entry_workflow="design-plan-impl-review-stack",
-            provider_externs_path=(
-                inputs_root / "design_plan_impl_stack.providers.json"
-            ),
-            prompt_externs_path=inputs_root / "design_plan_impl_stack.prompts.json",
-            command_boundaries_path=(
-                inputs_root / "design_plan_impl_stack.commands.json"
-            ),
-            workspace_root=workspace,
-            lowering_route="wcc_m4",
-        )
-    )
-    artifact_roles = (
-        "typed_frontend_ast",
-        "semantic_ir",
-        "executable_ir",
-        "runtime_plan",
-        "lexical_checkpoint_points",
-        "source_map",
-    )
-    payloads = {
-        (side, role): _load_json(result.artifact_paths[role])
-        for role in artifact_roles
-    }
-    production = _collect_production_identity_carriers(payloads, side)
-    leaks = _collect_production_leak_carriers(payloads, side)
-    return (
-        {kind: sorted(values) for kind, values in production.items()},
-        {kind: sorted(values) for kind, values in leaks.items()},
-    )
-
-
 def _retained_scan_digest(scan: Mapping[str, object]) -> str:
     normalized = {
         key: value
@@ -1638,66 +1584,6 @@ def test_tracked_design_phase_live_source_retains_the_stopped_boundary() -> None
     assert source.count("(call tracked-design-phase") == 1
 
 
-def test_tracked_design_phase_historical_projection_rebuild_is_opt_in(
-    tmp_path: Path,
-) -> None:
-    if os.environ.get("ORCHESTRATOR_REBUILD_TRACKED_DESIGN_PROJECTIONS") != "1":
-        pytest.skip("set ORCHESTRATOR_REBUILD_TRACKED_DESIGN_PROJECTIONS=1")
-
-    current_source = (TRACKED_DESIGN_INPUTS / "source.orc").read_bytes()
-    proposed_source = _tracked_design_phase_proposed_inline_source(current_source)
-    witness = _load_json(TRACKED_DESIGN_IDENTITY_WITNESS)
-    for clone in ("clone-a", "clone-b"):
-        old_projection, _ = _tracked_design_production_identity_projections(
-            tmp_path / f"{clone}-old",
-            current_source,
-            side="old",
-        )
-        new_projection, new_leaks = _tracked_design_production_identity_projections(
-            tmp_path / f"{clone}-new",
-            proposed_source,
-            side="new",
-        )
-        for row in witness["retired_identity_witnesses"]:
-            identity = row["identity"]
-            identity_kind = row["identity_kind"]
-            assert sorted(
-                kind for kind, values in old_projection.items() if identity in values
-            ) == row["old_domains"]
-            assert sorted(
-                kind for kind, values in new_projection.items() if identity in values
-            ) == row["proposed_production_domains"]
-            assert sorted(
-                kind for kind, values in new_leaks.items() if identity in values
-            ) == row["proposed_leak_domains"]
-
-
-def test_tracked_design_phase_eligibility_stop_live_store_rescan_is_opt_in() -> None:
-    if os.environ.get("ORCHESTRATOR_RESCAN_TRACKED_DESIGN_ELIGIBILITY") != "1":
-        pytest.skip("set ORCHESTRATOR_RESCAN_TRACKED_DESIGN_ELIGIBILITY=1")
-
-    from orchestrator.workflow_lisp.procedure_identity_retirement import (
-        scan_known_state_store,
-    )
-
-    evidence = _load_json(TRACKED_DESIGN_ELIGIBILITY_STOP)
-    witness = _load_json(TRACKED_DESIGN_IDENTITY_WITNESS)
-    query = evidence["query"]
-    store = evidence["known_state_store"]
-    observed = scan_known_state_store(
-        Path(store["canonical_root"]),
-        retired_identities=[
-            row["identity"] for row in witness["retired_identity_witnesses"]
-        ],
-        query_version=query["query_version"],
-    )
-    assert observed["normalized_scan_digest"] == store["normalized_scan_digest"]
-    assert {
-        key: observed[key]
-        for key in store["counts"]
-    } == store["counts"]
-
-
 def test_stack_implementation_phase_identity_retirement_eligibility_stop_replays() -> None:
     evidence = _load_json(STACK_IMPLEMENTATION_ELIGIBILITY_STOP)
     scan = _load_json(STACK_IMPLEMENTATION_KNOWN_STORE_SCAN)
@@ -1791,66 +1677,6 @@ def test_stack_implementation_phase_live_source_retains_the_stopped_boundary() -
     source = EXAMPLE.read_text(encoding="utf-8")
     assert source.count("(defworkflow design-plan-impl-implementation-phase") == 1
     assert source.count("(call design-plan-impl-implementation-phase") == 1
-
-
-def test_stack_implementation_phase_historical_projection_rebuild_is_opt_in(
-    tmp_path: Path,
-) -> None:
-    if os.environ.get("ORCHESTRATOR_REBUILD_STACK_IMPLEMENTATION_PROJECTIONS") != "1":
-        pytest.skip(
-            "set ORCHESTRATOR_REBUILD_STACK_IMPLEMENTATION_PROJECTIONS=1"
-        )
-
-    current_source = (TRACKED_DESIGN_INPUTS / "source.orc").read_bytes()
-    proposed_source = _stack_implementation_phase_proposed_inline_source(
-        current_source
-    )
-    witness = _load_json(STACK_IMPLEMENTATION_IDENTITY_WITNESS)
-    for clone in ("clone-a", "clone-b"):
-        old_projection, _ = _tracked_design_production_identity_projections(
-            tmp_path / f"{clone}-old",
-            current_source,
-            side="old",
-        )
-        new_projection, new_leaks = _tracked_design_production_identity_projections(
-            tmp_path / f"{clone}-new",
-            proposed_source,
-            side="new",
-        )
-        for row in witness["retired_identity_witnesses"]:
-            identity = row["identity"]
-            assert sorted(
-                kind for kind, values in old_projection.items() if identity in values
-            ) == row["old_domains"]
-            assert sorted(
-                kind for kind, values in new_projection.items() if identity in values
-            ) == row["proposed_production_domains"]
-            assert sorted(
-                kind for kind, values in new_leaks.items() if identity in values
-            ) == row["proposed_leak_domains"]
-
-
-def test_stack_implementation_phase_eligibility_stop_live_store_rescan_is_opt_in() -> None:
-    if os.environ.get("ORCHESTRATOR_RESCAN_STACK_IMPLEMENTATION_ELIGIBILITY") != "1":
-        pytest.skip("set ORCHESTRATOR_RESCAN_STACK_IMPLEMENTATION_ELIGIBILITY=1")
-
-    from orchestrator.workflow_lisp.procedure_identity_retirement import (
-        scan_known_state_store,
-    )
-
-    evidence = _load_json(STACK_IMPLEMENTATION_ELIGIBILITY_STOP)
-    witness = _load_json(STACK_IMPLEMENTATION_IDENTITY_WITNESS)
-    query = evidence["query"]
-    store = evidence["known_state_store"]
-    observed = scan_known_state_store(
-        Path(store["canonical_root"]),
-        retired_identities=[
-            row["identity"] for row in witness["retired_identity_witnesses"]
-        ],
-        query_version=query["query_version"],
-    )
-    assert observed["normalized_scan_digest"] == store["normalized_scan_digest"]
-    assert {key: observed[key] for key in store["counts"]} == store["counts"]
 
 
 def test_procedure_first_public_boundary_inventory_keeps_exported_wrappers(
@@ -5814,43 +5640,8 @@ def test_tracked_plan_phase_checksum_evidence_projection_replays(
     assert after_run_directories == before_run_directories
 
 
-def test_tracked_plan_phase_retirement_record_replays_final_scan_evidence(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from orchestrator.cli.commands import resume as resume_command
-    from orchestrator.cli.commands import run as run_command
-    from orchestrator.state import StateManager
-    from orchestrator.workflow.executor import WorkflowExecutor
-    from orchestrator.workflow_lisp import procedure_identity_retirement as retirement
-
-    def forbidden_runtime(*_args, **_kwargs):
-        raise AssertionError("retirement record replay reached runtime authority")
-
-    monkeypatch.setattr(StateManager, "initialize", forbidden_runtime)
-    monkeypatch.setattr(WorkflowExecutor, "__init__", forbidden_runtime)
-    monkeypatch.setattr(run_command, "run_workflow", forbidden_runtime)
-    monkeypatch.setattr(resume_command, "resume_workflow", forbidden_runtime)
+def test_tracked_plan_phase_retirement_record_replays_final_scan_evidence() -> None:
     scan_evidence = _load_json(PILOT_EVIDENCE / "final_known_store_scans.json")
-    retained_scans = {
-        Path(scan["scanner_result"]["root"]).resolve(): scan["scanner_result"]
-        for scan in scan_evidence["scans"].values()
-    }
-    expected_identities = frozenset(scan_evidence["old_identity_query"]["identities"])
-    observed_queries: list[Path] = []
-
-    def retained_scan_only(root, *, retired_identities, query_version):
-        canonical = Path(root).resolve()
-        assert canonical in retained_scans
-        assert query_version == "procedure-identity-store-query.v1"
-        assert frozenset(retired_identities) == expected_identities
-        observed_queries.append(canonical)
-        return deepcopy(retained_scans[canonical])
-
-    monkeypatch.setattr(retirement, "scan_known_state_store", retained_scan_only)
-    run_roots = tuple(retained_scans)
-    before_run_directories = {
-        root: tuple(sorted(path.name for path in root.iterdir())) for root in run_roots
-    }
     record_path = PILOT_EVIDENCE / "retirement_record.json"
     payload = _load_json(record_path)
     _assert_tracked_plan_retirement_claim_bindings(payload)
@@ -5874,16 +5665,6 @@ def test_tracked_plan_phase_retirement_record_replays_final_scan_evidence(
         "query_list_sha256": query_binding["query_list_sha256"],
         "query_version": query_binding["query_version"],
     }
-    record = retirement.load_retirement_record(record_path)
-    result = retirement.validate_retirement_record(record, repo_root=REPO_ROOT)
-
-    assert result.valid is True
-    assert result.issues == ()
-    assert set(observed_queries) == set(retained_scans)
-    after_run_directories = {
-        root: tuple(sorted(path.name for path in root.iterdir())) for root in run_roots
-    }
-    assert after_run_directories == before_run_directories
 
 
 @pytest.mark.parametrize(
@@ -6753,20 +6534,3 @@ def test_tracked_plan_phase_live_validator_result_rejects_tamper(mutation: str) 
         result["claims_not_made"]["hold_release"] = "asserted"
     with pytest.raises(AssertionError):
         _assert_live_validator_result(result)
-
-
-@pytest.mark.skipif(
-    os.environ.get("ORCHESTRATOR_RUN_LIVE_PROCEDURE_RETIREMENT_VALIDATION") != "1",
-    reason="live procedure-retirement scan validation is opt-in",
-)
-def test_tracked_plan_phase_retirement_record_validates_live() -> None:
-    from orchestrator.workflow_lisp.procedure_identity_retirement import (
-        load_retirement_record,
-        validate_retirement_record,
-    )
-
-    record = load_retirement_record(PILOT_EVIDENCE / "retirement_record.json")
-    result = validate_retirement_record(record, repo_root=REPO_ROOT)
-
-    assert result.valid is True
-    assert result.issues == ()

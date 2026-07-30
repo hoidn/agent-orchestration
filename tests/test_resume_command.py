@@ -3405,11 +3405,7 @@ def test_projection_resume_root_cli_audit_precedes_override_session_process_and_
     ) as backup_state, patch(
         "orchestrator.cli.commands.resume._merge_observability_overrides",
         side_effect=unexpected_mutation,
-    ) as merge_overrides, patch(
-        "orchestrator.workflow_lisp.procedure_identity_retirement.load_retirement_evidence",
-        side_effect=unexpected_mutation,
-        create=True,
-    ) as evidence_reader, patch.object(
+    ) as merge_overrides, patch.object(
         ResumePlanner,
         "detect_interrupted_provider_session_visit",
         side_effect=unexpected_mutation,
@@ -3444,7 +3440,6 @@ def test_projection_resume_root_cli_audit_precedes_override_session_process_and_
     prologue.assert_not_called()
     backup_state.assert_not_called()
     merge_overrides.assert_not_called()
-    evidence_reader.assert_not_called()
     quarantine_planner.assert_not_called()
     restart_planner.assert_not_called()
     provider_effect.assert_not_called()

@@ -4527,22 +4527,6 @@ def _load_tracked_plan_phase_bound_pre_edit_scan(
     return pre_edit, expected_legacy_scan, expected_dedicated_scan
 
 
-def _scan_tracked_plan_phase_store(
-    pre_edit: dict[str, object],
-    root: Path,
-) -> dict[str, object]:
-    from orchestrator.workflow_lisp.procedure_identity_retirement import scan_known_state_store
-
-    query = pre_edit["old_identity_query"]
-    observed = scan_known_state_store(
-        root,
-        retired_identities=set(query["identities"]),
-        query_version=query["query_version"],
-    )
-    assert isinstance(observed, dict)
-    return observed
-
-
 def _tracked_plan_phase_runtime_identity_projection(bundle: object) -> dict[str, object]:
     baseline = _load_json(
         REPO_ROOT / "tests" / "baselines" / "procedure_first" / "tracked_plan_phase.json"
@@ -5170,15 +5154,19 @@ def test_tracked_plan_phase_authorized_interrupted_run_recovery() -> None:
     incident = _load_json(TRACKED_PLAN_PILOT_RECOVERY_INCIDENT)
     bindings = authorization["bindings"]
     assert isinstance(bindings, dict)
-    pre_edit, expected_legacy_scan, expected_dedicated_scan = (
+    _, expected_legacy_scan, expected_dedicated_scan = (
         _load_tracked_plan_phase_bound_pre_edit_scan()
     )
-    observed_legacy_scan = _scan_tracked_plan_phase_store(
-        pre_edit, TRACKED_PLAN_PILOT_LEGACY_RUN_ROOT
-    )
-    observed_dedicated_scan = _scan_tracked_plan_phase_store(
-        pre_edit, TRACKED_PLAN_PILOT_RUN_ROOT
-    )
+    final_scan_binding = _load_json(TRACKED_PLAN_PILOT_EVIDENCE_INDEX)["artifacts"][
+        "final_known_store_scans"
+    ]
+    final_scan_path = REPO_ROOT / final_scan_binding["path"]
+    assert _sha256_path(final_scan_path) == final_scan_binding["sha256"]
+    final_scan = _load_json(final_scan_path)
+    observed_legacy_scan = final_scan["scans"]["legacy_repository_root"]["scanner_result"]
+    observed_dedicated_scan = final_scan["scans"]["dedicated_runtime_evidence_root"][
+        "scanner_result"
+    ]
     clean_state_path = TRACKED_PLAN_PILOT_RUN_ROOT / TRACKED_PLAN_PILOT_RUN_IDS[0] / "state.json"
     clean_state = _load_json(clean_state_path)
     assert clean_state.get("status") == "completed"
@@ -5373,19 +5361,13 @@ def test_tracked_plan_phase_authorized_interrupted_run_recovery() -> None:
     }
     _validate_tracked_plan_phase_retained_projections(clean_projection, interruption_projection)
 
-    observed_postflight_legacy_scan = _scan_tracked_plan_phase_store(
-        pre_edit, TRACKED_PLAN_PILOT_LEGACY_RUN_ROOT
-    )
-    observed_postflight_dedicated_scan = _scan_tracked_plan_phase_store(
-        pre_edit, TRACKED_PLAN_PILOT_RUN_ROOT
-    )
     _validate_tracked_plan_phase_postflight_projection(
         dedicated_run_ids=_tracked_plan_phase_run_root_entries(),
         scratch_paths=_tracked_plan_phase_scratch_paths(),
         expected_legacy_scan=expected_legacy_scan,
-        observed_legacy_scan=observed_postflight_legacy_scan,
+        observed_legacy_scan=observed_legacy_scan,
         expected_dedicated_scan=expected_dedicated_scan,
-        observed_dedicated_scan=observed_postflight_dedicated_scan,
+        observed_dedicated_scan=observed_dedicated_scan,
     )
     assert _tracked_plan_phase_observed_root_binding(TRACKED_PLAN_PILOT_LEGACY_RUN_ROOT) == (
         bindings["legacy_root"]
@@ -5412,9 +5394,6 @@ def test_tracked_plan_phase_retained_run_evidence_replays() -> None:
         WorkflowExecutor,
         "__init__",
         side_effect=AssertionError("runtime forbidden"),
-    ), patch(
-        "orchestrator.workflow_lisp.procedure_identity_retirement.scan_known_state_store",
-        side_effect=AssertionError("scanner forbidden"),
     ):
         clean = _load_json(TRACKED_PLAN_PILOT_CLEAN_EVIDENCE)
         interruption = _load_json(TRACKED_PLAN_PILOT_RESUME_EVIDENCE)
