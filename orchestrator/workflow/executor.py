@@ -192,6 +192,7 @@ from .runtime_step import RuntimeStep
 from .runtime_types import RoutingDecision, StepExecutionIdentity
 from .signatures import WorkflowSignatureError, resolve_workflow_outputs
 from .adjudication import (
+    AdjudicationMismatchRerun,
     create_baseline_snapshot,
     materialize_run_score_ledger,
     materialize_score_ledger_mirror,
@@ -457,6 +458,9 @@ class WorkflowExecutor:
                     self._substitute_path_template(*args, **kwargs)
                 ),
                 uses_qualified_identities=lambda: self._uses_qualified_identities(),
+                emit_adjudication_mismatch_rerun=(
+                    self._emit_adjudication_mismatch_rerun
+                ),
                 create_baseline_snapshot=lambda *args, **kwargs: (
                     create_baseline_snapshot(*args, **kwargs)
                 ),
@@ -3972,6 +3976,25 @@ class WorkflowExecutor:
                 "provider_step_id": context["step_id"],
                 "discarded_visit": context["discarded_visit"],
                 "next_visit": context["next_visit"],
+            },
+        )
+
+    def _emit_adjudication_mismatch_rerun(
+        self,
+        rerun: AdjudicationMismatchRerun,
+    ) -> None:
+        """Emit one bounded diagnostic at the recovered dispatch boundary."""
+
+        logger.warning(
+            "adjudication_state_mismatch_rerun",
+            extra={
+                "orchestrator_diagnostic": "adjudication_state_mismatch_rerun",
+                "provider_family": "adjudication",
+                "adjudication_mismatch_class": rerun.mismatch_class,
+                "provider_step_id": rerun.step_id,
+                "frame_scope": rerun.frame_scope,
+                "discarded_visit": rerun.discarded_visit,
+                "next_visit": rerun.next_visit,
             },
         )
 

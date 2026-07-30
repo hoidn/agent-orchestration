@@ -846,9 +846,12 @@ class AdjudicationResumeMixin:
         visit_paths: AdjudicationVisitPaths,
             candidates: Optional[list[dict[str, Any]]] = None,
         ) -> Dict[str, Any]:
-            return self._adjudication_failure_result(
-                "adjudication_resume_mismatch",
-                message,
-                candidates=candidates,
-                visit_paths=visit_paths,
-            )
+            return {
+                "error": {
+                    "message": message,
+                },
+                "candidate_count": len(candidates or ()),
+                "run_score_ledger_path": str(
+                    visit_paths.run_score_ledger_path
+                ),
+            }

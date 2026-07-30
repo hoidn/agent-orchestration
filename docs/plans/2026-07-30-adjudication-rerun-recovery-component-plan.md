@@ -23,7 +23,8 @@ filesystem operations, and Workflow Lisp end-to-end fixtures.
 `b833b03cb91396cddf64a12cbbbc8d016cd306ad`; Task 1 closed at
 `c45928f4399dbe1cb1105136a320638b95b9c3a8`, tree
 `c0ea1821d573ecfe9d3c5d98b1cab5d02be3e7f3`; Task 2 closes through the
-commit containing this record, and Task 3 is current.
+commit `b3370858b27b7d3924556193e499b2c6de106750`, tree
+`d26c9a6399a5c400a3d36aeaf9bf024a9891bc9d`, and Task 3 is current.
 
 ## Authority and bounds
 
@@ -141,13 +142,17 @@ checks pass. The required specification replay returned
 
 **Files:**
 
+- Modify: `orchestrator/workflow/adjudication/__init__.py`
+- Modify: `orchestrator/workflow/adjudication/models.py`
+- Modify: `orchestrator/workflow/adjudication/promotion.py`
+- Modify: `orchestrator/workflow/adjudication_bindings.py`
+- Modify: `orchestrator/workflow/adjudication_resume.py`
 - Modify: `orchestrator/workflow/executor.py`
 - Modify: `orchestrator/workflow/adjudication_runner.py`
-- Modify: `orchestrator/workflow/adjudication/models.py`
 - Modify: `tests/test_adjudicated_provider_runtime.py`
 - Modify: `tests/test_adjudicated_provider_resume.py`
 
-- [ ] First add
+- [x] First add
   `test_exact_adjudication_mismatch_reruns_with_fresh_identities` and
   `test_consistent_adjudication_resume_reuses_without_invocation`. Run:
 
@@ -159,15 +164,30 @@ checks pass. The required specification replay returned
   ```
 
   Expected RED: mismatch still fails; consistent reuse remains green.
-- [ ] Allocate the next visit/attempt identities through normal execution;
+- [x] Allocate the next visit/attempt identities through normal execution;
   never reuse a discarded candidate or score identity.
-- [ ] Emit `adjudication_state_mismatch_rerun` exactly once with bounded
+- [x] Emit `adjudication_state_mismatch_rerun` exactly once with bounded
   mismatch class and old/new visit coordinates.
-- [ ] Remove active production emission of `adjudication_resume_mismatch`.
-- [ ] Prove all mismatch classes rerun successfully when exact and still fail
+- [x] Remove active production emission of `adjudication_resume_mismatch`.
+- [x] Prove all mismatch classes rerun successfully when exact and still fail
   closed when exact cleanup authority is unavailable.
-- [ ] Run focused tests, ordered specification then quality review, and commit
+- [x] Run focused tests, ordered specification then quality review, and commit
   with subject `Rerun mismatched adjudicated providers`.
+
+Task 3 candidate evidence: the fresh-identity selector first returned one
+failure and one pass because exact mismatch still terminated while consistent
+completed state already reused without invocation. The implementation now
+validates consecutive canonical old/new visit coordinates before cleanup,
+discards the exact old visit, enters ordinary candidate dispatch with
+visit-derived fresh identities, and emits one closed
+`sidecar_reconciliation_mismatch` diagnostic at that boundary. All four
+canonical sidecar-mismatch families and the scorer-resolution transition rerun
+successfully; aliased or unbound cleanup authority remains mutation-free and
+fails with `adjudication_state_integrity_error`. Renamed/new test collection
+finds 89 cases, the mismatch-focused matrix passes 28, and the four owning
+adjudication modules pass 153. Compile and diff checks pass; ordered review is
+complete with `ML4_TASK3_SPEC_APPROVED` followed by
+`ML4_TASK3_QUALITY_APPROVED`, with no material findings and no replay.
 
 ## Task 4: Prove reuse and publication invariants
 

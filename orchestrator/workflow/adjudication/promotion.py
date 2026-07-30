@@ -50,7 +50,7 @@ def promote_candidate_outputs(
         ):
             raise PromotionConflictError(
                 "promotion manifest selected candidate does not match current selection",
-                failure_type="adjudication_resume_mismatch",
+                failure_type="adjudication_state_integrity_error",
             )
         if manifest.get("status") in {"prepared", "committing", "rolling_back", "failed", "committed"}:
             return _resume_promotion_manifest(

@@ -5,7 +5,11 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, Optional
 
-from .adjudication import AdjudicationDeadline, adjudication_visit_paths
+from .adjudication import (
+    AdjudicationDeadline,
+    AdjudicationMismatchRerun,
+    adjudication_visit_paths,
+)
 from .adjudication_bindings import (
     AdjudicationBindings,
     AdjudicationExecution,
@@ -15,7 +19,10 @@ from .adjudication_candidates import AdjudicationCandidatePhaseMixin
 from .adjudication_finalization import AdjudicationFinalizationPhaseMixin
 from .adjudication_helpers import AdjudicationHelpersMixin
 from .adjudication_ledger import AdjudicationLedgerMixin
-from .adjudication_resume import AdjudicationResumeMixin
+from .adjudication_resume import (
+    AdjudicationResumeMixin,
+    classify_adjudication_resume_mismatch,
+)
 from .adjudication_scoring import AdjudicationScoringMixin
 from .executor_runtime import RuntimeStepInput
 
@@ -49,10 +56,11 @@ class AdjudicationRunner(
             return preparation_error
         if execution is None:
             return self._adjudication_failure_result(
-                "adjudication_resume_mismatch",
+                "adjudication_state_integrity_error",
                 "Missing adjudication execution context",
             )
 
+        mismatch_rerun: AdjudicationMismatchRerun | None = None
         resume_decision = self._reconcile_adjudication_resume(execution)
         if resume_decision.kind == "integrity_error":
             return self._adjudication_failure_result(
@@ -62,22 +70,59 @@ class AdjudicationRunner(
         if resume_decision.kind == "rerun_exact_scope":
             if resume_decision.scope is None:
                 raise AssertionError("exact-scope decision omitted its scope")
+            scope = resume_decision.scope
+            live_scope = classify_adjudication_resume_mismatch(
+                run_root=execution.run_root,
+                frame_scope=execution.frame_scope,
+                step_id=execution.step_id,
+                visit_count=execution.visit_count,
+                visit_paths=execution.visit_paths,
+                message="fresh adjudication rerun coordinates require validation",
+            )
+            step_visits = execution.state.get("step_visits")
+            if (
+                scope.run_root != execution.run_root
+                or scope.frame_scope != execution.frame_scope
+                or scope.step_id != execution.step_id
+                or live_scope.kind != "rerun_exact_scope"
+                or live_scope.scope is None
+                or live_scope.scope.visit_count != scope.visit_count + 1
+                or live_scope.scope.visit_paths
+                != adjudication_visit_paths(
+                    execution.run_root,
+                    execution.frame_scope,
+                    execution.step_id,
+                    scope.visit_count + 1,
+                )
+                or not isinstance(step_visits, dict)
+                or step_visits.get(execution.step_name)
+                != live_scope.scope.visit_count
+            ):
+                return self._adjudication_failure_result(
+                    "adjudication_state_integrity_error",
+                    "fresh adjudication rerun coordinates are not provably canonical",
+                )
             cleanup_error = self._discard_exact_adjudication_visit(
                 execution,
-                resume_decision.scope,
+                scope,
             )
             if cleanup_error is not None:
                 return self._adjudication_failure_result(
                     "adjudication_state_integrity_error",
                     cleanup_error,
                 )
-            return self._adjudication_failure_result(
-                "adjudication_resume_mismatch",
-                str(resume_decision.message),
+            mismatch_rerun = AdjudicationMismatchRerun(
+                mismatch_class="sidecar_reconciliation_mismatch",
+                step_id=execution.step_id,
+                frame_scope=execution.frame_scope,
+                discarded_visit=scope.visit_count,
+                next_visit=live_scope.scope.visit_count,
             )
         baseline_error = self._ensure_adjudication_baseline(execution)
         if baseline_error is not None:
             return baseline_error
+        if mismatch_rerun is not None:
+            self._bindings.emit_adjudication_mismatch_rerun(mismatch_rerun)
         candidate_error = self._execute_adjudication_candidates(execution)
         if candidate_error is not None:
             return candidate_error
@@ -105,7 +150,7 @@ class AdjudicationRunner(
         adjudicated = step.get("adjudicated_provider", {})
         if not isinstance(adjudicated, dict):
             return None, self._adjudication_failure_result(
-                "adjudication_resume_mismatch",
+                "adjudication_state_integrity_error",
                 "Missing adjudicated_provider config",
             )
 
@@ -205,7 +250,11 @@ class AdjudicationRunner(
                 )
             except Exception as exc:
                 return self._adjudication_failure_result(
-                    getattr(exc, "failure_type", "adjudication_resume_mismatch"),
+                    getattr(
+                        exc,
+                        "failure_type",
+                        "adjudication_state_integrity_error",
+                    ),
                     str(exc),
                 )
 

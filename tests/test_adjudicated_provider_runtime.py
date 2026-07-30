@@ -2340,19 +2340,18 @@ def test_resume_after_committed_promotion_finalizes_ledger_mirror_and_publicatio
 
 
 @pytest.mark.parametrize(
-    ("mutation", "expected_message"),
+    "mutation",
     [
-        ("missing_baseline", "baseline"),
-        ("tampered_candidate_config_hash", "candidate config"),
-        ("changed_scorer_identity", "scorer identity"),
-        ("missing_scorer_snapshot", "scorer snapshot"),
+        "missing_baseline",
+        "tampered_candidate_config_hash",
+        "changed_scorer_identity",
+        "missing_scorer_snapshot",
     ],
 )
-def test_resume_rejects_mismatched_adjudication_sidecars(
+def test_resume_reruns_mismatched_adjudication_sidecars(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     mutation: str,
-    expected_message: str,
 ) -> None:
     workflow = _workflow(scores={"a": 0.9})
     workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
@@ -2396,9 +2395,19 @@ def test_resume_rejects_mismatched_adjudication_sidecars(
     state = _resume(tmp_path, workflow)
 
     result = state["steps"]["Draft"]
-    assert result["status"] == "failed"
-    assert result["error"]["type"] == "adjudication_resume_mismatch"
-    assert expected_message in result["error"]["message"]
+    fresh_visit = adjudication_visit_paths(
+        tmp_path / ".orchestrate/runs/run-1",
+        "root",
+        "root.draft",
+        2,
+    )
+    assert state["status"] == "completed"
+    assert result["status"] == "completed"
+    assert result["visit_count"] == 2
+    assert state["step_visits"]["Draft"] == 2
+    assert not visit.adjudication_root.exists()
+    assert fresh_visit.run_score_ledger_path.is_file()
+    assert fresh_visit.promotion_manifest_path.is_file()
 
 
 def test_exact_mismatch_discards_only_bound_adjudication_visit(
@@ -2457,22 +2466,19 @@ def test_exact_mismatch_discards_only_bound_adjudication_visit(
     )
 
     sibling_sentinels = [
-        run_root / "adjudication/root/root.draft/2/sentinel",
+        run_root / "adjudication/root/root.draft/3/sentinel",
         run_root / "adjudication/root/root.sibling/1/sentinel",
-        run_root / "candidates/root/root.draft/2/sentinel",
+        run_root / "candidates/root/root.draft/3/sentinel",
         run_root / "candidates/root/root.sibling/1/sentinel",
-        run_root / "promotions/root/root.draft/2/sentinel",
+        run_root / "promotions/root/root.draft/3/sentinel",
         run_root / "promotions/root/root.sibling/1/sentinel",
     ]
     for index, sentinel in enumerate(sibling_sentinels):
         sentinel.parent.mkdir(parents=True, exist_ok=True)
         sentinel.write_bytes(f"sibling-{index}".encode())
-    score_ledger_mirror = tmp_path / "artifacts/evaluations/draft_scores.jsonl"
-    score_ledger_mirror.parent.mkdir(parents=True, exist_ok=True)
-    score_ledger_mirror.write_bytes(b"workspace-ledger-sentinel\n")
     preserved_before = {
         path: path.read_bytes()
-        for path in [*sibling_sentinels, score_ledger_mirror]
+        for path in sibling_sentinels
     }
 
     monkeypatch.setattr(
@@ -2484,21 +2490,22 @@ def test_exact_mismatch_discards_only_bound_adjudication_visit(
 
     result = state["steps"]["Draft"]
     persisted = json.loads((run_root / "state.json").read_text(encoding="utf-8"))
-    assert result["status"] == "failed"
-    assert result["error"]["type"] == "adjudication_resume_mismatch"
-    assert "adjudication" not in result
+    assert state["status"] == "completed"
+    assert result["status"] == "completed"
+    assert result["visit_count"] == 2
+    assert result["adjudication"]["promotion_status"] == "committed"
     assert not old_visit.adjudication_root.exists()
     assert not old_candidate_visit.exists()
     assert not old_promotion_visit.exists()
     assert {
         path: path.read_bytes()
-        for path in [*sibling_sentinels, score_ledger_mirror]
+        for path in sibling_sentinels
     } == preserved_before
-    assert persisted["steps"]["Draft"]["error"]["type"] == "adjudication_resume_mismatch"
-    assert "adjudication" not in persisted["steps"]["Draft"]
+    assert persisted["steps"]["Draft"]["status"] == "completed"
+    assert persisted["steps"]["Draft"]["adjudication"]["promotion_status"] == "committed"
     assert persisted["step_visits"]["Draft"] == 2
     assert persisted.get("current_step") is None
-    assert candidate_attempts.read_text(encoding="utf-8") == "1"
+    assert candidate_attempts.read_text(encoding="utf-8") == "2"
 
 
 def test_unprovable_cleanup_scope_makes_no_mutation(
@@ -2710,6 +2717,149 @@ def test_unbound_promotion_manifest_destination(
     assert candidate_attempts.read_text(encoding="utf-8") == "1"
 
 
+def test_exact_adjudication_mismatch_reruns_with_fresh_identities(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    candidate_attempts = tmp_path / "candidate_attempts.txt"
+    evaluator_attempts = tmp_path / "evaluator_attempts.txt"
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({candidate_attempts.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/a.md').write_text(f'selected attempt {attempt}', encoding='utf-8')\n"
+        ),
+    ]
+    workflow["providers"]["evaluator"]["command"] = [
+        "python",
+        "-c",
+        (
+            "import json, sys\n"
+            "from pathlib import Path\n"
+            f"attempt_file = Path({evaluator_attempts.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "packet = json.loads(sys.stdin.read().split('Evaluator Packet:', 1)[1])\n"
+            "print(json.dumps({'candidate_id': packet['candidate_id'], 'score': 0.9, 'summary': 'scored'}))\n"
+        ),
+    ]
+    original_promote = executor_module.promote_candidate_outputs
+
+    def interrupt_before_promotion(**_: object) -> object:
+        raise SystemExit("interrupted before promotion")
+
+    monkeypatch.setattr(
+        executor_module,
+        "promote_candidate_outputs",
+        interrupt_before_promotion,
+    )
+    with pytest.raises(SystemExit):
+        _run(tmp_path, workflow)
+
+    run_root = tmp_path / ".orchestrate/runs/run-1"
+    old_visit = adjudication_visit_paths(run_root, "root", "root.draft", 1)
+    old_candidate_visit = candidate_visit_root(
+        run_root,
+        "root",
+        "root.draft",
+        1,
+    )
+    old_promotion_visit = old_visit.promotion_manifest_path.parent
+    old_rows = [
+        json.loads(line)
+        for line in old_visit.run_score_ledger_path.read_text(
+            encoding="utf-8"
+        ).splitlines()
+    ]
+    assert len(old_rows) == 1
+    old_candidate_run_key = old_rows[0]["candidate_run_key"]
+    old_score_run_key = old_rows[0]["score_run_key"]
+    metadata_path = candidate_metadata_path(
+        candidate_paths(run_root, "root", "root.draft", 1, "a")
+    )
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["candidate_config_hash"] = "sha256:" + ("0" * 64)
+    metadata_path.write_text(
+        json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        executor_module,
+        "promote_candidate_outputs",
+        original_promote,
+    )
+    caplog.clear()
+    caplog.set_level("WARNING")
+    state = _resume(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert state["status"] == "completed"
+    assert result["status"] == "completed"
+    new_visit = adjudication_visit_paths(run_root, "root", "root.draft", 2)
+    new_candidate_visit = candidate_visit_root(
+        run_root,
+        "root",
+        "root.draft",
+        2,
+    )
+    new_rows = [
+        json.loads(line)
+        for line in new_visit.run_score_ledger_path.read_text(
+            encoding="utf-8"
+        ).splitlines()
+    ]
+    diagnostic_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "orchestrator_diagnostic", None)
+        == "adjudication_state_mismatch_rerun"
+    ]
+
+    assert result["visit_count"] == 2
+    assert state["step_visits"]["Draft"] == 2
+    assert len(new_rows) == 1
+    assert new_rows[0]["visit_count"] == 2
+    assert new_rows[0]["candidate_run_key"] != old_candidate_run_key
+    assert new_rows[0]["score_run_key"] != old_score_run_key
+    assert (
+        result["adjudication"]["candidates"]["a"]["candidate_run_key"]
+        == new_rows[0]["candidate_run_key"]
+    )
+    assert (
+        result["adjudication"]["candidates"]["a"]["score_run_key"]
+        == new_rows[0]["score_run_key"]
+    )
+    assert not old_visit.adjudication_root.exists()
+    assert not old_candidate_visit.exists()
+    assert not old_promotion_visit.exists()
+    assert new_visit.adjudication_root.is_dir()
+    assert new_candidate_visit.is_dir()
+    assert new_visit.promotion_manifest_path.is_file()
+    assert candidate_attempts.read_text(encoding="utf-8") == "2"
+    assert evaluator_attempts.read_text(encoding="utf-8") == "2"
+    assert len(diagnostic_records) == 1
+    diagnostic = diagnostic_records[0]
+    assert diagnostic.provider_family == "adjudication"
+    assert diagnostic.adjudication_mismatch_class == "sidecar_reconciliation_mismatch"
+    assert diagnostic.provider_step_id == "root.draft"
+    assert diagnostic.frame_scope == "root"
+    assert diagnostic.discarded_visit == 1
+    assert diagnostic.next_visit == 2
+
+
 def test_resume_source_mutation_reports_root_checksum_mismatch_before_adjudication(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2739,7 +2889,7 @@ def test_resume_source_mutation_reports_root_checksum_mismatch_before_adjudicati
     assert state["steps"] == {}
 
 
-def test_resume_rejects_scorer_unavailable_sidecars_that_no_longer_match(
+def test_resume_reruns_scorer_unavailable_sidecars_that_no_longer_match(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2763,9 +2913,15 @@ def test_resume_rejects_scorer_unavailable_sidecars_that_no_longer_match(
     state = _resume(tmp_path, workflow)
 
     result = state["steps"]["Draft"]
-    assert result["status"] == "failed"
-    assert result["error"]["type"] == "adjudication_resume_mismatch"
-    assert "scorer resolution" in result["error"]["message"]
+    run_root = tmp_path / ".orchestrate/runs/run-1"
+    old_visit = adjudication_visit_paths(run_root, "root", "root.draft", 1)
+    fresh_visit = adjudication_visit_paths(run_root, "root", "root.draft", 2)
+    assert state["status"] == "completed"
+    assert result["status"] == "completed"
+    assert result["visit_count"] == 2
+    assert result["adjudication"]["selected_score"] == 0.9
+    assert not old_visit.adjudication_root.exists()
+    assert fresh_visit.promotion_manifest_path.is_file()
 
 
 def test_report_projects_adjudication_fields_for_success_and_failure(tmp_path: Path) -> None:

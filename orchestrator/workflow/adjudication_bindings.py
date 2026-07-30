@@ -12,6 +12,7 @@ from ..providers.registry import ProviderRegistry
 from ..providers.types import ProviderInvocation, ProviderParams, ProviderSessionRequest
 from .adjudication import (
     AdjudicationDeadline,
+    AdjudicationMismatchRerun,
     AdjudicationVisitPaths,
     BaselineManifest,
     CandidateRuntimePaths,
@@ -203,6 +204,10 @@ class ValidateExpectedOutputsCallback(Protocol):
     ) -> Dict[str, Any]: ...
 
 
+class EmitAdjudicationMismatchRerunCallback(Protocol):
+    def __call__(self, rerun: AdjudicationMismatchRerun) -> None: ...
+
+
 @dataclass
 class AdjudicationExecution:
     """Mutable state shared by the adjudication execution phases."""
@@ -284,6 +289,7 @@ class AdjudicationBindings:
     resolve_output_contract_paths: ResolveOutputPathsCallback
     substitute_path_template: SubstitutePathCallback
     uses_qualified_identities: Callable[[], bool]
+    emit_adjudication_mismatch_rerun: EmitAdjudicationMismatchRerunCallback
 
     # Call-time hooks preserve the executor module's established monkeypatch
     # seams while the implementations themselves live in runner modules.

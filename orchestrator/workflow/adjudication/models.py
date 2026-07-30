@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 BASELINE_COPY_POLICY = "adjudicated_provider.baseline_copy.v1"
 LOCAL_SECRET_DENYLIST = "adjudicated_provider.local_secret_denylist.v1"
@@ -84,6 +84,44 @@ class EvaluatorOutputError(RuntimeError):
 
 class LedgerConflictError(RuntimeError):
     """Raised when a workspace-visible score ledger mirror has a different owner."""
+
+
+@dataclass(frozen=True)
+class AdjudicationMismatchRerun:
+    """One validated adjudication visit discarded before ordinary redispatch."""
+
+    mismatch_class: Literal["sidecar_reconciliation_mismatch"]
+    step_id: str
+    frame_scope: str
+    discarded_visit: int
+    next_visit: int
+
+    def __post_init__(self) -> None:
+        if self.mismatch_class != "sidecar_reconciliation_mismatch":
+            raise ValueError(
+                "unsupported adjudication mismatch rerun class: "
+                f"{self.mismatch_class}"
+            )
+        if not isinstance(self.step_id, str) or not self.step_id:
+            raise ValueError("adjudication mismatch rerun requires a step id")
+        if not isinstance(self.frame_scope, str) or not self.frame_scope:
+            raise ValueError("adjudication mismatch rerun requires a frame scope")
+        if (
+            isinstance(self.discarded_visit, bool)
+            or not isinstance(self.discarded_visit, int)
+            or self.discarded_visit <= 0
+        ):
+            raise ValueError(
+                "adjudication mismatch rerun discarded visit must be positive"
+            )
+        if (
+            isinstance(self.next_visit, bool)
+            or not isinstance(self.next_visit, int)
+            or self.next_visit != self.discarded_visit + 1
+        ):
+            raise ValueError(
+                "adjudication mismatch rerun next visit must follow discarded visit"
+            )
 
 
 @dataclass(frozen=True)
