@@ -3150,6 +3150,47 @@ def test_at4_resume_completed_run(temp_workspace, sample_workflow):
     assert result == 0  # Should succeed immediately
 
 
+def test_completed_yml_resume_requires_orc_without_mutating_run_state(
+    temp_workspace,
+    capsys,
+):
+    run_id = "completed-yml-run"
+    state_dir = temp_workspace / ".orchestrate" / "runs" / run_id
+    state_dir.mkdir(parents=True)
+    state = {
+        "schema_version": StateManager.SCHEMA_VERSION,
+        "run_id": run_id,
+        "workflow_file": "retired.yml",
+        "workflow_checksum": "sha256:retired-source",
+        "started_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:01:00Z",
+        "status": "completed",
+        "context": {},
+        "steps": {},
+    }
+    (state_dir / "state.json").write_text(json.dumps(state, indent=2))
+    before = _persisted_tree_snapshot(state_dir)
+
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        side_effect=AssertionError("legacy resume must not construct a frontend loader"),
+    ), patch(
+        "orchestrator.cli.commands.resume.WorkflowExecutor",
+        side_effect=AssertionError("legacy resume must not construct an executor"),
+    ):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert ".orc required" in captured.err
+    assert "already completed successfully" not in captured.out
+    assert _persisted_tree_snapshot(state_dir) == before
+
+
 def test_default_resume_root_checksum_mismatch_is_pre_executor_and_byte_immutable(
     temp_workspace,
     capsys,
@@ -3785,9 +3826,28 @@ def _seed_public_omitted_step_id_state(
     *,
     run_id: str,
     row_shape: str,
-) -> tuple[StateManager, str]:
-    workflow_path = workspace / f"public_omitted_{row_shape}.yaml"
+) -> tuple[StateManager, str, object]:
+    workflow_path = workspace / f"public_omitted_{row_shape}.orc"
     workflow_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule public_omitted_step_id)",
+                "  (export run)",
+                "  (defrecord Result (ok Bool))",
+                "  (defworkflow run",
+                "    ()",
+                "    -> Result",
+                "    (record Result :ok true)))",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    projection_fixture = workspace / f"public_omitted_{row_shape}_projection.yaml"
+    projection_fixture.write_text(
         json.dumps(
             {
                 "version": "2.0",
@@ -3819,6 +3879,7 @@ def _seed_public_omitted_step_id_state(
         ),
         encoding="utf-8",
     )
+    bundle = WorkflowLoader(workspace).load_bundle(projection_fixture)
     manager = StateManager(workspace, run_id=run_id)
     state = manager.initialize(workflow_path.name)
     state.status = "completed"
@@ -3846,7 +3907,7 @@ def _seed_public_omitted_step_id_state(
             }
         }
     manager._write_state()
-    return manager, presentation_key
+    return manager, presentation_key, bundle
 
 
 @pytest.mark.parametrize(
@@ -3863,7 +3924,7 @@ def test_public_resume_supported_omitted_step_id_is_not_backfilled(
     row_shape: str,
 ) -> None:
     run_id = f"public-omitted-{entrypoint}-{row_shape}"
-    manager, presentation_key = _seed_public_omitted_step_id_state(
+    manager, presentation_key, bundle = _seed_public_omitted_step_id_state(
         temp_workspace,
         run_id=run_id,
         row_shape=row_shape,
@@ -3871,7 +3932,10 @@ def test_public_resume_supported_omitted_step_id_is_not_backfilled(
     before = json.loads(manager.state_file.read_text(encoding="utf-8"))
     assert "step_id" not in before["steps"][presentation_key]
 
-    with patch("os.getcwd", return_value=str(temp_workspace)):
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=bundle,
+    ):
         if entrypoint == "resume_workflow":
             result = resume_workflow(run_id=run_id)
         else:

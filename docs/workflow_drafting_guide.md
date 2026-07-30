@@ -12,9 +12,11 @@ their behavior into Workflow Lisp. Its YAML snippets are historical schema
 notation, not runnable examples or maintenance instructions.
 
 Reports and dashboards may show persisted legacy state without parsing its
-source. Normal resume may acknowledge a completed YAML/YML run as already
-complete; nonterminal legacy resume fails closed. Those compatibility reads do
-not restore an authored YAML surface.
+source. `resume` loads the selected persisted state, then every recorded
+non-`.orc` suffix fails closed with `.orc required`, regardless of run
+terminality or force-restart selection. Legacy state remains viewable only
+through state-only report/dashboard observability; those compatibility reads
+do not restore an authored YAML surface.
 
 Companion docs:
 - Concept model and terminology: `docs/orchestration_start_here.md`

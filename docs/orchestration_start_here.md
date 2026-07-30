@@ -160,8 +160,10 @@ present."
 - Correction: fresh `run` accepts only a case-insensitive `.orc` suffix and
   rejects every other source with `.orc required` before state creation.
   Reports and dashboards may render persisted legacy state without parsing its
-  source. Normal resume may acknowledge a completed YAML/YML run as already
-  complete; nonterminal legacy resume fails closed.
+  source. `resume` loads the selected persisted state, then every recorded
+  non-`.orc` suffix fails closed with `.orc required`, regardless of run
+  terminality or force-restart selection. Legacy state remains viewable only
+  through state-only report/dashboard observability.
 
 Confusion: "Execution runs the authored source tree directly."
 - Correction: execution runs validated executable IR. Persisted/reporting

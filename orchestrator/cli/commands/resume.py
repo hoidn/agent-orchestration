@@ -368,13 +368,6 @@ def resume_workflow(
         return 1
     workflow_path = Path(workflow_file)
     workflow_suffix = workflow_path.suffix.lower()
-    if (
-        workflow_suffix in {".yaml", ".yml"}
-        and state.status == "completed"
-        and not force_restart
-    ):
-        print(f"Run {run_id} has already completed successfully")
-        return 0
     if workflow_suffix != ".orc":
         print(
             "Error: .orc required: authored workflows must use the Workflow Lisp frontend",

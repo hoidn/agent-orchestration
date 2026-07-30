@@ -7,13 +7,11 @@ compared case-insensitively, is `.orc`. `run` rejects YAML/YML and every other
 non-`.orc` path with a diagnostic containing `.orc required` before creating
 run state. The production YAML parser is retired.
 
-`resume` reads persisted state before applying the frontend boundary. Normal
-resume (without force restart) of a completed run whose recorded workflow path
-ends in `.yaml` or `.yml` returns the existing terminal-success result without
-parsing or reopening that source. Every other resume against a non-`.orc`
-source—including any nonterminal legacy run or force-restart request—fails
-closed with `.orc required`; it is not reparsed, restarted, or silently
-skipped. `report` and dashboard surfaces may render persisted state for legacy
+`resume` loads the selected run's persisted state before applying the frontend
+boundary. Once state is loaded, every recorded workflow suffix other than
+`.orc` fails closed with `.orc required`, regardless of run terminality or
+force-restart selection. A non-`.orc` source is neither compiled nor executed.
+`report` and dashboard surfaces remain state-only observability for legacy
 runs, but must not parse authored YAML to reconstruct workflow semantics.
 
 The schema below remains the normative Core workflow contract produced by the

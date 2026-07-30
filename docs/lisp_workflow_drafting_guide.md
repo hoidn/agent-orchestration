@@ -55,9 +55,11 @@ Fresh workflow execution is ORC-only. `run` accepts a path whose suffix
 compares case-insensitively as `.orc` and rejects every other source with
 `.orc required` before creating state. The production YAML parser and PyYAML
 runtime dependency are removed. Persisted legacy runs retain state-only
-report/dashboard compatibility without source parsing. Normal resume may
-acknowledge a completed YAML/YML run as already complete; nonterminal legacy
-resume fails closed.
+report/dashboard compatibility without source parsing. `resume` loads the
+selected persisted state, then every recorded non-`.orc` suffix fails closed
+with `.orc required`, regardless of run terminality or force-restart
+selection. Legacy state is viewable only through state-only report/dashboard
+observability.
 
 If new work needs a form that the current `.orc` frontend does not support, do
 not create a lower-level or YAML workflow as a workaround. Record a capability

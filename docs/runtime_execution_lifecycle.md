@@ -12,12 +12,12 @@ case-insensitively as `.orc`. YAML/YML and every other non-`.orc` path fail
 with `.orc required` before a run root or `state.json` is created. There is no
 production YAML parser.
 
-`resume` reads the selected run's persisted state first. A completed run
-recorded against `.yaml` or `.yml` may return the existing already-completed
-result without reopening the source. A nonterminal run recorded against any
-non-`.orc` source fails closed. `report` and dashboard views may render legacy
-state, but do not parse its authored source or reconstruct executable workflow
-structure from it.
+`resume` loads the selected run's persisted state first. Once state is loaded,
+every recorded workflow suffix other than `.orc` fails closed with `.orc
+required`, regardless of run terminality or force-restart selection. A
+non-`.orc` source is neither compiled nor executed. `report` and dashboard
+views remain state-only observability for legacy runs; they do not parse
+authored source or reconstruct executable workflow structure from it.
 
 ## Execution Timeline
 

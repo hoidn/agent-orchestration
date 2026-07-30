@@ -6,6 +6,7 @@ import json
 from argparse import Namespace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -148,24 +149,36 @@ def test_run_accepts_case_insensitive_orc_suffix(
     assert not (tmp_path / ".orchestrate" / "runs").exists()
 
 
-def test_completed_legacy_resume_is_state_only_noop_when_source_is_missing(
+def test_completed_legacy_resume_fails_closed_when_source_is_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _write_run_state(
+    state_path = _write_run_state(
         tmp_path,
         run_id="completed-legacy",
         workflow_file="retired.yaml",
         status="completed",
         schema_version="1.1.1",
     )
+    run_root = state_path.parent
+    before = _run_tree_snapshot(run_root)
     monkeypatch.chdir(tmp_path)
 
-    result = resume_workflow("completed-legacy")
+    with patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        side_effect=AssertionError("legacy resume must not construct a frontend loader"),
+    ), patch(
+        "orchestrator.cli.commands.resume.WorkflowExecutor",
+        side_effect=AssertionError("legacy resume must not construct an executor"),
+    ):
+        result = resume_workflow("completed-legacy", repair=False)
 
-    assert result == 0
-    assert "already completed successfully" in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert result == 1
+    assert ".orc required" in captured.err
+    assert "already completed successfully" not in captured.out
+    assert _run_tree_snapshot(run_root) == before
 
 
 @pytest.mark.parametrize(
