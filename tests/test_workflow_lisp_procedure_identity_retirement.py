@@ -1613,6 +1613,61 @@ PERSISTED_SURFACE_PROVENANCE_FIELDS = frozenset(
         "frontend_persisted_surface_sha256",
     }
 )
+ENTRY_BOOTSTRAP_GATE_DENIAL_FIELD = "entry_bootstrap_gate_denial"
+EXPECTED_ORCHESTRATE_DENIAL = (
+    "entry_bootstrap_name_gate_denied: selected entry `orchestrate` is not in "
+    "the accepted set (entry, drain, promoted-entry-resume-plan-gate-wrapper); "
+    "replacement rule `explicit_entry_bootstrap_eligibility` is deferred to "
+    "docs/plans/2026-07-23-refusal-diagnosability-fixes-plan.md"
+)
+
+
+def _project_production_typed_frontend_diagnostic(
+    payload: dict[str, Any],
+    *,
+    side: str,
+    checked: dict[str, Any],
+) -> dict[str, Any]:
+    expected_by_side = {
+        "old": (None, EXPECTED_ORCHESTRATE_DENIAL),
+        "new": (EXPECTED_ORCHESTRATE_DENIAL,),
+    }
+    assert side in expected_by_side, f"unsupported retirement side: {side}"
+    checked_signatures = tuple(
+        workflow["signature"]
+        for module in checked["modules"].values()
+        for workflow in module["typed_workflows"]
+    )
+    assert all(
+        ENTRY_BOOTSTRAP_GATE_DENIAL_FIELD not in signature
+        for signature in checked_signatures
+    ), "frozen retirement artifacts unexpectedly contain current diagnostic metadata"
+
+    projected = copy.deepcopy(payload)
+    projected_signatures = tuple(
+        workflow["signature"]
+        for module in projected["modules"].values()
+        for workflow in module["typed_workflows"]
+    )
+    assert all(
+        ENTRY_BOOTSTRAP_GATE_DENIAL_FIELD in signature
+        for signature in projected_signatures
+    ), "rebuilt typed frontend artifact is missing current diagnostic metadata"
+    observed = tuple(
+        signature[ENTRY_BOOTSTRAP_GATE_DENIAL_FIELD]
+        for signature in projected_signatures
+    )
+    assert observed == expected_by_side[side], (
+        f"unexpected {side} entry-bootstrap diagnostic tuple: {observed!r}"
+    )
+    for signature in projected_signatures:
+        signature.pop(ENTRY_BOOTSTRAP_GATE_DENIAL_FIELD)
+    assert _canonical_production_artifact(
+        list(projected_signatures)
+    ) == _canonical_production_artifact(list(checked_signatures)), (
+        "typed frontend signatures changed beyond entry-bootstrap diagnostic metadata"
+    )
+    return projected
 
 
 def test_historical_artifact_projection_excludes_only_persisted_surface_provenance() -> None:
@@ -1836,7 +1891,55 @@ def test_checked_retirement_artifacts_reproduce_from_production_build(side: str,
         checked_path = FIXTURE.parent / side / f"{artifact_name}.json"
         checked = json.loads(checked_path.read_text(encoding="utf-8"))
         rebuilt = json.loads(result.artifact_paths[artifact_name].read_text(encoding="utf-8"))
+        if artifact_name == "typed_frontend_ast":
+            rebuilt = _project_production_typed_frontend_diagnostic(
+                rebuilt,
+                side=side,
+                checked=checked,
+            )
         assert _canonical_production_artifact(checked) == _canonical_production_artifact(rebuilt)
+
+
+def test_production_artifact_diagnostic_projection_rejects_unexpected_delta(
+    tmp_path: Path,
+) -> None:
+    result = _build_procedure_retirement_side("old", tmp_path / "old")
+    checked = json.loads(
+        (FIXTURE.parent / "old" / "typed_frontend_ast.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    rebuilt = json.loads(
+        result.artifact_paths["typed_frontend_ast"].read_text(encoding="utf-8")
+    )
+
+    wrong_diagnostic = copy.deepcopy(rebuilt)
+    wrong_diagnostic["modules"]["source"]["typed_workflows"][1]["signature"][
+        ENTRY_BOOTSTRAP_GATE_DENIAL_FIELD
+    ] = "entry_bootstrap_name_gate_denied: wrong diagnostic"
+    with pytest.raises(
+        AssertionError,
+        match="unexpected old entry-bootstrap diagnostic tuple",
+    ):
+        _project_production_typed_frontend_diagnostic(
+            wrong_diagnostic,
+            side="old",
+            checked=checked,
+        )
+
+    unexpected_signature_field = copy.deepcopy(rebuilt)
+    unexpected_signature_field["modules"]["source"]["typed_workflows"][0][
+        "signature"
+    ]["unexpected_diagnostic_metadata"] = True
+    with pytest.raises(
+        AssertionError,
+        match="changed beyond entry-bootstrap diagnostic metadata",
+    ):
+        _project_production_typed_frontend_diagnostic(
+            unexpected_signature_field,
+            side="old",
+            checked=checked,
+        )
 
 
 def test_production_artifact_schemas_and_migration_identities_derive_from_sources(tmp_path: Path) -> None:
