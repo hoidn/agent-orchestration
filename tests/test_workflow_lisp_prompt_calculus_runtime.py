@@ -24,6 +24,9 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
     workflow_runtime_input_contracts,
 )
+from orchestrator.workflow.prompt_dependency_evidence import (
+    evidence_relative_path,
+)
 from orchestrator.workflow.prompt_dependency_contract import (
     PromptDependencyOriginKind,
     PromptDependencyPosition,
@@ -668,6 +671,20 @@ def _runtime_fragment_manager(
     return manager
 
 
+def _counter_only_evidence_path(
+    manager: StateManager,
+    allocation: dict,
+    ordinal: int,
+) -> Path:
+    assert "events" not in allocation
+    last_ordinal = allocation["last_allocated_ordinal"]
+    assert isinstance(last_ordinal, int)
+    assert not isinstance(last_ordinal, bool)
+    assert 1 <= ordinal <= last_ordinal
+    scope = ProviderAttemptScope.from_dict(allocation["scope"])
+    return manager.run_root / evidence_relative_path(scope, ordinal)
+
+
 def _provider_success(
     workspace: Path,
     captured: dict[str, object],
@@ -913,17 +930,14 @@ def test_runtime_fragment_composes_once_in_the_existing_prompt_order_and_publish
         manager.state_file.read_text(encoding="utf-8")
     )["provider_attempt_allocations"]
     (allocation,) = allocations.values()
-    publication = next(
-        event
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
+    assert allocation["last_allocated_ordinal"] == 1
+    evidence_path = _counter_only_evidence_path(
+        manager,
+        allocation,
+        1,
     )
     record = validate_fragment_success_evidence(
-        json.loads(
-            (manager.run_root / publication["relative_path"]).read_text(
-                encoding="ascii"
-            )
-        )
+        json.loads(evidence_path.read_text(encoding="ascii"))
     )
     assert record["compiled_prompt_fragment_identity"] == identity
     assert record["final_prompt"]["sha256"] == (
@@ -1002,17 +1016,14 @@ def test_q2_receiving_attempt_keeps_functional_v1_evidence_identity(
         manager.state_file.read_text(encoding="utf-8")
     )["provider_attempt_allocations"]
     (allocation,) = allocations.values()
-    publication = next(
-        event
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
+    assert allocation["last_allocated_ordinal"] == 1
+    evidence_path = _counter_only_evidence_path(
+        manager,
+        allocation,
+        1,
     )
     record = validate_fragment_success_evidence(
-        json.loads(
-            (manager.run_root / publication["relative_path"]).read_text(
-                encoding="ascii"
-            )
-        )
+        json.loads(evidence_path.read_text(encoding="ascii"))
     )
     assert record["schema"] == FRAGMENT_SUCCESS_SCHEMA
     assert FRAGMENT_SUCCESS_SCHEMA == (
@@ -1385,13 +1396,21 @@ def test_q3_compatible_completed_boundary_reuses_without_preparation_or_evidence
     committed_binding = provider_state["debug"][
         "prompt_attempt_result_binding"
     ]
-    for allocation in committed["provider_attempt_allocations"].values():
-        for event in allocation["events"]:
-            relative_path = event.get("relative_path")
-            if isinstance(relative_path, str):
-                evidence_path = manager.run_root / relative_path
-                if evidence_path.is_file():
-                    evidence_path.unlink()
+    [allocation] = committed["provider_attempt_allocations"].values()
+    evidence_path = _counter_only_evidence_path(
+        manager,
+        allocation,
+        committed_binding["attempt_ordinal"],
+    )
+    evidence_payload = evidence_path.read_bytes()
+    assert committed_binding["evidence_relative_path"] == (
+        evidence_path.relative_to(manager.run_root).as_posix()
+    )
+    assert committed_binding["evidence_file_sha256"] == (
+        "sha256:" + hashlib.sha256(evidence_payload).hexdigest()
+    )
+    assert committed_binding["record_kind"] == "prompt_snapshot"
+    evidence_path.unlink()
 
     resume_manager = StateManager(tmp_path, run_id=manager.run_id)
     resume_manager.load()
@@ -1521,37 +1540,44 @@ def test_q3_pending_and_failed_boundaries_carry_pair_into_fresh_attempt(
         iter(completed["provider_attempt_allocations"].values())
     )
     assert allocation["last_allocated_ordinal"] == 2
-    assert [
-        event["ordinal"]
-        for event in allocation["events"]
-        if event["event"] == "allocated"
-    ] == [1, 2]
+    assert "events" not in allocation
+    failed_evidence_path = _counter_only_evidence_path(
+        manager,
+        allocation,
+        1,
+    )
+    assert failed_evidence_path.is_file()
     provider_state = next(
         value
         for value in completed["steps"].values()
         if value["step_id"] == provider_node.step_id
     )
     binding = provider_state["debug"]["prompt_attempt_result_binding"]
-    successful_publication = next(
-        event
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
-        and event["ordinal"] == 2
+    successful_evidence_path = _counter_only_evidence_path(
+        manager,
+        allocation,
+        2,
     )
+    successful_evidence_payload = successful_evidence_path.read_bytes()
+    assert json.loads(successful_evidence_payload)["record_kind"] == (
+        "prompt_snapshot"
+    )
+    scope = ProviderAttemptScope.from_dict(allocation["scope"])
     assert binding == {
         "schema_version": (
             "workflow_prompt_attempt_result_binding.v1"
         ),
-        "scope_sha256": next(
-            iter(completed["provider_attempt_allocations"])
-        ),
+        "scope_sha256": scope.key,
         "attempt_ordinal": 2,
-        "evidence_relative_path": successful_publication[
-            "relative_path"
-        ],
-        "evidence_file_sha256": successful_publication[
-            "file_sha256"
-        ],
+        "evidence_relative_path": (
+            successful_evidence_path
+            .relative_to(manager.run_root)
+            .as_posix()
+        ),
+        "evidence_file_sha256": (
+            "sha256:"
+            + hashlib.sha256(successful_evidence_payload).hexdigest()
+        ),
         "record_kind": "prompt_snapshot",
     }
 
@@ -1606,9 +1632,14 @@ def test_q3_post_provider_output_failure_commits_no_result_binding(
         manager.state_file.read_text(encoding="utf-8")
     )
     [allocation] = persisted["provider_attempt_allocations"].values()
-    assert any(
-        event["event"] == "evidence_published"
-        for event in allocation["events"]
+    assert allocation["last_allocated_ordinal"] == 1
+    evidence_path = _counter_only_evidence_path(
+        manager,
+        allocation,
+        1,
+    )
+    assert json.loads(evidence_path.read_bytes())["record_kind"] == (
+        "prompt_snapshot"
     )
 
 
@@ -1749,9 +1780,14 @@ def test_q3_precommit_interruption_persists_no_result_binding(
     )
     assert persisted["steps"] == {}
     [allocation] = persisted["provider_attempt_allocations"].values()
-    assert any(
-        event["event"] == "evidence_published"
-        for event in allocation["events"]
+    assert allocation["last_allocated_ordinal"] == 1
+    evidence_path = _counter_only_evidence_path(
+        manager,
+        allocation,
+        1,
+    )
+    assert json.loads(evidence_path.read_bytes())["record_kind"] == (
+        "prompt_snapshot"
     )
     assert "prompt_attempt_result_binding" not in json.dumps(
         persisted,

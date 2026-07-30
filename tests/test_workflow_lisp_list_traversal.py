@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
 import importlib
 import json
 from pathlib import Path
@@ -17,6 +18,10 @@ from orchestrator.providers.executor import (
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
+from orchestrator.workflow.prompt_dependency_evidence import (
+    evidence_relative_path,
+)
+from orchestrator.workflow.provider_attempts import ProviderAttemptScope
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow.validation import (
     _WorkflowMappingValidator,
@@ -3803,12 +3808,17 @@ def test_frontend_effect_map_child_provider_result_binding_is_root_owned_per_ite
             "prompt_attempt_result_binding"
         ]
         allocation = allocations[binding["scope_sha256"]]
-        publication = [
-            event
-            for event in allocation["events"]
-            if event["event"] == "evidence_published"
-            and event["ordinal"] == binding["attempt_ordinal"]
-        ]
+        assert "events" not in allocation
+        assert allocation["last_allocated_ordinal"] == 1
+        scope = ProviderAttemptScope.from_dict(allocation["scope"])
+        relative_path = evidence_relative_path(
+            scope,
+            binding["attempt_ordinal"],
+        )
+        evidence_payload = (
+            manager.run_root / relative_path
+        ).read_bytes()
+        evidence_record = json.loads(evidence_payload)
         assert provider_step["status"] == "completed"
         assert allocation[
             "prompt_fragment_identity_schema_version"
@@ -3816,17 +3826,20 @@ def test_frontend_effect_map_child_provider_result_binding_is_root_owned_per_ite
         assert allocation["scope"]["resume_scope"][
             "call_frame_ids"
         ] == [frame["call_frame_id"]]
-        assert len(publication) == 1
-        assert publication[0]["record_kind"] == "prompt_snapshot"
+        assert scope.key == binding["scope_sha256"]
+        assert evidence_record["record_kind"] == "prompt_snapshot"
         assert binding == {
             "schema_version": (
                 "workflow_prompt_attempt_result_binding.v1"
             ),
             "scope_sha256": binding["scope_sha256"],
             "attempt_ordinal": 1,
-            "evidence_relative_path": publication[0]["relative_path"],
-            "evidence_file_sha256": publication[0]["file_sha256"],
-            "record_kind": publication[0]["record_kind"],
+            "evidence_relative_path": relative_path.as_posix(),
+            "evidence_file_sha256": (
+                "sha256:"
+                + hashlib.sha256(evidence_payload).hexdigest()
+            ),
+            "record_kind": "prompt_snapshot",
         }
         bindings.append(binding)
 

@@ -15,6 +15,10 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_public_input_contracts,
     workflow_runtime_input_contracts,
 )
+from orchestrator.workflow.prompt_dependency_evidence import (
+    evidence_relative_path,
+)
+from orchestrator.workflow.provider_attempts import ProviderAttemptScope
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
@@ -193,11 +197,25 @@ def _captured_prompt_sha256s(prompts: list[str]) -> list[str]:
 
 
 def _evidence_prompt_sha256s(manager: StateManager) -> list[str]:
+    persisted = json.loads(
+        manager.state_file.read_text(encoding="utf-8")
+    )
+    evidence_paths = []
+    for allocation in persisted[
+        "provider_attempt_allocations"
+    ].values():
+        assert "events" not in allocation
+        scope = ProviderAttemptScope.from_dict(allocation["scope"])
+        evidence_paths.extend(
+            manager.run_root / evidence_relative_path(scope, ordinal)
+            for ordinal in range(
+                1,
+                allocation["last_allocated_ordinal"] + 1,
+            )
+        )
     return sorted(
         json.loads(path.read_text(encoding="ascii"))["final_prompt"]["sha256"]
-        for path in (manager.run_root / "workflow_lisp/prompt_dependencies").rglob(
-            "attempt-*.json"
-        )
+        for path in evidence_paths
     )
 
 
@@ -409,14 +427,23 @@ def _run_verified_retry_resume_scenario(workspace: Path) -> dict[str, object]:
     allocations = json.loads(completed_resume.state_file.read_text(encoding="utf-8"))[
         "provider_attempt_allocations"
     ]
+    assert all("events" not in allocation for allocation in allocations.values())
+    retry_allocations = [
+        allocation
+        for allocation in allocations.values()
+        if allocation["last_allocated_ordinal"] == 2
+    ]
+    assert len(retry_allocations) == 1
+    retry_allocation = retry_allocations[0]
     return {
         "state": state,
         "run_id_before_resume": manager.run_id,
         "run_id_after_resume": completed_resume.run_id,
-        "attempt_ordinals": next(
-            [event["ordinal"] for event in allocation["events"] if event["event"] == "allocated"]
-            for allocation in allocations.values()
-            if sum(event["event"] == "allocated" for event in allocation["events"]) == 2
+        "attempt_ordinals": list(
+            range(
+                1,
+                retry_allocation["last_allocated_ordinal"] + 1,
+            )
         ),
         "first_snapshot": first_snapshot,
         "resumed_snapshot": resumed_snapshot,

@@ -41,7 +41,7 @@ Q4 joins two existing authorities for inspection:
 
 1. the contract-validated provider result committed in reached workflow
    state; and
-2. the content-addressed Q3 prompt-attempt record published before that
+2. the content-sealed Q3 prompt-attempt record published before that
    provider launched.
 
 Runtime records one closed locator beside the successful result in the same
@@ -218,7 +218,8 @@ eligible only when all of these structural facts hold:
 - its published evidence record is exact
   `workflow_prompt_fragment_snapshot.functional.v2` and embeds that same
   identity-v1 schema;
-- it has a root-owned provider-attempt scope and one unique Q3 publication;
+- it has a root-owned provider-attempt scope and one unique canonical Q3
+  record at the deterministic scope-and-ordinal path;
   and
 - it has one validated committed provider result.
 
@@ -247,8 +248,8 @@ Q4 consumes these owners directly:
 - the compiler-owned result contract;
 - the reached `StepResult` and its already-validated `json`/artifact values;
 - the root-owned `provider_attempt_allocations` scope and ordinal;
-- the allocator's exact evidence-publication event;
-- the content-addressed Q3 functional-v2 record;
+- the exact immutable evidence file derived from that scope and ordinal;
+- the content-sealed Q3 functional-v2 record at its deterministic path;
 - the Q3 identity validator and canonical digests; and
 - existing call-frame and loop coordinates.
 
@@ -323,8 +324,8 @@ The fields bind:
 - `scope_sha256` to the existing canonical
   `ProviderAttemptScope.key`;
 - `attempt_ordinal` to the exact successful provider attempt;
-- path, digest, and record kind to the allocator's exact
-  `evidence_published` event for that scope/ordinal.
+- path, digest, and record kind to the exact immutable evidence file at the
+  deterministic path for that scope/ordinal.
 
 The locator is generic prompt-attempt machinery. Its implementation and schema
 contain no Q4 consumer, workflow, family, module, provider, or result-type
@@ -705,7 +706,7 @@ The projector validates:
 
 - the closed locator schema and canonical field values;
 - exact scope key and ordinal agreement;
-- one unique allocator publication event;
+- one unique deterministic evidence association;
 - exact evidence relative path, file digest, and record kind;
 - canonical Q3 evidence and identity;
 - reached call-frame/loop coordinates;
@@ -921,9 +922,9 @@ The Q4 association/view refusal set is:
 | --- | --- |
 | `judgment_result_binding_missing` | eligible completed result has no locator |
 | `judgment_result_binding_invalid` | locator shape or field value is invalid |
-| `judgment_result_binding_ambiguous` | more than one locator/publication claims one result |
+| `judgment_result_binding_ambiguous` | more than one locator/evidence association claims one result |
 | `judgment_result_scope_mismatch` | locator and allocator scope disagree |
-| `judgment_result_attempt_mismatch` | locator ordinal and publication disagree |
+| `judgment_result_attempt_mismatch` | locator ordinal is not allocated in the exact scope |
 | `judgment_result_evidence_invalid` | evidence is missing, unreadable, noncanonical, digest-mismatched, or Q3-invalid |
 | `judgment_result_contract_mismatch` | reached result does not validate against the exact compiled contract |
 | `judgment_result_value_mismatch` | committed value and its canonical projection disagree |
@@ -1104,7 +1105,7 @@ pairwise-distinct lens identifiers:
    three-path list, receives no Q3/Q4 projection, returns one
    `ReviewReportPath`, and the workflow returns `DesignDocPanelResult`;
 6. the report projector validates each reached result, locator, allocator
-   publication, and Q3 record from source authority;
+   scope/ordinal, and deterministic Q3 record from source authority;
 7. JSON and Markdown show exactly one ordered matrix for the per-lens
    fragment-backed step, exact union-variant agreement/disagreement, and
    per-attempt series; synthesis creates no second matrix; and

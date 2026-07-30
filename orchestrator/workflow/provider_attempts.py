@@ -391,14 +391,11 @@ def enable_provider_attempt_coordination_for_bundle(
     manager: StateManager,
     bundle: Any,
 ) -> bool:
-    """Enable root-state coordination before mutating an affected bundle's state."""
+    """Report whether a bundle uses provider-attempt allocation."""
 
     if not isinstance(manager, StateManager):
         raise TypeError("StateManager required")
-    affected = bundle_requires_provider_attempt_coordination(bundle)
-    if affected:
-        manager.enable_durable_state_writes()
-    return affected
+    return bundle_requires_provider_attempt_coordination(bundle)
 
 
 def resolve_aggregate_run_owner(manager: Any) -> AggregateRunOwner:
@@ -570,7 +567,9 @@ def validate_provider_attempt_allocations(value: Any) -> dict[str, Any]:
     for key, raw_entry in value.items():
         if not isinstance(key, str):
             raise ValueError("provider attempt allocation key must be a string")
-        entry_keys = {"scope", "last_allocated_ordinal", "events"}
+        entry_keys = {"scope", "last_allocated_ordinal"}
+        if isinstance(raw_entry, Mapping) and "events" in raw_entry:
+            entry_keys.add("events")
         if (
             isinstance(raw_entry, Mapping)
             and "prompt_fragment_identity_schema_version" in raw_entry
@@ -609,93 +608,115 @@ def validate_provider_attempt_allocations(value: Any) -> dict[str, Any]:
             "provider attempt allocation last ordinal",
             minimum=1,
         )
-        raw_events = entry["events"]
-        if not isinstance(raw_events, list):
-            raise ValueError("provider attempt allocation events must be a list")
         events: list[dict[str, Any]] = []
-        allocated_ordinals: set[int] = set()
-        published_ordinals: set[int] = set()
-        publication_events: dict[int, dict[str, Any]] = {}
-        previous_allocated = 0
-        for raw_event in raw_events:
-            if not isinstance(raw_event, Mapping):
-                raise ValueError("provider attempt allocation event must be an object")
-            event_kind = raw_event.get("event")
-            if event_kind == "allocated":
-                event = _closed_mapping(
-                    raw_event,
-                    {"ordinal", "event"},
-                    "provider attempt allocated event",
-                )
-                ordinal = _ordinary_integer(
-                    event["ordinal"], "provider attempt event ordinal", minimum=1
-                )
-                if ordinal <= previous_allocated or ordinal in allocated_ordinals:
-                    raise ValueError("provider attempt allocation events are duplicate or reordered")
-                previous_allocated = ordinal
-                allocated_ordinals.add(ordinal)
-                events.append({"ordinal": ordinal, "event": "allocated"})
-            elif event_kind == "evidence_published":
-                event = _closed_mapping(
-                    raw_event,
-                    {
-                        "ordinal",
-                        "event",
-                        "relative_path",
-                        "file_sha256",
-                        "record_kind",
-                    },
-                    "provider attempt publication event",
-                )
-                ordinal = _ordinary_integer(
-                    event["ordinal"], "provider attempt event ordinal", minimum=1
-                )
-                if ordinal not in allocated_ordinals or ordinal in published_ordinals:
-                    raise ValueError("provider attempt allocation publication is conflicting or reordered")
-                relative_path = _nonempty_string(
-                    event["relative_path"], "provider attempt publication relative_path"
-                )
-                file_sha256 = _nonempty_string(
-                    event["file_sha256"], "provider attempt publication file_sha256"
-                )
-                if (
-                    not file_sha256.startswith("sha256:")
-                    or len(file_sha256) != 71
-                    or any(
-                        character not in "0123456789abcdef"
-                        for character in file_sha256[7:]
+        if "events" in entry:
+            raw_events = entry["events"]
+            if not isinstance(raw_events, list):
+                raise ValueError("provider attempt allocation events must be a list")
+            allocated_ordinals: set[int] = set()
+            published_ordinals: set[int] = set()
+            publication_events: dict[int, dict[str, Any]] = {}
+            previous_allocated = 0
+            for raw_event in raw_events:
+                if not isinstance(raw_event, Mapping):
+                    raise ValueError("provider attempt allocation event must be an object")
+                event_kind = raw_event.get("event")
+                if event_kind == "allocated":
+                    event = _closed_mapping(
+                        raw_event,
+                        {"ordinal", "event"},
+                        "provider attempt allocated event",
                     )
-                ):
-                    raise ValueError("provider attempt publication file_sha256 is invalid")
-                record_kind = event["record_kind"]
-                if record_kind not in {"prompt_snapshot", "failure"}:
-                    raise ValueError("provider attempt publication record_kind is invalid")
-                published_ordinals.add(ordinal)
-                normalized_publication = {
-                    "ordinal": ordinal,
-                    "event": "evidence_published",
-                    "relative_path": relative_path,
-                    "file_sha256": file_sha256,
-                    "record_kind": record_kind,
-                }
-                publication_events[ordinal] = normalized_publication
-                events.append(normalized_publication)
-            else:
-                raise ValueError("provider attempt allocation event kind is invalid")
-        if allocated_ordinals != set(range(1, last_ordinal + 1)):
-            raise ValueError("provider attempt allocation last ordinal contradicts events")
-        canonical_events: list[dict[str, Any]] = []
-        for ordinal in range(1, last_ordinal + 1):
-            canonical_events.append({"ordinal": ordinal, "event": "allocated"})
-            publication = publication_events.get(ordinal)
-            if publication is not None:
-                canonical_events.append(publication)
-        if events != canonical_events:
-            raise ValueError("provider attempt allocation events are not canonical")
+                    ordinal = _ordinary_integer(
+                        event["ordinal"], "provider attempt event ordinal", minimum=1
+                    )
+                    if ordinal <= previous_allocated or ordinal in allocated_ordinals:
+                        raise ValueError(
+                            "provider attempt allocation events are duplicate or reordered"
+                        )
+                    previous_allocated = ordinal
+                    allocated_ordinals.add(ordinal)
+                    events.append({"ordinal": ordinal, "event": "allocated"})
+                elif event_kind == "evidence_published":
+                    event = _closed_mapping(
+                        raw_event,
+                        {
+                            "ordinal",
+                            "event",
+                            "relative_path",
+                            "file_sha256",
+                            "record_kind",
+                        },
+                        "provider attempt publication event",
+                    )
+                    ordinal = _ordinary_integer(
+                        event["ordinal"], "provider attempt event ordinal", minimum=1
+                    )
+                    if (
+                        ordinal not in allocated_ordinals
+                        or ordinal in published_ordinals
+                    ):
+                        raise ValueError(
+                            "provider attempt allocation publication is "
+                            "conflicting or reordered"
+                        )
+                    relative_path = _nonempty_string(
+                        event["relative_path"],
+                        "provider attempt publication relative_path",
+                    )
+                    file_sha256 = _nonempty_string(
+                        event["file_sha256"],
+                        "provider attempt publication file_sha256",
+                    )
+                    if (
+                        not file_sha256.startswith("sha256:")
+                        or len(file_sha256) != 71
+                        or any(
+                            character not in "0123456789abcdef"
+                            for character in file_sha256[7:]
+                        )
+                    ):
+                        raise ValueError(
+                            "provider attempt publication file_sha256 is invalid"
+                        )
+                    record_kind = event["record_kind"]
+                    if record_kind not in {"prompt_snapshot", "failure"}:
+                        raise ValueError(
+                            "provider attempt publication record_kind is invalid"
+                        )
+                    published_ordinals.add(ordinal)
+                    normalized_publication = {
+                        "ordinal": ordinal,
+                        "event": "evidence_published",
+                        "relative_path": relative_path,
+                        "file_sha256": file_sha256,
+                        "record_kind": record_kind,
+                    }
+                    publication_events[ordinal] = normalized_publication
+                    events.append(normalized_publication)
+                else:
+                    raise ValueError(
+                        "provider attempt allocation event kind is invalid"
+                    )
+            if allocated_ordinals != set(range(1, last_ordinal + 1)):
+                raise ValueError(
+                    "provider attempt allocation last ordinal contradicts events"
+                )
+            canonical_events: list[dict[str, Any]] = []
+            for ordinal in range(1, last_ordinal + 1):
+                canonical_events.append(
+                    {"ordinal": ordinal, "event": "allocated"}
+                )
+                publication = publication_events.get(ordinal)
+                if publication is not None:
+                    canonical_events.append(publication)
+            if events != canonical_events:
+                raise ValueError(
+                    "provider attempt allocation events are not canonical"
+                )
         normalized_entry = {
             "scope": scope.to_dict(),
             "last_allocated_ordinal": last_ordinal,
-            "events": events,
         }
         if prompt_fragment_identity_schema_version is not None:
             normalized_entry["prompt_fragment_identity_schema_version"] = (

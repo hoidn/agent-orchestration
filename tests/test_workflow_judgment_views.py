@@ -14,6 +14,9 @@ from orchestrator.runtime_observability import (
     record_compiled_frontend_provenance,
 )
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.prompt_dependency_evidence import (
+    evidence_relative_path,
+)
 from orchestrator.workflow.prompt_identity import (
     ROLE_ORDER,
     canonical_sha256,
@@ -130,21 +133,25 @@ def _available_root_fixture(
     allocation = next(
         iter(state["provider_attempt_allocations"].values())
     )
+    assert "events" not in allocation
     scope = ProviderAttemptScope.from_dict(allocation["scope"])
-    publication = next(
-        event
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
-    )
-    record = json.loads(
-        (
-            manager.run_root / publication["relative_path"]
-        ).read_text(encoding="utf-8")
-    )
     result = next(
         step
         for step in state["steps"].values()
         if step.get("step_id") == scope.runtime_step_id
+    )
+    locator = result["debug"]["prompt_attempt_result_binding"]
+    ordinal = locator["attempt_ordinal"]
+    expected_relative_path = evidence_relative_path(scope, ordinal)
+    assert locator["scope_sha256"] == scope.key
+    assert ordinal <= allocation["last_allocated_ordinal"]
+    assert locator["evidence_relative_path"] == (
+        expected_relative_path.as_posix()
+    )
+    record = json.loads(
+        (manager.run_root / expected_relative_path).read_text(
+            encoding="utf-8"
+        )
     )
     return state, manager.run_root, scope, record, result
 
@@ -218,7 +225,6 @@ def test_non_fragment_allocation_keeps_empty_projection_without_compiled_state(
             scope.key: {
                 "scope": scope.to_dict(),
                 "last_allocated_ordinal": 1,
-                "events": [{"ordinal": 1, "event": "allocated"}],
             }
         },
     }
@@ -474,36 +480,44 @@ def test_tampered_bound_evidence_makes_only_the_view_unavailable(
     )
 
 
-def test_duplicate_publication_claim_is_one_ambiguous_unavailable_row(
+def test_duplicate_legacy_publication_state_fails_closed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state, run_root, scope, _record, _result = _available_root_fixture(
+    state, run_root, scope, _record, result = _available_root_fixture(
         tmp_path,
         monkeypatch,
     )
     allocation = state["provider_attempt_allocations"][scope.key]
-    publication = next(
-        event
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
-    )
-    allocation["events"].append(deepcopy(publication))
-
-    projected = _project(
-        state,
-        run_root,
-        workspace_root=tmp_path,
-    )
-
-    assert projected["judgments"] == [
+    locator = result["debug"]["prompt_attempt_result_binding"]
+    publication = {
+        "ordinal": locator["attempt_ordinal"],
+        "event": "evidence_published",
+        "relative_path": locator["evidence_relative_path"],
+        "file_sha256": locator["evidence_file_sha256"],
+        "record_kind": locator["record_kind"],
+    }
+    allocation["events"] = [
         {
-            "schema_version": "workflow_judgment_inspection.v1",
-            "status": "unavailable",
-            "coordinate": _coordinate(state, scope),
-            "reason": "judgment_result_binding_ambiguous",
-        }
+            "ordinal": locator["attempt_ordinal"],
+            "event": "allocated",
+        },
+        publication,
+        deepcopy(publication),
     ]
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "provider attempt allocation publication is "
+            "conflicting or reordered"
+        ),
+    ):
+        _project(
+            state,
+            run_root,
+            workspace_root=tmp_path,
+        )
 
 
 @pytest.mark.parametrize(
@@ -512,6 +526,9 @@ def test_duplicate_publication_claim_is_one_ambiguous_unavailable_row(
         ("invalid", "judgment_result_binding_invalid"),
         ("scope", "judgment_result_scope_mismatch"),
         ("attempt", "judgment_result_attempt_mismatch"),
+        ("path", "judgment_result_evidence_invalid"),
+        ("digest", "judgment_result_evidence_invalid"),
+        ("kind", "judgment_result_binding_invalid"),
     ),
 )
 def test_locator_tamper_maps_to_one_closed_unavailable_reason(
@@ -529,8 +546,17 @@ def test_locator_tamper_maps_to_one_closed_unavailable_reason(
         locator["attempt_ordinal"] = True
     elif damage == "scope":
         locator["scope_sha256"] = "sha256:" + "0" * 64
-    else:
+    elif damage == "attempt":
         locator["attempt_ordinal"] = 2
+    elif damage == "path":
+        locator["evidence_relative_path"] = (
+            "workflow_lisp/prompt_dependencies/other/"
+            "attempt-000001.json"
+        )
+    elif damage == "digest":
+        locator["evidence_file_sha256"] = "sha256:" + "0" * 64
+    else:
+        locator["record_kind"] = "failure"
 
     projected = _project(
         state,
@@ -649,7 +675,6 @@ def test_reversing_allocator_discovery_does_not_change_projection(
     state["provider_attempt_allocations"][other_scope.key] = {
         "scope": other_scope.to_dict(),
         "last_allocated_ordinal": 1,
-        "events": [{"ordinal": 1, "event": "allocated"}],
         "prompt_fragment_identity_schema_version": (
             "compiled_prompt_fragment_identity.v2"
         ),

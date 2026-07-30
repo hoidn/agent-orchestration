@@ -7,7 +7,7 @@
 - **Owner:** Workflow Lisp frontend and shared workflow-runtime maintainers
 - **Reviewers:** independent specification and implementation-quality reviewers
 - **Created:** 2026-07-17
-- **Last material update:** 2026-07-18
+- **Last material update:** 2026-07-30
 - **Related docs:**
   - `docs/workflow_yaml_orc_gap_list.md`
   - `docs/design/workflow_language_design_principles.md`
@@ -18,12 +18,21 @@
   - `specs/providers.md`
   - `specs/security.md`
 - **Implementation target:** a generic `provider-result :prompt-dependencies`
-  surface, shared per-attempt dependency snapshots, crash-durable allocation,
-  and structured non-authoritative runtime evidence
+  surface, shared per-attempt dependency snapshots, monotonic counter
+  allocation, and structured non-authoritative runtime evidence
+
+The later ML-2 allocator simplification supersedes only this design's original
+allocation-ledger mechanics. Current state is the counter-only form specified
+by `specs/state.md`: an immutable record at the deterministic
+scope-and-ordinal path is the persisted inspection source, while
+lifecycle-event rows are legacy-read-only input and disappear on canonical
+write. Prompt composition,
+fresh-snapshot, non-authority, and terminal-evidence semantics remain as
+designed here.
 
 The implemented classification covers the typed frontend/compiler/runtime
-contract, deterministic exact-byte rendering, per-attempt snapshots, durable
-allocation, content-free records, offline index, and checkpoint/resume
+contract, deterministic exact-byte rendering, per-attempt snapshots, monotonic
+counter allocation, content-free records, offline index, and checkpoint/resume
 semantics. Other clauses in this broader design are outside that functional
 capability classification.
 
@@ -158,9 +167,10 @@ The shared per-attempt snapshot/render owner now consolidates ordinary retry
 and adjudicated composition. Focused capturing-provider evidence proves one
 snapshot, one render, and zero evidence reopens per attempt in both paths.
 
-Crash-durable attempt allocation is implemented through the narrowly scoped
-root-state allocator and durable state-write boundary described below, with
-fault-injection coverage for its named crash points.
+Monotonic attempt allocation is implemented through the narrowly scoped
+root-state counter and ordinary atomic state writer under the run-lifetime
+writer lock described below, with coverage for strictly increasing ordinals
+and no reuse after a partial attempt.
 
 `ResumeScopePath.call_frame_ids` and nested call-frame `RunState` snapshots
 provide the ordered recursive call identity required below; the allocator
@@ -668,7 +678,7 @@ attempt ordinal.
 The probe itself never reads or writes `provider_attempt_allocations`. A failed
 or interrupted probe returns `unsupported_safe_read_platform` through the
 ordinary pre-execution failure channel with no allocator member creation,
-ordinal/event, evidence file, retry-counter advance, dependency open, or
+ordinal, evidence file, retry-counter advance, dependency open, or
 provider preparation. Negative cache entries may avoid repeating a known
 failure for the same process/device pair, but only a complete successful probe
 authorizes allocation. Ordinary and adjudicated paths call the same preflight.
@@ -683,16 +693,16 @@ test everywhere, and on native non-POSIX verify the stable failure occurs before
 dependency open/provider preparation. The capability status matrix must list
 this platform boundary; support cannot be claimed from mocked constants alone.
 
-### Crash-Consistent Visit And Attempt Allocation
+### Single-Writer Visit And Attempt Allocation
 
 Evidence paths never allocate attempt identity. Add one narrowly owned,
 optional `provider_attempt_allocations` member to root `RunState`. It is omitted
 when empty so workflows without the new surface retain byte compatibility.
-`StateManager.allocate_provider_attempt` is the sole writer and performs an
-atomic, file- and directory-`fsync`ed root-state transition under the successful
-preflight and cross-process lock order defined below. Call-frame state managers
-delegate allocation to this root owner rather than maintaining a second
-counter.
+`StateManager.allocate_provider_attempt` is the sole writer. Under the
+command-lifetime run writer lock and the existing in-process state mutex, it
+increments the root-owned counter and persists it through the ordinary atomic
+state transaction. Call-frame state managers delegate allocation to this root
+owner rather than maintaining a second counter.
 
 `resolve_aggregate_run_owner(manager)` is the single resolver used by ordinary,
 loop, call-frame, and adjudicated paths. It follows `parent_manager` links while
@@ -703,10 +713,10 @@ It returns the terminal root `StateManager`, its ordered `ResumeScopePath`, and
 the aggregate run root. The collected nested roots must match the deterministic
 call-frame roots for that path and remain beneath the aggregate root. The
 call-frame path is then recursively validated against root state as described
-below. Allocation and publication each perform exactly one transition through
-this returned root;
-nested managers never mirror `provider_attempt_allocations` into nested
-`RunState` or write a second manifest event.
+below. Allocation performs exactly one root-state transition through this
+returned owner, while evidence publication writes only the deterministic
+immutable evidence file. Nested managers never mirror
+`provider_attempt_allocations` into nested `RunState`.
 
 The caller supplies a `ProviderAttemptScope` assembled from existing persisted
 execution identity, not evidence:
@@ -770,41 +780,33 @@ exact fields is the visit-key input described above.
 
 The optional state member is a map keyed by the full
 `sha256:<lowercase-hex>` digest of canonical `ProviderAttemptScope` bytes. Each
-entry stores the complete scope, a positive
-`last_allocated_ordinal`, and per-ordinal append-only event rows. Under the
-state-mutation, aggregate-evidence, and root in-process locks, allocation
-validates the stored scope against the key, increments the
-ordinal, appends `{ordinal, event: "allocated"}`, persists the whole state
-transition atomically, and only then returns the ordinal. Gaps are valid. The
-next ordinal is never inferred from evidence files, a validator index, provider
-logs, or a process-local retry counter.
+current entry stores the complete scope and a positive
+`last_allocated_ordinal`; a Q3-bound entry also retains its existing fragment
+identity schema authority. The command-lifetime run writer lock excludes a
+second mutable executor, and allocation validates the stored scope against the
+key, increments the ordinal under the root in-process lock, persists through
+the ordinary atomic state writer, and only then returns the ordinal. Gaps are
+valid. The next ordinal is never inferred from evidence files, a validator
+index, provider logs, or a process-local retry counter.
 
-After immutable current-record publication, a second atomic state transition
-appends exactly one `{ordinal, event: "evidence_published", relative_path,
-file_sha256, record_kind: "prompt_snapshot" | "failure"}` event after the
-matching allocation event. Duplicate, reordered, or conflicting events are
-invalid allocator state. This binding is an
-append-only expected-attempt manifest for offline completeness validation.
-Runtime may append events but must never read a bound evidence path or digest
-to choose, prepare, retry, resume, or reuse a provider boundary. Invalid
-allocator structure is invalid authoritative runtime state and fails closed;
-missing or invalid evidence content is not.
+Immutable current-record publication writes only the deterministic
+scope-and-ordinal evidence path. It does not mutate allocation state. Runtime
+must never read an earlier evidence path or digest to choose, prepare, retry,
+resume, or reuse a provider boundary. Invalid allocator structure is invalid
+authoritative runtime state and fails closed; missing or invalid evidence
+content is not execution authority.
 
 Crash behavior is exact:
 
 - Before the allocation state transition is durable, no ordinal exists and no
   record may be published. Resume may allocate the same next integer.
-- After allocation but before record publication, only the durable `allocated`
-  event exists. The unused ordinal is a disclosed gap; retry or resume allocates
-  a strictly larger ordinal.
-- After record publication but before the `evidence_published` event transition,
-  the file is an orphan record. Provider preparation has not occurred. Retry or
-  resume allocates a larger ordinal; the offline validator reports the orphan
-  rather than promoting it into the manifest.
-- After the `evidence_published` event but before provider preparation, the
-  record is an expected, validatable attempt snapshot, but it does not prove
-  provider launch. Retry or resume allocates a larger ordinal without opening
-  that record.
+- After allocation but before record publication, the counter includes the
+  unused ordinal. It is a disclosed gap; retry or resume allocates a strictly
+  larger ordinal.
+- After immutable record publication but before provider preparation, the
+  deterministic file is validatable evidence, but it does not prove provider
+  launch. Retry or resume allocates a larger ordinal without opening that
+  earlier record.
 - A crash during provider preparation/execution follows existing provider
   interruption policy. If the boundary is retried or resumed as pending, a new
   ordinal and fresh snapshot are allocated; a validated completed boundary is
@@ -838,7 +840,7 @@ detected and rejected. Retries and repeated visits therefore cannot overwrite
 one another. Runtime does not maintain or read an evidence index. The offline
 evidence validator derives
 `<aggregate-run-root>/workflow_lisp/prompt_dependencies/validated-indexes/<allocator-projection-sha256-hex>.json`
-from the persisted allocation manifest and immutable records after execution. It
+from the persisted counter projection and immutable records after execution. It
 contains record path and file-digest entries sorted by full runtime-step
 identity, canonical visit identity, and numeric attempt ordinal. It is a
 validator output, may be regenerated, and is never provider-execution or resume
@@ -1050,21 +1052,23 @@ The failure record's `scope_sha256` covers the canonical JSON bytes of the full
 exclusion and canonical-byte rules as success evidence. It contains no raw OS
 error text, errno-dependent message, absolute path, file bytes, prompt bytes,
 or partial content digest. Validation recomputes its scope/step/visit/path and
-requires the origin key to match the typed compiler contract. The complete-file
-digest bound by the allocation manifest covers the final canonical record
-including `record_sha256`.
+requires the origin key to match the typed compiler contract. The derived
+index's complete-file digest covers the final canonical record including
+`record_sha256`.
 
-Every manifest `relative_path` is a normalized POSIX path relative to the
+Every derived evidence `relative_path` is a normalized POSIX path relative to the
 aggregate run root returned by `resolve_aggregate_run_owner`, never a nested
 manager root. It must be non-empty, non-absolute, contain no `.`/`..`, NUL, or
 backslash component, and begin exactly
 `workflow_lisp/prompt_dependencies/<step_key>/<visit_key>/`. Publication opens
 the aggregate run root as a trusted directory descriptor and creates/walks
 these fixed/generated components descriptor-relatively with no-follow
-semantics; neither manifest paths nor destination parents may be symlinks.
+semantics; neither derived evidence paths nor destination parents may be
+symlinks.
 
-Current-record publication uses this exact no-clobber protocol under the
-aggregate prompt-dependency OS lock:
+Current-record publication uses this exact no-clobber protocol while the
+command-lifetime run writer lock and root in-process lock exclude competing
+runtime writers:
 
 1. create a sibling `.<destination>.tmp.<pid>.<128-bit-random-hex>` with
    `openat(parent_fd, O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW, 0o600)`;
@@ -1078,80 +1082,47 @@ aggregate prompt-dependency OS lock:
 All non-crash exits unlink the known temporary in a `finally` path. An `EEXIST`,
 unsupported hard-link/no-follow primitive, cleanup failure, or any `fsync`
 failure is a hard current-attempt failure before provider preparation. A crash
-may leave the linked destination, temporary, or both. Runtime never enumerates
-old directories to clean these. During the offline terminal validation window,
-the validator recognizes only the exact sibling-temp grammar, verifies that a
-temp is not manifest-bound, removes it under the same OS lock, `fsync`s its
-parent, and reports the cleanup; any other unexpected entry rejects validation.
+may leave the linked destination, temporary, or both. Runtime and the offline
+validator do not enumerate old directories to repair crash temporaries; only
+the exact deterministic destination can become a publication row.
 
 Runtime does not enumerate, open, hash, or validate any earlier evidence record
 and does not build the offline index. After current-record publication, it
-performs one atomic root-state transition appending that attempt's publication
-event and binding the aggregate-root-relative path and final file digest. If
-that transition fails, provider preparation does not occur. These writes do not
-enter the provider checkpoint, and later runtime decisions never validate the
-bound evidence file.
+continues directly to provider preparation; publication does not mutate
+allocation state. The returned in-memory publication locator carries the
+aggregate-root-relative path and final file digest to the current attempt only.
+That locator does not enter the provider checkpoint, and later runtime
+decisions never validate an earlier evidence file.
 
 On dependency failure under that exact-path/evidence contract, the runtime
 makes a best-effort atomic failure record at the same attempt identity when the
 safe run-relative path is known, records a stable dependency error in step
 state, and proves that provider preparation and execution were not called. A
 failure record contains no unsafe absolute path or partial content. Failure
-publication appends the same `evidence_published` manifest event with
-`record_kind="failure"`; successful snapshot publication uses
-`record_kind="prompt_snapshot"`. Failure between file publication and that
-event leaves an offline-rejected orphan. Failure evidence never converts the
-failed provider effect into a completed checkpoint.
+publication uses `record_kind="failure"` at the same deterministic path;
+successful snapshot publication uses `record_kind="prompt_snapshot"`.
+Failure evidence never converts the failed provider effect into a completed
+checkpoint.
 YAML hardening failures retain their existing run-state error surface and do
 not acquire Workflow Lisp evidence files.
 
 ### Offline Validated Index Schema
 
-Two distinct cross-process locks are owned by the aggregate root:
+`orchestrate run` and `orchestrate resume` hold the aggregate run's one
+command-lifetime writer lock. Inside that boundary, allocation and evidence
+publication use the root `StateManager` in-process `RLock`; there is no
+allocation-specific process lock, publication-manifest transition, or durable
+mode latch.
 
-- `<aggregate-run-root>/.state-mutation.lock` serializes every root
-  `StateManager` write, including status/current-step changes, resume startup,
-  nested call-frame projection writes, allocator events, and terminal updates;
-- `<aggregate-run-root>/workflow_lisp/prompt_dependencies/.aggregate.lock`
-  serializes prompt-dependency record/index publication and crash-temp cleanup.
-
-Both are opened/created descriptor-relatively with
-`O_RDWR|O_CREAT|O_NOFOLLOW|O_CLOEXEC`, mode `0o600`, regular-file `fstat`
-validation, and exclusive `flock`. Once a run has a validated typed compiler
-contract or non-empty provider-attempt allocator state, every process loading
-that run enables the state-mutation lock before its first root-state mutation.
-Nested managers delegate through the root writer and never lock independently.
-
-The only lock order is state-mutation `flock`, aggregate-evidence `flock`, then
-the root `StateManager` in-process `RLock`; release is the exact reverse.
-Ordinary root writes take the first and third locks, skipping the middle lock.
-Allocation and the publication-manifest transition take all three. Record-only
-filesystem publication holds the first two. No path may acquire a skipped lock
-later while retaining a lower-ranked lock. Probe/preflight occurs before this
-protocol and must succeed before allocator mutation as specified above.
-
-Offline validation is allowed only while continuously holding both
-cross-process locks in that order. After acquisition it reads root state,
-requires status `completed` or `failed`, and records the SHA-256 of the complete
-state-file bytes. It then cleans recognized crash temporaries, freezes the
-allocator projection, scans and validates records, and builds the candidate
-index without releasing either lock. Immediately before publication it
-re-reads root state and requires the same full state-file digest, terminal
-status, run identity, and allocator-projection digest. A mismatch discards the
-candidate and fails `run_not_quiescent`; there is no best-effort index. Both
-locks remain held through index temporary creation, file `fsync`, atomic
-publication, temp cleanup, and directory `fsync`, then release in reverse order.
-The validator performs one final full-state/status/projection recheck after the
-directory `fsync` and before releasing either lock. A mismatch removes and
-directory-`fsync`s any index newly linked by this pass, returns
-`run_not_quiescent`, and never reports acceptance; a pre-existing immutable
-index is left as stale evidence but is not accepted. Thus resume/status/root
-writes cannot cross the validation window, and the before/during/after rechecks
-detect a writer that violated the lock contract.
-
-Runtime and resume never acquire the aggregate-evidence lock to read
-index/evidence content—only to serialize their own publication mutation. They
-do acquire the state-mutation lock for every root-state write in affected runs.
+Offline validation is read-only with respect to workflow state. It reads the
+terminal state bytes, requires status `completed` or `failed`, freezes the
+counter-only allocator projection, and builds the candidate index from exact
+deterministic paths. It re-reads the complete state and projection immediately
+before index publication and again afterward. Any byte or projection change
+rejects the pass; if this pass created the index, the validator removes it
+before returning failure. A pre-existing immutable index remains stale
+evidence but is not accepted for a different projection. Runtime and resume
+never read the index or earlier evidence content.
 
 The validator freezes this closed allocator projection from authoritative run
 state; it does not include unrelated run-state members:
@@ -1164,28 +1135,17 @@ state; it does not include unrelated run-state members:
     {
       scope_sha256,
       scope: ProviderAttemptScope,
-      last_allocated_ordinal,
-      events: [closed allocated/evidence_published events]
+      last_allocated_ordinal
     }
   ]
 }
 ```
 
-The only event objects are
-`{ordinal: positive integer, event: "allocated"}` and
-`{ordinal: positive integer, event: "evidence_published", relative_path: safe
-aggregate-root-relative POSIX string, file_sha256: digest, record_kind:
-"prompt_snapshot" | "failure"}`. They have no other or nullable keys.
-
-Scopes sort by full `scope_sha256`. Events sort by numeric ordinal and then
-event rank (`allocated` before `evidence_published`); any input whose persisted
-order, counter, or event pairing disagrees is invalid rather than silently
-normalized. Every integer from 1 through `last_allocated_ordinal` has exactly
-one `allocated` event and at most one following `evidence_published` event; no
-other event member or ordinal is accepted. The allocator-projection SHA-256
-covers exactly the canonical JSON bytes of this entire object. The validator
-holds those frozen bytes for the validation pass so a concurrent state change
-cannot produce a mixed view.
+Scopes sort by full `scope_sha256`. The allocator-projection SHA-256 covers
+exactly the canonical JSON bytes of this entire counter-only object. The
+validator holds those frozen bytes for the validation pass so a concurrent
+state change cannot produce a mixed view. Valid historical event lists are
+accepted only while loading old state and are absent from this projection.
 
 After completeness and digest validation, it writes this closed object at the
 deterministic validated-index path; unknown or missing members are invalid:
@@ -1221,26 +1181,27 @@ deterministic validated-index path; unknown or missing members are invalid:
 
 Publication and gap rows sort by UTF-8 bytewise `runtime_step_id`, ASCII
 `visit_key`, then numeric `attempt_ordinal`; duplicate sort keys are invalid.
-Every publication row comes from one paired `evidence_published` event and its
-validated record. Every gap comes from one ordinal with only an `allocated`
-event. `index_sha256` is SHA-256 over the canonical JSON bytes of the whole
-index object with only `index_sha256` omitted. The final index file is the
-canonical JSON bytes including that digest and no trailing newline. The index,
-allocator projection digest, publication rows, gaps, and record digests are
-offline evidence only and are never read by provider execution or resume. An
-offline parity consumer must re-freeze terminal run state and require its
-allocator-projection digest to equal the index before using the index; a later
-resume makes the old index stale evidence rather than runtime input.
+Every publication row comes from the canonical record at the exact
+scope-and-ordinal path. Every absent exact path produces one gap. The
+legacy-named `event_count` index field remains frozen for schema compatibility
+and is derived as one allocation row per ordinal plus one additional row per
+publication; it is not a persisted event count. `index_sha256` is SHA-256 over
+the canonical JSON bytes of the whole index object with only `index_sha256`
+omitted. The final index file is the canonical JSON bytes including that digest
+and no trailing newline. The index, allocator projection digest, publication
+rows, gaps, and record digests are offline evidence only and are never read by
+provider execution or resume. An offline parity consumer must re-freeze
+terminal run state and require its allocator-projection digest to equal the
+index before using the index; a later resume makes the old index stale evidence
+rather than runtime input.
 
 Index publication uses the allocator-projection digest hex as the immutable
 filename under `validated-indexes/` and the same mode-0600
 openat/write/fsync/close/linkat-no-clobber/unlink-temp/directory-fsync protocol
-as record publication. Both cross-process locks remain continuously held. If
-the destination already exists, the validator may accept it only after the
-still-locked offline path proves its complete bytes equal the newly built
-canonical bytes; otherwise validation fails and never replaces it. A later
-resume produces a different allocator projection and therefore a different
-index filename.
+as record publication. If the destination already exists, the validator may
+accept it only when its complete bytes equal the newly built canonical bytes;
+otherwise validation fails and never replaces it. A later resume produces a
+different allocator projection and therefore a different index filename.
 
 ### Resume And Checkpoint Semantics
 
@@ -1326,15 +1287,15 @@ declared domains and relationships, while source/rendered-byte digests are
 recomputed in capturing integration tests from the in-memory snapshot and
 provider invocation. It must not pretend to reconstruct omitted bytes.
 
-Offline validation reads a frozen copy of `RunState.provider_attempt_allocations`
-and the evidence directory. Every `evidence_published` event must resolve to
-exactly one safe relative immutable record whose complete-file digest and
-embedded run identity, scope, ordinal, and record kind match; missing, extra,
-duplicate, malformed, or tampered records reject the evidence set. An
-allocation with only an `allocated` event is a permitted disclosed gap and
-expects no record. A record with no matching `evidence_published` event is an
-orphan and rejects the evidence set. Only after these checks pass may the
-validator publish the content-addressed validated index through the locked
+Offline validation reads a frozen copy of
+`RunState.provider_attempt_allocations` and the evidence directory. For every
+allocated scope/ordinal it derives the one safe deterministic path. An absent
+file is a permitted disclosed gap; a present record must have canonical bytes
+and matching complete-file digest, run identity, scope, ordinal, and record
+kind. Extra deterministic-looking files outside the allocation domain are
+orphans, and duplicate, malformed, or tampered records reject the evidence
+set. Only after these checks pass may the validator publish the
+content-addressed validated index through the locked
 temporary/linkat/fsync protocol above. This acceptance affects evidence/parity
 claims only.
 
@@ -1543,25 +1504,22 @@ cannot be copied into YAML or recovered from an untyped mapping.
   prove the next attempt takes one fresh snapshot, observes only the new bytes,
   and differs from the first prompt/digest as disclosed.
 - Inject crashes before allocation persistence, after allocation/before
-  record, after record/before manifest event, after manifest event/before
-  preparation, and during provider execution. Prove the exact gap/orphan/new
-  ordinal behavior and that completed-boundary reuse allocates nothing.
+  record, after immutable record publication/before preparation, and during
+  provider execution. Prove the exact gap/new-ordinal behavior and that
+  completed-boundary reuse allocates nothing.
 - From two nested managers, prove aggregate-owner resolution emits one root
-  allocation/publication transition and uses only aggregate-root-relative safe
-  manifest paths. Reject cycles, mismatched run/workspace identity, absolute or
+  allocation and one aggregate-root deterministic publication path. Reject
+  cycles, mismatched run/workspace identity, absolute or
   traversing paths, and symlinked destination parents.
 - Exercise `linkat` no-clobber `EEXIST`, every write/fsync/link/unlink failure,
-  normal temporary cleanup, crash-remnant cleanup under terminal validation,
-  and unexpected sibling entries. Prove no provider preparation after any
-  incomplete publication protocol.
+  normal temporary cleanup, and unexpected deterministic record entries. Prove
+  no provider preparation after any incomplete publication protocol.
 - Hold/mutate the root state around offline validation and prove nonterminal
-  start, lock failure, or before/after state/projection mismatch rejects index
+  start or before/after state/projection mismatch rejects index
   publication as `run_not_quiescent`.
-- In separate processes, hold terminal validation across record scanning and
-  index link/fsync: conforming resume/status/nested-frame writers must block on
-  the state-mutation lock and then proceed after release; an injected writer
-  that bypasses the lock must be detected by the full-state recheck. Run a
-  lock-order stress test proving no allocation/publication/state-write deadlock.
+- Inject state mutation before and after index link/fsync and prove the
+  full-state read-check-read guard rejects a mixed projection and removes an
+  index created by the failed pass.
 - Recompute every raw, normalized-full, shown, file-section, instruction,
   injection-block, final-prompt, evidence-record, and index digest from the
   captured snapshot/invocation and evidence artifact. Prove no bodies are
@@ -1573,8 +1531,9 @@ cannot be copied into YAML or recovered from an untyped mapping.
 - Validate the closed failure-record schema in every stable category; reject
   unknown/missing fields, unsafe paths, non-false provider-call flags, wrong
   record kind, and self-digest tampering.
-- Delete a manifest-bound record and add an orphan record; prove offline
-  validation rejects each and emits no validated index. Prove an
+- Delete an allocated record and prove the index discloses its
+  allocation-only gap; add an orphan record and prove offline validation
+  rejects it and emits no validated index. Prove an
   allocation-only gap is accepted and disclosed.
 - Reject allocator-projection digest tampering, run-identity mismatch,
   unsorted/duplicate publication or gap rows, wrong counts, extra fields, and
@@ -1589,7 +1548,7 @@ cannot be copied into YAML or recovered from an untyped mapping.
 - For a pending provider boundary, separately delete, corrupt, and schema-tamper
   a prior evidence record and derived index; prove resume does not enumerate or
   open them, allocates from authoritative state, and takes a fresh snapshot.
-- Tamper with the authoritative allocation counter/scope/event ordering and
+- Tamper with the authoritative allocation counter or scope and
   prove pending resume fails closed as invalid runtime state without consulting
   evidence.
 - Complete the provider, mutate or delete a dependency, resume downstream, and

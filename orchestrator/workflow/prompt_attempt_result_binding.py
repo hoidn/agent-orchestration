@@ -181,7 +181,7 @@ def _validated_exact_allocation(
     root_provider_attempt_allocations: Mapping[str, Any] | None,
     scope: ProviderAttemptScope,
     attempt_ordinal: int,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> dict[str, Any]:
     if root_provider_attempt_allocations is None:
         _fail(
             "judgment_result_binding_missing",
@@ -203,20 +203,6 @@ def _validated_exact_allocation(
             "judgment_result_binding_invalid",
             "root allocator scope entry is invalid",
         )
-    raw_events = raw_entry.get("events")
-    if isinstance(raw_events, list):
-        raw_matches = [
-            event
-            for event in raw_events
-            if isinstance(event, Mapping)
-            and event.get("event") == "evidence_published"
-            and event.get("ordinal") == attempt_ordinal
-        ]
-        if len(raw_matches) > 1:
-            _fail(
-                "judgment_result_binding_ambiguous",
-                "multiple publications claim the retained attempt",
-            )
     try:
         allocations = validate_provider_attempt_allocations(
             root_provider_attempt_allocations
@@ -237,38 +223,12 @@ def _validated_exact_allocation(
             "judgment_result_attempt_mismatch",
             "successful attempt ordinal was not allocated",
         )
-    publications = [
-        event
-        for event in entry["events"]
-        if event["event"] == "evidence_published"
-    ]
-    matches = [
-        event
-        for event in publications
-        if event["ordinal"] == attempt_ordinal
-    ]
-    if len(matches) > 1:
-        _fail(
-            "judgment_result_binding_ambiguous",
-            "multiple publications claim the retained attempt",
-        )
-    if not matches:
-        if publications:
-            _fail(
-                "judgment_result_attempt_mismatch",
-                "retained publication belongs to another attempt",
-            )
-        _fail(
-            "judgment_result_binding_missing",
-            "successful attempt has no allocator publication",
-        )
-    return entry, matches[0]
+    return entry
 
 
 def _validate_evidence(
     *,
     publication: PublicationResult,
-    publication_event: Mapping[str, Any],
     scope: ProviderAttemptScope,
     attempt_ordinal: int,
     compiler_fragment_identity_schema_version: str | None,
@@ -287,11 +247,7 @@ def _validate_evidence(
     publication_path = str(publication.relative_path)
     if (
         publication.record_kind != "prompt_snapshot"
-        or publication_event["record_kind"] != "prompt_snapshot"
         or publication_path != expected_path
-        or publication_event["relative_path"] != publication_path
-        or publication_event["file_sha256"]
-        != publication.file_sha256
         or not _is_sha256(publication.file_sha256)
         or _sha256(publication.payload) != publication.file_sha256
     ):
@@ -419,7 +375,7 @@ def attach_prompt_attempt_result_binding(
             "retained attempt ordinal is invalid",
         )
     assert isinstance(publication, PublicationResult)
-    entry, publication_event = _validated_exact_allocation(
+    entry = _validated_exact_allocation(
         root_provider_attempt_allocations=(
             root_provider_attempt_allocations
         ),
@@ -436,7 +392,6 @@ def attach_prompt_attempt_result_binding(
         )
     _validate_evidence(
         publication=publication,
-        publication_event=publication_event,
         scope=scope,
         attempt_ordinal=attempt_ordinal,
         compiler_fragment_identity_schema_version=(

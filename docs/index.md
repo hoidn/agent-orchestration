@@ -270,7 +270,7 @@ document owns the answer.
 **Use this when:** Designing either retained `.orc` port, checking its still-binding provider/prompt/parity gates, or reviewing why the protected holdout remains owner-gated.
 
 ### [Workflow Lisp Provider Prompt Dependencies](plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-design.md)
-**Description:** Implemented generic functional contract for typed required and optional exact relpaths on `provider-result`, deterministic bounded content injection, one immutable per-attempt snapshot, crash-durable attempt allocation, and content-free evidence. Runtime plan remains topology-only and evidence is non-authoritative. The retired YAML twins supplied historical parity evidence for the promoted `verified_iteration_drain` and `generic_run_watchdog` `.orc` routes before deletion.
+**Description:** Implemented generic functional contract for typed required and optional exact relpaths on `provider-result`, deterministic bounded content injection, one immutable per-attempt snapshot, counter-only attempt allocation under the run-lifetime writer lock, and content-free evidence. Runtime plan remains topology-only and evidence is non-authoritative. The retired YAML twins supplied historical parity evidence for the promoted `verified_iteration_drain` and `generic_run_watchdog` `.orc` routes before deletion.
 **Keywords:** workflow-lisp, provider, prompt-dependencies, relpath, snapshot, retry, evidence
 **Use this when:** Authoring or reviewing `.orc` provider calls that must receive workspace file contents, or auditing the completed survivor-family prompt-dependency parity proofs.
 

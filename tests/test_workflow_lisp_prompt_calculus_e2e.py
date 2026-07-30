@@ -26,6 +26,7 @@ from orchestrator.workflow.prompting import render_prompt_fragment_base
 from orchestrator.workflow.prompt_dependency_evidence import (
     FRAGMENT_SUCCESS_SCHEMA_V2,
     FRAGMENT_SUCCESS_SCHEMA_V3,
+    evidence_relative_path,
     validate_fragment_success_evidence,
     validate_terminal_evidence,
 )
@@ -38,6 +39,7 @@ from orchestrator.workflow.prompt_fragment_contract import (
     COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2,
     canonical_compiler_prompt_fragment_contract_json,
 )
+from orchestrator.workflow.provider_attempts import ProviderAttemptScope
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.compiler import (
     compile_stage3_entrypoint,
@@ -1363,20 +1365,15 @@ def test_real_consumer_runtime_validates_prompt_owned_result_and_snapshot(
     )
     identity = provider_node.execution_config.compiled_prompt_fragment_identity
     persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
-    publications = [
-        event
-        for allocation in persisted["provider_attempt_allocations"].values()
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
-    ]
-    assert len(publications) == 1
-    publication = publications[0]
+    [allocation] = persisted["provider_attempt_allocations"].values()
+    assert "events" not in allocation
+    assert allocation["last_allocated_ordinal"] == 1
+    scope = ProviderAttemptScope.from_dict(allocation["scope"])
+    evidence_path = (
+        manager.run_root / evidence_relative_path(scope, 1)
+    )
     record = validate_fragment_success_evidence(
-        json.loads(
-            (manager.run_root / publication["relative_path"]).read_text(
-                encoding="ascii"
-            )
-        )
+        json.loads(evidence_path.read_text(encoding="ascii"))
     )
     assert record["record_kind"] == "prompt_snapshot"
     assert record["compiled_prompt_fragment_identity"] == identity

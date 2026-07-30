@@ -134,9 +134,9 @@ all persisted state and evidence while excluding only the required root
 - Modify: `tests/test_provider_attempt_allocation.py`
 - Modify: `tests/test_prompt_contract_injection.py`
 
-- [ ] Add RED property coverage for strictly increasing next-unused ordinals,
+- [x] Add RED property coverage for strictly increasing next-unused ordinals,
   independent scopes, and no ordinal reuse after a failed partial attempt.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q tests/test_provider_attempt_allocation.py \
@@ -145,13 +145,29 @@ all persisted state and evidence while excluding only the required root
 
   Expected RED: new counter-only assertions observe lifecycle `events` and
   allocation-specific process coordination.
-- [ ] Reduce allocation state to validated `scope` plus
-  `last_allocated_ordinal`; allocate under the existing in-process mutex and
-  ordinary state write.
-- [ ] Remove allocation/publication event production. Evidence paths and
+- [x] Reduce allocation state to validated `scope` plus
+  `last_allocated_ordinal`, retaining only the existing optional Q3
+  `prompt_fragment_identity_schema_version` authority; allocate under the
+  existing in-process mutex and ordinary state write.
+- [x] Remove allocation/publication event production. Evidence paths and
   offline evidence remain consumers of the frozen ordinal, never allocators.
-- [ ] Run focused tests, ordered specification then quality review, and commit
+- [x] Run focused tests, ordered specification then quality review, and commit
   with subject `Simplify provider attempt allocation`.
+
+Task 3 candidate evidence: the three named property selectors first failed
+only because new entries still carried lifecycle events, then passed against
+the counter-only writer. The complete allocation and prompt-contract modules
+collect and pass 223 tests; prompt evidence is discovered from its
+deterministic immutable path rather than from allocation-state publication
+events. The retained optional Q3 schema authority preserves the pre-existing
+prompt-identity guard without restoring a lifecycle ledger. A material
+pre-review audit then removed an accidental completed-resume dependency on the
+non-authoritative evidence file: the phased runtime module passes 54 tests,
+including four no-open evidence variants, and the complete Task 3 focused
+surface passes 1,073 tests with one environment-gated live-provider skip.
+Roadmap routing passes 67 tests. Ordered review returned
+`ML2_TASK3_SPEC_APPROVED` after one material documentation correction and its
+single replay, followed by `ML2_TASK3_QUALITY_APPROVED`.
 
 ## Task 4: Remove allocation persistence machinery
 

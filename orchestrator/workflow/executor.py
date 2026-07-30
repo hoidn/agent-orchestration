@@ -141,7 +141,6 @@ from .prompt_dependency_evidence import (
     build_fragment_success_evidence_v2,
     build_failure_evidence,
     build_success_evidence,
-    evidence_relative_path,
     publish_evidence_file,
 )
 from .prompt_attempt_result_binding import (
@@ -2042,7 +2041,7 @@ class WorkflowExecutor:
                     "node_id": node_id,
                 }
 
-            evidence_matches: list[Mapping[str, Any]] = []
+            allocation_matches: list[ProviderAttemptScope] = []
             for allocation in allocations.values():
                 try:
                     scope = ProviderAttemptScope.from_dict(
@@ -2068,61 +2067,21 @@ class WorkflowExecutor:
                     validate_provider_attempt_scope(scope, owner)
                 except (TypeError, ValueError):
                     continue
-                events = allocation.get("events")
-                if not isinstance(events, list):
-                    continue
-                for event in events:
-                    event_ordinal = (
-                        event.get("ordinal")
-                        if isinstance(event, Mapping)
-                        else None
-                    )
-                    if (
-                        isinstance(event, Mapping)
-                        and not isinstance(event_ordinal, bool)
-                        and isinstance(event_ordinal, int)
-                        and event.get("event") == "evidence_published"
-                        and event.get("record_kind") == "prompt_snapshot"
-                        and event.get("relative_path")
-                        == functional_evidence
-                        and event.get("relative_path")
-                        == str(
-                            evidence_relative_path(
-                                scope,
-                                event_ordinal,
-                            )
-                        )
-                    ):
-                        evidence_matches.append(event)
-            if len(evidence_matches) != 1:
+                allocation_matches.append(scope)
+            if len(allocation_matches) != 1:
                 return {
                     "kind": "integrity_error",
-                    "reason": (
-                        "completed_phased_evidence_missing"
-                        if not evidence_matches
-                        else "completed_phased_evidence_ambiguous"
-                    ),
+                    "reason": "completed_phased_state_authority_invalid",
                     "node_id": node_id,
-                    "match_count": len(evidence_matches),
+                    "match_count": len(allocation_matches),
                 }
-            evidence_sha256 = evidence_matches[0].get("file_sha256")
-            if (
-                not isinstance(evidence_sha256, str)
-                or not evidence_sha256.startswith("sha256:")
-                or len(evidence_sha256) != 71
-            ):
-                return {
-                    "kind": "integrity_error",
-                    "reason": "completed_phased_evidence_invalid",
-                    "node_id": node_id,
-                }
+
             candidates.append(
                 {
                     "node_id": node_id,
                     "step_name": step_name,
                     "step_id": expected_step_id,
                     "visit_count": visit_count,
-                    "evidence_sha256": evidence_sha256,
                 }
             )
 

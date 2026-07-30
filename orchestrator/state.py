@@ -19,7 +19,6 @@ from contextlib import contextmanager, nullcontext
 from .state_locking import (
     durable_atomic_write,
     exclusive_file_lock,
-    provider_attempt_process_locks,
 )
 
 
@@ -435,24 +434,19 @@ class StateManager:
                     prompt_fragment_identity_schema_version
                 ),
             )
-        self.enable_durable_state_writes()
-        with provider_attempt_process_locks(self.run_root):
-            with self._lock:
-                self._reload_state_for_coordinated_mutation()
+        try:
+            with self.state_transaction() as transaction_state:
                 owner = resolve_aggregate_run_owner(origin_manager)
                 validate_provider_attempt_scope(scope, owner)
-                assert self.state is not None
                 allocations = validate_provider_attempt_allocations(
-                    self.state.provider_attempt_allocations
+                    transaction_state.provider_attempt_allocations
                 )
-                self._ensure_provider_attempt_repair_barrier()
                 entry = allocations.get(scope.key)
                 if entry is None:
                     ordinal = 1
                     entry = {
                         "scope": scope.to_dict(),
                         "last_allocated_ordinal": ordinal,
-                        "events": [{"ordinal": ordinal, "event": "allocated"}],
                     }
                     if prompt_fragment_identity_schema_version is not None:
                         entry[
@@ -479,10 +473,14 @@ class StateManager:
                         )
                     ordinal = entry["last_allocated_ordinal"] + 1
                     entry["last_allocated_ordinal"] = ordinal
-                    entry["events"].append({"ordinal": ordinal, "event": "allocated"})
-                self.state.provider_attempt_allocations = allocations
-                self._persist_state_durably()
-                return ordinal
+                    entry.pop("events", None)
+                transaction_state.provider_attempt_allocations = allocations
+        except BaseException:
+            if self.state_file.exists():
+                with self._lock:
+                    self._reload_state_for_coordinated_mutation()
+            raise
+        return ordinal
 
     def record_provider_attempt_publication(
         self,
@@ -547,18 +545,15 @@ class StateManager:
                 record_kind=record_kind,
             )
             return
-        self.enable_durable_state_writes()
-        with provider_attempt_process_locks(self.run_root):
-            with self._lock:
-                self._reload_state_for_coordinated_mutation()
-                self._record_provider_attempt_publication_already_process_locked(
-                    origin_manager,
-                    scope,
-                    ordinal,
-                    relative_path=relative_path,
-                    file_sha256=file_sha256,
-                    record_kind=record_kind,
-                )
+        with self._lock:
+            self._record_provider_attempt_publication_already_process_locked(
+                origin_manager,
+                scope,
+                ordinal,
+                relative_path=relative_path,
+                file_sha256=file_sha256,
+                record_kind=record_kind,
+            )
 
     def _record_provider_attempt_publication_already_process_locked(
         self,
@@ -570,30 +565,11 @@ class StateManager:
         file_sha256: str,
         record_kind: str,
     ) -> None:
-        """Persist a publication while the caller holds both process locks and RLock."""
+        """Validate a publication while the caller holds both process locks and RLock."""
 
-        from .workflow.provider_attempts import validate_provider_attempt_allocations
-
-        allocations, entry = (
-            self._validate_provider_attempt_publication_already_process_locked(
-                origin_manager, scope, ordinal
-            )
+        self._validate_provider_attempt_publication_already_process_locked(
+            origin_manager, scope, ordinal
         )
-        allocated = {"ordinal": ordinal, "event": "allocated"}
-        entry["events"].insert(
-            entry["events"].index(allocated) + 1,
-            {
-                "ordinal": ordinal,
-                "event": "evidence_published",
-                "relative_path": relative_path,
-                "file_sha256": file_sha256,
-                "record_kind": record_kind,
-            },
-        )
-        self.state.provider_attempt_allocations = validate_provider_attempt_allocations(
-            allocations
-        )
-        self._persist_state_durably()
 
     def _validate_provider_attempt_publication_already_process_locked(
         self,
@@ -620,15 +596,8 @@ class StateManager:
         entry = allocations.get(scope.key)
         if entry is None:
             raise ValueError("provider attempt allocation is missing")
-        allocated = {"ordinal": ordinal, "event": "allocated"}
-        if allocated not in entry["events"]:
+        if ordinal > entry["last_allocated_ordinal"]:
             raise ValueError("provider attempt allocation ordinal is missing")
-        if any(
-            event.get("ordinal") == ordinal
-            and event.get("event") == "evidence_published"
-            for event in entry["events"]
-        ):
-            raise ValueError("provider attempt evidence is already published")
         return allocations, entry
 
     def _generate_run_id(self) -> str:
@@ -716,8 +685,6 @@ class StateManager:
                 data = json.load(f)
 
             self.state = RunState.from_dict(data)
-            if self.state.provider_attempt_allocations:
-                self.enable_durable_state_writes()
             return self.state
 
     def _write_state(self):

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -53,10 +52,6 @@ class _ProjectedAttempt:
     qualifies_scope: bool
 
 
-def _sha(value: bytes) -> str:
-    return "sha256:" + hashlib.sha256(value).hexdigest()
-
-
 def _empty_report(
     schema_version: str = PROMPT_CONTEXT_REPORT_SCHEMA,
 ) -> dict[str, Any]:
@@ -93,7 +88,13 @@ def _load_publication(
     authority: str | None,
     report_schema: str,
 ) -> _ProjectedAttempt:
-    if event is None:
+    """Load one canonical attempt file; legacy ``event`` is never authority."""
+
+    del event
+    expected_relative = evidence_relative_path(scope, ordinal)
+    try:
+        payload = (root / expected_relative).read_bytes()
+    except FileNotFoundError:
         return _ProjectedAttempt(
             scope=scope,
             ordinal=ordinal,
@@ -104,19 +105,18 @@ def _load_publication(
             identity=None,
             qualifies_scope=False,
         )
-    event_kind = event["record_kind"]
+    except OSError:
+        return _invalid_attempt(scope, ordinal, None)
+
+    event_kind: str | None = None
     try:
-        expected_relative = str(evidence_relative_path(scope, ordinal))
-        if event["relative_path"] != expected_relative:
-            raise ValueError("publication path contradicts attempt identity")
-        payload = (root / expected_relative).read_bytes()
-        if _sha(payload) != event["file_sha256"]:
-            raise ValueError("publication digest is invalid")
         record = json.loads(payload)
         if not isinstance(record, Mapping):
             raise ValueError("publication record is invalid")
-        if record.get("record_kind") != event_kind:
+        raw_event_kind = record.get("record_kind")
+        if not isinstance(raw_event_kind, str):
             raise ValueError("publication record kind is invalid")
+        event_kind = raw_event_kind
         canonical = canonical_record_bytes(
             record,
             compiler_fragment_identity_schema_version=authority,
@@ -209,7 +209,6 @@ def _load_publication(
                 qualifies_scope=True,
             )
     except (
-        FileNotFoundError,
         OSError,
         UnicodeDecodeError,
         json.JSONDecodeError,
@@ -475,11 +474,6 @@ def _project_prompt_context(
         scope = ProviderAttemptScope.from_dict(allocation["scope"])
         if scope.key != scope_key:
             raise ValueError("allocator scope identity is invalid")
-        publications = {
-            event["ordinal"]: event
-            for event in allocation["events"]
-            if event["event"] == "evidence_published"
-        }
         authority = allocation.get(
             "prompt_fragment_identity_schema_version"
         )
@@ -489,7 +483,7 @@ def _project_prompt_context(
                 root=root,
                 scope=scope,
                 ordinal=ordinal,
-                event=publications.get(ordinal),
+                event=None,
                 authority=authority,
                 report_schema=report_schema,
             )

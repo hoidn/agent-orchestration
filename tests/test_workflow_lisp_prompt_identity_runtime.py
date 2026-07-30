@@ -756,18 +756,32 @@ def _successful_execution(tmp_path: Path, invocation):
     )
 
 
+def _allocation_evidence_paths(manager, allocation) -> list[Path]:
+    from orchestrator.workflow.prompt_dependency_evidence import (
+        evidence_relative_path,
+    )
+    from orchestrator.workflow.provider_attempts import ProviderAttemptScope
+
+    scope = ProviderAttemptScope.from_dict(allocation["scope"])
+    return [
+        manager.run_root / evidence_relative_path(scope, ordinal)
+        for ordinal in range(
+            1,
+            allocation["last_allocated_ordinal"] + 1,
+        )
+    ]
+
+
 def _published_record(manager) -> dict[str, object]:
     state = manager._read_state_from_disk()
-    event = next(
-        event
-        for allocation in state.provider_attempt_allocations.values()
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
+    allocation = next(iter(state.provider_attempt_allocations.values()))
+    evidence_path = next(
+        path
+        for path in _allocation_evidence_paths(manager, allocation)
+        if path.is_file()
     )
     return json.loads(
-        (manager.run_root / event["relative_path"]).read_text(
-            encoding="utf-8"
-        )
+        evidence_path.read_text(encoding="utf-8")
     )
 
 
@@ -957,9 +971,8 @@ def test_target_222_output_position_failure_leaves_allocated_attempt_only(
     allocations = list(state.provider_attempt_allocations.values())
     assert len(allocations) == 1
     allocation = allocations[0]
-    assert allocation["events"] == [
-        {"event": "allocated", "ordinal": 1}
-    ]
+    assert allocation["last_allocated_ordinal"] == 1
+    assert "events" not in allocation
     assert not list(
         (manager.run_root / "workflow_lisp" / "prompt_dependencies").rglob(
             "attempt-*.json"
@@ -1193,9 +1206,8 @@ def test_target_222_render_failure_allocates_once_and_never_prepares_or_launches
     state = manager._read_state_from_disk()
     allocations = list(state.provider_attempt_allocations.values())
     assert len(allocations) == 1
-    assert allocations[0]["events"] == [
-        {"event": "allocated", "ordinal": 1}
-    ]
+    assert allocations[0]["last_allocated_ordinal"] == 1
+    assert "events" not in allocations[0]
     assert not list(
         (manager.run_root / "workflow_lisp" / "prompt_dependencies").rglob(
             "attempt-*.json"
@@ -1260,23 +1272,13 @@ def test_target_222_retry_derives_fragment_and_trace_once_per_allocated_attempt(
     assert launches == 2
     state = manager._read_state_from_disk()
     allocation = next(iter(state.provider_attempt_allocations.values()))
-    assert [
-        (event["event"], event["ordinal"])
-        for event in allocation["events"]
-    ] == [
-        ("allocated", 1),
-        ("evidence_published", 1),
-        ("allocated", 2),
-        ("evidence_published", 2),
-    ]
+    assert allocation["last_allocated_ordinal"] == 2
+    assert "events" not in allocation
     records = [
         json.loads(
-            (manager.run_root / event["relative_path"]).read_text(
-                encoding="utf-8"
-            )
+            path.read_text(encoding="utf-8")
         )
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
+        for path in _allocation_evidence_paths(manager, allocation)
     ]
     assert [record["attempt"]["ordinal"] for record in records] == [1, 2]
 
@@ -1375,10 +1377,15 @@ def test_target_222_publication_failure_leaves_allocation_only_and_never_launche
     assert launches == 0
     assert order == ["prepare", "publish"]
     state = manager._read_state_from_disk()
-    events = next(
+    allocation = next(
         iter(state.provider_attempt_allocations.values())
-    )["events"]
-    assert [event["event"] for event in events] == ["allocated"]
+    )
+    assert allocation["last_allocated_ordinal"] == 1
+    assert "events" not in allocation
+    assert not any(
+        path.exists()
+        for path in _allocation_evidence_paths(manager, allocation)
+    )
 
 
 @pytest.mark.parametrize("tamper", ("prompt", "policy"))
@@ -1422,10 +1429,15 @@ def test_target_222_prepared_invocation_tamper_fails_before_publication_or_launc
     assert result["status"] == "failed"
     assert launches == 0
     state = manager._read_state_from_disk()
-    events = next(
+    allocation = next(
         iter(state.provider_attempt_allocations.values())
-    )["events"]
-    assert [event["event"] for event in events] == ["allocated"]
+    )
+    assert allocation["last_allocated_ordinal"] == 1
+    assert "events" not in allocation
+    assert not any(
+        path.exists()
+        for path in _allocation_evidence_paths(manager, allocation)
+    )
 
 
 def test_old_target_fragment_keeps_v1_prelaunch_behavior(

@@ -39,6 +39,13 @@ accept a `defprompt` application and do not become Q3 consumers by implication.
 A future fragment-backed provider operation must define its exact
 runtime-contribution rows before it can opt into this schema.
 
+The later ML-2 allocator simplification changes only the persistence substrate:
+current allocation state is counter-only, and the immutable deterministic
+scope-and-ordinal file is the persisted publication source. Historical
+lifecycle-event state remains readable for compatibility but is never emitted
+or consulted by current Q3 reporting. The identity, comparison, and
+non-authority contracts in this design are unchanged.
+
 ## Decision
 
 Adopt:
@@ -64,7 +71,8 @@ Do not change:
 - `compiled_prompt_fragment_identity.v2`;
 - `compiler_prompt_fragment_contract.v1` or `.v2`;
 - Q1/Q2 result, output-position, checkpoint, or completed-boundary semantics;
-- the provider-attempt allocation/event shape; or
+- the provider-attempt allocation/event shape as it existed when Q3 was
+  introduced (later superseded by ML-2's counter-only substrate); or
 - state schema `2.1`.
 
 ## Problem
@@ -101,8 +109,8 @@ Q3 builds on existing owners:
   structured-result contributions;
 - `ProviderExecutor.prepare_invocation` owns the resolved invocation used for
   launch; and
-- the root provider-attempt allocator owns attempt scope, ordinal,
-  content-addressed publication, and the `evidence_published` lifecycle event.
+- the root provider-attempt allocator owns attempt scope and ordinal, while
+  immutable publication owns the deterministic, content-sealed evidence file.
 
 Q3 must consume those owners. It must not parse the final prompt, reopen a
 dependency, reconstruct policy from argv, or copy prompt semantics into a
@@ -597,7 +605,7 @@ then requires these cross-field equalities before accepting the record seal:
 
 No alternate projection, omitted admitted group, extra role group, reordered
 group, or independently resealed disagreement is valid. These cross-field
-checks happen before content-addressed publication and again when a report or
+checks happen before immutable publication and again when a report or
 comparison validates persisted v2 evidence.
 
 Targets 2.20 and 2.21 continue to publish
@@ -608,13 +616,12 @@ attempt identity.
 For target 2.22 the sequence is:
 
 1. validate compiler fragment contract, compiled identity, and Q3 carrier;
-2. allocate the ordinary crash-durable attempt ordinal;
+2. allocate the next ordinary counter-owned attempt ordinal;
 3. resolve slots and take the existing one-shot dependency snapshot;
 4. compose the exact prompt while retaining the in-memory segment trace;
 5. prepare the exact provider invocation and its closed policy projection;
 6. build and validate the v2 snapshot;
-7. publish it content-addressed and append the existing
-   `evidence_published` event; and
+7. publish it immutably at the deterministic scope-and-ordinal path; and
 8. launch the provider.
 
 Publication failure stops before launch and leaves an ordinary allocation-only
@@ -646,8 +653,9 @@ one closed Q3 preparation-failure record:
 }
 ```
 
-`run`, `attempt`, canonical sealing, content-addressed path, publication, and
-allocator consistency reuse the existing functional evidence owners.
+`run`, `attempt`, canonical sealing, deterministic scope-and-ordinal path,
+publication, and counter consistency reuse the existing functional evidence
+owners.
 `fragment.identity_schema_version` is exactly v1 or v2 and must agree with the
 validated compiler fragment contract and compiled identity.
 `compiled_prompt_fragment_identity` and
@@ -668,8 +676,9 @@ only the preparation-failure schema above; it does not widen the existing
 dependency-failure schema.
 
 The file path, root allocation scope, ordinal, immutable-write rule,
-single-writer locking, lifecycle event shape, and offline terminal index remain
-unchanged. No full prompt or role bytes are persisted.
+command-lifetime single-writer locking, and offline terminal index remain
+unchanged. Allocation state carries no current lifecycle-event list. No full
+prompt or role bytes are persisted.
 
 ## Comparison Contract
 
@@ -826,8 +835,8 @@ The exact `record_status` cases are:
 | `invalid` | null | null | unavailable / `current_record_invalid` |
 
 The row keys never vary. `record_sha256` and `identity` use JSON null exactly
-where the table says null. An invalid publication may retain its existing
-allocator/event identity for ordering, but the report does not repeat an
+where the table says null. An invalid publication may retain its validated
+scope and ordinal for ordering, but the report does not repeat an
 unvalidated claimed record digest. If a current valid functional-v2/v3
 snapshot has a greatest earlier prompt-snapshot publication in the same scope,
 that exact candidate must validate under its claimed schema before comparison.

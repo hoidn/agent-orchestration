@@ -472,15 +472,15 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     - its published evidence is exact
       `workflow_prompt_fragment_snapshot.functional.v2` and embeds that same
       identity-v1 schema;
-    - it has one root-owned provider-attempt scope and one unique Q3
-      publication for that scope and ordinal; and
+    - it has one root-owned provider-attempt scope and one unique immutable Q3
+      evidence record at that scope and ordinal's deterministic path; and
     - it has one validated committed provider result after the unchanged Q2
       output-position and structured-result validation in `io.md`.
     Target version, workflow/module/provider/step/family names, result type,
     and field spelling never establish eligibility. Unknown delivery,
     identity, or evidence versions are ineligible rather than inferred.
   - One eligible committed result receives one association with the exact
-    successful attempt ordinal and that ordinal's exact allocator publication.
+    successful attempt ordinal and that ordinal's exact validated Q3 record.
     Every attempted launch retains its ordinary Q3 evidence, but a
     failed-then-successful retry binds only the successful attempt ordinal.
     The runtime never selects the newest, last allocated, or

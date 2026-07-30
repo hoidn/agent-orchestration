@@ -657,19 +657,16 @@ def test_real_orc_two_level_call_publishes_root_owned_attempt_scope(
     assert scope.loop_iteration is None
     assert scope.adjudication_subject is None
     assert allocation["last_allocated_ordinal"] == 1
-    assert [event["event"] for event in allocation["events"]] == [
-        "allocated",
-        "evidence_published",
-    ]
+    assert "events" not in allocation
     middle_state = root_state["call_frames"][first_frame]["state"]
     leaf_state = middle_state["call_frames"][second_frame]["state"]
     assert "provider_attempt_allocations" not in middle_state
     assert "provider_attempt_allocations" not in leaf_state
-    publication = allocation["events"][1]
-    record_path = manager.run_root / publication["relative_path"]
+    relative_path = evidence_relative_path(scope, 1)
+    record_path = manager.run_root / relative_path
     assert record_path.is_file()
-    assert not (Path(middle_state["run_root"]) / publication["relative_path"]).exists()
-    assert not (Path(leaf_state["run_root"]) / publication["relative_path"]).exists()
+    assert not (Path(middle_state["run_root"]) / relative_path).exists()
+    assert not (Path(leaf_state["run_root"]) / relative_path).exists()
     terminal = validate_terminal_evidence(manager.run_root, manager.state_file)
     assert len(terminal.index["publications"]) == 1
 
@@ -762,12 +759,11 @@ def test_real_orc_mixed_dependencies_execute_and_validate_terminal_evidence(
     ]
     assert len(allocations) == 1
     allocation = next(iter(allocations.values()))
-    publications = [
-        event for event in allocation["events"] if event["event"] == "evidence_published"
-    ]
     assert allocation["last_allocated_ordinal"] == 1
-    assert len(publications) == 1
-    record_path = manager.run_root / publications[0]["relative_path"]
+    assert "events" not in allocation
+    scope = ProviderAttemptScope.from_dict(allocation["scope"])
+    record_path = manager.run_root / evidence_relative_path(scope, 1)
+    assert record_path.is_file()
     record = validate_success_evidence(json.loads(record_path.read_text(encoding="ascii")))
     assert [row["status"] for row in record["authored_rows"]] == [
         "present",
@@ -912,10 +908,12 @@ def test_two_phase_typed_carriage_delivers_scalar_and_relpath_with_closed_eviden
     root_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
     assert root_state["schema_version"] == "2.1"
     allocation = next(iter(root_state["provider_attempt_allocations"].values()))
-    assert [event["event"] for event in allocation["events"]] == [
-        "allocated",
-        "evidence_published",
-    ]
+    assert allocation["last_allocated_ordinal"] == 1
+    assert "events" not in allocation
+    scope = ProviderAttemptScope.from_dict(allocation["scope"])
+    assert (
+        manager.run_root / evidence_relative_path(scope, 1)
+    ).is_file()
 
 
 def test_nested_typed_carriage_uses_the_aggregate_prompt_evidence_owner(
@@ -1097,13 +1095,14 @@ def test_interrupted_ordinary_provider_at_least_once_completed_boundary_reuses_w
             )
 
     persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
-    publication = next(
-        event
-        for allocation in persisted["provider_attempt_allocations"].values()
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
+    allocation = next(
+        iter(persisted["provider_attempt_allocations"].values())
     )
-    record_path = manager.run_root / publication["relative_path"]
+    assert allocation["last_allocated_ordinal"] == 1
+    assert "events" not in allocation
+    scope = ProviderAttemptScope.from_dict(allocation["scope"])
+    record_path = manager.run_root / evidence_relative_path(scope, 1)
+    assert record_path.is_file()
     if evidence_disposition == "deleted":
         record_path.unlink()
     else:
@@ -1141,8 +1140,22 @@ def test_interrupted_ordinary_provider_at_least_once_completed_boundary_reuses_w
         "return__approved": True,
         "return__summary": "DOWNSTREAM_RESULT_SENTINEL",
     }
-    with pytest.raises(ValueError, match="missing|corrupt"):
-        validate_terminal_evidence(manager.run_root, manager.state_file)
+    if evidence_disposition == "deleted":
+        terminal = validate_terminal_evidence(
+            manager.run_root,
+            manager.state_file,
+        )
+        assert [
+            row["attempt_ordinal"]
+            for row in terminal.index["allocation_only_gaps"]
+        ] == [1]
+        assert terminal.index["publications"] == []
+    else:
+        with pytest.raises(ValueError, match="corrupt"):
+            validate_terminal_evidence(
+                manager.run_root,
+                manager.state_file,
+            )
 
 
 def test_resume_after_allocation_gap_uses_fresh_snapshot_and_next_ordinal(
@@ -1223,7 +1236,11 @@ def test_resume_after_allocation_gap_uses_fresh_snapshot_and_next_ordinal(
     interrupted = json.loads(manager.state_file.read_text(encoding="utf-8"))
     allocation = next(iter(interrupted["provider_attempt_allocations"].values()))
     assert allocation["last_allocated_ordinal"] == 1
-    assert [event["event"] for event in allocation["events"]] == ["allocated"]
+    assert "events" not in allocation
+    scope = ProviderAttemptScope.from_dict(allocation["scope"])
+    assert not (
+        manager.run_root / evidence_relative_path(scope, 1)
+    ).exists()
     (tmp_path / "artifacts" / "work" / "b.md").write_text(
         "CRASH_FRESH_B_SENTINEL\n", encoding="utf-8"
     )
@@ -1320,13 +1337,16 @@ def test_pending_resume_ignores_accidentally_unreadable_prior_evidence(
             )
 
     interrupted = json.loads(manager.state_file.read_text(encoding="utf-8"))
-    prior_publication = next(
-        event
-        for allocation in interrupted["provider_attempt_allocations"].values()
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
+    [prior_allocation] = interrupted[
+        "provider_attempt_allocations"
+    ].values()
+    assert prior_allocation["last_allocated_ordinal"] == 1
+    assert "events" not in prior_allocation
+    prior_scope = ProviderAttemptScope.from_dict(prior_allocation["scope"])
+    prior_record = (
+        manager.run_root / evidence_relative_path(prior_scope, 1)
     )
-    prior_record = manager.run_root / prior_publication["relative_path"]
+    assert prior_record.is_file()
     if evidence_disposition == "deleted":
         prior_record.unlink()
     else:
@@ -1349,18 +1369,49 @@ def test_pending_resume_ignores_accidentally_unreadable_prior_evidence(
     assert "PENDING_FRESH_C_SENTINEL" in captured["prompt"]
     assert "PENDING_OLD_c.md_SENTINEL" not in captured["prompt"]
     completed = json.loads(resume_manager.state_file.read_text(encoding="utf-8"))
-    publications = [
-        event
-        for allocation in completed["provider_attempt_allocations"].values()
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
+    allocations = list(
+        completed["provider_attempt_allocations"].values()
+    )
+    assert len(allocations) == 2
+    assert all(
+        allocation["last_allocated_ordinal"] == 1
+        and "events" not in allocation
+        for allocation in allocations
+    )
+    record_paths = [
+        resume_manager.run_root
+        / evidence_relative_path(
+            ProviderAttemptScope.from_dict(allocation["scope"]),
+            1,
+        )
+        for allocation in allocations
     ]
-    assert len(publications) == 2
-    with pytest.raises(ValueError, match="missing|corrupt"):
-        validate_terminal_evidence(resume_manager.run_root, resume_manager.state_file)
+    assert prior_record in record_paths
+    assert sum(path.is_file() for path in record_paths) == (
+        1 if evidence_disposition == "deleted" else 2
+    )
+    if evidence_disposition == "deleted":
+        terminal = validate_terminal_evidence(
+            resume_manager.run_root,
+            resume_manager.state_file,
+        )
+        assert [
+            row["attempt_ordinal"]
+            for row in terminal.index["allocation_only_gaps"]
+        ] == [1]
+        assert [
+            row["attempt_ordinal"]
+            for row in terminal.index["publications"]
+        ] == [1]
+    else:
+        with pytest.raises(ValueError, match="corrupt"):
+            validate_terminal_evidence(
+                resume_manager.run_root,
+                resume_manager.state_file,
+            )
 
 
-def test_resume_ignores_orphan_record_created_before_publication_event(
+def test_resume_does_not_use_valid_prior_evidence_as_execution_authority(
     tmp_path: Path,
 ) -> None:
     module_path, bundle = _compile_mixed_e2e(tmp_path, resumable=True)
@@ -1378,22 +1429,23 @@ def test_resume_ignores_orphan_record_created_before_publication_event(
         context=bundle_context_dict(bundle),
         bound_inputs=_bind_inputs(bundle, tmp_path),
     )
-    original_record = (
-        StateManager._record_provider_attempt_publication_already_process_locked
-    )
-    record_calls = 0
+    import orchestrator.workflow.executor as executor_module
 
-    def _interrupt_before_event(self, *args, **kwargs):
-        nonlocal record_calls
-        record_calls += 1
-        if record_calls == 1:
+    original_publish = executor_module.publish_evidence_file
+    publish_calls = 0
+
+    def _interrupt_after_immutable_file(*args, **kwargs):
+        nonlocal publish_calls
+        publication = original_publish(*args, **kwargs)
+        publish_calls += 1
+        if publish_calls == 1:
             raise _AttemptInterruption
-        return original_record(self, *args, **kwargs)
+        return publication
 
     with patch.object(
-        StateManager,
-        "_record_provider_attempt_publication_already_process_locked",
-        _interrupt_before_event,
+        executor_module,
+        "publish_evidence_file",
+        _interrupt_after_immutable_file,
     ):
         with pytest.raises(_AttemptInterruption):
             WorkflowExecutor(bundle, tmp_path, manager, retry_delay_ms=0).execute(
@@ -1402,10 +1454,11 @@ def test_resume_ignores_orphan_record_created_before_publication_event(
 
     interrupted = json.loads(manager.state_file.read_text(encoding="utf-8"))
     allocation = next(iter(interrupted["provider_attempt_allocations"].values()))
-    assert [event["event"] for event in allocation["events"]] == ["allocated"]
+    assert allocation["last_allocated_ordinal"] == 1
+    assert "events" not in allocation
     scope = ProviderAttemptScope.from_dict(allocation["scope"])
-    orphan = manager.run_root / evidence_relative_path(scope, 1)
-    assert orphan.is_file()
+    prior_record = manager.run_root / evidence_relative_path(scope, 1)
+    assert prior_record.is_file()
 
     calls = {"preparations": 0, "executions": 0}
 
@@ -1441,7 +1494,7 @@ def test_resume_ignores_orphan_record_created_before_publication_event(
 
     resume_manager = StateManager(tmp_path, run_id=manager.run_id)
     resume_manager.load()
-    with _guard_prior_evidence_access({orphan}), patch.object(
+    with _guard_prior_evidence_access({prior_record}), patch.object(
         ProviderExecutor, "prepare_invocation", _prepare
     ), patch.object(ProviderExecutor, "execute", _execute):
         resumed = WorkflowExecutor(
@@ -1450,18 +1503,33 @@ def test_resume_ignores_orphan_record_created_before_publication_event(
 
     assert resumed["status"] == "completed"
     assert calls == {"preparations": 1, "executions": 1}
-    with pytest.raises(ValueError, match="orphan prompt dependency evidence"):
-        validate_terminal_evidence(resume_manager.run_root, resume_manager.state_file)
-    validated_indexes = (
-        resume_manager.run_root
-        / "workflow_lisp"
-        / "prompt_dependencies"
-        / "validated-indexes"
+    completed = json.loads(
+        resume_manager.state_file.read_text(encoding="utf-8")
     )
-    assert not validated_indexes.exists() or not list(validated_indexes.iterdir())
+    allocations = completed["provider_attempt_allocations"]
+    assert len(allocations) == 2
+    assert all(
+        allocation["last_allocated_ordinal"] == 1
+        and "events" not in allocation
+        for allocation in allocations.values()
+    )
+    terminal = validate_terminal_evidence(
+        resume_manager.run_root,
+        resume_manager.state_file,
+    )
+    assert [row["attempt_ordinal"] for row in terminal.index["publications"]] == [
+        1,
+        1,
+    ]
+    assert len(
+        {
+            row["scope_sha256"]
+            for row in terminal.index["publications"]
+        }
+    ) == 2
 
 
-def test_resume_after_failed_allocation_persistence_reuses_first_ordinal(
+def test_failed_allocation_persistence_leaves_no_ordinal_and_resume_fails_closed(
     tmp_path: Path,
 ) -> None:
     module_path, bundle = _compile_mixed_e2e(tmp_path, resumable=True)
@@ -1479,7 +1547,7 @@ def test_resume_after_failed_allocation_persistence_reuses_first_ordinal(
         context=bundle_context_dict(bundle),
         bound_inputs=_bind_inputs(bundle, tmp_path),
     )
-    real_persist = manager._persist_state_durably
+    real_write = manager._write_state
     interrupted = False
 
     def _interrupt_allocation_write():
@@ -1488,9 +1556,9 @@ def test_resume_after_failed_allocation_persistence_reuses_first_ordinal(
         if not interrupted and manager.state.provider_attempt_allocations is not None:
             interrupted = True
             raise _AttemptInterruption
-        real_persist()
+        real_write()
 
-    with patch.object(manager, "_persist_state_durably", _interrupt_allocation_write):
+    with patch.object(manager, "_write_state", _interrupt_allocation_write):
         with pytest.raises(_AttemptInterruption):
             WorkflowExecutor(bundle, tmp_path, manager, retry_delay_ms=0).execute(
                 on_error="stop"
@@ -1539,11 +1607,16 @@ def test_resume_after_failed_allocation_persistence_reuses_first_ordinal(
             bundle, tmp_path, resume_manager, retry_delay_ms=0
         ).execute(resume=True, on_error="stop")
 
-    assert resumed["status"] == "completed"
-    assert calls == {"preparations": 1, "executions": 1}
-    terminal = validate_terminal_evidence(resume_manager.run_root, resume_manager.state_file)
-    assert terminal.index["allocation_only_gaps"] == []
-    assert [row["attempt_ordinal"] for row in terminal.index["publications"]] == [1]
+    assert resumed["status"] == "failed"
+    assert resumed["error"]["type"] == "lexical_default_resume_invalid"
+    assert "lexical_default_resume_prior_boundary_missing" in resumed[
+        "error"
+    ]["context"]["diagnostics"]
+    assert calls == {"preparations": 0, "executions": 0}
+    failed = json.loads(
+        resume_manager.state_file.read_text(encoding="utf-8")
+    )
+    assert "provider_attempt_allocations" not in failed
 
 
 def test_interrupted_ordinary_provider_at_least_once_uses_new_attempt_snapshot(
@@ -1611,12 +1684,22 @@ def test_interrupted_ordinary_provider_at_least_once_uses_new_attempt_snapshot(
 
     interrupted = json.loads(manager.state_file.read_text(encoding="utf-8"))
     prior_records = {
-        manager.run_root / event["relative_path"]
+        manager.run_root
+        / evidence_relative_path(
+            ProviderAttemptScope.from_dict(allocation["scope"]),
+            allocation["last_allocated_ordinal"],
+        )
         for allocation in interrupted["provider_attempt_allocations"].values()
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
     }
     assert len(prior_records) == 1
+    assert all(
+        allocation["last_allocated_ordinal"] == 1
+        and "events" not in allocation
+        for allocation in interrupted[
+            "provider_attempt_allocations"
+        ].values()
+    )
+    assert all(path.is_file() for path in prior_records)
     (tmp_path / "artifacts" / "work" / "d.md").write_text(
         "EXECUTION_FRESH_D_SENTINEL\n", encoding="utf-8"
     )

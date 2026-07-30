@@ -93,23 +93,10 @@ def _fixture() -> dict[str, Any]:
         payload=payload,
         record_kind="prompt_snapshot",
     )
-    event = {
-        "ordinal": ATTEMPT_ORDINAL,
-        "event": "evidence_published",
-        "relative_path": str(relative_path),
-        "file_sha256": publication.file_sha256,
-        "record_kind": "prompt_snapshot",
-    }
     allocations = {
         scope.key: {
             "scope": scope.to_dict(),
             "last_allocated_ordinal": ATTEMPT_ORDINAL,
-            "events": [
-                {"ordinal": 1, "event": "allocated"},
-                {"ordinal": 2, "event": "allocated"},
-                {"ordinal": ATTEMPT_ORDINAL, "event": "allocated"},
-                event,
-            ],
             "prompt_fragment_identity_schema_version": COMPILED_V1,
         }
     }
@@ -118,7 +105,6 @@ def _fixture() -> dict[str, Any]:
         "record": record,
         "payload": payload,
         "publication": publication,
-        "event": event,
         "allocations": allocations,
     }
 
@@ -327,17 +313,54 @@ def test_existing_binding_refuses_a_second_locator() -> None:
         )
 
 
-def test_duplicate_publication_for_attempt_is_ambiguous() -> None:
+def test_legacy_allocator_publication_events_remain_read_compatible() -> None:
     module = _module()
     fixture = _fixture()
     kwargs = _attach_kwargs(fixture)
     allocations = deepcopy(fixture["allocations"])
-    allocations[fixture["scope"].key]["events"].append(
-        deepcopy(fixture["event"])
-    )
+    allocations[fixture["scope"].key]["events"] = [
+        {"ordinal": 1, "event": "allocated"},
+        {"ordinal": 2, "event": "allocated"},
+        {"ordinal": ATTEMPT_ORDINAL, "event": "allocated"},
+        {
+            "ordinal": ATTEMPT_ORDINAL,
+            "event": "evidence_published",
+            "relative_path": str(fixture["publication"].relative_path),
+            "file_sha256": fixture["publication"].file_sha256,
+            "record_kind": "prompt_snapshot",
+        },
+    ]
     kwargs["root_provider_attempt_allocations"] = allocations
 
-    with _assert_code("judgment_result_binding_ambiguous"):
+    debug = module.attach_prompt_attempt_result_binding({}, **kwargs)
+
+    assert debug["prompt_attempt_result_binding"]["attempt_ordinal"] == (
+        ATTEMPT_ORDINAL
+    )
+
+
+def test_duplicate_legacy_publication_event_is_invalid_state() -> None:
+    module = _module()
+    fixture = _fixture()
+    kwargs = _attach_kwargs(fixture)
+    allocations = deepcopy(fixture["allocations"])
+    publication_event = {
+        "ordinal": ATTEMPT_ORDINAL,
+        "event": "evidence_published",
+        "relative_path": str(fixture["publication"].relative_path),
+        "file_sha256": fixture["publication"].file_sha256,
+        "record_kind": "prompt_snapshot",
+    }
+    allocations[fixture["scope"].key]["events"] = [
+        {"ordinal": 1, "event": "allocated"},
+        {"ordinal": 2, "event": "allocated"},
+        {"ordinal": ATTEMPT_ORDINAL, "event": "allocated"},
+        publication_event,
+        deepcopy(publication_event),
+    ]
+    kwargs["root_provider_attempt_allocations"] = allocations
+
+    with _assert_code("judgment_result_binding_invalid"):
         module.attach_prompt_attempt_result_binding({}, **kwargs)
 
 
@@ -350,7 +373,6 @@ def test_root_allocator_must_contain_the_exact_scope() -> None:
         other.key: {
             "scope": other.to_dict(),
             "last_allocated_ordinal": 1,
-            "events": [{"ordinal": 1, "event": "allocated"}],
             "prompt_fragment_identity_schema_version": COMPILED_V1,
         }
     }
@@ -359,23 +381,17 @@ def test_root_allocator_must_contain_the_exact_scope() -> None:
         module.attach_prompt_attempt_result_binding({}, **kwargs)
 
 
-def test_successful_attempt_ordinal_must_have_its_own_publication() -> None:
+def test_publication_for_a_different_attempt_ordinal_fails_closed() -> None:
     module = _module()
     fixture = _fixture()
     kwargs = _attach_kwargs(fixture)
     allocations = deepcopy(fixture["allocations"])
     entry = allocations[fixture["scope"].key]
     entry["last_allocated_ordinal"] = ATTEMPT_ORDINAL + 1
-    entry["events"].append(
-        {
-            "ordinal": ATTEMPT_ORDINAL + 1,
-            "event": "allocated",
-        }
-    )
     kwargs["root_provider_attempt_allocations"] = allocations
     kwargs["attempt_ordinal"] = ATTEMPT_ORDINAL + 1
 
-    with _assert_code("judgment_result_attempt_mismatch"):
+    with _assert_code("judgment_result_evidence_invalid"):
         module.attach_prompt_attempt_result_binding({}, **kwargs)
 
 
@@ -475,14 +491,6 @@ def test_evidence_attempt_scope_must_match_retained_scope() -> None:
     )
     kwargs = _attach_kwargs(fixture)
     kwargs["publication"] = publication
-    allocations = deepcopy(fixture["allocations"])
-    event = next(
-        row
-        for row in allocations[fixture["scope"].key]["events"]
-        if row["event"] == "evidence_published"
-    )
-    event["file_sha256"] = publication.file_sha256
-    kwargs["root_provider_attempt_allocations"] = allocations
 
     with _assert_code("judgment_result_scope_mismatch"):
         module.attach_prompt_attempt_result_binding({}, **kwargs)

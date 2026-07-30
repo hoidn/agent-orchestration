@@ -25,11 +25,21 @@ from orchestrator.workflow.loaded_bundle import (
 from orchestrator.workflow.prompt_context_report import (
     project_prompt_context_v2,
 )
+from orchestrator.workflow.prompt_dependency_evidence import (
+    canonical_record_bytes,
+    evidence_relative_path,
+)
 from orchestrator.workflow.provider_phased_delivery.ledger import (
     validate_ledger_bytes,
 )
 from orchestrator.workflow.provider_phased_delivery.protocol import (
     decode_submit_binding,
+)
+from orchestrator.workflow.provider_attempts import (
+    ProviderAttemptScope,
+    resolve_aggregate_run_owner,
+    validate_provider_attempt_allocations,
+    validate_provider_attempt_scope,
 )
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
@@ -410,17 +420,45 @@ def _published_evidence(
     manager: StateManager,
     state: dict[str, Any],
 ) -> dict[str, Any]:
-    [allocation] = state["provider_attempt_allocations"].values()
-    [publication] = [
-        event
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
-    ]
-    return json.loads(
-        (
-            manager.run_root / publication["relative_path"]
-        ).read_text(encoding="ascii")
+    allocations = validate_provider_attempt_allocations(
+        state["provider_attempt_allocations"]
     )
+    [allocation] = allocations.values()
+    scope = ProviderAttemptScope.from_dict(allocation["scope"])
+    validate_provider_attempt_scope(
+        scope,
+        resolve_aggregate_run_owner(manager),
+    )
+    last_ordinal = allocation["last_allocated_ordinal"]
+    step = state["steps"][scope.enclosing_step.step_name]
+    phased = step.get("debug", {}).get("phased_delivery")
+    assert isinstance(phased, dict)
+    relative_path = phased["functional_evidence"]
+    assert isinstance(relative_path, str)
+    matching_ordinals = [
+        ordinal
+        for ordinal in range(1, last_ordinal + 1)
+        if str(evidence_relative_path(scope, ordinal)) == relative_path
+    ]
+    [ordinal] = matching_ordinals
+    payload = (manager.run_root / relative_path).read_bytes()
+    evidence = json.loads(payload)
+    assert isinstance(evidence, dict)
+    canonical = canonical_record_bytes(
+        evidence,
+        compiler_fragment_identity_schema_version=allocation.get(
+            "prompt_fragment_identity_schema_version"
+        ),
+    )
+    assert canonical == payload
+    assert evidence["attempt"]["scope"] == scope.to_dict()
+    assert evidence["attempt"]["scope_sha256"] == scope.key
+    assert evidence["attempt"]["ordinal"] == ordinal
+    record_sha256 = evidence["record_sha256"]
+    assert isinstance(record_sha256, str)
+    assert record_sha256.startswith("sha256:")
+    assert len(record_sha256) == 71
+    return evidence
 
 
 @pytest.mark.e2e

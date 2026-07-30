@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 from contextlib import ExitStack, contextmanager
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -34,6 +35,10 @@ from orchestrator.workflow.loaded_bundle import (
 from orchestrator.workflow.prompt_attempt_result_binding import (
     PROMPT_ATTEMPT_RESULT_BINDING_DEBUG_KEY,
 )
+from orchestrator.workflow.prompt_dependency_evidence import (
+    evidence_relative_path,
+)
+from orchestrator.workflow.provider_attempts import ProviderAttemptScope
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.build import (
     FrontendBuildRequest,
@@ -376,33 +381,34 @@ def _provider_attempt_identity_bytes(
     manager: StateManager,
 ) -> tuple[bytes, ...]:
     rows: list[bytes] = []
-    for allocation in state["provider_attempt_allocations"].values():
-        if (
-            allocation.get(
-                "prompt_fragment_identity_schema_version"
+    allocations = state["provider_attempt_allocations"]
+    for locator in _result_locators(state):
+        allocation = allocations[locator["scope_sha256"]]
+        scope = ProviderAttemptScope.from_dict(allocation["scope"])
+        ordinal = locator["attempt_ordinal"]
+        relative_path = evidence_relative_path(scope, ordinal)
+        assert scope.key == locator["scope_sha256"]
+        assert ordinal <= allocation["last_allocated_ordinal"]
+        assert locator["evidence_relative_path"] == (
+            relative_path.as_posix()
+        )
+        payload = (manager.run_root / relative_path).read_bytes()
+        assert locator["evidence_file_sha256"] == (
+            "sha256:" + hashlib.sha256(payload).hexdigest()
+        )
+        assert locator["record_kind"] == "prompt_snapshot"
+        record = json.loads(payload)
+        rows.append(
+            _canonical_bytes(
+                {
+                    "scope": allocation["scope"],
+                    "attempt_ordinal": ordinal,
+                    "prompt_attempt_identity": record[
+                        "prompt_attempt_identity"
+                    ],
+                }
             )
-            != "compiled_prompt_fragment_identity.v1"
-        ):
-            continue
-        for event in allocation["events"]:
-            if event["event"] != "evidence_published":
-                continue
-            record = json.loads(
-                (
-                    manager.run_root / event["relative_path"]
-                ).read_text(encoding="utf-8")
-            )
-            rows.append(
-                _canonical_bytes(
-                    {
-                        "scope": allocation["scope"],
-                        "attempt_ordinal": event["ordinal"],
-                        "prompt_attempt_identity": record[
-                            "prompt_attempt_identity"
-                        ],
-                    }
-                )
-            )
+        )
     return tuple(sorted(rows))
 
 
@@ -1087,10 +1093,7 @@ def test_panel_missing_bound_evidence_changes_only_affected_view(
 
     before_series = by_coordinate(before["iteration_series"])
     after_series = by_coordinate(after["iteration_series"])
-    assert (
-        set(before_series) - set(after_series)
-        == {affected_coordinate}
-    )
+    assert set(before_series) - set(after_series) == {affected_coordinate}
     assert all(
         before_series[coordinate] == after_series[coordinate]
         for coordinate in after_series

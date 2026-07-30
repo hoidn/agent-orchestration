@@ -697,7 +697,7 @@ relevant provider work.
 ### Provider-attempt ownership
 
 The group visit is not itself a provider attempt. Each actual provider
-invocation owns one ordinary crash-durable provider attempt:
+invocation owns one ordinary counter-allocated provider attempt:
 
 - worker fresh turn;
 - supervisor directive turn; and
@@ -705,10 +705,10 @@ invocation owns one ordinary crash-durable provider attempt:
 
 Attempt scope is derived structurally from group step id, group visit, member
 id, and turn ordinal. The coordinator allocates every ordinal serially through
-the existing state-manager allocator. For the initial pair it allocates and
-persists both attempt records and their immutable prompt-dependency snapshots
-before concurrent launch. For a resume turn it allocates and persists the
-attempt only after the fresh worker boundary is proved and before resume
+the existing state-manager allocator. For the initial pair it persists both
+counter advances and writes their immutable prompt-dependency snapshots before
+concurrent launch. For a resume turn it allocates the ordinal only after the
+fresh worker boundary is proved, writes the immutable snapshot before resume
 launch, and gives that invocation its own cancellation control.
 
 Each attempt has distinct prompt audit, invocation metadata, display

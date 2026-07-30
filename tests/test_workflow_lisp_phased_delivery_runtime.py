@@ -1020,16 +1020,6 @@ def _completed_phased_resume_seam(
         state["provider_attempt_allocations"][scope.key] = {
             "scope": scope.to_dict(),
             "last_allocated_ordinal": 1,
-            "events": [
-                {"ordinal": 1, "event": "allocated"},
-                {
-                    "ordinal": 1,
-                    "event": "evidence_published",
-                    "relative_path": evidence_path,
-                    "file_sha256": "sha256:" + f"{index + 1:064x}",
-                    "record_kind": "prompt_snapshot",
-                },
-            ],
             "prompt_fragment_identity_schema_version": (
                 "compiled_prompt_fragment_identity.v2"
             ),
@@ -1060,7 +1050,68 @@ def test_completed_phased_resume_boundary_reuses_exact_state_authority(
                 "step_name": "review_0",
                 "step_id": "root.review_0",
                 "visit_count": 1,
-                "evidence_sha256": "sha256:" + f"{1:064x}",
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "audit_evidence_state",
+    [
+        "deleted",
+        "truncated",
+        "missing",
+        "locator_only_mutated",
+    ],
+)
+def test_completed_phased_resume_never_opens_non_authoritative_audit_evidence(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    audit_evidence_state: str,
+) -> None:
+    executor, state = _completed_phased_resume_seam(tmp_path)
+    evidence_file = (
+        executor.state_manager.run_root
+        / state["steps"]["review_0"]["debug"]["phased_delivery"][
+            "functional_evidence"
+        ]
+    )
+    if audit_evidence_state == "deleted":
+        evidence_file.parent.mkdir(parents=True, exist_ok=True)
+        evidence_file.write_bytes(b'{"audit":"non-authoritative"}')
+        evidence_file.unlink()
+    elif audit_evidence_state == "truncated":
+        evidence_file.parent.mkdir(parents=True, exist_ok=True)
+        evidence_file.write_bytes(b'{"schema":')
+    elif audit_evidence_state == "missing":
+        assert not evidence_file.exists()
+    else:
+        state["steps"]["review_0"]["debug"]["phased_delivery"][
+            "functional_evidence"
+        ] = "non-authoritative/mutated-audit-locator.json"
+    executor.state_manager.state = RunState.from_dict(state)
+
+    def reject_path_read(
+        *args: Any,
+        **kwargs: Any,
+    ) -> bytes:
+        raise AssertionError(
+            "completed resume read non-authoritative audit evidence"
+        )
+
+    monkeypatch.setattr(Path, "open", reject_path_read)
+    monkeypatch.setattr(Path, "read_bytes", reject_path_read)
+
+    assessment = executor._completed_phased_provider_resume_boundary(state)
+
+    assert assessment == {
+        "kind": "reuse",
+        "boundaries": [
+            {
+                "node_id": "root.review_0",
+                "step_name": "review_0",
+                "step_id": "root.review_0",
+                "visit_count": 1,
             }
         ],
     }
@@ -1069,12 +1120,13 @@ def test_completed_phased_resume_boundary_reuses_exact_state_authority(
 @pytest.mark.parametrize(
     ("tamper", "reason"),
     [
-        ("missing_evidence", "completed_phased_evidence_missing"),
         ("step_id", "completed_phased_result_identity_mismatch"),
         ("nonterminal", "completed_phased_state_incomplete"),
+        ("missing_allocation", "completed_phased_state_authority_invalid"),
+        ("debug_shape", "completed_phased_evidence_missing"),
     ],
 )
-def test_completed_phased_resume_boundary_fails_closed_on_invalid_authority(
+def test_completed_phased_resume_boundary_fails_closed_on_invalid_state_authority(
     tmp_path,
     tamper: str,
     reason: str,
@@ -1083,13 +1135,16 @@ def test_completed_phased_resume_boundary_fails_closed_on_invalid_authority(
         tmp_path,
         count=2 if tamper == "nonterminal" else 1,
     )
-    if tamper == "missing_evidence":
-        allocation = next(iter(state["provider_attempt_allocations"].values()))
-        allocation["events"] = [{"ordinal": 1, "event": "allocated"}]
-    elif tamper == "step_id":
+    if tamper == "step_id":
         state["steps"]["review_0"]["step_id"] = "root.tampered"
     elif tamper == "nonterminal":
         state["steps"]["review_1"]["status"] = "running"
+    elif tamper == "missing_allocation":
+        state.pop("provider_attempt_allocations")
+    else:
+        state["steps"]["review_0"]["debug"]["phased_delivery"].pop(
+            "functional_evidence"
+        )
     executor.state_manager.state = RunState.from_dict(state)
 
     assessment = executor._completed_phased_provider_resume_boundary(state)
@@ -1098,7 +1153,7 @@ def test_completed_phased_resume_boundary_fails_closed_on_invalid_authority(
     assert assessment["reason"] == reason
 
 
-def test_completed_phased_resume_boundary_rejects_duplicate_evidence_authority(
+def test_completed_phased_resume_boundary_rejects_ambiguous_allocation_authority(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1118,7 +1173,7 @@ def test_completed_phased_resume_boundary_rejects_duplicate_evidence_authority(
     assessment = executor._completed_phased_provider_resume_boundary(state)
 
     assert assessment["kind"] == "integrity_error"
-    assert assessment["reason"] == "completed_phased_evidence_ambiguous"
+    assert assessment["reason"] == "completed_phased_state_authority_invalid"
     assert assessment["match_count"] == 2
 
 
@@ -1147,7 +1202,6 @@ def test_completed_phased_resume_allows_absent_unselected_projected_node(
                 "step_name": "review_0",
                 "step_id": "root.review_0",
                 "visit_count": 1,
-                "evidence_sha256": "sha256:" + f"{1:064x}",
             }
         ],
     }
@@ -1211,14 +1265,12 @@ def test_two_completed_phased_boundaries_reuse_and_skip_execution(
                 "step_name": "review_0",
                 "step_id": "root.review_0",
                 "visit_count": 1,
-                "evidence_sha256": "sha256:" + f"{1:064x}",
             },
             {
                 "node_id": "root.review_1",
                 "step_name": "review_1",
                 "step_id": "root.review_1",
                 "visit_count": 1,
-                "evidence_sha256": "sha256:" + f"{2:064x}",
             },
         ],
     }

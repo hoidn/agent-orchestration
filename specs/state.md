@@ -169,13 +169,16 @@
   call-frame, phased, supervision, peer-group, and adjudicated execution;
   nested state managers do not maintain competing counters.
 - Each allocation entry is a plain monotonic counter: its closed current form
-  contains the exact scope plus `last_allocated_ordinal`. One exclusive
-  run-lifetime lock serializes all state writers for `run` or `resume`; inside
-  it, an in-process lock increments the counter and the ordinary atomic state
-  writer persists it. A discarded ordinal and any partial attempt directory
-  are never reused for different execution content. Historical lifecycle-event
-  lists may be read only to derive the same counter and are omitted by the next
-  write; evidence paths and records never allocate an ordinal.
+  contains the exact scope plus `last_allocated_ordinal`, and a Q3-bound scope
+  additionally retains its existing optional
+  `prompt_fragment_identity_schema_version` authority. The current form never
+  contains lifecycle events. One exclusive run-lifetime lock serializes all
+  state writers for `run` or `resume`; inside it, an in-process lock increments
+  the counter and the ordinary atomic state writer persists it. A discarded
+  ordinal and any partial attempt directory are never reused for different
+  execution content. Historical lifecycle-event lists may be read only to
+  derive the same counter and are omitted by the next write; evidence paths and
+  records never allocate an ordinal.
 - The provider lexical checkpoint identity includes the typed dependency
   contract, including required/optional partition, position, and instruction.
   Changing that contract is incompatible program input. Mutable file-content
@@ -266,15 +269,15 @@
   in ordinary target-2.22 program/configuration and lexical-checkpoint
   compatibility. A direct fragment-backed target-2.22 boundary requires the
   exact pair through persisted provider configuration and `RuntimeStep`.
-- The root-owned provider-attempt allocation remains the sole ordinal/event
-  authority. Each successfully prepared attempt publishes one closed
+- The root-owned counter-only provider-attempt allocation remains the sole
+  ordinal authority. Each successfully prepared attempt writes one closed
   `workflow_prompt_fragment_snapshot.functional.v2` before launch. A provider
   policy that cannot be prepared publishes the closed Q3 preparation-failure
   record; failed publication leaves an ordinary allocation-only gap.
 - The v2 snapshot retains and validates the complete v1 projection, then adds
   the five-role attempt identity with exact cross-field equality for final
   prompt, compiled fragment, document rows, shown groups, and injection.
-  Content-addressed publication and report-time loading both fail closed on a
+  Content sealing and report-time loading both fail closed on a
   malformed, open, tampered, or mismatched record.
 - Attempt identity records, role digests, comparisons, and `prompt_context`
   reports are non-authoritative. Compatible completed-result reuse uses the
@@ -298,7 +301,7 @@
   - `scope_sha256`: the canonical key of the root-owned provider-attempt
     scope;
   - `attempt_ordinal`: the positive ordinal of the successful attempt;
-  - `evidence_relative_path`: the allocator publication's canonical
+  - `evidence_relative_path`: the deterministic scope-and-ordinal
     run-relative evidence path;
   - `evidence_file_sha256`: the canonical digest of those exact evidence
     bytes; and
@@ -306,10 +309,11 @@
   Other independently owned `debug` members remain admissible, but the closed
   locator admits no additional field and contains no result, prompt, role,
   score, provider-output, or report data.
-- Runtime constructs the locator only after the provider result and every
+- Runtime constructs the locator from the retained in-memory publication result
+  only after the provider result and every
   prompt output-position and structured-result contract have passed the
   unchanged state-atomic Q2 validation boundary in `io.md`, and after the
-  publication locator agrees with the retained scope and successful attempt
+  evidence path and digest agree with the retained scope and successful attempt
   ordinal. It attaches the locator to that same result dictionary before the
   normal reached-state commit. Top-level, call-frame, and generated loop-step
   persistence therefore commit the validated result, its artifacts, and its

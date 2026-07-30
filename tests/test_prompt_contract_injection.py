@@ -659,18 +659,47 @@ def _install_typed_success_provider(
     executor.provider_executor.execute = _execute
 
 
-def _published_typed_attempt_records(manager: StateManager) -> list[dict]:
+def _single_counter_only_typed_allocation(
+    manager: StateManager,
+    *,
+    last_allocated_ordinal: int,
+) -> dict:
     allocations = json.loads(manager.state_file.read_text(encoding="utf-8"))[
         "provider_attempt_allocations"
     ]
-    return [
-        json.loads(
-            (manager.run_root / event["relative_path"]).read_text(encoding="ascii")
-        )
-        for allocation in allocations.values()
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
+    assert len(allocations) == 1
+    allocation = next(iter(allocations.values()))
+    assert set(allocation) == {"scope", "last_allocated_ordinal"}
+    assert allocation["last_allocated_ordinal"] == last_allocated_ordinal
+    return allocation
+
+
+def _typed_attempt_evidence_paths(manager: StateManager) -> list[Path]:
+    evidence_root = manager.run_root / "workflow_lisp" / "prompt_dependencies"
+    return sorted(
+        path
+        for path in evidence_root.glob("*/*/attempt-*.json")
+        if path.is_file()
+    )
+
+
+def _published_typed_attempt_records(
+    manager: StateManager,
+    *,
+    last_allocated_ordinal: int = 1,
+) -> list[dict]:
+    allocation = _single_counter_only_typed_allocation(
+        manager,
+        last_allocated_ordinal=last_allocated_ordinal,
+    )
+    records = [
+        json.loads(path.read_text(encoding="ascii"))
+        for path in _typed_attempt_evidence_paths(manager)
     ]
+    for record in records:
+        assert record["attempt"]["scope"] == allocation["scope"]
+        assert 1 <= record["attempt"]["ordinal"] <= last_allocated_ordinal
+    return records
 
 
 def _assert_typed_projection_failure(
@@ -1132,14 +1161,13 @@ def test_typed_content_attempt_publishes_exact_final_prompt_before_preparation(
 
     def _prepare_invocation(*args, **kwargs):
         prompt = kwargs.get("prompt_content") or ""
-        persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))[
-            "provider_attempt_allocations"
-        ]
-        assert len(persisted) == 1
-        events = next(iter(persisted.values()))["events"]
-        assert [event["event"] for event in events] == ["allocated", "evidence_published"]
-        evidence_path = manager.run_root / events[-1]["relative_path"]
-        assert evidence_path.is_file()
+        _single_counter_only_typed_allocation(
+            manager,
+            last_allocated_ordinal=1,
+        )
+        evidence_paths = _typed_attempt_evidence_paths(manager)
+        assert len(evidence_paths) == 1
+        evidence_path = evidence_paths[0]
         captured.update(prompt=prompt, env=dict(kwargs.get("env") or {}), evidence=evidence_path)
         return SimpleNamespace(input_mode="stdin", prompt=prompt), None
 
@@ -1262,9 +1290,11 @@ def test_typed_success_publication_failure_stops_before_provider_preparation(
     )
     assert preparation_count == 0
     assert publication_count == 1
-    persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
-    events = next(iter(persisted["provider_attempt_allocations"].values()))["events"]
-    assert [event["event"] for event in events] == ["allocated"]
+    _single_counter_only_typed_allocation(
+        manager,
+        last_allocated_ordinal=1,
+    )
+    assert _typed_attempt_evidence_paths(manager) == []
 
 
 @pytest.mark.parametrize(
@@ -1303,12 +1333,9 @@ def test_typed_snapshot_failure_publishes_closed_row_context_before_preparation(
     state = executor.execute(on_error="stop")
 
     assert state["steps"]["mixed__result"]["exit_code"] == 2
-    persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
-    events = next(iter(persisted["provider_attempt_allocations"].values()))["events"]
-    assert [event["event"] for event in events] == ["allocated", "evidence_published"]
-    record = json.loads(
-        (manager.run_root / events[-1]["relative_path"]).read_text(encoding="ascii")
-    )
+    records = _published_typed_attempt_records(manager)
+    assert len(records) == 1
+    record = records[0]
     assert record["record_kind"] == "failure"
     assert record["failure"]["category"] == category
     assert record["failure"]["operation"] == operation
@@ -1337,11 +1364,9 @@ def test_typed_missing_required_failure_publishes_closed_row_context(
     state = executor.execute(on_error="stop")
 
     assert state["steps"]["mixed__result"]["exit_code"] == 2
-    persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
-    events = next(iter(persisted["provider_attempt_allocations"].values()))["events"]
-    record = json.loads(
-        (manager.run_root / events[-1]["relative_path"]).read_text(encoding="ascii")
-    )
+    records = _published_typed_attempt_records(manager)
+    assert len(records) == 1
+    record = records[0]
     assert record["failure"] == {
         "category": "missing_required_dependency",
         "operation": "resolve",
@@ -1372,12 +1397,9 @@ def test_typed_invalid_injection_contract_publishes_failure_before_preparation(
     state = executor.execute(on_error="stop")
 
     assert state["steps"]["mixed__result"]["exit_code"] == 2
-    persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
-    events = next(iter(persisted["provider_attempt_allocations"].values()))["events"]
-    assert [event["event"] for event in events] == ["allocated", "evidence_published"]
-    record = json.loads(
-        (manager.run_root / events[-1]["relative_path"]).read_text(encoding="ascii")
-    )
+    records = _published_typed_attempt_records(manager)
+    assert len(records) == 1
+    record = records[0]
     assert record["record_kind"] == "failure"
     assert record["failure"] == {
         "category": "invalid_injection_contract",
@@ -1471,11 +1493,11 @@ def test_typed_prompt_completion_failures_are_not_dependency_failures(
         assert step["error"]["context"]["reason"] == "prompt_completion_failed"
         if sentinel is not None:
             assert sentinel in step["error"]["context"]["error"]
-        persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
-        events = next(iter(persisted["provider_attempt_allocations"].values()))[
-            "events"
-        ]
-        assert [event["event"] for event in events] == ["allocated"]
+        _single_counter_only_typed_allocation(
+            manager,
+            last_allocated_ordinal=1,
+        )
+        assert _typed_attempt_evidence_paths(manager) == []
 
 
 def test_typed_truncation_debug_matches_published_render_metadata(
@@ -1489,11 +1511,9 @@ def test_typed_truncation_debug_matches_published_render_metadata(
     captured: dict[str, object] = {}
 
     def _prepare(*_args, **kwargs):
-        persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
-        events = next(iter(persisted["provider_attempt_allocations"].values()))["events"]
-        captured["record"] = json.loads(
-            (manager.run_root / events[-1]["relative_path"]).read_text(encoding="ascii")
-        )
+        records = _published_typed_attempt_records(manager)
+        assert len(records) == 1
+        captured["record"] = records[0]
         captured["env"] = dict(kwargs.get("env") or {})
         return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content") or ""), None
 
@@ -1586,19 +1606,11 @@ def test_typed_retry_allocates_and_publishes_one_fresh_record_per_attempt(
     assert "NEW_TYPED_ATTEMPT_SENTINEL" not in prompts[0]
     assert "NEW_TYPED_ATTEMPT_SENTINEL" in prompts[1]
     assert "OLD_TYPED_ATTEMPT_SENTINEL" not in prompts[1]
-    persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
-    events = next(iter(persisted["provider_attempt_allocations"].values()))["events"]
-    assert [(event["ordinal"], event["event"]) for event in events] == [
-        (1, "allocated"),
-        (1, "evidence_published"),
-        (2, "allocated"),
-        (2, "evidence_published"),
-    ]
-    records = [
-        json.loads((manager.run_root / event["relative_path"]).read_text(encoding="ascii"))
-        for event in events
-        if event["event"] == "evidence_published"
-    ]
+    records = _published_typed_attempt_records(
+        manager,
+        last_allocated_ordinal=2,
+    )
+    assert len(records) == 2
     assert [record["attempt"]["ordinal"] for record in records] == [1, 2]
     required_digests = [
         next(

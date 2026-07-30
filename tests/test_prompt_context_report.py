@@ -191,7 +191,6 @@ def _reset_scope(
     entry: dict[str, Any] = {
         "scope": scope.to_dict(),
         "last_allocated_ordinal": 1,
-        "events": [{"ordinal": 1, "event": "allocated"}],
     }
     if authority is not None:
         entry["prompt_fragment_identity_schema_version"] = authority
@@ -206,7 +205,6 @@ def _append_allocation(
     entry = _allocation(state, scope)
     ordinal = entry["last_allocated_ordinal"] + 1
     entry["last_allocated_ordinal"] = ordinal
-    entry["events"].append({"ordinal": ordinal, "event": "allocated"})
     return ordinal
 
 
@@ -217,7 +215,6 @@ def _publish(
     ordinal: int,
     record: dict[str, Any],
     *,
-    record_kind: str | None = None,
     canonical: bool = True,
     tamper: Callable[[dict[str, Any]], None] | None = None,
 ) -> Path:
@@ -247,15 +244,6 @@ def _publish(
     destination = root / relative
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(payload)
-    entry["events"].append(
-        {
-            "ordinal": ordinal,
-            "event": "evidence_published",
-            "relative_path": str(relative),
-            "file_sha256": _sha(payload),
-            "record_kind": record_kind or projected["record_kind"],
-        }
-    )
     return destination
 
 
@@ -267,8 +255,6 @@ def _replace_first_publication(
     *,
     canonical: bool = True,
 ) -> None:
-    entry = _allocation(state, scope)
-    entry["events"] = [{"ordinal": 1, "event": "allocated"}]
     _publish(
         state,
         root,
@@ -970,27 +956,13 @@ def test_prompt_context_composition_mismatch_is_closed_unavailability(
     assert comparison["reason"] == "prompt_identity_composition_mismatch"
 
 
-def test_prompt_context_uses_allocator_domain_and_marks_missing_file_invalid(
+def test_prompt_context_uses_allocator_domain_and_marks_missing_file_unpublished(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from orchestrator.workflow.prompt_dependency_evidence import (
-        evidence_relative_path,
-    )
-
     state, root, scope, v2 = _fixture(tmp_path, monkeypatch)
     _replace_first_publication(state, root, scope, v2)
-    ordinal = _append_allocation(state, scope)
-    missing = evidence_relative_path(scope, ordinal)
-    _allocation(state, scope)["events"].append(
-        {
-            "ordinal": ordinal,
-            "event": "evidence_published",
-            "relative_path": str(missing),
-            "file_sha256": _sha(b"missing"),
-            "record_kind": "prompt_snapshot",
-        }
-    )
+    _append_allocation(state, scope)
     _append_allocation(state, scope)
 
     rows = _project(state, root)["attempts"]
@@ -998,7 +970,7 @@ def test_prompt_context_uses_allocator_domain_and_marks_missing_file_invalid(
     assert [row["attempt_ordinal"] for row in rows] == [1, 2, 3]
     assert [row["record_status"] for row in rows] == [
         "snapshot",
-        "invalid",
+        "allocation_only",
         "allocation_only",
     ]
     assert rows[1]["record_sha256"] is None
@@ -1056,7 +1028,6 @@ def test_prompt_context_order_is_runtime_bytes_then_visit_then_ordinal(
         state["provider_attempt_allocations"][scope.key] = {
             "scope": scope.to_dict(),
             "last_allocated_ordinal": 1,
-            "events": [{"ordinal": 1, "event": "allocated"}],
         }
         _publish(state, root, scope, 1, legacy)
 
@@ -1074,16 +1045,28 @@ def test_prompt_context_order_is_runtime_bytes_then_visit_then_ordinal(
     )
 
 
-def test_prompt_context_duplicate_publication_fails_before_row_projection(
+def test_prompt_context_legacy_publication_event_is_not_report_authority(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state, root, scope, _v2 = _fixture(tmp_path, monkeypatch)
+    state, root, scope, v2 = _fixture(tmp_path, monkeypatch)
+    _replace_first_publication(state, root, scope, v2)
     entry = _allocation(state, scope)
-    entry["events"].append(deepcopy(entry["events"][-1]))
+    entry["events"] = [
+        {"ordinal": 1, "event": "allocated"},
+        {
+            "ordinal": 1,
+            "event": "evidence_published",
+            "relative_path": "legacy/wrong-name.json",
+            "file_sha256": "sha256:" + "0" * 64,
+            "record_kind": "failure",
+        },
+    ]
 
-    with pytest.raises(ValueError, match="publication|canonical"):
-        _project(state, root)
+    row = _project(state, root)["attempts"][0]
+
+    assert row["record_status"] == "snapshot"
+    assert row["record_sha256"] == v2["record_sha256"]
 
 
 @pytest.mark.parametrize("status", ("running", "failed", "completed"))

@@ -19,7 +19,6 @@ from orchestrator.deps.content_snapshot import (
     render_content_snapshot,
 )
 from orchestrator.state import RunState, StateManager
-from orchestrator.state_locking import provider_attempt_process_locks
 from orchestrator.workflow.prompt_dependency_contract import (
     COMPILER_PROMPT_DEPENDENCY_CONTRACT_SCHEMA,
     CompilerPromptDependencyContract,
@@ -1129,7 +1128,7 @@ def publish_evidence_file(
     *,
     compiler_fragment_identity_schema_version: str | None = None,
 ) -> PublicationResult:
-    """Link a current record and persist its event under one lock interval."""
+    """Publish one immutable record for an already allocated attempt."""
 
     payload = canonical_record_bytes(
         record,
@@ -1144,26 +1143,14 @@ def publish_evidence_file(
     relative = evidence_relative_path(scope, ordinal)
     kind = record["record_kind"]
     digest = _sha(payload)
-    root.enable_durable_state_writes()
-    with provider_attempt_process_locks(root.run_root):
-        with root._lock:
-            root._reload_state_for_coordinated_mutation()
-            owner = resolve_aggregate_run_owner(manager)
-            if record["run"] != _run(root.state, scope):
-                raise ValueError("record run identity contradicts current state")
-            root._validate_provider_attempt_publication_already_process_locked(
-                manager, scope, ordinal
-            )
-            destination = root.run_root / relative
-            _write_current_no_replace(destination, payload, root.run_root)
-            root._record_provider_attempt_publication_already_process_locked(
-                manager,
-                scope,
-                ordinal,
-                relative_path=str(relative),
-                file_sha256=digest,
-                record_kind=kind,
-            )
+    with root._lock:
+        if record["run"] != _run(root.state, scope):
+            raise ValueError("record run identity contradicts current state")
+        root._validate_provider_attempt_publication_already_process_locked(
+            manager, scope, ordinal
+        )
+        destination = root.run_root / relative
+        _write_current_no_replace(destination, payload, root.run_root)
     return PublicationResult(relative, digest, payload, kind)
 
 
@@ -1188,7 +1175,6 @@ def build_allocator_projection(state: RunState) -> dict[str, Any]:
             "scope_sha256": scope_sha256,
             "scope": entry["scope"],
             "last_allocated_ordinal": entry["last_allocated_ordinal"],
-            "events": entry["events"],
         }
         for scope_sha256, entry in sorted(allocations.items())
     ]
@@ -1212,7 +1198,11 @@ def validate_allocator_projection(value: Any) -> dict[str, Any]:
     allocations: dict[str, Any] = {}
     prior = ""
     for raw in scopes:
-        row = _closed(raw, {"scope_sha256", "scope", "last_allocated_ordinal", "events"}, "projection scope")
+        row = _closed(
+            raw,
+            {"scope_sha256", "scope", "last_allocated_ordinal"},
+            "projection scope",
+        )
         key = _text(row["scope_sha256"], "projection scope digest")
         if key <= prior:
             raise ValueError("projection scopes are duplicate or unsorted")
@@ -1228,7 +1218,6 @@ def validate_allocator_projection(value: Any) -> dict[str, Any]:
         allocations[key] = {
             "scope": row["scope"],
             "last_allocated_ordinal": row["last_allocated_ordinal"],
-            "events": row["events"],
         }
     validate_provider_attempt_allocations(allocations)
     return dict(projection)
@@ -1327,7 +1316,7 @@ def validate_index(value: Any) -> dict[str, Any]:
 
 def _read_manifest_record(
     path: Path,
-    kind: str,
+    kind: str | None,
     *,
     compiler_fragment_identity_schema_version: str | None = None,
 ) -> tuple[dict[str, Any], bytes]:
@@ -1341,7 +1330,10 @@ def _read_manifest_record(
         raise ValueError("manifest-bound evidence record is corrupt") from exc
     if not isinstance(value, Mapping):
         raise ValueError("manifest-bound evidence record is corrupt")
-    if value.get("record_kind") != kind:
+    record_kind = value.get("record_kind")
+    if record_kind not in {"prompt_snapshot", "failure"}:
+        raise ValueError("manifest-bound evidence record has wrong kind")
+    if kind is not None and record_kind != kind:
         raise ValueError("manifest-bound evidence record has wrong kind")
     canonical = canonical_record_bytes(
         value,
@@ -1371,6 +1363,8 @@ def _build_terminal_index(
         if (
             allocation is None
             or allocation["scope"] != entry["scope"]
+            or allocation["last_allocated_ordinal"]
+            != entry["last_allocated_ordinal"]
         ):
             raise ValueError(
                 "allocator projection scope lacks exact persisted authority"
@@ -1378,11 +1372,6 @@ def _build_terminal_index(
         if scope.run_id != state.run_id or scope.resume_scope.root_workflow_file != state.workflow_file:
             raise ValueError("allocator scope contradicts terminal run")
         visit_key = scope.key[7:31]
-        published = {
-            event["ordinal"]: event
-            for event in entry["events"]
-            if event["event"] == "evidence_published"
-        }
         for ordinal in range(1, entry["last_allocated_ordinal"] + 1):
             base = {
                 "scope_sha256": scope.key,
@@ -1390,19 +1379,17 @@ def _build_terminal_index(
                 "visit_key": visit_key,
                 "attempt_ordinal": ordinal,
             }
-            event = published.get(ordinal)
-            if event is None:
+            expected_path = str(evidence_relative_path(scope, ordinal))
+            record_path = root / expected_path
+            if not record_path.exists():
                 gaps.append(base)
                 continue
-            expected_path = str(evidence_relative_path(scope, ordinal))
-            if event["relative_path"] != expected_path:
-                raise ValueError("manifest evidence path contradicts attempt identity")
             if expected_path in claimed_paths:
-                raise ValueError("duplicate manifest evidence path")
+                raise ValueError("duplicate deterministic evidence path")
             claimed_paths.add(expected_path)
             record, payload = _read_manifest_record(
-                root / expected_path,
-                event["record_kind"],
+                record_path,
+                None,
                 compiler_fragment_identity_schema_version=(
                     allocation.get(
                         "prompt_fragment_identity_schema_version"
@@ -1410,16 +1397,14 @@ def _build_terminal_index(
                 ),
             )
             file_digest = _sha(payload)
-            if file_digest != event["file_sha256"]:
-                raise ValueError("manifest evidence file digest is invalid")
             if record["attempt"] != _attempt(scope, ordinal):
-                raise ValueError("manifest evidence record identity is invalid")
+                raise ValueError("evidence record identity is invalid")
             if record["run"] != _state_run(state):
-                raise ValueError("manifest evidence run identity is invalid")
+                raise ValueError("evidence record run identity is invalid")
             publications.append(
                 {
                     **base,
-                    "record_kind": event["record_kind"],
+                    "record_kind": record["record_kind"],
                     "relative_path": expected_path,
                     "record_sha256": record["record_sha256"],
                     "record_file_sha256": file_digest,
@@ -1444,7 +1429,7 @@ def _build_terminal_index(
             "schema": ALLOCATION_PROJECTION_SCHEMA,
             "sha256": projection_digest,
             "scope_count": len(projection["scopes"]),
-            "event_count": sum(len(entry["events"]) for entry in projection["scopes"]),
+            "event_count": len(gaps) + 2 * len(publications),
         },
         "publications": publications,
         "allocation_only_gaps": gaps,
@@ -1522,43 +1507,54 @@ def validate_terminal_evidence(
     state_path = Path(state_file)
     if state_path.absolute() != (root / "state.json").absolute():
         raise ValueError("state_file must be the authoritative aggregate-root state.json")
-    with provider_attempt_process_locks(root):
-        initial_bytes, state = _read_terminal_state(state_path)
-        if state.status not in {"completed", "failed"}:
-            raise ValueError("prompt dependency evidence validation requires terminal state")
-        if state.run_root is None or Path(state.run_root).absolute() != root.absolute():
-            raise ValueError("terminal state run root contradicts aggregate root")
-        projection = build_allocator_projection(state)
-        if _after_initial_read is not None:
-            _after_initial_read()
-        index = _build_terminal_index(
-            state,
-            projection,
-            root,
-        )
-        payload = _canonical_bytes(index)
-        before_link, before_state = _read_terminal_state(state_path)
-        if before_link != initial_bytes or build_allocator_projection(before_state) != projection:
-            raise ValueError("terminal state changed during evidence validation")
-        projection_digest = allocator_projection_sha256(projection)
-        destination = root / "workflow_lisp" / "prompt_dependencies" / "validated-indexes" / f"{projection_digest[7:]}.json"
-        created = _write_index_no_replace(destination, payload, root)
-        if _after_index_publish is not None:
-            _after_index_publish()
-        final_bytes, final_state = _read_terminal_state(state_path)
-        if final_bytes != initial_bytes or build_allocator_projection(final_state) != projection:
-            if created:
-                destination.unlink()
-                _fsync_directory(destination.parent)
-            raise ValueError("terminal state changed during evidence validation")
-        return TerminalValidationResult(
-            destination,
-            payload,
-            index,
-            created,
-            len(initial_bytes),
-            _sha(initial_bytes),
-        )
+    initial_bytes, state = _read_terminal_state(state_path)
+    if state.status not in {"completed", "failed"}:
+        raise ValueError("prompt dependency evidence validation requires terminal state")
+    if state.run_root is None or Path(state.run_root).absolute() != root.absolute():
+        raise ValueError("terminal state run root contradicts aggregate root")
+    projection = build_allocator_projection(state)
+    if _after_initial_read is not None:
+        _after_initial_read()
+    index = _build_terminal_index(
+        state,
+        projection,
+        root,
+    )
+    payload = _canonical_bytes(index)
+    before_link, before_state = _read_terminal_state(state_path)
+    if (
+        before_link != initial_bytes
+        or build_allocator_projection(before_state) != projection
+    ):
+        raise ValueError("terminal state changed during evidence validation")
+    projection_digest = allocator_projection_sha256(projection)
+    destination = (
+        root
+        / "workflow_lisp"
+        / "prompt_dependencies"
+        / "validated-indexes"
+        / f"{projection_digest[7:]}.json"
+    )
+    created = _write_index_no_replace(destination, payload, root)
+    if _after_index_publish is not None:
+        _after_index_publish()
+    final_bytes, final_state = _read_terminal_state(state_path)
+    if (
+        final_bytes != initial_bytes
+        or build_allocator_projection(final_state) != projection
+    ):
+        if created:
+            destination.unlink()
+            _fsync_directory(destination.parent)
+        raise ValueError("terminal state changed during evidence validation")
+    return TerminalValidationResult(
+        destination,
+        payload,
+        index,
+        created,
+        len(initial_bytes),
+        _sha(initial_bytes),
+    )
 
 
 __all__ = [

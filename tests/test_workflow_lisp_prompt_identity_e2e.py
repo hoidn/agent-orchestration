@@ -24,11 +24,13 @@ from orchestrator.workflow.prompt_context_report import (
 )
 from orchestrator.workflow.prompt_dependency_evidence import (
     FRAGMENT_SUCCESS_SCHEMA_V2,
+    evidence_relative_path,
     validate_fragment_success_evidence_v2,
 )
 from orchestrator.workflow.prompt_identity import (
     PROMPT_ATTEMPT_IDENTITY_VERSION,
 )
+from orchestrator.workflow.provider_attempts import ProviderAttemptScope
 from tests.test_workflow_lisp_prompt_identity_runtime import (
     _runtime_q3_fixture,
     _successful_execution,
@@ -200,27 +202,16 @@ def test_target_222_retry_attributes_changed_roles_before_terminal_report(
     state = manager._read_state_from_disk().to_dict()
     [allocation] = state["provider_attempt_allocations"].values()
     assert allocation["last_allocated_ordinal"] == 2
-    assert [
-        (event["ordinal"], event["event"])
-        for event in allocation["events"]
-    ] == [
-        (1, "allocated"),
-        (1, "evidence_published"),
-        (2, "allocated"),
-        (2, "evidence_published"),
-    ]
-    publications = [
-        event
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
-    ]
+    assert "events" not in allocation
+    scope = ProviderAttemptScope.from_dict(allocation["scope"])
     records = [
         json.loads(
-            (manager.run_root / event["relative_path"]).read_text(
-                encoding="ascii"
-            )
+            (
+                manager.run_root
+                / evidence_relative_path(scope, ordinal)
+            ).read_text(encoding="ascii")
         )
-        for event in publications
+        for ordinal in (1, 2)
     ]
     assert [record["schema"] for record in records] == [
         FRAGMENT_SUCCESS_SCHEMA_V2,

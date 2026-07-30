@@ -26,6 +26,10 @@ from orchestrator.workflow.prompt_dependency_contract import (
     _build_compiler_prompt_dependency_contract,
 )
 from orchestrator.workflow.prompting import PromptComposer
+from orchestrator.workflow.prompt_dependency_evidence import (
+    evidence_relative_path,
+)
+from orchestrator.workflow.provider_attempts import ProviderAttemptScope
 from orchestrator.workflow.provider_supervision.bindings import (
     ProviderSupervisionAttemptBinding,
     ProviderSupervisionMemberRequest,
@@ -2180,8 +2184,8 @@ def test_continue_real_binding_allocates_durable_attempts_and_validates_bundles(
         for entry in allocations.values()
     )
     assert all(
-        [event["event"] for event in entry["events"]]
-        == ["allocated", "evidence_published"]
+        entry["last_allocated_ordinal"] == 1
+        and "events" not in entry
         for entry in allocations.values()
     )
     evidence = sorted(
@@ -2201,6 +2205,14 @@ def test_continue_real_binding_allocates_durable_attempts_and_validates_bundles(
         )
     )
     assert len(published_evidence) == 2
+    assert set(published_evidence) == {
+        manager.run_root
+        / evidence_relative_path(
+            ProviderAttemptScope.from_dict(entry["scope"]),
+            1,
+        )
+        for entry in allocations.values()
+    }
     assert {path.read_bytes() for path in evidence} == {
         path.read_bytes() for path in published_evidence
     }

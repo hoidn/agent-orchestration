@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,9 @@ from orchestrator.workflow.prompt_attempt_result_binding import (
     PROMPT_ATTEMPT_RESULT_BINDING_DEBUG_KEY,
     PromptAttemptResultBindingError,
     validate_prompt_attempt_result_binding,
+)
+from orchestrator.workflow.prompt_dependency_evidence import (
+    evidence_relative_path,
 )
 from orchestrator.workflow.prompt_context_report import (
     PROMPT_CONTEXT_REPORT_SCHEMA,
@@ -269,6 +273,7 @@ def project_judgment_views(
                 scope=scope,
                 allocation=allocation,
                 attempts=attempts,
+                run_root=root,
             )
             value = _rehydrate_result_value(
                 result=result,
@@ -352,50 +357,9 @@ def project_judgment_views(
 def _validated_allocations_with_ambiguity(
     value: Any,
 ) -> tuple[dict[str, Any], frozenset[str]]:
-    """Preserve per-result duplicate-publication refusal before normalization."""
+    """Validate allocation state; current publication authority is file-based."""
 
-    if not isinstance(value, Mapping):
-        raise ValueError("provider attempt allocations must be an object")
-    sanitized: dict[Any, Any] = {}
-    ambiguous: set[str] = set()
-    for scope_key, raw_entry in value.items():
-        if not isinstance(raw_entry, Mapping):
-            sanitized[scope_key] = raw_entry
-            continue
-        raw_events = raw_entry.get("events")
-        if not isinstance(raw_events, list):
-            sanitized[scope_key] = raw_entry
-            continue
-        seen_publications: set[int] = set()
-        events: list[Any] = []
-        for event in raw_events:
-            ordinal = (
-                event.get("ordinal")
-                if isinstance(event, Mapping)
-                and event.get("event") == "evidence_published"
-                else None
-            )
-            if (
-                isinstance(ordinal, int)
-                and not isinstance(ordinal, bool)
-                and ordinal in seen_publications
-            ):
-                if isinstance(scope_key, str):
-                    ambiguous.add(scope_key)
-                continue
-            if isinstance(ordinal, int) and not isinstance(ordinal, bool):
-                seen_publications.add(ordinal)
-            events.append(event)
-        if isinstance(scope_key, str) and scope_key in ambiguous:
-            entry = dict(raw_entry)
-            entry["events"] = events
-            sanitized[scope_key] = entry
-        else:
-            sanitized[scope_key] = raw_entry
-    return (
-        validate_provider_attempt_allocations(sanitized),
-        frozenset(ambiguous),
-    )
+    return validate_provider_attempt_allocations(value), frozenset()
 
 
 def _project_scope_attempts(
@@ -405,15 +369,6 @@ def _project_scope_attempts(
     scope: ProviderAttemptScope,
     allocation: Mapping[str, Any],
 ) -> tuple[Any, ...]:
-    publications: dict[int, Mapping[str, Any] | None] = {}
-    for ordinal in range(1, allocation["last_allocated_ordinal"] + 1):
-        matches = [
-            event
-            for event in allocation["events"]
-            if event["event"] == "evidence_published"
-            and event["ordinal"] == ordinal
-        ]
-        publications[ordinal] = matches[0] if len(matches) == 1 else None
     authority = allocation.get(
         "prompt_fragment_identity_schema_version"
     )
@@ -423,7 +378,7 @@ def _project_scope_attempts(
             root=run_root,
             scope=scope,
             ordinal=ordinal,
-            event=publications[ordinal],
+            event=None,
             authority=authority,
             report_schema=PROMPT_CONTEXT_REPORT_SCHEMA,
         )
@@ -529,6 +484,7 @@ def _validated_bound_attempt(
     scope: ProviderAttemptScope,
     allocation: Mapping[str, Any],
     attempts: tuple[Any, ...],
+    run_root: Path,
 ) -> Any:
     debug = result.get("debug")
     if debug is None:
@@ -561,40 +517,26 @@ def _validated_bound_attempt(
             JUDGMENT_RESULT_ATTEMPT_MISMATCH,
             "result locator attempt was not allocated",
         )
-    publications = [
-        event
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
-    ]
-    matches = [
-        event
-        for event in publications
-        if event["ordinal"] == ordinal
-    ]
-    if len(matches) > 1:
+    expected_relative_path = str(evidence_relative_path(scope, ordinal))
+    evidence_path = run_root / expected_relative_path
+    try:
+        evidence_payload = evidence_path.read_bytes()
+    except OSError:
         _binding_failure(
-            JUDGMENT_RESULT_BINDING_AMBIGUOUS,
-            "multiple publications claim the result locator",
+            JUDGMENT_RESULT_EVIDENCE_INVALID,
+            "result locator evidence is unavailable",
         )
-    if not matches:
-        _binding_failure(
-            (
-                JUDGMENT_RESULT_ATTEMPT_MISMATCH
-                if publications
-                else JUDGMENT_RESULT_BINDING_MISSING
-            ),
-            "result locator has no exact allocator publication",
-        )
-    event = matches[0]
+    evidence_file_sha256 = (
+        "sha256:" + hashlib.sha256(evidence_payload).hexdigest()
+    )
     if (
-        event["relative_path"] != binding["evidence_relative_path"]
-        or event["file_sha256"]
-        != binding["evidence_file_sha256"]
-        or event["record_kind"] != binding["record_kind"]
+        binding["evidence_relative_path"] != expected_relative_path
+        or binding["evidence_file_sha256"] != evidence_file_sha256
+        or binding["record_kind"] != "prompt_snapshot"
     ):
         _binding_failure(
             JUDGMENT_RESULT_EVIDENCE_INVALID,
-            "result locator contradicts its allocator publication",
+            "result locator contradicts deterministic evidence",
         )
     attempt = attempts[ordinal - 1]
     if not _attempt_is_eligible_snapshot(attempt):

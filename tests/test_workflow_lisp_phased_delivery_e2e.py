@@ -44,6 +44,13 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_runtime_input_contracts,
 )
 from orchestrator.workflow.prompt_context_report import project_prompt_context_v2
+from orchestrator.workflow.prompt_attempt_result_binding import (
+    validate_prompt_attempt_result_binding,
+)
+from orchestrator.workflow.prompt_dependency_evidence import (
+    canonical_record_bytes,
+    evidence_relative_path,
+)
 from orchestrator.workflow.provider_phased_delivery.ledger import (
     validate_ledger_bytes,
 )
@@ -54,6 +61,12 @@ from orchestrator.workflow.provider_phased_delivery.protocol import (
 )
 from orchestrator.workflow.provider_phased_delivery.runtime_bindings import (
     _WorkflowPhasedProviderAttemptBindings,
+)
+from orchestrator.workflow.provider_attempts import (
+    ProviderAttemptScope,
+    resolve_aggregate_run_owner,
+    validate_provider_attempt_allocations,
+    validate_provider_attempt_scope,
 )
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
@@ -603,19 +616,64 @@ def _published_evidence(
     manager: StateManager,
     state: dict[str, Any],
 ) -> dict[str, Any]:
-    allocations = state["provider_attempt_allocations"]
-    assert isinstance(allocations, dict)
-    [allocation] = allocations.values()
-    publications = [
-        event
-        for event in allocation["events"]
-        if event["event"] == "evidence_published"
-    ]
-    [publication] = publications
-    relative_path = publication["relative_path"]
-    return json.loads(
-        (manager.run_root / relative_path).read_text(encoding="ascii")
+    allocations = validate_provider_attempt_allocations(
+        state["provider_attempt_allocations"]
     )
+    [allocation] = allocations.values()
+    scope = ProviderAttemptScope.from_dict(allocation["scope"])
+    validate_provider_attempt_scope(
+        scope,
+        resolve_aggregate_run_owner(manager),
+    )
+    last_ordinal = allocation["last_allocated_ordinal"]
+    step = state["steps"][scope.enclosing_step.step_name]
+    debug = step.get("debug", {})
+    assert isinstance(debug, Mapping)
+    phased = debug.get("phased_delivery")
+    binding = debug.get("prompt_attempt_result_binding")
+    if phased is not None:
+        assert isinstance(phased, Mapping)
+        relative_path = phased["functional_evidence"]
+        assert isinstance(relative_path, str)
+        matching_ordinals = [
+            ordinal
+            for ordinal in range(1, last_ordinal + 1)
+            if str(evidence_relative_path(scope, ordinal))
+            == relative_path
+        ]
+        [ordinal] = matching_ordinals
+        validated_binding = None
+    elif binding is not None:
+        validated_binding = validate_prompt_attempt_result_binding(
+            binding
+        )
+        assert validated_binding["scope_sha256"] == scope.key
+        ordinal = validated_binding["attempt_ordinal"]
+        relative_path = validated_binding["evidence_relative_path"]
+    else:
+        validated_binding = None
+        ordinal = last_ordinal
+        relative_path = str(evidence_relative_path(scope, ordinal))
+    assert 1 <= ordinal <= last_ordinal
+    assert relative_path == str(evidence_relative_path(scope, ordinal))
+    payload = (manager.run_root / relative_path).read_bytes()
+    evidence = json.loads(payload)
+    assert isinstance(evidence, dict)
+    canonical = canonical_record_bytes(
+        evidence,
+        compiler_fragment_identity_schema_version=allocation.get(
+            "prompt_fragment_identity_schema_version"
+        ),
+    )
+    assert canonical == payload
+    assert evidence["attempt"]["scope"] == scope.to_dict()
+    assert evidence["attempt"]["scope_sha256"] == scope.key
+    assert evidence["attempt"]["ordinal"] == ordinal
+    if validated_binding is not None:
+        assert validated_binding["evidence_file_sha256"] == (
+            "sha256:" + hashlib.sha256(payload).hexdigest()
+        )
+    return evidence
 
 
 @pytest.mark.parametrize(

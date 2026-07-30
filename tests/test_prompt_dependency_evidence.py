@@ -6,9 +6,7 @@ import ast
 from copy import deepcopy
 import hashlib
 import json
-import multiprocessing
 from pathlib import Path
-import time
 
 import pytest
 
@@ -1184,12 +1182,15 @@ def _manager_with_allocations(tmp_path: Path, count: int = 3) -> StateManager:
     return manager
 
 
-def test_publish_is_no_clobber_and_records_event_only_after_complete_file(tmp_path: Path) -> None:
+def test_publish_is_immutable_no_clobber_and_leaves_allocator_state_unchanged(
+    tmp_path: Path,
+) -> None:
     from orchestrator.workflow.prompt_dependency_evidence import publish_evidence_file
 
     manager = _manager_with_allocations(tmp_path)
     assert manager.state is not None
     record = _success_record(run_state=manager.state)
+    state_before = manager.state_file.read_bytes()
     result = publish_evidence_file(
         manager,
         _scope(),
@@ -1197,17 +1198,13 @@ def test_publish_is_no_clobber_and_records_event_only_after_complete_file(tmp_pa
         record,
     )
     assert (manager.run_root / result.relative_path).read_bytes() == result.payload
-    persisted = manager._read_state_from_disk()
-    events = persisted.provider_attempt_allocations[_scope().key]["events"]
-    assert events[-1] == {
-        "ordinal": 3, "event": "evidence_published",
-        "relative_path": str(result.relative_path),
-        "file_sha256": result.file_sha256, "record_kind": "prompt_snapshot",
-    }
+    assert manager.state_file.read_bytes() == state_before
     assert list((manager.run_root / result.relative_path.parent).glob(".*.tmp")) == []
 
-    with pytest.raises(ValueError, match="already published"):
+    with pytest.raises(FileExistsError):
         publish_evidence_file(manager, _scope(), 3, record)
+    assert (manager.run_root / result.relative_path).read_bytes() == result.payload
+    assert manager.state_file.read_bytes() == state_before
 
 
 def test_fragment_v3_reuses_existing_immutable_publication_owner(
@@ -1229,6 +1226,7 @@ def test_fragment_v3_reuses_existing_immutable_publication_owner(
         ),
     )
 
+    state_before = manager.state_file.read_bytes()
     result = publish_evidence_file(
         manager,
         _scope(),
@@ -1242,11 +1240,8 @@ def test_fragment_v3_reuses_existing_immutable_publication_owner(
     assert (manager.run_root / result.relative_path).read_bytes() == (
         result.payload
     )
-    persisted = manager._read_state_from_disk()
-    assert persisted.provider_attempt_allocations[_scope().key]["events"][-1][
-        "event"
-    ] == "evidence_published"
-    with pytest.raises(ValueError, match="already published"):
+    assert manager.state_file.read_bytes() == state_before
+    with pytest.raises(FileExistsError):
         publish_evidence_file(
             manager,
             _scope(),
@@ -1256,6 +1251,7 @@ def test_fragment_v3_reuses_existing_immutable_publication_owner(
                 "compiled_prompt_fragment_identity.v1"
             ),
         )
+    assert manager.state_file.read_bytes() == state_before
 
 
 def test_publish_rejects_same_or_conflicting_crash_orphan(tmp_path: Path) -> None:
@@ -1267,9 +1263,11 @@ def test_publish_rejects_same_or_conflicting_crash_orphan(tmp_path: Path) -> Non
 
     manager = _manager_with_allocations(tmp_path)
     record = _success_record(run_state=manager.state)
+    state_before = manager.state_file.read_bytes()
     destination = manager.run_root / evidence_relative_path(_scope(), 3)
     destination.parent.mkdir(parents=True)
-    destination.write_bytes(canonical_record_bytes(record))
+    original_payload = canonical_record_bytes(record)
+    destination.write_bytes(original_payload)
     with pytest.raises(FileExistsError):
         publish_evidence_file(manager, _scope(), 3, record)
     changed = _success_record(
@@ -1277,24 +1275,23 @@ def test_publish_rejects_same_or_conflicting_crash_orphan(tmp_path: Path) -> Non
     )
     with pytest.raises(FileExistsError):
         publish_evidence_file(manager, _scope(), 3, changed)
-    persisted = manager._read_state_from_disk()
-    assert all(
-        event["event"] != "evidence_published"
-        for event in persisted.provider_attempt_allocations[_scope().key]["events"]
-    )
+    assert destination.read_bytes() == original_payload
+    assert manager.state_file.read_bytes() == state_before
 
 
-def test_publish_failure_does_not_emit_event(tmp_path: Path, monkeypatch) -> None:
+def test_publish_link_failure_leaves_allocator_state_unchanged(
+    tmp_path: Path, monkeypatch
+) -> None:
     from orchestrator.workflow import prompt_dependency_evidence as evidence
 
     manager = _manager_with_allocations(tmp_path)
+    state_before = manager.state_file.read_bytes()
     monkeypatch.setattr(evidence.os, "link", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("link failed")))
     with pytest.raises(OSError, match="link failed"):
         evidence.publish_evidence_file(
             manager, _scope(), 3, _success_record(run_state=manager.state),
         )
-    persisted = manager._read_state_from_disk()
-    assert all(event["event"] != "evidence_published" for event in persisted.provider_attempt_allocations[_scope().key]["events"])
+    assert manager.state_file.read_bytes() == state_before
 
 
 def test_publish_rejects_unallocated_attempt_before_linking_record(tmp_path: Path) -> None:
@@ -1312,43 +1309,39 @@ def test_publish_rejects_unallocated_attempt_before_linking_record(tmp_path: Pat
     assert not (manager.run_root / evidence_relative_path(_scope(), 3)).exists()
 
 
-def test_publish_completes_short_writes_under_one_process_lock_interval(
+def test_publish_completes_short_writes_without_mutating_allocator_state(
     tmp_path: Path, monkeypatch
 ) -> None:
     from orchestrator.workflow import prompt_dependency_evidence as evidence
 
     manager = _manager_with_allocations(tmp_path)
     actual_write = evidence.os.write
-    lock_entries: list[str] = []
+    write_sizes: list[tuple[int, int]] = []
 
     def short_write(fd, payload):
-        return actual_write(fd, payload[: max(1, len(payload) // 3)])
+        requested = len(payload)
+        written = actual_write(fd, payload[: max(1, requested // 3)])
+        write_sizes.append((requested, written))
+        return written
 
-    original_locks = evidence.provider_attempt_process_locks
-
-    from contextlib import contextmanager
-
-    @contextmanager
-    def counted_locks(root):
-        lock_entries.append(str(root))
-        with original_locks(root):
-            yield
-
+    state_before = manager.state_file.read_bytes()
     monkeypatch.setattr(evidence.os, "write", short_write)
-    monkeypatch.setattr(evidence, "provider_attempt_process_locks", counted_locks)
     result = evidence.publish_evidence_file(
         manager, _scope(), 3, _success_record(run_state=manager.state)
     )
     assert (manager.run_root / result.relative_path).read_bytes() == result.payload
-    assert lock_entries == [str(manager.run_root)]
+    assert len(write_sizes) > 1
+    assert all(0 < written <= requested for requested, written in write_sizes)
+    assert manager.state_file.read_bytes() == state_before
 
 
-def test_publish_fsync_failure_propagates_without_manifest_event(
+def test_publish_fsync_failure_propagates_without_mutating_allocator_state(
     tmp_path: Path, monkeypatch
 ) -> None:
     from orchestrator.workflow import prompt_dependency_evidence as evidence
 
     manager = _manager_with_allocations(tmp_path)
+    state_before = manager.state_file.read_bytes()
     monkeypatch.setattr(
         evidence.os,
         "fsync",
@@ -1358,11 +1351,7 @@ def test_publish_fsync_failure_propagates_without_manifest_event(
         evidence.publish_evidence_file(
             manager, _scope(), 3, _success_record(run_state=manager.state)
         )
-    persisted = manager._read_state_from_disk()
-    assert all(
-        event["event"] != "evidence_published"
-        for event in persisted.provider_attempt_allocations[_scope().key]["events"]
-    )
+    assert manager.state_file.read_bytes() == state_before
 
 
 @pytest.mark.parametrize(
@@ -1487,12 +1476,11 @@ def _terminal_state(root: Path) -> RunState:
     state = _run_state(root)
     state.status = "completed"
     state.provider_attempt_allocations = {
-            scope.key: {
-                "scope": scope.to_dict(),
-                "last_allocated_ordinal": 1,
-                "events": [{"ordinal": 1, "event": "allocated"}],
-            }
+        scope.key: {
+            "scope": scope.to_dict(),
+            "last_allocated_ordinal": 1,
         }
+    }
     return state
 
 
@@ -1512,13 +1500,26 @@ def test_allocator_projection_is_closed_sorted_and_externally_digestible(tmp_pat
         "workflow_file": "workflow.orc",
         "workflow_checksum": "sha256:" + "1" * 64,
     }
-    assert projection["scopes"][0]["scope_sha256"] == _scope().key
-    assert allocator_projection_sha256(projection).startswith("sha256:")
+    row = projection["scopes"][0]
+    assert set(row) == {
+        "scope_sha256",
+        "scope",
+        "last_allocated_ordinal",
+    }
+    assert row["scope_sha256"] == _scope().key
+    original_digest = allocator_projection_sha256(projection)
+    assert original_digest.startswith("sha256:")
     assert validate_allocator_projection(projection) == projection
-    tampered = deepcopy(projection)
-    tampered["scopes"][0]["last_allocated_ordinal"] = 2
-    with pytest.raises(ValueError):
-        validate_allocator_projection(tampered)
+
+    advanced = deepcopy(projection)
+    advanced["scopes"][0]["last_allocated_ordinal"] = 2
+    assert validate_allocator_projection(advanced) == advanced
+    assert allocator_projection_sha256(advanced) != original_digest
+
+    open_row = deepcopy(projection)
+    open_row["scopes"][0]["events"] = []
+    with pytest.raises(ValueError, match="closed"):
+        validate_allocator_projection(open_row)
 
 
 def test_terminal_validation_builds_immutable_index_and_discloses_gap(tmp_path: Path) -> None:
@@ -1606,27 +1607,20 @@ def test_terminal_validation_does_not_alias_equal_runtime_step_ids_across_scopes
         state.provider_attempt_allocations[scope.key] = {
             "scope": scope.to_dict(),
             "last_allocated_ordinal": 1,
-            "events": [
-                {"ordinal": 1, "event": "allocated"},
-                {
-                    "ordinal": 1,
-                    "event": "evidence_published",
-                    "relative_path": relative,
-                    "file_sha256": _sha(payload),
-                    "record_kind": "prompt_snapshot",
-                },
-            ],
             "prompt_fragment_identity_schema_version": authorities[
                 scope.key
             ],
         }
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(payload)
     state_file = root / "state.json"
     state_file.write_text(json.dumps(state.to_dict()), encoding="utf-8")
     observed: dict[str, str | None] = {}
 
     def read_record(
         path: Path,
-        kind: str,
+        kind: str | None,
         *,
         compiler_fragment_identity_schema_version: str | None = None,
     ):
@@ -1635,7 +1629,7 @@ def test_terminal_validation_does_not_alias_equal_runtime_step_ids_across_scopes
         observed[scope.key] = compiler_fragment_identity_schema_version
         return (
             {
-                "record_kind": kind,
+                "record_kind": "prompt_snapshot",
                 "run": evidence._state_run(state),
                 "attempt": evidence._attempt(scope, 1),
                 "record_sha256": _sha(f"record:{scope.key}".encode("ascii")),
@@ -1690,7 +1684,6 @@ def test_index_rejects_conflicting_runtime_step_for_same_scope(tmp_path: Path) -
     state = _terminal_state(root)
     entry = state.provider_attempt_allocations[_scope().key]
     entry["last_allocated_ordinal"] = 2
-    entry["events"].append({"ordinal": 2, "event": "allocated"})
     state_file = root / "state.json"
     state_file.write_text(json.dumps(state.to_dict()), encoding="utf-8")
     index = validate_terminal_evidence(root, state_file).index
@@ -1712,7 +1705,6 @@ def test_index_rejects_unsorted_duplicate_and_self_digest_tampering(tmp_path: Pa
     state = _terminal_state(root)
     entry = state.provider_attempt_allocations[_scope().key]
     entry["last_allocated_ordinal"] = 2
-    entry["events"].append({"ordinal": 2, "event": "allocated"})
     state_file = root / "state.json"
     state_file.write_text(json.dumps(state.to_dict()), encoding="utf-8")
     index = validate_terminal_evidence(root, state_file).index
@@ -1749,7 +1741,6 @@ def test_later_allocator_projection_publishes_new_index_not_stale_one(tmp_path: 
 
     entry = state.provider_attempt_allocations[_scope().key]
     entry["last_allocated_ordinal"] = 2
-    entry["events"].append({"ordinal": 2, "event": "allocated"})
     state.updated_at = "2026-07-18T02:00:00+00:00"
     state_file.write_text(json.dumps(state.to_dict()), encoding="utf-8")
     second = validate_terminal_evidence(root, state_file)
@@ -1770,15 +1761,6 @@ def _install_published_record(root: Path, state: RunState) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     payload = canonical_record_bytes(record)
     destination.write_bytes(payload)
-    state.provider_attempt_allocations[_scope().key]["events"].append(
-        {
-            "ordinal": 1,
-            "event": "evidence_published",
-            "relative_path": str(relative),
-            "file_sha256": _sha(payload),
-            "record_kind": "prompt_snapshot",
-        }
-    )
     return destination
 
 
@@ -1813,9 +1795,10 @@ def test_terminal_validation_indexes_manifest_bound_publication(tmp_path: Path) 
         validate_index(tampered)
 
 
-def test_terminal_validation_rejects_nonterminal_missing_corrupt_and_orphan(tmp_path: Path) -> None:
+def test_terminal_validation_rejects_nonterminal_and_corrupt_expected_record(
+    tmp_path: Path,
+) -> None:
     from orchestrator.workflow.prompt_dependency_evidence import (
-        publish_evidence_file,
         validate_terminal_evidence,
     )
 
@@ -1841,16 +1824,49 @@ def test_terminal_validation_rejects_nonterminal_missing_corrupt_and_orphan(tmp_
     with pytest.raises(ValueError, match="digest|corrupt"):
         validate_terminal_evidence(root, state_file)
 
-    state.provider_attempt_allocations[_scope().key]["events"] = [
-        {"ordinal": 1, "event": "allocated"}
-    ]
+
+def test_terminal_validation_treats_missing_record_as_gap_and_rejects_true_orphan(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.prompt_dependency_evidence import (
+        validate_terminal_evidence,
+    )
+
+    root = tmp_path / "run"
+    root.mkdir()
+    state = _terminal_state(root)
+    state_file = root / "state.json"
     state_file.write_text(json.dumps(state.to_dict()), encoding="utf-8")
+
+    result = validate_terminal_evidence(root, state_file)
+    assert result.index["publications"] == []
+    assert result.index["allocation_only_gaps"] == [
+        {
+            "scope_sha256": _scope().key,
+            "runtime_step_id": "ProviderStep",
+            "visit_key": _scope().key[7:31],
+            "attempt_ordinal": 1,
+        }
+    ]
+
+    orphan = (
+        root
+        / "workflow_lisp"
+        / "prompt_dependencies"
+        / "unexpected-step"
+        / "unexpected-visit"
+        / "attempt-000002.json"
+    )
+    orphan.parent.mkdir(parents=True)
+    orphan.write_text("{}", encoding="utf-8")
     with pytest.raises(ValueError, match="orphan"):
         validate_terminal_evidence(root, state_file)
 
 
-@pytest.mark.parametrize("fault", ["missing", "wrong_kind", "wrong_identity"])
-def test_terminal_validation_rejects_manifest_record_mismatch(tmp_path: Path, fault: str) -> None:
+@pytest.mark.parametrize("fault", ["wrong_kind", "wrong_identity"])
+def test_terminal_validation_rejects_deterministic_record_mismatch(
+    tmp_path: Path, fault: str
+) -> None:
     from orchestrator.workflow.prompt_dependency_evidence import (
         canonical_record_bytes,
         validate_terminal_evidence,
@@ -1860,17 +1876,16 @@ def test_terminal_validation_rejects_manifest_record_mismatch(tmp_path: Path, fa
     root.mkdir()
     state = _terminal_state(root)
     destination = _install_published_record(root, state)
-    if fault == "missing":
-        destination.unlink()
-    elif fault == "wrong_kind":
-        state.provider_attempt_allocations[_scope().key]["events"][-1]["record_kind"] = "failure"
+    if fault == "wrong_kind":
+        record = json.loads(destination.read_bytes())
+        record["record_kind"] = "unsupported"
+        destination.write_text(json.dumps(record), encoding="utf-8")
     else:
         record = _success_record(ordinal=2, run_state=state)
         destination.write_bytes(canonical_record_bytes(record))
-        state.provider_attempt_allocations[_scope().key]["events"][-1]["file_sha256"] = _sha(destination.read_bytes())
     state_file = root / "state.json"
     state_file.write_text(json.dumps(state.to_dict()), encoding="utf-8")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="wrong kind|identity"):
         validate_terminal_evidence(root, state_file)
 
 
@@ -1923,179 +1938,34 @@ def test_terminal_validation_detects_bypass_state_drift_and_removes_new_index(tm
     assert not indexes.exists() or list(indexes.glob("*.json")) == []
 
 
-def _validate_with_hold(root: str, state_file: str, ready, release, results) -> None:
-    try:
-        from orchestrator.workflow.prompt_dependency_evidence import validate_terminal_evidence
-
-        def hold() -> None:
-            ready.set()
-            if not release.wait(10):
-                raise TimeoutError("release timed out")
-
-        validate_terminal_evidence(root, state_file, _after_initial_read=hold)
-        results.put("validated")
-    except BaseException as exc:  # pragma: no cover
-        results.put(repr(exc))
-
-
-def _conforming_status_write(workspace: str, state_dir: str, run_id: str, ready, results) -> None:
-    try:
-        manager = StateManager(Path(workspace), run_id=run_id, state_dir=Path(state_dir))
-        manager.load()
-        manager.enable_durable_state_writes()
-        ready.set()
-        manager.update_status("completed")
-        results.put("written")
-    except BaseException as exc:  # pragma: no cover
-        results.put(repr(exc))
-
-
-def _allocate_and_publish_after_resume(
-    workspace: str, state_dir: str, run_id: str, scope_payload: dict, ready, results
-) -> None:
-    try:
-        from orchestrator.workflow.prompt_dependency_evidence import publish_evidence_file
-
-        manager = StateManager(Path(workspace), run_id=run_id, state_dir=Path(state_dir))
-        manager.load()
-        scope = ProviderAttemptScope.from_dict(scope_payload)
-        ready.set()
-        ordinal = manager.allocate_provider_attempt(scope)
-        publish_evidence_file(
-            manager, scope, ordinal,
-            _success_record(ordinal=ordinal, run_state=manager.state),
-        )
-        results.put("allocated-published")
-    except BaseException as exc:  # pragma: no cover
-        results.put(repr(exc))
-
-
-def _nested_frame_write_after_resume(
-    workspace: str, state_dir: str, run_id: str, ready, results
-) -> None:
-    try:
-        manager = StateManager(Path(workspace), run_id=run_id, state_dir=Path(state_dir))
-        manager.load()
-        assert manager.state is not None
-        nested = _run_state(manager.run_root / "call_frames" / "frame")
-        nested.run_id = run_id
-        ready.set()
-        manager.update_call_frame(
-            "frame",
-            {"call_frame_id": "frame", "state": nested.to_dict()},
-        )
-        results.put("nested-written")
-    except BaseException as exc:  # pragma: no cover
-        results.put(repr(exc))
-
-
-def test_terminal_validator_blocks_conforming_writer_then_writer_proceeds(tmp_path: Path) -> None:
-    manager = _manager_with_allocations(tmp_path, count=1)
-    manager.update_status("completed")
-    context = multiprocessing.get_context("fork")
-    validation_ready = context.Event()
-    release = context.Event()
-    writer_started = context.Event()
-    allocation_started = context.Event()
-    nested_started = context.Event()
-    results = context.Queue()
-    validator = context.Process(
-        target=_validate_with_hold,
-        args=(str(manager.run_root), str(manager.state_file), validation_ready, release, results),
-    )
-    validator.start()
-    assert validation_ready.wait(5)
-    writer = context.Process(
-        target=_conforming_status_write,
-        args=(str(manager.workspace), str(manager.runs_root), manager.run_id, writer_started, results),
-    )
-    writer.start()
-    assert writer_started.wait(5)
-    allocator = context.Process(
-        target=_allocate_and_publish_after_resume,
-        args=(
-            str(manager.workspace), str(manager.runs_root), manager.run_id,
-            _scope().to_dict(), allocation_started, results,
-        ),
-    )
-    nested_writer = context.Process(
-        target=_nested_frame_write_after_resume,
-        args=(
-            str(manager.workspace), str(manager.runs_root), manager.run_id,
-            nested_started, results,
-        ),
-    )
-    allocator.start()
-    nested_writer.start()
-    assert allocation_started.wait(5)
-    assert nested_started.wait(5)
-    time.sleep(0.1)
-    assert writer.is_alive() and allocator.is_alive() and nested_writer.is_alive()
-    release.set()
-    validator.join(10)
-    writer.join(10)
-    allocator.join(10)
-    nested_writer.join(10)
-    assert validator.exitcode == writer.exitcode == allocator.exitcode == nested_writer.exitcode == 0
-    assert sorted([results.get(timeout=2) for _ in range(4)]) == [
-        "allocated-published", "nested-written", "validated", "written",
-    ]
-
-
-def test_functional_allocation_publication_write_validation_stress_is_bounded(
+def test_terminal_validation_detects_state_drift_before_index_publish(
     tmp_path: Path,
 ) -> None:
-    manager = _manager_with_allocations(tmp_path, count=0)
-    manager.update_status("completed")
-    context = multiprocessing.get_context("fork")
-    for ordinal in range(1, 4):
-        validation_ready = context.Event()
-        release = context.Event()
-        allocation_started = context.Event()
-        writer_started = context.Event()
-        results = context.Queue()
-        validator = context.Process(
-            target=_validate_with_hold,
-            args=(
-                str(manager.run_root), str(manager.state_file),
-                validation_ready, release, results,
-            ),
-        )
-        allocator = context.Process(
-            target=_allocate_and_publish_after_resume,
-            args=(
-                str(manager.workspace), str(manager.runs_root), manager.run_id,
-                _scope().to_dict(), allocation_started, results,
-            ),
-        )
-        writer = context.Process(
-            target=_conforming_status_write,
-            args=(
-                str(manager.workspace), str(manager.runs_root), manager.run_id,
-                writer_started, results,
-            ),
-        )
-        validator.start()
-        assert validation_ready.wait(5)
-        allocator.start()
-        writer.start()
-        assert allocation_started.wait(5)
-        assert writer_started.wait(5)
-        time.sleep(0.05)
-        assert allocator.is_alive() and writer.is_alive()
-        release.set()
-        validator.join(10)
-        allocator.join(10)
-        writer.join(10)
-        assert validator.exitcode == allocator.exitcode == writer.exitcode == 0
-        assert sorted([results.get(timeout=2) for _ in range(3)]) == [
-            "allocated-published", "validated", "written",
-        ]
-        manager.load()
-        assert manager.state is not None
-        assert manager.state.provider_attempt_allocations[_scope().key][
+    from orchestrator.workflow.prompt_dependency_evidence import (
+        validate_terminal_evidence,
+    )
+
+    root = tmp_path / "run"
+    root.mkdir()
+    state = _terminal_state(root)
+    state_file = root / "state.json"
+    state_file.write_text(json.dumps(state.to_dict()), encoding="utf-8")
+
+    def advance_counter() -> None:
+        payload = json.loads(state_file.read_text(encoding="utf-8"))
+        payload["provider_attempt_allocations"][_scope().key][
             "last_allocated_ordinal"
-        ] == ordinal
+        ] = 2
+        state_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="changed"):
+        validate_terminal_evidence(
+            root,
+            state_file,
+            _after_initial_read=advance_counter,
+        )
+    indexes = root / "workflow_lisp/prompt_dependencies/validated-indexes"
+    assert not indexes.exists() or list(indexes.glob("*.json")) == []
 
 
 def _offline_validator_references(source: str) -> set[str]:

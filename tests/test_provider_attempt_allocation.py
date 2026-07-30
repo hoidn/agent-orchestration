@@ -9,7 +9,6 @@ import os
 from pathlib import Path
 import stat
 from contextlib import contextmanager
-import multiprocessing
 from types import SimpleNamespace
 
 import pytest
@@ -94,44 +93,6 @@ def _attempt_module():
     return importlib.import_module("orchestrator.workflow.provider_attempts")
 
 
-def _allocate_in_process(
-    workspace: str,
-    run_id: str,
-    scope_payload: dict,
-    results,
-) -> None:
-    try:
-        manager = StateManager(Path(workspace), run_id=run_id)
-        manager.load()
-        scope = _attempt_module().ProviderAttemptScope.from_dict(scope_payload)
-        results.put(("ok", manager.allocate_provider_attempt(scope)))
-    except BaseException as exc:  # pragma: no cover - returned to parent assertion
-        results.put(("error", repr(exc)))
-
-
-def _allocate_and_publish_in_process(
-    workspace: str,
-    run_id: str,
-    scope_payload: dict,
-    results,
-) -> None:
-    try:
-        manager = StateManager(Path(workspace), run_id=run_id)
-        manager.load()
-        scope = _attempt_module().ProviderAttemptScope.from_dict(scope_payload)
-        ordinal = manager.allocate_provider_attempt(scope)
-        manager.record_provider_attempt_publication(
-            scope,
-            ordinal,
-            relative_path=f"records/attempt-{ordinal:06d}.json",
-            file_sha256="sha256:" + f"{ordinal:064x}",
-            record_kind="prompt_snapshot",
-        )
-        results.put(("ok", ordinal))
-    except BaseException as exc:  # pragma: no cover - returned to parent assertion
-        results.put(("error", repr(exc)))
-
-
 def _affected_coordination_bundle() -> SimpleNamespace:
     return SimpleNamespace(
         ir=SimpleNamespace(
@@ -145,62 +106,6 @@ def _affected_coordination_bundle() -> SimpleNamespace:
         ),
         imports={},
     )
-
-
-def _coordinated_allocate_in_process(
-    workspace: str,
-    run_id: str,
-    scope_payload: dict,
-    barrier,
-    first_done,
-    is_first: bool,
-    results,
-) -> None:
-    try:
-        manager = StateManager(Path(workspace), run_id=run_id)
-        manager.load()
-        _attempt_module().enable_provider_attempt_coordination_for_bundle(
-            manager,
-            _affected_coordination_bundle(),
-        )
-        barrier.wait(timeout=10)
-        if not is_first:
-            assert first_done.wait(timeout=10)
-        scope = _attempt_module().ProviderAttemptScope.from_dict(scope_payload)
-        ordinal = manager.allocate_provider_attempt(scope)
-        if is_first:
-            first_done.set()
-        results.put(("allocated", ordinal))
-    except BaseException as exc:  # pragma: no cover - returned to parent assertion
-        first_done.set()
-        results.put(("error", repr(exc)))
-
-
-def _coordinated_status_in_process(
-    workspace: str,
-    run_id: str,
-    barrier,
-    first_done,
-    is_first: bool,
-    results,
-) -> None:
-    try:
-        manager = StateManager(Path(workspace), run_id=run_id)
-        manager.load()
-        _attempt_module().enable_provider_attempt_coordination_for_bundle(
-            manager,
-            _affected_coordination_bundle(),
-        )
-        barrier.wait(timeout=10)
-        if not is_first:
-            assert first_done.wait(timeout=10)
-        manager.update_status("completed")
-        if is_first:
-            first_done.set()
-        results.put(("status", "completed"))
-    except BaseException as exc:  # pragma: no cover - returned to parent assertion
-        first_done.set()
-        results.put(("error", repr(exc)))
 
 
 def _direct_scope_payload(root: StateManager, *, candidate: str | None = None) -> dict:
@@ -245,7 +150,6 @@ def _allocation_entry(
     entry = {
         "scope": scope.to_dict(),
         "last_allocated_ordinal": 1,
-        "events": [{"ordinal": 1, "event": "allocated"}],
     }
     if prompt_fragment_identity_schema_version is not ...:
         entry["prompt_fragment_identity_schema_version"] = (
@@ -382,7 +286,9 @@ def test_q3_allocation_persists_scope_authority_in_the_same_state_write(
     )
 
 
-def test_pre_q3_allocation_preserves_legacy_entry_bytes(tmp_path: Path) -> None:
+def test_allocation_without_prompt_schema_persists_counter_only_entry(
+    tmp_path: Path,
+) -> None:
     root = _prepare_direct_scope_root(tmp_path, run_id="legacy-entry-bytes")
     root._write_state()
     scope = _attempt_module().ProviderAttemptScope.from_dict(
@@ -470,7 +376,7 @@ def test_legacy_scope_cannot_be_rebound_as_q3(tmp_path: Path) -> None:
     assert root.state_file.read_bytes() == before
 
 
-def test_failed_q3_authority_bind_leaves_durable_state_unchanged(
+def test_failed_q3_authority_bind_leaves_ordinary_state_unchanged(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -480,9 +386,10 @@ def test_failed_q3_authority_bind_leaves_durable_state_unchanged(
         _direct_scope_payload(root)
     )
     before = root.state_file.read_bytes()
+    real_write = root._write_state
     monkeypatch.setattr(
         root,
-        "_persist_state_durably",
+        "_write_state",
         lambda: (_ for _ in ()).throw(OSError("authority write failed")),
     )
 
@@ -495,6 +402,13 @@ def test_failed_q3_authority_bind_leaves_durable_state_unchanged(
         )
 
     assert root.state_file.read_bytes() == before
+    monkeypatch.setattr(root, "_write_state", real_write)
+    assert root.allocate_provider_attempt(
+        scope,
+        prompt_fragment_identity_schema_version=(
+            "compiled_prompt_fragment_identity.v2"
+        ),
+    ) == 1
 
 
 def test_prompt_schema_authority_distinguishes_dynamic_loop_scopes(
@@ -691,7 +605,7 @@ def test_explicit_durable_enablement_coordinates_all_root_writes(tmp_path: Path)
     assert (manager.run_root / ".state-mutation.lock").is_file()
 
 
-def test_recursive_typed_contract_hook_enables_only_affected_initialization(
+def test_recursive_typed_contract_hook_only_reports_affected_bundle(
     tmp_path: Path,
 ) -> None:
     attempts = _attempt_module()
@@ -722,7 +636,7 @@ def test_recursive_typed_contract_hook_enables_only_affected_initialization(
     affected = StateManager(tmp_path, run_id="affected-bundle")
     assert hook(affected, affected_root) is True
     affected.initialize(_workflow(tmp_path))
-    assert (affected.run_root / ".state-mutation.lock").is_file()
+    assert not (affected.run_root / ".state-mutation.lock").exists()
 
     unaffected = StateManager(tmp_path, run_id="unaffected-bundle")
     assert hook(unaffected, unaffected_bundle) is False
@@ -797,65 +711,6 @@ def test_direct_durable_write_preserves_callers_current_context_mutation(
     assert persisted["context"]["session_marker"] == "persist-me"
 
 
-def test_stale_direct_durable_write_keeps_newer_root_allocator_projection(
-    tmp_path: Path,
-) -> None:
-    root = _prepare_direct_scope_root(tmp_path, run_id="stale-direct-write")
-    root.update_control_flow_counters(1, {"Provider": 1})
-    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
-    scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
-    assert root.allocate_provider_attempt(scope) == 1
-    stale = StateManager(tmp_path, run_id=root.run_id)
-    stale.load()
-    assert root.allocate_provider_attempt(scope) == 2
-    assert stale.state is not None
-    stale.state.context["direct_marker"] = "kept"
-
-    stale._write_state()
-
-    persisted = json.loads(root.state_file.read_bytes())
-    assert persisted["context"]["direct_marker"] == "kept"
-    assert persisted["provider_attempt_allocations"][scope.key][
-        "last_allocated_ordinal"
-    ] == 2
-
-
-def test_affected_managers_loaded_before_first_allocation_coordinate_ordinary_mutation(
-    tmp_path: Path,
-) -> None:
-    root = _prepare_direct_scope_root(tmp_path, run_id="pre-allocation-stale-manager")
-    root.update_control_flow_counters(1, {"Provider": 1})
-    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
-    stale = StateManager(tmp_path, run_id=root.run_id)
-    stale.load()
-    affected_bundle = SimpleNamespace(
-        ir=SimpleNamespace(
-            nodes={
-                "provider": SimpleNamespace(
-                    execution_config=SimpleNamespace(
-                        compiler_prompt_dependency_contract=object()
-                    )
-                )
-            }
-        ),
-        imports={},
-    )
-    hook = _attempt_module().enable_provider_attempt_coordination_for_bundle
-    assert hook(root, affected_bundle) is True
-    assert hook(stale, affected_bundle) is True
-    scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
-
-    assert root.allocate_provider_attempt(scope) == 1
-    stale.update_status("completed")
-
-    persisted = json.loads(root.state_file.read_bytes())
-    assert persisted["status"] == "completed"
-    assert persisted["provider_attempt_allocations"][scope.key][
-        "last_allocated_ordinal"
-    ] == 1
-    assert stale._durable_state_writes is True
-
-
 def test_state_transaction_reloads_before_external_session_style_mutation(
     tmp_path: Path,
 ) -> None:
@@ -900,7 +755,7 @@ def test_production_callers_use_transactions_instead_of_direct_root_write() -> N
     assert all("._write_state(" not in path.read_text() for path in production_paths)
 
 
-def test_external_runtime_transactions_preserve_newer_allocator_and_all_fields(
+def test_single_writer_runtime_transactions_preserve_allocator_and_all_fields(
     tmp_path: Path,
 ) -> None:
     root = _prepare_direct_scope_root(tmp_path, run_id="external-runtime-fields")
@@ -908,8 +763,6 @@ def test_external_runtime_transactions_preserve_newer_allocator_and_all_fields(
     root.start_step("Provider", 0, "provider", "ProviderStep", 1)
     scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
     assert root.allocate_provider_attempt(scope) == 1
-    stale = StateManager(tmp_path, run_id=root.run_id)
-    stale.load()
     assert root.allocate_provider_attempt(scope) == 2
     provenance = WorkflowProvenance(
         workflow_path=tmp_path / "workflow.orc",
@@ -919,7 +772,7 @@ def test_external_runtime_transactions_preserve_newer_allocator_and_all_fields(
         frontend_source_trace_path=Path("build/source-map.json"),
     )
 
-    with stale.state_transaction() as transaction_state:
+    with root.state_transaction() as transaction_state:
         transaction_state.observability = {"summary_mode": "on"}
         record_compiled_frontend_provenance(transaction_state, provenance)
         session_id = open_executor_session(
@@ -928,8 +781,8 @@ def test_external_runtime_transactions_preserve_newer_allocator_and_all_fields(
             pid=12345,
             process_start_time="process-token",
         )
-    stale.update_bound_inputs({"input": "value"})
-    with stale.state_transaction() as transaction_state:
+    root.update_bound_inputs({"input": "value"})
+    with root.state_transaction() as transaction_state:
         close_executor_session(
             transaction_state,
             session_id=session_id,
@@ -976,36 +829,6 @@ def test_workflow_boundary_persistence_after_allocation_keeps_bound_inputs(
         "last_allocated_ordinal"
     ] == 1
 
-
-def test_loaded_nonempty_allocator_automatically_enables_durable_writes(
-    tmp_path: Path,
-) -> None:
-    manager = StateManager(tmp_path, run_id="loaded-allocator")
-    manager.initialize(_workflow(tmp_path))
-    persisted = json.loads(manager.state_file.read_bytes())
-    scope = _attempt_module().ProviderAttemptScope.from_dict(
-        _direct_scope_payload(manager)
-    )
-    persisted["provider_attempt_allocations"] = {
-        scope.key: {
-            "scope": scope.to_dict(),
-            "last_allocated_ordinal": 1,
-            "events": [{"ordinal": 1, "event": "allocated"}],
-        }
-    }
-    manager.state_file.write_text(json.dumps(persisted, indent=2))
-
-    loaded = StateManager(tmp_path, run_id="loaded-allocator")
-    loaded.load()
-    loaded.update_status("completed")
-
-    assert (loaded.run_root / ".state-mutation.lock").is_file()
-    assert loaded.state is not None
-    assert loaded.state.provider_attempt_allocations == persisted[
-        "provider_attempt_allocations"
-    ]
-
-
 def test_ordinary_affected_write_acquires_process_lock_before_root_rlock(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1042,27 +865,6 @@ def test_ordinary_affected_write_acquires_process_lock_before_root_rlock(
 
     assert events[:2] == ["process-acquire", "rlock-acquire"]
     assert events[-2:] == ["rlock-release", "process-release"]
-
-
-def test_ordinary_affected_write_preserves_newer_allocator_projection(
-    tmp_path: Path,
-) -> None:
-    root = _prepare_direct_scope_root(tmp_path, run_id="stale-writer")
-    root.update_control_flow_counters(1, {"Provider": 1})
-    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
-    scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
-    assert root.allocate_provider_attempt(scope) == 1
-    stale = StateManager(tmp_path, run_id=root.run_id)
-    stale.load()
-
-    assert root.allocate_provider_attempt(scope) == 2
-    stale.update_status("completed")
-
-    persisted = json.loads(root.state_file.read_bytes())
-    assert persisted["status"] == "completed"
-    assert persisted["provider_attempt_allocations"][scope.key][
-        "last_allocated_ordinal"
-    ] == 2
 
 
 def test_record_only_publication_takes_only_two_process_locks(
@@ -1227,62 +1029,24 @@ def test_repair_skips_semantically_invalid_newest_backup_for_older_valid_backup(
     )
 
 
-def test_repair_refuses_pre_allocation_backup_after_committed_provider_ordinal(
+def test_counter_only_allocation_creates_no_repair_barrier_or_aggregate_lock(
     tmp_path: Path,
 ) -> None:
-    root = _prepare_direct_scope_root(tmp_path, run_id="pre-allocation-repair")
-    root.backup_enabled = True
+    root = _prepare_direct_scope_root(tmp_path, run_id="no-allocation-lock-files")
     root.update_control_flow_counters(1, {"Provider": 1})
     root.start_step("Provider", 0, "provider", "ProviderStep", 1)
-    root.backup_state("Provider")
-    backup = root.run_root / "state.json.step_Provider.bak"
-    backup_bytes = backup.read_bytes()
     scope = _attempt_module().ProviderAttemptScope.from_dict(
         _direct_scope_payload(root)
     )
 
     assert root.allocate_provider_attempt(scope) == 1
-    assert (
-        root.run_root / ".provider-attempt-allocation-started"
-    ).read_bytes() == b'{"schema_version":"provider_attempt_repair_barrier.v1"}\n'
-    corrupt_primary = b"invalid json {"
-    root.state_file.write_bytes(corrupt_primary)
-    repairing = StateManager(tmp_path, run_id=root.run_id)
-
-    assert repairing.attempt_repair() is False
-    assert repairing.state_file.read_bytes() == corrupt_primary
-    assert backup.read_bytes() == backup_bytes
-
-
-def test_provider_attempt_barrier_failure_prevents_allocator_commit(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import orchestrator.state as state_module
-
-    root = _prepare_direct_scope_root(tmp_path, run_id="barrier-write-failure")
-    root.update_control_flow_counters(1, {"Provider": 1})
-    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
-    scope = _attempt_module().ProviderAttemptScope.from_dict(
-        _direct_scope_payload(root)
-    )
-    primary_before = root.state_file.read_bytes()
-    real_writer = state_module.durable_atomic_write
-
-    def fail_barrier(path: Path, payload: bytes) -> None:
-        if path.name == ".provider-attempt-allocation-started":
-            raise OSError("barrier write failed")
-        real_writer(path, payload)
-
-    monkeypatch.setattr(state_module, "durable_atomic_write", fail_barrier)
-
-    with pytest.raises(OSError, match="barrier write failed"):
-        root.allocate_provider_attempt(scope)
-
-    assert root.state_file.read_bytes() == primary_before
     assert not (root.run_root / ".provider-attempt-allocation-started").exists()
-    assert root.state is not None
-    assert root.state.provider_attempt_allocations == {}
+    assert not (
+        root.run_root
+        / "workflow_lisp"
+        / "prompt_dependencies"
+        / ".aggregate.lock"
+    ).exists()
 
 
 def test_repair_refuses_legacy_aggregate_lock_without_new_barrier(
@@ -2014,7 +1778,9 @@ def test_loop_scope_rejects_noncanonical_runtime_step_projection(
         )
 
 
-def test_root_allocator_persists_complete_scope_and_monotonic_events(tmp_path: Path) -> None:
+def test_root_allocator_persists_complete_scope_and_monotonic_counter(
+    tmp_path: Path,
+) -> None:
     root = _prepare_direct_scope_root(tmp_path, run_id="allocate-root")
     root.update_control_flow_counters(1, {"Provider": 1})
     root.start_step("Provider", 0, "provider", "ProviderStep", 1)
@@ -2029,10 +1795,104 @@ def test_root_allocator_persists_complete_scope_and_monotonic_events(tmp_path: P
         scope.key: {
             "scope": scope.to_dict(),
             "last_allocated_ordinal": 2,
-            "events": [
-                {"ordinal": 1, "event": "allocated"},
-                {"ordinal": 2, "event": "allocated"},
-            ],
+        }
+    }
+
+
+def test_counter_only_allocation_persists_strictly_increasing_ordinals_without_lifecycle_events(
+    tmp_path: Path,
+) -> None:
+    root = _prepare_direct_scope_root(tmp_path, run_id="counter-only")
+    root.update_control_flow_counters(1, {"Provider": 1})
+    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
+    scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
+
+    ordinals = [root.allocate_provider_attempt(scope) for _ in range(4)]
+    root.record_provider_attempt_publication(
+        scope,
+        ordinals[-1],
+        relative_path="records/attempt-000004.json",
+        file_sha256="sha256:" + "a" * 64,
+        record_kind="prompt_snapshot",
+    )
+
+    assert ordinals == [1, 2, 3, 4]
+    assert all(left < right for left, right in zip(ordinals, ordinals[1:]))
+    persisted = json.loads(root.state_file.read_bytes())
+    assert persisted["provider_attempt_allocations"] == {
+        scope.key: {
+            "scope": scope.to_dict(),
+            "last_allocated_ordinal": 4,
+        }
+    }
+
+
+def test_independent_scope_counters_advance_without_cross_scope_interference(
+    tmp_path: Path,
+) -> None:
+    root = _prepare_direct_scope_root(tmp_path, run_id="independent-scopes")
+    root.update_control_flow_counters(1, {"Provider": 1})
+    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
+    first_scope = _attempt_module().ProviderAttemptScope.from_dict(
+        _direct_scope_payload(root, candidate="candidate_a")
+    )
+    second_scope = _attempt_module().ProviderAttemptScope.from_dict(
+        _direct_scope_payload(root, candidate="candidate_b")
+    )
+
+    first_ordinals = [
+        root.allocate_provider_attempt(first_scope),
+        root.allocate_provider_attempt(first_scope),
+    ]
+    second_ordinals = [root.allocate_provider_attempt(second_scope)]
+    first_ordinals.append(root.allocate_provider_attempt(first_scope))
+    second_ordinals.append(root.allocate_provider_attempt(second_scope))
+
+    assert first_ordinals == [1, 2, 3]
+    assert second_ordinals == [1, 2]
+    persisted = json.loads(root.state_file.read_bytes())[
+        "provider_attempt_allocations"
+    ]
+    assert persisted == {
+        first_scope.key: {
+            "scope": first_scope.to_dict(),
+            "last_allocated_ordinal": 3,
+        },
+        second_scope.key: {
+            "scope": second_scope.to_dict(),
+            "last_allocated_ordinal": 2,
+        },
+    }
+
+
+def test_no_ordinal_reuse_after_partial_attempt_consumes_counter(
+    tmp_path: Path,
+) -> None:
+    root = _prepare_direct_scope_root(tmp_path, run_id="partial-attempt")
+    root.update_control_flow_counters(1, {"Provider": 1})
+    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
+    scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
+
+    assert root.allocate_provider_attempt(scope) == 1
+    partial_record = (
+        root.run_root
+        / "workflow_lisp"
+        / "prompt_dependencies"
+        / "partial"
+        / "attempt-000001.json"
+    )
+    partial_record.parent.mkdir(parents=True)
+    partial_record.write_text('{"incomplete":', encoding="utf-8")
+
+    resumed = StateManager(tmp_path, run_id=root.run_id)
+    resumed.load()
+    assert resumed.allocate_provider_attempt(scope) == 2
+    assert partial_record.read_text(encoding="utf-8") == '{"incomplete":'
+    persisted = json.loads(resumed.state_file.read_bytes())
+    assert persisted["provider_attempt_allocations"] == {
+        scope.key: {
+            "scope": scope.to_dict(),
+            "last_allocated_ordinal": 2,
         }
     }
 
@@ -2063,6 +1923,7 @@ def test_allocator_rejects_corrupt_persisted_projection_before_increment(
         persisted["provider_attempt_allocations"]["sha256:" + "f" * 64] = entry
     else:
         persisted["provider_attempt_allocations"][scope.key] = entry
+        entry["events"] = [{"ordinal": 1, "event": "allocated"}]
         if corruption == "duplicate":
             entry["events"].append({"ordinal": 1, "event": "allocated"})
         elif corruption == "reordered":
@@ -2115,12 +1976,15 @@ def test_allocator_rejects_corrupt_persisted_projection_before_increment(
         StateManager(tmp_path, run_id=root.run_id).load()
 
 
-def test_publication_event_is_durable_closed_and_follows_allocation(tmp_path: Path) -> None:
+def test_publication_validation_accepts_allocated_ordinal_without_state_write(
+    tmp_path: Path,
+) -> None:
     root = _prepare_direct_scope_root(tmp_path, run_id="publication-event")
     root.update_control_flow_counters(1, {"Provider": 1})
     root.start_step("Provider", 0, "provider", "ProviderStep", 1)
     scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
     ordinal = root.allocate_provider_attempt(scope)
+    before = root.state_file.read_bytes()
 
     root.record_provider_attempt_publication(
         scope,
@@ -2130,34 +1994,27 @@ def test_publication_event_is_durable_closed_and_follows_allocation(tmp_path: Pa
         record_kind="prompt_snapshot",
     )
 
-    persisted = json.loads(root.state_file.read_bytes())
-    events = persisted["provider_attempt_allocations"][scope.key]["events"]
-    assert events == [
-        {"ordinal": 1, "event": "allocated"},
-        {
-            "ordinal": 1,
-            "event": "evidence_published",
-            "relative_path": "workflow_lisp/prompt_dependencies/step/visit/attempt-000001.json",
-            "file_sha256": "sha256:" + "a" * 64,
-            "record_kind": "prompt_snapshot",
-        },
-    ]
-    with pytest.raises(ValueError, match="already published"):
+    assert root.state_file.read_bytes() == before
+    with pytest.raises(ValueError, match="ordinal is missing"):
         root.record_provider_attempt_publication(
             scope,
-            ordinal,
+            ordinal + 1,
             relative_path="other.json",
             file_sha256="sha256:" + "b" * 64,
             record_kind="failure",
         )
+    assert root.state_file.read_bytes() == before
 
 
-def test_publication_event_rejects_non_hex_file_digest(tmp_path: Path) -> None:
+def test_publication_validation_rejects_non_hex_digest_without_state_write(
+    tmp_path: Path,
+) -> None:
     root = _prepare_direct_scope_root(tmp_path, run_id="publication-digest")
     root.update_control_flow_counters(1, {"Provider": 1})
     root.start_step("Provider", 0, "provider", "ProviderStep", 1)
     scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
     ordinal = root.allocate_provider_attempt(scope)
+    before = root.state_file.read_bytes()
 
     with pytest.raises(ValueError, match="file_sha256"):
         root.record_provider_attempt_publication(
@@ -2167,10 +2024,11 @@ def test_publication_event_rejects_non_hex_file_digest(tmp_path: Path) -> None:
             file_sha256="sha256:" + "g" * 64,
             record_kind="failure",
         )
+    assert root.state_file.read_bytes() == before
 
 
 @pytest.mark.parametrize("publication_order", [(1, 2), (2, 1)])
-def test_publication_allows_interleaved_allocations_for_same_scope(
+def test_publication_validation_accepts_allocated_ordinals_in_any_order_without_state_write(
     tmp_path: Path,
     publication_order: tuple[int, int],
 ) -> None:
@@ -2182,6 +2040,7 @@ def test_publication_allows_interleaved_allocations_for_same_scope(
     second = root.allocate_provider_attempt(scope)
 
     assert (first, second) == (1, 2)
+    before = root.state_file.read_bytes()
     for ordinal in publication_order:
         root.record_provider_attempt_publication(
             scope,
@@ -2191,51 +2050,129 @@ def test_publication_allows_interleaved_allocations_for_same_scope(
             record_kind="prompt_snapshot",
         )
 
-    events = json.loads(root.state_file.read_bytes())["provider_attempt_allocations"][
-        scope.key
-    ]["events"]
-    assert events == [
-        {"ordinal": 1, "event": "allocated"},
-        {
-            "ordinal": 1,
-            "event": "evidence_published",
-            "relative_path": "records/attempt-000001.json",
-            "file_sha256": "sha256:" + f"{1:064x}",
-            "record_kind": "prompt_snapshot",
-        },
-        {"ordinal": 2, "event": "allocated"},
-        {
-            "ordinal": 2,
-            "event": "evidence_published",
-            "relative_path": "records/attempt-000002.json",
-            "file_sha256": "sha256:" + f"{2:064x}",
-            "record_kind": "prompt_snapshot",
-        },
-    ]
+    assert root.state_file.read_bytes() == before
+    assert json.loads(before)["provider_attempt_allocations"][scope.key] == {
+        "scope": scope.to_dict(),
+        "last_allocated_ordinal": 2,
+    }
 
 
-def test_allocation_failure_before_durable_write_reuses_same_next_ordinal(
+def test_counter_only_allocation_uses_ordinary_state_writer_and_rolls_back_failed_write(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    root = _prepare_direct_scope_root(tmp_path, run_id="before-durable")
+    root = _prepare_direct_scope_root(tmp_path, run_id="ordinary-write")
     root.update_control_flow_counters(1, {"Provider": 1})
     root.start_step("Provider", 0, "provider", "ProviderStep", 1)
     scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
-    real_persist = root._persist_state_durably
+    before = root.state_file.read_bytes()
+    real_write = root._write_state
+
     monkeypatch.setattr(
         root,
         "_persist_state_durably",
-        lambda: (_ for _ in ()).throw(OSError("allocation crash")),
+        lambda: pytest.fail("counter-only allocation used the durable writer"),
     )
-    with pytest.raises(OSError, match="allocation crash"):
+    monkeypatch.setattr(
+        root,
+        "_write_state",
+        lambda: (_ for _ in ()).throw(OSError("ordinary write failed")),
+    )
+    with pytest.raises(OSError, match="ordinary write failed"):
         root.allocate_provider_attempt(scope)
-    monkeypatch.setattr(root, "_persist_state_durably", real_persist)
 
+    assert root.state_file.read_bytes() == before
+    monkeypatch.setattr(root, "_write_state", real_write)
     assert root.allocate_provider_attempt(scope) == 1
 
 
-def test_failed_publication_transition_keeps_allocated_gap_and_next_is_larger(
+def test_allocator_uses_no_repair_barrier_or_process_lock_layer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestrator.state as state_module
+
+    root = _prepare_direct_scope_root(tmp_path, run_id="no-durable-layer")
+    root.update_control_flow_counters(1, {"Provider": 1})
+    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
+    scope = _attempt_module().ProviderAttemptScope.from_dict(
+        _direct_scope_payload(root)
+    )
+    assert root.allocate_provider_attempt(scope) == 1
+
+    loaded = StateManager(tmp_path, run_id=root.run_id)
+    layer_calls: list[str] = []
+    real_enable = getattr(loaded, "enable_durable_state_writes", None)
+    real_process_locks = getattr(state_module, "provider_attempt_process_locks", None)
+    real_durable_persist = getattr(loaded, "_persist_state_durably", None)
+
+    def tracking_enable() -> None:
+        layer_calls.append("enable_durable_state_writes")
+        if real_enable is not None:
+            real_enable()
+
+    @contextmanager
+    def tracking_process_locks(run_root: Path):
+        layer_calls.append("provider_attempt_process_locks")
+        if real_process_locks is None:
+            yield
+        else:
+            with real_process_locks(run_root):
+                yield
+
+    def tracking_durable_persist() -> None:
+        layer_calls.append("_persist_state_durably")
+        if real_durable_persist is not None:
+            real_durable_persist()
+
+    monkeypatch.setattr(
+        loaded,
+        "enable_durable_state_writes",
+        tracking_enable,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        state_module,
+        "provider_attempt_process_locks",
+        tracking_process_locks,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        loaded,
+        "_persist_state_durably",
+        tracking_durable_persist,
+        raising=False,
+    )
+
+    loaded.load()
+    loaded.record_provider_attempt_publication(
+        scope,
+        1,
+        relative_path="records/attempt-000001.json",
+        file_sha256="sha256:" + "a" * 64,
+        record_kind="prompt_snapshot",
+    )
+    assert loaded.allocate_provider_attempt(scope) == 2
+
+    coordination_paths = [
+        loaded.run_root / ".provider-attempt-allocation-started",
+        loaded.run_root / ".state-mutation.lock",
+        loaded.run_root
+        / "workflow_lisp"
+        / "prompt_dependencies"
+        / ".aggregate.lock",
+    ]
+    assert (
+        layer_calls,
+        [
+            path.relative_to(loaded.run_root).as_posix()
+            for path in coordination_paths
+            if path.exists()
+        ],
+    ) == ([], [])
+
+
+def test_publication_validation_performs_no_allocator_write_and_next_is_larger(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2245,29 +2182,107 @@ def test_failed_publication_transition_keeps_allocated_gap_and_next_is_larger(
     scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
     assert root.allocate_provider_attempt(scope) == 1
     real_persist = root._persist_state_durably
+    before = root.state_file.read_bytes()
     monkeypatch.setattr(
         root,
         "_persist_state_durably",
-        lambda: (_ for _ in ()).throw(OSError("publication crash")),
+        lambda: (_ for _ in ()).throw(
+            AssertionError("publication validation attempted allocator state write")
+        ),
     )
-    with pytest.raises(OSError, match="publication crash"):
-        root.record_provider_attempt_publication(
-            scope,
-            1,
-            relative_path="record.json",
-            file_sha256="sha256:" + "a" * 64,
-            record_kind="failure",
-        )
+    root.record_provider_attempt_publication(
+        scope,
+        1,
+        relative_path="record.json",
+        file_sha256="sha256:" + "a" * 64,
+        record_kind="failure",
+    )
+    assert root.state_file.read_bytes() == before
     monkeypatch.setattr(root, "_persist_state_durably", real_persist)
 
     assert root.allocate_provider_attempt(scope) == 2
-    events = json.loads(root.state_file.read_bytes())["provider_attempt_allocations"][
-        scope.key
-    ]["events"]
-    assert events == [
-        {"ordinal": 1, "event": "allocated"},
-        {"ordinal": 2, "event": "allocated"},
+    assert json.loads(root.state_file.read_bytes())[
+        "provider_attempt_allocations"
+    ][scope.key] == {
+        "scope": scope.to_dict(),
+        "last_allocated_ordinal": 2,
+    }
+
+
+def test_legacy_allocation_events_read_then_canonicalize_counter_only(
+    tmp_path: Path,
+) -> None:
+    root = _prepare_direct_scope_root(tmp_path, run_id="legacy-ledger-read")
+    root.update_control_flow_counters(1, {"Provider": 1})
+    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
+    legacy_scope = _attempt_module().ProviderAttemptScope.from_dict(
+        _direct_scope_payload(root, candidate="legacy")
+    )
+    q3_scope = _attempt_module().ProviderAttemptScope.from_dict(
+        _direct_scope_payload(root, candidate="q3")
+    )
+    persisted = json.loads(root.state_file.read_bytes())
+    persisted["provider_attempt_allocations"] = {
+        legacy_scope.key: {
+            "scope": legacy_scope.to_dict(),
+            "last_allocated_ordinal": 2,
+            "events": [
+                {"ordinal": 1, "event": "allocated"},
+                {
+                    "ordinal": 1,
+                    "event": "evidence_published",
+                    "relative_path": "records/legacy-attempt-000001.json",
+                    "file_sha256": "sha256:" + "a" * 64,
+                    "record_kind": "prompt_snapshot",
+                },
+                {"ordinal": 2, "event": "allocated"},
+            ],
+        },
+        q3_scope.key: {
+            "scope": q3_scope.to_dict(),
+            "last_allocated_ordinal": 1,
+            "events": [
+                {"ordinal": 1, "event": "allocated"},
+                {
+                    "ordinal": 1,
+                    "event": "evidence_published",
+                    "relative_path": "records/q3-attempt-000001.json",
+                    "file_sha256": "sha256:" + "b" * 64,
+                    "record_kind": "failure",
+                },
+            ],
+            "prompt_fragment_identity_schema_version": (
+                "compiled_prompt_fragment_identity.v2"
+            ),
+        },
+    }
+    root.state_file.write_text(json.dumps(persisted, indent=2), encoding="utf-8")
+
+    loaded = StateManager(tmp_path, run_id=root.run_id)
+    state = loaded.load()
+    normalized_in_memory = json.loads(
+        json.dumps(state.provider_attempt_allocations)
+    )
+    loaded.update_status("completed")
+    normalized_on_disk = json.loads(loaded.state_file.read_bytes())[
+        "provider_attempt_allocations"
     ]
+    expected = {
+        legacy_scope.key: {
+            "scope": legacy_scope.to_dict(),
+            "last_allocated_ordinal": 2,
+        },
+        q3_scope.key: {
+            "scope": q3_scope.to_dict(),
+            "last_allocated_ordinal": 1,
+            "prompt_fragment_identity_schema_version": (
+                "compiled_prompt_fragment_identity.v2"
+            ),
+        },
+    }
+
+    assert normalized_in_memory == expected
+    assert normalized_on_disk == expected
 
 
 def test_allocator_never_enumerates_evidence_directories(
@@ -2287,7 +2302,7 @@ def test_allocator_never_enumerates_evidence_directories(
     monkeypatch.setattr(Path, "rglob", reject_enumeration)
 
     assert root.allocate_provider_attempt(scope) == 1
-    assert (root.run_root / "workflow_lisp/prompt_dependencies/.aggregate.lock").is_file()
+    assert not (root.run_root / "workflow_lisp/prompt_dependencies").exists()
 
 
 def test_two_level_nested_manager_delegates_one_allocation_to_root(tmp_path: Path) -> None:
@@ -2399,127 +2414,3 @@ def test_loop_in_call_scope_uses_leaf_visit_and_iteration(tmp_path: Path) -> Non
     )
 
     assert child.allocate_provider_attempt(scope) == 1
-
-
-def test_cross_process_allocations_are_unique_and_monotonic(tmp_path: Path) -> None:
-    root = _prepare_direct_scope_root(tmp_path, run_id="process-allocation")
-    root.update_control_flow_counters(1, {"Provider": 1})
-    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
-    scope_payload = _direct_scope_payload(root)
-    context = multiprocessing.get_context("fork")
-    results = context.Queue()
-    processes = [
-        context.Process(
-            target=_allocate_in_process,
-            args=(str(tmp_path), root.run_id, scope_payload, results),
-        )
-        for _ in range(8)
-    ]
-
-    for process in processes:
-        process.start()
-    for process in processes:
-        process.join(timeout=15)
-        assert process.exitcode == 0
-    rows = [results.get(timeout=2) for _ in processes]
-
-    assert all(status == "ok" for status, _ in rows), rows
-    assert sorted(value for _, value in rows) == list(range(1, 9))
-    persisted = json.loads(root.state_file.read_bytes())
-    scope = _attempt_module().ProviderAttemptScope.from_dict(scope_payload)
-    assert persisted["provider_attempt_allocations"][scope.key][
-        "last_allocated_ordinal"
-    ] == 8
-
-
-@pytest.mark.parametrize("first_operation", ["allocate", "status"])
-def test_hook_enabled_processes_preserve_first_allocation_and_ordinary_mutation(
-    tmp_path: Path,
-    first_operation: str,
-) -> None:
-    root = _prepare_direct_scope_root(tmp_path, run_id=f"hook-race-{first_operation}")
-    root.update_control_flow_counters(1, {"Provider": 1})
-    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
-    context = multiprocessing.get_context("fork")
-    barrier = context.Barrier(2)
-    first_done = context.Event()
-    results = context.Queue()
-    allocate = context.Process(
-        target=_coordinated_allocate_in_process,
-        args=(
-            str(tmp_path),
-            root.run_id,
-            _direct_scope_payload(root),
-            barrier,
-            first_done,
-            first_operation == "allocate",
-            results,
-        ),
-    )
-    status = context.Process(
-        target=_coordinated_status_in_process,
-        args=(
-            str(tmp_path),
-            root.run_id,
-            barrier,
-            first_done,
-            first_operation == "status",
-            results,
-        ),
-    )
-
-    allocate.start()
-    status.start()
-    for process in (allocate, status):
-        process.join(timeout=15)
-        assert process.exitcode == 0
-    rows = {results.get(timeout=2) for _ in range(2)}
-    assert rows == {("allocated", 1), ("status", "completed")}
-
-    persisted = json.loads(root.state_file.read_bytes())
-    scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
-    assert persisted["status"] == "completed"
-    assert persisted["provider_attempt_allocations"][scope.key][
-        "last_allocated_ordinal"
-    ] == 1
-
-
-def test_cross_process_workers_allocate_and_publish_complete_paired_events(
-    tmp_path: Path,
-) -> None:
-    root = _prepare_direct_scope_root(tmp_path, run_id="process-publication")
-    root.update_control_flow_counters(1, {"Provider": 1})
-    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
-    scope_payload = _direct_scope_payload(root)
-    context = multiprocessing.get_context("fork")
-    results = context.Queue()
-    processes = [
-        context.Process(
-            target=_allocate_and_publish_in_process,
-            args=(str(tmp_path), root.run_id, scope_payload, results),
-        )
-        for _ in range(8)
-    ]
-    for process in processes:
-        process.start()
-    for process in processes:
-        process.join(timeout=15)
-        assert process.exitcode == 0
-    rows = [results.get(timeout=2) for _ in processes]
-
-    assert all(status == "ok" for status, _ in rows), rows
-    assert sorted(value for _, value in rows) == list(range(1, 9))
-    persisted = json.loads(root.state_file.read_bytes())
-    scope = _attempt_module().ProviderAttemptScope.from_dict(scope_payload)
-    events = persisted["provider_attempt_allocations"][scope.key]["events"]
-    for ordinal in range(1, 9):
-        allocated = {"ordinal": ordinal, "event": "allocated"}
-        publications = [
-            event
-            for event in events
-            if event.get("ordinal") == ordinal
-            and event.get("event") == "evidence_published"
-        ]
-        assert events.count(allocated) == 1
-        assert len(publications) == 1
-        assert events.index(allocated) < events.index(publications[0])
