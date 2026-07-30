@@ -138,10 +138,10 @@ class _ProviderBoundaryInterruption(BaseException):
     pass
 
 
-def _manifest(path: Path) -> dict[str, str]:
+def _manifest(path: Path) -> dict[str, object]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert isinstance(payload, dict)
-    return {str(key): str(value) for key, value in payload.items()}
+    return {str(key): value for key, value in payload.items()}
 
 
 def _compile(
@@ -1146,9 +1146,10 @@ def test_judgment_panel_retains_composed_child_and_unfragmented_synthesis(
     )
 
     assert synthesis.provider == "codex"
-    assert synthesis.asset_file == (
+    assert synthesis.input_file == (
         "prompts/workflows/review_revise_design_docs/synthesize.md"
     )
+    assert synthesis.asset_file is None
     assert synthesis.compiler_prompt_fragment_contract is None
     assert synthesis.compiled_prompt_fragment_identity is None
     assert synthesis.prompt_attempt_identity_version is None

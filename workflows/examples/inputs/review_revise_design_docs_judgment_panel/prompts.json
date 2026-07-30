@@ -1,4 +1,6 @@
 {
   "prompts.design-docs.fix": "prompts/workflows/review_revise_design_docs/fix.md",
-  "prompts.design-docs.synthesize": "prompts/workflows/review_revise_design_docs/synthesize.md"
+  "prompts.design-docs.synthesize": {
+    "input_file": "prompts/workflows/review_revise_design_docs/synthesize.md"
+  }
 }
