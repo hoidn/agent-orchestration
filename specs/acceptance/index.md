@@ -29,7 +29,9 @@
 2. JSON capture: `output_capture: json` → `steps.X.json` object available
 3. Dynamic for-each: `items_from: "steps.List.lines"` iterates correctly
 4. Status schema: Write/read status.json with v1 schema
-5. Inbox atomicity: `*.tmp` → `rename()` → visible as `*.task`
+5. Inbox publication convention: workflow authors and external tools publish
+   tasks via same-directory `*.tmp` → atomic `rename()` → visible `*.task`;
+   this does not promise a framework queue-manager API
 6. Queue management is user-driven: Steps explicitly move tasks to `processed/{ts}/` or `failed/{ts}/` (orchestrator does not move individual tasks)
 7. No env namespace: `${env.*}` rejected by schema validator
 8. Provider templates: Template + defaults + params compose argv correctly (argv mode)

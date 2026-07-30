@@ -1,5 +1,6 @@
 """Tests for wait-for functionality (AT-17, AT-18, AT-19)."""
 
+import importlib
 import os
 import pytest
 import tempfile
@@ -7,7 +8,22 @@ import time
 import threading
 from pathlib import Path
 
+import orchestrator.fsq as fsq
 from orchestrator.fsq.wait import WaitFor, WaitForConfig, wait_for_files
+
+
+def test_fsq_public_surface_is_wait_only():
+    assert fsq.WaitFor is WaitFor
+    for retired_name in (
+        "QueueManager",
+        "write_task",
+        "move_to_processed",
+        "move_to_failed",
+    ):
+        assert not hasattr(fsq, retired_name)
+
+    with pytest.raises(ModuleNotFoundError, match=r"orchestrator\.fsq\.queue"):
+        importlib.import_module("orchestrator.fsq.queue")
 
 
 class TestWaitFor:

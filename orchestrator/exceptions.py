@@ -58,8 +58,8 @@ class ValidationError:
 class WorkflowValidationError(Exception):
     """Raised when workflow validation fails.
 
-    This exception is raised by the loader when validation errors occur,
-    allowing the CLI to catch it and map to appropriate exit codes.
+    Validation stages raise this exception with structured errors so callers,
+    including the CLI, can report them and map the appropriate exit code.
     """
 
     def __init__(self, errors: List[ValidationError]):

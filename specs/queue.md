@@ -1,4 +1,4 @@
-# Queues and Wait-For (Normative)
+# Filesystem Queue Conventions and Wait-For (Normative)
 
 - Workspace directories
   - `inbox/`: agent work queues (`*.task` conventions per workflow)
@@ -6,8 +6,11 @@
   - `failed/`: quarantined work items
   - Orchestrator uses these by convention; lifecycle is authored explicitly in workflows.
 
-- Task file creation
-  - Write as `*.tmp`, then atomic rename to `*.task`.
+- Task file publication convention
+  - Workflow authors and external tools that publish `*.task` files write a
+    same-directory `*.tmp` file, then atomically rename it to `*.task`.
+  - This is an author/tool interoperability convention, not a framework queue
+    service or a promised `QueueManager` API.
 
 - Lifecycle ownership
   - Orchestrator does not automatically move/archive/delete task files.
@@ -59,9 +62,9 @@ Path resolution rule: All user-declared paths remain explicit and resolve agains
 
 Path safety: See `security.md#path-safety` for normative rules; child processes may read/write anywhere permitted by the OS.
 
-## Task Queue System
+## Task File Publication Convention
 
-Writing tasks:
+When a workflow or external tool publishes a task:
 1. Create as `*.tmp` file
 2. Atomic rename to `*.task`
 
@@ -72,12 +75,16 @@ Processing results (recommended, user-managed):
 Ownership clarification:
 - The orchestrator does not automatically move, archive, or delete task files.
 - Queue directories and `*.task` files are conventions used by workflows; authors are responsible for file lifecycle via explicit steps.
+- The runtime does not provide a generic queue manager or task-publication API.
 - The orchestrator provides blocking (`wait_for`) and safe CLI helpers (`--clean-processed`, `--archive-processed`) but never moves individual tasks on step success/failure.
 
-Configuration defaults:
+Authored directory-convention defaults:
 ```yaml
 inbox_dir: "inbox"
 processed_dir: "processed"
 failed_dir: "failed"
 task_extension: ".task"
 ```
+
+These fields configure workflow conventions and the independent CLI
+processed-directory operations; they do not instantiate a queue-manager API.

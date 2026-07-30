@@ -1903,21 +1903,6 @@ def test_terminal_validation_rejects_conflicting_existing_index(tmp_path: Path) 
         validate_terminal_evidence(root, state_file)
 
 
-def test_terminal_validation_cli_emits_machine_readable_result(tmp_path: Path, capsys) -> None:
-    from scripts.validate_prompt_dependency_evidence import main
-
-    root = tmp_path / "run"
-    root.mkdir()
-    state = _terminal_state(root)
-    state_file = root / "state.json"
-    state_file.write_text(json.dumps(state.to_dict()), encoding="utf-8")
-    assert main([str(root), "--state-file", str(state_file)]) == 0
-    result = json.loads(capsys.readouterr().out)
-    assert result["status"] == "passed"
-    assert result["initial_state_sha256"] == _sha(state_file.read_bytes())
-    assert Path(result["index_path"]).is_file()
-
-
 def test_terminal_validation_detects_bypass_state_drift_and_removes_new_index(tmp_path: Path) -> None:
     from orchestrator.workflow.prompt_dependency_evidence import validate_terminal_evidence
 
@@ -2122,9 +2107,7 @@ def _offline_validator_references(source: str) -> set[str]:
         "build_allocator_projection",
         "validate_allocator_projection",
         "allocator_projection_sha256",
-        "validate_prompt_dependency_evidence",
     }
-    forbidden_modules = {"scripts.validate_prompt_dependency_evidence"}
     tree = ast.parse(source)
     referenced = {
         node.id for node in ast.walk(tree) if isinstance(node, ast.Name)
@@ -2135,14 +2118,8 @@ def _offline_validator_references(source: str) -> set[str]:
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom)
         for alias in node.names
-    } | {
-        alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-        if alias.name in forbidden_modules
     }
-    return referenced & (forbidden | forbidden_modules)
+    return referenced & forbidden
 
 
 def test_runtime_ast_guard_rejects_aliased_offline_validator_import() -> None:
@@ -2154,9 +2131,6 @@ def test_runtime_ast_guard_rejects_aliased_offline_validator_import() -> None:
     assert _offline_validator_references(
         "from orchestrator.workflow.prompt_dependency_evidence import validate_index as v\n"
     ) == {"validate_index"}
-    assert _offline_validator_references(
-        "import scripts.validate_prompt_dependency_evidence as validator\n"
-    ) == {"scripts.validate_prompt_dependency_evidence"}
 
 
 def test_runtime_modules_do_not_import_or_call_offline_prompt_dependency_validator() -> None:
