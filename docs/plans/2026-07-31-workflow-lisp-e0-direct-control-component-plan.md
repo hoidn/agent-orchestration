@@ -129,6 +129,13 @@ The implementation must have this semantic shape:
 direct task completed; `false` means it did not. Workspace changes remain the
 agentic deliverable and are not represented by a forced report artifact.
 
+The canonical experiment launch policy binds `max_retries=0` explicitly at
+the existing executor/CLI surface. The repository CLI otherwise defaults to
+one retry, so a source shape with one provider node is not by itself proof of
+one provider invocation. E0 changes no retry default and adds no workflow
+syntax; every conformance harness and smoke launch passes the existing
+zero-retry option deliberately.
+
 ## Accounting-parity contract
 
 E0 creates no accounting implementation. Its proof compares the canonical
@@ -284,7 +291,11 @@ postcommit selector passes.
 - [ ] Execute one fresh production E0 entry and require exactly one prepared
       invocation, exactly one execution, completed status, scalar
       `workflow_outputs == {"__result__": true}`, and one persisted provider
-      attempt allocation.
+      attempt allocation. Construct the executor with `max_retries=0`.
+- [ ] Add the opposing retryable-failure case under the same zero-retry
+      policy. A provider execution that returns a retryable nonzero exit must
+      produce exactly one prepare call, exactly one execute call, and a
+      terminal failed run; it must not make a second provider invocation.
 - [ ] Load the same completed root and execute ordinary resume. Require the
       validated committed result to be reused with zero additional provider
       preparation/execution and unchanged result.
@@ -307,7 +318,8 @@ postcommit selector passes.
 
 - [ ] Add a deterministic ordinary-arm execution of the existing composed
       one-provider fixture with a structured result whose artifact shape
-      differs from E0's scalar result.
+      differs from E0's scalar result. Bind both executors to
+      `max_retries=0`.
 - [ ] Project provider-boundary state and provider-attempt allocation through
       one test-only structural helper. Require equal runtime-owned key sets
       and one attempt for each run while explicitly requiring unequal result
@@ -362,10 +374,11 @@ postcommit selector passes.
       provider-policy, provider-attempt, pure-replay, runtime-observability,
       phased-composed, and routing selectors.
 - [ ] Run one deterministic end-to-end CLI or executor smoke using the
-      production `.orc` source and fake provider. A real provider run is not
-      required because E0's feasibility claim concerns deterministic call
-      count, typed composition, result reuse, and accounting structure, not
-      prompt quality.
+      production `.orc` source, fake provider, and explicit
+      `--max-retries 0` or equivalent executor argument. A real provider run
+      is not required because E0's feasibility claim concerns deterministic
+      call count, typed composition, result reuse, and accounting structure,
+      not prompt quality.
 - [ ] Run `git diff --check` and the broad non-security suite with
       `pytest -q -n 16 --dist=worksteal`, preserving the standing repository
       exclusions for security, safety, secrets, and provider-isolation paths.
@@ -396,6 +409,8 @@ implementation authority from `PASS_E0`.
       orchestration instruction was added.
 - [ ] Fresh execution invokes once; completed resume invokes zero additional
       providers.
+- [ ] A retryable provider failure under the bound zero-retry policy invokes
+      once and terminates failed.
 - [ ] Accounting field ownership matches an ordinary one-provider workflow
       while result/artifact shapes differ.
 - [ ] Compiler/runtime/spec/state behavior is unchanged.
