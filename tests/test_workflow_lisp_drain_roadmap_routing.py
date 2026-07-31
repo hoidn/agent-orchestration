@@ -1321,6 +1321,11 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
     index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
     workflow_catalog_path = REPO_ROOT / "workflows" / "README.md"
     workflow_catalog = workflow_catalog_path.read_text(encoding="utf-8")
+    route_registry = json.loads(
+        (
+            REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json"
+        ).read_text(encoding="utf-8")
+    )
     direct_control_catalog = next(
         (
             line
@@ -1342,6 +1347,7 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
     normalized_roadmap = _normalized_routing_text(roadmap)
     normalized_trial = _normalized_routing_text(trial)
     normalized_gates = _normalized_routing_text(gates)
+    normalized_sequence = _normalized_routing_text(sequence)
     assert "e_designs_spec_approved" in normalized_roadmap
     assert "e_designs_quality_approved" in normalized_roadmap
     assert "e0 is the sole selected tranche" in normalized_roadmap
@@ -1417,6 +1423,28 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
     )
     normalized_design_index = _normalized_routing_text(design_index)
     normalized_index = _normalized_routing_text(index)
+    for task_4_surface in (
+        normalized_plan,
+        normalized_roadmap,
+        normalized_design_index,
+        normalized_index,
+        normalized_trial_capability,
+        normalized_sequence,
+    ):
+        assert "task 4 closed at 46387582" in task_4_surface
+        assert "task 5 final gate is in progress" in task_4_surface
+    assert "46387582d2af0636a3f3041a706ddb0f658c8ce8" in plan
+    assert "5dc787b69d3deb2010ed1cd4040444eec1e7c62a" in plan
+    assert plan.index("E0_TASK4_SPEC_APPROVED") < plan.index(
+        "E0_TASK4_QUALITY_APPROVED"
+    )
+    assert "postcommit direct routing control passed 74 tests" in normalized_plan
+    assert "task 4 routing candidate" not in normalized_plan
+    assert "task 4 and the final gate remain" not in normalized_design_index
+    assert "task 4 routing and task 5 final verification remain" not in (
+        normalized_index
+    )
+    assert "task 4 and final e0 gates pending" not in normalized_trial_capability
     assert "e0 implemented pending final gate" in normalized_design_index
     assert "e0 is implemented pending final gate" in normalized_index
     assert direct_control_catalog, "direct-control library catalog row is missing"
@@ -1432,6 +1460,29 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
     ):
         assert required_catalog_fact in normalized_catalog
     assert "workflows/library/control/direct_task.orc" in workflow_catalog
+    direct_control_route_rows = [
+        surface
+        for surface in route_registry["surfaces"]
+        if surface["path"] == "workflows/library/control/direct_task.orc"
+    ]
+    assert len(direct_control_route_rows) == 1
+    [direct_control_route_row] = direct_control_route_rows
+    assert direct_control_route_row == {
+        "copy_safety": "not_current_guidance",
+        "entry_workflow": "control/direct_task::direct-task",
+        "evidence": [
+            "tests/test_workflow_lisp_direct_control.py::test_direct_task_is_one_composed_provider_boundary",
+            "tests/test_workflow_lisp_direct_control.py::test_direct_task_executes_once_and_committed_boundary_resume_reuses_result",
+            "tests/test_workflow_lisp_direct_control.py::test_direct_task_matches_ordinary_provider_accounting_structure",
+        ],
+        "lowering_route": "wcc_m4",
+        "lowering_schema_version": 2,
+        "path": "workflows/library/control/direct_task.orc",
+        "readiness_label": "leaf_runtime_candidate",
+        "route_label": "wcc_default",
+        "surface_id": "workflows.library.control.direct_task",
+        "surface_kind": "library_workflow",
+    }
     normalized_plan_review = _normalized_routing_text(plan_review)
     assert "e0_plan_spec_approved" in normalized_plan_review
     assert "e0_plan_quality_approved" in normalized_plan_review

@@ -500,6 +500,22 @@
       "surface_kind": "workflow_example"
     },
     {
+      "copy_safety": "not_current_guidance",
+      "entry_workflow": "control/direct_task::direct-task",
+      "evidence": [
+        "tests/test_workflow_lisp_direct_control.py::test_direct_task_is_one_composed_provider_boundary",
+        "tests/test_workflow_lisp_direct_control.py::test_direct_task_executes_once_and_committed_boundary_resume_reuses_result",
+        "tests/test_workflow_lisp_direct_control.py::test_direct_task_matches_ordinary_provider_accounting_structure"
+      ],
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "path": "workflows/library/control/direct_task.orc",
+      "readiness_label": "leaf_runtime_candidate",
+      "route_label": "wcc_default",
+      "surface_id": "workflows.library.control.direct_task",
+      "surface_kind": "library_workflow"
+    },
+    {
       "copy_safety": "migration_evidence_only",
       "evidence": [
         "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
@@ -812,5 +828,5 @@
       "surface_kind": "test_fixture"
     }
   ],
-  "updated": "2026-07-29"
+  "updated": "2026-07-31"
 }

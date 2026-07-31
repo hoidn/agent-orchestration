@@ -33,8 +33,11 @@ provider execution, pytest/pytest-xdist, and repository routing tests.
 landed at `b71bf62aa3cc8640e5ae9df47f1ec09794a5eb5c`; Task 2 landed at
 `3d41a8bf503af14b5aaaaf29e69bc03dfdbb6d5d`; and Task 3 landed at
 `3b9343732d5e764e6e2ebb8f5d2501536d4701ea`. Each passed its ordered
-specification then quality review. This Task 4 routing candidate is prepared;
-its ordered reviews, commit, and Task 5 final gate remain. The
+specification then quality review. Task 4 closed at
+`46387582d2af0636a3f3041a706ddb0f658c8ce8`, tree
+`5dc787b69d3deb2010ed1cd4040444eec1e7c62a`, after ordered
+`E0_TASK4_SPEC_APPROVED` then `E0_TASK4_QUALITY_APPROVED`; its postcommit
+direct-routing control passed 74 tests. Task 5 final gate is in progress. The
 original reviewed candidate at `b401c493a0e0c7a9614d96cd18bfb8f4fa29f494`, tree
 `291bc6130412a04ef9e3886cca23579c3fb325f0`, plan SHA-256
 `0e906fdf2daa06bf8d6bb9720cd71e1086174f46dda97cb8204add16aa490809`
@@ -121,6 +124,8 @@ E0 owns exactly:
 - the E0 entry in `workflows/README.md`;
 - the exact E0 lifecycle rows in the E roadmap, design router, capability
   matrix, docs index, and routing tests;
+- the exact `workflows.library.control.direct_task` row in
+  `docs/workflow_lisp_route_readiness_registry.json`;
 - the exact current E-series row in the procedure-first execution-sequence
   router; and
 - this plan and its plan/final review artifacts.
@@ -420,17 +425,29 @@ postcommit selector passes.
       E0 implementation and evidence through current status surfaces.
 - [x] Update routing assertions behaviorally—no prompt-text assertions.
 - [x] Run the direct-control module and complete routing suite.
-- [ ] Obtain ordered `E0_TASK4_SPEC_APPROVED` then
+- [x] Obtain ordered `E0_TASK4_SPEC_APPROVED` then
       `E0_TASK4_QUALITY_APPROVED`, commit with subject
       `Route canonical direct control`, and rerun the postcommit selector.
+      Task 4 closed at
+      `46387582d2af0636a3f3041a706ddb0f658c8ce8`, tree
+      `5dc787b69d3deb2010ed1cd4040444eec1e7c62a`; the postcommit direct-routing
+      control passed 74 tests.
 
 ## Task 5: Final verification, completion record, and handoff
 
 **Files:**
 
 - Create: `artifacts/review/e0-direct-control-final-review.md`
+- Modify: `docs/workflow_lisp_route_readiness_registry.json`
 - Modify: exact E0 status/evidence in the roadmap, capability matrix, docs
   index, design router, execution-sequence router, routing test, and this plan
+
+The first broad Task 5 gate discovered a route-readiness integrity omission:
+`test_checked_in_registry_loads_and_validates` and
+`test_cli_route_readiness_check_valid_registry` were RED because the E0
+production library source had no registry row. The correction records it as a
+`leaf_runtime_candidate` with `not_current_guidance`; final closure promotes
+that row only after `PASS_E0`.
 
 - [ ] Run `pytest --collect-only -q tests/test_workflow_lisp_direct_control.py`.
 - [ ] Run all direct-control, target-2.23 prompt, native-return,
