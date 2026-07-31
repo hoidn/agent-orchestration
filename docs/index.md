@@ -245,6 +245,11 @@ navigation are complete.
 **Keywords:** workflow-lisp, lsp, language-server, frontend, prerequisites, p-series, hover, incrementality, diagnostics, roadmap
 **Use this when:** Checking P-series tracking, ordering, entry conditions, or gates. P selection requires E-program completion (or an explicit owner closure/re-park decision), a language-server design amendment, and a reviewed component plan; owner acceleration is the sole early path.
 
+### [Workflow Lisp Language Server L6 Utility Roadmap](plans/2026-07-31-workflow-lisp-language-server-l6-utility-roadmap.md)
+**Description:** Owner-selected successor L stage (2026-07-31): L6a signature/declared-type hover from the L1 catalogs, L6b references as the reverse of the L5 definition index, L6c dedicated syntax grammar. Frontend-free, P-independent, concurrent-safe beside the E program; selection authorizes the design act only.
+**Keywords:** workflow-lisp, lsp, language-server, hover, references, grammar, l6, roadmap
+**Use this when:** Checking L6 scope, bounds, or entry conditions. Implementation requires an accepted language-server design amendment, ordered reviews, and a reviewed component plan; the completed language-quality roadmap is not reopened by this stage.
+
 ### [Procedure-First Reuse Contract](design/workflow_lisp_procedure_first_reuse_contract.md)
 **Description:** Accepted boundary and migration contract: workflows own durable public run/resume/invocation/publication identity, while typed procedures are the normal internal reuse unit with explicit lowering and caller-visible effects.
 **Keywords:** workflow-lisp, procedures, workflows, reuse, effects, lowering, migration

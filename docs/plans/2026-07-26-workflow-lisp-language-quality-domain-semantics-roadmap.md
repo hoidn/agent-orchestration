@@ -707,7 +707,11 @@ The completed surface remains limited to the admitted shapes.
   compilation remain deferred behind P1–P5 and require separate owner
   selection. The P-series itself is tracked in the
   [P-series roadmap](2026-07-30-lsp-frontend-prerequisites-p-series-roadmap.md),
-  sequenced after the E program.
+  sequenced after the E program. Frontend-free server utility (signature
+  hover, L5-index references, a syntax grammar) is owner-selected as the
+  successor L6 stage in the
+  [L6 utility roadmap](2026-07-31-workflow-lisp-language-server-l6-utility-roadmap.md);
+  this completed roadmap is not reopened by that selection.
 - Type-reference definition, complete references, and rename remain
   unselected until the compiler retains exact authored occurrence spans and a
   complete namespace-aware reference graph; the LSP must not guess from text.

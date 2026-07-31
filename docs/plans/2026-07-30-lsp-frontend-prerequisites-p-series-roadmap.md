@@ -33,7 +33,11 @@ server design:
 Dependent editor features (multi-diagnostic recovery, arbitrary expression
 hover, as-you-type checking, unsaved-buffer navigation) remain owned by the
 language server design and its amendments; this roadmap schedules
-prerequisites, not features.
+prerequisites, not features. Server-side utility work that needs no
+frontend change — signature hover, L5-index references, a syntax grammar —
+is not P work and is tracked separately in the
+[L6 utility roadmap](2026-07-31-workflow-lisp-language-server-l6-utility-roadmap.md),
+which is independent of this sequencing.
 
 ## Sequencing
 

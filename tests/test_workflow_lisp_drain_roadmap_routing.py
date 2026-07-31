@@ -1745,6 +1745,9 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "content free" in prompt_identity_index
     assert "direct fragment only" in prompt_identity_index
     assert Path(PROMPT_IDENTITY_PLAN_PATH).name in index
+    assert (
+        "2026-07-31-workflow-lisp-language-server-l6-utility-roadmap.md" in index
+    )
     assert "# Workflow Lisp Prompt Identity And Diagnostics Implementation Plan" in (
         q3_plan
     )
