@@ -27,6 +27,7 @@ from .loaded_bundle import (
     workflow_runtime_context_inputs,
 )
 from .predicates import PredicateEvaluationError
+from .pure_result_replay import DERIVED_PURE_REPLAY_PROFILE
 from .references import ReferenceResolutionError
 from .resume_projection_integrity import (
     CallFrameRetryLineage,
@@ -1230,6 +1231,15 @@ class CallExecutor:
             existing_frame=child_existing_frame,
             observability=self.executor.observability,
             resume_scope_path=self._resume_scope_path().child(frame_id),
+            result_persistence_profile=(
+                DERIVED_PURE_REPLAY_PROFILE
+                if (
+                    workflow_lisp_target
+                    and child_existing_frame is None
+                    and boundary.iteration_owner_node_id is None
+                )
+                else None
+            ),
         )
         child_state_manager.update_bound_input_resume_validation(
             status=str(resume_validation.get("status", "fresh")),

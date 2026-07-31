@@ -7,6 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 import stat
 from types import MappingProxyType, SimpleNamespace
+from typing import Any, Mapping
 from unittest.mock import patch
 
 import pytest
@@ -18,6 +19,11 @@ from orchestrator.state import StateManager
 from orchestrator.workflow.calls import CallExecutor
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_import_bundle, workflow_provenance
+from orchestrator.workflow.pure_result_replay import (
+    DERIVED_PURE_REPLAY_PROFILE,
+    PureReplayVisitWitness,
+    build_pure_completion_shell,
+)
 from orchestrator.workflow.resume_planner import ResumePlanner, ResumeStateIntegrityError
 from tests.workflow_bundle_helpers import (
     bundle_context_dict,
@@ -362,9 +368,10 @@ def _compile_imported_pure_replay_call_fixture(
     ((seed Int)
      (enabled Bool))
     -> ReplayResult
-    (call orchestrate
-      :seed seed
-      :enabled enabled)))
+    (let* ((forwarded-seed (+ seed 0)))
+      (call orchestrate
+        :seed forwarded-seed
+        :enabled enabled))))
 """,
         encoding="utf-8",
     )
@@ -393,6 +400,478 @@ def _compile_imported_pure_replay_call_fixture(
     child_bundle = workflow_import_bundle(parent_bundle, import_alias)
     assert child_bundle is not None
     return parent_path, parent_bundle, child_path, child_bundle
+
+
+class _NestedPureReplayInterruption(BaseException):
+    pass
+
+
+def _pure_node_ids(bundle: Any) -> tuple[str, ...]:
+    return tuple(
+        node_id
+        for node_id in bundle.ir.body_region
+        if bundle.ir.nodes[node_id].kind.value == "pure_projection"
+    )
+
+
+def _assert_exact_replay_shell(
+    *,
+    bundle: Any,
+    state: Mapping[str, Any],
+    node_id: str,
+) -> None:
+    presentation_key = (
+        bundle.projection.entries_by_node_id[node_id].presentation_key
+    )
+    assert state["steps"][presentation_key] == build_pure_completion_shell(
+        PureReplayVisitWitness(
+            presentation_key=presentation_key,
+            step_index=bundle.ir.body_region.index(node_id),
+            step_id=bundle.ir.nodes[node_id].step_id,
+            visit_count=1,
+        )
+    )
+
+
+def _pure_bundle_paths_for_state(
+    workspace: Path,
+    state: Mapping[str, Any],
+) -> tuple[Path, ...]:
+    bound_inputs = state.get("bound_inputs", {})
+    assert isinstance(bound_inputs, Mapping)
+    return tuple(
+        workspace / value
+        for name, value in bound_inputs.items()
+        if (
+            isinstance(name, str)
+            and isinstance(value, str)
+            and "__result_bundle" in name
+            and (
+                "__bind_seed__" in name
+                or "__a__" in name
+                or "__b__" in name
+            )
+        )
+    )
+
+
+def _assert_parent_replay_prefix_is_value_free(
+    *,
+    workspace: Path,
+    bundle: Any,
+    state: Mapping[str, Any],
+) -> None:
+    pure_node_ids = _pure_node_ids(bundle)
+    assert len(pure_node_ids) == 1
+    _assert_exact_replay_shell(
+        bundle=bundle,
+        state=state,
+        node_id=pure_node_ids[0],
+    )
+    bundle_paths = _pure_bundle_paths_for_state(workspace, state)
+    assert len(bundle_paths) == 1
+    assert all(not path.exists() for path in bundle_paths)
+
+
+def _assert_child_replay_state_is_value_free(
+    *,
+    workspace: Path,
+    bundle: Any,
+    state: Mapping[str, Any],
+) -> None:
+    assert (
+        state["result_persistence_profile"]
+        == DERIVED_PURE_REPLAY_PROFILE
+    )
+    pure_node_ids = _pure_node_ids(bundle)
+    assert len(pure_node_ids) == 2
+    for node_id in pure_node_ids:
+        _assert_exact_replay_shell(
+            bundle=bundle,
+            state=state,
+            node_id=node_id,
+        )
+    bundle_paths = _pure_bundle_paths_for_state(workspace, state)
+    assert len(bundle_paths) == 2
+    assert all(not path.exists() for path in bundle_paths)
+    assert state.get("private_artifact_versions", {}) == {}
+
+
+def _nested_diagnostic_surface(
+    state: Mapping[str, Any],
+) -> dict[str, Any]:
+    steps = state.get("steps", {})
+    call_frames = state.get("call_frames", {})
+    assert isinstance(steps, Mapping)
+    assert isinstance(call_frames, Mapping)
+    return {
+        "error": state.get("error"),
+        "step_errors": {
+            str(name): row.get("error")
+            for name, row in sorted(steps.items())
+            if isinstance(row, Mapping) and "error" in row
+        },
+        "call_frames": {
+            str(frame_id): _nested_diagnostic_surface(frame["state"])
+            for frame_id, frame in sorted(call_frames.items())
+            if (
+                isinstance(frame, Mapping)
+                and isinstance(frame.get("state"), Mapping)
+            )
+        },
+    }
+
+
+def _nested_artifact_surface(
+    state: Mapping[str, Any],
+) -> dict[str, Any]:
+    steps = state.get("steps", {})
+    call_frames = state.get("call_frames", {})
+    assert isinstance(steps, Mapping)
+    assert isinstance(call_frames, Mapping)
+    return {
+        "workflow_outputs": state.get("workflow_outputs", {}),
+        "artifact_versions": state.get("artifact_versions", {}),
+        "artifact_consumes": state.get("artifact_consumes", {}),
+        "step_artifacts": {
+            str(name): row["artifacts"]
+            for name, row in sorted(steps.items())
+            if isinstance(row, Mapping) and "artifacts" in row
+        },
+        "call_frames": {
+            str(frame_id): _nested_artifact_surface(frame["state"])
+            for frame_id, frame in sorted(call_frames.items())
+            if (
+                isinstance(frame, Mapping)
+                and isinstance(frame.get("state"), Mapping)
+            )
+        },
+    }
+
+
+def _nested_settlement_surface(
+    state: Mapping[str, Any],
+) -> dict[str, Any]:
+    call_frames = state.get("call_frames", {})
+    assert isinstance(call_frames, Mapping)
+    return {
+        "status": state.get("status"),
+        "finalization": state.get("finalization", {}),
+        "call_frames": {
+            str(frame_id): {
+                "status": frame.get("status"),
+                "body_status": frame.get("body_status"),
+                "finalization_status": frame.get(
+                    "finalization_status"
+                ),
+                "export_status": frame.get("export_status"),
+                "state": _nested_settlement_surface(frame["state"]),
+            }
+            for frame_id, frame in sorted(call_frames.items())
+            if (
+                isinstance(frame, Mapping)
+                and isinstance(frame.get("state"), Mapping)
+            )
+        },
+    }
+
+
+def test_fresh_noniterative_replay_profile_uses_typed_callee_not_parent(
+    tmp_path: Path,
+) -> None:
+    parent_path, parent_bundle, _, child_bundle = (
+        _compile_imported_pure_replay_call_fixture(tmp_path)
+    )
+    child_provenance = workflow_provenance(child_bundle)
+    assert child_provenance is not None
+    assert child_provenance.frontend_kind == "workflow_lisp"
+    manager = StateManager(
+        tmp_path,
+        run_id="fresh-noniterative-replay-constructor",
+    )
+    manager.initialize(
+        parent_path.name,
+        context=bundle_context_dict(parent_bundle),
+        bound_inputs={"seed": 3, "enabled": True},
+    )
+    assert manager.load().result_persistence_profile is None
+    executor = WorkflowExecutor(parent_bundle, tmp_path, manager)
+    state = manager.load().to_dict()
+    call_step = next(
+        step
+        for step in materialize_projection_body_steps(parent_bundle)
+        if step.get("call") is not None
+    )
+    constructor_kwargs: dict[str, Any] = {}
+
+    def construct_manager(*_args: Any, **kwargs: Any) -> Any:
+        constructor_kwargs.update(kwargs)
+        return SimpleNamespace(
+            update_bound_input_resume_validation=lambda **_kwargs: None,
+            _snapshot=lambda: {},
+        )
+
+    with patch.object(
+        executor.call_executor,
+        "resolve_bound_inputs",
+        return_value=({"seed": 3, "enabled": True}, None),
+    ), patch(
+        "orchestrator.workflow.call_frame_state._CallFrameStateManager",
+        side_effect=construct_manager,
+    ), patch(
+        "orchestrator.workflow.executor.WorkflowExecutor",
+    ) as child_executor:
+        child_executor.return_value.execute.return_value = {
+            "status": "completed",
+            "workflow_outputs": {
+                "return__seed-value": 3,
+                "return__effect-value": 4,
+                "return__finished": True,
+            },
+        }
+        result = executor.call_executor.execute_call(
+            call_step,
+            state,
+            runtime_step_id=call_step["step_id"],
+            step_name_override=call_step["name"],
+        )
+
+    assert result["status"] == "completed"
+    assert constructor_kwargs["existing_frame"] is None
+    assert (
+        constructor_kwargs["result_persistence_profile"]
+        == DERIVED_PURE_REPLAY_PROFILE
+    )
+
+
+def test_fresh_noniterative_replay_profile_clean_child_elides_pure_surfaces(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.test_workflow_lisp_pure_result_replay import (
+        _effect_calls,
+        _execute_replay_profile_fixture,
+    )
+
+    explicit_workspace = tmp_path / "explicit-child"
+    explicit_workspace.mkdir()
+    monkeypatch.chdir(explicit_workspace)
+    _, _, explicit_active, _ = _execute_replay_profile_fixture(
+        explicit_workspace,
+        run_id="nested-replay-explicit-child-control",
+    )
+
+    nested_workspace = tmp_path / "nested-parent"
+    nested_workspace.mkdir()
+    parent_path, parent_bundle, _, child_bundle = (
+        _compile_imported_pure_replay_call_fixture(nested_workspace)
+    )
+    manager = StateManager(
+        nested_workspace,
+        run_id="fresh-noniterative-replay-clean",
+    )
+    manager.initialize(
+        parent_path.name,
+        context=bundle_context_dict(parent_bundle),
+        bound_inputs={"seed": 3, "enabled": True},
+        result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+    )
+    monkeypatch.chdir(nested_workspace)
+    active = WorkflowExecutor(
+        parent_bundle,
+        nested_workspace,
+        manager,
+    ).execute(on_error="stop")
+    persisted = manager.load().to_dict()
+    frame = next(iter(persisted["call_frames"].values()))
+    child_state = frame["state"]
+
+    assert active["status"] == "completed"
+    assert (
+        active["workflow_outputs"]
+        == explicit_active["workflow_outputs"]
+    )
+    _assert_parent_replay_prefix_is_value_free(
+        workspace=nested_workspace,
+        bundle=parent_bundle,
+        state=persisted,
+    )
+    _assert_child_replay_state_is_value_free(
+        workspace=nested_workspace,
+        bundle=child_bundle,
+        state=child_state,
+    )
+    assert _effect_calls(explicit_workspace) == ["E1", "E2"]
+    assert _effect_calls(nested_workspace) == ["E1", "E2"]
+
+
+def test_nested_pure_replay_resume_preserves_exact_effects_and_surfaces(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.test_workflow_lisp_pure_result_replay import (
+        _checkpoint_records,
+        _effect_calls,
+    )
+
+    clean_workspace = tmp_path / "clean"
+    clean_workspace.mkdir()
+    clean_parent_path, clean_parent_bundle, _, clean_child_bundle = (
+        _compile_imported_pure_replay_call_fixture(clean_workspace)
+    )
+    clean_manager = StateManager(
+        clean_workspace,
+        run_id="nested-pure-replay-clean-control",
+    )
+    clean_manager.initialize(
+        clean_parent_path.name,
+        context=bundle_context_dict(clean_parent_bundle),
+        bound_inputs={"seed": 3, "enabled": True},
+        result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+    )
+    monkeypatch.chdir(clean_workspace)
+    clean_active = WorkflowExecutor(
+        clean_parent_bundle,
+        clean_workspace,
+        clean_manager,
+    ).execute(on_error="stop")
+    clean_persisted = clean_manager.load().to_dict()
+    clean_child_state = next(
+        iter(clean_persisted["call_frames"].values())
+    )["state"]
+
+    resume_workspace = tmp_path / "resume"
+    resume_workspace.mkdir()
+    parent_path, parent_bundle, _, child_bundle = (
+        _compile_imported_pure_replay_call_fixture(resume_workspace)
+    )
+    manager = StateManager(
+        resume_workspace,
+        run_id="nested-pure-replay-interrupted",
+    )
+    manager.initialize(
+        parent_path.name,
+        context=bundle_context_dict(parent_bundle),
+        bound_inputs={"seed": 3, "enabled": True},
+        result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+    )
+    e2_node_id = next(
+        node_id
+        for node_id in child_bundle.ir.body_region
+        if node_id.endswith("__e2__finish_e2")
+    )
+    original_execute_command = WorkflowExecutor._execute_command
+
+    def interrupt_child_e2(
+        executor: WorkflowExecutor,
+        step: Any,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        if executor._step_id(step) == e2_node_id:
+            raise _NestedPureReplayInterruption
+        return original_execute_command(executor, step, state)
+
+    monkeypatch.chdir(resume_workspace)
+    with patch.object(
+        WorkflowExecutor,
+        "_execute_command",
+        interrupt_child_e2,
+    ):
+        with pytest.raises(_NestedPureReplayInterruption):
+            WorkflowExecutor(
+                parent_bundle,
+                resume_workspace,
+                manager,
+            ).execute(on_error="stop")
+
+    interrupted = manager.load().to_dict()
+    _assert_parent_replay_prefix_is_value_free(
+        workspace=resume_workspace,
+        bundle=parent_bundle,
+        state=interrupted,
+    )
+    interrupted_frame = next(
+        iter(interrupted["call_frames"].values())
+    )
+    interrupted_child = interrupted_frame["state"]
+    assert interrupted_child["current_step"]["step_id"] == e2_node_id
+    assert interrupted_child["current_step"]["status"] == "running"
+    assert interrupted_child["bound_inputs"]["seed"] == 3
+    _assert_child_replay_state_is_value_free(
+        workspace=resume_workspace,
+        bundle=child_bundle,
+        state=interrupted_child,
+    )
+    assert _effect_calls(resume_workspace) == ["E1"]
+
+    fresh_manager = StateManager(
+        resume_workspace,
+        run_id=manager.run_id,
+    )
+    fresh_manager.load()
+    resumed = WorkflowExecutor(
+        parent_bundle,
+        resume_workspace,
+        fresh_manager,
+    ).execute(resume=True, on_error="stop")
+    persisted = fresh_manager.load().to_dict()
+    frame = next(iter(persisted["call_frames"].values()))
+    child_state = frame["state"]
+
+    assert resumed["status"] == "completed"
+    assert frame["status"] == "completed"
+    assert child_state["status"] == "completed"
+    assert resumed["workflow_outputs"] == clean_active[
+        "workflow_outputs"
+    ]
+    assert (
+        _nested_artifact_surface(persisted)
+        == _nested_artifact_surface(clean_persisted)
+    )
+    assert (
+        _nested_diagnostic_surface(persisted)
+        == _nested_diagnostic_surface(clean_persisted)
+    )
+    assert (
+        _nested_settlement_surface(persisted)
+        == _nested_settlement_surface(clean_persisted)
+    )
+    assert _effect_calls(clean_workspace) == ["E1", "E2"]
+    assert _effect_calls(resume_workspace) == ["E1", "E2"]
+    _assert_parent_replay_prefix_is_value_free(
+        workspace=resume_workspace,
+        bundle=parent_bundle,
+        state=persisted,
+    )
+    _assert_child_replay_state_is_value_free(
+        workspace=resume_workspace,
+        bundle=child_bundle,
+        state=child_state,
+    )
+    _assert_child_replay_state_is_value_free(
+        workspace=clean_workspace,
+        bundle=clean_child_bundle,
+        state=clean_child_state,
+    )
+    pure_source_step_ids = {
+        child_bundle.ir.nodes[node_id].step_id.removeprefix("root.")
+        for node_id in _pure_node_ids(child_bundle)
+    }
+    checkpoint_records = _checkpoint_records(fresh_manager)
+    assert checkpoint_records
+    assert all(
+        record["pending_effect_policy"]["effect_kind"]
+        != "pure_projection"
+        for record in checkpoint_records
+    )
+    assert all(
+        binding.get("source_step_id") not in pure_source_step_ids
+        for record in checkpoint_records
+        for binding in record.get("restore_payload", {}).get(
+            "bindings",
+            (),
+        )
+    )
 
 
 def test_pure_replay_runtime_keeps_true_imported_callee_refs_workflow_local(
