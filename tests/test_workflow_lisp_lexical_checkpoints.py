@@ -13,16 +13,28 @@ import pytest
 from orchestrator.state import StateManager
 from orchestrator.workflow.executable_ir import ExecutableNodeKind
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.predicates import ComparePredicateNode
+from orchestrator.workflow.pure_expr import PureExprEvaluationError
+from orchestrator.workflow.pure_result_replay import (
+    DERIVED_PURE_REPLAY_PROFILE,
+    PureReplayVisitWitness,
+    derive_pure_result_replay_index,
+)
 from orchestrator.workflow.runtime_step import RuntimeStep
 from orchestrator.workflow.prompt_fragment_contract import (
     serialize_compiler_prompt_attempt_binding_plan,
 )
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from tests.test_workflow_lisp_pure_result_replay import (
+    _copy_and_compile_fixture as _compile_pure_replay_fixture,
+    _with_distinct_durable_step_id,
+)
 from tests.test_workflow_lisp_prompt_identity_carriage import (
     _compile as _compile_prompt_identity,
     _provider_carriers,
 )
+from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_shadow_points.orc")
@@ -1032,6 +1044,314 @@ def test_runtime_shadow_emission_writes_record_and_index_after_authoritative_sta
         inputs=_execution_inputs(tmp_path),
         expected_record_kinds={"effect_boundary", "loop_back_edge"},
     )
+
+
+def test_replay_profile_eligible_pure_point_emits_no_checkpoint_record(
+    tmp_path: Path,
+) -> None:
+    checkpoints = _module()
+    workflow_path, bundle = _compile_pure_replay_fixture(tmp_path)
+    replay_index = derive_pure_result_replay_index(bundle)
+    pure_node_id = next(
+        node_id for node_id in bundle.ir.body_region if node_id.endswith("__a")
+    )
+    replay_node = replay_index.nodes[pure_node_id]
+    execution_index = bundle.projection.execution_index_for_step_id(
+        pure_node_id
+    )
+    assert execution_index is not None
+    witness = PureReplayVisitWitness(
+        presentation_key=replay_node.presentation_key,
+        step_index=execution_index,
+        step_id=pure_node_id,
+        visit_count=1,
+    )
+    state_manager = StateManager(
+        tmp_path,
+        run_id="replay-profile-pure-checkpoint",
+    )
+    state_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs={"seed": 3, "enabled": True},
+        result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+    )
+    state_manager.begin_eligible_pure_visit(
+        step_name=witness.presentation_key,
+        step_index=witness.step_index,
+        step_id=witness.step_id,
+    )
+    shell = state_manager.settle_eligible_pure_success(witness)
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor._configure_pure_replay_runtime(
+        state_manager.state,
+        resume=False,
+    )
+    point = next(
+        candidate
+        for candidate in bundle.runtime_plan.lexical_checkpoint_points
+        if candidate.node_id == pure_node_id
+    )
+
+    emitted = checkpoints.emit_runtime_shadow_record(
+        executor=executor,
+        step_id=pure_node_id,
+        execution_index=execution_index,
+        visit_count=1,
+        committed_step_state=shell,
+    )
+
+    record_family = checkpoints.resolve_checkpoint_record_family_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    assert emitted is None
+    assert not record_family.exists()
+    assert not index_path.exists()
+
+
+def test_replay_profile_pure_evaluation_failure_keeps_full_row_and_checkpoint_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkpoints = _module()
+    default_resume = importlib.import_module(
+        "orchestrator.workflow_lisp.lexical_checkpoint_default_resume"
+    )
+    workflow_path, compiled_bundle = _compile_pure_replay_fixture(
+        tmp_path
+    )
+    pure_node_id = next(
+        node_id
+        for node_id in compiled_bundle.ir.body_region
+        if node_id.endswith("__a")
+    )
+    bundle, durable_step_id = _with_distinct_durable_step_id(
+        compiled_bundle,
+        node_id=pure_node_id,
+    )
+    point = next(
+        candidate
+        for candidate in bundle.runtime_plan.lexical_checkpoint_points
+        if candidate.node_id == pure_node_id
+    )
+    presentation_key = bundle.projection.entries_by_node_id[
+        pure_node_id
+    ].presentation_key
+    state_manager = StateManager(
+        tmp_path,
+        run_id="replay-profile-pure-failure-checkpoint",
+    )
+    state_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs={"seed": 3, "enabled": True},
+        result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+    )
+
+    def fail_pure_evaluation(*_args: object, **_kwargs: object) -> object:
+        raise PureExprEvaluationError(
+            "pure_evaluation_failed",
+            "injected pure evaluation failure",
+        )
+
+    monkeypatch.setattr(
+        "orchestrator.workflow.steps.pure_projection.evaluate_pure_expr",
+        fail_pure_evaluation,
+    )
+    result = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        state_manager,
+    ).execute(on_error="stop")
+
+    persisted = state_manager.state.to_dict()
+    failure_row = persisted["steps"][presentation_key]
+    assert result["status"] == "failed"
+    assert failure_row["status"] == "failed"
+    assert failure_row["error"]["type"] == "pure_evaluation_failed"
+    assert failure_row["visit_count"] == 1
+    assert failure_row["step_id"] == durable_step_id
+    assert "result_storage" not in failure_row
+
+    record_family = checkpoints.resolve_checkpoint_record_family_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    records = sorted(record_family.glob("*.json"))
+    assert len(records) == 1
+
+    fresh_manager = StateManager(
+        tmp_path,
+        run_id=state_manager.run_id,
+    )
+    fresh_manager.load()
+    fresh_executor = WorkflowExecutor(bundle, tmp_path, fresh_manager)
+    fresh_executor._configure_pure_replay_runtime(
+        fresh_manager.state,
+        resume=True,
+    )
+    restore_calls: list[dict[str, object]] = []
+
+    def restore_selector(**kwargs: object) -> object:
+        restore_calls.append(kwargs)
+        return SimpleNamespace(
+            kind="RESTORED",
+            checkpoint_id=point.checkpoint_id,
+            record_id="failure-record",
+            source_map_origin_key=point.origin_key,
+            restore_payload={},
+            policy_decision=None,
+            diagnostics=(),
+            transition_resume=None,
+            selection_observation="record_present",
+        )
+
+    decision = default_resume.determine_runtime_default_resume_decision(
+        state=fresh_manager.state.to_dict(),
+        runtime_plan=bundle.runtime_plan,
+        restart_node_id=pure_node_id,
+        state_manager=fresh_manager,
+        restore_selector=restore_selector,
+        loaded_workflow=bundle,
+        executable_workflow=bundle.ir,
+        is_workflow_lisp=True,
+    )
+
+    assert len(restore_calls) == 1
+    assert restore_calls[0]["restart_node_id"] == pure_node_id
+    assert decision["mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
+    assert decision["checkpoint_id"] == point.checkpoint_id
+
+
+def test_replay_profile_routed_skipped_pure_keeps_ordinary_checkpoint_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    default_resume = importlib.import_module(
+        "orchestrator.workflow_lisp.lexical_checkpoint_default_resume"
+    )
+    workflow_path, compiled_bundle = _compile_pure_replay_fixture(
+        tmp_path
+    )
+    pure_node_id = next(
+        node_id
+        for node_id in compiled_bundle.ir.body_region
+        if node_id.endswith("__a")
+    )
+    bundle, durable_step_id = _with_distinct_durable_step_id(
+        compiled_bundle,
+        node_id=pure_node_id,
+    )
+    presentation_key = bundle.projection.entries_by_node_id[
+        pure_node_id
+    ].presentation_key
+    state_manager = StateManager(
+        tmp_path,
+        run_id="replay-profile-routed-skip-checkpoint",
+    )
+    state_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs={"seed": 3, "enabled": True},
+        result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+    )
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    original_when = executor._when_condition
+    original_handle_control_flow = executor._handle_control_flow
+
+    def routed_when(step: object) -> object:
+        if executor._step_id(step) == durable_step_id:
+            return ComparePredicateNode(left=1, op="eq", right=2)
+        return original_when(step)
+
+    def stop_after_routed_skip(
+        step: object,
+        state: dict[str, object],
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        step_name = step.get("name")
+        row = state.get("steps", {}).get(step_name)
+        if (
+            executor._step_id(step) == durable_step_id
+            and isinstance(row, dict)
+            and row.get("status") == "skipped"
+        ):
+            return "_stop"
+        return original_handle_control_flow(
+            step,
+            state,
+            *args,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(executor, "_when_condition", routed_when)
+    monkeypatch.setattr(
+        executor,
+        "_handle_control_flow",
+        stop_after_routed_skip,
+    )
+    executor.execute(on_error="stop")
+
+    persisted = state_manager.state.to_dict()
+    skipped_row = persisted["steps"][presentation_key]
+    assert skipped_row["status"] == "skipped"
+    assert skipped_row["outcome"]["class"] == "skipped"
+    assert skipped_row["step_id"] == durable_step_id
+    assert "visit_count" not in skipped_row
+    assert "result_storage" not in skipped_row
+
+    fresh_manager = StateManager(
+        tmp_path,
+        run_id=state_manager.run_id,
+    )
+    fresh_manager.load()
+    fresh_executor = WorkflowExecutor(bundle, tmp_path, fresh_manager)
+    fresh_executor._configure_pure_replay_runtime(
+        fresh_manager.state,
+        resume=True,
+    )
+    restore_calls: list[dict[str, object]] = []
+
+    def missing_restore_selector(**kwargs: object) -> object:
+        restore_calls.append(kwargs)
+        return SimpleNamespace(
+            kind="NOT_RESTORABLE",
+            checkpoint_id=None,
+            record_id=None,
+            source_map_origin_key=None,
+            restore_payload=None,
+            policy_decision=None,
+            diagnostics=(),
+            transition_resume=None,
+            selection_observation="record_absent",
+        )
+
+    decision = default_resume.determine_runtime_default_resume_decision(
+        state=fresh_manager.state.to_dict(),
+        runtime_plan=bundle.runtime_plan,
+        restart_node_id=pure_node_id,
+        state_manager=fresh_manager,
+        restore_selector=missing_restore_selector,
+        loaded_workflow=bundle,
+        executable_workflow=bundle.ir,
+        is_workflow_lisp=True,
+    )
+
+    assert len(restore_calls) == 1
+    assert restore_calls[0]["restart_node_id"] == pure_node_id
+    assert decision["mode"] == "FAIL_CLOSED"
+    assert decision["diagnostics"] == [
+        "lexical_default_resume_prior_boundary_missing"
+    ]
 
 
 def test_runtime_shadow_emission_call_frame_record_ids_include_durable_call_frame_identity(tmp_path: Path) -> None:

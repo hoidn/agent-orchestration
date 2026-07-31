@@ -415,6 +415,27 @@ def _match_subject_from_match_step(step_name: str) -> str | None:
     return suffix
 
 
+def _source_binding_is_replay_derived(
+    executor: Any,
+    descriptor: Mapping[str, Any],
+) -> bool:
+    """Ask the executor's replay authority about one exact source identity."""
+
+    source_is_derived = getattr(
+        executor,
+        "_pure_replay_source_step_is_derived",
+        None,
+    )
+    source_step_id = descriptor.get("source_step_id")
+    if (
+        not callable(source_is_derived)
+        or not isinstance(source_step_id, str)
+        or not source_step_id
+    ):
+        return False
+    return source_is_derived(source_step_id) is True
+
+
 def capture_restore_payload(
     *,
     executor: Any,
@@ -447,6 +468,8 @@ def capture_restore_payload(
     ]
 
     for descriptor in binding_descriptors:
+        if _source_binding_is_replay_derived(executor, descriptor):
+            continue
         step_name = descriptor.get("source_step_name")
         value_document = descriptor.get("value_document")
         value = None

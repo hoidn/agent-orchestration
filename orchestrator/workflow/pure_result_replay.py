@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from copy import deepcopy
+from dataclasses import dataclass, fields, is_dataclass
+from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Callable
+
+from orchestrator.contracts.output_contract import (
+    OutputContractError,
+    validate_contract_value,
+)
 
 from .executable_ir import (
     ExecutableNodeKind,
@@ -16,7 +24,10 @@ from .executable_ir import (
     RepeatUntilFrameNode,
     WorkflowInputAddress,
 )
-from .loaded_bundle import LoadedWorkflowBundle
+from .loaded_bundle import (
+    LoadedWorkflowBundle,
+    workflow_runtime_input_contracts,
+)
 from .references import (
     ReferenceResolutionError,
     SelfOutputReference,
@@ -25,6 +36,7 @@ from .references import (
     WorkflowInputReference,
     parse_surface_ref,
 )
+from .resume_projection_integrity import ResumeScopePath
 from .runtime_plan import (
     WorkflowRuntimePlan,
     validate_workflow_runtime_plan,
@@ -37,6 +49,44 @@ REACHABILITY_AMBIGUOUS = "reachability_ambiguous"
 MULTIPLE_VISIT_REGION = "multiple_visit_region"
 DERIVED_PURE_REPLAY_PROFILE = "derived_pure_replay.v1"
 PROGRESS_WITNESS_INVALID = "progress_witness_invalid"
+PROFILE_CONFLICT = "profile_conflict"
+DURABLE_INPUT_MISSING = "durable_input_missing"
+DURABLE_INPUT_INVALID = "durable_input_invalid"
+BINDING_UNRESOLVED = "binding_unresolved"
+EVALUATION_FAILED = "evaluation_failed"
+OUTPUT_CONTRACT_INVALID = "output_contract_invalid"
+DURABLE_ROUTED_SKIP = "durable_routed_skip"
+_OVERLAY_VALUE_MISSING = object()
+_DURABLE_VALUE_MISSING = object()
+
+_INTRINSIC_DURABLE_RESULT_CONTRACTS = MappingProxyType(
+    {
+        ("exit_code", None): MappingProxyType(
+            {"type": "integer"}
+        ),
+        ("outcome", "status"): MappingProxyType(
+            {"type": "string"}
+        ),
+        ("outcome", "phase"): MappingProxyType(
+            {"type": "string"}
+        ),
+        ("outcome", "class"): MappingProxyType(
+            {"type": "string"}
+        ),
+        ("outcome", "retryable"): MappingProxyType(
+            {"type": "bool"}
+        ),
+    }
+)
+_INTRINSIC_DURABLE_RESULT_TYPES = MappingProxyType(
+    {
+        ("exit_code", None): int,
+        ("outcome", "status"): str,
+        ("outcome", "phase"): str,
+        ("outcome", "class"): str,
+        ("outcome", "retryable"): bool,
+    }
+)
 
 _PURE_COMPLETION_SHELL_KEYS = frozenset(
     {
@@ -64,6 +114,52 @@ _PURE_RUNNING_CURSOR_KEYS = frozenset(
 
 BindingPathPart = str | int
 ReplayAddress = WorkflowInputAddress | NodeResultAddress
+
+
+def _typed_node_result_addresses(value: Any) -> tuple[NodeResultAddress, ...]:
+    """Collect exact typed result addresses from one validated IR consumer."""
+
+    addresses: list[NodeResultAddress] = []
+    seen_addresses: set[NodeResultAddress] = set()
+    seen_containers: set[int] = set()
+
+    def visit(candidate: Any) -> None:
+        if isinstance(candidate, NodeResultAddress):
+            if candidate not in seen_addresses:
+                seen_addresses.add(candidate)
+                addresses.append(candidate)
+            return
+        if candidate is None or isinstance(
+            candidate,
+            (str, bytes, int, float, bool, Path),
+        ):
+            return
+        if isinstance(candidate, Mapping):
+            identity = id(candidate)
+            if identity in seen_containers:
+                return
+            seen_containers.add(identity)
+            for item in candidate.values():
+                visit(item)
+            return
+        if isinstance(candidate, Sequence):
+            identity = id(candidate)
+            if identity in seen_containers:
+                return
+            seen_containers.add(identity)
+            for item in candidate:
+                visit(item)
+            return
+        if is_dataclass(candidate) and not isinstance(candidate, type):
+            identity = id(candidate)
+            if identity in seen_containers:
+                return
+            seen_containers.add(identity)
+            for field_definition in fields(candidate):
+                visit(getattr(candidate, field_definition.name))
+
+    visit(value)
+    return tuple(addresses)
 
 
 class PureResultReplayIndexError(ValueError):
@@ -103,12 +199,8 @@ class PureReplayVisitWitness:
             raise ValueError("pure replay step index must be a non-negative integer")
         if not isinstance(self.step_id, str) or not self.step_id:
             raise ValueError("pure replay step identity must be non-empty")
-        if (
-            isinstance(self.visit_count, bool)
-            or not isinstance(self.visit_count, int)
-            or self.visit_count < 1
-        ):
-            raise ValueError("pure replay visit count must be a positive integer")
+        if type(self.visit_count) is not int or self.visit_count != 1:
+            raise ValueError("pure replay visit count must be exactly one")
 
 
 def build_pure_completion_shell(
@@ -223,6 +315,33 @@ def _is_matching_failure_or_skip(
     )
 
 
+def _is_matching_unvisited_routed_skip(
+    row: Any,
+    witness: PureReplayVisitWitness,
+) -> bool:
+    """Recognize the ordinary route-skip row written before visit start."""
+
+    return (
+        isinstance(row, Mapping)
+        and row.get("status") == "skipped"
+        and row.get("name") == witness.presentation_key
+        and row.get("step_id") == witness.step_id
+        and "visit_count" not in row
+        and row.get("skipped") is True
+        and type(row.get("exit_code")) is int
+        and row.get("exit_code") == 0
+        and _same_json_shape_and_value(
+            row.get("outcome"),
+            {
+                "status": "skipped",
+                "phase": "pre_execution",
+                "class": "skipped",
+                "retryable": False,
+            },
+        )
+    )
+
+
 def classify_pure_replay_progress(
     state: Any,
     *,
@@ -250,6 +369,12 @@ def classify_pure_replay_progress(
     )
     if cursor is not None and not cursor_is_relevant:
         cursor = None
+    if (
+        recorded_visit is None
+        and cursor is None
+        and _is_matching_unvisited_routed_skip(row, witness)
+    ):
+        return DURABLE_ROUTED_SKIP
     if recorded_visit is None and cursor is None and row is None:
         return "unstarted"
     if (
@@ -278,6 +403,1042 @@ def classify_pure_replay_progress(
 
 
 @dataclass(frozen=True)
+class PureReplayOverlayKey:
+    """Exact process-local authority key for one reconstructed result."""
+
+    scope_path: ResumeScopePath
+    node_id: str
+    visit_count: int
+    output_addresses: tuple[NodeResultAddress, ...]
+
+
+class PureReplayRuntime:
+    """Audited replay-profile classification and transient result authority."""
+
+    def __init__(
+        self,
+        *,
+        bundle: LoadedWorkflowBundle,
+        scope_path: ResumeScopePath,
+    ) -> None:
+        if not isinstance(scope_path, ResumeScopePath):
+            raise PureResultReplayIndexError(
+                DEPENDENCY_INDEX_INVALID,
+                "pure replay requires a validated resume scope path",
+            )
+        self.bundle = bundle
+        # Compiled ``root.steps`` refs are local to this loaded workflow.
+        # ResumeScopePath carries any enclosing call-frame identity separately.
+        self.index = derive_pure_result_replay_index(
+            bundle,
+            scope_kind="root",
+        )
+        self.scope_path = scope_path
+        self._overlay: dict[
+            PureReplayOverlayKey,
+            dict[str, Any],
+        ] = {}
+        self._execution_index_by_node_id = {
+            node_id: index
+            for index, node_id in enumerate(
+                tuple(bundle.ir.body_region)
+                + tuple(bundle.ir.finalization_region)
+            )
+        }
+        self._eligible_step_ids = frozenset(
+            replay_node.step_id
+            for replay_node in self.index.nodes.values()
+        )
+        self._node_id_by_step_id = {
+            replay_node.step_id: node_id
+            for node_id, replay_node in self.index.nodes.items()
+        }
+        if len(self._node_id_by_step_id) != len(self.index.nodes):
+            raise PureResultReplayIndexError(
+                DEPENDENCY_INDEX_INVALID,
+                "pure replay step identities are not unique",
+            )
+        self._selector_to_node_id = _validated_projection_catalog(bundle)
+        self._reference_catalog = SurfaceRefScopeCatalog(
+            root_step_names=(
+                tuple(self._selector_to_node_id)
+                if self.index.scope_kind == "root"
+                else ()
+            ),
+            self_step_names=(
+                tuple(self._selector_to_node_id)
+                if self.index.scope_kind == "self"
+                else ()
+            ),
+        )
+        self._eligible_restore_source_step_ids = (
+            self._derive_restore_source_step_ids()
+        )
+        self._replay_in_progress: set[str] = set()
+
+    def is_eligible(self, node_id: str) -> bool:
+        return node_id in self.index.nodes
+
+    def successful_checkpoint_is_suppressed(
+        self,
+        node_id: str,
+        *,
+        state: Mapping[str, Any],
+    ) -> bool:
+        """Suppress only the exact checkpoint of a derived-complete shell."""
+
+        if node_id not in self.index.nodes:
+            return False
+        classification = classify_pure_replay_progress(
+            state,
+            witness=self.witness_from_state(node_id, state),
+        )
+        if classification == PROGRESS_WITNESS_INVALID:
+            raise PureResultReplayIndexError(
+                PROGRESS_WITNESS_INVALID,
+                "pure replay checkpoint suppression requires valid progress",
+                context={"node_id": node_id},
+            )
+        return classification == "derived_complete"
+
+    def default_resume_checkpoint_excluded_node_ids(
+        self,
+        *,
+        state: Mapping[str, Any],
+        restart_node_id: str,
+    ) -> frozenset[str]:
+        """Exclude derived shells plus the exact interrupted restart point."""
+
+        excluded: set[str] = set()
+        for node_id in self.index.topological_node_ids:
+            classification = classify_pure_replay_progress(
+                state,
+                witness=self.witness_from_state(node_id, state),
+            )
+            if classification == PROGRESS_WITNESS_INVALID:
+                raise PureResultReplayIndexError(
+                    PROGRESS_WITNESS_INVALID,
+                    "pure replay default checkpoint filtering requires valid progress",
+                    context={"node_id": node_id},
+                )
+            if classification == "derived_complete":
+                excluded.add(node_id)
+            elif classification == "interrupted":
+                if node_id != restart_node_id:
+                    raise PureResultReplayIndexError(
+                        PROGRESS_WITNESS_INVALID,
+                        "interrupted pure replay point is not the selected restart",
+                        context={
+                            "node_id": node_id,
+                            "restart_node_id": restart_node_id,
+                        },
+                    )
+                excluded.add(node_id)
+        return frozenset(excluded)
+
+    def node_id_for_step_id(self, step_id: Any) -> str | None:
+        return (
+            self._node_id_by_step_id.get(step_id)
+            if isinstance(step_id, str)
+            else None
+        )
+
+    def witness(
+        self,
+        node_id: str,
+        *,
+        visit_count: int = 1,
+    ) -> PureReplayVisitWitness:
+        replay_node = self.index.nodes.get(node_id)
+        step_index = self._execution_index_by_node_id.get(node_id)
+        if replay_node is None or not isinstance(step_index, int):
+            raise PureResultReplayIndexError(
+                DEPENDENCY_INDEX_INVALID,
+                "pure replay witness requires an eligible executable node",
+                context={"node_id": node_id},
+            )
+        return PureReplayVisitWitness(
+            presentation_key=replay_node.presentation_key,
+            step_index=step_index,
+            step_id=replay_node.step_id,
+            visit_count=visit_count,
+        )
+
+    def witness_from_state(
+        self,
+        node_id: str,
+        state: Mapping[str, Any],
+    ) -> PureReplayVisitWitness:
+        replay_node = self.index.nodes.get(node_id)
+        visits = state.get("step_visits")
+        recorded_visit = (
+            visits.get(replay_node.presentation_key)
+            if replay_node is not None and isinstance(visits, Mapping)
+            else None
+        )
+        if recorded_visit is not None and (
+            type(recorded_visit) is not int
+            or recorded_visit != 1
+        ):
+            raise PureResultReplayIndexError(
+                PROGRESS_WITNESS_INVALID,
+                "pure replay persisted visit must be exactly one",
+                context={"node_id": node_id},
+            )
+        return self.witness(node_id, visit_count=1)
+
+    def record_full_result(
+        self,
+        node_id: str,
+        *,
+        witness: PureReplayVisitWitness,
+        result: Mapping[str, Any],
+    ) -> None:
+        replay_node = self.index.nodes.get(node_id)
+        if replay_node is None or witness != self.witness(
+            node_id,
+            visit_count=witness.visit_count,
+        ):
+            raise PureResultReplayIndexError(
+                DEPENDENCY_INDEX_INVALID,
+                "pure replay result identity does not match its executable node",
+                context={"node_id": node_id},
+            )
+        for address in replay_node.output_addresses:
+            field_value = result.get(address.field)
+            if not isinstance(field_value, Mapping) or address.member not in field_value:
+                raise PureResultReplayIndexError(
+                    DEPENDENCY_INDEX_INVALID,
+                    "pure replay result omits a declared result address",
+                    context={
+                        "node_id": node_id,
+                        "field": address.field,
+                        "member": address.member,
+                    },
+                )
+        if (
+            result.get("status") != "completed"
+            or type(result.get("exit_code")) is not int
+            or result.get("exit_code") != 0
+            or result.get("step_id") != witness.step_id
+            or result.get("name") != witness.presentation_key
+            or type(result.get("visit_count")) is not int
+            or result.get("visit_count") != 1
+        ):
+            raise PureResultReplayIndexError(
+                DEPENDENCY_INDEX_INVALID,
+                "pure replay result is not the normalized completed visit",
+                context={"node_id": node_id},
+            )
+        key = PureReplayOverlayKey(
+            scope_path=self.scope_path,
+            node_id=node_id,
+            visit_count=witness.visit_count,
+            output_addresses=replay_node.output_addresses,
+        )
+        self._overlay[key] = deepcopy(dict(result))
+
+    def _result_row(
+        self,
+        node_id: str,
+        *,
+        visit_count: int,
+    ) -> dict[str, Any] | None:
+        replay_node = self.index.nodes.get(node_id)
+        if replay_node is None:
+            return None
+        key = PureReplayOverlayKey(
+            scope_path=self.scope_path,
+            node_id=node_id,
+            visit_count=visit_count,
+            output_addresses=replay_node.output_addresses,
+        )
+        result = self._overlay.get(key)
+        return deepcopy(result) if result is not None else None
+
+    def value_for_state_address(
+        self,
+        address: NodeResultAddress,
+        state: Mapping[str, Any],
+    ) -> Any:
+        """Resolve only one exact typed address from the scoped overlay."""
+
+        if not isinstance(address, NodeResultAddress):
+            raise TypeError("NodeResultAddress required")
+        replay_node = self.index.nodes.get(address.node_id)
+        if (
+            replay_node is None
+            or address not in replay_node.output_addresses
+        ):
+            return _OVERLAY_VALUE_MISSING
+        visits = state.get("step_visits")
+        visit_count = (
+            visits.get(replay_node.presentation_key)
+            if isinstance(visits, Mapping)
+            else None
+        )
+        if type(visit_count) is not int or visit_count != 1:
+            return _OVERLAY_VALUE_MISSING
+        row = self._result_row(
+            address.node_id,
+            visit_count=visit_count,
+        )
+        if row is None:
+            return _OVERLAY_VALUE_MISSING
+        container = row.get(address.field)
+        if not isinstance(container, Mapping) or address.member not in container:
+            raise PureResultReplayIndexError(
+                DEPENDENCY_INDEX_INVALID,
+                "pure replay overlay does not contain its exact result address",
+                context={
+                    "node_id": address.node_id,
+                    "field": address.field,
+                    "member": address.member,
+                },
+            )
+        return deepcopy(container[address.member])
+
+    def resolve_state_address(
+        self,
+        address: NodeResultAddress,
+        state: Mapping[str, Any],
+    ) -> tuple[bool, Any]:
+        value = self.value_for_state_address(address, state)
+        return (
+            (False, None)
+            if value is _OVERLAY_VALUE_MISSING
+            else (True, value)
+        )
+
+    def replay_address_for_ref(
+        self,
+        ref: Any,
+    ) -> NodeResultAddress | None:
+        """Resolve one closed surface ref to an eligible exact address."""
+
+        if not isinstance(ref, str) or not ref:
+            return None
+        try:
+            parsed = parse_surface_ref(ref, self._reference_catalog)
+        except ReferenceResolutionError:
+            return None
+        if (
+            not isinstance(parsed, StructuredStepReference)
+            or parsed.scope != self.index.scope_kind
+        ):
+            return None
+        node_id = self._selector_to_node_id.get(parsed.step_name)
+        if node_id not in self.index.nodes:
+            return None
+        address = NodeResultAddress(
+            node_id=node_id,
+            field=parsed.field,
+            member=parsed.member,
+        )
+        return (
+            address
+            if address in self.index.nodes[node_id].output_addresses
+            else None
+        )
+
+    def required_node_ids_for_boundary(
+        self,
+        restart_node_id: str | None,
+        *,
+        state: Mapping[str, Any],
+    ) -> tuple[str, ...]:
+        """Derive the exact pure closure named by one selected boundary."""
+
+        seed_addresses: list[NodeResultAddress] = []
+        if restart_node_id is None:
+            for contract in self.bundle.ir.outputs.values():
+                source_address = getattr(contract, "source_address", None)
+                if isinstance(source_address, NodeResultAddress):
+                    seed_addresses.append(source_address)
+            points: tuple[Any, ...] = ()
+        else:
+            restart_node = self.bundle.ir.nodes.get(restart_node_id)
+            if restart_node is None:
+                raise PureResultReplayIndexError(
+                    DEPENDENCY_INDEX_INVALID,
+                    "resume boundary names an unknown executable node",
+                    context={"node_id": restart_node_id},
+                )
+            seed_addresses.extend(
+                _typed_node_result_addresses(restart_node)
+            )
+            points = tuple(
+                point
+                for point in (
+                    getattr(
+                        self.bundle.runtime_plan,
+                        "lexical_checkpoint_points",
+                        (),
+                    )
+                    or ()
+                )
+                if getattr(point, "node_id", None) == restart_node_id
+            )
+        if len(points) > 1:
+            raise PureResultReplayIndexError(
+                DEPENDENCY_INDEX_INVALID,
+                "resume boundary has ambiguous checkpoint metadata",
+                context={"node_id": restart_node_id},
+            )
+        if points:
+            details = getattr(points[0], "details", None)
+            restore = (
+                details.get("restore")
+                if isinstance(details, Mapping)
+                else None
+            )
+            descriptors = (
+                restore.get("binding_descriptors")
+                if isinstance(restore, Mapping)
+                else ()
+            )
+            if not isinstance(descriptors, Sequence) or isinstance(
+                descriptors,
+                (str, bytes),
+            ):
+                raise PureResultReplayIndexError(
+                    DEPENDENCY_INDEX_INVALID,
+                    "resume boundary binding metadata is invalid",
+                    context={"node_id": restart_node_id},
+                )
+            for descriptor in descriptors:
+                if not isinstance(descriptor, Mapping):
+                    raise PureResultReplayIndexError(
+                        DEPENDENCY_INDEX_INVALID,
+                        "resume boundary binding descriptor is invalid",
+                        context={"node_id": restart_node_id},
+                    )
+                value_document = descriptor.get("value_document")
+                if not isinstance(value_document, Mapping):
+                    continue
+                for _, ref in _walk_binding_ref_documents(
+                    {"boundary": value_document}
+                ):
+                    address = _resolve_replay_ref(
+                        ref,
+                        executable=self.bundle.ir,
+                        selector_to_node_id=self._selector_to_node_id,
+                        catalog=self._reference_catalog,
+                        scope_kind=self.index.scope_kind,
+                    )
+                    if isinstance(address, NodeResultAddress):
+                        seed_addresses.append(address)
+
+        reached_node_ids = []
+        for node_id in self.index.topological_node_ids:
+            witness = self.witness_from_state(node_id, state)
+            if (
+                classify_pure_replay_progress(
+                    state,
+                    witness=witness,
+                )
+                == "derived_complete"
+            ):
+                reached_node_ids.append(node_id)
+        return self.index.required_pure_node_ids(
+            tuple(seed_addresses),
+            reached_node_ids=tuple(reached_node_ids),
+        )
+
+    def replay_node(
+        self,
+        node_id: str,
+        *,
+        state: Mapping[str, Any],
+        evaluate_node: Callable[
+            [str, Mapping[str, Any]],
+            Mapping[str, Any],
+        ],
+    ) -> None:
+        """Reconstruct one exact completed shell and its pure closure."""
+
+        replay_node = self.index.nodes.get(node_id)
+        if replay_node is None:
+            return
+        if all(
+            self.value_for_state_address(address, state)
+            is not _OVERLAY_VALUE_MISSING
+            for address in replay_node.output_addresses
+        ):
+            return
+        if node_id in self._replay_in_progress:
+            raise PureResultReplayIndexError(
+                DEPENDENCY_INDEX_INVALID,
+                "pure replay evaluation re-entered its dependency closure",
+                context={"node_id": node_id},
+            )
+
+        witness = self.witness_from_state(node_id, state)
+        classification = classify_pure_replay_progress(
+            state,
+            witness=witness,
+        )
+        if classification != "derived_complete":
+            raise PureResultReplayIndexError(
+                PROGRESS_WITNESS_INVALID,
+                "pure replay requires an exact completed persistence shell",
+                context={"node_id": node_id},
+            )
+
+        self._replay_in_progress.add(node_id)
+        try:
+            for dependency_node_id in replay_node.pure_dependency_node_ids:
+                self.replay_node(
+                    dependency_node_id,
+                    state=state,
+                    evaluate_node=evaluate_node,
+                )
+            self._validate_replay_leaves(
+                replay_node,
+                state=state,
+            )
+            result = evaluate_node(
+                node_id,
+                self.overlay_active_state(state),
+            )
+            if not isinstance(result, Mapping):
+                self._raise_replay_result_failure(
+                    node_id,
+                    reason=EVALUATION_FAILED,
+                    message="pure replay evaluator returned a non-object result",
+                )
+            if result.get("status") != "completed":
+                error = result.get("error")
+                error_type = (
+                    error.get("type")
+                    if isinstance(error, Mapping)
+                    else None
+                )
+                reason = (
+                    BINDING_UNRESOLVED
+                    if error_type == "materialize_ref_unresolved"
+                    else OUTPUT_CONTRACT_INVALID
+                    if error_type
+                    in {
+                        "pure_projection_contract_invalid",
+                        "invalid_reused_pure_projection_result",
+                    }
+                    else EVALUATION_FAILED
+                )
+                self._raise_replay_result_failure(
+                    node_id,
+                    reason=reason,
+                    message="pure replay evaluation did not complete",
+                    cause_type=error_type,
+                )
+            self.record_full_result(
+                node_id,
+                witness=witness,
+                result=result,
+            )
+            if any(
+                self.value_for_state_address(address, state)
+                is _OVERLAY_VALUE_MISSING
+                for address in replay_node.output_addresses
+            ):
+                self._raise_replay_result_failure(
+                    node_id,
+                    reason=EVALUATION_FAILED,
+                    message="pure replay result was not retained in the overlay",
+                )
+        finally:
+            self._replay_in_progress.discard(node_id)
+
+    def audit_boundary_leaves(
+        self,
+        restart_node_id: str | None,
+        *,
+        state: Mapping[str, Any],
+    ) -> None:
+        """Validate one boundary's durable replay leaves without evaluation."""
+
+        for node_id in self.required_node_ids_for_boundary(
+            restart_node_id,
+            state=state,
+        ):
+            replay_node = self.index.nodes.get(node_id)
+            if replay_node is None:
+                raise PureResultReplayIndexError(
+                    DEPENDENCY_INDEX_INVALID,
+                    "pure replay boundary names an unknown eligible node",
+                    context={"node_id": node_id},
+                )
+            witness = self.witness_from_state(node_id, state)
+            if (
+                classify_pure_replay_progress(
+                    state,
+                    witness=witness,
+                )
+                != "derived_complete"
+            ):
+                raise PureResultReplayIndexError(
+                    PROGRESS_WITNESS_INVALID,
+                    "pure replay requires an exact completed persistence shell",
+                    context={"node_id": node_id},
+                )
+            self._validate_replay_leaves(
+                replay_node,
+                state=state,
+            )
+
+    def _validate_replay_leaves(
+        self,
+        replay_node: "PureReplayNode",
+        *,
+        state: Mapping[str, Any],
+    ) -> None:
+        bound_inputs = state.get("bound_inputs")
+        steps = state.get("steps")
+        if not isinstance(bound_inputs, Mapping):
+            bound_inputs = {}
+        if not isinstance(steps, Mapping):
+            steps = {}
+        input_contracts = workflow_runtime_input_contracts(self.bundle)
+        for binding in replay_node.bindings:
+            address = binding.address
+            if isinstance(address, WorkflowInputAddress):
+                if address.input_name not in bound_inputs:
+                    self._raise_replay_result_failure(
+                        replay_node.node_id,
+                        reason=DURABLE_INPUT_MISSING,
+                        message="pure replay workflow input is missing",
+                    )
+                input_contract = input_contracts.get(address.input_name)
+                if not isinstance(input_contract, Mapping):
+                    self._raise_replay_result_failure(
+                        replay_node.node_id,
+                        reason=DURABLE_INPUT_INVALID,
+                        message=(
+                            "pure replay workflow input contract is invalid"
+                        ),
+                    )
+                try:
+                    validate_contract_value(
+                        bound_inputs[address.input_name],
+                        dict(input_contract),
+                        workspace=self.bundle.provenance.source_root,
+                    )
+                except OutputContractError:
+                    self._raise_replay_result_failure(
+                        replay_node.node_id,
+                        reason=DURABLE_INPUT_INVALID,
+                        message="pure replay workflow input is invalid",
+                    )
+                continue
+            if (
+                not isinstance(address, NodeResultAddress)
+                or address.node_id
+                not in replay_node.durable_dependency_node_ids
+            ):
+                continue
+            presentation_key = (
+                self.bundle.projection.presentation_key_by_node_id.get(
+                    address.node_id
+                )
+            )
+            row = (
+                steps.get(presentation_key)
+                if isinstance(presentation_key, str)
+                else None
+            )
+            if row is None:
+                self._raise_replay_result_failure(
+                    replay_node.node_id,
+                    reason=DURABLE_INPUT_MISSING,
+                    message="pure replay durable dependency is missing",
+                )
+            if not isinstance(row, Mapping) or row.get("status") != "completed":
+                self._raise_replay_result_failure(
+                    replay_node.node_id,
+                    reason=DURABLE_INPUT_INVALID,
+                    message="pure replay durable dependency is invalid",
+                )
+            durable_value, contract = _durable_node_result_value(
+                self.bundle,
+                address,
+                row,
+            )
+            if (
+                durable_value is _DURABLE_VALUE_MISSING
+                or contract is None
+            ):
+                self._raise_replay_result_failure(
+                    replay_node.node_id,
+                    reason=DURABLE_INPUT_INVALID,
+                    message="pure replay durable result address is invalid",
+                )
+            intrinsic_type = _INTRINSIC_DURABLE_RESULT_TYPES.get(
+                (address.field, address.member)
+            )
+            if (
+                intrinsic_type is not None
+                and type(durable_value) is not intrinsic_type
+            ):
+                self._raise_replay_result_failure(
+                    replay_node.node_id,
+                    reason=DURABLE_INPUT_INVALID,
+                    message="pure replay durable result value is invalid",
+                )
+            try:
+                validate_contract_value(
+                    durable_value,
+                    dict(contract),
+                    workspace=self.bundle.provenance.source_root,
+                )
+            except OutputContractError:
+                self._raise_replay_result_failure(
+                    replay_node.node_id,
+                    reason=DURABLE_INPUT_INVALID,
+                    message="pure replay durable result value is invalid",
+                )
+
+    @staticmethod
+    def _raise_replay_result_failure(
+        node_id: str,
+        *,
+        reason: str,
+        message: str,
+        cause_type: str | None = None,
+    ) -> None:
+        context: dict[str, Any] = {"node_id": node_id}
+        if isinstance(cause_type, str) and cause_type:
+            context["cause"] = {"type": cause_type}
+        raise PureResultReplayIndexError(
+            reason,
+            message,
+            context=context,
+        )
+
+    def overlay_active_state(
+        self,
+        state: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        active = deepcopy(dict(state))
+        steps = active.get("steps")
+        visits = active.get("step_visits")
+        if not isinstance(steps, dict) or not isinstance(visits, Mapping):
+            return active
+        for node_id, replay_node in self.index.nodes.items():
+            visit_count = visits.get(replay_node.presentation_key)
+            if isinstance(visit_count, bool) or not isinstance(
+                visit_count,
+                int,
+            ):
+                continue
+            result = self._result_row(
+                node_id,
+                visit_count=visit_count,
+            )
+            if result is not None:
+                steps[replay_node.presentation_key] = result
+        return active
+
+    def _derive_restore_source_step_ids(self) -> frozenset[str]:
+        """Bind restore source spellings through validated point metadata."""
+
+        presentation_to_node_id = {
+            replay_node.presentation_key: node_id
+            for node_id, replay_node in self.index.nodes.items()
+        }
+        source_step_ids: set[str] = set()
+        for point in tuple(
+            getattr(
+                self.bundle.runtime_plan,
+                "lexical_checkpoint_points",
+                (),
+            )
+            or ()
+        ):
+            details = getattr(point, "details", None)
+            restore = (
+                details.get("restore")
+                if isinstance(details, Mapping)
+                else None
+            )
+            descriptors = (
+                restore.get("binding_descriptors")
+                if isinstance(restore, Mapping)
+                else ()
+            )
+            if not isinstance(descriptors, Sequence) or isinstance(
+                descriptors,
+                (str, bytes),
+            ):
+                continue
+            for descriptor in descriptors:
+                if not isinstance(descriptor, Mapping):
+                    continue
+                source_step_name = descriptor.get("source_step_name")
+                node_id = (
+                    presentation_to_node_id.get(source_step_name)
+                    if isinstance(source_step_name, str)
+                    else None
+                )
+                if node_id is None:
+                    continue
+                source_step_id = descriptor.get("source_step_id")
+                value_document = descriptor.get("value_document")
+                if (
+                    not isinstance(source_step_id, str)
+                    or not source_step_id
+                    or not isinstance(value_document, Mapping)
+                ):
+                    raise PureResultReplayIndexError(
+                        DEPENDENCY_INDEX_INVALID,
+                        "pure replay restore source metadata is incomplete",
+                        context={"node_id": node_id},
+                    )
+                addresses = tuple(
+                    _resolve_replay_ref(
+                        ref,
+                        executable=self.bundle.ir,
+                        selector_to_node_id=self._selector_to_node_id,
+                        catalog=self._reference_catalog,
+                        scope_kind=self.index.scope_kind,
+                    )
+                    for _, ref in _walk_binding_ref_documents(
+                        {"source": value_document}
+                    )
+                )
+                if not addresses or any(
+                    not isinstance(address, NodeResultAddress)
+                    or address.node_id != node_id
+                    for address in addresses
+                ):
+                    raise PureResultReplayIndexError(
+                        DEPENDENCY_INDEX_INVALID,
+                        "pure replay restore source identity is inconsistent",
+                        context={"node_id": node_id},
+                    )
+                source_step_ids.add(source_step_id)
+        return frozenset(source_step_ids)
+
+    def source_step_is_derived(self, source_step_id: Any) -> bool:
+        return (
+            isinstance(source_step_id, str)
+            and source_step_id
+            in (
+                self._eligible_step_ids
+                | self._eligible_restore_source_step_ids
+            )
+        )
+
+    def audit_persisted_surfaces(
+        self,
+        *,
+        state: Mapping[str, Any],
+        state_manager: Any,
+        resolve_bundle_path: Callable[[str], Path | None],
+    ) -> None:
+        forbidden_checkpoint_node_ids: set[str] = set()
+        for node_id, replay_node in self.index.nodes.items():
+            witness = self.witness_from_state(node_id, state)
+            classification = classify_pure_replay_progress(
+                state,
+                witness=witness,
+            )
+            if classification == PROGRESS_WITNESS_INVALID:
+                self._raise_profile_conflict(
+                    node_id,
+                    "steps",
+                )
+            if classification not in {
+                "durable_failure_skip",
+                DURABLE_ROUTED_SKIP,
+            }:
+                forbidden_checkpoint_node_ids.add(node_id)
+            self._audit_bundle_surface(
+                node_id=node_id,
+                resolve_bundle_path=resolve_bundle_path,
+            )
+
+        self._audit_private_lineage(state)
+        self._audit_checkpoint_records(
+            state_manager,
+            forbidden_node_ids=frozenset(
+                forbidden_checkpoint_node_ids
+            ),
+        )
+
+    def _audit_bundle_surface(
+        self,
+        *,
+        node_id: str,
+        resolve_bundle_path: Callable[[str], Path | None],
+    ) -> None:
+        node = self.bundle.ir.nodes.get(node_id)
+        common = getattr(getattr(node, "execution_config", None), "common", None)
+        output_bundle = getattr(common, "output_bundle", None)
+        if not isinstance(output_bundle, Mapping):
+            return
+        raw_path = output_bundle.get("path")
+        if not isinstance(raw_path, str) or not raw_path:
+            self._raise_profile_conflict(node_id, "pure_bundle")
+        path = resolve_bundle_path(node_id)
+        if path is None:
+            return
+        if not isinstance(path, Path) or not path.is_absolute():
+            self._raise_profile_conflict(node_id, "pure_bundle")
+        if path.exists():
+            self._raise_profile_conflict(node_id, "pure_bundle")
+
+    def _audit_private_lineage(self, state: Mapping[str, Any]) -> None:
+        versions = state.get("private_artifact_versions")
+        if not isinstance(versions, Mapping):
+            self._raise_profile_conflict(None, "private_artifact_versions")
+        for entries in versions.values():
+            if not isinstance(entries, Sequence) or isinstance(
+                entries,
+                (str, bytes),
+            ):
+                self._raise_profile_conflict(
+                    None,
+                    "private_artifact_versions",
+                )
+            for entry in entries:
+                if not isinstance(entry, Mapping):
+                    self._raise_profile_conflict(
+                        None,
+                        "private_artifact_versions",
+                    )
+                if (
+                    self.source_step_is_derived(entry.get("producer"))
+                    or self.source_step_is_derived(entry.get("step_id"))
+                ):
+                    self._raise_profile_conflict(
+                        str(entry.get("producer") or ""),
+                        "private_artifact_versions",
+                    )
+
+    def _audit_checkpoint_records(
+        self,
+        state_manager: Any,
+        *,
+        forbidden_node_ids: frozenset[str],
+    ) -> None:
+        from orchestrator.workflow_lisp.lexical_checkpoints import (
+            resolve_checkpoint_record_family_path,
+        )
+
+        if not forbidden_node_ids.issubset(self.index.nodes):
+            self._raise_profile_conflict(None, "checkpoint_record")
+        expected_frame_id = (
+            self.scope_path.call_frame_ids[-1]
+            if self.scope_path.call_frame_ids
+            else None
+        )
+        eligible_checkpoint_ids = {
+            getattr(point, "checkpoint_id", None)
+            for point in self.bundle.runtime_plan.lexical_checkpoint_points
+            if getattr(point, "node_id", None) in forbidden_node_ids
+        }
+        for point in self.bundle.runtime_plan.lexical_checkpoint_points:
+            checkpoint_id = getattr(point, "checkpoint_id", None)
+            if not isinstance(checkpoint_id, str) or not checkpoint_id:
+                self._raise_profile_conflict(None, "checkpoint_record")
+            details = getattr(point, "details", None)
+            storage = (
+                details.get("storage")
+                if isinstance(details, Mapping)
+                else None
+            )
+            storage_scope = (
+                storage.get("resume_scope")
+                if isinstance(storage, Mapping)
+                else None
+            )
+            family_root = resolve_checkpoint_record_family_path(
+                state_manager=state_manager,
+                workflow_name=self.bundle.runtime_plan.workflow_name,
+                checkpoint_id=checkpoint_id,
+                storage_scope=(
+                    storage_scope
+                    if isinstance(storage_scope, str)
+                    else None
+                ),
+            )
+            if not family_root.exists():
+                continue
+            for path in sorted(family_root.glob("*.json")):
+                try:
+                    record = json.loads(
+                        path.read_text(encoding="utf-8")
+                    )
+                except (OSError, json.JSONDecodeError):
+                    self._raise_profile_conflict(
+                        None,
+                        "checkpoint_record",
+                    )
+                if (
+                    not isinstance(record, Mapping)
+                    or record.get("checkpoint_id") != checkpoint_id
+                ):
+                    self._raise_profile_conflict(
+                        None,
+                        "checkpoint_record",
+                    )
+                frame_identity = record.get("frame_identity")
+                record_frame_id = (
+                    frame_identity.get("call_frame_id")
+                    if isinstance(frame_identity, Mapping)
+                    else None
+                )
+                if record_frame_id != expected_frame_id:
+                    continue
+                if checkpoint_id in eligible_checkpoint_ids:
+                    self._raise_profile_conflict(
+                        getattr(point, "node_id", None),
+                        "checkpoint_record",
+                    )
+                restore = record.get("restore_payload")
+                if restore is None:
+                    continue
+                bindings = (
+                    restore.get("bindings")
+                    if isinstance(restore, Mapping)
+                    else None
+                )
+                if not isinstance(bindings, Sequence) or isinstance(
+                    bindings,
+                    (str, bytes),
+                ):
+                    self._raise_profile_conflict(
+                        None,
+                        "restore_payload",
+                    )
+                if any(
+                    isinstance(binding, Mapping)
+                    and self.source_step_is_derived(
+                        binding.get("source_step_id")
+                    )
+                    for binding in bindings
+                ):
+                    self._raise_profile_conflict(
+                        None,
+                        "restore_payload",
+                    )
+
+    def _raise_profile_conflict(
+        self,
+        node_id: str | None,
+        surface: str,
+    ) -> None:
+        raise PureResultReplayIndexError(
+            PROFILE_CONFLICT,
+            "replay-profile persistence surfaces conflict",
+            context={
+                "node_id": node_id,
+                "surface": surface,
+            },
+        )
+
+
+@dataclass(frozen=True)
 class PureReplayBinding:
     """One validator-owned binding path resolved to a typed address."""
 
@@ -290,6 +1451,7 @@ class PureReplayNode:
     """One replay-eligible pure projection and its exact dependencies."""
 
     node_id: str
+    step_id: str
     presentation_key: str
     bindings: tuple[PureReplayBinding, ...]
     output_addresses: tuple[NodeResultAddress, ...]
@@ -548,6 +1710,7 @@ def derive_pure_result_replay_index(
     nodes = {
         node_id: PureReplayNode(
             node_id=node_id,
+            step_id=executable.nodes[node_id].step_id,
             presentation_key=(
                 projection.entries_by_node_id[node_id].presentation_key
             ),
@@ -871,6 +2034,77 @@ def _validate_result_member(
             "pure replay binding references an unknown result member",
             context={"ref": ref, "member": member},
         )
+
+
+def _compiled_node_result_contract(
+    bundle: LoadedWorkflowBundle,
+    address: NodeResultAddress,
+) -> Mapping[str, Any] | None:
+    """Return the exact compiled artifact-member contract for one address."""
+
+    if address.field != "artifacts" or not isinstance(address.member, str):
+        return None
+    node = bundle.ir.nodes.get(address.node_id)
+    common = getattr(
+        getattr(node, "execution_config", None),
+        "common",
+        None,
+    )
+    output_bundle = getattr(common, "output_bundle", None)
+    fields = (
+        output_bundle.get("fields")
+        if isinstance(output_bundle, Mapping)
+        else None
+    )
+    if not isinstance(fields, (list, tuple)):
+        return None
+    matches = tuple(
+        field
+        for field in fields
+        if isinstance(field, Mapping)
+        and field.get("name") == address.member
+    )
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def _durable_node_result_value(
+    bundle: LoadedWorkflowBundle,
+    address: NodeResultAddress,
+    row: Mapping[str, Any],
+) -> tuple[Any, Mapping[str, Any] | None]:
+    """Resolve one admitted durable result address and its exact contract."""
+
+    intrinsic_contract = _INTRINSIC_DURABLE_RESULT_CONTRACTS.get(
+        (address.field, address.member)
+    )
+    if intrinsic_contract is not None:
+        if address.field == "exit_code":
+            return (
+                row.get("exit_code", _DURABLE_VALUE_MISSING),
+                intrinsic_contract,
+            )
+        outcome = row.get("outcome")
+        if not isinstance(outcome, Mapping):
+            return _DURABLE_VALUE_MISSING, intrinsic_contract
+        return (
+            outcome.get(
+                address.member,
+                _DURABLE_VALUE_MISSING,
+            ),
+            intrinsic_contract,
+        )
+
+    contract = _compiled_node_result_contract(bundle, address)
+    field_value = row.get(address.field)
+    if (
+        contract is None
+        or not isinstance(field_value, Mapping)
+        or address.member not in field_value
+    ):
+        return _DURABLE_VALUE_MISSING, contract
+    return field_value[address.member], contract
 
 
 def _iterative_node_ids(

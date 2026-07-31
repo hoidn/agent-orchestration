@@ -113,13 +113,20 @@ def test_root_provider_observation_is_enabled_by_default(
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
 
     assert executor.provider_observation_enabled is True
-    assert len(managers) == 1
+    assert managers == []
     assert _RecordingProviderExecutor.constructions == [
         (True, None)
     ]
+    assert _RecordingProviderExecutor.instances[0].observation_manager is None
+
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert len(managers) == 1
     assert _RecordingProviderExecutor.instances[0].observation_manager is (
         managers[0]
     )
+    assert managers[0].close_calls == 1
 
 
 @pytest.mark.parametrize("provider_observation_enabled", [False, True])
@@ -153,22 +160,23 @@ def test_root_provider_observation_manager_is_run_scoped_and_best_effort_closed(
         provider_observation_enabled=provider_observation_enabled,
     )
 
-    assert len(managers) == int(provider_observation_enabled)
-    expected_manager = managers[0] if managers else None
+    assert managers == []
     assert len(_RecordingProviderExecutor.instances) == 1
     provider_executor = _RecordingProviderExecutor.instances[0]
     assert (
         provider_executor.provider_observation_enabled
         is provider_observation_enabled
     )
-    assert provider_executor.observation_manager is expected_manager
-    if expected_manager is not None:
-        assert expected_manager.run_root == state_manager.run_root
+    assert provider_executor.observation_manager is None
 
     state = executor.execute()
 
     assert state["status"] == "completed"
+    assert len(managers) == int(provider_observation_enabled)
+    expected_manager = managers[0] if managers else None
+    assert provider_executor.observation_manager is expected_manager
     if expected_manager is not None:
+        assert expected_manager.run_root == state_manager.run_root
         assert expected_manager.close_calls == 1
 
 
@@ -397,8 +405,9 @@ def test_owned_manager_closes_after_async_summary_observation_finishes(
     worker.start()
 
     observer = observers[0]
-    manager = managers[0]
     assert observer.started.wait(timeout=5)
+    assert len(managers) == 1
+    manager = managers[0]
     try:
         assert manager.closed.wait(timeout=0.2) is False
         assert worker.is_alive()

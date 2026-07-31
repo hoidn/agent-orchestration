@@ -432,7 +432,7 @@ def test_pure_projection_collection_root_contract_uses_direct_result() -> None:
     }
 
 
-def test_pure_projection_runtime_reuses_committed_bundle_on_resume(tmp_path: Path) -> None:
+def test_pure_projection_runtime_reuses_historical_bundle_on_resume(tmp_path: Path) -> None:
     loaded = _compile_pure_projection_bundle(tmp_path)
     step_name = loaded.surface.steps[0].name
     state_manager = StateManager(workspace=tmp_path, run_id="pure-projection-runtime")
@@ -474,7 +474,9 @@ def test_pure_projection_runtime_bounds_overlong_private_bundle_paths(tmp_path: 
     assert all(len(part.encode("utf-8")) <= 240 for part in bounded.relative_to(tmp_path).parts)
 
 
-def test_pure_projection_runtime_fails_closed_when_resume_bundle_schema_changes(tmp_path: Path) -> None:
+def test_pure_projection_runtime_historical_bundle_schema_mismatch_diagnostic_unchanged(
+    tmp_path: Path,
+) -> None:
     loaded = _compile_pure_projection_bundle(tmp_path)
     step_name = loaded.surface.steps[0].name
     state_manager = StateManager(workspace=tmp_path, run_id="pure-projection-schema")

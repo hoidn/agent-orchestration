@@ -190,6 +190,7 @@ class ResumePlanner:
         self,
         state: Dict[str, Any],
         *,
+        restart_node_id: str | None,
         runtime_plan: Any,
         state_manager: Any,
         executable_workflow: Any | None = None,
@@ -200,7 +201,6 @@ class ResumePlanner:
         if not isinstance(projection, WorkflowStateProjection):
             raise TypeError("ResumePlanner requires a WorkflowStateProjection")
 
-        restart_node_id = self.determine_restart_node_id(state, projection=projection)
         from orchestrator.workflow_lisp.lexical_checkpoint_default_resume import (
             determine_runtime_default_resume_decision,
         )

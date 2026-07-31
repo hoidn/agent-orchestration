@@ -1218,7 +1218,7 @@ def test_two_completed_phased_boundaries_reuse_and_skip_execution(
         executor,
     )
     executor._determine_resume_default_resume_decision = MethodType(
-        lambda self, current: {
+        lambda self, current, *, restart_node_id: {
             "mode": "NO_RESTART",
             "restore_decision": None,
         },

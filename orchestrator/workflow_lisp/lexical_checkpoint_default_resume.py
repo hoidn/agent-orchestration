@@ -70,6 +70,7 @@ def _nearest_prior_effect_boundary(
     *,
     runtime_plan: Any,
     restart_node_id: str,
+    excluded_node_ids: frozenset[str] = frozenset(),
 ) -> tuple[Any | None, str | None]:
     ordered_node_ids = tuple(getattr(runtime_plan, "ordered_node_ids", ()) or ())
     if len(set(ordered_node_ids)) != len(ordered_node_ids):
@@ -82,9 +83,14 @@ def _nearest_prior_effect_boundary(
     checkpoint_points = tuple(
         getattr(runtime_plan, "lexical_checkpoint_points", ()) or ()
     )
-    effect_points = tuple(
+    candidate_points = tuple(
         point
         for point in checkpoint_points
+        if getattr(point, "node_id", None) not in excluded_node_ids
+    )
+    effect_points = tuple(
+        point
+        for point in candidate_points
         if getattr(point, "point_kind", None) == "effect_boundary"
     )
     checkpoint_ids = tuple(
@@ -162,12 +168,126 @@ def _nearest_prior_effect_boundary(
         sum(
             getattr(point, "checkpoint_id", None)
             == nearest_checkpoint_ids[0]
-            for point in checkpoint_points
+            for point in candidate_points
         )
         != 1
     ):
         return None, "lexical_default_resume_prior_boundary_duplicate"
     return nearest_points[0], None
+
+
+def _replay_runtime(
+    *,
+    state: Mapping[str, Any],
+    loaded_workflow: Any,
+    state_manager: Any,
+) -> Any | None:
+    from orchestrator.workflow.pure_result_replay import (
+        DERIVED_PURE_REPLAY_PROFILE,
+        PureReplayRuntime,
+    )
+    from orchestrator.workflow.resume_projection_integrity import (
+        ResumeScopePath,
+    )
+
+    profile = state.get("result_persistence_profile")
+    if profile is None:
+        return None
+    if profile != DERIVED_PURE_REPLAY_PROFILE:
+        raise ValueError("pure_result_replay_unavailable")
+    if loaded_workflow is None:
+        raise ValueError("pure_result_replay_unavailable")
+    scope_path = getattr(state_manager, "resume_scope_path", None)
+    if not isinstance(scope_path, ResumeScopePath):
+        workflow_file = state.get("workflow_file")
+        if not isinstance(workflow_file, str) or not workflow_file:
+            provenance = workflow_provenance(loaded_workflow)
+            workflow_path = (
+                provenance.workflow_path
+                if provenance is not None
+                else None
+            )
+            workflow_file = (
+                str(workflow_path)
+                if workflow_path is not None
+                else ""
+            )
+        if not workflow_file:
+            raise ValueError("pure_result_replay_unavailable")
+        scope_path = ResumeScopePath.root(workflow_file)
+    return PureReplayRuntime(
+        bundle=loaded_workflow,
+        scope_path=scope_path,
+    )
+
+
+def _validated_frame_entry_replay(
+    *,
+    replay_runtime: Any,
+    runtime_plan: Any,
+    state: Mapping[str, Any],
+    restart_node_id: str,
+) -> bool:
+    """Admit only a reached all-pure prefix with complete shell witnesses."""
+
+    from orchestrator.workflow.executable_ir import WorkflowInputAddress
+    from orchestrator.workflow.pure_result_replay import (
+        classify_pure_replay_progress,
+    )
+
+    ordered_node_ids = tuple(
+        getattr(runtime_plan, "ordered_node_ids", ()) or ()
+    )
+    if (
+        len(set(ordered_node_ids)) != len(ordered_node_ids)
+        or ordered_node_ids.count(restart_node_id) != 1
+    ):
+        return False
+    prefix = ordered_node_ids[: ordered_node_ids.index(restart_node_id)]
+
+    bound_inputs = state.get("bound_inputs")
+    if not isinstance(bound_inputs, Mapping):
+        return False
+    if not prefix:
+        replay_node = replay_runtime.index.nodes.get(restart_node_id)
+        if replay_node is None:
+            return False
+        witness = replay_runtime.witness_from_state(
+            restart_node_id,
+            state,
+        )
+        return (
+            classify_pure_replay_progress(
+                state,
+                witness=witness,
+            )
+            == "interrupted"
+            and not any(
+                isinstance(binding.address, WorkflowInputAddress)
+                and binding.address.input_name not in bound_inputs
+                for binding in replay_node.bindings
+            )
+        )
+    for node_id in prefix:
+        replay_node = replay_runtime.index.nodes.get(node_id)
+        if replay_node is None:
+            return False
+        witness = replay_runtime.witness_from_state(node_id, state)
+        if (
+            classify_pure_replay_progress(
+                state,
+                witness=witness,
+            )
+            != "derived_complete"
+        ):
+            return False
+        if any(
+            isinstance(binding.address, WorkflowInputAddress)
+            and binding.address.input_name not in bound_inputs
+            for binding in replay_node.bindings
+        ):
+            return False
+    return True
 
 
 def _current_committed_nested_effect_boundary(
@@ -429,11 +549,33 @@ def determine_runtime_default_resume_decision(
         payload["mode"] = MODE_LEXICAL_CHECKPOINT_DEFAULT
         return payload
 
-    if restore_selector is None:
-        from orchestrator.workflow_lisp.lexical_checkpoint_restore import (
-            select_restore_candidate,
+    try:
+        replay_runtime = _replay_runtime(
+            state=state,
+            loaded_workflow=loaded_workflow,
+            state_manager=state_manager,
         )
+        replay_checkpoint_excluded_node_ids = (
+            replay_runtime.default_resume_checkpoint_excluded_node_ids(
+                state=state,
+                restart_node_id=restart_node_id,
+            )
+            if replay_runtime is not None
+            else frozenset()
+        )
+    except (TypeError, ValueError):
+        payload["mode"] = MODE_FAIL_CLOSED
+        payload["diagnostics"] = ["pure_result_replay_unavailable"]
+        return payload
 
+    from orchestrator.workflow_lisp.lexical_checkpoint_restore import (
+        RESTORE_DECISION_NOT_RESTORABLE,
+        RESTORE_SELECTION_RECORD_ABSENT,
+        RestoreDecision,
+        select_restore_candidate,
+    )
+
+    if restore_selector is None:
         restore_selector = select_restore_candidate
 
     (
@@ -461,6 +603,9 @@ def determine_runtime_default_resume_decision(
         "executable_workflow": executable_workflow,
         "loaded_workflow": loaded_workflow,
     }
+    restart_point_checkpoint_is_excluded = (
+        restart_node_id in replay_checkpoint_excluded_node_ids
+    )
     if required_effect_point is not None:
         restore_kwargs.update(
             {
@@ -473,7 +618,14 @@ def determine_runtime_default_resume_decision(
         )
     else:
         restore_kwargs["restart_node_id"] = restart_node_id
-    restore_decision = restore_selector(**restore_kwargs)
+    restore_decision = (
+        RestoreDecision(
+            kind=RESTORE_DECISION_NOT_RESTORABLE,
+            selection_observation=RESTORE_SELECTION_RECORD_ABSENT,
+        )
+        if restart_point_checkpoint_is_excluded
+        else restore_selector(**restore_kwargs)
+    )
     payload.update(
         {
             "restore_decision": getattr(restore_decision, "kind", None),
@@ -530,7 +682,7 @@ def determine_runtime_default_resume_decision(
                 *decision_diagnostics,
             ]
             return payload
-        if relevant_points:
+        if relevant_points or restart_point_checkpoint_is_excluded:
             if (
                 getattr(restore_decision, "selection_observation", None)
                 == "record_absent"
@@ -538,8 +690,56 @@ def determine_runtime_default_resume_decision(
                 prior_point, prior_diagnostic = _nearest_prior_effect_boundary(
                     runtime_plan=runtime_plan,
                     restart_node_id=restart_node_id,
+                    excluded_node_ids=(
+                        replay_checkpoint_excluded_node_ids
+                    ),
                 )
                 if prior_diagnostic is not None:
+                    if (
+                        prior_diagnostic
+                        == "lexical_default_resume_prior_boundary_missing"
+                        and replay_runtime is not None
+                        and not decision_diagnostics
+                        and _validated_frame_entry_replay(
+                            replay_runtime=replay_runtime,
+                            runtime_plan=runtime_plan,
+                            state=state,
+                            restart_node_id=restart_node_id,
+                        )
+                    ):
+                        payload.update(
+                            {
+                                "mode": MODE_LEXICAL_CHECKPOINT_DEFAULT,
+                                "restore_decision": (
+                                    "VALIDATED_FRAME_ENTRY_REPLAY"
+                                ),
+                                "restore_candidate": {
+                                    "kind": (
+                                        "VALIDATED_FRAME_ENTRY_REPLAY"
+                                    ),
+                                    "checkpoint_id": None,
+                                    "record_id": None,
+                                    "source_map_origin_key": None,
+                                    "restore_payload": None,
+                                    "policy_decision": None,
+                                    "diagnostics": [],
+                                    "transition_resume": None,
+                                    "selection_observation": (
+                                        "validated_frame_entry"
+                                    ),
+                                    "selection_reason": (
+                                        "validated_frame_entry_replay"
+                                    ),
+                                },
+                                "checkpoint_id": None,
+                                "record_id": None,
+                                "source_map_origin_key": None,
+                                "selection_reason": (
+                                    "validated_frame_entry_replay"
+                                ),
+                            }
+                        )
+                        return payload
                     payload["mode"] = MODE_FAIL_CLOSED
                     payload["diagnostics"] = [prior_diagnostic]
                     return payload

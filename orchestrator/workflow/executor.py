@@ -411,6 +411,8 @@ class WorkflowExecutor:
         self.step_heartbeat_interval_sec = step_heartbeat_interval_sec
         self._active_provider_sessions: Dict[str, Dict[str, Any]] = {}
         self._lexical_restore_overlay: Optional[Dict[str, Any]] = None
+        self._pure_replay_runtime: Any | None = None
+        self._active_pure_replay_witnesses: Dict[str, Any] = {}
         self.resume_mode = False
         self._adjudication_runner = AdjudicationRunner(
             AdjudicationBindings(
@@ -482,8 +484,6 @@ class WorkflowExecutor:
                 ),
             )
         )
-        self._initialize_provider_observation_manager()
-
     def _initialize_provider_observation_manager(self) -> None:
         """Acquire the owned run manager after fallible executor initialization."""
         if (
@@ -1071,6 +1071,430 @@ class WorkflowExecutor:
 
         raise ReferenceResolutionError(f"Bound address target step '{node_id}' is unavailable")
 
+    def _configure_pure_replay_runtime(
+        self,
+        run_state: Any,
+        *,
+        resume: bool,
+    ) -> None:
+        """Activate and audit the exact value-free persistence profile."""
+
+        from .pure_result_replay import (
+            DERIVED_PURE_REPLAY_PROFILE,
+            PureReplayRuntime,
+        )
+
+        self._pure_replay_runtime = None
+        self._active_pure_replay_witnesses.clear()
+        if (
+            getattr(run_state, "result_persistence_profile", None)
+            != DERIVED_PURE_REPLAY_PROFILE
+        ):
+            return
+
+        runtime = PureReplayRuntime(
+            bundle=self.loaded_bundle,
+            scope_path=self.resume_scope_path,
+        )
+        runtime.audit_persisted_surfaces(
+            state=run_state.to_dict(),
+            state_manager=self.state_manager,
+            resolve_bundle_path=lambda node_id: (
+                self._pure_replay_bundle_path_for_audit(
+                    node_id,
+                    state=run_state.to_dict(),
+                    require_resolved=resume,
+                )
+            ),
+        )
+        self._pure_replay_runtime = runtime
+
+    def _pure_replay_bundle_path_for_audit(
+        self,
+        node_id: str,
+        *,
+        state: Dict[str, Any],
+        require_resolved: bool,
+    ) -> Path | None:
+        """Resolve one compiled pure bundle through ordinary path guards."""
+
+        step = self._runtime_step_for_node_id(node_id)
+        _, resolved_output_bundle, path_error = (
+            self._resolve_output_contract_paths(
+                step,
+                state,
+            )
+        )
+        if path_error is not None:
+            if require_resolved:
+                from .pure_result_replay import (
+                    PROFILE_CONFLICT,
+                    PureResultReplayIndexError,
+                )
+
+                raise PureResultReplayIndexError(
+                    PROFILE_CONFLICT,
+                    "replay-profile pure bundle path is unresolved",
+                    context={
+                        "node_id": node_id,
+                        "surface": "pure_bundle",
+                    },
+                )
+            return None
+        raw_path = (
+            resolved_output_bundle.get("path")
+            if isinstance(resolved_output_bundle, dict)
+            else None
+        )
+        if not isinstance(raw_path, str) or not raw_path:
+            from .pure_result_replay import (
+                PROFILE_CONFLICT,
+                PureResultReplayIndexError,
+            )
+
+            raise PureResultReplayIndexError(
+                PROFILE_CONFLICT,
+                "replay-profile pure bundle path is invalid",
+                context={
+                    "node_id": node_id,
+                    "surface": "pure_bundle",
+                },
+            )
+        return self._bounded_private_runtime_bundle_path(
+            (self.workspace / raw_path).resolve(),
+            namespace="pure_projection",
+        )
+
+    def _audit_existing_pure_replay_call_frame(
+        self,
+        imported_workflow: Any,
+        detached_state: Any,
+        scope_path: ResumeScopePath,
+    ) -> None:
+        """Audit one existing replay-profile frame before its manager exists."""
+
+        from .pure_result_replay import (
+            DERIVED_PURE_REPLAY_PROFILE,
+            PureReplayRuntime,
+        )
+
+        if (
+            getattr(
+                detached_state,
+                "result_persistence_profile",
+                None,
+            )
+            != DERIVED_PURE_REPLAY_PROFILE
+        ):
+            return
+        bundle = workflow_bundle(imported_workflow)
+        if bundle is None:
+            raise TypeError(
+                "existing replay-profile call frame requires a loaded bundle"
+            )
+        child_state = detached_state.to_dict()
+        runtime = PureReplayRuntime(
+            bundle=bundle,
+            scope_path=scope_path,
+        )
+        runtime.audit_persisted_surfaces(
+            state=child_state,
+            state_manager=self.state_manager,
+            resolve_bundle_path=lambda node_id: (
+                self._pure_replay_detached_bundle_path_for_audit(
+                    bundle,
+                    node_id,
+                    state=child_state,
+                )
+            ),
+        )
+
+    def _pure_replay_detached_bundle_path_for_audit(
+        self,
+        bundle: Any,
+        node_id: str,
+        *,
+        state: Dict[str, Any],
+    ) -> Path:
+        """Resolve a detached frame bundle with ordinary path substitution."""
+
+        from .pure_result_replay import (
+            PROFILE_CONFLICT,
+            PureResultReplayIndexError,
+        )
+
+        node = bundle.ir.nodes.get(node_id)
+        common = getattr(
+            getattr(node, "execution_config", None),
+            "common",
+            None,
+        )
+        output_bundle = getattr(common, "output_bundle", None)
+        raw_path = (
+            output_bundle.get("path")
+            if isinstance(output_bundle, Mapping)
+            else None
+        )
+        if not isinstance(raw_path, str) or not raw_path:
+            raise PureResultReplayIndexError(
+                PROFILE_CONFLICT,
+                "replay-profile call-frame bundle path is invalid",
+                context={
+                    "node_id": node_id,
+                    "surface": "pure_bundle",
+                },
+            )
+        resolved_path, path_error = self._substitute_path_template(
+            raw_path,
+            state,
+            step_name=str(getattr(node, "presentation_name", node_id)),
+            field_name="output_bundle.path",
+        )
+        if (
+            path_error is not None
+            or not isinstance(resolved_path, str)
+            or not resolved_path
+        ):
+            raise PureResultReplayIndexError(
+                PROFILE_CONFLICT,
+                "replay-profile call-frame bundle path is unresolved",
+                context={
+                    "node_id": node_id,
+                    "surface": "pure_bundle",
+                },
+            )
+        return self._bounded_private_runtime_bundle_path(
+            (self.workspace / resolved_path).resolve(),
+            namespace="pure_projection",
+        )
+
+    def _pure_replay_node_is_eligible(self, node_id: Any) -> bool:
+        """Return whether the active profile owns this exact executable node."""
+
+        return (
+            isinstance(node_id, str)
+            and self._pure_replay_runtime is not None
+            and self._pure_replay_runtime.is_eligible(node_id)
+        )
+
+    def _pure_replay_profile_enabled_for_step(
+        self,
+        step: RuntimeStepInput,
+    ) -> bool:
+        """Return whether one exact runtime step uses value-free replay."""
+
+        return (
+            self._pure_replay_runtime is not None
+            and self._pure_replay_runtime.node_id_for_step_id(
+                self._step_id(step)
+            )
+            is not None
+        )
+
+    def _pure_replay_success_checkpoint_is_suppressed(
+        self,
+        step: RuntimeStepInput,
+    ) -> bool:
+        """Return whether this persisted point is an exact derived success."""
+
+        runtime = self._pure_replay_runtime
+        manager_state = getattr(self.state_manager, "state", None)
+        if runtime is None or manager_state is None:
+            return False
+        node_id = runtime.node_id_for_step_id(self._step_id(step))
+        if node_id is None:
+            return False
+        state = (
+            manager_state.to_dict()
+            if hasattr(manager_state, "to_dict")
+            else manager_state
+        )
+        if not isinstance(state, Mapping):
+            return False
+        return runtime.successful_checkpoint_is_suppressed(
+            node_id,
+            state=state,
+        )
+
+    def _checkpoint_node_id_for_step_id(
+        self,
+        step_id: str,
+    ) -> str:
+        """Resolve one durable step identity through audited node catalogs."""
+
+        candidates: set[str] = set()
+        if self.projection is not None:
+            projected_node_id = self.projection.node_id_for_step_id(
+                step_id
+            )
+            if isinstance(projected_node_id, str):
+                candidates.add(projected_node_id)
+        runtime = self._pure_replay_runtime
+        if runtime is not None:
+            replay_node_id = runtime.node_id_for_step_id(step_id)
+            if isinstance(replay_node_id, str):
+                candidates.add(replay_node_id)
+        if len(candidates) > 1:
+            raise ValueError(
+                "Durable step identity maps to ambiguous executable nodes"
+            )
+        if candidates:
+            return next(iter(candidates))
+        if (
+            self.projection is None
+            and self.executable_ir is not None
+            and step_id in self.executable_ir.nodes
+        ):
+            return step_id
+        raise ValueError(
+            f"Durable step identity '{step_id}' is absent from the "
+            "audited executable projection"
+        )
+
+    def _pure_replay_source_step_is_derived(
+        self,
+        source_step_id: Any,
+    ) -> bool:
+        """Return whether an exact restore source belongs in the overlay."""
+
+        return (
+            self._pure_replay_runtime is not None
+            and self._pure_replay_runtime.source_step_is_derived(
+                source_step_id
+            )
+        )
+
+    def _prepare_pure_replay_visit(
+        self,
+        state: Dict[str, Any],
+        *,
+        node_id: str,
+        resume_current_step: bool,
+    ) -> Any | None:
+        """Atomically begin or reuse one eligible single-visit projection."""
+
+        runtime = self._pure_replay_runtime
+        if runtime is None or not runtime.is_eligible(node_id):
+            return None
+        if resume_current_step:
+            witness = runtime.witness_from_state(node_id, state)
+            self.state_manager.reuse_interrupted_eligible_pure_visit(
+                witness
+            )
+        else:
+            replay_node = runtime.index.nodes[node_id]
+            visit_count = self.state_manager.begin_eligible_pure_visit(
+                step_name=replay_node.presentation_key,
+                step_index=self._execution_index_for_node_id(node_id),
+                step_id=replay_node.step_id,
+            )
+            witness = runtime.witness(
+                node_id,
+                visit_count=visit_count,
+            )
+
+        state.setdefault("step_visits", {})[
+            witness.presentation_key
+        ] = witness.visit_count
+        manager_state = getattr(self.state_manager, "state", None)
+        state["current_step"] = deepcopy(
+            getattr(manager_state, "current_step", None)
+        )
+        return witness
+
+    def _evaluate_pure_replay_node(
+        self,
+        node_id: str,
+        state: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        """Evaluate one replay node without progress or persistence actions."""
+
+        step = self._runtime_step_for_node_id(node_id)
+        result = self._execute_pure_projection(
+            step,
+            deepcopy(dict(state)),
+        )
+        finalized = self.outcome_recorder.attach_outcome(
+            step,
+            dict(result),
+        )
+        replay_node = self._pure_replay_runtime.index.nodes[node_id]
+        finalized.setdefault("name", replay_node.presentation_key)
+        finalized.setdefault("step_id", replay_node.step_id)
+        finalized.setdefault("visit_count", 1)
+        return finalized
+
+    def _prepare_pure_replay_boundary(
+        self,
+        state: Dict[str, Any],
+        *,
+        restart_node_id: str | None,
+    ) -> None:
+        """Reconstruct only the selected boundary's typed pure closure."""
+
+        runtime = getattr(self, "_pure_replay_runtime", None)
+        if runtime is None:
+            return
+        for node_id in runtime.required_node_ids_for_boundary(
+            restart_node_id,
+            state=state,
+        ):
+            runtime.replay_node(
+                node_id,
+                state=state,
+                evaluate_node=self._evaluate_pure_replay_node,
+            )
+
+    def _audit_pure_replay_boundary_leaves(
+        self,
+        state: Mapping[str, Any],
+        *,
+        restart_node_id: str | None,
+    ) -> None:
+        """Validate replay leaves without evaluating the rejected boundary."""
+
+        runtime = getattr(self, "_pure_replay_runtime", None)
+        if runtime is None or not isinstance(restart_node_id, str):
+            return
+        runtime.audit_boundary_leaves(
+            restart_node_id,
+            state=state,
+        )
+
+    def _resolve_pure_replay_ref(
+        self,
+        ref: str,
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]],
+    ) -> Any:
+        """Resolve an exact surface ref after process-local reconstruction."""
+
+        runtime = self._pure_replay_runtime
+        if runtime is None:
+            return _RESTORE_REF_MISSING
+        address = runtime.replay_address_for_ref(ref)
+        if address is None:
+            return _RESTORE_REF_MISSING
+        runtime.replay_node(
+            address.node_id,
+            state=state,
+            evaluate_node=self._evaluate_pure_replay_node,
+        )
+        found, value = runtime.resolve_state_address(address, state)
+        if found:
+            return value
+        from .pure_result_replay import (
+            BINDING_UNRESOLVED,
+            PureResultReplayIndexError,
+        )
+
+        raise PureResultReplayIndexError(
+            BINDING_UNRESOLVED,
+            "replayed result could not satisfy its exact reference",
+            context={"node_id": address.node_id},
+        )
+
     def _restore_overlay_match_case_for_node_id(
         self,
         node_id: str,
@@ -1191,8 +1615,30 @@ class WorkflowExecutor:
                 )
             return bound_inputs[address.input_name]
 
-        result = self._result_for_node_id(address.node_id, state, scope=scope)
         if isinstance(address, NodeResultAddress):
+            replay_runtime = self._pure_replay_runtime
+            if (
+                replay_runtime is not None
+                and replay_runtime.is_eligible(address.node_id)
+            ):
+                replay_runtime.replay_node(
+                    address.node_id,
+                    state=state,
+                    evaluate_node=self._evaluate_pure_replay_node,
+                )
+                found, replay_value = (
+                    replay_runtime.resolve_state_address(
+                        address,
+                        state,
+                    )
+                )
+                if found:
+                    return replay_value
+            result = self._result_for_node_id(
+                address.node_id,
+                state,
+                scope=scope,
+            )
             if address.field == "exit_code":
                 if "exit_code" not in result:
                     raise ReferenceResolutionError(
@@ -1206,6 +1652,7 @@ class WorkflowExecutor:
                 )
             return container[address.member]
 
+        result = self._result_for_node_id(address.node_id, state, scope=scope)
         if isinstance(address, (BlockOutputAddress, LoopOutputAddress, CallOutputAddress)):
             artifacts = result.get("artifacts")
             output_name = address.output_name
@@ -1496,10 +1943,16 @@ class WorkflowExecutor:
             projection=self.projection,
         )
 
-    def _determine_resume_default_resume_decision(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    def _determine_resume_default_resume_decision(
+        self,
+        state: Dict[str, Any],
+        *,
+        restart_node_id: str | None,
+    ) -> Dict[str, Any]:
         """Determine the R6 default-resume mode for one resumed run."""
         return self.resume_planner.determine_default_resume_decision(
             state,
+            restart_node_id=restart_node_id,
             runtime_plan=self.runtime_plan,
             state_manager=self.state_manager,
             executable_workflow=self.executable_ir,
@@ -3717,6 +4170,11 @@ class WorkflowExecutor:
                 root_guard_result = self._revalidate_root_resume(run_state)
                 if root_guard_result is not None:
                     return root_guard_result
+            self._configure_pure_replay_runtime(
+                run_state,
+                resume=resume,
+            )
+            self._initialize_provider_observation_manager()
             state = run_state.to_dict()
             completed_phased_resume_boundary = None
             completed_resume_candidate = (
@@ -3734,14 +4192,19 @@ class WorkflowExecutor:
                 if early_result is not None:
                     return early_result
 
+            resume_restart_node_id: str | None = None
             if resume:
                 try:
-                    resume_restart = (
+                    resume_restart_node_id = (
                         self._determine_resume_restart_node_id(state)
                     )
-                except ResumeStateIntegrityError:
-                    resume_restart = False
-                if resume_restart is None:
+                except ResumeStateIntegrityError as exc:
+                    return self._fail_resume_state_integrity(
+                        "resume_state_integrity_error",
+                        str(exc),
+                        dict(exc.context),
+                    )
+                if resume_restart_node_id is None:
                     completed_phased_resume_boundary = (
                         self._completed_phased_provider_resume_boundary(
                             state
@@ -3777,6 +4240,7 @@ class WorkflowExecutor:
                 completed_phased_resume_boundary=(
                     completed_phased_resume_boundary
                 ),
+                resume_restart_node_id=resume_restart_node_id,
             )
             if loop_result.early_result is not None:
                 return loop_result.early_result
@@ -4039,24 +4503,19 @@ class WorkflowExecutor:
         on_error: str,
         terminal_status: str,
         completed_phased_resume_boundary: Mapping[str, Any] | None,
+        resume_restart_node_id: str | None = None,
     ) -> _ExecuteStepLoopResult:
 
         try:
             active_step_context: Dict[str, Any] = {}
             # Execute steps with control flow support
-            try:
-                resume_restart_node_id = self._determine_resume_restart_node_id(state) if resume else None
-            except ResumeStateIntegrityError as exc:
-                return _ExecuteStepLoopResult(
-                    terminal_status,
-                    self._fail_resume_state_integrity(
-                        "resume_state_integrity_error",
-                        str(exc),
-                        dict(exc.context),
-                    ),
-                )
             if resume:
-                default_resume_decision = self._determine_resume_default_resume_decision(state)
+                default_resume_decision = (
+                    self._determine_resume_default_resume_decision(
+                        state,
+                        restart_node_id=resume_restart_node_id,
+                    )
+                )
                 self._write_default_resume_report(default_resume_decision)
                 restore_decision = None
                 restore_kind = None
@@ -4072,6 +4531,35 @@ class WorkflowExecutor:
                         decision=restore_decision,
                     )
                 if default_resume_decision.get("mode") == "FAIL_CLOSED":
+                    try:
+                        self._audit_pure_replay_boundary_leaves(
+                            state,
+                            restart_node_id=resume_restart_node_id,
+                        )
+                    except Exception as exc:
+                        from .pure_result_replay import (
+                            PureResultReplayIndexError,
+                        )
+
+                        if not isinstance(
+                            exc,
+                            PureResultReplayIndexError,
+                        ):
+                            raise
+                        return _ExecuteStepLoopResult(
+                            terminal_status,
+                            self._fail_resume_state_integrity(
+                                exc.code,
+                                str(exc),
+                                {
+                                    **dict(exc.context),
+                                    "reason": exc.reason,
+                                    "restart_node_id": (
+                                        resume_restart_node_id
+                                    ),
+                                },
+                            ),
+                        )
                     error_type = "lexical_default_resume_invalid"
                     error_message = "Workflow Lisp default resume policy rejected this resume path."
                     if restore_kind == "INVALID":
@@ -4098,19 +4586,40 @@ class WorkflowExecutor:
                     self._activate_resume_restore_overlay(restore_decision)
                 else:
                     self._lexical_restore_overlay = None
+                try:
+                    self._prepare_pure_replay_boundary(
+                        state,
+                        restart_node_id=resume_restart_node_id,
+                    )
+                except Exception as exc:
+                    from .pure_result_replay import (
+                        PureResultReplayIndexError,
+                    )
+
+                    if not isinstance(
+                        exc,
+                        PureResultReplayIndexError,
+                    ):
+                        raise
+                    return _ExecuteStepLoopResult(
+                        terminal_status,
+                        self._fail_resume_state_integrity(
+                            exc.code,
+                            str(exc),
+                            {
+                                **dict(exc.context),
+                                "reason": exc.reason,
+                                "restart_node_id": (
+                                    resume_restart_node_id
+                                ),
+                            },
+                        ),
+                    )
             else:
                 self._lexical_restore_overlay = None
             step_index = 0
             current_node_id = resume_restart_node_id
-            if (
-                current_node_id is None
-                and not (
-                    resume
-                    and completed_phased_resume_boundary is not None
-                    and completed_phased_resume_boundary.get("kind")
-                    == "reuse"
-                )
-            ):
+            if current_node_id is None and not resume:
                 current_node_id = self._first_execution_node_id()
             while True:
                 if current_node_id is None:
@@ -4398,7 +4907,21 @@ class WorkflowExecutor:
                     self.state_manager.backup_state(step_name)
 
                 consume_error = self._enforce_consumes_contract(step, step_name, state)
-                visit_count = self._increment_step_visit(state, step_name)
+                pure_replay_witness = self._prepare_pure_replay_visit(
+                    state,
+                    node_id=current_node_id,
+                    resume_current_step=resume_current_step,
+                )
+                if pure_replay_witness is not None:
+                    visit_count = pure_replay_witness.visit_count
+                    self._active_pure_replay_witnesses[
+                        pure_replay_witness.step_id
+                    ] = pure_replay_witness
+                else:
+                    visit_count = self._increment_step_visit(
+                        state,
+                        step_name,
+                    )
                 if isinstance(visit_count, int):
                     active_step_context["visit_count"] = visit_count
                 max_visits = step.get('max_visits')
@@ -4528,13 +5051,14 @@ class WorkflowExecutor:
                         visit_count=visit_count,
                     )
 
-                self.state_manager.start_step(
-                    identity.name,
-                    identity.step_index if identity.step_index is not None else step_index,
-                    self._resolve_step_type(step),
-                    step_id=identity.step_id,
-                    visit_count=visit_count,
-                )
+                if pure_replay_witness is None:
+                    self.state_manager.start_step(
+                        identity.name,
+                        identity.step_index if identity.step_index is not None else step_index,
+                        self._resolve_step_type(step),
+                        step_id=identity.step_id,
+                        visit_count=visit_count,
+                    )
                 self._arm_interrupted_provider_rerun(
                     interrupted_rerun_context
                 )
@@ -4635,9 +5159,15 @@ class WorkflowExecutor:
         # Preserve historical behavior for stop-on-error returns, which include
         # in-memory step payloads that may not have been mirrored to state.json.
         if terminal_status == 'completed':
+            if self._pure_replay_runtime is not None:
+                return self._pure_replay_runtime.overlay_active_state(
+                    persisted_state,
+                )
             return persisted_state
 
         state['status'] = terminal_status
+        if self._pure_replay_runtime is not None:
+            return self._pure_replay_runtime.overlay_active_state(state)
         return state
 
     def _resolve_step_type(self, step: RuntimeStepInput) -> str:
@@ -9559,6 +10089,13 @@ class WorkflowExecutor:
                             return self.reference_resolver.resolve(rewritten_ref, state, scope=retry_scope).value, None
                         except ReferenceResolutionError:
                             continue
+                replay_value = self._resolve_pure_replay_ref(
+                    candidate_ref,
+                    state,
+                    scope=scope,
+                )
+                if replay_value is not _RESTORE_REF_MISSING:
+                    return replay_value, None
                 overlay_value = self._resolve_restore_overlay_ref(candidate_ref, state)
                 if overlay_value is not _RESTORE_REF_MISSING:
                     return overlay_value, None
@@ -11635,15 +12172,46 @@ class WorkflowExecutor:
         class_hint: Optional[str] = None,
         retryable_hint: Optional[bool] = None,
     ) -> Dict[str, Any]:
-        return self.outcome_recorder.persist_step_result(
-            state,
-            step_name,
-            step,
-            result,
-            phase_hint=phase_hint,
-            class_hint=class_hint,
-            retryable_hint=retryable_hint,
+        step_id = self._step_id(step)
+        pure_replay_witness = self._active_pure_replay_witnesses.get(
+            step_id
         )
+        try:
+            finalized = self.outcome_recorder.persist_step_result(
+                state,
+                step_name,
+                step,
+                result,
+                phase_hint=phase_hint,
+                class_hint=class_hint,
+                retryable_hint=retryable_hint,
+                eligible_pure_settlement=pure_replay_witness,
+            )
+            if pure_replay_witness is not None:
+                state["current_step"] = None
+                if (
+                    finalized.get("status") == "completed"
+                    and self._pure_replay_runtime is not None
+                ):
+                    node_id = (
+                        self._pure_replay_runtime.node_id_for_step_id(
+                            step_id
+                        )
+                    )
+                    if node_id is None:
+                        raise ValueError(
+                            "eligible pure settlement lost executable "
+                            "node authority"
+                        )
+                    self._pure_replay_runtime.record_full_result(
+                        node_id,
+                        witness=pure_replay_witness,
+                        result=finalized,
+                    )
+            return finalized
+        finally:
+            if pure_replay_witness is not None:
+                self._active_pure_replay_witnesses.pop(step_id, None)
 
     def _emit_lexical_checkpoint_shadow_after_step_commit(
         self,
@@ -11656,7 +12224,8 @@ class WorkflowExecutor:
         step_id = finalized.get("step_id")
         if not isinstance(step_id, str) or not step_id:
             step_id = self._step_id(step)
-        execution_index = self._execution_index_for_node_id(step_id)
+        node_id = self._checkpoint_node_id_for_step_id(step_id)
+        execution_index = self._execution_index_for_node_id(node_id)
         if not isinstance(execution_index, int):
             return
         step_visits = self.state_manager.state.step_visits if self.state_manager.state is not None else {}
@@ -11681,6 +12250,7 @@ class WorkflowExecutor:
             execution_index=execution_index,
             visit_count=visit_count,
             call_frame_id=call_frame_id,
+            committed_step_state=finalized,
         )
 
     def _emit_lexical_checkpoint_shadow_after_repeat_until_commit(

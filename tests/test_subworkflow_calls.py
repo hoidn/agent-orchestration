@@ -332,6 +332,451 @@ def _projection_call_frame(
     }
 
 
+def _compile_imported_pure_replay_call_fixture(
+    workspace: Path,
+):
+    from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+    from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+    from tests.test_workflow_lisp_pure_result_replay import (
+        _copy_runtime_fixture,
+    )
+
+    child_path = _copy_runtime_fixture(workspace)
+    child_path.write_text(
+        child_path.read_text(encoding="utf-8").replace(
+            "(export orchestrate)",
+            "(export ReplayResult orchestrate)",
+        ),
+        encoding="utf-8",
+    )
+    parent_path = workspace / "pure_replay_parent.orc"
+    parent_path.write_text(
+        """(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.18")
+  (defmodule pure_replay_parent)
+  (import pure_result_replay_effect_barrier :only
+    (ReplayResult orchestrate))
+  (export entry)
+  (defworkflow entry
+    ((seed Int)
+     (enabled Bool))
+    -> ReplayResult
+    (call orchestrate
+      :seed seed
+      :enabled enabled)))
+""",
+        encoding="utf-8",
+    )
+    result = compile_stage3_entrypoint(
+        parent_path,
+        source_roots=(workspace,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={
+            "count-e1": ExternalToolBinding(
+                name="count-e1",
+                stable_command=("python", "scripts/count_e1.py"),
+            ),
+            "finish-e2": ExternalToolBinding(
+                name="finish-e2",
+                stable_command=("python", "scripts/finish_e2.py"),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=workspace,
+    )
+    parent_bundle = result.validated_bundles_by_name[
+        "pure_replay_parent::entry"
+    ]
+    import_alias = "pure_result_replay_effect_barrier::orchestrate"
+    child_bundle = workflow_import_bundle(parent_bundle, import_alias)
+    assert child_bundle is not None
+    return parent_path, parent_bundle, child_path, child_bundle
+
+
+def test_pure_replay_runtime_keeps_true_imported_callee_refs_workflow_local(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.pure_result_replay import (
+        PureReplayRuntime,
+        PureResultReplayIndexError,
+        derive_pure_result_replay_index,
+    )
+    from orchestrator.workflow.resume_projection_integrity import (
+        ResumeScopePath,
+    )
+    from tests.test_workflow_lisp_pure_result_replay import _node_id_ending
+
+    parent_path, parent_bundle, _, child_bundle = (
+        _compile_imported_pure_replay_call_fixture(tmp_path)
+    )
+    import_alias = "pure_result_replay_effect_barrier::orchestrate"
+
+    assert parent_bundle.imports[import_alias] is child_bundle
+    runtime = PureReplayRuntime(
+        bundle=child_bundle,
+        scope_path=ResumeScopePath.root(str(parent_path)).child(
+            "root.call-child::visit::1"
+        ),
+    )
+
+    assert runtime.index.scope_kind == "root"
+    assert set(runtime.index.nodes) == {
+        _node_id_ending(child_bundle, "__a"),
+        _node_id_ending(child_bundle, "__b"),
+    }
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        derive_pure_result_replay_index(
+            child_bundle,
+            scope_kind="self",
+        )
+    assert excinfo.value.reason == "dependency_index_invalid"
+    assert excinfo.value.context["expected_scope"] == "self"
+    assert excinfo.value.context["actual_scope"] == "root"
+
+
+@pytest.mark.parametrize(
+    ("forbidden_surface", "expected_surface"),
+    (
+        pytest.param("value_row", "steps", id="value-row"),
+        pytest.param("pure_bundle", "pure_bundle", id="pure-bundle"),
+        pytest.param(
+            "private_lineage",
+            "private_artifact_versions",
+            id="private-lineage",
+        ),
+        pytest.param(
+            "checkpoint",
+            "checkpoint_record",
+            id="same-frame-pure-checkpoint",
+        ),
+        pytest.param(
+            "restore_binding",
+            "restore_payload",
+            id="restore-binding",
+        ),
+    ),
+)
+def test_existing_replay_profile_call_frame_audit_rejects_mixed_surfaces(
+    tmp_path: Path,
+    forbidden_surface: str,
+    expected_surface: str,
+) -> None:
+    from orchestrator.workflow.call_frame_state import (
+        load_existing_call_frame_read_only,
+    )
+    from orchestrator.workflow.pure_result_replay import (
+        PureResultReplayIndexError,
+    )
+    from orchestrator.workflow.resume_projection_integrity import (
+        ResumeScopePath,
+    )
+    from tests.test_workflow_lisp_pure_result_replay import (
+        _emit_unconfigured_replay_profile_checkpoint,
+        _node_id_ending,
+        _pure_bundle_paths,
+        _with_recurrent_pure_node,
+    )
+
+    parent_path, parent_bundle, child_path, child_bundle = (
+        _compile_imported_pure_replay_call_fixture(tmp_path)
+    )
+    source_manager = StateManager(
+        tmp_path,
+        run_id=f"nested-profile-source-{forbidden_surface}",
+    )
+    source_manager.initialize(
+        child_path.name,
+        context=bundle_context_dict(child_bundle),
+        bound_inputs={"seed": 3, "enabled": True},
+        result_persistence_profile="derived_pure_replay.v1",
+    )
+    active = WorkflowExecutor(
+        child_bundle,
+        tmp_path,
+        source_manager,
+    ).execute(on_error="stop")
+    child_state = json.loads(
+        source_manager.state_file.read_text(encoding="utf-8")
+    )
+    parent_manager = StateManager(
+        tmp_path,
+        run_id=f"nested-profile-parent-{forbidden_surface}",
+    )
+    parent_manager.initialize(
+        parent_path.name,
+        context=bundle_context_dict(parent_bundle),
+        bound_inputs={"seed": 3, "enabled": True},
+    )
+    parent_executor = WorkflowExecutor(
+        parent_bundle,
+        tmp_path,
+        parent_manager,
+    )
+    frame_id = "root.imported-pure-replay::visit::1"
+    a_node_id = _node_id_ending(child_bundle, "__a")
+    b_node_id = _node_id_ending(child_bundle, "__b")
+
+    if forbidden_surface == "value_row":
+        presentation_key = child_bundle.projection.entries_by_node_id[
+            a_node_id
+        ].presentation_key
+        child_state["steps"][presentation_key] = active["steps"][
+            presentation_key
+        ]
+    elif forbidden_surface == "pure_bundle":
+        bundle_path = next(
+            path
+            for path in _pure_bundle_paths(tmp_path, child_state)
+            if "__a__result_bundle" in path.name
+        )
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text(
+            '{"forbidden_profile_mix":true}\n',
+            encoding="utf-8",
+        )
+    elif forbidden_surface == "private_lineage":
+        child_state["private_artifact_versions"] = {
+            "forbidden-derived-value": [
+                {
+                    "producer": child_bundle.ir.nodes[a_node_id].step_id,
+                    "value": {"seed": 3},
+                }
+            ]
+        }
+    elif forbidden_surface == "checkpoint":
+        _emit_unconfigured_replay_profile_checkpoint(
+            bundle=child_bundle,
+            manager=parent_manager,
+            node_id=a_node_id,
+            call_frame_id=frame_id,
+        )
+    else:
+        child_bundle = _with_recurrent_pure_node(
+            child_bundle,
+            node_id=b_node_id,
+        )
+        _emit_unconfigured_replay_profile_checkpoint(
+            bundle=child_bundle,
+            manager=parent_manager,
+            node_id=b_node_id,
+            call_frame_id=frame_id,
+        )
+
+    before_parent_bytes = parent_manager.state_file.read_bytes()
+    before_parent_tree = _projection_run_tree_snapshot(
+        parent_manager.run_root
+    )
+    detached_state = load_existing_call_frame_read_only(
+        {"state": child_state}
+    )
+
+    # The execute_call ordering test below proves this hook runs before the
+    # child manager constructor and its bound-input-validation persistence.
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        parent_executor._audit_existing_pure_replay_call_frame(
+            child_bundle,
+            detached_state,
+            ResumeScopePath.root(str(parent_path)).child(frame_id),
+        )
+
+    assert excinfo.value.code == "pure_result_replay_unavailable"
+    assert excinfo.value.reason == "profile_conflict"
+    assert excinfo.value.context["surface"] == expected_surface
+    assert parent_manager.state_file.read_bytes() == before_parent_bytes
+    assert (
+        _projection_run_tree_snapshot(parent_manager.run_root)
+        == before_parent_tree
+    )
+
+
+def test_existing_call_frame_read_only_loader_returns_detached_state_without_io(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.state import RunState
+    from orchestrator.workflow import call_frame_state
+
+    existing_frame = {
+        "state": {
+            "schema_version": StateManager.SCHEMA_VERSION,
+            "run_id": "detached-call-frame",
+            "workflow_file": "imports/child.orc",
+            "workflow_checksum": "sha256:" + ("1" * 64),
+            "started_at": "2026-07-30T00:00:00+00:00",
+            "updated_at": "2026-07-30T00:00:01+00:00",
+            "status": "running",
+            "context": {"nested": {"values": [1]}},
+            "bound_inputs": {"payload": {"items": ["a"]}},
+            "steps": {},
+        }
+    }
+    before = deepcopy(existing_frame)
+
+    with patch.object(
+        Path,
+        "mkdir",
+        side_effect=AssertionError("read-only loader attempted directory creation"),
+    ), patch.object(
+        StateManager,
+        "_write_state",
+        side_effect=AssertionError("read-only loader attempted persistence"),
+    ):
+        loaded = call_frame_state.load_existing_call_frame_read_only(
+            existing_frame
+        )
+
+    assert isinstance(loaded, RunState)
+    loaded.context["nested"]["values"].append(2)
+    loaded.bound_inputs["payload"]["items"].append("b")
+    assert existing_frame == before
+    assert not (tmp_path / ".orchestrate").exists()
+
+
+def test_existing_reached_call_frame_audit_hook_is_read_only_and_precedes_constructor(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.state import RunState
+
+    class AuditStopped(RuntimeError):
+        pass
+
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    middle_bundle = workflow_import_bundle(root_bundle, "middle")
+    assert middle_bundle is not None
+    leaf_bundle = workflow_import_bundle(middle_bundle, "leaf")
+    assert leaf_bundle is not None
+    manager = StateManager(tmp_path, run_id="reached-call-read-only-audit")
+    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
+    executor = WorkflowExecutor(middle_bundle, tmp_path, manager)
+    executor.resume_mode = True
+    frame_id = "root.invoke_leaf::visit::1"
+    state = manager.load().to_dict()
+    child_state = manager.load().to_dict()
+    leaf_provenance = workflow_provenance(leaf_bundle)
+    assert leaf_provenance is not None
+    child_state.update(
+        {
+            "workflow_file": "imports/leaf.yaml",
+            "workflow_checksum": manager.calculate_checksum(
+                leaf_provenance.workflow_path
+            ),
+            "status": "running",
+            "context": bundle_context_dict(leaf_bundle),
+            "bound_inputs": {},
+            "steps": {},
+            "call_frames": {},
+            "step_visits": {},
+            "result_persistence_profile": "derived_pure_replay.v1",
+        }
+    )
+    frame = _projection_call_frame(
+        manager,
+        leaf_bundle,
+        frame_id=frame_id,
+        status="running",
+        call_step_id="root.invoke_leaf",
+        import_alias="leaf",
+    )
+    frame["state"] = child_state
+    state["step_visits"] = {"InvokeLeaf": 1}
+    state["call_frames"] = {frame_id: frame}
+    before_state = deepcopy(state)
+    before_bytes = manager.state_file.read_bytes()
+    before_tree = _projection_run_tree_snapshot(manager.run_root)
+    events: list[str] = []
+
+    def audit_existing_frame(
+        imported_workflow,
+        detached_state,
+        scope_path,
+    ) -> None:
+        events.append("audit")
+        assert imported_workflow is leaf_bundle
+        assert isinstance(detached_state, RunState)
+        assert scope_path.call_frame_ids == (frame_id,)
+        detached_state.context["audit_probe"] = {"detached": True}
+        assert state == before_state
+        raise AuditStopped
+
+    executor._audit_existing_pure_replay_call_frame = audit_existing_frame
+
+    def unexpected_constructor(*_args, **_kwargs):
+        events.append("constructor")
+        raise AssertionError("call-frame constructor ran before detached audit")
+
+    with patch(
+        "orchestrator.workflow.call_frame_state._CallFrameStateManager",
+        side_effect=unexpected_constructor,
+    ), patch.object(
+        manager,
+        "update_call_frame",
+        side_effect=AssertionError("detached audit attempted a frame write"),
+    ):
+        with pytest.raises(AuditStopped):
+            executor.call_executor.execute_call(
+                materialize_projection_body_steps(middle_bundle)[0],
+                state,
+            )
+
+    assert events == ["audit"]
+    assert state == before_state
+    assert manager.state_file.read_bytes() == before_bytes
+    assert _projection_run_tree_snapshot(manager.run_root) == before_tree
+
+
+def test_fresh_call_frame_does_not_inherit_parent_replay_profile_or_run_audit_hook(
+    tmp_path: Path,
+) -> None:
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    manager = StateManager(tmp_path, run_id="fresh-call-no-profile-inheritance")
+    manager.initialize(
+        "workflow.yaml",
+        context=bundle_context_dict(root_bundle),
+        result_persistence_profile="derived_pure_replay.v1",
+    )
+    executor = WorkflowExecutor(root_bundle, tmp_path, manager)
+    state = manager.load().to_dict()
+    constructor_kwargs: dict = {}
+    audit_calls: list[str] = []
+
+    def audit_existing_frame(*_args, **_kwargs) -> None:
+        audit_calls.append("audit")
+
+    executor._audit_existing_pure_replay_call_frame = audit_existing_frame
+
+    def construct_manager(*_args, **kwargs):
+        constructor_kwargs.update(kwargs)
+        return SimpleNamespace(
+            update_bound_input_resume_validation=lambda **_kwargs: None,
+            _snapshot=lambda: {},
+        )
+
+    with patch(
+        "orchestrator.workflow.call_frame_state._CallFrameStateManager",
+        side_effect=construct_manager,
+    ), patch(
+        "orchestrator.workflow.executor.WorkflowExecutor",
+    ) as child_executor:
+        child_executor.return_value.execute.return_value = {
+            "status": "completed",
+            "workflow_outputs": {},
+        }
+        result = executor.call_executor.execute_call(
+            materialize_projection_body_steps(root_bundle)[0],
+            state,
+        )
+
+    assert result["status"] == "completed"
+    assert audit_calls == []
+    assert constructor_kwargs.get("result_persistence_profile") is None
+    assert constructor_kwargs["existing_frame"] is None
+
+
 def test_imported_workflows_must_validate_independently(tmp_path: Path):
     library_path = _write_yaml(
         tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
@@ -1216,7 +1661,7 @@ def test_resumed_parent_starts_never_entered_child_call_fresh(tmp_path: Path):
 
     child_default_resume_calls: list[dict] = []
 
-    def _default_resume_decision(executor, state):
+    def _default_resume_decision(executor, state, *, restart_node_id):
         if isinstance(executor.state_manager, StateManager):
             return {
                 "mode": "LEXICAL_CHECKPOINT_DEFAULT",
@@ -1320,7 +1765,7 @@ def test_resumed_parent_rejects_malformed_child_call_frame_state_without_overwri
     (tmp_path / "state" / "resume-ready.txt").write_text("ready\n", encoding="utf-8")
     parent_default_resume_calls: list[dict] = []
 
-    def _default_resume_decision(executor, state):
+    def _default_resume_decision(executor, state, *, restart_node_id):
         parent_default_resume_calls.append(state)
         return {
             "mode": "LEXICAL_CHECKPOINT_DEFAULT",
@@ -1406,7 +1851,7 @@ def test_resumed_parent_still_fails_closed_for_persisted_child_without_prior_bou
     (tmp_path / "state" / "child-resume-ready.txt").write_text("ready\n", encoding="utf-8")
     child_default_resume_calls: list[dict] = []
 
-    def _default_resume_decision(executor, state):
+    def _default_resume_decision(executor, state, *, restart_node_id):
         if isinstance(executor.state_manager, StateManager):
             return {
                 "mode": "LEXICAL_CHECKPOINT_DEFAULT",
@@ -1507,7 +1952,7 @@ def test_failed_workflow_lisp_child_retry_still_allocates_fresh_frame(tmp_path: 
     (tmp_path / "state" / "child-retry-ready.txt").write_text("ready\n", encoding="utf-8")
     child_default_resume_calls: list[dict] = []
 
-    def _default_resume_decision(executor, state):
+    def _default_resume_decision(executor, state, *, restart_node_id):
         if isinstance(executor.state_manager, StateManager):
             return {
                 "mode": "LEXICAL_CHECKPOINT_DEFAULT",

@@ -38,22 +38,31 @@ def execute_pure_projection(
             "Pure projection execution failed",
             {"reason": "invalid_pure_projection_config"},
         )
-    resolved_expected_outputs, resolved_output_bundle, path_error = runtime._resolve_output_contract_paths(
-        step,
-        state,
-        context=scope,
+    replay_profile_enabled = (
+        runtime._pure_replay_profile_enabled_for_step(step)
     )
-    if path_error is not None:
-        return path_error
+    resolved_output_bundle = None
     bundle_path = None
-    if isinstance(resolved_output_bundle, dict):
-        raw_path = resolved_output_bundle.get("path")
-        if isinstance(raw_path, str) and raw_path:
-            bundle_path = (runtime.workspace / raw_path).resolve()
-            bundle_path = runtime._bounded_private_runtime_bundle_path(
-                bundle_path,
-                namespace="pure_projection",
-            )
+    if not replay_profile_enabled:
+        (
+            _resolved_expected_outputs,
+            resolved_output_bundle,
+            path_error,
+        ) = runtime._resolve_output_contract_paths(
+            step,
+            state,
+            context=scope,
+        )
+        if path_error is not None:
+            return path_error
+        if isinstance(resolved_output_bundle, dict):
+            raw_path = resolved_output_bundle.get("path")
+            if isinstance(raw_path, str) and raw_path:
+                bundle_path = (runtime.workspace / raw_path).resolve()
+                bundle_path = runtime._bounded_private_runtime_bundle_path(
+                    bundle_path,
+                    namespace="pure_projection",
+                )
     resolved_bindings, binding_error = runtime._resolve_pure_projection_bindings(
         binding_refs,
         state,
@@ -61,10 +70,13 @@ def execute_pure_projection(
     )
     if binding_error is not None:
         return binding_error
-    bindings_digest = (
-        f"sha256:{sha256(canonical_json_for_pure_value(resolved_bindings).encode('utf-8')).hexdigest()}"
-    )
+    bindings_digest = None
+    if not replay_profile_enabled:
+        bindings_digest = (
+            f"sha256:{sha256(canonical_json_for_pure_value(resolved_bindings).encode('utf-8')).hexdigest()}"
+        )
     if bundle_path is not None:
+        assert bindings_digest is not None
         bundle_parent_error = runtime._prepare_runtime_output_bundle_parent(resolved_output_bundle)
         if bundle_parent_error is not None:
             return bundle_parent_error

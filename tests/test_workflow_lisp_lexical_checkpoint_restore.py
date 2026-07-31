@@ -13,9 +13,15 @@ import pytest
 
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.pure_result_replay import (
+    DERIVED_PURE_REPLAY_PROFILE,
+)
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from tests.test_workflow_lisp_pure_result_replay import (
+    _copy_and_compile_fixture as _compile_pure_replay_fixture,
+)
 from tests.workflow_bundle_helpers import bundle_context_dict
 
 
@@ -696,6 +702,51 @@ def _prepare_failed_transition_resume_run(tmp_path: Path, *, run_id: str):
 
 def _materialize_restore_sidecars(tmp_path: Path, *, run_id: str):
     return _prepare_failed_run(tmp_path, run_id=run_id)
+
+
+def test_replay_profile_restore_payload_omits_derivable_pure_bindings(
+    tmp_path: Path,
+) -> None:
+    restore = _restore_module()
+    workflow_path, bundle = _compile_pure_replay_fixture(tmp_path)
+    state_manager = StateManager(
+        tmp_path,
+        run_id="replay-profile-restore-omission",
+    )
+    state_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs={"seed": 3, "enabled": True},
+        result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+    )
+    effect_point = next(
+        point
+        for point in bundle.runtime_plan.lexical_checkpoint_points
+        if point.node_id.endswith("__e2__finish_e2")
+    )
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor._configure_pure_replay_runtime(
+        state_manager.state,
+        resume=False,
+    )
+    executor._resolve_pure_projection_bindings = (  # type: ignore[method-assign]
+        lambda document, _state: (document, None)
+    )
+
+    payload = restore.capture_restore_payload(
+        executor=executor,
+        point=effect_point,
+        execution_index=bundle.projection.execution_index_for_step_id(
+            effect_point.step_id
+        ),
+        loop_iteration=None,
+        completed_effect_refs=(),
+    )
+
+    assert payload is not None
+    assert [
+        binding["binding_name"] for binding in payload["bindings"]
+    ] == ["e1"]
 
 
 def _checkpoint_point_by_node_id(bundle, node_id: str):

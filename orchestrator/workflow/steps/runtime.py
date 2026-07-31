@@ -60,6 +60,11 @@ class StepRuntime(Protocol):
         resolved_output_bundle: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]: ...
 
+    def _pure_replay_profile_enabled_for_step(
+        self,
+        step: RuntimeStepInput,
+    ) -> bool: ...
+
     def _pure_projection_artifacts(
         self,
         result_value: Any,

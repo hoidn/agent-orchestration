@@ -910,7 +910,10 @@ class CallExecutor:
         step_name_override: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute an imported workflow inline and persist call-frame state."""
-        from .call_frame_state import _CallFrameStateManager
+        from .call_frame_state import (
+            _CallFrameStateManager,
+            load_existing_call_frame_read_only,
+        )
         from .executor import WorkflowExecutor
 
         step_name = step_name_override or step.get("name", f"step_{self.executor.current_step}")
@@ -1181,6 +1184,21 @@ class CallExecutor:
                 )
             except ResumeProjectionIntegrityError as exc:
                 return projection_integrity_failed_result(exc.error)
+
+        if child_resume and child_existing_frame is not None:
+            replay_audit = getattr(
+                self.executor,
+                "_audit_existing_pure_replay_call_frame",
+                None,
+            )
+            if callable(replay_audit):
+                replay_audit(
+                    imported_target,
+                    load_existing_call_frame_read_only(
+                        child_existing_frame
+                    ),
+                    self._resume_scope_path().child(frame_id),
+                )
 
         if force_fresh_workflow_lisp_retry:
             assert retry_lineage is not None

@@ -29,6 +29,9 @@ from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compi
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.pure_expr import canonical_json_for_pure_value
+from orchestrator.workflow.pure_result_replay import (
+    DERIVED_PURE_REPLAY_PROFILE,
+)
 from orchestrator.workflow.call_frame_state import _CallFrameStateManager
 from orchestrator.workflow.executor_runtime import CallFrameStateManager
 from orchestrator.workflow.provider_attempts import (
@@ -95,6 +98,167 @@ def _persisted_tree_snapshot(run_root: Path) -> bytes:
 
 def _persisted_tree_digest(snapshot: bytes) -> str:
     return f"sha256:{hashlib.sha256(snapshot).hexdigest()}"
+
+
+def _empty_resume_bundle(workspace: Path, *, name: str):
+    workflow_path = workspace / f"{name}.yaml"
+    workflow_path.write_text(
+        json.dumps(
+            {
+                "version": "2.0",
+                "name": name,
+                "steps": [
+                    {
+                        "name": "Noop",
+                        "id": "noop",
+                        "command": ["python", "-c", "pass"],
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return workflow_path, WorkflowLoader(workspace).load_bundle(workflow_path)
+
+
+def test_executor_defers_provider_observation_until_profile_audit_with_unloaded_state(
+    temp_workspace: Path,
+) -> None:
+    workflow_path, bundle = _empty_resume_bundle(
+        temp_workspace,
+        name="defer-observation-until-profile-audit",
+    )
+    run_id = "defer-observation-until-profile-audit"
+    seeded = StateManager(temp_workspace, run_id=run_id)
+    seeded.initialize(
+        workflow_path.name,
+        result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+    )
+    unloaded = StateManager(temp_workspace, run_id=run_id)
+    assert unloaded.state is None
+
+    class AuditStopped(RuntimeError):
+        pass
+
+    with patch.object(
+        executor_module,
+        "ProviderObservationManager",
+    ) as observation_manager, patch.object(
+        WorkflowExecutor,
+        "_configure_pure_replay_runtime",
+        side_effect=AuditStopped,
+    ):
+        executor = WorkflowExecutor(bundle, temp_workspace, unloaded)
+        observation_manager.assert_not_called()
+        with pytest.raises(AuditStopped):
+            executor.execute(resume=True)
+        observation_manager.assert_not_called()
+
+
+def test_executor_selects_resume_restart_boundary_once(
+    temp_workspace: Path,
+) -> None:
+    workflow_path, bundle = _empty_resume_bundle(
+        temp_workspace,
+        name="single-resume-restart-selection",
+    )
+    manager = StateManager(
+        temp_workspace,
+        run_id="single-resume-restart-selection",
+    )
+    manager.initialize(workflow_path.name)
+    executor = WorkflowExecutor(
+        bundle,
+        temp_workspace,
+        manager,
+        provider_observation_enabled=False,
+    )
+
+    with patch.object(
+        executor.resume_planner,
+        "determine_restart_node_id",
+        wraps=executor.resume_planner.determine_restart_node_id,
+    ) as determine_restart:
+        result = executor.execute(resume=True)
+
+    assert result["status"] == "completed"
+    determine_restart.assert_called_once()
+
+
+def test_fail_closed_resume_audits_leaves_without_replaying_or_masking_checkpoint_error(
+    temp_workspace: Path,
+) -> None:
+    workflow_path, bundle = _empty_resume_bundle(
+        temp_workspace,
+        name="fail-closed-no-pure-replay",
+    )
+    manager = StateManager(
+        temp_workspace,
+        run_id="fail-closed-no-pure-replay",
+    )
+    manager.initialize(workflow_path.name)
+    executor = WorkflowExecutor(
+        bundle,
+        temp_workspace,
+        manager,
+        provider_observation_enabled=False,
+    )
+    state = manager.load().to_dict()
+    restart_node_id = "root.synthetic-restart"
+    evaluator_calls: list[str] = []
+    leaf_audits: list[str] = []
+
+    def evaluate_node(node_id, _state):
+        evaluator_calls.append(node_id)
+        raise AssertionError("FAIL_CLOSED attempted pure evaluation")
+
+    executor._evaluate_pure_replay_node = evaluate_node
+    executor._pure_replay_runtime = SimpleNamespace(
+        audit_boundary_leaves=lambda node_id, *, state: (
+            leaf_audits.append(node_id)
+        ),
+        required_node_ids_for_boundary=lambda node_id, *, state: (
+            "root.synthetic-pure",
+        ),
+        replay_node=lambda node_id, *, state, evaluate_node: evaluate_node(
+            node_id,
+            state,
+        ),
+    )
+
+    with patch.object(
+        executor,
+        "_configure_pure_replay_runtime",
+    ), patch.object(
+        executor,
+        "_determine_resume_restart_node_id",
+        return_value=restart_node_id,
+    ), patch.object(
+        executor,
+        "_determine_resume_default_resume_decision",
+        return_value={
+            "mode": "FAIL_CLOSED",
+            "restore_decision": None,
+            "checkpoint_id": "checkpoint:nearest",
+            "record_id": "record:malformed",
+            "diagnostics": [
+                "lexical_default_resume_invalid_checkpoint",
+            ],
+        },
+    ), patch.object(
+        executor,
+        "_write_default_resume_report",
+    ):
+        result = executor.execute(resume=True)
+
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "lexical_default_resume_invalid"
+    assert result["error"]["context"]["diagnostics"] == [
+        "lexical_default_resume_invalid_checkpoint",
+    ]
+    assert leaf_audits == [restart_node_id]
+    assert evaluator_calls == []
 
 
 def _seed_projection_integrity_root_resume(
@@ -2035,6 +2199,7 @@ def test_resume_planner_uses_lexical_checkpoint_default_for_eligible_wcc_route(
                 "context": bundle_context_dict(bundle),
                 "steps": {},
             },
+            restart_node_id=bundle.projection.ordered_execution_node_ids()[0],
             runtime_plan=bundle.runtime_plan,
             state_manager=state_manager,
             executable_workflow=bundle.ir,
@@ -2120,6 +2285,7 @@ def test_resume_planner_marks_legacy_orc_route_historical_compatible_without_lex
                 ),
                 "steps": {},
             },
+            restart_node_id=bundle.projection.ordered_execution_node_ids()[0],
             runtime_plan=bundle.runtime_plan,
             state_manager=state_manager,
             executable_workflow=bundle.ir,
@@ -2153,6 +2319,7 @@ def test_resume_planner_marks_yaml_route_ineligible_without_lexical_restore(
                 "context": bundle_context_dict(bundle),
                 "steps": {},
             },
+            restart_node_id=bundle.projection.ordered_execution_node_ids()[0],
             runtime_plan=bundle.runtime_plan,
             state_manager=state_manager,
             executable_workflow=bundle.ir,
@@ -5405,6 +5572,7 @@ def test_interrupted_provider_visit_default_resume_relaxes_only_missing_prior_bo
     ):
         result = ResumePlanner().determine_default_resume_decision(
             state,
+            restart_node_id="root.implement",
             runtime_plan=SimpleNamespace(),
             state_manager=SimpleNamespace(),
             projection=_provider_session_resume_projection(),

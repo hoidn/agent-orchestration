@@ -92,6 +92,19 @@ def _managed_jobs_config_from_step(step: Mapping[str, Any]) -> Optional[ManagedJ
         return None
 
 
+def load_existing_call_frame_read_only(
+    existing_frame: Mapping[str, Any],
+) -> RunState:
+    """Load one detached existing call-frame state without allocating storage."""
+
+    if not isinstance(existing_frame, Mapping):
+        raise ValueError("existing call-frame state container is invalid")
+    candidate_state = existing_frame.get("state")
+    if not isinstance(candidate_state, Mapping):
+        raise ValueError("existing call-frame state is missing or invalid")
+    return RunState.from_dict(deepcopy(dict(candidate_state)))
+
+
 class _CallFrameStateManager:
     """Persist a nested workflow state snapshot under the parent run state."""
 

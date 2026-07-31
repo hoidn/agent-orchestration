@@ -458,6 +458,22 @@ def _runtime_step_for_point(executor: Any, point: Any) -> Any:
     )
 
 
+def _point_success_checkpoint_is_suppressed(
+    executor: Any,
+    point: Any,
+) -> bool:
+    """Ask whether this exact persisted point is a derived success."""
+
+    suppression = getattr(
+        executor,
+        "_pure_replay_success_checkpoint_is_suppressed",
+        None,
+    )
+    if not callable(suppression):
+        return False
+    return suppression(_runtime_step_for_point(executor, point)) is True
+
+
 def _state_snapshot(executor: Any) -> Mapping[str, Any]:
     current_state = getattr(executor.state_manager, "state", None)
     if current_state is None:
@@ -1778,6 +1794,8 @@ def emit_runtime_shadow_record(
         validate_checkpoint_point_payload(point_payload)
         if workflow_name != getattr(runtime_plan, "workflow_name", ""):
             raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
+        if _point_success_checkpoint_is_suppressed(executor, point):
+            return None
 
         checkpoint_id = str(point_payload.get("checkpoint_id") or "")
         program_point_id = str(point_payload.get("program_point_id") or "")

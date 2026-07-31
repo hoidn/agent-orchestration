@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
+import orchestrator.workflow.executor as workflow_executor_module
 from orchestrator.state import StateManager, StepResult
 from orchestrator.workflow import pure_result_replay
 from orchestrator.workflow.executable_ir import (
@@ -19,6 +20,9 @@ from orchestrator.workflow.executable_ir import (
     workflow_executable_ir_to_json,
 )
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.lowering import build_loaded_workflow_bundle
+from orchestrator.workflow.predicates import ArtifactBoolPredicateNode
+from orchestrator.workflow.pure_expr import pure_expr_payload_digest
 from orchestrator.workflow.pure_result_replay import (
     DEPENDENCY_INDEX_INVALID,
     MULTIPLE_VISIT_REGION,
@@ -26,14 +30,25 @@ from orchestrator.workflow.pure_result_replay import (
     _propagate_pure_ineligibility,
     derive_pure_result_replay_index,
 )
+from orchestrator.workflow.resume_projection_integrity import ResumeScopePath
+from orchestrator.workflow.runtime_plan import derive_workflow_runtime_plan
+from orchestrator.workflow.runtime_step import thaw_runtime_value
 from orchestrator.workflow_lisp import build_artifacts
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.diagnostics import (
     capture_frontend_diagnostic_identities,
 )
-from orchestrator.workflow_lisp.lexical_checkpoints import canonical_json_dumps
+from orchestrator.workflow_lisp.lexical_checkpoints import (
+    canonical_json_dumps,
+    emit_runtime_shadow_record,
+)
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict
+from orchestrator.workflow.surface_ast import (
+    SurfaceFinallyBlock,
+    SurfaceStep,
+    SurfaceStepKind,
+)
 
 
 FIXTURE = (
@@ -68,6 +83,80 @@ _EFFECT_SCRIPTS = {
         '    handle.write("E2\\n")\n'
     ),
 }
+
+_TERMINAL_CONSUMER_SOURCE = """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.18")
+  (defmodule pure_result_replay_terminal_consumers)
+  (export orchestrate)
+  (defrecord EffectResult
+    (delta Int)
+    (use-effect Bool))
+  (defrecord FlagValue
+    (value Bool))
+  (defrecord TerminalResult
+    (selected Bool))
+  (defworkflow orchestrate
+    ()
+    -> TerminalResult
+    (let* ((e1
+             (command-result count-e1
+               :argv ("python" "scripts/count_e1.py")
+               :returns EffectResult))
+           (selected
+             (record FlagValue
+               :value e1.use-effect))
+           (unrelated
+             (record FlagValue
+               :value (if e1.use-effect false true)))
+           (observed
+             (if unrelated.value
+               (command-result finish-left
+                 :argv ("python" "scripts/finish_e2.py")
+                 :returns Bool)
+               (command-result finish-right
+                 :argv ("python" "scripts/finish_e2.py")
+                 :returns Bool)))
+           (finished
+             (command-result finish-final
+               :argv ("python" "scripts/finish_e2.py")
+               :returns Bool)))
+      (record TerminalResult
+        :selected (if finished selected.value false)))))
+"""
+
+_ROUTED_CONSUMER_SOURCE = """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.18")
+  (defmodule pure_result_replay_routed_consumers)
+  (export orchestrate)
+  (defworkflow orchestrate
+    ((choose-left Bool)
+     (left-value Int)
+     (right-value Int))
+    -> Int
+    (let* ((selected
+             (if choose-left
+               (let* ((left-selected
+                        (+ left-value 1))
+                      (left-finished
+                        (command-result finish-left
+                          :argv
+                            ("python" "scripts/finish_e2.py")
+                          :returns Bool)))
+                 left-selected)
+               (let* ((right-selected
+                        (+ right-value 1))
+                      (right-finished
+                        (command-result finish-right
+                          :argv
+                            ("python" "scripts/finish_e2.py")
+                          :returns Bool)))
+                 right-selected))))
+      selected)))
+"""
 
 
 class _PostPersistInterruption(BaseException):
@@ -129,6 +218,107 @@ def _copy_and_compile_fixture_details(workspace: Path):
 def _copy_and_compile_fixture(workspace: Path):
     module_path, bundle, _ = _copy_and_compile_fixture_details(workspace)
     return module_path, bundle
+
+
+def _compile_replay_consumer_fixture(
+    workspace: Path,
+    *,
+    module_name: str,
+    source: str,
+    command_boundaries: Mapping[str, ExternalToolBinding] | None = None,
+):
+    module_path = workspace / f"{module_name}.orc"
+    module_path.write_text(source, encoding="utf-8")
+    if command_boundaries:
+        scripts = workspace / "scripts"
+        scripts.mkdir(exist_ok=True)
+        for script_name in ("count_e1.py", "finish_e2.py"):
+            (scripts / script_name).write_text(
+                _EFFECT_SCRIPTS[script_name],
+                encoding="utf-8",
+            )
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(workspace,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries=dict(command_boundaries or {}),
+        validate_shared=True,
+        workspace_root=workspace,
+    )
+    return (
+        module_path,
+        result.validated_bundles_by_name[f"{module_name}::orchestrate"],
+    )
+
+
+def _initialize_replay_consumer_fixture(
+    workspace: Path,
+    *,
+    run_id: str,
+    module_name: str,
+    source: str,
+    command_boundaries: Mapping[str, ExternalToolBinding] | None = None,
+):
+    module_path, bundle = _compile_replay_consumer_fixture(
+        workspace,
+        module_name=module_name,
+        source=source,
+        command_boundaries=command_boundaries,
+    )
+    manager = StateManager(workspace, run_id=run_id)
+    manager.initialize(
+        module_path.name,
+        context=bundle_context_dict(bundle),
+        bound_inputs={
+            name: {
+                "choose-left": True,
+                "left-value": 10,
+                "right-value": 20,
+            }[name]
+            for name in bundle.ir.inputs
+            if name in {"choose-left", "left-value", "right-value"}
+        },
+        result_persistence_profile="derived_pure_replay.v1",
+    )
+    return module_path, bundle, manager
+
+
+def _with_typed_finalization_consumer(
+    workspace: Path,
+    *,
+    module_path: Path,
+    bundle: Any,
+    source_node_id: str,
+):
+    source_node = bundle.ir.nodes[source_node_id]
+    source_address = derive_pure_result_replay_index(bundle).nodes[
+        source_node_id
+    ].output_addresses[0]
+    finalization = SurfaceFinallyBlock(
+        token="observe-selected",
+        step_id="root.finally.observe_selected",
+        steps=(
+            SurfaceStep(
+                name="ObserveSelected",
+                step_id="root.finally.observe_selected.command",
+                authored_id="observe_selected",
+                kind=SurfaceStepKind.COMMAND,
+                command=("python", "-c", "pass"),
+                when_predicate=ArtifactBoolPredicateNode(
+                    ref=source_address,
+                ),
+            ),
+        ),
+    )
+    return build_loaded_workflow_bundle(
+        replace(
+            bundle.surface,
+            finalization=finalization,
+        ),
+        imports=bundle.imports,
+        private_artifact_ids=tuple(bundle.ir.private_artifacts),
+    )
 
 
 def _canonical_payload_sha256(value: Any) -> str:
@@ -272,6 +462,315 @@ def _pure_bundle_paths(
         if isinstance(value, str)
         and ("__a__result_bundle" in name or "__b__result_bundle" in name)
     ]
+
+
+def _checkpoint_records(
+    manager: StateManager,
+) -> list[dict[str, Any]]:
+    records_root = (
+        manager.run_root
+        / "workflow_lisp"
+        / "checkpoints"
+        / "records"
+    )
+    return [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(records_root.rglob("*.json"))
+    ]
+
+
+def _execute_replay_profile_fixture(
+    workspace: Path,
+    *,
+    run_id: str,
+) -> tuple[Any, StateManager, dict[str, Any], dict[str, Any]]:
+    bundle, manager = _initialize_replay_profile_fixture(
+        workspace,
+        run_id=run_id,
+    )
+    active = WorkflowExecutor(
+        bundle,
+        workspace,
+        manager,
+    ).execute(on_error="stop")
+    persisted = json.loads(
+        manager.state_file.read_text(encoding="utf-8")
+    )
+    return bundle, manager, active, persisted
+
+
+def _initialize_replay_profile_fixture(
+    workspace: Path,
+    *,
+    run_id: str,
+) -> tuple[Any, StateManager]:
+    module_path, bundle = _copy_and_compile_fixture(workspace)
+    manager = StateManager(workspace, run_id=run_id)
+    manager.initialize(
+        module_path.name,
+        context=bundle_context_dict(bundle),
+        bound_inputs={"seed": 3, "enabled": True},
+        result_persistence_profile="derived_pure_replay.v1",
+    )
+    return bundle, manager
+
+
+def _assert_replay_profile_pure_rows(
+    *,
+    bundle: Any,
+    active: Mapping[str, Any],
+    persisted: Mapping[str, Any],
+) -> None:
+    for node_id in (
+        _node_id_ending(bundle, "__a"),
+        _node_id_ending(bundle, "__b"),
+    ):
+        presentation_key = (
+            bundle.projection.entries_by_node_id[node_id].presentation_key
+        )
+        active_row = active["steps"][presentation_key]
+        witness = pure_result_replay.PureReplayVisitWitness(
+            presentation_key=presentation_key,
+            step_index=bundle.ir.body_region.index(node_id),
+            step_id=node_id,
+            visit_count=1,
+        )
+        assert active_row["status"] == "completed"
+        assert active_row["artifacts"]
+        assert persisted["steps"][presentation_key] == (
+            pure_result_replay.build_pure_completion_shell(witness)
+        )
+
+
+def _with_distinct_durable_step_id(
+    bundle: Any,
+    *,
+    node_id: str,
+) -> tuple[Any, str]:
+    durable_step_id = f"{node_id}::durable"
+    executable = replace(
+        bundle.ir,
+        nodes=MappingProxyType(
+            {
+                **dict(bundle.ir.nodes),
+                node_id: replace(
+                    bundle.ir.nodes[node_id],
+                    step_id=durable_step_id,
+                ),
+            }
+        ),
+    )
+    projection = replace(
+        bundle.projection,
+        entries_by_node_id=MappingProxyType(
+            {
+                **dict(bundle.projection.entries_by_node_id),
+                node_id: replace(
+                    bundle.projection.entries_by_node_id[node_id],
+                    step_id=durable_step_id,
+                ),
+            }
+        ),
+        node_id_by_step_id=MappingProxyType(
+            {
+                **{
+                    step_id: projected_node_id
+                    for step_id, projected_node_id in (
+                        bundle.projection.node_id_by_step_id.items()
+                    )
+                    if projected_node_id != node_id
+                },
+                durable_step_id: node_id,
+            }
+        ),
+    )
+    runtime_plan = derive_workflow_runtime_plan(
+        executable,
+        projection,
+    )
+    runtime_plan = replace(
+        runtime_plan,
+        lexical_checkpoint_points=tuple(
+            (
+                replace(point, step_id=durable_step_id)
+                if point.node_id == node_id
+                else point
+            )
+            for point in bundle.runtime_plan.lexical_checkpoint_points
+        ),
+    )
+    return (
+        replace(
+            bundle,
+            ir=executable,
+            projection=projection,
+            runtime_plan=runtime_plan,
+        ),
+        durable_step_id,
+    )
+
+
+def _with_durable_intrinsic_dependencies(bundle: Any) -> Any:
+    b_node_id = _node_id_ending(bundle, "__b")
+    b_node = bundle.ir.nodes[b_node_id]
+    config = b_node.execution_config
+    pure_projection = thaw_runtime_value(config.pure_projection)
+    payload = pure_projection["payload"]
+    e1_fields = payload["bindings"]["e1"]["type"]["fields"]
+    e1_fields.extend(
+        [
+            {
+                "name": "exit-code",
+                "type": {"kind": "primitive", "name": "Int"},
+            },
+            {
+                "name": "outcome-status",
+                "type": {"kind": "primitive", "name": "String"},
+            },
+            {
+                "name": "outcome-phase",
+                "type": {"kind": "primitive", "name": "String"},
+            },
+            {
+                "name": "outcome-class",
+                "type": {"kind": "primitive", "name": "String"},
+            },
+            {
+                "name": "outcome-retryable",
+                "type": {"kind": "primitive", "name": "Bool"},
+            },
+        ]
+    )
+    e1_refs = pure_projection["binding_refs"]["e1"]
+    selector = e1_refs["delta"]["ref"].removesuffix(
+        ".artifacts.delta"
+    )
+    e1_refs.update(
+        {
+            "exit-code": {"ref": f"{selector}.exit_code"},
+            "outcome-status": {
+                "ref": f"{selector}.outcome.status"
+            },
+            "outcome-phase": {
+                "ref": f"{selector}.outcome.phase"
+            },
+            "outcome-class": {
+                "ref": f"{selector}.outcome.class"
+            },
+            "outcome-retryable": {
+                "ref": f"{selector}.outcome.retryable"
+            },
+        }
+    )
+    pure_projection["payload_digest"] = pure_expr_payload_digest(
+        payload
+    )
+    executable = replace(
+        bundle.ir,
+        nodes=MappingProxyType(
+            {
+                **dict(bundle.ir.nodes),
+                b_node_id: replace(
+                    b_node,
+                    execution_config=replace(
+                        config,
+                        pure_projection=MappingProxyType(
+                            pure_projection
+                        ),
+                    ),
+                ),
+            }
+        ),
+    )
+    return replace(
+        bundle,
+        ir=executable,
+    )
+
+
+def _emit_unconfigured_replay_profile_checkpoint(
+    *,
+    bundle: Any,
+    manager: StateManager,
+    node_id: str,
+    call_frame_id: str | None = None,
+) -> Path:
+    executor = WorkflowExecutor(bundle, manager.workspace, manager)
+    executor._resolve_pure_projection_bindings = (  # type: ignore[method-assign]
+        lambda document, _state: (document, None)
+    )
+    runtime_node = bundle.runtime_plan.nodes[node_id]
+    records_root = (
+        manager.run_root
+        / "workflow_lisp"
+        / "checkpoints"
+        / "records"
+    )
+    before = set(records_root.rglob("*.json"))
+
+    record = emit_runtime_shadow_record(
+        executor=executor,
+        step_id=runtime_node.step_id,
+        execution_index=runtime_node.execution_index,
+        visit_count=1,
+        call_frame_id=call_frame_id,
+        committed_step_state={
+            "name": runtime_node.presentation_key,
+            "step_id": runtime_node.step_id,
+            "visit_count": 1,
+            "status": "completed",
+            "exit_code": 0,
+            "artifacts": {},
+        },
+    )
+
+    assert record is not None
+    created = set(records_root.rglob("*.json")) - before
+    assert len(created) == 1
+    return created.pop()
+
+
+def _with_recurrent_pure_node(bundle: Any, *, node_id: str) -> Any:
+    node = bundle.ir.nodes[node_id]
+    config = node.execution_config
+    assert config is not None
+    return replace(
+        bundle,
+        ir=replace(
+            bundle.ir,
+            nodes=MappingProxyType(
+                {
+                    **dict(bundle.ir.nodes),
+                    node_id: replace(
+                        node,
+                        execution_config=replace(
+                            config,
+                            common=replace(
+                                config.common,
+                                max_visits=2,
+                            ),
+                        ),
+                    ),
+                }
+            ),
+        ),
+    )
+
+
+def _audit_replay_profile_checkpoints(
+    *,
+    bundle: Any,
+    manager: StateManager,
+) -> None:
+    assert manager.state is not None
+    pure_result_replay.PureReplayRuntime(
+        bundle=bundle,
+        scope_path=ResumeScopePath.root(manager.state.workflow_file),
+    ).audit_persisted_surfaces(
+        state=manager.state.to_dict(),
+        state_manager=manager,
+        resolve_bundle_path=lambda _node_id: None,
+    )
 
 
 def test_pure_result_replay_fixture_compiles_real_effect_barrier_spine(
@@ -445,6 +944,1592 @@ def test_pure_result_replay_fixture_historical_profile_control(
     assert historical_baseline.state_value_count > 0
     assert historical_baseline.state_bytes > 0
     assert historical_baseline.sidecar_bytes > 0
+
+
+def test_replay_profile_clean_run_keeps_pure_results_value_free_outside_active_overlay(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    bundle, manager, active, persisted = (
+        _execute_replay_profile_fixture(
+            tmp_path,
+            run_id="pure-result-replay-value-free-clean",
+        )
+    )
+    pure_node_ids = (
+        _node_id_ending(bundle, "__a"),
+        _node_id_ending(bundle, "__b"),
+    )
+    pure_source_step_ids: set[str] = set()
+
+    for node_id in pure_node_ids:
+        presentation_key = (
+            bundle.projection.entries_by_node_id[node_id].presentation_key
+        )
+        active_row = active["steps"][presentation_key]
+        witness = pure_result_replay.PureReplayVisitWitness(
+            presentation_key=presentation_key,
+            step_index=bundle.ir.body_region.index(node_id),
+            step_id=active_row["step_id"],
+            visit_count=1,
+        )
+
+        assert active_row["status"] == "completed"
+        assert active_row["artifacts"]
+        assert persisted["steps"][presentation_key] == (
+            pure_result_replay.build_pure_completion_shell(witness)
+        )
+        pure_source_step_ids.add(
+            active_row["step_id"].removeprefix("root.")
+        )
+
+    pure_bundle_paths = _pure_bundle_paths(tmp_path, persisted)
+    assert len(pure_bundle_paths) == 2
+    assert all(not path.exists() for path in pure_bundle_paths)
+    assert persisted["private_artifact_versions"] == {}
+
+    checkpoint_records = _checkpoint_records(manager)
+    assert checkpoint_records
+    assert all(
+        record["pending_effect_policy"]["effect_kind"]
+        != "pure_projection"
+        for record in checkpoint_records
+    )
+    restore_bindings = [
+        binding
+        for record in checkpoint_records
+        for binding in record.get("restore_payload", {}).get(
+            "bindings",
+            (),
+        )
+    ]
+    assert all(
+        binding.get("source_step_id") not in pure_source_step_ids
+        for binding in restore_bindings
+    )
+
+
+@pytest.mark.parametrize(
+    "forbidden_surface",
+    (
+        pytest.param("value_row", id="value-row"),
+        pytest.param("pure_bundle", id="pure-bundle"),
+        pytest.param("private_lineage", id="private-lineage"),
+    ),
+)
+def test_replay_profile_conflict_rejects_before_prologue_or_state_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    forbidden_surface: str,
+) -> None:
+    run_id = f"pure-result-replay-profile-conflict-{forbidden_surface}"
+    monkeypatch.chdir(tmp_path)
+    bundle, manager, active, persisted = (
+        _execute_replay_profile_fixture(
+            tmp_path,
+            run_id=run_id,
+        )
+    )
+    a_node_id = _node_id_ending(bundle, "__a")
+    a_name = bundle.projection.entries_by_node_id[
+        a_node_id
+    ].presentation_key
+    if forbidden_surface == "value_row":
+        persisted["steps"][a_name] = active["steps"][a_name]
+        manager.state_file.write_text(
+            json.dumps(persisted, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    elif forbidden_surface == "pure_bundle":
+        a_bundle_path = next(
+            path
+            for path in _pure_bundle_paths(tmp_path, persisted)
+            if "__a__result_bundle" in path.name
+        )
+        a_bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        a_bundle_path.write_text(
+            '{"forbidden_profile_mix":true}\n',
+            encoding="utf-8",
+        )
+    else:
+        persisted["private_artifact_versions"] = {
+            "forbidden-derived-value": [
+                {
+                    "producer": bundle.ir.nodes[a_node_id].step_id,
+                    "value": {"seed": 3},
+                }
+            ]
+        }
+        manager.state_file.write_text(
+            json.dumps(persisted, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    fresh_manager = StateManager(tmp_path, run_id=run_id)
+    fresh_manager.load()
+    fresh_executor = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        fresh_manager,
+    )
+    before_effect_calls = _effect_calls(tmp_path)
+    with patch.object(
+        fresh_executor,
+        "_execute_prologue",
+        side_effect=AssertionError(
+            "profile audit must reject before executor prologue"
+        ),
+    ), patch.object(
+        fresh_manager,
+        "_write_state",
+        side_effect=AssertionError(
+            "profile audit must reject before a state write"
+        ),
+    ), patch.object(
+        fresh_executor,
+        "_execute_command",
+        side_effect=AssertionError(
+            "profile audit must reject before effect dispatch"
+        ),
+    ):
+        with pytest.raises(ValueError) as excinfo:
+            fresh_executor.execute(resume=True, on_error="stop")
+
+    assert getattr(excinfo.value, "code", None) == (
+        "pure_result_replay_unavailable"
+    )
+    assert getattr(excinfo.value, "reason", None) == "profile_conflict"
+    assert getattr(excinfo.value, "context", {}).get("surface") == {
+        "value_row": "steps",
+        "pure_bundle": "pure_bundle",
+        "private_lineage": "private_artifact_versions",
+    }[forbidden_surface]
+    assert _effect_calls(tmp_path) == before_effect_calls
+
+
+@pytest.mark.parametrize("forbidden_surface", ["checkpoint", "restore_binding"])
+def test_replay_profile_checkpoint_audit_rejects_eligible_same_scope_record(
+    tmp_path: Path,
+    forbidden_surface: str,
+) -> None:
+    bundle, manager = _initialize_replay_profile_fixture(
+        tmp_path,
+        run_id=f"checkpoint-scope-same-{forbidden_surface}",
+    )
+    node_id = _node_id_ending(
+        bundle,
+        "__a" if forbidden_surface == "checkpoint" else "__b",
+    )
+    if forbidden_surface == "restore_binding":
+        bundle = _with_recurrent_pure_node(
+            bundle,
+            node_id=node_id,
+        )
+    _emit_unconfigured_replay_profile_checkpoint(
+        bundle=bundle,
+        manager=manager,
+        node_id=node_id,
+    )
+
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        _audit_replay_profile_checkpoints(
+            bundle=bundle,
+            manager=manager,
+        )
+
+    assert excinfo.value.reason == "profile_conflict"
+    assert excinfo.value.context["surface"] == (
+        "checkpoint_record"
+        if forbidden_surface == "checkpoint"
+        else "restore_payload"
+    )
+
+
+def test_replay_profile_checkpoint_audit_allows_noneligible_recurrent_pure_record(
+    tmp_path: Path,
+) -> None:
+    bundle, manager = _initialize_replay_profile_fixture(
+        tmp_path,
+        run_id="checkpoint-scope-recurrent",
+    )
+    node_id = _node_id_ending(bundle, "__a")
+    recurrent_bundle = _with_recurrent_pure_node(
+        bundle,
+        node_id=node_id,
+    )
+    _emit_unconfigured_replay_profile_checkpoint(
+        bundle=recurrent_bundle,
+        manager=manager,
+        node_id=node_id,
+    )
+
+    _audit_replay_profile_checkpoints(
+        bundle=recurrent_bundle,
+        manager=manager,
+    )
+
+
+def test_replay_profile_recurrent_pure_node_keeps_ordinary_durable_surfaces(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_path, bundle = _copy_and_compile_fixture(tmp_path)
+    a_node_id = _node_id_ending(bundle, "__a")
+    recurrent_bundle = _with_recurrent_pure_node(
+        bundle,
+        node_id=a_node_id,
+    )
+    replay_index = derive_pure_result_replay_index(recurrent_bundle)
+    assert replay_index.ineligible_pure_reasons[a_node_id] == (
+        "multiple_visit_region"
+    )
+    manager = StateManager(
+        tmp_path,
+        run_id="replay-profile-recurrent-pure-durable",
+    )
+    manager.initialize(
+        module_path.name,
+        context=bundle_context_dict(recurrent_bundle),
+        bound_inputs={"seed": 3, "enabled": True},
+        result_persistence_profile="derived_pure_replay.v1",
+    )
+
+    monkeypatch.chdir(tmp_path)
+    active = WorkflowExecutor(
+        recurrent_bundle,
+        tmp_path,
+        manager,
+    ).execute(on_error="stop")
+    persisted = json.loads(
+        manager.state_file.read_text(encoding="utf-8")
+    )
+    a_name = recurrent_bundle.projection.entries_by_node_id[
+        a_node_id
+    ].presentation_key
+    a_row = persisted["steps"][a_name]
+    a_bundle_path = next(
+        path
+        for path in _pure_bundle_paths(tmp_path, persisted)
+        if "__a__result_bundle" in path.name
+    )
+    a_checkpoint_ids = {
+        point.checkpoint_id
+        for point in recurrent_bundle.runtime_plan.lexical_checkpoint_points
+        if point.node_id == a_node_id
+    }
+
+    assert active["status"] == "completed"
+    assert a_row == active["steps"][a_name]
+    assert a_row["status"] == "completed"
+    assert a_row["artifacts"]
+    assert "result_storage" not in a_row
+    assert a_bundle_path.is_file()
+    assert any(
+        record["checkpoint_id"] in a_checkpoint_ids
+        for record in _checkpoint_records(manager)
+    )
+
+
+def test_replay_profile_checkpoint_audit_ignores_eligible_record_in_other_frame(
+    tmp_path: Path,
+) -> None:
+    bundle, manager = _initialize_replay_profile_fixture(
+        tmp_path,
+        run_id="checkpoint-scope-other-frame",
+    )
+    _emit_unconfigured_replay_profile_checkpoint(
+        bundle=bundle,
+        manager=manager,
+        node_id=_node_id_ending(bundle, "__b"),
+        call_frame_id="foreign-frame",
+    )
+
+    _audit_replay_profile_checkpoints(
+        bundle=bundle,
+        manager=manager,
+    )
+
+
+def test_pure_replay_resume_after_e2_interruption_preserves_effects_and_outputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clean_workspace = tmp_path / "clean"
+    clean_workspace.mkdir()
+    monkeypatch.chdir(clean_workspace)
+    (
+        clean_bundle,
+        _clean_manager,
+        clean_active,
+        clean_persisted,
+    ) = _execute_replay_profile_fixture(
+        clean_workspace,
+        run_id="pure-replay-resume-clean-control",
+    )
+
+    resume_workspace = tmp_path / "resume"
+    resume_workspace.mkdir()
+    bundle, manager = _initialize_replay_profile_fixture(
+        resume_workspace,
+        run_id="pure-replay-resume-after-e2-interruption",
+    )
+    e2_node_id = _node_id_ending(bundle, "__e2__finish_e2")
+    original_execute_command = WorkflowExecutor._execute_command
+
+    def interrupt_e2_after_visit_started(
+        executor: WorkflowExecutor,
+        step: Any,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        if executor._step_id(step) == e2_node_id:
+            raise _PostPersistInterruption
+        return original_execute_command(executor, step, state)
+
+    monkeypatch.chdir(resume_workspace)
+    with patch.object(
+        WorkflowExecutor,
+        "_execute_command",
+        interrupt_e2_after_visit_started,
+    ):
+        with pytest.raises(_PostPersistInterruption):
+            WorkflowExecutor(
+                bundle,
+                resume_workspace,
+                manager,
+            ).execute(on_error="stop")
+
+    interrupted = manager.load().to_dict()
+    assert interrupted["current_step"]["step_id"] == e2_node_id
+    assert interrupted["current_step"]["status"] == "running"
+    assert _effect_calls(resume_workspace) == ["E1"]
+    assert all(
+        not path.exists()
+        for path in _pure_bundle_paths(
+            resume_workspace,
+            interrupted,
+        )
+    )
+
+    fresh_manager = StateManager(
+        resume_workspace,
+        run_id="pure-replay-resume-after-e2-interruption",
+    )
+    fresh_manager.load()
+    resumed = WorkflowExecutor(
+        bundle,
+        resume_workspace,
+        fresh_manager,
+    ).execute(resume=True, on_error="stop")
+    persisted = json.loads(
+        fresh_manager.state_file.read_text(encoding="utf-8")
+    )
+
+    assert resumed["status"] == "completed"
+    assert resumed["workflow_outputs"] == clean_active["workflow_outputs"]
+    assert resumed["workflow_outputs"] == {
+        "return__seed-value": 3,
+        "return__effect-value": 4,
+        "return__finished": True,
+    }
+    assert _canonical_diagnostics(
+        persisted,
+        frontend_diagnostics=(),
+    ) == _canonical_diagnostics(
+        clean_persisted,
+        frontend_diagnostics=(),
+    )
+    assert _canonical_declared_artifacts(
+        persisted,
+        bundle=bundle,
+    ) == _canonical_declared_artifacts(
+        clean_persisted,
+        bundle=clean_bundle,
+    )
+    assert canonical_json_dumps(
+        persisted["workflow_outputs"]
+    ) == canonical_json_dumps(
+        clean_persisted["workflow_outputs"]
+    )
+    assert clean_bundle.ir.outputs == bundle.ir.outputs
+    assert _effect_calls(resume_workspace) == ["E1", "E2"]
+    _assert_replay_profile_pure_rows(
+        bundle=bundle,
+        active=resumed,
+        persisted=persisted,
+    )
+    assert all(
+        not path.exists()
+        for path in _pure_bundle_paths(
+            resume_workspace,
+            persisted,
+        )
+    )
+
+
+def test_pure_replay_e1_boundary_reconstructs_only_required_a_before_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle, manager = _initialize_replay_profile_fixture(
+        tmp_path,
+        run_id="pure-replay-e1-exact-closure",
+    )
+    a_node_id = _node_id_ending(bundle, "__a")
+    b_node_id = _node_id_ending(bundle, "__b")
+    e1_node_id = _node_id_ending(bundle, "__e1__count_e1")
+    original_execute_command = WorkflowExecutor._execute_command
+
+    def interrupt_e1_after_visit_started(
+        executor: WorkflowExecutor,
+        step: Any,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        if executor._step_id(step) == e1_node_id:
+            raise _PostPersistInterruption
+        return original_execute_command(executor, step, state)
+
+    monkeypatch.chdir(tmp_path)
+    with patch.object(
+        WorkflowExecutor,
+        "_execute_command",
+        interrupt_e1_after_visit_started,
+    ):
+        with pytest.raises(_PostPersistInterruption):
+            WorkflowExecutor(
+                bundle,
+                tmp_path,
+                manager,
+            ).execute(on_error="stop")
+
+    interrupted = manager.load().to_dict()
+    assert interrupted["current_step"]["step_id"] == e1_node_id
+    assert not (tmp_path / "state" / "effect_calls.log").exists()
+
+    fresh_manager = StateManager(
+        tmp_path,
+        run_id=manager.run_id,
+    )
+    fresh_manager.load()
+    fresh_executor = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        fresh_manager,
+    )
+    replayed_node_ids: list[str] = []
+    original_replay_evaluation = (
+        fresh_executor._evaluate_pure_replay_node
+    )
+    resumed_execute_command = fresh_executor._execute_command
+
+    def record_replay_evaluation(
+        node_id: str,
+        state: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        replayed_node_ids.append(node_id)
+        return original_replay_evaluation(node_id, state)
+
+    def assert_exact_closure_before_effect(
+        step: Any,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        if fresh_executor._step_id(step) == e1_node_id:
+            assert replayed_node_ids == [a_node_id]
+            assert b_node_id not in replayed_node_ids
+        return resumed_execute_command(step, state)
+
+    with patch.object(
+        fresh_executor,
+        "_evaluate_pure_replay_node",
+        side_effect=record_replay_evaluation,
+    ), patch.object(
+        fresh_executor,
+        "_execute_command",
+        side_effect=assert_exact_closure_before_effect,
+    ):
+        resumed = fresh_executor.execute(
+            resume=True,
+            on_error="stop",
+        )
+
+    assert resumed["status"] == "completed"
+    assert replayed_node_ids == [a_node_id]
+    assert _effect_calls(tmp_path) == ["E1", "E2"]
+
+
+def test_pure_replay_settlement_seeds_only_exact_typed_output_closure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (
+        _module_path,
+        bundle,
+        manager,
+    ) = _initialize_replay_consumer_fixture(
+        tmp_path,
+        run_id="pure-replay-settlement-exact-closure",
+        module_name="pure_result_replay_terminal_consumers",
+        source=_TERMINAL_CONSUMER_SOURCE,
+        command_boundaries={
+            "count-e1": ExternalToolBinding(
+                name="count-e1",
+                stable_command=("python", "scripts/count_e1.py"),
+            ),
+            "finish-left": ExternalToolBinding(
+                name="finish-left",
+                stable_command=("python", "scripts/finish_e2.py"),
+            ),
+            "finish-right": ExternalToolBinding(
+                name="finish-right",
+                stable_command=("python", "scripts/finish_e2.py"),
+            ),
+            "finish-final": ExternalToolBinding(
+                name="finish-final",
+                stable_command=("python", "scripts/finish_e2.py"),
+            ),
+        },
+    )
+    index = derive_pure_result_replay_index(bundle)
+    selected_node_id = _node_id_ending(
+        bundle,
+        "__terminal_projection",
+    )
+    unrelated_node_id = _node_id_ending(
+        bundle,
+        "__observed__condition",
+    )
+    assert selected_node_id in index.nodes
+    assert unrelated_node_id in index.nodes
+
+    monkeypatch.chdir(tmp_path)
+    first_executor = WorkflowExecutor(bundle, tmp_path, manager)
+    with patch.object(
+        first_executor,
+        "_execute_epilogue",
+        side_effect=_PostPersistInterruption,
+    ):
+        with pytest.raises(_PostPersistInterruption):
+            first_executor.execute(on_error="stop")
+
+    interrupted = manager.load().to_dict()
+    assert interrupted.get("current_step") is None
+    assert interrupted["status"] == "running"
+
+    fresh_manager = StateManager(tmp_path, run_id=manager.run_id)
+    fresh_manager.load()
+    fresh_executor = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        fresh_manager,
+    )
+    replayed_node_ids: list[str] = []
+    original_replay_evaluation = (
+        fresh_executor._evaluate_pure_replay_node
+    )
+    original_resolve_outputs = (
+        workflow_executor_module.resolve_workflow_outputs
+    )
+
+    def record_replay_evaluation(
+        node_id: str,
+        state: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        replayed_node_ids.append(node_id)
+        return original_replay_evaluation(node_id, state)
+
+    def assert_exact_closure_before_settlement(*args: Any, **kwargs: Any):
+        assert replayed_node_ids == [selected_node_id]
+        assert unrelated_node_id not in replayed_node_ids
+        return original_resolve_outputs(*args, **kwargs)
+
+    with patch.object(
+        fresh_executor,
+        "_evaluate_pure_replay_node",
+        side_effect=record_replay_evaluation,
+    ), patch.object(
+        workflow_executor_module,
+        "resolve_workflow_outputs",
+        side_effect=assert_exact_closure_before_settlement,
+    ):
+        resumed = fresh_executor.execute(
+            resume=True,
+            on_error="stop",
+        )
+
+    assert resumed["status"] == "completed"
+    assert resumed["workflow_outputs"] == {"return__selected": True}
+    assert replayed_node_ids == [selected_node_id]
+
+
+def test_pure_replay_finalization_seeds_only_exact_typed_predicate_closure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (
+        module_path,
+        base_bundle,
+        _base_manager,
+    ) = _initialize_replay_consumer_fixture(
+        tmp_path,
+        run_id="unused-base-run",
+        module_name="pure_result_replay_terminal_consumers",
+        source=_TERMINAL_CONSUMER_SOURCE,
+        command_boundaries={
+            "count-e1": ExternalToolBinding(
+                name="count-e1",
+                stable_command=("python", "scripts/count_e1.py"),
+            ),
+            "finish-left": ExternalToolBinding(
+                name="finish-left",
+                stable_command=("python", "scripts/finish_e2.py"),
+            ),
+            "finish-right": ExternalToolBinding(
+                name="finish-right",
+                stable_command=("python", "scripts/finish_e2.py"),
+            ),
+            "finish-final": ExternalToolBinding(
+                name="finish-final",
+                stable_command=("python", "scripts/finish_e2.py"),
+            ),
+        },
+    )
+    selected_node_id = _node_id_ending(
+        base_bundle,
+        "__terminal_projection",
+    )
+    unrelated_node_id = _node_id_ending(
+        base_bundle,
+        "__observed__condition",
+    )
+    bundle = _with_typed_finalization_consumer(
+        tmp_path,
+        module_path=module_path,
+        bundle=base_bundle,
+        source_node_id=selected_node_id,
+    )
+    finalization_node_id = bundle.ir.finalization_entry_node_id
+    assert isinstance(finalization_node_id, str)
+    finalization_node = bundle.ir.nodes[finalization_node_id]
+    assert isinstance(
+        finalization_node.bound_when_predicate.ref,
+        NodeResultAddress,
+    )
+    assert (
+        finalization_node.bound_when_predicate.ref.node_id
+        == selected_node_id
+    )
+
+    manager = StateManager(
+        tmp_path,
+        run_id="pure-replay-finalization-exact-closure",
+    )
+    manager.initialize(
+        module_path.name,
+        context=bundle_context_dict(bundle),
+        bound_inputs={},
+        result_persistence_profile="derived_pure_replay.v1",
+    )
+    first_executor = WorkflowExecutor(bundle, tmp_path, manager)
+    original_execute_command = first_executor._execute_command
+
+    def interrupt_finalization(
+        step: Any,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        if first_executor._step_id(step) == finalization_node.step_id:
+            raise _PostPersistInterruption
+        return original_execute_command(step, state)
+
+    monkeypatch.chdir(tmp_path)
+    with patch.object(
+        first_executor,
+        "_execute_command",
+        side_effect=interrupt_finalization,
+    ):
+        with pytest.raises(_PostPersistInterruption):
+            first_executor.execute(on_error="stop")
+
+    interrupted = manager.load().to_dict()
+    assert (
+        interrupted["current_step"]["step_id"]
+        == finalization_node.step_id
+    )
+
+    fresh_manager = StateManager(tmp_path, run_id=manager.run_id)
+    fresh_manager.load()
+    fresh_executor = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        fresh_manager,
+    )
+    replayed_node_ids: list[str] = []
+    original_replay_evaluation = (
+        fresh_executor._evaluate_pure_replay_node
+    )
+    original_evaluate_condition = (
+        fresh_executor._evaluate_condition_expression
+    )
+
+    def record_replay_evaluation(
+        node_id: str,
+        state: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        replayed_node_ids.append(node_id)
+        return original_replay_evaluation(node_id, state)
+
+    def assert_exact_closure_before_finalization(
+        condition: Any,
+        variables: dict[str, Any],
+        state: dict[str, Any],
+        *,
+        scope: dict[str, dict[str, Any]] | None = None,
+    ) -> bool:
+        if condition is finalization_node.bound_when_predicate:
+            assert replayed_node_ids == [selected_node_id]
+            assert unrelated_node_id not in replayed_node_ids
+        return original_evaluate_condition(
+            condition,
+            variables,
+            state,
+            scope=scope,
+        )
+
+    with patch.object(
+        fresh_executor,
+        "_evaluate_pure_replay_node",
+        side_effect=record_replay_evaluation,
+    ), patch.object(
+        fresh_executor,
+        "_evaluate_condition_expression",
+        side_effect=assert_exact_closure_before_finalization,
+    ):
+        resumed = fresh_executor.execute(
+            resume=True,
+            on_error="stop",
+        )
+
+    assert resumed["status"] == "completed"
+    assert resumed["workflow_outputs"] == {"return__selected": True}
+    assert replayed_node_ids == [selected_node_id]
+
+
+def test_pure_replay_resume_never_evaluates_inactive_route_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (
+        _module_path,
+        bundle,
+        manager,
+    ) = _initialize_replay_consumer_fixture(
+        tmp_path,
+        run_id="pure-replay-inactive-route",
+        module_name="pure_result_replay_routed_consumers",
+        source=_ROUTED_CONSUMER_SOURCE,
+        command_boundaries={
+            "finish-left": ExternalToolBinding(
+                name="finish-left",
+                stable_command=("python", "scripts/finish_e2.py"),
+            ),
+            "finish-right": ExternalToolBinding(
+                name="finish-right",
+                stable_command=("python", "scripts/finish_e2.py"),
+            )
+        },
+    )
+    branch_pure_node_ids = tuple(
+        node_id
+        for node_id, node in bundle.ir.nodes.items()
+        if (
+            node.kind.value == "pure_projection"
+            and (
+                ".then." in node.presentation_name
+                or ".else." in node.presentation_name
+            )
+        )
+    )
+    assert len(branch_pure_node_ids) == 2
+    selected_node_id = next(
+        node_id
+        for node_id in branch_pure_node_ids
+        if ".then." in bundle.ir.nodes[node_id].presentation_name
+    )
+    inactive_node_id = next(
+        node_id
+        for node_id in branch_pure_node_ids
+        if ".else." in bundle.ir.nodes[node_id].presentation_name
+    )
+    original_execute_pure = WorkflowExecutor._execute_pure_projection
+
+    def interrupt_selected_projection(
+        executor: WorkflowExecutor,
+        step: Any,
+        state: dict[str, Any],
+        *,
+        scope: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        if executor._step_id(step) == bundle.ir.nodes[
+            selected_node_id
+        ].step_id:
+            raise _PostPersistInterruption
+        return original_execute_pure(
+            executor,
+            step,
+            state,
+            scope=scope,
+        )
+
+    monkeypatch.chdir(tmp_path)
+    with patch.object(
+        WorkflowExecutor,
+        "_execute_pure_projection",
+        interrupt_selected_projection,
+    ):
+        with pytest.raises(_PostPersistInterruption):
+            WorkflowExecutor(
+                bundle,
+                tmp_path,
+                manager,
+            ).execute(on_error="stop")
+
+    fresh_manager = StateManager(tmp_path, run_id=manager.run_id)
+    fresh_manager.load()
+    fresh_executor = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        fresh_manager,
+    )
+    evaluated_node_ids: list[str] = []
+    original_execute_pure = (
+        fresh_executor._execute_pure_projection
+    )
+
+    def record_pure_evaluation(
+        step: Any,
+        state: Mapping[str, Any],
+        *,
+        scope: dict[str, dict[str, Any]] | None = None,
+    ) -> Mapping[str, Any]:
+        node_id = fresh_executor._pure_replay_runtime.node_id_for_step_id(
+            fresh_executor._step_id(step)
+        )
+        if isinstance(node_id, str):
+            evaluated_node_ids.append(node_id)
+        return original_execute_pure(
+            step,
+            dict(state),
+            scope=scope,
+        )
+
+    with patch.object(
+        fresh_executor,
+        "_execute_pure_projection",
+        side_effect=record_pure_evaluation,
+    ):
+        resumed = fresh_executor.execute(
+            resume=True,
+            on_error="stop",
+        )
+
+    assert resumed["status"] == "completed"
+    assert evaluated_node_ids == [selected_node_id]
+    assert inactive_node_id not in evaluated_node_ids
+    assert _effect_calls(tmp_path) == ["E2"]
+
+
+@pytest.mark.parametrize(
+    "target_suffix",
+    (
+        pytest.param("__a", id="a-before-first-durable-boundary"),
+        pytest.param("__b", id="b-after-e1"),
+    ),
+)
+def test_interrupted_pure_current_reuses_visit_and_evaluates_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    target_suffix: str,
+) -> None:
+    bundle, manager = _initialize_replay_profile_fixture(
+        tmp_path,
+        run_id=f"interrupted-pure-current-{target_suffix.removeprefix('__')}",
+    )
+    target_node_id = _node_id_ending(bundle, target_suffix)
+    target_name = bundle.projection.entries_by_node_id[
+        target_node_id
+    ].presentation_key
+    original_execute_pure = WorkflowExecutor._execute_pure_projection
+
+    def interrupt_after_atomic_begin(
+        executor: WorkflowExecutor,
+        step: Any,
+        state: dict[str, Any],
+        *,
+        scope: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        if executor._step_id(step) == target_node_id:
+            raise _PostPersistInterruption
+        return original_execute_pure(
+            executor,
+            step,
+            state,
+            scope=scope,
+        )
+
+    monkeypatch.chdir(tmp_path)
+    with patch.object(
+        WorkflowExecutor,
+        "_execute_pure_projection",
+        interrupt_after_atomic_begin,
+    ):
+        with pytest.raises(_PostPersistInterruption):
+            WorkflowExecutor(
+                bundle,
+                tmp_path,
+                manager,
+            ).execute(on_error="stop")
+
+    interrupted = manager.load().to_dict()
+    assert interrupted["current_step"]["step_id"] == target_node_id
+    assert interrupted["current_step"]["visit_count"] == 1
+    assert interrupted["step_visits"][target_name] == 1
+    assert target_name not in interrupted["steps"]
+    if target_suffix == "__a":
+        assert not (tmp_path / "state" / "effect_calls.log").exists()
+        assert _checkpoint_records(manager) == []
+    else:
+        assert _effect_calls(tmp_path) == ["E1"]
+
+    fresh_manager = StateManager(
+        tmp_path,
+        run_id=manager.run_id,
+    )
+    fresh_manager.load()
+    evaluated_node_ids: list[str] = []
+
+    def record_pure_evaluation(
+        executor: WorkflowExecutor,
+        step: Any,
+        state: dict[str, Any],
+        *,
+        scope: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        evaluated_node_ids.append(executor._step_id(step))
+        return original_execute_pure(
+            executor,
+            step,
+            state,
+            scope=scope,
+        )
+
+    with patch.object(
+        WorkflowExecutor,
+        "_execute_pure_projection",
+        record_pure_evaluation,
+    ):
+        resumed = WorkflowExecutor(
+            bundle,
+            tmp_path,
+            fresh_manager,
+        ).execute(resume=True, on_error="stop")
+    persisted = json.loads(
+        fresh_manager.state_file.read_text(encoding="utf-8")
+    )
+
+    assert resumed["status"] == "completed"
+    assert resumed["workflow_outputs"] == {
+        "return__seed-value": 3,
+        "return__effect-value": 4,
+        "return__finished": True,
+    }
+    assert evaluated_node_ids.count(target_node_id) == 1
+    assert persisted["step_visits"][target_name] == 1
+    assert _effect_calls(tmp_path) == ["E1", "E2"]
+    _assert_replay_profile_pure_rows(
+        bundle=bundle,
+        active=resumed,
+        persisted=persisted,
+    )
+    assert all(
+        not path.exists()
+        for path in _pure_bundle_paths(tmp_path, persisted)
+    )
+
+
+def test_pure_replay_overlay_requires_exact_typed_address_over_persisted_shell(
+    tmp_path: Path,
+) -> None:
+    _, bundle = _copy_and_compile_fixture(tmp_path)
+    runtime = pure_result_replay.PureReplayRuntime(
+        bundle=bundle,
+        scope_path=ResumeScopePath.root(str(FIXTURE)),
+    )
+    a_node_id = _node_id_ending(bundle, "__a")
+    replay_node = runtime.index.nodes[a_node_id]
+    witness = runtime.witness(a_node_id)
+    full_result = {
+        "name": witness.presentation_key,
+        "step_id": witness.step_id,
+        "visit_count": 1,
+        "status": "completed",
+        "exit_code": 0,
+        "artifacts": {"return__value": 3},
+    }
+    persisted = {
+        "step_visits": {witness.presentation_key: 1},
+        "steps": {
+            witness.presentation_key: (
+                pure_result_replay.build_pure_completion_shell(witness)
+            )
+        },
+    }
+    runtime.record_full_result(
+        a_node_id,
+        witness=witness,
+        result=full_result,
+    )
+
+    assert runtime.resolve_state_address(
+        replay_node.output_addresses[0],
+        persisted,
+    ) == (True, 3)
+    for untyped_selector in (
+        a_node_id,
+        witness.presentation_key,
+    ):
+        with pytest.raises(TypeError):
+            runtime.resolve_state_address(  # type: ignore[arg-type]
+                untyped_selector,
+                persisted,
+            )
+    assert not hasattr(runtime, "result_for_node_id")
+    assert not hasattr(runtime, "result_for_state_node_id")
+    assert runtime.overlay_active_state(persisted)["steps"][
+        witness.presentation_key
+    ] == full_result
+    assert persisted["steps"][witness.presentation_key] == (
+        pure_result_replay.build_pure_completion_shell(witness)
+    )
+
+
+def test_replay_profile_uses_distinct_durable_step_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_path, bundle = _copy_and_compile_fixture(tmp_path)
+    a_node_id = _node_id_ending(bundle, "__a")
+    synthetic_bundle, durable_step_id = (
+        _with_distinct_durable_step_id(
+            bundle,
+            node_id=a_node_id,
+        )
+    )
+    assert a_node_id != durable_step_id
+    manager = StateManager(
+        tmp_path,
+        run_id="pure-replay-distinct-durable-step-id",
+    )
+    manager.initialize(
+        module_path.name,
+        context=bundle_context_dict(synthetic_bundle),
+        bound_inputs={"seed": 3, "enabled": True},
+        result_persistence_profile="derived_pure_replay.v1",
+    )
+
+    monkeypatch.chdir(tmp_path)
+    active = WorkflowExecutor(
+        synthetic_bundle,
+        tmp_path,
+        manager,
+    ).execute(on_error="stop")
+    persisted = json.loads(
+        manager.state_file.read_text(encoding="utf-8")
+    )
+    runtime = pure_result_replay.PureReplayRuntime(
+        bundle=synthetic_bundle,
+        scope_path=ResumeScopePath.root(str(module_path)),
+    )
+    witness = runtime.witness(a_node_id)
+
+    assert active["status"] == "completed"
+    assert witness.step_id == durable_step_id
+    assert runtime.node_id_for_step_id(durable_step_id) == a_node_id
+    assert runtime.node_id_for_step_id(a_node_id) is None
+    assert persisted["steps"][witness.presentation_key] == (
+        pure_result_replay.build_pure_completion_shell(witness)
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid_progress",
+    (
+        pytest.param("cursor", id="visit-two-cursor"),
+        pytest.param("shell", id="visit-two-shell"),
+    ),
+)
+def test_replay_profile_rejects_visit_two_progress_before_prologue(
+    tmp_path: Path,
+    invalid_progress: str,
+) -> None:
+    module_path, bundle = _copy_and_compile_fixture(tmp_path)
+    manager = StateManager(
+        tmp_path,
+        run_id=f"pure-replay-visit-two-{invalid_progress}",
+    )
+    manager.initialize(
+        module_path.name,
+        context=bundle_context_dict(bundle),
+        bound_inputs={"seed": 3, "enabled": True},
+        result_persistence_profile="derived_pure_replay.v1",
+    )
+    a_node_id = _node_id_ending(bundle, "__a")
+    a_name = bundle.projection.entries_by_node_id[
+        a_node_id
+    ].presentation_key
+    payload = json.loads(
+        manager.state_file.read_text(encoding="utf-8")
+    )
+    payload["step_visits"][a_name] = 2
+    if invalid_progress == "cursor":
+        payload["current_step"] = {
+            "name": a_name,
+            "index": bundle.ir.body_region.index(a_node_id),
+            "type": "pure_projection",
+            "status": "running",
+            "started_at": "2026-07-30T12:00:00+00:00",
+            "last_heartbeat_at": "2026-07-30T12:00:00+00:00",
+            "step_id": bundle.ir.nodes[a_node_id].step_id,
+            "visit_count": 2,
+        }
+    else:
+        payload["steps"][a_name] = {
+            "name": a_name,
+            "step_id": bundle.ir.nodes[a_node_id].step_id,
+            "visit_count": 2,
+            "status": "completed",
+            "exit_code": 0,
+            "outcome": {
+                "status": "completed",
+                "phase": "execution",
+                "class": "completed",
+                "retryable": False,
+            },
+            "result_storage": "derived_pure_replay.v1",
+        }
+    manager.state_file.write_text(
+        json.dumps(payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    fresh_manager = StateManager(
+        tmp_path,
+        run_id=manager.run_id,
+    )
+    fresh_manager.load()
+    executor = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        fresh_manager,
+    )
+    with patch.object(
+        executor,
+        "_execute_prologue",
+        side_effect=AssertionError(
+            "invalid replay progress must reject before prologue"
+        ),
+    ):
+        with pytest.raises(PureResultReplayIndexError) as excinfo:
+            executor.execute(resume=True, on_error="stop")
+
+    assert excinfo.value.reason == "progress_witness_invalid"
+
+
+def test_pure_replay_resume_accepts_exact_durable_intrinsic_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_path, compiled_bundle = _copy_and_compile_fixture(tmp_path)
+    bundle = _with_durable_intrinsic_dependencies(compiled_bundle)
+    manager = StateManager(
+        tmp_path,
+        run_id="pure-replay-valid-durable-intrinsics",
+    )
+    manager.initialize(
+        module_path.name,
+        context=bundle_context_dict(bundle),
+        bound_inputs={"seed": 3, "enabled": True},
+        result_persistence_profile="derived_pure_replay.v1",
+    )
+    e2_node_id = _node_id_ending(bundle, "__e2__finish_e2")
+    original_execute_command = WorkflowExecutor._execute_command
+
+    def interrupt_e2(
+        executor: WorkflowExecutor,
+        step: Any,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        if executor._step_id(step) == e2_node_id:
+            raise _PostPersistInterruption
+        return original_execute_command(executor, step, state)
+
+    monkeypatch.chdir(tmp_path)
+    with patch.object(
+        WorkflowExecutor,
+        "_execute_command",
+        interrupt_e2,
+    ):
+        with pytest.raises(_PostPersistInterruption):
+            WorkflowExecutor(
+                bundle,
+                tmp_path,
+                manager,
+            ).execute(on_error="stop")
+
+    fresh_manager = StateManager(tmp_path, run_id=manager.run_id)
+    fresh_manager.load()
+    resumed = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        fresh_manager,
+    ).execute(resume=True, on_error="stop")
+
+    assert resumed["status"] == "completed"
+    assert resumed["workflow_outputs"] == {
+        "return__seed-value": 3,
+        "return__effect-value": 4,
+        "return__finished": True,
+    }
+    assert _effect_calls(tmp_path) == ["E1", "E2"]
+
+
+@pytest.mark.parametrize(
+    ("field", "member", "wrong_value"),
+    (
+        pytest.param("exit_code", None, "0", id="exit-code"),
+        pytest.param("outcome", "status", False, id="outcome-status"),
+        pytest.param("outcome", "phase", 1, id="outcome-phase"),
+        pytest.param("outcome", "class", [], id="outcome-class"),
+        pytest.param(
+            "outcome",
+            "retryable",
+            "false",
+            id="outcome-retryable",
+        ),
+    ),
+)
+def test_pure_replay_resume_rejects_wrong_typed_durable_intrinsic_before_effect(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    member: str | None,
+    wrong_value: Any,
+) -> None:
+    module_path, compiled_bundle = _copy_and_compile_fixture(tmp_path)
+    bundle = _with_durable_intrinsic_dependencies(compiled_bundle)
+    manager = StateManager(
+        tmp_path,
+        run_id=f"pure-replay-invalid-intrinsic-{field}-{member}",
+    )
+    manager.initialize(
+        module_path.name,
+        context=bundle_context_dict(bundle),
+        bound_inputs={"seed": 3, "enabled": True},
+        result_persistence_profile="derived_pure_replay.v1",
+    )
+    e1_node_id = _node_id_ending(bundle, "__e1__count_e1")
+    e2_node_id = _node_id_ending(bundle, "__e2__finish_e2")
+    e1_name = bundle.projection.entries_by_node_id[
+        e1_node_id
+    ].presentation_key
+    original_execute_command = WorkflowExecutor._execute_command
+
+    def interrupt_e2(
+        executor: WorkflowExecutor,
+        step: Any,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        if executor._step_id(step) == e2_node_id:
+            raise _PostPersistInterruption
+        return original_execute_command(executor, step, state)
+
+    monkeypatch.chdir(tmp_path)
+    with patch.object(
+        WorkflowExecutor,
+        "_execute_command",
+        interrupt_e2,
+    ):
+        with pytest.raises(_PostPersistInterruption):
+            WorkflowExecutor(
+                bundle,
+                tmp_path,
+                manager,
+            ).execute(on_error="stop")
+
+    payload = json.loads(
+        manager.state_file.read_text(encoding="utf-8")
+    )
+    if member is None:
+        payload["steps"][e1_name][field] = wrong_value
+    else:
+        payload["steps"][e1_name][field][member] = wrong_value
+    manager.state_file.write_text(
+        json.dumps(payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    fresh_manager = StateManager(tmp_path, run_id=manager.run_id)
+    fresh_manager.load()
+
+    with patch.object(
+        WorkflowExecutor,
+        "_execute_command",
+        side_effect=AssertionError(
+            "invalid intrinsic input reached the next effect"
+        ),
+    ):
+        result = WorkflowExecutor(
+            bundle,
+            tmp_path,
+            fresh_manager,
+        ).execute(resume=True, on_error="stop")
+
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "pure_result_replay_unavailable"
+    assert result["error"]["context"]["reason"] == (
+        "durable_input_invalid"
+    )
+    assert _effect_calls(tmp_path) == ["E1"]
+
+
+@pytest.mark.parametrize(
+    ("durable_fault", "expected_reason"),
+    (
+        pytest.param(
+            "missing",
+            "durable_input_missing",
+            id="missing-e1",
+        ),
+        pytest.param(
+            "invalid",
+            "durable_input_invalid",
+            id="invalid-e1",
+        ),
+    ),
+)
+def test_pure_replay_invalid_durable_input_rejects_before_e2_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    durable_fault: str,
+    expected_reason: str,
+) -> None:
+    bundle, manager = _initialize_replay_profile_fixture(
+        tmp_path,
+        run_id=f"pure-replay-{durable_fault}-durable-input",
+    )
+    e2_node_id = _node_id_ending(bundle, "__e2__finish_e2")
+    e1_node_id = _node_id_ending(bundle, "__e1__count_e1")
+    e1_name = bundle.projection.entries_by_node_id[
+        e1_node_id
+    ].presentation_key
+    original_execute_command = WorkflowExecutor._execute_command
+
+    def interrupt_e2(
+        executor: WorkflowExecutor,
+        step: Any,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        if executor._step_id(step) == e2_node_id:
+            raise _PostPersistInterruption
+        return original_execute_command(executor, step, state)
+
+    monkeypatch.chdir(tmp_path)
+    with patch.object(
+        WorkflowExecutor,
+        "_execute_command",
+        interrupt_e2,
+    ):
+        with pytest.raises(_PostPersistInterruption):
+            WorkflowExecutor(
+                bundle,
+                tmp_path,
+                manager,
+            ).execute(on_error="stop")
+
+    payload = json.loads(
+        manager.state_file.read_text(encoding="utf-8")
+    )
+    if durable_fault == "missing":
+        payload["steps"].pop(e1_name)
+    else:
+        payload["steps"][e1_name]["artifacts"]["delta"] = (
+            "not-an-integer"
+        )
+    manager.state_file.write_text(
+        json.dumps(payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    fresh_manager = StateManager(tmp_path, run_id=manager.run_id)
+    fresh_manager.load()
+
+    with patch.object(
+        WorkflowExecutor,
+        "_execute_command",
+        side_effect=AssertionError(
+            "invalid replay input must reject before E2 dispatch"
+        ),
+    ):
+        result = WorkflowExecutor(
+            bundle,
+            tmp_path,
+            fresh_manager,
+        ).execute(resume=True, on_error="stop")
+
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "pure_result_replay_unavailable"
+    assert result["error"]["context"]["reason"] == expected_reason
+    assert _effect_calls(tmp_path) == ["E1"]
+
+
+@pytest.mark.parametrize(
+    ("source_fault", "expected_reason", "injected_error_type"),
+    (
+        pytest.param(
+            "missing_bound_input",
+            "durable_input_missing",
+            None,
+            id="missing-bound-input",
+        ),
+        pytest.param(
+            "invalid_bound_input",
+            "durable_input_invalid",
+            None,
+            id="invalid-bound-input",
+        ),
+        pytest.param(
+            "unresolved_binding",
+            "binding_unresolved",
+            "materialize_ref_unresolved",
+            id="unresolved-binding",
+        ),
+        pytest.param(
+            "evaluation_failure",
+            "evaluation_failed",
+            "pure_evaluation_failed",
+            id="evaluation-failure",
+        ),
+        pytest.param(
+            "output_contract_failure",
+            "output_contract_invalid",
+            "pure_projection_contract_invalid",
+            id="output-contract-failure",
+        ),
+    ),
+)
+def test_pure_replay_invalid_source_rejects_before_e2_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source_fault: str,
+    expected_reason: str,
+    injected_error_type: str | None,
+) -> None:
+    bundle, manager = _initialize_replay_profile_fixture(
+        tmp_path,
+        run_id=f"pure-replay-invalid-source-{source_fault}",
+    )
+    e2_node_id = _node_id_ending(bundle, "__e2__finish_e2")
+    original_execute_command = WorkflowExecutor._execute_command
+
+    def interrupt_e2(
+        executor: WorkflowExecutor,
+        step: Any,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        if executor._step_id(step) == e2_node_id:
+            raise _PostPersistInterruption
+        return original_execute_command(executor, step, state)
+
+    monkeypatch.chdir(tmp_path)
+    with patch.object(
+        WorkflowExecutor,
+        "_execute_command",
+        interrupt_e2,
+    ):
+        with pytest.raises(_PostPersistInterruption):
+            WorkflowExecutor(
+                bundle,
+                tmp_path,
+                manager,
+            ).execute(on_error="stop")
+
+    payload = json.loads(
+        manager.state_file.read_text(encoding="utf-8")
+    )
+    if source_fault == "missing_bound_input":
+        payload["bound_inputs"].pop("seed")
+    elif source_fault == "invalid_bound_input":
+        payload["bound_inputs"]["seed"] = "not-an-integer"
+    manager.state_file.write_text(
+        json.dumps(payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    fresh_manager = StateManager(tmp_path, run_id=manager.run_id)
+    fresh_manager.load()
+    fresh_executor = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        fresh_manager,
+    )
+    original_execute_pure = fresh_executor._execute_pure_projection
+
+    def inject_replay_failure(
+        step: Any,
+        state: dict[str, Any],
+        *,
+        scope: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        if injected_error_type is None:
+            return original_execute_pure(
+                step,
+                state,
+                scope=scope,
+            )
+        return {
+            "status": "failed",
+            "exit_code": 1,
+            "error": {
+                "type": injected_error_type,
+                "message": f"synthetic {source_fault}",
+                "context": {
+                    "untrusted_detail": "must-not-enter-replay-diagnostic"
+                },
+            },
+        }
+
+    with patch.object(
+        fresh_executor,
+        "_execute_pure_projection",
+        side_effect=inject_replay_failure,
+    ), patch.object(
+        fresh_executor,
+        "_execute_command",
+        side_effect=AssertionError(
+            "invalid replay source must reject before E2 dispatch"
+        ),
+    ):
+        result = fresh_executor.execute(
+            resume=True,
+            on_error="stop",
+        )
+
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "pure_result_replay_unavailable"
+    assert result["error"]["context"]["reason"] == expected_reason
+    if injected_error_type is None:
+        assert "cause" not in result["error"]["context"]
+    else:
+        assert result["error"]["context"]["cause"] == {
+            "type": injected_error_type,
+        }
+    assert _effect_calls(tmp_path) == ["E1"]
 
 
 def _node_id_ending(bundle: Any, suffix: str) -> str:

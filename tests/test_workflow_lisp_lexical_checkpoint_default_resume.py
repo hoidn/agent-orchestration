@@ -2,10 +2,23 @@ from __future__ import annotations
 
 import importlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
+
+from orchestrator.workflow.pure_result_replay import (
+    DERIVED_PURE_REPLAY_PROFILE,
+    PureReplayVisitWitness,
+    build_pure_completion_shell,
+    derive_pure_result_replay_index,
+)
+from tests.test_workflow_lisp_pure_result_replay import (
+    _copy_and_compile_fixture as _compile_pure_replay_fixture,
+)
+from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 def _module():
@@ -141,6 +154,77 @@ def _decision(**overrides: object) -> object:
     return SimpleNamespace(**payload)
 
 
+def _replay_profile_state(
+    bundle: Any,
+    *,
+    completed_pure_suffixes: tuple[str, ...],
+    include_first_effect: bool = False,
+) -> dict[str, object]:
+    replay_index = derive_pure_result_replay_index(bundle)
+    state: dict[str, object] = {
+        "context": bundle_context_dict(bundle),
+        "bound_inputs": {"seed": 3, "enabled": True},
+        "result_persistence_profile": DERIVED_PURE_REPLAY_PROFILE,
+        "steps": {},
+        "step_visits": {},
+        "current_step": None,
+    }
+    steps = state["steps"]
+    visits = state["step_visits"]
+    assert isinstance(steps, dict)
+    assert isinstance(visits, dict)
+    for suffix in completed_pure_suffixes:
+        node_id = next(
+            candidate
+            for candidate in bundle.ir.body_region
+            if candidate.endswith(suffix)
+        )
+        replay_node = replay_index.nodes[node_id]
+        execution_index = bundle.projection.execution_index_for_step_id(
+            node_id
+        )
+        assert execution_index is not None
+        witness = PureReplayVisitWitness(
+            presentation_key=replay_node.presentation_key,
+            step_index=execution_index,
+            step_id=node_id,
+            visit_count=1,
+        )
+        visits[witness.presentation_key] = 1
+        steps[witness.presentation_key] = build_pure_completion_shell(witness)
+    if include_first_effect:
+        node_id = next(
+            candidate
+            for candidate in bundle.ir.body_region
+            if candidate.endswith("__e1__count_e1")
+        )
+        node = bundle.runtime_plan.nodes[node_id]
+        visits[node.presentation_key] = 1
+        steps[node.presentation_key] = {
+            "name": node.presentation_key,
+            "step_id": node_id,
+            "visit_count": 1,
+            "status": "completed",
+            "exit_code": 0,
+            "artifacts": {"delta": 4, "use-effect": True},
+            "outcome": {
+                "status": "completed",
+                "phase": "execution",
+                "class": "completed",
+                "retryable": False,
+            },
+        }
+    return state
+
+
+def _pure_replay_point(bundle: Any, suffix: str) -> Any:
+    return next(
+        point
+        for point in bundle.runtime_plan.lexical_checkpoint_points
+        if point.node_id.endswith(suffix)
+    )
+
+
 def test_default_resume_serialization_is_deterministic() -> None:
     module = _module()
     policy = module.build_default_resume_policy(
@@ -204,6 +288,273 @@ def test_runtime_default_resume_report_uses_report_schema() -> None:
     assert report["checked_workflows"][0]["workflow_name"] == "lisp_frontend_design_delta/drain::drain"
     assert report["default_modes"][0]["mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
     assert report["status"] == "pass"
+
+
+@pytest.mark.parametrize("nearest_outcome", ["restored", "missing"])
+def test_replay_profile_checkpoint_filter_retains_nearest_noneligible_point(
+    tmp_path: Path,
+    nearest_outcome: str,
+) -> None:
+    module = _module()
+    _, bundle = _compile_pure_replay_fixture(tmp_path)
+    first_effect = _pure_replay_point(bundle, "__e1__count_e1")
+    restart = _pure_replay_point(bundle, "__e2__finish_e2")
+    state = _replay_profile_state(
+        bundle,
+        completed_pure_suffixes=("__a", "__b"),
+        include_first_effect=True,
+    )
+    calls: list[dict[str, object]] = []
+
+    def selector(**kwargs: object) -> object:
+        calls.append(kwargs)
+        if "checkpoint_id" not in kwargs:
+            return _decision(
+                kind="NOT_RESTORABLE",
+                checkpoint_id=None,
+                record_id=None,
+                source_map_origin_key=None,
+                selection_observation="record_absent",
+            )
+        assert kwargs["checkpoint_id"] == first_effect.checkpoint_id
+        if nearest_outcome == "missing":
+            return _decision(
+                kind="NOT_RESTORABLE",
+                checkpoint_id=first_effect.checkpoint_id,
+                record_id=None,
+                source_map_origin_key=None,
+                selection_observation="record_absent",
+            )
+        return _decision(
+            checkpoint_id=first_effect.checkpoint_id,
+            selection_observation="record_present",
+        )
+
+    decision = module.determine_runtime_default_resume_decision(
+        state=state,
+        runtime_plan=bundle.runtime_plan,
+        restart_node_id=restart.node_id,
+        restore_selector=selector,
+        loaded_workflow=bundle,
+        executable_workflow=bundle.ir,
+        is_workflow_lisp=True,
+    )
+
+    assert len(calls) == 2
+    assert calls[1]["checkpoint_id"] == first_effect.checkpoint_id
+    if nearest_outcome == "restored":
+        assert decision["mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
+        assert decision["checkpoint_id"] == first_effect.checkpoint_id
+        assert decision["selection_reason"] == "validated_prior_boundary"
+    else:
+        assert decision["mode"] == "FAIL_CLOSED"
+        assert decision["diagnostics"] == [
+            "lexical_default_resume_prior_boundary_not_restorable",
+        ]
+
+
+@pytest.mark.parametrize("nearest_failure", ["ambiguous", "unusable"])
+def test_replay_profile_filtered_nearest_failure_never_scans_older_point(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    nearest_failure: str,
+) -> None:
+    module = _module()
+    _, bundle = _compile_pure_replay_fixture(tmp_path)
+    older = _pure_replay_point(bundle, "__a")
+    nearest = _pure_replay_point(bundle, "__e1__count_e1")
+    filtered = _pure_replay_point(bundle, "__b")
+    restart = _pure_replay_point(bundle, "__e2__finish_e2")
+    runtime_plan = bundle.runtime_plan
+    if nearest_failure == "ambiguous":
+        runtime_plan = replace(
+            runtime_plan,
+            lexical_checkpoint_points=(
+                *runtime_plan.lexical_checkpoint_points,
+                replace(
+                    nearest,
+                    checkpoint_id=f"{nearest.checkpoint_id}:duplicate",
+                ),
+            ),
+        )
+    monkeypatch.setattr(
+        module,
+        "_replay_runtime",
+        lambda **_: SimpleNamespace(
+            default_resume_checkpoint_excluded_node_ids=(
+                lambda **__: frozenset({filtered.node_id})
+            ),
+        ),
+    )
+    calls: list[dict[str, object]] = []
+
+    def selector(**kwargs: object) -> object:
+        calls.append(kwargs)
+        if "checkpoint_id" not in kwargs:
+            return _decision(
+                kind="NOT_RESTORABLE",
+                checkpoint_id=None,
+                record_id=None,
+                source_map_origin_key=None,
+                selection_observation="record_absent",
+            )
+        if kwargs["checkpoint_id"] == nearest.checkpoint_id:
+            return _decision(
+                kind="INVALID",
+                checkpoint_id=nearest.checkpoint_id,
+                record_id=None,
+                source_map_origin_key=None,
+                selection_observation="record_present_unusable",
+                diagnostics=("lexical_restore_checkpoint_record_malformed",),
+            )
+        raise AssertionError("default resume scanned past the filtered nearest point")
+
+    decision = module.determine_runtime_default_resume_decision(
+        state=_replay_profile_state(
+            bundle,
+            completed_pure_suffixes=("__a", "__b"),
+            include_first_effect=True,
+        ),
+        runtime_plan=runtime_plan,
+        restart_node_id=restart.node_id,
+        restore_selector=selector,
+        loaded_workflow=bundle,
+        executable_workflow=bundle.ir,
+        is_workflow_lisp=True,
+    )
+
+    assert decision["mode"] == "FAIL_CLOSED"
+    if nearest_failure == "ambiguous":
+        assert decision["diagnostics"] == [
+            "lexical_default_resume_prior_boundary_ambiguous"
+        ]
+        assert len(calls) == 1
+    else:
+        assert decision["diagnostics"] == [
+            "lexical_default_resume_invalid_checkpoint",
+            "lexical_restore_checkpoint_record_malformed",
+        ]
+        assert len(calls) == 2
+        assert calls[1]["checkpoint_id"] == nearest.checkpoint_id
+    assert all(
+        call.get("checkpoint_id") != older.checkpoint_id
+        for call in calls
+    )
+
+
+def test_replay_profile_default_resume_admits_validated_frame_entry_replay(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    _, bundle = _compile_pure_replay_fixture(tmp_path)
+    restart = _pure_replay_point(bundle, "__e1__count_e1")
+    calls: list[dict[str, object]] = []
+
+    def selector(**kwargs: object) -> object:
+        calls.append(kwargs)
+        return _decision(
+            kind="NOT_RESTORABLE",
+            checkpoint_id=None,
+            record_id=None,
+            source_map_origin_key=None,
+            selection_observation="record_absent",
+        )
+
+    decision = module.determine_runtime_default_resume_decision(
+        state=_replay_profile_state(
+            bundle,
+            completed_pure_suffixes=("__a",),
+        ),
+        runtime_plan=bundle.runtime_plan,
+        restart_node_id=restart.node_id,
+        restore_selector=selector,
+        loaded_workflow=bundle,
+        executable_workflow=bundle.ir,
+        is_workflow_lisp=True,
+    )
+
+    assert len(calls) == 1
+    assert decision["mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
+    assert decision["restore_decision"] == "VALIDATED_FRAME_ENTRY_REPLAY"
+    assert decision["checkpoint_id"] is None
+    assert decision["selection_reason"] == "validated_frame_entry_replay"
+
+
+def test_replay_profile_unstarted_pure_point_keeps_node_local_checkpoint_authority(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    _, bundle = _compile_pure_replay_fixture(tmp_path)
+    restart = _pure_replay_point(bundle, "__a")
+    calls: list[dict[str, object]] = []
+
+    def selector(**kwargs: object) -> object:
+        calls.append(kwargs)
+        return _decision(
+            checkpoint_id=restart.checkpoint_id,
+            selection_observation="record_present",
+        )
+
+    decision = module.determine_runtime_default_resume_decision(
+        state=_replay_profile_state(
+            bundle,
+            completed_pure_suffixes=(),
+        ),
+        runtime_plan=bundle.runtime_plan,
+        restart_node_id=restart.node_id,
+        restore_selector=selector,
+        loaded_workflow=bundle,
+        executable_workflow=bundle.ir,
+        is_workflow_lisp=True,
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["restart_node_id"] == restart.node_id
+    assert decision["mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
+    assert decision["checkpoint_id"] == restart.checkpoint_id
+
+
+def test_replay_profile_frame_entry_replay_rejects_missing_durable_owner(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    _, bundle = _compile_pure_replay_fixture(tmp_path)
+    first_effect = _pure_replay_point(bundle, "__e1__count_e1")
+    restart = _pure_replay_point(bundle, "__b")
+    calls: list[dict[str, object]] = []
+
+    def selector(**kwargs: object) -> object:
+        calls.append(kwargs)
+        return _decision(
+            kind="NOT_RESTORABLE",
+            checkpoint_id=kwargs.get("checkpoint_id"),
+            record_id=None,
+            source_map_origin_key=None,
+            selection_observation="record_absent",
+        )
+
+    decision = module.determine_runtime_default_resume_decision(
+        state=_replay_profile_state(
+            bundle,
+            completed_pure_suffixes=("__a",),
+            include_first_effect=True,
+        ),
+        runtime_plan=bundle.runtime_plan,
+        restart_node_id=restart.node_id,
+        restore_selector=selector,
+        loaded_workflow=bundle,
+        executable_workflow=bundle.ir,
+        is_workflow_lisp=True,
+    )
+
+    assert len(calls) == 2
+    assert calls[0]["restart_node_id"] == restart.node_id
+    assert calls[1]["checkpoint_id"] == first_effect.checkpoint_id
+    assert decision["mode"] == "FAIL_CLOSED"
+    assert decision["restore_decision"] != "VALIDATED_FRAME_ENTRY_REPLAY"
+    assert decision["diagnostics"] == [
+        "lexical_default_resume_prior_boundary_not_restorable"
+    ]
 
 
 @pytest.mark.parametrize(
