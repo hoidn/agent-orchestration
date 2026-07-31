@@ -5,9 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from orchestrator._common.canonical import canonical_json_dumps
 from orchestrator.workflow.loaded_bundle import workflow_context, workflow_provenance
-
-from .lexical_checkpoints import canonical_json_dumps
 
 
 DEFAULT_RESUME_POLICY_SCHEMA_VERSION = "workflow_lisp_checkpoint_default_resume.v1"

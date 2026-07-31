@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
 from typing import Any, Mapping
+
+from orchestrator._common.canonical import sha256_json as _sha256_json
 
 
 EFFECT_RESUME_POLICY_SCHEMA_VERSION = "workflow_lisp_effect_resume_policy.v1"
@@ -63,18 +63,6 @@ class EffectPolicyDiagnosticCodes:
 
 
 DIAGNOSTIC_CODES = EffectPolicyDiagnosticCodes()
-
-
-def canonical_json_dumps(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str)
-
-
-def _sha256_text(value: object) -> str:
-    return f"sha256:{hashlib.sha256(str(value).encode('utf-8')).hexdigest()}"
-
-
-def _sha256_json(value: Any) -> str:
-    return _sha256_text(canonical_json_dumps(value))
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import errno
-import hashlib
 import json
 import os
 import re
@@ -12,6 +11,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from orchestrator._common.canonical import sha256_json as _sha256_json
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 from orchestrator.workflow_lisp.lexical_checkpoint_transition_resume import (
     AUDIT_STALE,
@@ -93,18 +93,6 @@ class _WorkspaceBeneathPathInvalid(OSError):
 
 class _WorkspaceBeneathReadUnavailable(OSError):
     pass
-
-
-def canonical_json_dumps(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str)
-
-
-def _sha256_text(value: object) -> str:
-    return f"sha256:{hashlib.sha256(str(value).encode('utf-8')).hexdigest()}"
-
-
-def _sha256_json(value: Any) -> str:
-    return _sha256_text(canonical_json_dumps(value))
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:

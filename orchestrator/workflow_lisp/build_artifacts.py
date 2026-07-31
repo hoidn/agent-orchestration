@@ -19,6 +19,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from orchestrator._common.canonical import sha256_json
 from orchestrator.workflow.core_ast import workflow_core_ast_to_json
 from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_boundary_projection
@@ -39,7 +40,6 @@ from .lexical_checkpoints import (
     CHECKPOINT_RECORD_SCHEMA_VERSION,
     CHECKPOINT_SHADOW_REPORT_SCHEMA_VERSION,
     _checkpoint_identity_component_digest,
-    canonical_json_dumps,
 )
 from .phase_family_boundary import is_structural_pure_projection_effect_summary
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION, build_source_map_document
@@ -355,8 +355,8 @@ def _checkpoint_program_identity(
     source_module_digest = f"sha256:{hashlib.sha256(workflow_path.read_bytes()).hexdigest()}"
     return {
         "source_module_digest": source_module_digest,
-        "executable_ir_digest": f"sha256:{hashlib.sha256(canonical_json_dumps(runtime_plan_payload).encode('utf-8')).hexdigest()}",
-        "semantic_ir_digest": f"sha256:{hashlib.sha256(canonical_json_dumps(semantic_ir_payload).encode('utf-8')).hexdigest()}",
+        "executable_ir_digest": sha256_json(runtime_plan_payload),
+        "semantic_ir_digest": sha256_json(semantic_ir_payload),
     }
 
 
@@ -429,8 +429,8 @@ def _validate_lexical_checkpoint_artifacts(
     origin_keys = _collect_origin_keys(source_map_payload) | _collect_origin_keys(semantic_ir_payload)
     program_identity = dict(points_payload.get("program_identity", {}))
     expected_runtime_program_identity = {
-        "executable_ir_digest": f"sha256:{hashlib.sha256(canonical_json_dumps(runtime_plan_payload).encode('utf-8')).hexdigest()}",
-        "semantic_ir_digest": f"sha256:{hashlib.sha256(canonical_json_dumps(semantic_ir_payload).encode('utf-8')).hexdigest()}",
+        "executable_ir_digest": sha256_json(runtime_plan_payload),
+        "semantic_ir_digest": sha256_json(semantic_ir_payload),
     }
     for key, expected_value in expected_runtime_program_identity.items():
         if program_identity.get(key) != expected_value:

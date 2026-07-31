@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
+
+from orchestrator._common.canonical import sha256_json
 
 
 TRANSITION_CHECKPOINT_EVIDENCE_SCHEMA_VERSION = "workflow_lisp_transition_checkpoint_evidence.v1"
@@ -49,14 +49,6 @@ class TransitionResumeEvaluation:
     audit_row_digest: str | None = None
     result: Mapping[str, Any] | None = None
     version: str | None = None
-
-
-def canonical_json_dumps(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str)
-
-
-def sha256_json(value: Any) -> str:
-    return f"sha256:{hashlib.sha256(canonical_json_dumps(value).encode('utf-8')).hexdigest()}"
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:

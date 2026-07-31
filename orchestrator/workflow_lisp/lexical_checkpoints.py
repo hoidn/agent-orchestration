@@ -10,6 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from orchestrator._common.canonical import (
+    canonical_json_dumps,
+    sha256_json as _sha256_json,
+)
 from orchestrator.workflow.state_layout import (
     GeneratedPathAllocation,
     GeneratedPathAllocationRequest,
@@ -28,7 +32,6 @@ from orchestrator.workflow_lisp.lexical_checkpoint_effect_policies import (
 from orchestrator.workflow_lisp.lexical_checkpoint_transition_resume import (
     build_resource_observation,
     build_transition_checkpoint_evidence,
-    sha256_json as transition_resume_sha256_json,
     transition_checkpoint_evidence_from_effect_ref,
 )
 from orchestrator.workflow_lisp.lexical_checkpoint_restore import (
@@ -64,16 +67,8 @@ class CheckpointDiagnosticCodes:
 DIAGNOSTIC_CODES = CheckpointDiagnosticCodes()
 
 
-def canonical_json_dumps(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str)
-
-
 def _sha256_text(value: object) -> str:
     return f"sha256:{hashlib.sha256(str(value).encode('utf-8')).hexdigest()}"
-
-
-def _sha256_json(value: Any) -> str:
-    return _sha256_text(canonical_json_dumps(value))
 
 
 def _digest(prefix: str, *parts: object) -> str:
@@ -867,7 +862,7 @@ def _resource_transition_completed_effect_ref(
         audit_outcome_code=outcome_code,
         idempotency_key=str(transition_lookup["idempotency_key"]),
         request_digest=request_digest,
-        result_digest=transition_resume_sha256_json(transition_lookup.get("result")),
+        result_digest=_sha256_json(transition_lookup.get("result")),
         backend_kind=str(declaration.transition.backend.get("kind") or ""),
         source_map_origin_key=str(_point_field(point, "origin_key") or ""),
     )
