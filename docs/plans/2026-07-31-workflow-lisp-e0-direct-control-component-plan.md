@@ -36,7 +36,10 @@ candidate at `b401c493a0e0c7a9614d96cd18bfb8f4fa29f494`, tree
 passed ordered `E0_PLAN_SPEC_APPROVED` then `E0_PLAN_QUALITY_APPROVED` as
 recorded in `artifacts/review/e0-direct-control-plan-review.md`. Selected
 tranche: E0 only. E1, E2, E3, C1, C2, and C3 remain unselected. No E0
-implementation exists until Task 1 lands.
+implementation exists until Task 1 lands. The selection routing landed at
+`877ac609222c35584a6c227c6aec3b6903f607bd`, tree
+`0e8783d6582c5fce7bae799021aeea690fb660ac`; its postcommit routing control
+passed 70 tests.
 
 ---
 
@@ -261,9 +264,9 @@ surface.
 - [x] Add a RED routing assertion for the predeclared selection delta, update
       only plan/roadmap/routing status to `E0 selected`, and keep every later
       tranche explicitly unselected.
-- [ ] Run the routing test GREEN, inspect exact bytes, and commit with subject
+- [x] Run the routing test GREEN, inspect exact bytes, and commit with subject
       `Select E0 direct control`.
-- [ ] Run the postcommit routing selector and record the exact selection
+- [x] Run the postcommit routing selector and record the exact selection
       commit/tree before Task 1.
 
 Task 0 exit: the exact reviewed plan is the selection record, the roadmap
