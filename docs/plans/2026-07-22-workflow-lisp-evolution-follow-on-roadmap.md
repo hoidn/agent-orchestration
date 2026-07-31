@@ -24,7 +24,7 @@ the lean-pilot owner-decision handoff are complete. The
 passed ordered `E0_PLAN_SPEC_APPROVED` then `E0_PLAN_QUALITY_APPROVED`. E0 is
 the sole selected tranche. Task 1's canonical source and compile contract
 landed at `b71bf62a`; Task 2 runtime characterization is in progress under a
-pending component-plan feasibility correction. E0 is not complete. E1, E2,
+reviewed component-plan feasibility correction. E0 is not complete. E1, E2,
 E3, C1, C2, and C3 remain unselected.
 
 Copy safety: planning reference only; do not use this document as evidence that

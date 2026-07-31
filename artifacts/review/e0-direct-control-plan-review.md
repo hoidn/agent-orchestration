@@ -53,3 +53,33 @@ task/model/effort inputs, exactly one composed provider boundary, and a direct
 compiler, runtime, loader, state, spec, retry-default, child-run, trial,
 controller, historical selector, or E1+ behavior. E1/E2/E3 and C1/C2/C3
 remain unselected.
+
+## Task 2 feasibility amendment review
+
+Status: approved for continued E0-only execution
+
+Reviewed candidate:
+
+- commit: `e861371c2872dfcc787e1d07a10e88c8f1b8268d`
+- tree: `91b9979348ceac30e0574a5b1037424c390927e5`
+- plan SHA-256:
+  `18103b6292f128436b46efd28f3e21b9991da80e979cc644ec41217e2b6bc8cf`
+
+Ordered verdicts:
+
+1. `E0_PLAN_AMENDMENT_SPEC_APPROVED`
+2. `E0_PLAN_AMENDMENT_QUALITY_APPROVED`
+
+Review closed at `2026-07-31T12:18:53-07:00`.
+
+The amendment corrects a plan-local conflation between executing an already
+terminal root and resuming an unfinished run after a committed provider
+boundary. Task 2 now uses the normative completed-boundary proof: interrupt
+after the provider result commit but before root finalization, then require
+same-run resume to allocate, prepare, and execute nothing further while
+preserving the committed result binding and allocation. Terminal-root
+idempotence is explicitly outside E0.
+
+The accepted E0 design, source contract, production runtime, state/spec
+behavior, retry policy, accounting-parity gate, and successor selection are
+unchanged. E0 remains incomplete; E1/E2/E3 and C1/C2/C3 remain unselected.

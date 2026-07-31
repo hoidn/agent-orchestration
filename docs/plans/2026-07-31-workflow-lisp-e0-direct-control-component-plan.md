@@ -31,7 +31,7 @@ provider execution, pytest/pytest-xdist, and repository routing tests.
 
 **Status:** accepted for execution; E0 selected; Task 1 landed at
 `b71bf62aa3cc8640e5ae9df47f1ec09794a5eb5c`; Task 2 is paused at the
-feasibility correction below pending its ordered amendment review. The
+reviewed feasibility correction below. The
 original reviewed candidate at `b401c493a0e0c7a9614d96cd18bfb8f4fa29f494`, tree
 `291bc6130412a04ef9e3886cca23579c3fb325f0`, plan SHA-256
 `0e906fdf2daa06bf8d6bb9720cd71e1086174f46dda97cb8204add16aa490809`
@@ -64,11 +64,13 @@ to the component proof scenario, not an E0 design or runtime change: the
 accepted E0 requirement remains exactly one provider invocation per arm, and
 production changes remain forbidden.
 
-This correction must pass ordered `E0_PLAN_AMENDMENT_SPEC_APPROVED` then
-`E0_PLAN_AMENDMENT_QUALITY_APPROVED` against one exact committed candidate
-before the Task 2 test changes. The plan-review artifact records that candidate
-and its digest; no unchanged design, runtime, or successor surface is
-re-reviewed.
+This correction passed ordered `E0_PLAN_AMENDMENT_SPEC_APPROVED` then
+`E0_PLAN_AMENDMENT_QUALITY_APPROVED` against candidate
+`e861371c2872dfcc787e1d07a10e88c8f1b8268d`, tree
+`91b9979348ceac30e0574a5b1037424c390927e5`, plan SHA-256
+`18103b6292f128436b46efd28f3e21b9991da80e979cc644ec41217e2b6bc8cf`.
+The plan-review artifact records the ordered verdicts. No unchanged design,
+runtime, or successor surface was re-reviewed.
 
 ---
 

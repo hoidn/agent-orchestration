@@ -1378,7 +1378,8 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
     assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in index
     assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in sequence
     assert "Task 1 landed at" in plan
-    assert "pending its ordered amendment review" in plan
+    assert "E0_PLAN_AMENDMENT_SPEC_APPROVED" in plan
+    assert "E0_PLAN_AMENDMENT_QUALITY_APPROVED" in plan
     assert "does not select e1" in _normalized_routing_text(plan)
     assert "e0 alone is selected" in _normalized_routing_text(
         trial_capability
