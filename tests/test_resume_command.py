@@ -4295,6 +4295,153 @@ def test_at4_resume_force_restart(temp_workspace, partial_run_state):
     assert result == 0
 
 
+def test_replay_profile_force_restart_activates_deterministic_new_root_without_mutating_source(
+    temp_workspace: Path,
+    sample_workflow,
+) -> None:
+    workflow_path, _checksum = sample_workflow
+    compiled = compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(temp_workspace,),
+        validate_shared=True,
+        workspace_root=temp_workspace,
+    )
+    bundle = compiled.validated_bundles_by_name[
+        "test_resume_workflow::orchestrate"
+    ]
+    source_run_id = "replay-profile-force-restart-source"
+    source_manager = StateManager(
+        temp_workspace,
+        run_id=source_run_id,
+    )
+    source_state = source_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs={
+            "approved": False,
+            "status": "pending",
+        },
+        observability={
+            "step_summaries": {
+                "enabled": True,
+                "mode": "async",
+                "provider": "test-summary-provider",
+                "timeout_sec": 120,
+                "max_input_chars": 12000,
+                "best_effort": True,
+            }
+        },
+    )
+    source_state.status = "failed"
+    source_manager._write_state()
+    source_tree_before = _persisted_tree_snapshot(
+        source_manager.run_root
+    )
+    fresh_run_id = "replay-profile-force-restart-fresh"
+
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=bundle,
+    ), patch(
+        "orchestrator.cli.commands.resume.WorkflowExecutor",
+    ) as executor_cls, patch(
+        "uuid.uuid4",
+        return_value=SimpleNamespace(hex=fresh_run_id),
+    ):
+        executor_cls.return_value.execute.return_value = {
+            "status": "completed",
+            "steps": {},
+        }
+        result = resume_workflow(
+            run_id=source_run_id,
+            force_restart=True,
+            summary_mode="sync",
+        )
+
+    persisted = json.loads(
+        (
+            temp_workspace
+            / ".orchestrate"
+            / "runs"
+            / fresh_run_id
+            / "state.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert result == 0
+    assert persisted["run_id"] == fresh_run_id
+    assert (
+        persisted["result_persistence_profile"]
+        == DERIVED_PURE_REPLAY_PROFILE
+    )
+    assert persisted["observability"] == {
+        "step_summaries": {
+            "enabled": True,
+            "mode": "sync",
+            "provider": "test-summary-provider",
+            "timeout_sec": 120,
+            "max_input_chars": 12000,
+            "best_effort": True,
+        }
+    }
+    assert (
+        _persisted_tree_snapshot(source_manager.run_root)
+        == source_tree_before
+    )
+
+
+def test_replay_profile_ordinary_resume_keeps_absent_profile_absent(
+    temp_workspace: Path,
+    sample_workflow,
+) -> None:
+    workflow_path, _checksum = sample_workflow
+    compiled = compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(temp_workspace,),
+        validate_shared=True,
+        workspace_root=temp_workspace,
+    )
+    bundle = compiled.validated_bundles_by_name[
+        "test_resume_workflow::orchestrate"
+    ]
+    run_id = "replay-profile-ordinary-resume"
+    manager = StateManager(temp_workspace, run_id=run_id)
+    state = manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs={
+            "approved": False,
+            "status": "pending",
+        },
+    )
+    state.status = "failed"
+    manager._write_state()
+    before = json.loads(
+        manager.state_file.read_text(encoding="utf-8")
+    )
+    assert "result_persistence_profile" not in before
+
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=bundle,
+    ), patch(
+        "orchestrator.cli.commands.resume.WorkflowExecutor",
+    ) as executor_cls:
+        executor_cls.return_value.execute.return_value = {
+            "status": "completed",
+            "steps": {},
+        }
+        result = resume_workflow(
+            run_id=run_id,
+            force_restart=False,
+        )
+
+    persisted = json.loads(
+        manager.state_file.read_text(encoding="utf-8")
+    )
+    assert result == 0
+    assert "result_persistence_profile" not in persisted
+
+
 @patch('orchestrator.cli.commands.resume.WorkflowExecutor')
 def test_resume_force_restart_revalidates_persisted_bound_inputs(
     mock_executor,

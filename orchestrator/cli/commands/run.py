@@ -21,6 +21,9 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_public_input_contracts,
 )
 from orchestrator.workflow.linting import lint_workflow
+from orchestrator.workflow.pure_result_replay import (
+    DERIVED_PURE_REPLAY_PROFILE,
+)
 from orchestrator.monitor.process import process_start_time_token, write_process_metadata
 from orchestrator.runtime_observability import close_executor_session, open_executor_session
 from orchestrator.runtime_observability import record_compiled_frontend_provenance
@@ -438,6 +441,7 @@ def run_workflow(args: Namespace) -> int:
             context,
             bound_inputs=bound_inputs,
             observability=observability,
+            result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
         )
         if frontend_build is not None:
             with state_manager.state_transaction() as transaction_state:

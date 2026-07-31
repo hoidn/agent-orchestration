@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from argparse import Namespace
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -12,6 +13,7 @@ from unittest.mock import patch
 import pytest
 
 import orchestrator.workflow.executor as workflow_executor_module
+from orchestrator.cli.commands.run import run_workflow
 from orchestrator.state import StateManager, StepResult
 from orchestrator.workflow import pure_result_replay
 from orchestrator.workflow.executable_ir import (
@@ -25,6 +27,7 @@ from orchestrator.workflow.predicates import ArtifactBoolPredicateNode
 from orchestrator.workflow.pure_expr import pure_expr_payload_digest
 from orchestrator.workflow.pure_result_replay import (
     DEPENDENCY_INDEX_INVALID,
+    DERIVED_PURE_REPLAY_PROFILE,
     MULTIPLE_VISIT_REGION,
     PureResultReplayIndexError,
     _propagate_pure_ineligibility,
@@ -515,6 +518,51 @@ def _initialize_replay_profile_fixture(
     return bundle, manager
 
 
+def _public_run_args(
+    workflow: Path,
+    *,
+    command_boundaries_file: Path,
+) -> Namespace:
+    return Namespace(
+        workflow=str(workflow),
+        context=None,
+        context_file=None,
+        input=["seed=3", "enabled=true"],
+        input_file=None,
+        clean_processed=False,
+        archive_processed=None,
+        dry_run=False,
+        debug=False,
+        quiet=False,
+        verbose=False,
+        log_level="info",
+        backup_state=False,
+        state_dir=None,
+        on_error="stop",
+        max_retries=0,
+        retry_delay=0,
+        stream_output=False,
+        step_summaries=False,
+        summary_mode=None,
+        summary_timeout_sec=120,
+        summary_max_input_chars=12000,
+        summary_provider="claude_sonnet_summary",
+        summary_profile=None,
+        live_agent_notes=False,
+        live_agent_note_provider=None,
+        live_agent_note_interval_sec=15.0,
+        live_agent_note_timeout_sec=30,
+        live_agent_note_max_tail_chars=6000,
+        entry_workflow=None,
+        source_root=None,
+        provider_externs_file=None,
+        prompt_externs_file=None,
+        imported_workflow_bundles_file=None,
+        command_boundaries_file=str(command_boundaries_file),
+        emit_debug_yaml=False,
+    )
+
+
 def _assert_replay_profile_pure_rows(
     *,
     bundle: Any,
@@ -783,6 +831,90 @@ def test_pure_result_replay_fixture_compiles_real_effect_barrier_spine(
     assert kinds.count("pure_projection") >= 2
     assert kinds.count("command") == 2
     assert _canonical_program_digest(bundle)
+
+
+def test_public_run_activates_replay_profile_with_value_free_pure_results(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    explicit_workspace = tmp_path / "explicit"
+    explicit_workspace.mkdir()
+    monkeypatch.chdir(explicit_workspace)
+    _, _, explicit_active, _ = _execute_replay_profile_fixture(
+        explicit_workspace,
+        run_id="pure-result-replay-explicit-control",
+    )
+
+    public_workspace = tmp_path / "public"
+    public_workspace.mkdir()
+    module_path, bundle, _ = _copy_and_compile_fixture_details(
+        public_workspace,
+    )
+    command_boundaries_file = public_workspace / "command-boundaries.json"
+    command_boundaries_file.write_text(
+        json.dumps(
+            {
+                "count-e1": {
+                    "kind": "external_tool",
+                    "stable_command": [
+                        "python",
+                        "scripts/count_e1.py",
+                    ],
+                },
+                "finish-e2": {
+                    "kind": "external_tool",
+                    "stable_command": [
+                        "python",
+                        "scripts/finish_e2.py",
+                    ],
+                },
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(public_workspace)
+
+    result = run_workflow(
+        _public_run_args(
+            module_path,
+            command_boundaries_file=command_boundaries_file,
+        )
+    )
+
+    runs_root = public_workspace / ".orchestrate" / "runs"
+    run_root = next(path for path in runs_root.iterdir() if path.is_dir())
+    persisted = json.loads(
+        (run_root / "state.json").read_text(encoding="utf-8")
+    )
+    assert result == 0
+    assert (
+        persisted["result_persistence_profile"]
+        == DERIVED_PURE_REPLAY_PROFILE
+    )
+    for node_id in (
+        _node_id_ending(bundle, "__a"),
+        _node_id_ending(bundle, "__b"),
+    ):
+        presentation_key = (
+            bundle.projection.entries_by_node_id[node_id].presentation_key
+        )
+        witness = pure_result_replay.PureReplayVisitWitness(
+            presentation_key=presentation_key,
+            step_index=bundle.ir.body_region.index(node_id),
+            step_id=node_id,
+            visit_count=1,
+        )
+        assert persisted["steps"][presentation_key] == (
+            pure_result_replay.build_pure_completion_shell(witness)
+        )
+    pure_bundle_paths = _pure_bundle_paths(public_workspace, persisted)
+    assert len(pure_bundle_paths) == 2
+    assert all(not path.exists() for path in pure_bundle_paths)
+    assert persisted["workflow_outputs"] == explicit_active[
+        "workflow_outputs"
+    ]
 
 
 def test_pure_result_replay_fixture_historical_profile_control(

@@ -26,6 +26,9 @@ from orchestrator.workflow.resume_projection_integrity import (
     ResumeScopePath,
     audit_scope,
 )
+from orchestrator.workflow.pure_result_replay import (
+    DERIVED_PURE_REPLAY_PROFILE,
+)
 from orchestrator.monitor.process import (
     process_start_time_token,
     read_process_metadata,
@@ -445,12 +448,6 @@ def _resume_workflow_with_writer_lock_held(
             live_agent_note_timeout_sec=live_agent_note_timeout_sec,
             live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
         )
-        if observability is not None:
-            # Preserve the existing force-restart override lifecycle.
-            with state_manager.state_transaction() as transaction_state:
-                transaction_state.observability = observability
-            state = state_manager.state
-            assert state is not None
 
     # Validate checksum unless force restart
     if not force_restart:
@@ -533,6 +530,7 @@ def _resume_workflow_with_writer_lock_held(
                 ),
             bound_inputs=bound_inputs,
             observability=observability,
+            result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
         )
     else:
         # Find the next step to execute
