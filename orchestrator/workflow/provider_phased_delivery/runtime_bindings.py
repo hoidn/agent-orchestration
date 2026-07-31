@@ -8,6 +8,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, cast
 
+from ..._common.validation import is_finite_positive_number
 from ...contracts.output_contract import (
     OutputContractError,
     validate_expected_outputs,
@@ -108,6 +109,10 @@ class _WorkflowPhasedProviderAttemptBindings:
 
         if runtime_policy.delivery != "phased":
             raise ValueError("phased bindings require explicit phased delivery")
+        timeout_sec = step.get("timeout_sec", 3600)
+        if not is_finite_positive_number(timeout_sec):
+            raise ValueError("phased timeout_sec must be positive")
+        self._attempt_timeout_sec = timeout_sec
         self.executor = executor
         self.step = step
         self.context = context
@@ -237,12 +242,11 @@ class _WorkflowPhasedProviderAttemptBindings:
 
     def derive_attempt_deadline(self, allocation) -> float:
         del allocation
-        timeout = self.step.get("timeout_sec", 3600)
-        if (
-            isinstance(timeout, bool)
-            or not isinstance(timeout, (int, float))
-            or timeout <= 0
-        ):
+        if hasattr(self, "_attempt_timeout_sec"):
+            timeout = self._attempt_timeout_sec
+        else:
+            timeout = self.step.get("timeout_sec", 3600)
+        if not is_finite_positive_number(timeout):
             raise ValueError("phased timeout_sec must be positive")
         return float(time.monotonic() + timeout)
 
@@ -609,7 +613,7 @@ class _WorkflowPhasedProviderAttemptBindings:
                 attempt_ordinal=allocation.attempt_ordinal,
                 cwd=self.executor.workspace,
                 env=env,
-                timeout_sec=self.step.get("timeout_sec", 3600),
+                timeout_sec=self._attempt_timeout_sec,
                 provider_call_policy=self._policy_dict(
                     self.provider_bound_policy
                 ),

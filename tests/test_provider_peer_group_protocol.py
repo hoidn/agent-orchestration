@@ -55,6 +55,84 @@ def _environment(socket_path: Path) -> dict[str, str]:
     }
 
 
+class _TimeoutIntSubclass(int):
+    pass
+
+
+class _TimeoutFloatSubclass(float):
+    pass
+
+
+class _NoQueueWait:
+    def __init__(self) -> None:
+        self.calls: list[float] = []
+
+    def get(self, *, timeout: float):
+        self.calls.append(timeout)
+        raise AssertionError("invalid timeout must not wait on the event queue")
+
+
+@pytest.mark.parametrize(
+    ("timeout_sec", "accepted"),
+    (
+        (True, False),
+        (False, False),
+        (float("nan"), False),
+        (float("inf"), False),
+        (float("-inf"), False),
+        (0, False),
+        (-1, False),
+        (1, True),
+        (0.25, True),
+        (_TimeoutIntSubclass(2), True),
+        (_TimeoutFloatSubclass(0.5), True),
+    ),
+)
+def test_listener_timeout_finite_positive_boundary_precedes_queue_wait(
+    tmp_path: Path,
+    timeout_sec: object,
+    accepted: bool,
+) -> None:
+    socket_path = tmp_path / "timeout-boundary.sock"
+    listener = PeerProtocolListener(_endpoint_identity(), socket_path)
+    queue = _NoQueueWait()
+    listener._events = queue  # type: ignore[assignment]
+
+    if accepted:
+        listener._closed = True
+        with pytest.raises(PeerProtocolClosedError):
+            listener.receive_event(timeout_sec=timeout_sec)
+    else:
+        with pytest.raises(
+            ValueError,
+            match="^timeout_sec must be positive$",
+        ):
+            listener.receive_event(timeout_sec=timeout_sec)
+        assert queue.calls == []
+
+    assert listener._started is False
+    assert not socket_path.exists()
+
+
+def test_listener_timeout_preserves_huge_integer_overflow_before_queue_wait(
+    tmp_path: Path,
+) -> None:
+    listener = PeerProtocolListener(
+        _endpoint_identity(),
+        tmp_path / "huge-timeout.sock",
+    )
+    queue = _NoQueueWait()
+    listener._events = queue  # type: ignore[assignment]
+
+    with pytest.raises(
+        OverflowError,
+        match="int too large to convert to float",
+    ):
+        listener.receive_event(timeout_sec=10**309)
+
+    assert queue.calls == []
+
+
 def _round_trip(
     listener: PeerProtocolListener,
     operation,

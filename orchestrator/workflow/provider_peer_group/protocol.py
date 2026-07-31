@@ -15,7 +15,10 @@ from threading import Event, Lock, Thread, current_thread
 from typing import Any, Mapping
 
 from ..._common.canonical import compact_ascii_json_dumps
-from ..._common.validation import nonempty_string
+from ..._common.validation import (
+    is_finite_positive_number,
+    nonempty_string,
+)
 from .models import (
     MAX_PEER_MESSAGE_BYTES,
     PeerAcknowledgeRequest,
@@ -306,11 +309,7 @@ class PeerProtocolListener:
                 raise
 
     def receive_event(self, *, timeout_sec: float) -> PeerProtocolEvent:
-        if (
-            isinstance(timeout_sec, bool)
-            or not isinstance(timeout_sec, (int, float))
-            or timeout_sec <= 0
-        ):
+        if not is_finite_positive_number(timeout_sec):
             raise ValueError("timeout_sec must be positive")
         with self._lock:
             if self._closed:

@@ -2,9 +2,10 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-import math
 import re
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+
+from orchestrator._common.validation import is_finite_positive_number
 
 
 _ESCAPED_DOLLAR_SENTINEL = "\x00"
@@ -684,8 +685,7 @@ class PreparedProviderPolicy:
                 type(timeout_sec) is int and timeout_sec > 0
             ) or (
                 type(timeout_sec) is float
-                and math.isfinite(timeout_sec)
-                and timeout_sec > 0
+                and is_finite_positive_number(timeout_sec)
             )
             if not timeout_is_valid:
                 raise ValueError(

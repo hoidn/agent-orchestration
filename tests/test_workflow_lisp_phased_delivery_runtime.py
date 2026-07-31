@@ -61,6 +61,244 @@ from orchestrator.workflow.state_projection import (
 )
 
 
+class _TimeoutIntSubclass(int):
+    pass
+
+
+class _TimeoutFloatSubclass(float):
+    pass
+
+
+class _TimeoutTrackingStep(dict[str, object]):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.timeout_reads = 0
+
+    def get(self, key: str, default=None):
+        if key == "timeout_sec":
+            self.timeout_reads += 1
+        return super().get(key, default)
+
+
+@pytest.mark.parametrize(
+    ("timeout_sec", "accepted"),
+    (
+        (True, False),
+        (False, False),
+        (float("nan"), False),
+        (float("inf"), False),
+        (float("-inf"), False),
+        (0, False),
+        (-1, False),
+        (1, True),
+        (0.25, True),
+        (_TimeoutIntSubclass(2), True),
+        (_TimeoutFloatSubclass(0.5), True),
+    ),
+)
+def test_phased_timeout_finite_positive_boundary_precedes_side_effects(
+    timeout_sec: object,
+    accepted: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    binding = object.__new__(_WorkflowPhasedProviderAttemptBindings)
+    binding.step = {"timeout_sec": timeout_sec}
+    binding.state = {"steps": {"existing": {"status": "completed"}}}
+    state_before = deepcopy(binding.state)
+    clock_calls: list[None] = []
+    publication_calls: list[object] = []
+
+    def monotonic() -> float:
+        clock_calls.append(None)
+        return 100.0
+
+    def publish(*args, **kwargs) -> None:
+        publication_calls.append((args, kwargs))
+        raise AssertionError("timeout validation must precede publication")
+
+    monkeypatch.setattr(
+        "orchestrator.workflow.provider_phased_delivery."
+        "runtime_bindings.time.monotonic",
+        monotonic,
+    )
+    monkeypatch.setattr(
+        "orchestrator.workflow.provider_phased_delivery."
+        "runtime_bindings.publish_evidence_file",
+        publish,
+    )
+
+    if accepted:
+        assert binding.derive_attempt_deadline(object()) == (
+            100.0 + float(timeout_sec)
+        )
+        assert clock_calls == [None]
+    else:
+        with pytest.raises(
+            ValueError,
+            match="^phased timeout_sec must be positive$",
+        ):
+            binding.derive_attempt_deadline(object())
+        assert clock_calls == []
+
+    assert publication_calls == []
+    assert binding.state == state_before
+
+
+def test_phased_timeout_preserves_huge_integer_overflow_before_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    binding = object.__new__(_WorkflowPhasedProviderAttemptBindings)
+    binding.step = {"timeout_sec": 10**309}
+    clock_calls: list[None] = []
+    monkeypatch.setattr(
+        "orchestrator.workflow.provider_phased_delivery."
+        "runtime_bindings.time.monotonic",
+        lambda: clock_calls.append(None) or 100.0,
+    )
+
+    with pytest.raises(
+        OverflowError,
+        match="int too large to convert to float",
+    ):
+        binding.derive_attempt_deadline(object())
+
+    assert clock_calls == []
+
+
+def test_phased_constructor_caches_timeout_without_later_step_reread(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    timeout_sec = _TimeoutFloatSubclass(0.5)
+    step = _TimeoutTrackingStep(
+        name="review",
+        timeout_sec=timeout_sec,
+    )
+    executor = SimpleNamespace(
+        current_step=0,
+        state_manager=SimpleNamespace(run_root=tmp_path),
+    )
+    monkeypatch.setattr(
+        "orchestrator.providers.interactive_terminal."
+        "InteractiveTerminalTurnQueueAdapter",
+        lambda *args, **kwargs: object(),
+    )
+    clock_calls: list[None] = []
+    monkeypatch.setattr(
+        "orchestrator.workflow.provider_phased_delivery."
+        "runtime_bindings.time.monotonic",
+        lambda: clock_calls.append(None) or 100.0,
+    )
+
+    binding = _WorkflowPhasedProviderAttemptBindings(
+        executor=executor,
+        step=step,
+        context={},
+        state={},
+        provider_bound_policy=ProviderBoundPolicy(model="m"),
+        runtime_policy=PhasedRuntimePolicy(
+            delivery="phased",
+            materialization_attempts=2,
+        ),
+        runtime_step_id="review",
+        parent_steps=None,
+        self_steps=None,
+        root_steps=None,
+    )
+    assert binding._attempt_timeout_sec is timeout_sec
+    assert step.timeout_reads == 1
+
+    step["timeout_sec"] = float("nan")
+
+    assert binding.derive_attempt_deadline(object()) == 100.5
+    assert step.timeout_reads == 1
+    assert clock_calls == [None]
+
+
+@pytest.mark.parametrize(
+    "timeout_sec",
+    (
+        True,
+        False,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        0,
+        -1,
+    ),
+)
+def test_phased_route_rejects_timeout_before_adapter_allocation_or_state(
+    tmp_path: Path,
+    timeout_sec: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    state = {"steps": {"existing": {"status": "completed"}}}
+    state_before = deepcopy(state)
+
+    class StateManagerSpy:
+        run_root = tmp_path / "run"
+
+        def allocate_provider_attempt(self, *args, **kwargs):
+            calls.append("allocate_provider_attempt")
+            raise AssertionError("invalid timeout must precede allocation")
+
+    def unexpected_adapter(*args, **kwargs):
+        calls.append("interactive_adapter")
+        raise AssertionError("invalid timeout must precede adapter creation")
+
+    def unexpected_publication(*args, **kwargs):
+        calls.append("evidence_publication")
+        raise AssertionError("invalid timeout must precede publication")
+
+    def unexpected_clock() -> float:
+        calls.append("deadline_clock")
+        raise AssertionError("invalid timeout must precede deadline calculation")
+
+    monkeypatch.setattr(
+        "orchestrator.providers.interactive_terminal."
+        "InteractiveTerminalTurnQueueAdapter",
+        unexpected_adapter,
+    )
+    monkeypatch.setattr(
+        "orchestrator.workflow.provider_phased_delivery."
+        "runtime_bindings.publish_evidence_file",
+        unexpected_publication,
+    )
+    monkeypatch.setattr(
+        "orchestrator.workflow.provider_phased_delivery."
+        "runtime_bindings.time.monotonic",
+        unexpected_clock,
+    )
+    executor = _executor()
+    executor.state_manager = StateManagerSpy()
+    executor._run_phased_provider_attempt = MethodType(
+        lambda self, binding: calls.append("coordinator"),
+        executor,
+    )
+
+    result = executor._execute_phased_provider_with_context(
+        {"name": "review", "timeout_sec": timeout_sec},
+        {},
+        state,
+        runtime_step_id="review",
+        provider_bound_policy=ProviderBoundPolicy(model="m"),
+        runtime_policy=PhasedRuntimePolicy(
+            delivery="phased",
+            materialization_attempts=2,
+        ),
+    )
+
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "provider_phased_preparation_failed"
+    assert result["error"]["context"]["error"] == (
+        "phased timeout_sec must be positive"
+    )
+    assert calls == []
+    assert state == state_before
+    assert not StateManagerSpy.run_root.exists()
+
+
 def _executor() -> WorkflowExecutor:
     executor = object.__new__(WorkflowExecutor)
     executor.current_step = 0

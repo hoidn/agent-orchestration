@@ -1018,6 +1018,118 @@ def _interactive_adapter(
     )
 
 
+class _TimeoutIntSubclass(int):
+    pass
+
+
+class _TimeoutFloatSubclass(float):
+    pass
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("poll_interval_sec", "operation_timeout_sec"),
+)
+@pytest.mark.parametrize(
+    "value",
+    (
+        True,
+        False,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        0,
+        -1,
+    ),
+)
+def test_interactive_adapter_timeout_boundary_rejects_before_side_effects(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    runtime_root = tmp_path / "invalid-timeout-runtime"
+    backend = _FakeInteractiveBackend()
+    waits: list[float] = []
+    arguments = {
+        "runtime_root": runtime_root,
+        "socket_root": tmp_path,
+        "backend": backend,
+        "wait": waits.append,
+        "poll_interval_sec": 0.1,
+        "operation_timeout_sec": 1.0,
+        field: value,
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=rf"^{field} must be positive$",
+    ):
+        InteractiveTerminalTurnQueueAdapter(**arguments)
+
+    assert backend.actions == []
+    assert waits == []
+    assert not runtime_root.exists()
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("poll_interval_sec", "operation_timeout_sec"),
+)
+@pytest.mark.parametrize(
+    "value",
+    (
+        1,
+        0.25,
+        _TimeoutIntSubclass(2),
+        _TimeoutFloatSubclass(0.5),
+    ),
+)
+def test_interactive_adapter_timeout_boundary_accepts_finite_positive_numbers(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    arguments = {
+        "runtime_root": tmp_path / f"valid-{field}",
+        "socket_root": Path(tempfile.gettempdir()),
+        "backend": _FakeInteractiveBackend(),
+        "poll_interval_sec": 0.1,
+        "operation_timeout_sec": 1.0,
+        field: value,
+    }
+
+    adapter = InteractiveTerminalTurnQueueAdapter(**arguments)
+
+    assert getattr(adapter, f"_{field}") == float(value)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("poll_interval_sec", "operation_timeout_sec"),
+)
+def test_interactive_adapter_preserves_huge_integer_overflow_before_mutation(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    runtime_root = tmp_path / "huge-timeout-runtime"
+    arguments = {
+        "runtime_root": runtime_root,
+        "socket_root": tmp_path,
+        "backend": _FakeInteractiveBackend(),
+        "poll_interval_sec": 0.1,
+        "operation_timeout_sec": 1.0,
+        field: 10**309,
+    }
+
+    with pytest.raises(
+        OverflowError,
+        match="int too large to convert to float",
+    ):
+        InteractiveTerminalTurnQueueAdapter(**arguments)
+
+    assert not runtime_root.exists()
+
+
 def _p1_type(name: str) -> type[object]:
     value = getattr(interactive_terminal_module, name, None)
     assert isinstance(value, type), f"{name} must be implemented"

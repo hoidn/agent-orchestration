@@ -6,6 +6,7 @@ import pytest
 
 from orchestrator._common.validation import (
     closed_mapping,
+    is_finite_positive_number,
     nonempty_string,
     ordinary_integer,
 )
@@ -16,6 +17,10 @@ class _StringSubclass(str):
 
 
 class _IntegerSubclass(int):
+    pass
+
+
+class _FloatSubclass(float):
     pass
 
 
@@ -101,3 +106,38 @@ def test_ordinary_integer_rejects_invalid_values_with_minimum_diagnostic(
         match=r"^count must be an integer >= 0$",
     ):
         ordinary_integer(value, "count", minimum=0)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    (
+        (True, False),
+        (False, False),
+        (float("nan"), False),
+        (float("inf"), False),
+        (float("-inf"), False),
+        (0, False),
+        (-1, False),
+        (1, True),
+        (0.25, True),
+        (_IntegerSubclass(2), True),
+        (_FloatSubclass(0.5), True),
+        ("1", False),
+        (None, False),
+        ([], False),
+        ({}, False),
+    ),
+)
+def test_finite_positive_number_golden_matrix(
+    value: object,
+    expected: bool,
+) -> None:
+    assert is_finite_positive_number(value) is expected
+
+
+def test_finite_positive_number_preserves_huge_integer_overflow() -> None:
+    with pytest.raises(
+        OverflowError,
+        match="int too large to convert to float",
+    ):
+        is_finite_positive_number(10**309)

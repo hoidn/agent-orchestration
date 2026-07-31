@@ -3,7 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Set
+import math
 from typing import Any, cast
+
+
+def is_finite_positive_number(value: object) -> bool:
+    """Return whether a non-bool int/float value is finite and positive."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or value <= 0
+    ):
+        return False
+    return math.isfinite(value)
 
 
 def closed_mapping(

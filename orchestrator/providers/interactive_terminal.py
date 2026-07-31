@@ -16,7 +16,10 @@ from types import MappingProxyType
 from typing import Callable, Mapping, Protocol, Sequence
 import uuid
 
-from orchestrator._common.validation import nonempty_string as _nonempty
+from orchestrator._common.validation import (
+    is_finite_positive_number,
+    nonempty_string as _nonempty,
+)
 from .types import (
     InteractiveSessionSupport,
     PreparedProviderPolicy,
@@ -889,19 +892,9 @@ class InteractiveTerminalTurnQueueAdapter:
         poll_interval_sec: float = 0.05,
         operation_timeout_sec: float = 5.0,
     ) -> None:
-        if (
-            isinstance(poll_interval_sec, bool)
-            or not isinstance(poll_interval_sec, (int, float))
-            or poll_interval_sec <= 0
-            or not math.isfinite(poll_interval_sec)
-        ):
+        if not is_finite_positive_number(poll_interval_sec):
             raise ValueError("poll_interval_sec must be positive")
-        if (
-            isinstance(operation_timeout_sec, bool)
-            or not isinstance(operation_timeout_sec, (int, float))
-            or operation_timeout_sec <= 0
-            or not math.isfinite(operation_timeout_sec)
-        ):
+        if not is_finite_positive_number(operation_timeout_sec):
             raise ValueError("operation_timeout_sec must be positive")
         root = Path(runtime_root)
         token = uuid.uuid4().hex

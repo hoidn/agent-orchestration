@@ -28,8 +28,87 @@ from orchestrator.providers import (
     ProviderSessionRequest,
     ProviderSessionSupport,
 )
-from orchestrator.providers.types import ProviderInvocation
+from orchestrator.providers.types import PreparedProviderPolicy, ProviderInvocation
 from orchestrator.providers.control import ProviderExecutionControl
+
+
+class _TimeoutIntSubclass(int):
+    pass
+
+
+class _TimeoutFloatSubclass(float):
+    pass
+
+
+@pytest.mark.parametrize(
+    ("timeout_sec", "accepted"),
+    (
+        (True, False),
+        (False, False),
+        (float("nan"), False),
+        (float("inf"), False),
+        (float("-inf"), False),
+        (0, False),
+        (-1, False),
+        (1, True),
+        (10**309, True),
+        (0.25, True),
+    ),
+)
+def test_prepared_provider_timeout_finite_positive_boundary_precedes_launch(
+    timeout_sec: object,
+    accepted: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launches: list[object] = []
+
+    def unexpected_launch(*args, **kwargs):
+        launches.append((args, kwargs))
+        raise AssertionError("invalid prepared policy must not launch")
+
+    monkeypatch.setattr(subprocess, "Popen", unexpected_launch)
+    arguments = {
+        "provider_name": "provider",
+        "model": None,
+        "effort": None,
+        "timeout_sec": timeout_sec,
+        "input_mode": InputMode.ARGV.value,
+    }
+
+    if accepted:
+        policy = PreparedProviderPolicy(**arguments)
+        assert policy.timeout_sec == timeout_sec
+    else:
+        with pytest.raises(
+            ValueError,
+            match=(
+                "^prepared provider timeout must be finite "
+                "positive seconds$"
+            ),
+        ):
+            PreparedProviderPolicy(**arguments)
+
+    assert launches == []
+
+
+@pytest.mark.parametrize(
+    "timeout_sec",
+    (_TimeoutIntSubclass(1), _TimeoutFloatSubclass(0.25)),
+)
+def test_prepared_provider_timeout_preserves_exact_numeric_type_policy(
+    timeout_sec: object,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="^prepared provider timeout must be finite positive seconds$",
+    ):
+        PreparedProviderPolicy(
+            provider_name="provider",
+            model=None,
+            effort=None,
+            timeout_sec=timeout_sec,
+            input_mode=InputMode.ARGV.value,
+        )
 
 
 def test_turn_boundary_resume_capability_is_structural():

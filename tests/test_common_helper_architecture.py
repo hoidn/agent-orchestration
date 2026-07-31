@@ -315,7 +315,13 @@ ADMITTED_HELPER_MANIFEST = {
             patterns=(
                 "ast:finite_positive_timeout@"
                 "_WorkflowPhasedProviderAttemptBindings."
+                "__init__.timeout_sec:count=1",
+                "ast:finite_positive_timeout@"
+                "_WorkflowPhasedProviderAttemptBindings."
                 "derive_attempt_deadline.timeout:count=1",
+                "ast:cached_timeout_argument@"
+                "_WorkflowPhasedProviderAttemptBindings._compose_attempt:"
+                "keyword=timeout_sec:attribute=_attempt_timeout_sec:count=1",
             ),
         ),
     ),
@@ -904,6 +910,201 @@ def _session_ladder_pattern(
     return target, int(count_text)
 
 
+def _finite_positive_pattern(
+    pattern: str,
+) -> tuple[str, str, int] | None:
+    prefix = "ast:finite_positive_timeout@"
+    if not pattern.startswith(prefix):
+        return None
+    target_and_field, count_text = pattern[len(prefix) :].rsplit(
+        ":count=",
+        1,
+    )
+    target, field = target_and_field.rsplit(".", 1)
+    return target, field, int(count_text)
+
+
+def _cached_timeout_argument_pattern(
+    pattern: str,
+) -> tuple[str, str, str, int] | None:
+    prefix = "ast:cached_timeout_argument@"
+    if not pattern.startswith(prefix):
+        return None
+    target_and_fields, count_text = pattern[len(prefix) :].rsplit(
+        ":count=",
+        1,
+    )
+    target, fields = target_and_fields.rsplit(":keyword=", 1)
+    keyword, attribute = fields.split(":attribute=", 1)
+    return target, keyword, attribute, int(count_text)
+
+
+def _node_mentions_field(node: ast.AST, field: str) -> bool:
+    return any(
+        (
+            isinstance(candidate, ast.Name)
+            and candidate.id == field
+        )
+        or (
+            isinstance(candidate, ast.Attribute)
+            and candidate.attr == field
+        )
+        for candidate in ast.walk(node)
+    )
+
+
+def _retains_direct_finite_positive_mechanics(
+    node: ast.AST,
+    field: str,
+) -> bool:
+    for candidate in _walk_function_scope(node):
+        if (
+            isinstance(candidate, ast.Call)
+            and _dotted_name(candidate.func) == "math.isfinite"
+            and candidate.args
+            and _node_mentions_field(candidate.args[0], field)
+        ):
+            return True
+        if (
+            isinstance(candidate, ast.Compare)
+            and _node_mentions_field(candidate, field)
+            and any(
+                isinstance(part, ast.Constant)
+                and part.value == 0
+                and type(part.value) is int
+                for part in (
+                    candidate.left,
+                    *candidate.comparators,
+                )
+            )
+        ):
+            return True
+    return False
+
+
+def _direct_finite_call_count(node: ast.AST, field: str) -> int:
+    return sum(
+        isinstance(candidate, ast.Call)
+        and _dotted_name(candidate.func) == "math.isfinite"
+        and candidate.args
+        and _node_mentions_field(candidate.args[0], field)
+        for candidate in _walk_function_scope(node)
+    )
+
+
+def _direct_zero_comparison_count(node: ast.AST, field: str) -> int:
+    return sum(
+        isinstance(candidate, ast.Compare)
+        and _node_mentions_field(candidate, field)
+        and any(
+            isinstance(part, ast.Constant)
+            and part.value == 0
+            and type(part.value) is int
+            for part in (
+                candidate.left,
+                *candidate.comparators,
+            )
+        )
+        for candidate in _walk_function_scope(node)
+    )
+
+
+def _has_exact_positive_int_branch(node: ast.AST, field: str) -> bool:
+    for candidate in _walk_function_scope(node):
+        if not isinstance(candidate, ast.BoolOp) or not isinstance(
+            candidate.op,
+            ast.And,
+        ):
+            continue
+        exact_int = any(
+            isinstance(part, ast.Compare)
+            and len(part.ops) == 1
+            and isinstance(part.ops[0], ast.Is)
+            and len(part.comparators) == 1
+            and isinstance(part.comparators[0], ast.Name)
+            and part.comparators[0].id == "int"
+            and isinstance(part.left, ast.Call)
+            and isinstance(part.left.func, ast.Name)
+            and part.left.func.id == "type"
+            and len(part.left.args) == 1
+            and _node_mentions_field(part.left.args[0], field)
+            for part in candidate.values
+        )
+        positive = any(
+            isinstance(part, ast.Compare)
+            and len(part.ops) == 1
+            and isinstance(part.ops[0], ast.Gt)
+            and len(part.comparators) == 1
+            and isinstance(part.comparators[0], ast.Constant)
+            and part.comparators[0].value == 0
+            and _node_mentions_field(part.left, field)
+            for part in candidate.values
+        )
+        if exact_int and positive:
+            return True
+    return False
+
+
+def _imported_symbol_field_call_count(
+    path: str,
+    node: ast.AST,
+    *,
+    module_name: str,
+    symbol: str,
+    field: str,
+) -> int:
+    direct_names = _imported_symbol_names(path, module_name, symbol)
+    qualified_names = {
+        f"{module_alias}.{symbol}"
+        for module_alias in _imported_module_names(path, module_name)
+    }
+    count = 0
+    for candidate in _walk_function_scope(node):
+        if not isinstance(candidate, ast.Call):
+            continue
+        callee = _dotted_name(candidate.func)
+        if callee not in direct_names and callee not in qualified_names:
+            continue
+        value = (
+            candidate.args[0]
+            if candidate.args
+            else next(
+                (
+                    keyword.value
+                    for keyword in candidate.keywords
+                    if keyword.arg == "value"
+                ),
+                None,
+            )
+        )
+        if value is not None and _node_mentions_field(value, field):
+            count += 1
+    return count
+
+
+def _cached_timeout_keyword_argument_count(
+    node: ast.AST,
+    *,
+    keyword: str,
+    attribute: str,
+) -> tuple[int, int]:
+    keyword_values = [
+        candidate_keyword.value
+        for candidate in _walk_function_scope(node)
+        if isinstance(candidate, ast.Call)
+        for candidate_keyword in candidate.keywords
+        if candidate_keyword.arg == keyword
+    ]
+    cached_values = sum(
+        isinstance(value, ast.Attribute)
+        and isinstance(value.value, ast.Name)
+        and value.value.id == "self"
+        and value.attr == attribute
+        for value in keyword_values
+    )
+    return len(keyword_values), cached_values
+
+
 def _retains_session_snapshot_eligibility_ladder(node: ast.AST) -> bool:
     scoped_nodes = tuple(_walk_function_scope(node))
     names = {
@@ -1263,6 +1464,115 @@ def test_status_helpers_have_one_common_owner() -> None:
                     f"{owner_description} exactly {expected_count} time(s); "
                     f"found {owner_count}"
                 )
+
+    assert not findings, "\n".join(findings)
+
+
+def test_timeout_boundaries_use_common_finite_positive_validation() -> None:
+    findings: list[str] = []
+    common_definitions = _top_level_function_names(COMMON_VALIDATION_PATH)
+    if "is_finite_positive_number" not in common_definitions:
+        findings.append(
+            "common validation owner missing is_finite_positive_number"
+        )
+
+    for surface in ADMITTED_HELPER_MANIFEST["timeout"]:
+        qualified_functions = _qualified_functions(surface.path)
+        for pattern in surface.patterns:
+            parsed = _finite_positive_pattern(pattern)
+            if parsed is not None:
+                target, field, expected_count = parsed
+                node = qualified_functions.get(target)
+                if node is None:
+                    findings.append(
+                        f"{surface.path}:{target} timeout scope is missing"
+                    )
+                    continue
+                owner_count = _imported_symbol_field_call_count(
+                    surface.path,
+                    node,
+                    module_name="orchestrator._common.validation",
+                    symbol="is_finite_positive_number",
+                    field=field,
+                )
+                retains_direct = _retains_direct_finite_positive_mechanics(
+                    node,
+                    field,
+                )
+                prepared_exact_int_profile = (
+                    target == "PreparedProviderPolicy.__post_init__"
+                    and owner_count == 1
+                    and _direct_finite_call_count(node, field) == 0
+                    and _direct_zero_comparison_count(node, field) == 1
+                    and _has_exact_positive_int_branch(node, field)
+                )
+                if retains_direct and not prepared_exact_int_profile:
+                    findings.append(
+                        f"{surface.path}:{target}.{field} retains direct "
+                        "finite-positive mechanics"
+                    )
+                    continue
+                if owner_count != expected_count:
+                    findings.append(
+                        f"{surface.path}:{target}.{field} must call "
+                        "is_finite_positive_number exactly "
+                        f"{expected_count} time(s); found {owner_count}"
+                    )
+                continue
+
+            cached = _cached_timeout_argument_pattern(pattern)
+            if cached is None:
+                continue
+            target, keyword, attribute, expected_count = cached
+            node = qualified_functions.get(target)
+            if node is None:
+                findings.append(
+                    f"{surface.path}:{target} cached timeout scope is missing"
+                )
+                continue
+            keyword_count, cached_count = (
+                _cached_timeout_keyword_argument_count(
+                    node,
+                    keyword=keyword,
+                    attribute=attribute,
+                )
+            )
+            if (
+                keyword_count != expected_count
+                or cached_count != expected_count
+            ):
+                findings.append(
+                    f"{surface.path}:{target} must pass {keyword} from "
+                    f"self.{attribute} exactly {expected_count} time(s); "
+                    f"found {cached_count} cached of {keyword_count} total"
+                )
+
+    excluded_controls = (
+        (
+            "orchestrator/providers/interactive_terminal.py",
+            "_TmuxInteractiveTerminalBackend._run",
+            "timeout_sec",
+        ),
+        (
+            "orchestrator/workflow/prompt_identity.py",
+            "_validate_provider_policy_payload",
+            "timeout_sec",
+        ),
+        (
+            "orchestrator/workflow/prompt_identity.py",
+            "_validate_provider_policy_v2_payload",
+            "timeout_sec",
+        ),
+    )
+    for path, target, field in excluded_controls:
+        node = _qualified_functions(path).get(target)
+        if (
+            node is None
+            or not _retains_direct_finite_positive_mechanics(node, field)
+        ):
+            findings.append(
+                f"{path}:{target} excluded timeout control was swept"
+            )
 
     assert not findings, "\n".join(findings)
 

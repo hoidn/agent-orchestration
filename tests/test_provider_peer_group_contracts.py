@@ -86,6 +86,84 @@ def _attempt(
     )
 
 
+class _TimeoutIntSubclass(int):
+    pass
+
+
+class _TimeoutFloatSubclass(float):
+    pass
+
+
+@pytest.mark.parametrize(
+    ("timeout_sec", "accepted"),
+    (
+        (True, False),
+        (False, False),
+        (float("nan"), False),
+        (float("inf"), False),
+        (float("-inf"), False),
+        (0, False),
+        (-1, False),
+        (1, True),
+        (0.25, True),
+        (_TimeoutIntSubclass(2), True),
+        (_TimeoutFloatSubclass(0.5), True),
+    ),
+)
+def test_peer_member_timeout_finite_positive_public_boundary(
+    timeout_sec: object,
+    accepted: bool,
+) -> None:
+    attempt = _attempt()
+    path = derive_provider_peer_group_paths(
+        node_id="node",
+        member_ids=("writer", "reviewer"),
+    ).members[0]
+    attempt_before = attempt.to_dict()
+    path_before = path.to_dict()
+
+    if accepted:
+        binding = PeerMemberRuntimeBinding(
+            attempt=attempt,
+            timeout_sec=timeout_sec,
+            paths=path,
+        )
+        assert binding.timeout_sec == timeout_sec
+    else:
+        with pytest.raises(
+            ValueError,
+            match=(
+                "^member binding timeout_sec must be finite "
+                "and positive$"
+            ),
+        ):
+            PeerMemberRuntimeBinding(
+                attempt=attempt,
+                timeout_sec=timeout_sec,
+                paths=path,
+            )
+
+    assert attempt.to_dict() == attempt_before
+    assert path.to_dict() == path_before
+
+
+def test_peer_member_timeout_preserves_huge_integer_overflow() -> None:
+    path = derive_provider_peer_group_paths(
+        node_id="node",
+        member_ids=("writer", "reviewer"),
+    ).members[0]
+
+    with pytest.raises(
+        OverflowError,
+        match="int too large to convert to float",
+    ):
+        PeerMemberRuntimeBinding(
+            attempt=_attempt(),
+            timeout_sec=10**309,
+            paths=path,
+        )
+
+
 class _Clock:
     def __init__(self) -> None:
         self.second = 0

@@ -6,12 +6,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 import hashlib
-import math
 from types import MappingProxyType
 from typing import Any, Mapping, TypeAlias
 
 from ..._common.validation import (
     closed_mapping,
+    is_finite_positive_number,
     nonempty_string,
     ordinary_integer,
 )
@@ -335,12 +335,7 @@ class PeerMemberRuntimeBinding:
     def __post_init__(self) -> None:
         if not isinstance(self.attempt, PeerAttemptIdentity):
             raise ValueError("member binding attempt is invalid")
-        if (
-            isinstance(self.timeout_sec, bool)
-            or not isinstance(self.timeout_sec, (int, float))
-            or self.timeout_sec <= 0
-            or not math.isfinite(self.timeout_sec)
-        ):
+        if not is_finite_positive_number(self.timeout_sec):
             raise ValueError(
                 "member binding timeout_sec must be finite and positive"
             )
