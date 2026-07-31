@@ -36,9 +36,16 @@ after ordered `L6_DESIGN_SPEC_APPROVED` then
 SHA-256
 `b5ea1849ae67d4b806a6512cc4c0cdb5fad1b0c7a37f4914d661402c6fcd8028`.
 
-**Plan status:** proposed. It is pending ordered `L6_PLAN_SPEC_APPROVED` then
-`L6_PLAN_QUALITY_APPROVED`. This plan selects no implementation and no L6
-unit.
+**Plan status:** accepted and reviewed; no implementation selected. The exact
+reviewed plan landed at `df2b468c284585d7de3740e791df0eb427283148`, tree
+`f86be7c721a4fcd992c1572b88fdd2ebc94961b8`, with plan SHA-256
+`9b8281c2622476a1028eb48d12464ed2bdcdaceb6a4a7eba6a4ba2580da69227`
+after ordered `L6_PLAN_SPEC_APPROVED` then `L6_PLAN_QUALITY_APPROVED`. The
+exact review record is
+`artifacts/review/workflow-lisp-language-server-l6-plan-review.md`, SHA-256
+`0052bbea068fdff7bd5ac01786f10d92bc5e073195fb6cab7388c596599a1cb2`.
+This plan selects no implementation and no L6 unit; the current activation is
+**none**.
 
 ---
 
@@ -111,12 +118,13 @@ modify security-related tests.
 
 ## Gate 0: Plan Review And Owner Activation
 
-- [ ] Verify the accepted design commit, tree, and file SHA-256 exactly match
+- [x] Verify the accepted design commit, tree, and file SHA-256 exactly match
       the bindings above.
-- [ ] Obtain independent `L6_PLAN_SPEC_APPROVED` against this complete plan.
-- [ ] Obtain distinct `L6_PLAN_QUALITY_APPROVED` only after specification
+- [x] Obtain independent `L6_PLAN_SPEC_APPROVED` against this complete plan.
+- [x] Obtain distinct `L6_PLAN_QUALITY_APPROVED` only after specification
       approval. If bytes change, restart the ordered pair.
-- [ ] Commit the exact reviewed plan without marking any unit active.
+- [x] Commit the exact reviewed plan without marking any unit active. The
+      reviewed plan landed at `df2b468c`, tree `f86be7c7`.
 - [ ] Receive the explicit owner activation naming the selected subset, fill
       only the fixed activation fields above, and commit that activation-only
       update. Record its resulting commit/tree in the postcommit handoff. Do

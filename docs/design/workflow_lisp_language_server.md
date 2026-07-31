@@ -1744,12 +1744,14 @@ findings are recorded in the
 [L6 design review](../../artifacts/review/workflow-lisp-language-server-l6-design-review.md).
 
 Acceptance does not change the implemented L0-L5 status or authorize L6
-implementation: no implementation is selected. The expected
+implementation: no implementation is selected. The
 [L6 utility component plan](../plans/2026-07-31-workflow-lisp-language-server-l6-utility-component-plan.md)
-is proposed and pending ordered specification then quality review; while
-pending, it selects nothing. A reviewed plan plus explicit owner activation
-must name the exact independently selected L6 unit or units before any
-implementation work begins.
+is accepted at `df2b468c284585d7de3740e791df0eb427283148`, tree
+`f86be7c721a4fcd992c1572b88fdd2ebc94961b8`, after ordered
+`L6_PLAN_SPEC_APPROVED` then `L6_PLAN_QUALITY_APPROVED`; see the
+[plan review](../../artifacts/review/workflow-lisp-language-server-l6-plan-review.md).
+It selects nothing. Explicit owner activation must name the exact
+independently selected L6 unit or units before implementation begins.
 
 L6 is three independently selectable utility units over already-retained
 compiler or navigation facts:

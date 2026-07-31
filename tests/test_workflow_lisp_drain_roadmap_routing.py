@@ -137,6 +137,9 @@ LANGUAGE_SERVER_L6_COMPONENT_PLAN_PATH = (
 LANGUAGE_SERVER_L6_DESIGN_REVIEW_PATH = (
     "artifacts/review/workflow-lisp-language-server-l6-design-review.md"
 )
+LANGUAGE_SERVER_L6_PLAN_REVIEW_PATH = (
+    "artifacts/review/workflow-lisp-language-server-l6-plan-review.md"
+)
 LANGUAGE_SERVER_L6_PROPOSAL_COMMIT = (
     "848cee55b15a14189a54fd497ebbe24b37cba71d"
 )
@@ -148,6 +151,21 @@ LANGUAGE_SERVER_L6_ACCEPTED_TREE = (
 )
 LANGUAGE_SERVER_L6_ACCEPTED_DESIGN_SHA256 = (
     "3c52e3d0fb9c5683eae80ae3d81aae7d6e75bef71ef72c7daf19e6da1ecee338"
+)
+LANGUAGE_SERVER_L6_DESIGN_REVIEW_SHA256 = (
+    "b5ea1849ae67d4b806a6512cc4c0cdb5fad1b0c7a37f4914d661402c6fcd8028"
+)
+LANGUAGE_SERVER_L6_REVIEWED_PLAN_COMMIT = (
+    "df2b468c284585d7de3740e791df0eb427283148"
+)
+LANGUAGE_SERVER_L6_REVIEWED_PLAN_TREE = (
+    "f86be7c721a4fcd992c1572b88fdd2ebc94961b8"
+)
+LANGUAGE_SERVER_L6_REVIEWED_PLAN_SHA256 = (
+    "9b8281c2622476a1028eb48d12464ed2bdcdaceb6a4a7eba6a4ba2580da69227"
+)
+LANGUAGE_SERVER_L6_PLAN_REVIEW_SHA256 = (
+    "0052bbea068fdff7bd5ac01786f10d92bc5e073195fb6cab7388c596599a1cb2"
 )
 EVOLUTION_FOLLOW_ON_ROADMAP_PATH = (
     "docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md"
@@ -4626,16 +4644,22 @@ def test_language_server_l5_routes_shipped_admitted_shapes_and_closes_stage() ->
     ) in normalized_l3_row
 
 
-def test_language_server_l6_routes_exact_accepted_design_without_selecting_work() -> None:
+def test_language_server_l6_routes_reviewed_plan_without_selecting_work() -> None:
     design = (REPO_ROOT / LANGUAGE_SERVER_L6_DESIGN_PATH).read_text(
         encoding="utf-8"
     )
     roadmap = (REPO_ROOT / LANGUAGE_SERVER_L6_ROADMAP_PATH).read_text(
         encoding="utf-8"
     )
-    review = (REPO_ROOT / LANGUAGE_SERVER_L6_DESIGN_REVIEW_PATH).read_text(
+    design_review_path = REPO_ROOT / LANGUAGE_SERVER_L6_DESIGN_REVIEW_PATH
+    design_review = design_review_path.read_text(
         encoding="utf-8"
     )
+    plan = (REPO_ROOT / LANGUAGE_SERVER_L6_COMPONENT_PLAN_PATH).read_text(
+        encoding="utf-8"
+    )
+    plan_review_path = REPO_ROOT / LANGUAGE_SERVER_L6_PLAN_REVIEW_PATH
+    plan_review = plan_review_path.read_text(encoding="utf-8")
     design_index_row = _markdown_table_row(
         REPO_ROOT / DESIGN_INDEX_PATH,
         "workflow_lisp_language_server.md",
@@ -4671,11 +4695,14 @@ def test_language_server_l6_routes_exact_accepted_design_without_selecting_work(
         LANGUAGE_SERVER_L6_ACCEPTED_TREE,
         LANGUAGE_SERVER_L6_ACCEPTED_DESIGN_SHA256,
     ):
-        assert binding in review
-    assert review.index("L6_DESIGN_SPEC_APPROVED") < review.index(
+        assert binding in design_review
+    assert _sha256_bytes(design_review_path.read_bytes()) == (
+        LANGUAGE_SERVER_L6_DESIGN_REVIEW_SHA256
+    )
+    assert design_review.index("L6_DESIGN_SPEC_APPROVED") < design_review.index(
         "L6_DESIGN_QUALITY_APPROVED"
     )
-    normalized_review = _normalized_routing_text(review)
+    normalized_review = _normalized_routing_text(design_review)
     for accepted_boundary in (
         "procedure call",
         "workflow call",
@@ -4690,6 +4717,50 @@ def test_language_server_l6_routes_exact_accepted_design_without_selecting_work(
         "no implementation selected",
     ):
         assert accepted_boundary in normalized_review
+    assert "pending ordered" in normalized_review
+    assert "selects nothing" in normalized_review
+
+    assert _git_is_ancestor(
+        LANGUAGE_SERVER_L6_ACCEPTED_COMMIT,
+        LANGUAGE_SERVER_L6_REVIEWED_PLAN_COMMIT,
+    )
+    assert (
+        _git_bytes(
+            "rev-parse",
+            f"{LANGUAGE_SERVER_L6_REVIEWED_PLAN_COMMIT}^{{tree}}",
+        )
+        .decode()
+        .strip()
+        == LANGUAGE_SERVER_L6_REVIEWED_PLAN_TREE
+    )
+    reviewed_plan = _git_bytes(
+        "show",
+        (
+            f"{LANGUAGE_SERVER_L6_REVIEWED_PLAN_COMMIT}:"
+            f"{LANGUAGE_SERVER_L6_COMPONENT_PLAN_PATH}"
+        ),
+    )
+    assert _sha256_bytes(reviewed_plan) == LANGUAGE_SERVER_L6_REVIEWED_PLAN_SHA256
+    assert _sha256_bytes(plan_review_path.read_bytes()) == (
+        LANGUAGE_SERVER_L6_PLAN_REVIEW_SHA256
+    )
+    for binding in (
+        LANGUAGE_SERVER_L6_ACCEPTED_COMMIT,
+        LANGUAGE_SERVER_L6_ACCEPTED_TREE,
+        LANGUAGE_SERVER_L6_ACCEPTED_DESIGN_SHA256,
+        LANGUAGE_SERVER_L6_DESIGN_REVIEW_SHA256,
+        LANGUAGE_SERVER_L6_REVIEWED_PLAN_COMMIT,
+        LANGUAGE_SERVER_L6_REVIEWED_PLAN_TREE,
+        LANGUAGE_SERVER_L6_REVIEWED_PLAN_SHA256,
+    ):
+        assert binding in plan_review
+    assert plan_review.index("L6_PLAN_SPEC_APPROVED") < plan_review.index(
+        "L6_PLAN_QUALITY_APPROVED"
+    )
+    normalized_plan_review = _normalized_routing_text(plan_review)
+    assert "approved plan" in normalized_plan_review
+    assert "no implementation selected" in normalized_plan_review
+    assert "activated_units set is empty" in normalized_plan_review
 
     design_status = _markdown_heading_section(
         design,
@@ -4706,15 +4777,16 @@ def test_language_server_l6_routes_exact_accepted_design_without_selecting_work(
     assert "TextMate" in l6_rows["L6c"]
     assert "tree-sitter or TextMate" not in l6_rows["L6c"]
 
-    routed_surfaces = (
+    current_routed_surfaces = (
         design_status,
         roadmap_status,
         *l6_rows.values(),
         design_index_row,
         docs_index_section,
-        review,
+        plan,
+        plan_review,
     )
-    for surface in routed_surfaces:
+    for surface in current_routed_surfaces:
         normalized = _normalized_routing_text(surface)
         assert "accepted design" in normalized
         assert (
@@ -4722,9 +4794,32 @@ def test_language_server_l6_routes_exact_accepted_design_without_selecting_work(
             or "no implementation is selected" in normalized
             or "unselected" in normalized
         )
-        assert Path(LANGUAGE_SERVER_L6_COMPONENT_PLAN_PATH).name in surface
-        assert "pending ordered" in normalized
-        assert "selects nothing" in normalized
+        assert (
+            "selects nothing" in normalized
+            or "selects no implementation" in normalized
+            or "unselected" in normalized
+        )
+
+    for row in l6_rows.values():
+        assert Path(LANGUAGE_SERVER_L6_COMPONENT_PLAN_PATH).name in row
+        normalized = _normalized_routing_text(row)
+        assert "reviewed plan" in normalized
+        assert "explicit owner activation is required" in normalized
+
+    for surface in (
+        design_status,
+        roadmap_status,
+        design_index_row,
+        docs_index_section,
+    ):
+        assert "explicit owner activation" in _normalized_routing_text(surface)
+
+    normalized_plan = _normalized_routing_text(plan)
+    assert "plan status: accepted and reviewed" in normalized_plan
+    assert "current activation is none" in normalized_plan
+    assert plan.index("L6_PLAN_SPEC_APPROVED") < plan.index(
+        "L6_PLAN_QUALITY_APPROVED"
+    )
 
     for surface in (design_status, roadmap_status, design_index_row, docs_index_section):
         assert LANGUAGE_SERVER_L6_ACCEPTED_COMMIT in surface
@@ -4735,6 +4830,21 @@ def test_language_server_l6_routes_exact_accepted_design_without_selecting_work(
         assert surface.index("L6_DESIGN_SPEC_APPROVED") < surface.index(
             "L6_DESIGN_QUALITY_APPROVED"
         )
+
+    for surface in (design_status, roadmap_status, plan, plan_review):
+        assert LANGUAGE_SERVER_L6_REVIEWED_PLAN_COMMIT in surface
+        assert LANGUAGE_SERVER_L6_REVIEWED_PLAN_TREE in surface
+        assert "L6_PLAN_SPEC_APPROVED" in surface
+        assert "L6_PLAN_QUALITY_APPROVED" in surface
+        assert surface.index("L6_PLAN_SPEC_APPROVED") < surface.index(
+            "L6_PLAN_QUALITY_APPROVED"
+        )
+
+    for surface in (design_index_row, docs_index_section):
+        assert LANGUAGE_SERVER_L6_REVIEWED_PLAN_COMMIT[:8] in surface
+        assert LANGUAGE_SERVER_L6_REVIEWED_PLAN_TREE[:8] in surface
+        assert "L6_PLAN_SPEC_APPROVED" in surface
+        assert "L6_PLAN_QUALITY_APPROVED" in surface
 
 
 def test_phased_contract_delivery_routes_completed_surface() -> None:
