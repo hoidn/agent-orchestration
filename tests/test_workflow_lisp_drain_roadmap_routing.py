@@ -130,6 +130,10 @@ LANGUAGE_SERVER_L5_PLAN_PATH = (
 EVOLUTION_FOLLOW_ON_ROADMAP_PATH = (
     "docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md"
 )
+TRIAL_RUNS_DESIGN_PATH = "docs/design/workflow_lisp_trial_runs.md"
+TYPED_PROGRAM_GATES_DESIGN_PATH = (
+    "docs/design/workflow_lisp_typed_program_gates.md"
+)
 LEAN_PILOT_DESIGN_PATH = (
     "docs/superpowers/specs/2026-07-26-orc-effectiveness-lean-pilot-design.md"
 )
@@ -1289,6 +1293,68 @@ def test_lean_pilot_a1_v7_closure_routes_exact_evidence_and_narrow_owner_handoff
     assert "orc in 1/3" in normalized_capability
     assert "exploratory only" in normalized_capability
     assert "does not automatically select e1+" in normalized_capability
+
+
+def test_e_series_recovered_designs_route_without_selecting_implementation() -> None:
+    roadmap = (REPO_ROOT / EVOLUTION_FOLLOW_ON_ROADMAP_PATH).read_text(
+        encoding="utf-8"
+    )
+    trial = (REPO_ROOT / TRIAL_RUNS_DESIGN_PATH).read_text(encoding="utf-8")
+    gates = (REPO_ROOT / TYPED_PROGRAM_GATES_DESIGN_PATH).read_text(
+        encoding="utf-8"
+    )
+    design_index = (REPO_ROOT / DESIGN_INDEX_PATH).read_text(encoding="utf-8")
+    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
+    trial_capability = _markdown_table_row(
+        REPO_ROOT / CAPABILITY_STATUS_MATRIX_PATH,
+        "| Workflow Lisp canonical trial runs (E0-E3 direction) |",
+    )
+    gates_capability = _markdown_table_row(
+        REPO_ROOT / CAPABILITY_STATUS_MATRIX_PATH,
+        "| Workflow Lisp typed program gates (C1 companion) |",
+    )
+
+    normalized_roadmap = _normalized_routing_text(roadmap)
+    normalized_trial = _normalized_routing_text(trial)
+    normalized_gates = _normalized_routing_text(gates)
+    assert "e_designs_spec_approved" in normalized_roadmap
+    assert "e_designs_quality_approved" in normalized_roadmap
+    assert "no e implementation is selected yet" in normalized_roadmap
+    assert "owner decision handoff is complete" in normalized_roadmap
+    assert "creates no effect identity memo key" in normalized_roadmap
+    assert "docs/superpowers/plans/2026-07-26-orc-effectiveness-lean-pilot.md" in roadmap
+
+    for tranche, meaning in (
+        ("E0", "canonical one-call direct control"),
+        ("E1", "pinned-workspace child execution"),
+        ("E2", "concurrent trial arms"),
+        ("E3", "external gene-bounded controller"),
+    ):
+        assert f"| {tranche} |" in roadmap
+        assert meaning in roadmap
+        assert f"| {tranche} |" in trial
+
+    for design_path, content in (
+        (TRIAL_RUNS_DESIGN_PATH, trial),
+        (TYPED_PROGRAM_GATES_DESIGN_PATH, gates),
+    ):
+        assert design_path in roadmap
+        assert Path(design_path).name in design_index
+        assert Path(design_path).name in index
+        assert "accepted design" in _normalized_routing_text(content)
+        assert "no implementation" in _normalized_routing_text(content)
+
+    assert "not the retired provider interruption quarantine" in normalized_trial
+    assert "no effect identity memo key" in normalized_trial
+    assert "clone is an exact workspace/output boundary" in normalized_trial
+    assert "never a sandbox" in normalized_trial
+    assert "principle 30" in normalized_trial
+    assert "run/resume explicitly excludes lean pilot attempts" in normalized_gates
+    assert "no cross run memo" in normalized_gates
+    assert "principle 30" in normalized_gates
+    assert "| Designed |" in trial_capability
+    assert "| Designed |" in gates_capability
+    assert "No current syntax/runtime capability may be inferred" in gates_capability
 
 
 def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:

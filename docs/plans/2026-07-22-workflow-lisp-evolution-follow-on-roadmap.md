@@ -7,7 +7,7 @@ per the architectural critique at
 work instructions and not a selector. The durable boundary invariants live in
 `docs/design/workflow_lisp_program_search_boundaries.md`; the historical
 slimmed E0 probe remains unselected and its framing is superseded by the
-canonical E0 trial-runs design now drafting externally, while the E4P
+tracked, accepted canonical E0 trial-runs design, while the E4P
 prompt-identity discipline is owned only by Stage Q3 of the active
 language-quality successor roadmap. The current program shape and its
 sequencing gates are recorded in the section below; the remainder of this
@@ -15,11 +15,13 @@ document is the detailed historical reference.
 
 Created: 2026-07-22
 
-Last materially updated: 2026-07-30
+Last materially updated: 2026-07-31
 
-Current implementation status: E0/C1 drafting proceeds concurrently outside
-this repository's selected work; no tranche in this document is selected and
-no E implementation is selected
+Current implementation status: the recovered E0/C1 designs passed ordered
+`E_DESIGNS_SPEC_APPROVED` then `E_DESIGNS_QUALITY_APPROVED`. ML closure and
+the lean-pilot owner-decision handoff are complete. The E0 component plan and
+explicit activation selection are next; no E implementation is selected yet
+and no tranche in this document is selected.
 
 Copy safety: planning reference only; do not use this document as evidence that
 any evolution, variant, trial, prompt-program, or sandbox surface is implemented
@@ -33,19 +35,35 @@ complete.
 
 Current shape:
 
-- **E0 (canonical):** the trial-runs design (`workflow_lisp_trial_runs.md`,
-  drafting in an external session; not yet in this repository). It supersedes
-  the slimmed E0 discriminating-benchmark probe framing.
+- **E0 (canonical):**
+  `docs/design/workflow_lisp_trial_runs.md`, accepted. It
+  supersedes the slimmed E0 discriminating-benchmark probe framing.
 - **C1 (companion):** the typed program gates design
-  (`workflow_lisp_typed_program_gates.md`, drafting; `check-workflow`
-  companion primitives).
+  (`docs/design/workflow_lisp_typed_program_gates.md`, tracked and
+  accepted; `check-workflow` companion primitives).
 - **Governing invariants:**
   `docs/design/workflow_lisp_program_search_boundaries.md` (adopted) binds
   any search/evolution execution.
 - **Layer-0 admission gate:** the orc-effectiveness lean pilot
   (`docs/superpowers/specs/2026-07-26-orc-effectiveness-lean-pilot-design.md`
-  with plan `docs/plans/2026-07-26-orc-effectiveness-lean-pilot.md`). Its
-  owner-decision handoff gates E1+ implementation.
+  with plan
+  `docs/superpowers/plans/2026-07-26-orc-effectiveness-lean-pilot.md`). Its
+  owner-decision handoff is complete at
+  `docs/reports/2026-07-31-orc-effectiveness-lean-pilot-owner-decision.md` and
+  authorizes E0 activation without automatically selecting E1+.
+
+Canonical tranche mapping:
+
+| Tranche | Sole current meaning |
+| --- | --- |
+| E0 | canonical one-call direct control and accounting-parity fixtures |
+| E1 | pinned-workspace child execution through `run-ref` |
+| E2 | concurrent trial arms, evidence freezing, blinding, and adjudication |
+| E3 | external gene-bounded controller over admitted E0-E2 contracts |
+
+The historical ledger below is provenance only and cannot redefine or select
+these tranches. C1 is a companion design; C2/C3 from that companion remain
+deferred unless separately incorporated.
 
 Sequencing prerequisites (owner-directed 2026-07-30):
 
@@ -55,11 +73,14 @@ Sequencing prerequisites (owner-directed 2026-07-30):
    trial persistence shapes are subordinate to the accepted M2
    persistence-parsimony design.
 2. E0/E1 implementation is gated on ML closure (kill-mid-provider
-   crash-resume E2E green) and the lean-pilot owner-decision handoff; both
-   are required.
+   crash-resume E2E green) and the lean-pilot owner-decision handoff. Both
+   prerequisites are satisfied; design approval, a reviewed component plan,
+   and explicit tranche selection remain required.
 3. M2 design acceptance precedes freezing E0 persistence/evidence contracts,
-   so E0 adopts the parsimonious state shapes and effect-identity memo keys
-   rather than creating a migration for M3.
+   so E0 adopts the parsimonious value-free completion shells and durable
+   effect/public-boundary facts rather than creating a migration for M3.
+   Accepted M2 component (a) creates no effect-identity memo key; any future
+   memo key requires separately selected M2(b)/M3b work and Q3 identity.
 4. MC, MR, and M4 substrate phases never block E work.
 5. Under at-least-once semantics the lean pilot's no-resume rule is
    load-bearing: pilot runs are never resumed; interrupted pilot blocks stay
