@@ -16,8 +16,9 @@
   passed `M3A_ACTIVATION_PLAN_SPEC_APPROVED` then
   `M3A_ACTIVATION_PLAN_QUALITY_APPROVED`; its broad-exposed replay correction
   passed `M3A_INTEGRATION_FIX_SPEC_APPROVED` then
-  `M3A_INTEGRATION_FIX_QUALITY_APPROVED`. M3a final closure review remains
-  pending.
+  `M3A_INTEGRATION_FIX_QUALITY_APPROVED`. M3a closed at `76427bde`, tree
+  `c5d8247a`, after restarted `M3A_FINAL_SPEC_APPROVED` then
+  `M3A_FINAL_QUALITY_APPROVED`.
 - **Created:** 2026-07-29
 - **Last material update:** 2026-07-30
 - **Related docs / plans:**
@@ -32,8 +33,8 @@
   M3a's supported automatic creation policy are implemented. The M3a Task 4
   cache-witness/cursor correction passes 122 owner tests, 259
   production-shape tests, 569-test collection, 968 focused tests, and 9,896
-  broad non-security tests. Restarted ordered final reviews, the closure
-  commit, and postcommit control remain.
+  broad non-security tests. Exact closure commit `76427bde`, tree `c5d8247a`,
+  passed ordered final review and a 189-pass postcommit control.
 
 ## Summary
 
@@ -709,8 +710,8 @@ SHA-256
 `d4324439f68b6881f353d5e3f436cc4d460f4728b0359d3b8297a795284efb6d`).
 
 These measurements do not select component (b), M3b, or M3c. Ordered final
-reviews, the exact closure commit, and postcommit control remain pending on
-this closure candidate.
+reviews approved the exact closure at `76427bde`, tree `c5d8247a`; its
+postcommit control passed 189 tests.
 
 ## Verification Strategy
 
@@ -844,9 +845,9 @@ discriminators, and neither contains a pure value.
 
 M2 is complete because its fresh closure gates prove that durable value count
 and state/sidecar bytes both decrease and its exact candidate passed ordered
-specification then quality review. M3a becomes historical complete only after
-the landed behavior commits plus its Task 4 broad gate, ordered final reviews,
-exact closure commit, and postcommit control. External closure records bind
+specification then quality review. M3a is historical complete at `76427bde`,
+tree `c5d8247a`, after its landed behavior commits, Task 4 broad gate, ordered
+final reviews, and 189-pass postcommit control. External closure records bind
 committed bytes without becoming runtime or repository authority.
 
 ## Stop / Revise Criteria
@@ -899,5 +900,5 @@ Task 4 broad gate exposed pre-existing replay compatibility gaps for typed
 literal/value documents and sparse union outputs, so Task 4 also carries the
 small generic runtime correction described above. It changes neither
 checkpoint authority nor serialized contracts. The corrected focused and
-9,896-pass broad gates pass; restarted ordered final review, exact commit, and
-postcommit control remain pending until recorded by that plan.
+9,896-pass broad gates pass. Ordered final review approved exact closure commit
+`76427bde`, tree `c5d8247a`, and the postcommit control passed 189 tests.

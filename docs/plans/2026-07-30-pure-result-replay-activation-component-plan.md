@@ -30,14 +30,17 @@ pytest, and repository routing tests.
 
 ---
 
-**Status:** Task 4 closure candidate; after the first final quality rejection,
-the restarted final specification review found and rejected a relevant-cursor
-cache-hit bypass. Its TDD correction passes the refreshed focused gate; the
-refreshed broad gate also passes; restarted ordered final reviews remain before
-the exact closure commit and postcommit control. Tasks 1–3 landed at
-`3442aef2`, `b931b7b8`, and `8a01bc2b`. Baseline commit `480e7e2f`, tree
-`1886104a`. Ordered plan review approved corrected proposal commit `6e06b4c0`,
-tree `6a4c4d6d`, plan SHA-256
+**Status:** historical complete. Tasks 1–3 landed at `3442aef2`, `b931b7b8`,
+and `8a01bc2b`; exact reviewed Task 4 closure commit
+`76427bdedbbac300bbd82d45db7fa6e24a770f84` records tree
+`c5d8247ab6d47b209d14ee203513a0eda876acb1`. Ordered final review passed
+`M3A_FINAL_SPEC_APPROVED` then `M3A_FINAL_QUALITY_APPROVED` against complete
+diff SHA-256
+`a4a25c19851dc2ea13ccc9e736069a97b9cbe637bfb3ed62e7c28b4d7b8c8b55`.
+The postcommit control passed 189 tests. External closure-record SHA-256:
+`fa8530a87a61f484e19ed1b3d5716f6e30b2061efb4ff12769bfc0b6051cf42b`.
+Baseline commit `480e7e2f`, tree `1886104a`. Ordered plan review approved
+corrected proposal commit `6e06b4c0`, tree `6a4c4d6d`, plan SHA-256
 `6b12b9c3071dc1325b62cb91d56cb201a8ccaeb50cc843912c26dee71630647d`,
 with `M3A_ACTIVATION_PLAN_SPEC_APPROVED` followed by
 `M3A_ACTIVATION_PLAN_QUALITY_APPROVED`.
@@ -548,12 +551,21 @@ provenance/boundary fields are sufficient.
   Evidence-only status reconciliation after that run is covered by the routing
   replay before final review.
 
-- [ ] Request `M3A_FINAL_SPEC_APPROVED`, then
-  `M3A_FINAL_QUALITY_APPROVED`, against the same complete closure bytes.
-- [ ] Commit the exact reviewed closure with subject
-  `Complete pure replay activation`.
-- [ ] Run a non-mutating postcommit routing/focused selector and bind it in an
-  external closure record. Do not add a checked-in self-attestation.
+- [x] Request `M3A_FINAL_SPEC_APPROVED`, then
+  `M3A_FINAL_QUALITY_APPROVED`, against the same complete closure bytes. Both
+  approved exact complete diff SHA-256
+  `a4a25c19851dc2ea13ccc9e736069a97b9cbe637bfb3ed62e7c28b4d7b8c8b55`.
+- [x] Commit the exact reviewed closure with subject
+  `Complete pure replay activation`. Commit
+  `76427bdedbbac300bbd82d45db7fa6e24a770f84` records tree
+  `c5d8247ab6d47b209d14ee203513a0eda876acb1`.
+- [x] Run a non-mutating postcommit routing/focused selector and bind it in an
+  external closure record. The owner-plus-routing selector passed 189 tests in
+  4.71 seconds (log SHA-256
+  `13d01cd3a37549ae937bb35f7e252ab3ae645b54bf681a2fdfeb22909c3afe9e`);
+  external closure-record SHA-256 is
+  `fa8530a87a61f484e19ed1b3d5716f6e30b2061efb4ff12769bfc0b6051cf42b`.
+  No checked-in self-attestation was added.
 
 ## Acceptance summary
 

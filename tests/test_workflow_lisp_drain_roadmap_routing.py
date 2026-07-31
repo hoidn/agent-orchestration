@@ -4446,7 +4446,7 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "later phase defaults remain recorded" in normalized_track_header
     assert "phase m2 is historical complete" in normalized_track_header
     assert "m3a tasks 1 3 landed" in normalized_track_header
-    assert "task 4 closure candidate" in normalized_track_header
+    assert "m3a is historical complete" in normalized_track_header
     assert "first final quality review then found and rejected a cache hit witness bypass" in (
         normalized_track_header
     )
@@ -4458,8 +4458,15 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
         "test combined matrix, 569 test collection, a 968 test focused gate, and "
         "a 9,896 pass broad non security gate"
     ) in normalized_track_header
-    assert "restarted ordered final reviews, exact closure commit, and postcommit control" in normalized_track_header
-    assert "not historical complete until those gates pass" in normalized_track_header
+    assert "76427bdedbbac300bbd82d45db7fa6e24a770f84" in track_header
+    assert "c5d8247ab6d47b209d14ee203513a0eda876acb1" in track_header
+    assert "restarted ordered final reviews and a 189 pass postcommit control" in (
+        normalized_track_header
+    )
+    assert (
+        "fa8530a87a61f484e19ed1b3d5716f6e30b2061efb4ff12769bfc0b6051cf42b"
+        in track_header
+    )
     assert Path(PURE_RESULT_REPLAY_DESIGN_PATH).name in track_header
     normalized_track = _normalized_routing_text(track)
     assert "minimum m2/m3a correctness machinery" in normalized_track
@@ -4563,11 +4570,17 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
         "passes 122 owner tests, 259 production shape tests, 569 test collection, "
         "968 focused tests, and 9,896 broad non security tests"
     ) in normalized_substrate_index_route
+    assert "m3a is historical complete" in normalized_substrate_index_route
+    assert "76427bdedbbac300bbd82d45db7fa6e24a770f84" in (
+        substrate_index_route
+    )
+    assert "c5d8247ab6d47b209d14ee203513a0eda876acb1" in (
+        substrate_index_route
+    )
+    assert "189 pass postcommit control" in normalized_substrate_index_route
     assert (
-        "not historical complete until the restarted ordered final review, "
-        "closure commit, and postcommit control pass"
-    ) in (
-        normalized_substrate_index_route
+        "fa8530a87a61f484e19ed1b3d5716f6e30b2061efb4ff12769bfc0b6051cf42b"
+        in substrate_index_route
     )
     assert "accepted m2 component (a) design" in _normalized_routing_text(index)
     assert "evidence gated and unselected" in normalized_substrate_index_route
@@ -4738,7 +4751,7 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "iteration owned" in normalized_state_layout
 
     normalized_design_index = _normalized_routing_text(design_index)
-    assert "accepted; m2 feasibility and m3a activation behavior implemented" in (
+    assert "accepted; m2 feasibility complete; m3a activation historical complete" in (
         normalized_design_index
     )
     assert "typed public" in normalized_design_index
@@ -4766,8 +4779,13 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "9,896 broad non security tests with 19 skipped and 5 warnings" in (
         normalized_capability_matrix
     )
-    assert "restarted ordered final review, exact commit, and postcommit control remain" in (
+    assert "exact closure 76427bde, tree c5d8247a" in normalized_capability_matrix
+    assert "passed ordered final review and a 189 pass postcommit control" in (
         normalized_capability_matrix
+    )
+    assert (
+        "fa8530a87a61f484e19ed1b3d5716f6e30b2061efb4ff12769bfc0b6051cf42b"
+        in capability_matrix
     )
     assert "component (b)" in normalized_capability_matrix
     assert "m3b" in normalized_capability_matrix
@@ -4776,8 +4794,11 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     normalized_activation_plan = _normalized_routing_text(
         pure_replay_activation_plan
     )
-    assert "status: task 4 closure candidate" in normalized_activation_plan
-    assert "restarted final specification review found and rejected a relevant cursor cache hit bypass" in (
+    assert "status: historical complete" in normalized_activation_plan
+    assert "record the restarted final specification disposition" in (
+        normalized_activation_plan
+    )
+    assert "running cursor targeted the same presentation name/step identity" in (
         normalized_activation_plan
     )
     assert "tasks 1 3 landed" in normalized_activation_plan
@@ -4842,12 +4863,31 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
         "d4324439f68b6881f353d5e3f436cc4d460f4728b0359d3b8297a795284efb6d"
         in pure_replay_activation_plan
     )
+    assert "m3a_final_spec_approved" in normalized_activation_plan
+    assert "m3a_final_quality_approved" in normalized_activation_plan
+    assert normalized_activation_plan.index(
+        "m3a_final_spec_approved"
+    ) < normalized_activation_plan.index(
+        "m3a_final_quality_approved"
+    )
     assert (
-        "refreshed broad gate also passes; restarted ordered final reviews remain before "
-        "the exact closure commit and postcommit control"
-    ) in normalized_activation_plan
+        "- [x] Request `M3A_FINAL_SPEC_APPROVED`, then"
+        in pure_replay_activation_plan
+    )
     assert (
-        "- [ ] Request `M3A_FINAL_SPEC_APPROVED`, then"
+        "76427bdedbbac300bbd82d45db7fa6e24a770f84"
+        in pure_replay_activation_plan
+    )
+    assert (
+        "c5d8247ab6d47b209d14ee203513a0eda876acb1"
+        in pure_replay_activation_plan
+    )
+    assert (
+        "13d01cd3a37549ae937bb35f7e252ab3ae645b54bf681a2fdfeb22909c3afe9e"
+        in pure_replay_activation_plan
+    )
+    assert (
+        "fa8530a87a61f484e19ed1b3d5716f6e30b2061efb4ff12769bfc0b6051cf42b"
         in pure_replay_activation_plan
     )
     for task_commit in ("3442aef2", "b931b7b8", "8a01bc2b"):
@@ -4883,9 +4923,13 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     for task_number in range(5):
         assert f"## Task {task_number}:" in pure_replay_activation_plan
     assert "m3a tasks 1 3 landed" in normalized_track
-    assert "m3a is not historical complete until" in normalized_track
+    assert "m3a is historical complete" in normalized_track
     assert "569 test collection, 968 focused tests" in normalized_track
     assert "refreshed 9,896 test broad non security gate" in normalized_track
+    assert "restarted ordered final review approved exact complete diff" in (
+        normalized_track
+    )
+    assert "189 tests" in normalized_track
     assert "m3a_activation_plan_spec_approved" in normalized_track
     assert "m3a_activation_plan_quality_approved" in normalized_track
 

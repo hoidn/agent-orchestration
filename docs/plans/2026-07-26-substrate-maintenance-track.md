@@ -57,9 +57,11 @@
   cursor while retaining an unrelated downstream cursor, and passes 122 owner
   tests, the unchanged 259 production-shape tests, a 381-test combined matrix,
   569-test collection, a 968-test focused gate, and a 9,896-pass broad
-  non-security gate with 19 skips and 5 warnings. Restarted ordered final
-  reviews, exact closure commit, and postcommit control remain. M3a is not
-  historical complete until those gates pass.
+  non-security gate with 19 skips and 5 warnings. M3a is historical complete
+  at `76427bdedbbac300bbd82d45db7fa6e24a770f84`, tree
+  `c5d8247ab6d47b209d14ee203513a0eda876acb1`, after restarted ordered final
+  reviews and a 189-pass postcommit control. External closure-record SHA-256:
+  `fa8530a87a61f484e19ed1b3d5716f6e30b2061efb4ff12769bfc0b6051cf42b`.
   MC, MR, M3b, M3c, and M4 are not selected by listing and still require
   their own component plans.
 - **Relation:** parallel substrate track beside the completed
@@ -175,7 +177,7 @@ seams that loosening defines.
 | MC | Common-helper consolidation | M0 complete; Q0-listed files deferred until Q0 closes | net LOC strictly negative; no residual private clones; touched-module suites green |
 | MR | Behavior-preserving structural refactors | per-tranche: MR-5a after M0; MR-1 after ML-1; MR-2 after ML; MR-3 with/after ML-2; MR-4 Q-coordinated | golden-parity gates per tranche; MR-1..MR-3 complete before M3 starts |
 | M2 | Persistence-parsimony design | historical complete: ML complete; Q3 identity accepted; owner depth fixed at component (a) | satisfied by accepted pure-result replay design, executable feasibility fixture, broad gate, and ordered final reviews |
-| M3 | Persistence implementation | M3a Tasks 1–3 landed at `3442aef2`, `b931b7b8`, and `8a01bc2b`; Task 4's activation-wide replay correction includes the cache-witness/cursor fix and refreshed focused/broad evidence; 3b/3c retain their separate gates | M3a requires restarted ordered final review, exact closure commit, and postcommit gates; no later tranche is selected by this row |
+| M3 | Persistence implementation | M3a historical complete at `76427bde`, tree `c5d8247a`; 3b/3c retain their separate gates | M3a satisfied by refreshed focused/broad evidence, ordered final review, exact closure commit, and 189-pass postcommit control; no later tranche is selected by this row |
 | M4 | Structural decomposition | M3 complete or owner-recorded M2/M3 no-go; owner M4 go decision | touched modules split along the then-current seams; full suite green; no behavior change |
 
 ## Phase M0: Green Baseline
@@ -441,8 +443,10 @@ Tranches, each requiring selection, RED fixtures, and its own gate:
   broad non-security gate with 19 skipped and 5 warnings in 147.72 seconds
   (log SHA-256
   `d4324439f68b6881f353d5e3f436cc4d460f4728b0359d3b8297a795284efb6d`).
-  Restarted ordered final reviews, exact commit, and postcommit control remain;
-  M3a is not historical complete until all three pass.
+  Restarted ordered final review approved exact complete diff
+  `a4a25c19851dc2ea13ccc9e736069a97b9cbe637bfb3ed62e7c28b4d7b8c8b55`;
+  commit `76427bde`, tree `c5d8247a`, records those bytes and its postcommit
+  owner-plus-routing control passed 189 tests. M3a is historical complete.
 - **3b** Identity keys: not selected; requires component-(b) re-entry and an
   accepted design. If admitted, dual-write first (no behavior change), then
   memo-first resume behind a flag, then default flip. Gate at each step:
