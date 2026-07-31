@@ -1301,7 +1301,7 @@ def test_lean_pilot_a1_v7_closure_routes_exact_evidence_and_narrow_owner_handoff
     assert "does not automatically select e1+" in normalized_capability
 
 
-def test_e_series_routes_only_reviewed_e0_selection_before_implementation() -> None:
+def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> None:
     roadmap = (REPO_ROOT / EVOLUTION_FOLLOW_ON_ROADMAP_PATH).read_text(
         encoding="utf-8"
     )
@@ -1334,7 +1334,9 @@ def test_e_series_routes_only_reviewed_e0_selection_before_implementation() -> N
     assert "e_designs_spec_approved" in normalized_roadmap
     assert "e_designs_quality_approved" in normalized_roadmap
     assert "e0 is the sole selected tranche" in normalized_roadmap
-    assert "no e0 behavior is implemented yet" in normalized_roadmap
+    assert "task 1's canonical source and compile contract" in normalized_roadmap
+    assert "task 2 runtime characterization is in progress" in normalized_roadmap
+    assert "e0 is not complete" in normalized_roadmap
     assert "e1, e2, e3, c1, c2, and c3 remain unselected" in normalized_roadmap
     assert "owner decision handoff is complete" in normalized_roadmap
     assert "creates no effect identity memo key" in normalized_roadmap
@@ -1375,7 +1377,8 @@ def test_e_series_routes_only_reviewed_e0_selection_before_implementation() -> N
     assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in design_index
     assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in index
     assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in sequence
-    assert "**Status:** accepted for execution; E0 selected; Task 1 is next." in plan
+    assert "Task 1 landed at" in plan
+    assert "pending its ordered amendment review" in plan
     assert "does not select e1" in _normalized_routing_text(plan)
     assert "e0 alone is selected" in _normalized_routing_text(
         trial_capability

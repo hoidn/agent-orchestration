@@ -22,8 +22,10 @@ Current implementation status: the recovered E0/C1 designs passed ordered
 the lean-pilot owner-decision handoff are complete. The
 [E0 direct-control component plan](2026-07-31-workflow-lisp-e0-direct-control-component-plan.md)
 passed ordered `E0_PLAN_SPEC_APPROVED` then `E0_PLAN_QUALITY_APPROVED`. E0 is
-the sole selected tranche and Task 1 is next; no E0 behavior is implemented
-yet. E1, E2, E3, C1, C2, and C3 remain unselected.
+the sole selected tranche. Task 1's canonical source and compile contract
+landed at `b71bf62a`; Task 2 runtime characterization is in progress under a
+pending component-plan feasibility correction. E0 is not complete. E1, E2,
+E3, C1, C2, and C3 remain unselected.
 
 Copy safety: planning reference only; do not use this document as evidence that
 any evolution, variant, trial, prompt-program, or sandbox surface is implemented

@@ -10,36 +10,65 @@
 
 **Goal:** Select and implement only E0: one canonical target-2.23 Workflow
 Lisp library entry that sends a typed task to exactly one provider boundary,
-returns a direct typed completion value, and uses the same runtime-owned
-accounting surface as an ordinary one-provider workflow without imposing an
-artifact shape.
+returns a direct typed completion value, preserves compatible committed
+provider-boundary reuse, and uses the same runtime-owned accounting surface as
+an ordinary one-provider workflow without imposing an artifact shape.
 
 **Architecture:** Add `workflows/library/control/direct_task.orc` with one
 inline `defprompt`, typed task/model/effort inputs, one composed
 `provider-result`, and a direct `Bool` result. Reuse the landed compiler,
 runtime, output-contract composition, provider-attempt allocation,
-at-least-once recovery, and state evidence unchanged. Prove the boundary with
-one source/compile test and one deterministic runtime test that also compares
-provider accounting keys with an existing ordinary composed one-provider
-workflow whose structured result has a deliberately different artifact
-shape.
+at-least-once recovery, completed-boundary reuse, and state evidence unchanged.
+Prove the boundary with one source/compile test and one deterministic runtime
+test that also compares provider accounting keys with an existing ordinary
+composed one-provider workflow whose structured result has a deliberately
+different artifact shape.
 
 **Tech stack:** Workflow Lisp target 2.23, compiled prompt fragments,
 transportable direct `Bool` returns, the WCC M4 compile route, existing
 provider-attempt/state machinery, `WorkflowExecutor`, deterministic mocked
 provider execution, pytest/pytest-xdist, and repository routing tests.
 
-**Status:** accepted for execution; E0 selected; Task 1 is next. The final
-candidate at `b401c493a0e0c7a9614d96cd18bfb8f4fa29f494`, tree
+**Status:** accepted for execution; E0 selected; Task 1 landed at
+`b71bf62aa3cc8640e5ae9df47f1ec09794a5eb5c`; Task 2 is paused at the
+feasibility correction below pending its ordered amendment review. The
+original reviewed candidate at `b401c493a0e0c7a9614d96cd18bfb8f4fa29f494`, tree
 `291bc6130412a04ef9e3886cca23579c3fb325f0`, plan SHA-256
 `0e906fdf2daa06bf8d6bb9720cd71e1086174f46dda97cb8204add16aa490809`
 passed ordered `E0_PLAN_SPEC_APPROVED` then `E0_PLAN_QUALITY_APPROVED` as
 recorded in `artifacts/review/e0-direct-control-plan-review.md`. Selected
 tranche: E0 only. E1, E2, E3, C1, C2, and C3 remain unselected. No E0
-implementation exists until Task 1 lands. The selection routing landed at
+implementation existed at selection time. The selection routing landed at
 `877ac609222c35584a6c227c6aec3b6903f607bd`, tree
 `0e8783d6582c5fce7bae799021aeea690fb660ac`; its postcommit routing control
 passed 70 tests.
+
+### Task 2 feasibility correction
+
+The original Task 2 wording conflated two distinct runtime operations. A
+compatible completed *provider boundary* inside a not-yet-terminal run is
+reused under the ordinary guards in `specs/state.md`. Executing
+`resume=True` against an already terminal one-node root instead opens a new
+visit from the first executable node; it is not completed-boundary reuse.
+The expected-GREEN characterization exposed that distinction: terminal-root
+re-execution prepared and executed the provider again with a new visit-scoped
+allocation, while an interruption immediately after the provider boundary's
+committed state mutation resumed with no further preparation or execution and
+left the original allocation unchanged.
+
+Task 2 therefore proves the normative committed-boundary contract by
+interrupting after the successful provider result is committed but before
+root finalization, then resuming that same incomplete run. It makes no claim
+that executing an already terminal root is idempotent. This is a correction
+to the component proof scenario, not an E0 design or runtime change: the
+accepted E0 requirement remains exactly one provider invocation per arm, and
+production changes remain forbidden.
+
+This correction must pass ordered `E0_PLAN_AMENDMENT_SPEC_APPROVED` then
+`E0_PLAN_AMENDMENT_QUALITY_APPROVED` against one exact committed candidate
+before the Task 2 test changes. The plan-review artifact records that candidate
+and its digest; no unchanged design, runtime, or successor surface is
+re-reviewed.
 
 ---
 
@@ -280,23 +309,23 @@ postcommit selector passes.
 - Create: `workflows/library/control/direct_task.orc`
 - Create: `tests/test_workflow_lisp_direct_control.py`
 
-- [ ] Add a RED compile-contract test loading the production source from
+- [x] Add a RED compile-contract test loading the production source from
       `workflows/library`, resolving entry
       `control/direct_task::direct-task`, and binding only
       `providers.direct`.
-- [ ] Require target 2.23, the exact typed public signature, exactly one
+- [x] Require target 2.23, the exact typed public signature, exactly one
       provider effect boundary, one inline composed prompt application, one
       `:text` task slot, dynamic model/effort, direct `Bool` return, and no
       other executable/effect boundary or artifact-producing form.
-- [ ] Confirm RED because the production source is absent.
-- [ ] Add only the exact source contract above.
-- [ ] Run the new test GREEN, the target-2.23 prompt-fragment/compiler suites,
+- [x] Confirm RED because the production source is absent.
+- [x] Add only the exact source contract above.
+- [x] Run the new test GREEN, the target-2.23 prompt-fragment/compiler suites,
       native-return suites, and provider-policy suites.
-- [ ] Obtain ordered `E0_TASK1_SPEC_APPROVED` then
+- [x] Obtain ordered `E0_TASK1_SPEC_APPROVED` then
       `E0_TASK1_QUALITY_APPROVED`, commit with subject
       `Add canonical direct control`, and rerun the postcommit selector.
 
-## Task 2: Prove one-call execution and completed-result reuse
+## Task 2: Prove one-call execution and committed-boundary reuse
 
 **Files:**
 
@@ -306,21 +335,27 @@ postcommit selector passes.
 
 - [ ] Add a deterministic provider harness that records prepare/execute calls
       and writes direct JSON `true` to the runtime-owned output bundle.
-- [ ] Execute one fresh production E0 entry and require exactly one prepared
-      invocation, exactly one execution, completed status, scalar
-      `workflow_outputs == {"__result__": true}`, and one persisted provider
-      attempt allocation whose `last_allocated_ordinal == 1`. Construct the
-      executor with `max_retries=0`.
+- [ ] Execute one fresh production E0 entry with a test-only interruption
+      immediately after the successful provider boundary commit and before
+      root finalization. Require exactly one prepared invocation, exactly one
+      execution, a persisted completed provider result carrying scalar
+      `true`, and one provider-attempt allocation whose
+      `last_allocated_ordinal == 1`. Construct the executor with
+      `max_retries=0`.
 - [ ] Add the opposing retryable-failure case under the same zero-retry
       policy. A provider execution that returns a retryable nonzero exit must
       produce exactly one prepare call, exactly one execute call, and a
       terminal failed run; its sole persisted allocation must also have
       `last_allocated_ordinal == 1`, proving it did not make a second provider
       invocation.
-- [ ] Load the same completed root and execute ordinary resume. Require the
-      validated committed result to be reused with zero additional provider
-      preparation/execution, unchanged result, and byte-for-byte/deep-equal
-      provider-attempt allocation state.
+- [ ] Load that same incomplete root after its provider boundary is committed
+      and execute ordinary resume. Require the validated committed result to
+      be reused with zero additional provider preparation/execution, final
+      completed status, scalar `workflow_outputs == {"__result__": true}`,
+      unchanged provider result/binding, and byte-for-byte/deep-equal
+      provider-attempt allocation state. Use fresh hard-fail patches for
+      attempt allocation, provider preparation, and provider execution during
+      resume. Do not execute an already terminal root as the reuse proof.
 - [ ] Assert composition by typed fragment/output-contract roles or compiler
       metadata, never by literal prompt prose.
 - [ ] Run the runtime test, native-return E2E, provider-attempt recovery, and
@@ -429,8 +464,8 @@ implementation authority from `PASS_E0`.
 - [ ] Typed task/policy inputs and direct scalar `Bool` result are proven.
 - [ ] No prompt extern, authored result envelope, report artifact, or local
       orchestration instruction was added.
-- [ ] Fresh execution invokes once; completed resume invokes zero additional
-      providers.
+- [ ] Fresh execution invokes once; same-run resume after the committed
+      provider boundary invokes zero additional providers.
 - [ ] A retryable provider failure under the bound zero-retry policy invokes
       once and terminates failed.
 - [ ] Accounting field ownership matches an ordinary one-provider workflow
