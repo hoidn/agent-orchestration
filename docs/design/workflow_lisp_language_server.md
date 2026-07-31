@@ -1966,8 +1966,38 @@ grammars/workflow-lisp.tmLanguage.json
 The root JSON object has `name="Workflow Lisp"`,
 `scopeName="source.workflow-lisp"`, `fileTypes=["orc"]`, and explicit
 `patterns` plus a `repository`. The grammar uses only TextMate JSON regular
-expressions and the common scope taxonomy. Its closed lexical presentation
-surface is:
+expressions and the common scope taxonomy. The exact scope contract is:
+
+| Token category | Required scope name |
+| --- | --- |
+| `;` line comment | `comment.line.semicolon.workflow-lisp`; the introducing `;` also receives `punctuation.definition.comment.workflow-lisp` |
+| double-quoted string | `string.quoted.double.workflow-lisp`; the delimiters receive `punctuation.definition.string.begin.workflow-lisp` and `punctuation.definition.string.end.workflow-lisp` |
+| valid string escape | `constant.character.escape.workflow-lisp` |
+| invalid string escape | `invalid.illegal.escape.workflow-lisp` |
+| exact boolean atom | `constant.language.boolean.workflow-lisp` |
+| integer atom | `constant.numeric.integer.workflow-lisp` |
+| floating-point atom | `constant.numeric.float.workflow-lisp` |
+| non-empty keyword atom | `constant.other.keyword.workflow-lisp` |
+| recognized balanced generic-type atom at nesting depth 1 through 20, including its brackets | `entity.name.type.generic.workflow-lisp` |
+| fixed declaration head in list-head position | `keyword.declaration.workflow-lisp` |
+| other atom in list-head position | `entity.name.function.workflow-lisp` |
+| opening parenthesis | `punctuation.section.parens.begin.workflow-lisp` |
+| closing parenthesis | `punctuation.section.parens.end.workflow-lisp` |
+| remaining accepted atom | `variable.other.symbol.workflow-lisp` |
+| residual same-line bracket-bearing atom or atom segment not recognized as the bounded generic region | `variable.other.symbol.workflow-lisp` |
+| reader-rejected `nil`, bare `:`, or bracketless quote-prefixed atom | `invalid.illegal.workflow-lisp` |
+| exact standalone `[` or `]` | `invalid.illegal.workflow-lisp` |
+
+The source scope remains the first element of every emitted scope stack.
+Where a row names an additional delimiter scope, the delimiter has both its
+enclosing region scope and the named delimiter scope. Brackets inside a
+recognized generic atom retain the one generic-region scope; L6c deliberately
+promises no separate nested-bracket punctuation captures. A bracket-bearing
+recognizer miss is ordinary-symbol presentation, never `invalid.illegal`.
+This table is exhaustive for L6c, so a consumer or acceptance test does not
+infer scope spellings from a generic TextMate taxonomy label.
+
+The resulting closed lexical presentation surface is:
 
 - `;` line comments outside strings;
 - double-quoted strings and the reader's four valid escapes (`\\`, `\"`,
@@ -1976,8 +2006,9 @@ surface is:
 - integer and floating-point atoms with the same lexical boundaries as the
   reader;
 - non-empty colon-prefixed keyword atoms;
-- bracket-balanced generic type expressions as one accepted symbol region,
-  with their contained bracket pairs optionally scoped as punctuation;
+- a conservative, single-line generic-type presentation subset as one symbol
+  region through at most 20 nested bracketed constructors, including
+  horizontal whitespace inside the brackets;
 - the fixed top-level declaration heads (`defmodule`, `defenum`, `defpath`,
   `defschema`, `defrecord`, `defunion`, `defresource`, `deftransition`,
   `defproc`, `defworkflow`, `defprompt`, `defmacro`, and implemented `defun`)
@@ -1986,16 +2017,86 @@ surface is:
   registry membership or semantic validity;
 - parentheses as punctuation, with remaining accepted atoms left as ordinary
   symbols; and
-- reader-rejected exact `nil`, a standalone or unmatched `[` or `]`, every
-  quote-prefixed atom, and bare `:` under `invalid.illegal` scopes.
+- reader-rejected exact `nil`, exact standalone `[` or `]`, every bracketless
+  quote-prefixed atom, and bare `:` under `invalid.illegal` scopes. Reader
+  precedence deliberately makes a recognized balanced bracket-bearing atom
+  such as `'List[T]` a generic symbol instead. Every other bracket-bearing
+  recognizer miss is conservatively an ordinary symbol or ordinary-symbol
+  segments, even when the production type parser rejects it.
 
-The minimum lexical vectors bind the reader boundary explicitly:
+Generic recognition is one atom-bounded, full-token Oniguruma match. It
+recognizes an arbitrary unary bracketed head plus the production `Map[K,V]`
+binary shape; other callable or malformed generic shapes fall through rather
+than being styled as compiler-invalid. The grammar expresses the recognized
+subset as the following free-spacing pattern (JSON escaping is added
+mechanically in the grammar asset):
+
+```text
+(?x)
+(?<![^\s();])
+(?<generic>
+  (?:
+    Map\[
+      \s*(?:[^\s,\[\]();]+|\g<generic>)\s*,
+      \s*(?:[^\s,\[\]();]+|\g<generic>)\s*
+    \]
+    |
+    (?!Map\[)
+    [^\s,\[\]();]+\[
+      \s*(?:[^\s,\[\]();]+|\g<generic>)\s*
+    \]
+  )
+)
+(?![^\s();])
+```
+
+The named `generic` subexpression calls itself through Oniguruma's
+`\g<generic>` syntax, so `Map[String,List[Optional[Int]]]` and
+`List[ Optional[String] ]` are each one full match. The surrounding assertions
+require source start/end or the reader's top-level whitespace, parenthesis, or
+comment boundary; a balanced prefix followed by more atom content therefore
+cannot be accepted as a generic token. TextMate evaluates the bounded-generic
+rule before boolean, number, keyword, and ordinary-symbol rules. With the
+pinned `vscode-oniguruma@2.0.1` engine, this recursive expression recognizes
+canonical nesting through depth 20, where the outermost bracketed constructor
+is depth 1, but does not recognize depth 21. Depth 20 is therefore the exact
+L6c presentation contract; neither the grammar nor its tests claim
+arbitrary-depth generic recognition or validation.
+
+After the generic rule, exact atom-bounded standalone `[` and `]` rules assign
+`invalid.illegal.workflow-lisp`. Those exact rules precede this residual
+atom-bounded bracket-bearing fallback:
+
+```text
+(?x)(?<![^\s();])(?=[^\s();]*[\[\]])[^\s();]+(?![^\s();])
+```
+
+The fallback assigns `variable.other.symbol.workflow-lisp`, never an invalid
+scope. It presents a maximal same-line atom containing `[` or `]` only after
+the bounded generic rule and exact standalone-bracket rules fail. A miss with
+interior whitespace may therefore appear as several ordinary-symbol segments
+rather than one region. This is deliberately conservative: depth 21, 50, or
+100 may be valid to the production reader/type parser, while an unbalanced or
+wrong-arity form may be invalid, but neither fact can be inferred from a
+TextMate recognizer miss. The reader also permits a type atom to span a
+newline, while TextMate `match` rules are line-local; multiline generic
+highlighting is an explicit presentation non-goal rather than an
+approximation presented as a compiler fact.
+
+Let `G(n)` denote `List[` repeated `n` times, followed by `String`, followed
+by `]` repeated `n` times. The minimum lexical vectors bind the reader and
+presentation boundaries explicitly:
 
 | Source vector | Required grammar result |
 | --- | --- |
-| `true`, `false`, `-2`, `3.5`, `:status`, and `List[Optional[String]]` | accepted boolean, numeric, non-empty keyword, and one balanced generic-type symbol respectively |
+| `true`, `false`, `-2`, `3.5`, and `:status` | exact boolean, integer, float, and non-empty-keyword scopes respectively |
+| `List[Optional[String]]`, `Map[String,List[Optional[Int]]]`, and `List[ Optional[String] ]` | each complete vector receives one `entity.name.type.generic.workflow-lisp` region, including every nested bracket and interior space |
+| `true[T]`, `3[T]`, `:status[T]`, and `'List[T]` | each complete atom receives only the generic-type category, never the boolean, numeric, keyword, or bracketless-quote invalid category |
+| `G(20)` | the production reader and type parser accept it, and the complete atom receives one generic-type region |
+| `G(21)`, `G(50)`, and `G(100)` | the production reader and type parser accept each; TextMate emits no invalid scope and uses the conservative ordinary-symbol fallback |
 | `(defun normalize ((value String)) -> String value)` | `defun` receives the declaration-head scope; the surrounding list remains ordinary punctuation/symbol presentation |
-| `nil`, `:`, `'quoted`, `[`, `]`, `List[String`, and `List]` | each rejected atom or unmatched bracket receives an `invalid.illegal` scope |
+| `List[String, List]`, `Map[String,List[Int]`, and `List[String]]` | each receives only conservative ordinary-symbol fallback scope(s), never an invalid scope; production parsing remains the sole validity authority |
+| `nil`, `:`, `'quoted`, `[`, and `]` | the first three bracketless rejected atoms and the two exact standalone brackets receive `invalid.illegal.workflow-lisp` |
 
 Comment, valid/invalid string-escape, generic non-declaration list-head, and
 ordinary-symbol vectors remain required alongside this table.
@@ -2004,20 +2105,38 @@ Rule order must keep comments from starting inside strings and must keep
 string content from being reclassified as a keyword, number, delimiter, or
 form head. The grammar is presentation only: a highlight is not a compiler
 judgment, and the grammar emits no diagnostic, completion, navigation,
-symbol, type, or semantic-token fact. Its recursive TextMate repository rule
-keeps one bracket-balanced generic type expression in a single accepted symbol
-region; an unmatched bracket follows the invalid rule instead. The grammar
-need not recognize macro expansion, module visibility, target version, or the
-complete compiler form registry. Adding a new registered form therefore does
-not require a grammar update merely to retain generic list-head highlighting.
+symbol, type, or semantic-token fact. Its recursive-subexpression rule keeps
+one recognized, single-line generic type expression through depth 20 in a
+single accepted symbol region. Deeper, malformed, unsupported-shape, or
+otherwise missed bracket-bearing text follows the ordinary-symbol fallback,
+not an invalid rule. The grammar need not recognize macro expansion, module
+visibility, target version, or the complete compiler form registry. Adding a
+new registered form therefore does not require a grammar update merely to
+retain generic list-head highlighting.
 
 The grammar is deliberately not Python package data and is not included in
 the wheel. L6c adds no editor-extension manifest, marketplace package,
-language configuration, automatic grammar discovery, JavaScript dependency,
-tree-sitter grammar, parser generator, native build, or server registration.
-Generic editor setup may point users at the repository file manually after
+language configuration, automatic grammar discovery, tree-sitter grammar,
+parser generator, native production build, or server registration. Generic
+editor setup may point users at the repository file manually after
 implementation. Packaging or automatic discovery remains a separate owner
 decision.
+
+Acceptance uses one bounded development-only tokenizer oracle under
+`tools/textmate-oracle/`. Its `package.json` contains exact, non-range pins for
+only `vscode-textmate@9.2.0` and `vscode-oniguruma@2.0.1`;
+`package-lock.json` records their complete resolved dependency and integrity
+graph. A small `tokenize.mjs` loads the committed grammar through
+`vscode-textmate.Registry`, initializes `vscode-oniguruma` from that package's
+`onig.wasm`, tokenizes the committed fixture line by line, and emits canonical
+JSON rows containing source ranges and complete scope stacks. The Python
+acceptance test invokes this oracle and asserts the exact table and precedence
+vectors above. Installing the locked packages and running Node are therefore
+explicit L6c acceptance dependencies; they are not orchestrator runtime
+dependencies, Python wheel contents, editor extension assets, or automatic
+editor setup. The lockfile and exact pins bound that development-only
+toolchain cost, while the real TextMate engine avoids a false proof from a
+Python regular-expression substitute.
 
 ### Alternatives Rejected And Deliberate Costs
 
@@ -2037,6 +2156,16 @@ decision.
 - **Tree-sitter or an editor extension for L6c:** rejected as disproportionate
   for a separable lexical asset. Either adds a second parser/toolchain or a
   packaging lifecycle not needed to deliver repository syntax scopes.
+- **Python-only regular-expression checks for L6c:** rejected as the lexical
+  oracle because Python does not execute the Oniguruma recursive-subexpression
+  contract or TextMate precedence/scope stacking. Python still owns JSON,
+  packaging, and server-isolation assertions; the pinned Node oracle owns
+  real-engine tokenization only.
+- **Arbitrary-depth generic highlighting or grammar-side type validation:**
+  rejected because the pinned engine's recursive match stops at depth 20 while
+  the production reader/type parser accepts deeper valid expressions. L6c
+  presents recognizer misses as ordinary symbols and leaves every validity
+  judgment to production compilation.
 - **Generating the grammar from the live form registry:** rejected because
   the registry is Python runtime state while the grammar is a static editor
   asset. Generic list-head styling avoids a generated-artifact synchronization
@@ -2044,10 +2173,13 @@ decision.
 
 These choices make richer declaration bodies, prompt/macro hover, arbitrary
 expression hover, definition-anchored references, cross-entry/workspace-wide
-references, semantic highlighting, and automatic editor installation harder
-later: each must add an explicit retained-fact, ownership, or packaging
-contract instead of silently widening L6. That cost is accepted to keep this
-stage frontend-free, independently selectable, and fail-closed.
+references, semantic highlighting, arbitrary-depth generic styling, and
+automatic editor installation harder later: each must add an explicit
+retained-fact, ownership, parser, engine, or packaging contract instead of
+silently widening L6. Depth greater than 20 and some interior-whitespace
+recognizer misses intentionally receive lower-fidelity ordinary-symbol
+presentation. That cost is accepted to keep this stage frontend-free,
+independently selectable, and free of false-invalid grammar claims.
 
 ### L6 Verification, Implementation Surfaces, And Sequencing
 
@@ -2076,17 +2208,33 @@ repository-real stdio request must return closure-local locations for an
 existing L5 fixture and prove that no run/build/artifact file is written.
 
 L6c acceptance requires JSON parsing; exact root metadata; unique named
-repository rules; portable regular-expression compilation for every pattern;
-and table-driven positive/negative lexical vectors for comments, strings and
-escapes, booleans, numbers, non-empty keywords, balanced generic type
+repository rules; and successful load and tokenization by the locked
+`vscode-textmate` plus `vscode-oniguruma` oracle. Table-driven positive and
+negative vectors cover comments, strings and escapes, booleans, integers,
+floats, non-empty keywords, nested and interior-space bounded generic type
 expressions, declaration heads including `defun`, generic list heads,
-punctuation, and ordinary symbols. Negative vectors cover exact `nil`, bare
-`:`, standalone/unmatched brackets, quote-prefixed atoms, and invalid string
-escapes under `invalid.illegal`. A repository fixture exercises all
-categories. Tests must prove the grammar is absent from Python wheel package
-data and that importing or running `orchestrator.lsp` does not discover or
-load it. No Node, JavaScript, tree-sitter, network, or editor-extension build
-is an acceptance dependency.
+punctuation, and ordinary symbols. Precedence vectors prove that `true[T]`,
+`3[T]`, `:status[T]`, and `'List[T]` are generic regions only. The production
+reader and `parse_type_expression` must independently accept `G(20)`, `G(21)`,
+`G(50)`, and `G(100)`. The real TextMate oracle must show one generic region
+for `G(20)`, ordinary-symbol fallback and no invalid scope for the three deeper
+valid vectors, and ordinary-symbol fallback with no invalid scope for the
+three named malformed vectors. Exact `nil`, bare `:`, bracketless
+quote-prefixed atoms, standalone `[`/`]`, and invalid string escapes retain
+their exact `invalid.illegal` scopes. No test may infer production validity
+from generic or ordinary-symbol presentation.
+
+The test compares source ranges and complete scope stacks, not merely regex
+match/no-match results. The exact acceptance owners are
+`tests/test_workflow_lisp_textmate_grammar.py` and
+`tests/fixtures/workflow_lisp/grammar/lexical_vectors.orc`; the latter
+exercises all categories. Tests must prove the grammar is absent from Python
+wheel package data and that importing or running `orchestrator.lsp` does not
+discover or load it. Node and the two lockfile-pinned JavaScript packages are
+acceptance-only dependencies when L6c is selected; no tree-sitter,
+editor-extension build, production JavaScript dependency, or network access
+during the tokenization test is required after the locked packages have been
+provisioned. Unselected L6a/L6b work does not provision or run this oracle.
 
 The expected L6a/L6b production owners are only
 `orchestrator/lsp/navigation.py` and `orchestrator/lsp/server.py`, plus focused
@@ -2095,7 +2243,9 @@ navigation, integration, stdio, and end-to-end tests. `state.py` and
 snapshot preflight is sufficient; a need to change either routes back to
 design review. Compiler/frontend, diagnostics, runtime, provider, prompt,
 workflow, and CLI modules are protected. L6c owns only the grammar asset, its
-fixture/test, and later setup/routing documentation.
+exact fixture and Python acceptance test named above, the minimal
+`tools/textmate-oracle/{package.json,package-lock.json,tokenize.mjs}` harness,
+and later setup/routing documentation.
 
 Implementation must proceed under one reviewed component plan after this
 exact amendment passes ordered independent specification then quality review.
