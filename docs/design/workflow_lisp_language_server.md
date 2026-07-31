@@ -1731,6 +1731,381 @@ The direct implementation owners are `orchestrator/lsp/state.py`,
 `orchestrator/lsp/server.py`, with focused evidence in the corresponding LSP
 state, driver, navigation, integration, stdio, and end-to-end test modules.
 
+## Proposed L6 Utility Amendment
+
+**Amendment status:** proposed under the owner-selected
+[L6 utility roadmap](../plans/2026-07-31-workflow-lisp-language-server-l6-utility-roadmap.md).
+It has not yet passed the required independent specification review followed
+by independent quality review. It does not change the implemented L0-L5
+status or authorize implementation. After those ordered reviews, a separate
+reviewed component plan must select any implementation work.
+
+L6 is three independently selectable utility units over already-retained
+compiler or navigation facts:
+
+- **L6a:** current-success signature and declared-header hover at exact L1
+  authored definition-name tokens plus signature hover at exact already-shipped
+  L5 procedure/workflow/proc-ref reference tokens;
+- **L6b:** `textDocument/references` as the exact reverse of the existing L5
+  five-field definition-link rows; and
+- **L6c:** one standalone repository TextMate JSON grammar for `.orc` files.
+
+The units do not depend on one another. Dropping or deferring L6c changes
+nothing about L6a/L6b, and selecting either server unit does not select the
+other. L6 does not reopen the completed L0-L5 roadmap, does not select or
+accelerate P1-P5, and does not add a compiler/frontend, runtime, diagnostic,
+prompt, provider, or CLI behavior change.
+
+### Common L6a/L6b Authority And Availability
+
+Both server units reuse `WorkflowLispLanguageServer._current_navigation` and
+the existing `LspCompileDriver.snapshot_if_current` preflight. The only
+admissible authority is one current successful snapshot whose source and
+configuration vectors pass the mandatory live-disk checks and whose complete
+navigation index builds successfully. Neither request reads or parses source
+text, resolves a spelling, invokes another compile, consults a last-good
+snapshot, or merges snapshots from multiple entries.
+
+The request is **closure-local**: it queries only the successful linked
+Stage-3 result associated with the requested open entry. Another open entry's
+snapshot is neither a fallback nor an additional workspace-wide occurrence
+source. This preserves the existing one-entry ownership and freshness model;
+workspace-wide reference aggregation would require a separate ownership and
+deduplication design.
+
+Unavailable/unreadable, dirty, compile-pending, dependency-invalidated,
+language-failed, server-failed, superseded, closed, unassociated,
+configuration-stale, source-stale, source/configuration-stale, clean-idle,
+malformed/internally inconsistent, or navigation-index-failed states return
+protocol `null`. A preflight transition may schedule the existing recompile,
+but the triggering request still returns `null`. Unsupported positions,
+missing accepted text, invalid UTF-16 coordinate conversion, an incomplete or
+ambiguous projection, and a location whose exact accepted text is unavailable
+also return `null`; no partial response is emitted and no language diagnostic
+is invented. These silent-null cases are capability absence under the
+existing navigation contract, not new compiler refusal paths under Principle
+28.
+
+### L6a Exact Authored-Symbol And Callable Hover
+
+L6a implements `textDocument/hover` and advertises the corresponding server
+capability only when that unit is selected and shipped. It is deliberately
+narrower than arbitrary type-at-cursor. It admits exactly two anchor sources:
+
+1. the exact `selection_span` of one of the ten L1
+   `AuthoredSymbolProjectionRow` kinds; and
+2. the exact `reference_span` of an already-shipped L5
+   `procedure-call`, `workflow-call`, or `proc-ref` row.
+
+The second source reuses the implemented L5 index as retained occurrence
+metadata; it does not select or depend on L6b's new reverse-reference query.
+L6a does not hover a prompt-application reference, parameter, local binding,
+field, variant, type use, call argument, arbitrary expression, completion
+row, generated name, macro head, or same-spelled source token. Supporting
+arbitrary expression types still requires P3's compiler-retained span-to-type
+sidecar; L6a neither approximates nor partially implements P3.
+
+Each admitted hover fact is one immutable row:
+
+```text
+(anchor_kind, anchor_span, target_kind, canonical_target, definition_span, presentation)
+```
+
+For a definition anchor, `anchor_kind="definition"`, `anchor_span` is the L1
+row's non-empty authored `selection_span`, `target_kind` is its L1 symbol kind,
+and the remaining identity fields come from the exactly cross-checked compiled
+definition or catalog fact. For a callable reference anchor, `anchor_kind` is
+the unchanged L5 `reference_kind`; the next four fields are the existing
+`DefinitionLink` fields, and `presentation` is derived by joining
+`(target_kind, canonical_target)` to exactly one compiler signature.
+`procedure-call` and `proc-ref` require a `ProcedureSignature`;
+`workflow-call` requires a `WorkflowSignature`. A missing, duplicate,
+kind-mismatched, target-mismatched, or definition-span-mismatched join fails
+the complete navigation index.
+
+The occurrence key is the canonical anchor path plus start/end offsets.
+Byte-identical duplicates may collapse. Two different rows at one occurrence,
+overlapping admitted anchors that make one cursor ambiguous, or disagreement
+between any row and its compiled definition/catalog fact fails the complete
+navigation index. There is no whole-definition-span, whole-call-span,
+same-name, or source-text fallback.
+
+The closed presentation table is:
+
+| L1 symbol kind | Required retained fact | Plain-text `presentation` |
+| --- | --- | --- |
+| `module` | the already cross-checked compiled module identity | `module <name>` |
+| `procedure` | exactly one matching local `ProcedureSignature` | the existing L1 procedure completion detail, including compiler-rendered parameter/return types and declared effects |
+| `workflow` | exactly one matching local `WorkflowSignature` | the existing L1 workflow completion detail, including compiler-rendered parameter/return types |
+| `enum` | the already cross-checked `EnumDef` header | `enum <name>` |
+| `path` | the already cross-checked `PathDef` header | `path <name>` |
+| `record` | the already cross-checked `RecordDef` header | `record <name>` |
+| `union` | the already cross-checked `UnionDef` header | `union <name>` |
+| `schema` | the already cross-checked `SchemaDef` header | `schema <name>` |
+| `resource` | exactly one matching `ResourceDef` | `resource <name>: <state_type_name>` |
+| `transition` | exactly one matching `TransitionDef` | `transition <name> (<request_type_name>) -> <result_type_name>` |
+
+Procedure/workflow presentation must call the same pure L1 detail renderer as
+completion; it may not copy or fork that renderer. Types use only
+`render_type_ref`, and procedure effects use only `render_effect_set` over
+the declared effects, exactly as L1. Resource and transition type names are
+the retained declared names; the server does not resolve, narrow, or infer a
+different type. The other header rows identify an authored declared kind and
+name only. They do not expand enum values, path policy, record/schema fields,
+union variants, resource backing, transition writes, or proof context.
+Every admitted L5 callable anchor uses that same renderer and therefore shows
+the canonical target's signature regardless of whether the authored token is
+local, alias-qualified, canonical-module-qualified, or admitted through
+`:only`. Prompt-application rows have no L1 callable signature and remain
+null rather than receiving a prompt-specific presentation.
+
+The protocol result is exactly one `Hover` with:
+
+```json
+{
+  "contents": {
+    "kind": "plaintext",
+    "value": "<presentation>"
+  },
+  "range": "<the anchor_span converted against accepted snapshot text>"
+}
+```
+
+The JSON string above describes the field contract; `range` is the ordinary
+LSP range object, not a literal string. Cursor membership is the existing
+half-open, zero-based UTF-16 check. A cursor on the first in-token position
+matches; the exact end, adjacent whitespace, delimiter, another part of the
+definition/call form, a prompt-application head, or any token outside the two
+closed anchor sources returns `null`.
+Plain text is intentional: L6a adds no Markdown escaping, documentation
+prose, source excerpt, or syntax reconstruction.
+
+The pure query consumes one `NavigationIndex`, source path, LSP line and
+character, and the accepted-text map, and returns one hover row or `None`.
+The server is only protocol translation around that lookup. It advertises no
+work-done progress, partial-result token, or dynamic-registration extension
+for hover.
+
+This projection complies with Principle 29 because its kind table is a
+presentation mapping over definitions already accepted by the compiler, not
+a new nominal hierarchy or admission constraint. It complies with Principle
+30 because the deterministic server renders retained types and effects
+itself; no provider instruction or guidance prose is added.
+
+### L6b Exact Reverse Reference Query
+
+L6b implements `textDocument/references` and advertises the corresponding
+server capability only when that unit is selected and shipped. It consumes
+`NavigationIndex.definition_links` unchanged. It adds no reference discovery
+and admits exactly the four existing L5
+`reference_kind` values: `procedure-call`, `workflow-call`,
+`prompt-application`, and `proc-ref`. Macro-consumed, erased, expanded,
+generated-owner, specialized-owner, WCC-reconstructed, ambiguous, and every
+other unsupported shape remain absent exactly as in L5.
+
+A references query is anchored **only** at an existing L5
+`reference_span`. The cursor must match exactly one row through the existing
+half-open UTF-16 membership check. Invoking references on a definition name,
+whole definition form, non-reference argument, opening/closing delimiter,
+same-spelled token, or unsupported source shape returns `null`, even when
+`includeDeclaration=true`. This restriction is load-bearing: prompt
+definitions are not part of L1's ten-kind authored-symbol projection, so
+definition-token entry would require a different, cross-catalog query surface
+rather than a faithful reverse of L5.
+
+The selected row's target identity is exactly:
+
+```text
+(target_kind, canonical_target, definition_span)
+```
+
+Every `DefinitionLink` in the same navigation index with that exact target
+identity is one reference result, including links with different admitted
+reference kinds (for example, a direct procedure call and a retained
+`proc-ref` to the same authored procedure). Same-spelled targets with a
+different target kind, canonical target, or definition span never merge.
+The existing L5 collision rules remain authoritative: conflicting target or
+occurrence facts fail index construction before a query can run.
+
+Reference locations are deduplicated by canonical source path plus exact
+start/end offsets and ordered by canonical path, start offset, end offset,
+then `reference_kind`. Each location range comes only from that row's exact
+`reference_span`. If `ReferenceContext.includeDeclaration` is false, the
+response contains exactly those reference locations. If it is true, the one
+existing whole `definition_span` is added once and the complete location set
+is ordered by canonical path and start/end offset, with `declaration` before
+an otherwise identical reference discriminator. L6b does not invent a
+definition-name span or substitute an L1 selection span. The declaration may
+therefore cover the complete authored definition form, matching the target
+span already used by go-to-definition.
+
+An anchored admitted query necessarily includes at least its own reference;
+it therefore returns a non-empty `Location[]`. Unsupported or unavailable
+queries return `null`, not an empty list. If any selected reference or the
+optional declaration lacks accepted snapshot text, cannot be converted to a
+same-path LSP range, or lies outside the current trace-derived closure, the
+whole request returns `null`; L6b never drops a bad row and reports a partial
+answer. It performs no filesystem/workspace scan, no text search, no
+cross-snapshot aggregation, and no definition/callable name resolution.
+
+The pure query consumes one `NavigationIndex`, source path, LSP line and
+character, the accepted-text map, and the exact boolean
+`ReferenceContext.includeDeclaration`; it returns an ordered tuple of source
+spans or `None`. The server converts the complete tuple to `Location[]` only
+after every location succeeds. It advertises no work-done progress,
+partial-result streaming, or dynamic-registration extension for references.
+
+### L6c Standalone TextMate Grammar
+
+L6c is one repository asset at:
+
+```text
+grammars/workflow-lisp.tmLanguage.json
+```
+
+The root JSON object has `name="Workflow Lisp"`,
+`scopeName="source.workflow-lisp"`, `fileTypes=["orc"]`, and explicit
+`patterns` plus a `repository`. The grammar uses only TextMate JSON regular
+expressions and the common scope taxonomy. Its closed lexical presentation
+surface is:
+
+- `;` line comments outside strings;
+- double-quoted strings and the reader's four valid escapes (`\\`, `\"`,
+  `\n`, and `\t`), with other backslash escapes marked invalid;
+- exact `true` and `false` atoms;
+- integer and floating-point atoms with the same lexical boundaries as the
+  reader;
+- non-empty colon-prefixed keyword atoms;
+- bracket-balanced generic type expressions as one accepted symbol region,
+  with their contained bracket pairs optionally scoped as punctuation;
+- the fixed top-level declaration heads (`defmodule`, `defenum`, `defpath`,
+  `defschema`, `defrecord`, `defunion`, `defresource`, `deftransition`,
+  `defproc`, `defworkflow`, `defprompt`, `defmacro`, and implemented `defun`)
+  when they occupy a list-head position;
+- any other list-head atom as a generic form/function head, without claiming
+  registry membership or semantic validity;
+- parentheses as punctuation, with remaining accepted atoms left as ordinary
+  symbols; and
+- reader-rejected exact `nil`, a standalone or unmatched `[` or `]`, every
+  quote-prefixed atom, and bare `:` under `invalid.illegal` scopes.
+
+The minimum lexical vectors bind the reader boundary explicitly:
+
+| Source vector | Required grammar result |
+| --- | --- |
+| `true`, `false`, `-2`, `3.5`, `:status`, and `List[Optional[String]]` | accepted boolean, numeric, non-empty keyword, and one balanced generic-type symbol respectively |
+| `(defun normalize ((value String)) -> String value)` | `defun` receives the declaration-head scope; the surrounding list remains ordinary punctuation/symbol presentation |
+| `nil`, `:`, `'quoted`, `[`, `]`, `List[String`, and `List]` | each rejected atom or unmatched bracket receives an `invalid.illegal` scope |
+
+Comment, valid/invalid string-escape, generic non-declaration list-head, and
+ordinary-symbol vectors remain required alongside this table.
+
+Rule order must keep comments from starting inside strings and must keep
+string content from being reclassified as a keyword, number, delimiter, or
+form head. The grammar is presentation only: a highlight is not a compiler
+judgment, and the grammar emits no diagnostic, completion, navigation,
+symbol, type, or semantic-token fact. Its recursive TextMate repository rule
+keeps one bracket-balanced generic type expression in a single accepted symbol
+region; an unmatched bracket follows the invalid rule instead. The grammar
+need not recognize macro expansion, module visibility, target version, or the
+complete compiler form registry. Adding a new registered form therefore does
+not require a grammar update merely to retain generic list-head highlighting.
+
+The grammar is deliberately not Python package data and is not included in
+the wheel. L6c adds no editor-extension manifest, marketplace package,
+language configuration, automatic grammar discovery, JavaScript dependency,
+tree-sitter grammar, parser generator, native build, or server registration.
+Generic editor setup may point users at the repository file manually after
+implementation. Packaging or automatic discovery remains a separate owner
+decision.
+
+### Alternatives Rejected And Deliberate Costs
+
+- **Arbitrary expression or parameter/local hover:** rejected for L6a because
+  no compiler-owned span-to-type sidecar exists. That remains P3; the server
+  must not infer it from source or surrounding declarations.
+- **Prompt, macro, or other unsupported occurrence hover:** rejected because
+  no existing L1 callable signature can be joined to those anchors. L6a
+  reuses only the already-shipped L5 procedure/workflow/proc-ref spans and
+  does not broaden reference discovery or select L6b.
+- **Definition-anchored or workspace-wide references:** rejected because L6b
+  is the exact reverse of one current L5 occurrence index. Cross-entry
+  aggregation and a complete definition-token index need explicit ownership,
+  freshness, collision, and deduplication contracts.
+- **Server-side parsing, token search, or name resolution:** rejected by the
+  standing pure-consumer contract and frontend specification §76.1.
+- **Tree-sitter or an editor extension for L6c:** rejected as disproportionate
+  for a separable lexical asset. Either adds a second parser/toolchain or a
+  packaging lifecycle not needed to deliver repository syntax scopes.
+- **Generating the grammar from the live form registry:** rejected because
+  the registry is Python runtime state while the grammar is a static editor
+  asset. Generic list-head styling avoids a generated-artifact synchronization
+  contract.
+
+These choices make richer declaration bodies, prompt/macro hover, arbitrary
+expression hover, definition-anchored references, cross-entry/workspace-wide
+references, semantic highlighting, and automatic editor installation harder
+later: each must add an explicit retained-fact, ownership, or packaging
+contract instead of silently widening L6. That cost is accepted to keep this
+stage frontend-free, independently selectable, and fail-closed.
+
+### L6 Verification, Implementation Surfaces, And Sequencing
+
+L6a acceptance requires both-direction evidence for all ten L1 symbol kinds;
+exact first/last in-token and outside-token bounds; zero/one/many callable
+parameters; nested resolved types; declared procedure effects with inferred
+effects excluded; resource/transition declared-type headers; exact local,
+alias-qualified, canonical-module-qualified, and `:only` procedure/workflow
+call anchors; retained proc-ref anchors; prompt-application/macro/unsupported
+reference negatives; duplicate, overlapping, and conflicting projection rows;
+missing/mismatched signature or catalog facts; and the full common null
+matrix. Tests must prove that definition and reference hover share the one L1
+renderer, that L6a does not require or select the L6b query, and that it does
+not read/parse source text or expose arbitrary expression types. One
+repository-real stdio request must return the exact plain-text definition and
+callable-reference hover/range and then return `null` after the source becomes
+dirty.
+
+L6b acceptance requires target-key grouping across every admitted L5 shape;
+same-target procedure-call plus proc-ref union; same spelling across target
+kinds remaining separate; deterministic ordering and deduplication;
+`includeDeclaration` both ways; exact reference-token bounds; definition-token
+and unsupported-shape negative controls; missing accepted text and coordinate
+failure; every L5 collision refusal; and the full common null matrix. One
+repository-real stdio request must return closure-local locations for an
+existing L5 fixture and prove that no run/build/artifact file is written.
+
+L6c acceptance requires JSON parsing; exact root metadata; unique named
+repository rules; portable regular-expression compilation for every pattern;
+and table-driven positive/negative lexical vectors for comments, strings and
+escapes, booleans, numbers, non-empty keywords, balanced generic type
+expressions, declaration heads including `defun`, generic list heads,
+punctuation, and ordinary symbols. Negative vectors cover exact `nil`, bare
+`:`, standalone/unmatched brackets, quote-prefixed atoms, and invalid string
+escapes under `invalid.illegal`. A repository fixture exercises all
+categories. Tests must prove the grammar is absent from Python wheel package
+data and that importing or running `orchestrator.lsp` does not discover or
+load it. No Node, JavaScript, tree-sitter, network, or editor-extension build
+is an acceptance dependency.
+
+The expected L6a/L6b production owners are only
+`orchestrator/lsp/navigation.py` and `orchestrator/lsp/server.py`, plus focused
+navigation, integration, stdio, and end-to-end tests. `state.py` and
+`compile_driver.py` should remain unchanged because the existing current
+snapshot preflight is sufficient; a need to change either routes back to
+design review. Compiler/frontend, diagnostics, runtime, provider, prompt,
+workflow, and CLI modules are protected. L6c owns only the grammar asset, its
+fixture/test, and later setup/routing documentation.
+
+Implementation must proceed under one reviewed component plan after this
+exact amendment passes ordered independent specification then quality review.
+That plan must preserve L6a/L6b/L6c as separate selection units and may order
+shared navigation work without making an unselected unit implicit. Each
+selected unit uses TDD, narrow then broad non-security checks, its named
+repository-real gate where applicable, ordered implementation reviews, and
+capability-matrix/setup-doc closure. Accepted design or plan status alone is
+not evidence that any L6 capability ships.
+
 ## Verification Strategy
 
 - **Unit (translation layer):** 1-based→0-based and UTF-16 conversion
