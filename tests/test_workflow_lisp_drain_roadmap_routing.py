@@ -136,6 +136,9 @@ E0_DIRECT_CONTROL_PLAN_PATH = (
 E0_DIRECT_CONTROL_PLAN_REVIEW_PATH = (
     "artifacts/review/e0-direct-control-plan-review.md"
 )
+E0_DIRECT_CONTROL_FINAL_REVIEW_PATH = (
+    "artifacts/review/e0-direct-control-final-review.md"
+)
 TRIAL_RUNS_DESIGN_PATH = "docs/design/workflow_lisp_trial_runs.md"
 TYPED_PROGRAM_GATES_DESIGN_PATH = (
     "docs/design/workflow_lisp_typed_program_gates.md"
@@ -1301,7 +1304,7 @@ def test_lean_pilot_a1_v7_closure_routes_exact_evidence_and_narrow_owner_handoff
     assert "does not automatically select e1+" in normalized_capability
 
 
-def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> None:
+def test_e_series_routes_completed_e0_without_selecting_successors() -> None:
     roadmap = (REPO_ROOT / EVOLUTION_FOLLOW_ON_ROADMAP_PATH).read_text(
         encoding="utf-8"
     )
@@ -1311,6 +1314,9 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
     )
     plan = (REPO_ROOT / E0_DIRECT_CONTROL_PLAN_PATH).read_text(encoding="utf-8")
     plan_review = (REPO_ROOT / E0_DIRECT_CONTROL_PLAN_REVIEW_PATH).read_text(
+        encoding="utf-8"
+    )
+    final_review = (REPO_ROOT / E0_DIRECT_CONTROL_FINAL_REVIEW_PATH).read_text(
         encoding="utf-8"
     )
     sequence = (
@@ -1354,8 +1360,11 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
     assert "task 1's canonical source and compile contract" in normalized_roadmap
     assert "task 2 runtime proof landed at 3d41a8bf" in normalized_roadmap
     assert "task 3 accounting parity proof landed at 3b934373" in normalized_roadmap
-    assert "e0 is implemented pending final gate" in normalized_roadmap
-    assert "e0 is not complete" in normalized_roadmap
+    assert "e0 is complete at fe7d6f9b" in normalized_roadmap
+    assert "pass_e0" in normalized_roadmap
+    assert "e1 is eligible only for a separate owner activation decision" in (
+        normalized_roadmap
+    )
     assert "e1, e2, e3, c1, c2, and c3 remain unselected" in (
         normalized_roadmap
     )
@@ -1392,13 +1401,11 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
     assert "run/resume explicitly excludes lean pilot attempts" in normalized_gates
     assert "no cross run memo" in normalized_gates
     assert "principle 30" in normalized_gates
-    assert "| Implemented (pending final gate) |" in trial_capability
+    assert "| Implemented |" in trial_capability
     normalized_trial_capability = _normalized_routing_text(trial_capability)
-    assert "task 2 runtime proof at 3d41a8bf" in normalized_trial_capability
-    assert "task 3 accounting parity proof at 3b934373" in (
-        normalized_trial_capability
-    )
-    assert "e0 alone is implemented pending final gate" in (
+    assert "3d41a8bf" in normalized_trial_capability
+    assert "3b934373" in normalized_trial_capability
+    assert "e0 is complete and is the only implemented tranche" in (
         normalized_trial_capability
     )
     assert "e1 e3 and c1 c3 remain designed and unselected" in (
@@ -1414,16 +1421,16 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
     assert "task 1 landed at b71bf62a" in normalized_plan
     assert "task 2 landed at 3d41a8bf" in normalized_plan
     assert "task 3 landed at 3b934373" in normalized_plan
-    assert "e0 implemented pending final gate" in normalized_plan
+    assert "status: pass_e0" in normalized_plan
     assert "E0_PLAN_AMENDMENT_SPEC_APPROVED" in plan
     assert "E0_PLAN_AMENDMENT_QUALITY_APPROVED" in plan
     assert "does not select e1" in _normalized_routing_text(plan)
-    assert "e0 remains the sole selected tranche" in _normalized_routing_text(
-        trial_capability
+    assert "e0 is complete and is the only implemented tranche" in (
+        _normalized_routing_text(trial_capability)
     )
     normalized_design_index = _normalized_routing_text(design_index)
     normalized_index = _normalized_routing_text(index)
-    for task_4_surface in (
+    for completed_surface in (
         normalized_plan,
         normalized_roadmap,
         normalized_design_index,
@@ -1431,8 +1438,8 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
         normalized_trial_capability,
         normalized_sequence,
     ):
-        assert "task 4 closed at 46387582" in task_4_surface
-        assert "task 5 final gate is in progress" in task_4_surface
+        assert "e0 is complete" in completed_surface
+        assert "pass_e0" in completed_surface
     assert "46387582d2af0636a3f3041a706ddb0f658c8ce8" in plan
     assert "5dc787b69d3deb2010ed1cd4040444eec1e7c62a" in plan
     assert plan.index("E0_TASK4_SPEC_APPROVED") < plan.index(
@@ -1445,8 +1452,11 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
         normalized_index
     )
     assert "task 4 and final e0 gates pending" not in normalized_trial_capability
-    assert "e0 implemented pending final gate" in normalized_design_index
-    assert "e0 is implemented pending final gate" in normalized_index
+    assert "pending final gate" not in normalized_design_index
+    assert "pending final gate" not in normalized_index
+    assert "fe7d6f9bca9ec61b9078e4048bb43aee7f4f191b" in plan
+    assert "c20f6fd9197b0d0e12a581e96ebbd898b8d1b3c3" in plan
+    assert Path(E0_DIRECT_CONTROL_FINAL_REVIEW_PATH).name in index
     assert direct_control_catalog, "direct-control library catalog row is missing"
     normalized_catalog = _normalized_routing_text(direct_control_catalog)
     for required_catalog_fact in (
@@ -1456,7 +1466,7 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
         "effort: string",
         "direct bool",
         "exactly one composed provider boundary",
-        "not copy safe until pass_e0",
+        "copy safe only for this bounded one call direct task shape",
     ):
         assert required_catalog_fact in normalized_catalog
     assert "workflows/library/control/direct_task.orc" in workflow_catalog
@@ -1468,7 +1478,7 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
     assert len(direct_control_route_rows) == 1
     [direct_control_route_row] = direct_control_route_rows
     assert direct_control_route_row == {
-        "copy_safety": "not_current_guidance",
+        "copy_safety": "preferred_current_guidance",
         "entry_workflow": "control/direct_task::direct-task",
         "evidence": [
             "tests/test_workflow_lisp_direct_control.py::test_direct_task_is_one_composed_provider_boundary",
@@ -1478,7 +1488,7 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
         "lowering_route": "wcc_m4",
         "lowering_schema_version": 2,
         "path": "workflows/library/control/direct_task.orc",
-        "readiness_label": "leaf_runtime_candidate",
+        "readiness_label": "promotion_eligible",
         "route_label": "wcc_default",
         "surface_id": "workflows.library.control.direct_task",
         "surface_kind": "library_workflow",
@@ -1493,6 +1503,20 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
     assert "0e906fdf2daa06bf8d6bb9720cd71e1086174f46dda97cb8204add16aa490809" in (
         plan_review
     )
+    assert "E0_FINAL_SPEC_APPROVED" in final_review
+    assert "E0_FINAL_QUALITY_APPROVED" in final_review
+    assert final_review.index("E0_FINAL_SPEC_APPROVED") < final_review.index(
+        "E0_FINAL_QUALITY_APPROVED"
+    )
+    assert "PASS_E0" in final_review
+    assert "10,117 passed" in final_review
+    final_review_digest = hashlib.sha256(
+        (REPO_ROOT / E0_DIRECT_CONTROL_FINAL_REVIEW_PATH).read_bytes()
+    ).hexdigest()
+    assert final_review_digest == (
+        "468f4269b8686e6046c17855a5f1c17f0c9072cefe9b80df87cb8a0976d99011"
+    )
+    assert final_review_digest in plan
 
 
 def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:

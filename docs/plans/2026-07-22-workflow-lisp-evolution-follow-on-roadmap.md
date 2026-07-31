@@ -24,18 +24,18 @@ the lean-pilot owner-decision handoff are complete. The
 passed ordered `E0_PLAN_SPEC_APPROVED` then `E0_PLAN_QUALITY_APPROVED`. E0 is
 the sole selected tranche. Task 1's canonical source and compile contract
 landed at `b71bf62a`; Task 2 runtime proof landed at `3d41a8bf`; and Task 3
-accounting-parity proof landed at `3b934373`. E0 is implemented pending final
-gate. Task 4 closed at `46387582d2af0636a3f3041a706ddb0f658c8ce8`, tree
-`5dc787b69d3deb2010ed1cd4040444eec1e7c62a`, after ordered
-`E0_TASK4_SPEC_APPROVED` then `E0_TASK4_QUALITY_APPROVED`; its postcommit
-direct-routing control passed 74 tests. Task 5 final gate is in progress, so
-E0 is not complete. E1, E2, E3, C1, C2, and C3 remain unselected; all remain
-Designed.
+accounting-parity proof landed at `3b934373`. Task 4 closed at `46387582`.
+E0 is complete at `fe7d6f9bca9ec61b9078e4048bb43aee7f4f191b`, tree
+`c20f6fd9197b0d0e12a581e96ebbd898b8d1b3c3`, with outcome `PASS_E0` after
+ordered `E0_FINAL_SPEC_APPROVED` then `E0_FINAL_QUALITY_APPROVED`; the fresh
+postcommit direct-control/routing/route-readiness control passed 115 tests.
+E1 is eligible only for a separate owner activation decision. E1, E2, E3,
+C1, C2, and C3 remain unselected; all remain Designed.
 
 Copy safety: planning reference only. The canonical direct-control source is
-not copy-safe until `PASS_E0`; the accepted target-design examples and every
-E1+ evolution, variant, trial, prompt-program, or sandbox surface remain
-non-copy-safe.
+copy-safe after `PASS_E0` only for its bounded one-call direct-task shape; the
+accepted target-design examples and every E1+ evolution, variant, trial,
+prompt-program, or sandbox surface remain non-copy-safe.
 
 ## Current E Program Shape And Gates (2026-07-30)
 

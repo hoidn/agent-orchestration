@@ -500,7 +500,7 @@
       "surface_kind": "workflow_example"
     },
     {
-      "copy_safety": "not_current_guidance",
+      "copy_safety": "preferred_current_guidance",
       "entry_workflow": "control/direct_task::direct-task",
       "evidence": [
         "tests/test_workflow_lisp_direct_control.py::test_direct_task_is_one_composed_provider_boundary",
@@ -510,7 +510,7 @@
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
       "path": "workflows/library/control/direct_task.orc",
-      "readiness_label": "leaf_runtime_candidate",
+      "readiness_label": "promotion_eligible",
       "route_label": "wcc_default",
       "surface_id": "workflows.library.control.direct_task",
       "surface_kind": "library_workflow"

@@ -29,23 +29,27 @@ transportable direct `Bool` returns, the WCC M4 compile route, existing
 provider-attempt/state machinery, `WorkflowExecutor`, deterministic mocked
 provider execution, pytest/pytest-xdist, and repository routing tests.
 
-**Status:** accepted for execution; E0 implemented pending final gate. Task 1
-landed at `b71bf62aa3cc8640e5ae9df47f1ec09794a5eb5c`; Task 2 landed at
-`3d41a8bf503af14b5aaaaf29e69bc03dfdbb6d5d`; and Task 3 landed at
-`3b9343732d5e764e6e2ebb8f5d2501536d4701ea`. Each passed its ordered
-specification then quality review. Task 4 closed at
-`46387582d2af0636a3f3041a706ddb0f658c8ce8`, tree
-`5dc787b69d3deb2010ed1cd4040444eec1e7c62a`, after ordered
-`E0_TASK4_SPEC_APPROVED` then `E0_TASK4_QUALITY_APPROVED`; its postcommit
-direct-routing control passed 74 tests. Task 5 final gate is in progress. The
+**Status: `PASS_E0`; E0 is complete.** Task 1 landed at
+`b71bf62aa3cc8640e5ae9df47f1ec09794a5eb5c`; Task 2 landed at
+`3d41a8bf503af14b5aaaaf29e69bc03dfdbb6d5d`; Task 3 landed at
+`3b9343732d5e764e6e2ebb8f5d2501536d4701ea`; and Task 4 landed at
+`46387582d2af0636a3f3041a706ddb0f658c8ce8`. Each passed its ordered
+specification then quality review. The exact Task 5 candidate passed ordered
+`E0_FINAL_SPEC_APPROVED` then `E0_FINAL_QUALITY_APPROVED` and landed at
+`fe7d6f9bca9ec61b9078e4048bb43aee7f4f191b`, tree
+`c20f6fd9197b0d0e12a581e96ebbd898b8d1b3c3`; its postcommit
+direct-control/routing/route-readiness control passed 115 tests. The final
+review at `artifacts/review/e0-direct-control-final-review.md`, SHA-256
+`468f4269b8686e6046c17855a5f1c17f0c9072cefe9b80df87cb8a0976d99011`,
+records the exact bindings, gates, and exit decision. The
 original reviewed candidate at `b401c493a0e0c7a9614d96cd18bfb8f4fa29f494`, tree
 `291bc6130412a04ef9e3886cca23579c3fb325f0`, plan SHA-256
 `0e906fdf2daa06bf8d6bb9720cd71e1086174f46dda97cb8204add16aa490809`
 passed ordered `E0_PLAN_SPEC_APPROVED` then `E0_PLAN_QUALITY_APPROVED` as
-recorded in `artifacts/review/e0-direct-control-plan-review.md`. Selected
-tranche remains E0 only. E1, E2, E3, C1, C2, and C3 remain Designed and
-unselected. E0 is not complete. No E0 implementation existed at selection
-time. The selection routing landed at
+recorded in `artifacts/review/e0-direct-control-plan-review.md`. E0 was the
+sole selected tranche. E1 is eligible only for a separate owner activation
+decision; E1, E2, E3, C1, C2, and C3 remain Designed and unselected. No E0
+implementation existed at selection time. The selection routing landed at
 `877ac609222c35584a6c227c6aec3b6903f607bd`, tree
 `0e8783d6582c5fce7bae799021aeea690fb660ac`; its postcommit routing control
 passed 70 tests.
@@ -449,30 +453,36 @@ production library source had no registry row. The correction records it as a
 `leaf_runtime_candidate` with `not_current_guidance`; final closure promotes
 that row only after `PASS_E0`.
 
-- [ ] Run `pytest --collect-only -q tests/test_workflow_lisp_direct_control.py`.
-- [ ] Run all direct-control, target-2.23 prompt, native-return,
+- [x] Run `pytest --collect-only -q tests/test_workflow_lisp_direct_control.py`.
+      Four tests collected.
+- [x] Run all direct-control, target-2.23 prompt, native-return,
       provider-policy, provider-attempt, pure-replay, runtime-observability,
-      phased-composed, and routing selectors.
-- [ ] Run one deterministic end-to-end CLI or executor smoke using the
+      phased-composed, and routing selectors. The focused gate passed 1,167
+      tests with 1 skipped.
+- [x] Run one deterministic end-to-end CLI or executor smoke using the
       production `.orc` source, fake provider, and explicit
       `--max-retries 0` or equivalent executor argument. A real provider run
       is not required because E0's feasibility claim concerns deterministic
       call count, typed composition, result reuse, and accounting structure,
-      not prompt quality.
-- [ ] Run `git diff --check` and the broad non-security suite with
+      not prompt quality. The bound smoke passed 1 test.
+- [x] Run `git diff --check` and the broad non-security suite with
       `pytest -q -n 16 --dist=worksteal`, preserving the standing repository
       exclusions for security, safety, secrets, and provider-isolation paths.
-- [ ] Obtain independent `E0_FINAL_SPEC_APPROVED`, then distinct
+      The first run exposed two missing-registry-row failures; after the exact
+      row correction, the broad gate passed 10,117 tests with 19 skipped, 5
+      warnings, and zero failures/errors.
+- [x] Obtain independent `E0_FINAL_SPEC_APPROVED`, then distinct
       `E0_FINAL_QUALITY_APPROVED`, against the exact candidate and fresh test
       evidence. Correct material findings and repeat the ordered pair.
-- [ ] Commit the exact reviewed candidate, run postcommit focused and routing
+- [x] Commit the exact reviewed candidate, run postcommit focused and routing
       controls, then update this plan's completion record to bind the
       selection commit, implementation commits/tree, test totals, final
-      review, and the exact exit outcome.
-- [ ] The completion outcome may be `PASS_E0`,
+      review, and the exact exit outcome. Candidate commit `fe7d6f9b`, tree
+      `c20f6fd9`; postcommit control 115 passed.
+- [x] The completion outcome may be `PASS_E0`,
       `STOP_E0_ACCOUNTING_PARITY_UNPROVEN`, or
       `STOP_E0_ONE_CALL_CONTRACT_UNPROVEN`. Only `PASS_E0` marks E0 complete.
-- [ ] Update the roadmap truthfully and commit the completion record/status
+- [x] Update the roadmap truthfully and commit the completion record/status
       only after its bindings validate.
 
 E0 completion makes E1 eligible for a separate owner activation decision; it
@@ -482,19 +492,19 @@ implementation authority from `PASS_E0`.
 
 ## Final acceptance checklist
 
-- [ ] The production library has exactly one canonical direct entry and one
+- [x] The production library has exactly one canonical direct entry and one
       provider invocation.
-- [ ] Typed task/policy inputs and direct scalar `Bool` result are proven.
-- [ ] No prompt extern, authored result envelope, report artifact, or local
+- [x] Typed task/policy inputs and direct scalar `Bool` result are proven.
+- [x] No prompt extern, authored result envelope, report artifact, or local
       orchestration instruction was added.
-- [ ] Fresh execution invokes once; same-run resume after the committed
+- [x] Fresh execution invokes once; same-run resume after the committed
       provider boundary invokes zero additional providers.
-- [ ] A retryable provider failure under the bound zero-retry policy invokes
+- [x] A retryable provider failure under the bound zero-retry policy invokes
       once and terminates failed.
-- [ ] Accounting field ownership matches an ordinary one-provider workflow
+- [x] Accounting field ownership matches an ordinary one-provider workflow
       while result/artifact shapes differ.
-- [ ] Compiler/runtime/spec/state behavior is unchanged.
-- [ ] This reviewed plan and its routing/final-review bindings select and
+- [x] Compiler/runtime/spec/state behavior is unchanged.
+- [x] This reviewed plan and its routing/final-review bindings select and
       complete E0 only.
-- [ ] Focused, deterministic smoke, routing, broad non-security, ordered final
+- [x] Focused, deterministic smoke, routing, broad non-security, ordered final
       review, and postcommit controls all pass.
