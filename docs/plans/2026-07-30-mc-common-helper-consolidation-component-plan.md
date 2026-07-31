@@ -26,6 +26,32 @@ AST/grep architecture checks, and tmux for the broad gate.
 
 ---
 
+## Task 6 external-resolution contract
+
+**Implementation evidence:** complete. The frozen baseline is commit
+`db01eb6a14e1c9c959b4359630667c62aeb4b507`, tree
+`fd6f54416f4f39090c679bb81d768b1fa7c7cff5`. Task 0 landed at `786c1fe4`,
+Task 1 at `2e6e58f9`, Task 2 at `ff9351bb`, Task 3 at `390f24d0`, Task 4 at
+`f2453d06`, and Task 5 at commit
+`71f61b267300d09ec18bbfca817ad18804e79503`, tree
+`fe4fade1749955d23fe58cced2ff166eb271b406`. The broad-gate compatibility
+correction then landed at commit
+`a15c38623afe3da7b29a016aa44a66b726842a1c`, tree
+`ac7a7bf5272928ba985ffe57bce634b08492e9e8`, with subject
+`Preserve atomic replacement path compatibility`, after ordered
+`MC_CORRECTION_SPEC_APPROVED` then `MC_CORRECTION_QUALITY_APPROVED` review.
+
+Checked-in bytes do not encode a live pending/completed flag for Task 6. The
+deterministic external record
+`/home/ollie/.tmp/mc-common-helper-20260730/closure-verdicts.md` is the sole
+terminal-status resolver: a valid record binding ordered
+`MC_FINAL_SPEC_APPROVED` then `MC_FINAL_QUALITY_APPROVED` review, the exact
+unchanged closure commit, and its passing postcommit selector makes MC
+historical complete through that commit; an absent, unreadable, or
+mismatching record means MC is not complete. This rule is time-invariant and
+does not let checked-in prose attest to its own commit or postcommit control.
+No successor roadmap tranche is selected or dispositioned.
+
 ## Authority, selection, and baseline
 
 This plan executes only Phase MC from:
@@ -238,19 +264,22 @@ one final ordered review over the complete phase candidate.
   `db01eb6a`; do not reuse the amendment's stale 2026-07-26 line numbers.
 - [x] Bound admitted and deferred surfaces explicitly, including the complete
   security exclusion and the MR-4 routing correction.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   git diff --check
   pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py
   ```
 
-- [ ] Obtain `MC_PLAN_SPEC_APPROVED` followed by
+- [x] Obtain `MC_PLAN_SPEC_APPROVED` followed by
   `MC_PLAN_QUALITY_APPROVED` against the exact Task-0 candidate.
-- [ ] Commit unchanged with subject
+- [x] Commit unchanged with subject
   `Select common helper consolidation`.
-- [ ] From the committed tree, rerun the routing selector. Only then may Task
+- [x] From the committed tree, rerun the routing selector. Only then may Task
   1 begin.
+
+**Actual evidence:** the exact reviewed selection candidate landed at Task 0
+commit `786c1fe4`; its committed-tree routing selector passed before Task 1.
 
 ## Task 1: Consolidate lexical canonical JSON and digests
 
@@ -272,21 +301,21 @@ one final ordered review over the complete phase candidate.
 - Modify: owning lexical-checkpoint/WCC tests
 - Modify: `tests/test_workflow_lisp_build_artifacts.py`
 
-- [ ] Add golden vectors for key order, ASCII and non-ASCII text, nested
+- [x] Add golden vectors for key order, ASCII and non-ASCII text, nested
   mappings/lists, Path/unknown objects through `default=str`, NaN/Inf,
   full prefix, exact digest length, and bytes-vs-text/newline boundaries.
-- [ ] Add an architecture RED requiring the common owner and forbidding the
+- [x] Add an architecture RED requiring the common owner and forbidding the
   four admitted local definitions. Assert that the excluded WCC helper and
   its output remain unchanged.
-- [ ] Freeze the complete admitted file/symbol/pattern manifest in
+- [x] Freeze the complete admitted file/symbol/pattern manifest in
   `tests/test_common_helper_architecture.py`; add and satisfy only the
   canonical category's no-clone assertion in this task.
-- [ ] Implement the minimum shared ASCII canonical serializer and prefixed
+- [x] Implement the minimum shared ASCII canonical serializer and prefixed
   JSON digest with explicit fallback behavior. Do not expose strict UTF-8,
   truncated, or unprefixed profiles through this task.
-- [ ] Migrate the exact clone set and accidental import consumers; prove all
+- [x] Migrate the exact clone set and accidental import consumers; prove all
   existing persisted/checkpoint digest fixtures remain byte-identical.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest --collect-only -q \
@@ -302,9 +331,13 @@ one final ordered review over the complete phase candidate.
     tests/test_workflow_lisp_provider_peer_group_e2e.py
   ```
 
-- [ ] Obtain `MC_TASK1_SPEC_APPROVED` then
+- [x] Obtain `MC_TASK1_SPEC_APPROVED` then
   `MC_TASK1_QUALITY_APPROVED`; commit with subject
   `Consolidate lexical canonical digests`.
+
+**Actual evidence:** the canonical owner, frozen vectors, architecture guard,
+and admitted lexical migrations landed after the ordered reviews at Task 1
+commit `2e6e58f9`.
 
 ## Task 2: Consolidate provider scalar and canonical mechanics
 
@@ -337,22 +370,22 @@ one final ordered review over the complete phase candidate.
 - Modify: `orchestrator/workflow/provider_phased_delivery/coordinator.py`
 - Modify: exact owning provider contract tests
 
-- [ ] Add golden matrices for closed mappings, key-order diagnostics,
+- [x] Add golden matrices for closed mappings, key-order diagnostics,
   empty/non-string text, `bool` vs integer, minimum boundaries, Unicode
   strings, and exact exception class/message. Canonical vectors cover both
   permissive-NaN and rejecting-NaN ASCII profiles plus zero/one/two trailing
   newline ownership.
-- [ ] Add an architecture RED enumerating every admitted local generic clone.
-- [ ] Implement only `closed_mapping`, `nonempty_string`, and ordinary integer
+- [x] Add an architecture RED enumerating every admitted local generic clone.
+- [x] Implement only `closed_mapping`, `nonempty_string`, and ordinary integer
   validation shapes needed by exact `ValueError` consumers. A helper must not
   accept an exception/message customization API unless two admitted callers
   demonstrably require it.
-- [ ] Reuse Task 1's exact compact-ASCII canonical serializer for provider
+- [x] Reuse Task 1's exact compact-ASCII canonical serializer for provider
   records with the same wire contract. Preserve each caller's current
   `allow_nan` choice and keep JSONL/turn-frame trailing newlines local.
-- [ ] Keep supervision/peer path policy, phased TypeError/u63 validators,
+- [x] Keep supervision/peer path policy, phased TypeError/u63 validators,
   prompt-role exceptions, and all distinct canonical profiles local.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest --collect-only -q tests/test_common_validation.py
@@ -372,9 +405,13 @@ one final ordered review over the complete phase candidate.
     tests/test_provider_phased_delivery_coordinator.py
   ```
 
-- [ ] Obtain `MC_TASK2_SPEC_APPROVED` then
+- [x] Obtain `MC_TASK2_SPEC_APPROVED` then
   `MC_TASK2_QUALITY_APPROVED`; commit with subject
   `Consolidate provider scalar helpers`.
+
+**Actual evidence:** provider scalar and compact-ASCII mechanics plus their
+golden/architecture coverage landed after the ordered reviews at Task 2
+commit `ff9351bb`.
 
 ## Task 3: Consolidate status and session-snapshot predicates
 
@@ -397,22 +434,22 @@ one final ordered review over the complete phase candidate.
 - Modify: `orchestrator/monitor/classifier.py`
 - Modify: exact owning status/session tests
 
-- [ ] Golden-lock all run/step/resume status values, unknown values, `None`,
+- [x] Golden-lock all run/step/resume status values, unknown values, `None`,
   and the failure/suspended resume distinction.
-- [ ] Add both-direction `SessionIdentitySnapshot` cases for missing, matching
+- [x] Add both-direction `SessionIdentitySnapshot` cases for missing, matching
   unique, mismatched unique, ambiguous, and invalid snapshots.
-- [ ] Add an architecture RED for the four executor ladders and admitted
+- [x] Add an architecture RED for the four executor ladders and admitted
   literal terminal/settled sets.
-- [ ] Put assistant-text eligibility on `SessionIdentitySnapshot` and migrate
+- [x] Put assistant-text eligibility on `SessionIdentitySnapshot` and migrate
   all four executor callers.
-- [ ] Share only run-terminal and step-settled predicates. Keep
+- [x] Share only run-terminal and step-settled predicates. Keep
   `ResumePlanner.entry_is_terminal` as the owner of its distinct rule and keep
   state-machine-specific terminal sets local. Extend the `StateStatus` type
   alias to include the already-written `suspended` runtime value without
   changing runtime behavior. Route resume's scalar `completed|skipped` check
   through the resume-owned scalar predicate without moving recursive
   ownership.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest --collect-only -q tests/test_common_status.py
@@ -427,9 +464,13 @@ one final ordered review over the complete phase candidate.
     tests/test_monitor_classifier.py
   ```
 
-- [ ] Obtain `MC_TASK3_SPEC_APPROVED` then
+- [x] Obtain `MC_TASK3_SPEC_APPROVED` then
   `MC_TASK3_QUALITY_APPROVED`; commit with subject
   `Consolidate runtime status predicates`.
+
+**Actual evidence:** the bounded status owners and snapshot predicate with
+both-direction coverage landed after the ordered reviews at Task 3 commit
+`390f24d0`.
 
 ## Task 4: Make provider timeout validation uniformly finite
 
@@ -446,19 +487,19 @@ one final ordered review over the complete phase candidate.
   `orchestrator/workflow/provider_phased_delivery/runtime_bindings.py`
 - Modify: exact owning provider/peer/phased tests
 
-- [ ] Add RED cases for `True`, `False`, NaN, both infinities, zero,
+- [x] Add RED cases for `True`, `False`, NaN, both infinities, zero,
   negatives, positive int, and positive finite float at every admitted public
   boundary.
-- [ ] Add the timeout category's architecture RED so no admitted inline
+- [x] Add the timeout category's architecture RED so no admitted inline
   finite/positive ladder survives this task.
-- [ ] Prove invalid values cause no provider process launch, queue wait,
+- [x] Prove invalid values cause no provider process launch, queue wait,
   deadline calculation, evidence publication, or state mutation.
-- [ ] Implement one finite-positive numeric validator while retaining each
+- [x] Implement one finite-positive numeric validator while retaining each
   caller's existing error class and message.
-- [ ] Keep executable-IR positive-Int validation, prompt-identity role
+- [x] Keep executable-IR positive-Int validation, prompt-identity role
   exceptions, adjudication's optional-timeout coercion, and all deadline state
   machines outside this helper.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q \
@@ -471,9 +512,13 @@ one final ordered review over the complete phase candidate.
     tests/test_workflow_lisp_phased_delivery_runtime.py
   ```
 
-- [ ] Obtain `MC_TASK4_SPEC_APPROVED` then
+- [x] Obtain `MC_TASK4_SPEC_APPROVED` then
   `MC_TASK4_QUALITY_APPROVED`; commit with subject
   `Unify finite provider timeout validation`.
+
+**Actual evidence:** all admitted timeout boundaries use the finite-positive
+mechanic with pre-side-effect rejection coverage; the ordered-review candidate
+landed at Task 4 commit `f2453d06`.
 
 ## Task 5: Consolidate atomic replacement mechanics
 
@@ -505,25 +550,25 @@ one final ordered review over the complete phase candidate.
   `orchestrator/workflow_lisp/adapters/write_reusable_phase_state_v1.py`
 - Modify: exact owning state/executor/adjudication/observability/adapter tests
 
-- [ ] Add RED/golden coverage for complete and short writes, write failure,
+- [x] Add RED/golden coverage for complete and short writes, write failure,
   replace failure, destination preservation, unique temporary names,
   temporary cleanup, bytes/text encoding, file fsync, parent fsync, and
   propagated exceptions. Directly prove restrictive versus ordinary-umask
   new-file mode parity.
-- [ ] Add the atomic category's architecture RED so every admitted simple
+- [x] Add the atomic category's architecture RED so every admitted simple
   writer, including the direct executor-method consumers, must leave its
   private implementation in this task.
-- [ ] Preserve the durable helper's current write/fsync/replace/fsync order.
+- [x] Preserve the durable helper's current write/fsync/replace/fsync order.
   Provide one non-fsync bytes primitive and a UTF-8 text wrapper.
-- [ ] Replace only independent single-destination temp-and-rename clones.
+- [x] Replace only independent single-destination temp-and-rename clones.
   Leave copy-then-replace, append-only ledgers, observation finalization,
   batch transactions, monitor policy, experiments, and security-sensitive
   writers untouched.
-- [ ] Remove executor atomic methods from `StepRuntime`; step interpreters use
+- [x] Remove executor atomic methods from `StepRuntime`; step interpreters use
   the common helper directly.
-- [ ] Delete `state_locking.py` after its tests and only production consumer
+- [x] Delete `state_locking.py` after its tests and only production consumer
   import the common durable owner.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest --collect-only -q tests/test_common_io_atomic.py
@@ -549,9 +594,22 @@ one final ordered review over the complete phase candidate.
     tests/test_workflow_lisp_lexical_checkpoints.py
   ```
 
-- [ ] Obtain `MC_TASK5_SPEC_APPROVED` then
+- [x] Obtain `MC_TASK5_SPEC_APPROVED` then
   `MC_TASK5_QUALITY_APPROVED`; commit with subject
   `Consolidate atomic file replacement`.
+
+**Actual evidence:** the bounded durable and non-durable atomic owners,
+cleanup/failure coverage, and admitted caller migrations landed after the
+ordered reviews at Task 5 commit
+`71f61b267300d09ec18bbfca817ad18804e79503`, tree
+`fe4fade1749955d23fe58cced2ff166eb271b406`; its postcommit owner control
+passed 57 tests. The later broad-gate compatibility correction landed at
+`a15c38623afe3da7b29a016aa44a66b726842a1c`, tree
+`ac7a7bf5272928ba985ffe57bce634b08492e9e8`, with subject
+`Preserve atomic replacement path compatibility`, after ordered
+`MC_CORRECTION_SPEC_APPROVED` then `MC_CORRECTION_QUALITY_APPROVED` review;
+its focused selector passed 29 tests and the full Task-5-plus-regressions
+selector passed 671 tests.
 
 ## Task 6: Close Phase MC
 
@@ -565,30 +623,103 @@ one final ordered review over the complete phase candidate.
   changes a currently listed capability fact
 - Modify: `tests/test_workflow_lisp_drain_roadmap_routing.py`
 
-- [ ] Run the architecture census and prove no admitted private clone remains.
+### Recorded Task 6 implementation evidence
+
+- The refreshed exact architecture census passed 7 tests in 2.63 seconds
+  (3.04 seconds
+  elapsed); log SHA-256
+  `323667f5885c57f9ba4fee3295aad2081889bfc8c979d74f87f7ec1307e6df6a`.
+- The exact admitted production-path manifest contains 56 paths and has
+  SHA-256
+  `124fa184d3296e4e57402ec40adbb0d7a4d992836617af02540bedc627411789`.
+  The refreshed outside-manifest proof found 0 excluded-path matches; log
+  SHA-256
+  `09a65712abec1aba4a055a0c085b96e6aea0b5b3d319c56b665ca8f6809c7576`.
+- Baseline-through-correction numstat over the exact production manifest is
+  523 additions, 524 deletions, net -1. Baseline-to-worktree totals are tests:
+  4,227 additions and 32 deletions; documentation: 830 additions and 41
+  deletions.
+- Collection of every new test module found 115 tests in 2.16 seconds
+  (2.53 seconds elapsed); log
+  SHA-256
+  `b6c66fce37a6453ebc885b76de1a86eb16efdcf8427a1565999afee637507e01`.
+- The first broad attempt is retained as rejected evidence: 2 failed, 10,107
+  passed, 19 skipped, and 5 warnings in 113.80 seconds (114.33 seconds
+  elapsed); log SHA-256
+  `7b19842fef3e04366acc7ef48cedc918647e6c51bda9738c536f9e54dffabbbb`.
+  It exposed a `NAME_MAX` temporary basename and a direct-script relative
+  import failure; correction `a15c3862` fixes both.
+- The corrected broad rerun exited 0 with 10,111 passed, 19 skipped, and 5
+  warnings in 114.71 seconds (115.40 seconds elapsed); log SHA-256
+  `aefafa7d3547a4f9bedcde7e4f965d4f67496b98b84c6cbec1c993329fd8afc7`.
+  Its repository-standard 16-worker command, with the exact 21 ignores and
+  security exclusions, was:
+
+  ```bash
+  pytest -q -n 16 --dist=worksteal \
+    --ignore=tests/test_at61_at62_wait_for_path_safety.py \
+    --ignore=tests/test_cli_safety.py \
+    --ignore=tests/test_execution_safety.py \
+    --ignore=tests/test_provider_isolation_attestation.py \
+    --ignore=tests/test_provider_isolation_backend.py \
+    --ignore=tests/test_provider_isolation_backend_identity_negatives.py \
+    --ignore=tests/test_provider_isolation_bundle_broker.py \
+    --ignore=tests/test_provider_isolation_candidate.py \
+    --ignore=tests/test_provider_isolation_controller_lifecycle.py \
+    --ignore=tests/test_provider_isolation_environment.py \
+    --ignore=tests/test_provider_isolation_environment_cli.py \
+    --ignore=tests/test_provider_isolation_execution.py \
+    --ignore=tests/test_provider_isolation_network_preflight.py \
+    --ignore=tests/test_provider_isolation_policy.py \
+    --ignore=tests/test_provider_isolation_runtime_authority.py \
+    --ignore=tests/test_provider_isolation_schema_resources.py \
+    --ignore=tests/test_provider_isolation_workflow_continuation.py \
+    --ignore=tests/test_provider_isolation_workflow_lifecycle.py \
+    --ignore=tests/test_provider_launch_shim.py \
+    --ignore=tests/test_secrets.py \
+    --ignore=tests/test_workflow_provider_isolation_integration.py \
+    -k 'not security and not secret and not isolation and not safety'
+  ```
+
+- The final owner-module union, including both broad-discovered regression
+  selectors, exited 0 with 2,673 passed in 63.51 seconds (64.38 seconds
+  elapsed); log SHA-256
+  `2eebeffa1cf28ec9abac7733e9a562d0183dd590ff84dd62f0ab03dcd11bb6d6`.
+
+Review, commit, and postcommit occurrence are intentionally not represented as
+live checkboxes or status prose in this file. The external-resolution contract
+above is their sole terminal authority.
+
+- [x] Run the architecture census and prove no admitted private clone remains.
   The check must use the exact manifest in
   `tests/test_common_helper_architecture.py`, not a repo-wide name ban that
   would erase intentional protocol-specific helpers.
-- [ ] Prove the phase diff contains no dashboard, provider-isolation,
+- [x] Prove the phase diff contains no dashboard, provider-isolation,
   experiment/E-series, WCC, report/monitor symlink-policy, or other excluded
   security path.
-- [ ] Record `git diff --numstat` from the Task-0 selection baseline through
+- [x] Record `git diff --numstat` from the Task-0 selection baseline through
   the Task-5 implementation tip over an exact admitted production-path
   manifest and prove deletions exceed additions. Report test and documentation
   totals separately.
-- [ ] Run the union of all Task 1–5 owner modules and routing tests.
-- [ ] Run `pytest --collect-only` for every new or renamed test module.
-- [ ] In tmux, run the repository-standard broad suite with
+- [x] Run the union of all Task 1–5 owner modules and routing tests.
+- [x] Run `pytest --collect-only` for every new or renamed test module.
+- [x] In tmux, run the repository-standard broad suite with
   `pytest -q -n 16 --dist=worksteal`, excluding the standing security,
   safety, secrets, provider-isolation, and other owner-directed security
   selectors. Record the exact command, totals, duration, and log SHA-256.
-- [ ] Update status/routing facts without selecting MR, M3b, M3c, M4, E, or P.
-- [ ] Obtain `MC_FINAL_SPEC_APPROVED` followed by
-  `MC_FINAL_QUALITY_APPROVED` against the exact closure candidate.
-- [ ] Commit unchanged with subject
-  `Complete common helper consolidation`.
-- [ ] Run a non-mutating postcommit owner-plus-routing selector and record its
-  fresh result.
+- [x] Update status/routing facts without selecting MR, M3b, M3c, M4, E, or P.
+
+### Externally resolved terminal operations
+
+These operations are deliberately not live checked-in checkboxes:
+
+1. obtain `MC_FINAL_SPEC_APPROVED` followed by
+   `MC_FINAL_QUALITY_APPROVED` against the exact closure candidate;
+2. commit the reviewed bytes unchanged with subject
+   `Complete common helper consolidation`; and
+3. run a non-mutating postcommit owner-plus-routing selector and bind its fresh
+   result, the reviews, and the exact commit/tree in the deterministic
+   external record.
 
 ## Completion contract
 

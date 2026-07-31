@@ -4477,7 +4477,12 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "minimum m2/m3a correctness machinery" in normalized_track
     assert "strictly reduce both durable value count" in normalized_track
     assert "does not authorize adjacent refactoring" in normalized_track
-    assert "mc is selected through the reviewed" in normalized_track_header
+    assert "mc implementation is complete through original task 5 commit" in (
+        normalized_track_header
+    )
+    assert "task 6 terminal status is resolved only by the external record" in (
+        normalized_track_header
+    )
     assert "mr 4 is historical complete at 836721ce" in normalized_track_header
     listing_guard = next(
         clause
@@ -4543,7 +4548,7 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
         assert Path(component_plan).name in ml_section
 
     substrate_index_route = index.split(
-        "**Current substrate selection:**",
+        "**Current substrate status:**",
         1,
     )[1].split("\n\n", 1)[0]
     normalized_substrate_index_route = _normalized_routing_text(
@@ -4589,7 +4594,15 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     )
     assert "accepted m2 component (a) design" in _normalized_routing_text(index)
     assert "evidence gated and unselected" in normalized_substrate_index_route
-    assert "mc is selected under the reviewed" in normalized_substrate_index_route
+    assert "mc implementation is complete through task 5" in (
+        normalized_substrate_index_route
+    )
+    assert "task 6 terminal status is resolved only by the deterministic external record" in (
+        normalized_substrate_index_route
+    )
+    assert "no successor substrate tranche is selected" in (
+        normalized_substrate_index_route
+    )
     assert "mr 4 is historical complete at 836721ce" in (
         normalized_substrate_index_route
     )
@@ -5014,7 +5027,7 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     )
 
 
-def test_mc_routes_current_census_and_reviewed_nonsecurity_component_plan() -> None:
+def test_mc_routes_external_resolution_and_nonsecurity_evidence() -> None:
     track = (REPO_ROOT / SUBSTRATE_MAINTENANCE_TRACK_PATH).read_text(
         encoding="utf-8"
     )
@@ -5026,10 +5039,104 @@ def test_mc_routes_current_census_and_reviewed_nonsecurity_component_plan() -> N
 
     assert Path(MC_COMMON_HELPER_PLAN_PATH).name in track
     assert Path(MC_COMMON_HELPER_PLAN_PATH).name in index
-    assert "status: selected under the reviewed" in normalized_track
-    assert "execute current work from the reviewed" in normalized_index
+    assert "terminal status: resolved only by the deterministic external record" in (
+        normalized_track
+    )
+    assert "auditing completed mc implementation" in normalized_index
+    assert "task 6's external resolution contract" in normalized_index
     assert "db01eb6a14e1c9c959b4359630667c62aeb4b507" in plan
     assert "fd6f54416f4f39090c679bb81d768b1fa7c7cff5" in plan
+    for task_commit in (
+        "786c1fe4",
+        "2e6e58f9",
+        "ff9351bb",
+        "390f24d0",
+        "f2453d06",
+        "71f61b26",
+    ):
+        assert task_commit in plan
+    assert "a15c38623afe3da7b29a016aa44a66b726842a1c" in plan
+    assert "ac7a7bf5272928ba985ffe57bce634b08492e9e8" in plan
+    assert "Preserve atomic replacement path compatibility" in plan
+    assert plan.index("MC_CORRECTION_SPEC_APPROVED") < plan.index(
+        "MC_CORRECTION_QUALITY_APPROVED"
+    )
+    assert "focused selector passed 29 tests" in normalized_plan
+    assert "selector passed 671 tests" in normalized_plan
+    assert "523 additions, 524 deletions, net -1" in plan
+    assert "4,227 additions and 32 deletions" in plan
+    assert "documentation: 830 additions and 41 deletions" in normalized_plan
+    assert "2,673 passed in 63.51 seconds (64.38 seconds elapsed)" in (
+        normalized_plan
+    )
+    assert (
+        "2eebeffa1cf28ec9abac7733e9a562d0183dd590ff84dd62f0ab03dcd11bb6d6"
+        in plan
+    )
+    assert "corrected broad rerun exited 0" in normalized_plan
+    assert "7 tests in 2.63 seconds (3.04 seconds elapsed)" in normalized_plan
+    assert (
+        "323667f5885c57f9ba4fee3295aad2081889bfc8c979d74f87f7ec1307e6df6a"
+        in plan
+    )
+    assert (
+        "124fa184d3296e4e57402ec40adbb0d7a4d992836617af02540bedc627411789"
+        in plan
+    )
+    assert "outside manifest proof found 0 excluded path matches" in normalized_plan
+    assert (
+        "09a65712abec1aba4a055a0c085b96e6aea0b5b3d319c56b665ca8f6809c7576"
+        in plan
+    )
+    assert "115 tests in 2.16 seconds (2.53 seconds elapsed)" in normalized_plan
+    assert (
+        "b6c66fce37a6453ebc885b76de1a86eb16efdcf8427a1565999afee637507e01"
+        in plan
+    )
+    assert "2 failed, 10,107 passed, 19 skipped, and 5 warnings" in normalized_plan
+    assert "113.80 seconds (114.33 seconds elapsed)" in normalized_plan
+    assert (
+        "7b19842fef3e04366acc7ef48cedc918647e6c51bda9738c536f9e54dffabbbb"
+        in plan
+    )
+    assert "name_max temporary basename" in normalized_plan
+    assert "direct script relative import failure" in normalized_plan
+    assert "10,111 passed, 19 skipped, and 5 warnings" in normalized_plan
+    assert "114.71 seconds (115.40 seconds elapsed)" in normalized_plan
+    assert (
+        "aefafa7d3547a4f9bedcde7e4f965d4f67496b98b84c6cbec1c993329fd8afc7"
+        in plan
+    )
+    assert plan.count("--ignore=tests/") == 21
+    assert "-k 'not security and not secret and not isolation and not safety'" in plan
+    assert "checked in bytes do not encode a live pending/completed flag" in (
+        normalized_plan
+    )
+    assert "is the sole terminal status resolver" in normalized_plan
+    assert "an absent, unreadable, or mismatching record means mc is not complete" in (
+        normalized_plan
+    )
+    assert (
+        "/home/ollie/.tmp/mc-common-helper-20260730/closure-verdicts.md"
+        in plan
+    )
+    assert "- [x] Run the union of all Task 1–5 owner modules" in plan
+    assert "### Externally resolved terminal operations" in plan
+    assert "deliberately not live checked in checkboxes" in normalized_plan
+    assert "obtain `MC_FINAL_SPEC_APPROVED` followed by" in plan
+    assert "commit the reviewed bytes unchanged" in normalized_plan
+    assert "run a non mutating postcommit owner plus routing selector" in (
+        normalized_plan
+    )
+    assert "- [x] Run the architecture census" in plan
+    assert "- [x] Prove the phase diff" in plan
+    assert "- [x] Record `git diff --numstat`" in plan
+    assert "- [x] Run `pytest --collect-only`" in plan
+    assert "- [x] In tmux, run the repository-standard broad suite" in plan
+    assert "- [x] Update status/routing facts" in plan
+    assert "no successor roadmap tranche is selected or dispositioned" in (
+        normalized_plan
+    )
 
     assert plan.index("MC_PLAN_SPEC_APPROVED") < plan.index(
         "MC_PLAN_QUALITY_APPROVED"

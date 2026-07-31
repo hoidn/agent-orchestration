@@ -41,8 +41,8 @@
   after ordered `M3A_ACTIVATION_PLAN_SPEC_APPROVED` then
   `M3A_ACTIVATION_PLAN_QUALITY_APPROVED` reviews of corrected proposal
   `6e06b4c0`: root activation at `3442aef2`, fresh-frame activation at
-  `b931b7b8`, and boundary locks at `8a01bc2b`. The Task 4 closure candidate
-  is in progress. Its first broad gate exposed generic typed-literal,
+  `b931b7b8`, and boundary locks at `8a01bc2b`. Task 4 is historical complete
+  at the commit/tree and external closure record below. Its first broad gate exposed generic typed-literal,
   metadata-bearing value-document, and sparse-union replay gaps; the TDD
   correction passed the 10 original failures and a 375-test integration
   matrix. Ordered `M3A_INTEGRATION_FIX_SPEC_APPROVED` then
@@ -62,11 +62,14 @@
   `c5d8247ab6d47b209d14ee203513a0eda876acb1`, after restarted ordered final
   reviews and a 189-pass postcommit control. External closure-record SHA-256:
   `fa8530a87a61f484e19ed1b3d5716f6e30b2061efb4ff12769bfc0b6051cf42b`.
-  MC is selected through the reviewed
+  MC implementation is complete through original Task 5 commit `71f61b26`
+  and broad-gate compatibility correction `a15c3862`; its 2,673-pass owner
+  union and 10,111-pass broad gate are closed. Task 6 terminal status is
+  resolved only by the external record specified in the reviewed
   [MC Common-Helper Consolidation Component Plan](2026-07-30-mc-common-helper-consolidation-component-plan.md).
   MR-4 is historical complete at `836721ce`; the remaining MR tranches, M3b,
   M3c, and M4 are not selected by listing and still require their own valid
-  entry gates and component plans.
+  entry gates and component plans. No successor substrate tranche is selected.
 - **Relation:** parallel substrate track beside the completed
   `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`
   (Q/L tracks). The accepted Q3 identity satisfies M2's entry prerequisite,
@@ -174,7 +177,7 @@ seams that loosening defines.
 | M0 | Historical green baseline | complete at `f15b888d` under the reviewed [M0 component plan](2026-07-29-m0-green-baseline-component-plan.md) and external exact-commit closure | satisfied: bare `pytest` green; exact reviewed bytes committed; 418-pass postcommit control |
 | M1 | Estate shrink + adopted inventory extension | selected at reviewed Task 0 commit `4e71093d` under the [M1 component plan](2026-07-29-m1-estate-shrink-component-plan.md) | satisfied at `57c2604e`, tree `fc0fdbef`; ordered reviews and postcommit selector passed |
 | ML | Provider at-least-once loosening | historical complete: selected at `e2e39422`; ML-1 at `9c14dae3`; ML-2 at `b8783f66`, tree `b833b03c`; ML-4 Tasks 1–4 at `c45928f4`, `b3370858`, `ed19624c`, and `758c67e0`, with closure through the commit containing this record | satisfied: 5 E2E passed; 156 owning adjudication tests passed; 3 lock-control tests passed with 120 deselected; broad non-security suite 9,714 passed, 19 skipped, 5 warnings |
-| MC | Common-helper consolidation | selected under the reviewed [MC component plan](2026-07-30-mc-common-helper-consolidation-component-plan.md); M0 and Q0 complete | admitted production LOC strictly negative; no residual admitted private clones; touched-module and broad non-security suites green |
+| MC | Common-helper consolidation | implementation and precommit evidence complete through reviewed compatibility correction `a15c3862`; terminal status is externally resolved under the reviewed [MC component plan](2026-07-30-mc-common-helper-consolidation-component-plan.md) | a valid deterministic external record binding ordered reviews, exact commit/tree, and postcommit selector means historical complete; absent, unreadable, or mismatching record means not complete |
 | MR | Behavior-preserving structural refactors | MR-4 historical complete at `836721ce`; every remaining tranche unselected; MR-1..MR-3 and MR-5b/c missed their recorded pre-M3 window and require explicit disposition before re-entry | MR-4 gate satisfied; no remaining tranche is selected by this row |
 | M2 | Persistence-parsimony design | historical complete: ML complete; Q3 identity accepted; owner depth fixed at component (a) | satisfied by accepted pure-result replay design, executable feasibility fixture, broad gate, and ordered final reviews |
 | M3 | Persistence implementation | M3a historical complete at `76427bde`, tree `c5d8247a`; 3b/3c retain their separate gates | M3a satisfied by refreshed focused/broad evidence, ordered final review, exact closure commit, and 189-pass postcommit control; no later tranche is selected by this row |
@@ -322,7 +325,8 @@ M3, or M4.
 
 ## Phase MC: Common-Helper Consolidation
 
-**Status:** selected under the reviewed
+**Terminal status:** resolved only by the deterministic external record
+defined in the reviewed
 [MC Common-Helper Consolidation Component Plan](2026-07-30-mc-common-helper-consolidation-component-plan.md).
 The fresh census admits exact non-security canonical, scalar-validation,
 status/session-predicate, timeout, and atomic-replacement clones into one
@@ -330,6 +334,29 @@ small `orchestrator/_common/` package. Protocol-specific serializers and
 validators stay local. The report/monitor run-directory and symlink-policy
 row, provider isolation, dashboard, experiments/E-series, WCC middle-end, and
 every other security surface remain explicitly deferred.
+
+Tasks 0–5 landed at `786c1fe4`, `2e6e58f9`, `ff9351bb`, `390f24d0`,
+`f2453d06`, and original Task 5 commit
+`71f61b267300d09ec18bbfca817ad18804e79503`, tree
+`fe4fade1749955d23fe58cced2ff166eb271b406`. Broad-gate compatibility
+correction `a15c38623afe3da7b29a016aa44a66b726842a1c`, tree
+`ac7a7bf5272928ba985ffe57bce634b08492e9e8`, passed ordered
+`MC_CORRECTION_SPEC_APPROVED` then `MC_CORRECTION_QUALITY_APPROVED` review,
+29 focused tests, and 671 Task-5-plus-regressions tests. The rejected broad
+attempt exposed the `NAME_MAX` temporary-basename and direct-script import
+regressions; the corrected rerun passed 10,111 tests with 19 skipped and 5
+warnings. The exact architecture census, admitted-path manifest,
+outside-manifest proof, net-negative production census, new-test collection,
+both broad attempts, command, and 2,673-pass final owner union are recorded in
+the component plan.
+
+This checked-in track does not encode live review, commit, or postcommit
+status. A valid
+`/home/ollie/.tmp/mc-common-helper-20260730/closure-verdicts.md` binding
+ordered approval, the exact unchanged commit/tree, and a passing postcommit
+selector means MC is historical complete through that commit; an absent,
+unreadable, or mismatching record means MC is not complete. No successor
+substrate tranche is selected.
 
 Gate: admitted production LOC strictly negative; no residual admitted private
 clone; exact byte/error/status parity; finite timeout and failed-temp cleanup
@@ -488,8 +515,10 @@ abstractions beyond the module boundaries themselves.
   concurrent doc edits.
 - ML is historical complete. MR-1..MR-3 and MR-5b/c did not execute inside
   their recorded pre-M3 window and remain inert pending explicit disposition;
-  the stale condition is not silently treated as satisfied. MC is selected
-  after Q0 and M3a closure under its own current census and serial task plan.
+  the stale condition is not silently treated as satisfied. MC implementation
+  is complete through Task 5 plus correction `a15c3862`; Task 6 status is
+  externally resolved and is not a current selection. No successor substrate
+  tranche is selected.
 - MR-4 is historical complete at `836721ce`; no Q/L gate is reopened.
 - M2 serialized after Q3 (identity junction) and after ML. Any separately
   selected M3b/M3c work remains exclusive with other work on executor,
