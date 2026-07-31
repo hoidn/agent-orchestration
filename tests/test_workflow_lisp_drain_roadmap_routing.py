@@ -130,6 +130,9 @@ LANGUAGE_SERVER_L5_PLAN_PATH = (
 EVOLUTION_FOLLOW_ON_ROADMAP_PATH = (
     "docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md"
 )
+E0_DIRECT_CONTROL_PLAN_PATH = (
+    "docs/plans/2026-07-31-workflow-lisp-e0-direct-control-component-plan.md"
+)
 TRIAL_RUNS_DESIGN_PATH = "docs/design/workflow_lisp_trial_runs.md"
 TYPED_PROGRAM_GATES_DESIGN_PATH = (
     "docs/design/workflow_lisp_typed_program_gates.md"
@@ -1303,6 +1306,11 @@ def test_e_series_recovered_designs_route_without_selecting_implementation() -> 
     gates = (REPO_ROOT / TYPED_PROGRAM_GATES_DESIGN_PATH).read_text(
         encoding="utf-8"
     )
+    plan = (REPO_ROOT / E0_DIRECT_CONTROL_PLAN_PATH).read_text(encoding="utf-8")
+    sequence = (
+        REPO_ROOT
+        / "docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md"
+    ).read_text(encoding="utf-8")
     design_index = (REPO_ROOT / DESIGN_INDEX_PATH).read_text(encoding="utf-8")
     index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
     trial_capability = _markdown_table_row(
@@ -1320,6 +1328,7 @@ def test_e_series_recovered_designs_route_without_selecting_implementation() -> 
     assert "e_designs_spec_approved" in normalized_roadmap
     assert "e_designs_quality_approved" in normalized_roadmap
     assert "no e implementation is selected yet" in normalized_roadmap
+    assert "is proposed for ordered review" in normalized_roadmap
     assert "owner decision handoff is complete" in normalized_roadmap
     assert "creates no effect identity memo key" in normalized_roadmap
     assert "docs/superpowers/plans/2026-07-26-orc-effectiveness-lean-pilot.md" in roadmap
@@ -1355,6 +1364,15 @@ def test_e_series_recovered_designs_route_without_selecting_implementation() -> 
     assert "| Designed |" in trial_capability
     assert "| Designed |" in gates_capability
     assert "No current syntax/runtime capability may be inferred" in gates_capability
+    assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in roadmap
+    assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in design_index
+    assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in index
+    assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in sequence
+    assert "**Status:** proposed, implementation unselected." in plan
+    assert "does not select e1" in _normalized_routing_text(plan)
+    assert "no e implementation is selected" in _normalized_routing_text(
+        trial_capability
+    )
 
 
 def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
