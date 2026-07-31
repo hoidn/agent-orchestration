@@ -36,14 +36,32 @@
   [Pure-Result Replay Feasibility Component Plan](2026-07-30-pure-result-replay-feasibility-component-plan.md).
   Its broad non-security gate passed 9,868 tests with 19 skipped and 5
   warnings, followed by ordered final specification and quality approvals.
-  M3a Task 1 is selected under its reviewed
+  M3a Tasks 1–3 landed under its reviewed
   [Pure-Result Replay Activation Component Plan](2026-07-30-pure-result-replay-activation-component-plan.md)
   after ordered `M3A_ACTIVATION_PLAN_SPEC_APPROVED` then
   `M3A_ACTIVATION_PLAN_QUALITY_APPROVED` reviews of corrected proposal
-  `6e06b4c0`. Ordinary CLI-created roots and fresh call frames remain
-  historical-profile until their implementation tasks land.
-  MC, MR, M3, and M4 are not selected by listing and still require their own
-  component plans; within M3, only 3a is eligible.
+  `6e06b4c0`: root activation at `3442aef2`, fresh-frame activation at
+  `b931b7b8`, and boundary locks at `8a01bc2b`. The Task 4 closure candidate
+  is in progress. Its first broad gate exposed generic typed-literal,
+  metadata-bearing value-document, and sparse-union replay gaps; the TDD
+  correction passed the 10 original failures and a 375-test integration
+  matrix. Ordered `M3A_INTEGRATION_FIX_SPEC_APPROVED` then
+  `M3A_INTEGRATION_FIX_QUALITY_APPROVED` reviews approved exact
+  production/unit-test diff SHA-256
+  `5ae2e6c279b6e3aa36bf28920debc5d3999254533c4f8e199ffb8d88888195f3`;
+  the first final quality review then found and rejected a cache-hit witness
+  bypass. Its TDD correction requires the current exact visit plus either the
+  exact durable shell or exact active result matching the private cache. The
+  restarted final specification review then rejected that active form when a
+  cursor also targeted the same node. Its TDD correction rejects the relevant
+  cursor while retaining an unrelated downstream cursor, and passes 122 owner
+  tests, the unchanged 259 production-shape tests, a 381-test combined matrix,
+  569-test collection, a 968-test focused gate, and a 9,896-pass broad
+  non-security gate with 19 skips and 5 warnings. Restarted ordered final
+  reviews, exact closure commit, and postcommit control remain. M3a is not
+  historical complete until those gates pass.
+  MC, MR, M3b, M3c, and M4 are not selected by listing and still require
+  their own component plans.
 - **Relation:** parallel substrate track beside the completed
   `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`
   (Q/L tracks). The accepted Q3 identity satisfies M2's entry prerequisite,
@@ -157,7 +175,7 @@ seams that loosening defines.
 | MC | Common-helper consolidation | M0 complete; Q0-listed files deferred until Q0 closes | net LOC strictly negative; no residual private clones; touched-module suites green |
 | MR | Behavior-preserving structural refactors | per-tranche: MR-5a after M0; MR-1 after ML-1; MR-2 after ML; MR-3 with/after ML-2; MR-4 Q-coordinated | golden-parity gates per tranche; MR-1..MR-3 complete before M3 starts |
 | M2 | Persistence-parsimony design | historical complete: ML complete; Q3 identity accepted; owner depth fixed at component (a) | satisfied by accepted pure-result replay design, executable feasibility fixture, broad gate, and ordered final reviews |
-| M3 | Persistence implementation | only M3a becomes eligible after the exact M2 closure; 3b/3c retain their separate gates | per-tranche reviewed plans and parity gates (below); no tranche selected by this row |
+| M3 | Persistence implementation | M3a Tasks 1–3 landed at `3442aef2`, `b931b7b8`, and `8a01bc2b`; Task 4's activation-wide replay correction includes the cache-witness/cursor fix and refreshed focused/broad evidence; 3b/3c retain their separate gates | M3a requires restarted ordered final review, exact closure commit, and postcommit gates; no later tranche is selected by this row |
 | M4 | Structural decomposition | M3 complete or owner-recorded M2/M3 no-go; owner M4 go decision | touched modules split along the then-current seams; full suite green; no behavior change |
 
 ## Phase M0: Green Baseline
@@ -359,9 +377,8 @@ seconds (log SHA-256
 `76308a56635e67d21a84f1254b812e41d4eebde7dc2444fe9cb6dd31a1e7c637`).
 Ordered final review passed `M2_FEASIBILITY_FINAL_SPEC_APPROVED` then
 `M2_FEASIBILITY_FINAL_QUALITY_APPROVED` against the same closure bytes. M3a
-Task 1 is selected under the separately reviewed activation plan; ordinary
-CLI-created roots and fresh call frames remain historical-profile until the
-corresponding implementation tasks land.
+Tasks 1–3 landed under the separately reviewed activation plan at
+`3442aef2`, `b931b7b8`, and `8a01bc2b`.
 
 The selected design stops persisting eligible successful compiler-generated
 pure-projection values and reconstructs them deterministically from validated
@@ -380,15 +397,52 @@ append-only evidence, and keep public boundaries durable and typed.
 
 ## Phase M3: Persistence Implementation
 
-Potential tranches, each requiring selection, RED fixtures, and its own gate:
+Tranches, each requiring selection, RED fixtures, and its own gate:
 
-- **3a** Pure-result elision: eligible but unselected after the exact M2 closure
-  landed. Its proposed
-  [activation component plan](2026-07-30-pure-result-replay-activation-component-plan.md)
-  does not select implementation before ordered plan review. It is the only
-  tranche admitted by the selected M2 depth. Gate: golden-run byte parity on diagnostics,
-  artifacts, and settlement results between persisted and recomputed
-  execution; measured ledger reduction recorded.
+- **3a** Pure-result elision: implementation closure candidate under the
+  reviewed
+  [activation component plan](2026-07-30-pure-result-replay-activation-component-plan.md).
+  Tasks 1–3 landed at `3442aef2`, `b931b7b8`, and `8a01bc2b`. The supported
+  automatic creation policy now selects the exact profile for typed public
+  `.orc` new-root/force-restart creation and fresh non-iterative typed Workflow
+  Lisp children. Generic initialization remains explicit opt-in; ordinary
+  resume, existing roots/frames, non-Workflow-Lisp callees, iteration-owned
+  frames, and recurrent pure state keep historical/durable behavior. A fresh
+  retry selects without predecessor mutation.
+
+  Fresh public-route measurement records exact output/artifact/diagnostic/
+  settlement parity with explicit-profile and historical controls. Against the
+  route-identical absent-profile control, durable leaves decrease 106 → 98,
+  `state.json` 6,539 → 6,199 bytes, and sidecars 622,815 → 611,912 bytes
+  (external log SHA-256
+  `4017d50f06235cb2a3687d57f45de3abff2b737f66afe1fb574b5fc8e20036ea`).
+  The pre-correction Task 4 candidate passed its focused/routing gate. Its
+  first broad run recorded 10 failures, 9,865 passes, 19 skips, and 5 warnings
+  and exposed the generic replay gaps now covered by the TDD correction. The
+  correction passed ordered specification then quality review against exact
+  diff SHA-256
+  `5ae2e6c279b6e3aa36bf28920debc5d3999254533c4f8e199ffb8d88888195f3`.
+  The pre-final-review candidate collected 563 tests, passed 67 routing tests
+  and 962 focused tests, then passed 9,890 broad non-security tests with 19
+  skipped and 5 warnings (broad log SHA-256
+  `8787a8eb3411c707cd636287b56b68945d80ba63e83ecb82fa5648aff7d356d7`).
+  The immediately prior replay's only failure was the candidate-owned stale
+  routing assertion; its 9,889-pass/1-failure log is retained at SHA-256
+  `2b36ceadfc64a435be41b8faf45cc2030068a9a66d86fca16a89165f2eccc369`.
+  The first final specification review approved exact diff `d03dc333`, but the
+  following quality review correctly rejected a cache-hit witness bypass. The
+  TDD correction now rejects missing/non-one visits and missing/malformed
+  cache-hit rows while retaining the exact active-result view used during
+  fresh execution. Restarted specification review then rejected a relevant
+  running cursor beside that active result. The TDD correction rejects a cursor
+  targeting the same presentation/step identity while preserving an unrelated
+  downstream cursor. It passes 122 owner tests, the unchanged 259 production
+  shapes, 569-test collection, 968 focused tests, and a refreshed 9,896-test
+  broad non-security gate with 19 skipped and 5 warnings in 147.72 seconds
+  (log SHA-256
+  `d4324439f68b6881f353d5e3f436cc4d460f4728b0359d3b8297a795284efb6d`).
+  Restarted ordered final reviews, exact commit, and postcommit control remain;
+  M3a is not historical complete until all three pass.
 - **3b** Identity keys: not selected; requires component-(b) re-entry and an
   accepted design. If admitted, dual-write first (no behavior change), then
   memo-first resume behind a flag, then default flip. Gate at each step:

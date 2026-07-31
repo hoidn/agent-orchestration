@@ -8,7 +8,7 @@ from copy import deepcopy
 from dataclasses import dataclass, fields, is_dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Callable
+from typing import Any, Callable, NoReturn
 
 from orchestrator.contracts.output_contract import (
     OutputContractError,
@@ -27,6 +27,11 @@ from .executable_ir import (
 from .loaded_bundle import (
     LoadedWorkflowBundle,
     workflow_runtime_input_contracts,
+)
+from .pure_expr import (
+    PureExprEvaluationError,
+    _coerce_value,
+    canonical_json_for_pure_value,
 )
 from .references import (
     ReferenceResolutionError,
@@ -301,6 +306,16 @@ def _is_matching_running_cursor(
     )
 
 
+def _cursor_targets_witness(
+    cursor: Any,
+    witness: PureReplayVisitWitness,
+) -> bool:
+    return isinstance(cursor, Mapping) and (
+        cursor.get("name") == witness.presentation_key
+        or cursor.get("step_id") == witness.step_id
+    )
+
+
 def _is_matching_failure_or_skip(
     row: Any,
     witness: PureReplayVisitWitness,
@@ -360,13 +375,7 @@ def classify_pure_replay_progress(
 
     recorded_visit = visits.get(witness.presentation_key)
     row = steps.get(witness.presentation_key)
-    cursor_is_relevant = (
-        isinstance(cursor, Mapping)
-        and (
-            cursor.get("name") == witness.presentation_key
-            or cursor.get("step_id") == witness.step_id
-        )
-    )
+    cursor_is_relevant = _cursor_targets_witness(cursor, witness)
     if cursor is not None and not cursor_is_relevant:
         cursor = None
     if (
@@ -604,18 +613,10 @@ class PureReplayRuntime:
                 "pure replay result identity does not match its executable node",
                 context={"node_id": node_id},
             )
-        for address in replay_node.output_addresses:
-            field_value = result.get(address.field)
-            if not isinstance(field_value, Mapping) or address.member not in field_value:
-                raise PureResultReplayIndexError(
-                    DEPENDENCY_INDEX_INVALID,
-                    "pure replay result omits a declared result address",
-                    context={
-                        "node_id": node_id,
-                        "field": address.field,
-                        "member": address.member,
-                    },
-                )
+        _validate_replay_result_output_members(
+            replay_node,
+            result=result,
+        )
         if (
             result.get("status") != "completed"
             or type(result.get("exit_code")) is not int
@@ -814,9 +815,9 @@ class PureReplayRuntime:
                         context={"node_id": restart_node_id},
                     )
                 value_document = descriptor.get("value_document")
-                if not isinstance(value_document, Mapping):
+                if "value_document" not in descriptor:
                     continue
-                for _, ref in _walk_binding_ref_documents(
+                for _, ref in _walk_value_document_refs(
                     {"boundary": value_document}
                 ):
                     address = _resolve_replay_ref(
@@ -860,28 +861,57 @@ class PureReplayRuntime:
         replay_node = self.index.nodes.get(node_id)
         if replay_node is None:
             return
-        if all(
-            self.value_for_state_address(address, state)
-            is not _OVERLAY_VALUE_MISSING
-            for address in replay_node.output_addresses
-        ):
-            return
-        if node_id in self._replay_in_progress:
-            raise PureResultReplayIndexError(
-                DEPENDENCY_INDEX_INVALID,
-                "pure replay evaluation re-entered its dependency closure",
-                context={"node_id": node_id},
-            )
 
         witness = self.witness_from_state(node_id, state)
         classification = classify_pure_replay_progress(
             state,
             witness=witness,
         )
+        cached_result = self._result_row(
+            node_id,
+            visit_count=witness.visit_count,
+        )
+        if cached_result is not None:
+            visits = state.get("step_visits")
+            steps = state.get("steps")
+            # The active executor keeps its validated full result while the
+            # state manager persists the value-free shell. Only that exact
+            # process-local row may accompany a non-shell state view.
+            active_result_matches_cache = (
+                isinstance(visits, Mapping)
+                and type(visits.get(witness.presentation_key)) is int
+                and visits.get(witness.presentation_key)
+                == witness.visit_count
+                and isinstance(steps, Mapping)
+                and _same_json_shape_and_value(
+                    steps.get(witness.presentation_key),
+                    cached_result,
+                )
+                and not _cursor_targets_witness(
+                    state.get("current_step"),
+                    witness,
+                )
+            )
+            if (
+                classification == "derived_complete"
+                or active_result_matches_cache
+            ):
+                return
+            raise PureResultReplayIndexError(
+                PROGRESS_WITNESS_INVALID,
+                "pure replay requires an exact completed persistence shell",
+                context={"node_id": node_id},
+            )
         if classification != "derived_complete":
             raise PureResultReplayIndexError(
                 PROGRESS_WITNESS_INVALID,
                 "pure replay requires an exact completed persistence shell",
+                context={"node_id": node_id},
+            )
+        if node_id in self._replay_in_progress:
+            raise PureResultReplayIndexError(
+                DEPENDENCY_INDEX_INVALID,
+                "pure replay evaluation re-entered its dependency closure",
                 context={"node_id": node_id},
             )
 
@@ -936,11 +966,10 @@ class PureReplayRuntime:
                 witness=witness,
                 result=result,
             )
-            if any(
-                self.value_for_state_address(address, state)
-                is _OVERLAY_VALUE_MISSING
-                for address in replay_node.output_addresses
-            ):
+            if self._result_row(
+                node_id,
+                visit_count=witness.visit_count,
+            ) is None:
                 self._raise_replay_result_failure(
                     node_id,
                     reason=EVALUATION_FAILED,
@@ -1186,7 +1215,7 @@ class PureReplayRuntime:
                 if (
                     not isinstance(source_step_id, str)
                     or not source_step_id
-                    or not isinstance(value_document, Mapping)
+                    or "value_document" not in descriptor
                 ):
                     raise PureResultReplayIndexError(
                         DEPENDENCY_INDEX_INVALID,
@@ -1201,7 +1230,7 @@ class PureReplayRuntime:
                         catalog=self._reference_catalog,
                         scope_kind=self.index.scope_kind,
                     )
-                    for _, ref in _walk_binding_ref_documents(
+                    for _, ref in _walk_value_document_refs(
                         {"source": value_document}
                     )
                 )
@@ -1455,8 +1484,99 @@ class PureReplayNode:
     presentation_key: str
     bindings: tuple[PureReplayBinding, ...]
     output_addresses: tuple[NodeResultAddress, ...]
+    output_contracts: Mapping[str, Mapping[str, Any]]
     pure_dependency_node_ids: tuple[str, ...]
     durable_dependency_node_ids: tuple[str, ...]
+
+
+def _validate_replay_result_output_members(
+    replay_node: PureReplayNode,
+    *,
+    result: Mapping[str, Any],
+) -> None:
+    """Require exactly the output members active for one normalized result."""
+
+    artifacts = result.get("artifacts")
+    if not isinstance(artifacts, Mapping) or any(
+        not isinstance(member, str) or not member
+        for member in artifacts
+    ):
+        raise PureResultReplayIndexError(
+            DEPENDENCY_INDEX_INVALID,
+            "pure replay result artifacts must be a named object",
+            context={"node_id": replay_node.node_id},
+        )
+
+    expected_members: set[str] = set()
+    for member, contract in replay_node.output_contracts.items():
+        projection = contract.get("projection")
+        if (
+            not isinstance(projection, Mapping)
+            or projection.get("projection_class")
+            != "union_workflow_boundary"
+        ):
+            expected_members.add(member)
+            continue
+
+        role = projection.get("field_role")
+        discriminant_member = projection.get("discriminant_output")
+        active_variants = projection.get("active_variants")
+        if (
+            role not in {"discriminant", "shared", "variant"}
+            or not isinstance(discriminant_member, str)
+            or not discriminant_member
+            or discriminant_member not in replay_node.output_contracts
+            or not isinstance(active_variants, (list, tuple))
+            or not active_variants
+            or any(
+                not isinstance(variant, str) or not variant
+                for variant in active_variants
+            )
+        ):
+            raise PureResultReplayIndexError(
+                DEPENDENCY_INDEX_INVALID,
+                "pure replay union output projection metadata is invalid",
+                context={
+                    "node_id": replay_node.node_id,
+                    "member": member,
+                },
+            )
+        active_variant = artifacts.get(discriminant_member)
+        if not isinstance(active_variant, str) or not active_variant:
+            raise PureResultReplayIndexError(
+                DEPENDENCY_INDEX_INVALID,
+                "pure replay union result omits its discriminant",
+                context={
+                    "node_id": replay_node.node_id,
+                    "member": discriminant_member,
+                },
+            )
+        if role == "discriminant" and active_variant not in set(
+            active_variants
+        ):
+            raise PureResultReplayIndexError(
+                DEPENDENCY_INDEX_INVALID,
+                "pure replay union result has an unknown discriminant",
+                context={
+                    "node_id": replay_node.node_id,
+                    "member": discriminant_member,
+                    "variant": active_variant,
+                },
+            )
+        if role != "variant" or active_variant in set(active_variants):
+            expected_members.add(member)
+
+    actual_members = set(artifacts)
+    if actual_members != expected_members:
+        raise PureResultReplayIndexError(
+            DEPENDENCY_INDEX_INVALID,
+            "pure replay result output members do not match the active contract",
+            context={
+                "node_id": replay_node.node_id,
+                "missing_members": sorted(expected_members - actual_members),
+                "unexpected_members": sorted(actual_members - expected_members),
+            },
+        )
 
 
 @dataclass(frozen=True)
@@ -1608,6 +1728,10 @@ def derive_pure_result_replay_index(
     )
     raw_bindings: dict[str, tuple[PureReplayBinding, ...]] = {}
     output_addresses: dict[str, tuple[NodeResultAddress, ...]] = {}
+    output_contracts_by_node: dict[
+        str,
+        Mapping[str, Mapping[str, Any]],
+    ] = {}
     dependency_addresses: dict[str, tuple[NodeResultAddress, ...]] = {}
 
     for node_id in program_node_ids:
@@ -1643,7 +1767,10 @@ def derive_pure_result_replay_index(
 
         resolved: list[PureReplayBinding] = []
         node_dependencies: list[NodeResultAddress] = []
-        for path, ref in _walk_binding_ref_documents(binding_refs):
+        for path, ref in _walk_typed_binding_ref_documents(
+            binding_refs,
+            payload_bindings=payload_bindings,
+        ):
             address = _resolve_replay_ref(
                 ref,
                 executable=executable,
@@ -1656,21 +1783,32 @@ def derive_pure_result_replay_index(
                 node_dependencies.append(address)
         raw_bindings[node_id] = tuple(resolved)
         dependency_addresses[node_id] = tuple(node_dependencies)
+        normalized_output_contracts: dict[str, Mapping[str, Any]] = {}
+        for member, contract in output_contracts.items():
+            if (
+                not isinstance(member, str)
+                or not member
+                or not isinstance(contract, Mapping)
+            ):
+                raise PureResultReplayIndexError(
+                    DEPENDENCY_INDEX_INVALID,
+                    "pure projection output contracts are invalid",
+                    context={"node_id": node_id},
+                )
+            normalized_output_contracts[member] = MappingProxyType(
+                dict(contract)
+            )
+        output_contracts_by_node[node_id] = MappingProxyType(
+            normalized_output_contracts
+        )
         output_addresses[node_id] = tuple(
             NodeResultAddress(
                 node_id=node_id,
                 field="artifacts",
                 member=member,
             )
-            for member in sorted(output_contracts)
-            if isinstance(member, str) and member
+            for member in sorted(normalized_output_contracts)
         )
-        if len(output_addresses[node_id]) != len(output_contracts):
-            raise PureResultReplayIndexError(
-                DEPENDENCY_INDEX_INVALID,
-                "pure projection output contract names are invalid",
-                context={"node_id": node_id},
-            )
 
     eligible_node_ids, ineligible = _propagate_pure_ineligibility(
         eligible_node_ids=eligible_node_ids,
@@ -1716,6 +1854,7 @@ def derive_pure_result_replay_index(
             ),
             bindings=raw_bindings[node_id],
             output_addresses=output_addresses[node_id],
+            output_contracts=output_contracts_by_node[node_id],
             pure_dependency_node_ids=pure_dependencies[node_id],
             durable_dependency_node_ids=durable_dependencies[node_id],
         )
@@ -1869,60 +2008,456 @@ def _validated_projection_catalog(
     return selector_to_node_id
 
 
-def _walk_binding_ref_documents(
-    binding_refs: Mapping[str, Any],
+def _walk_value_document_refs(
+    value_document: Any,
 ) -> tuple[tuple[tuple[BindingPathPart, ...], str], ...]:
+    """Extract exact ref leaves while preserving ordinary JSON literals."""
+
+    try:
+        canonical_json_for_pure_value(value_document)
+    except (PureExprEvaluationError, TypeError, ValueError) as exc:
+        raise PureResultReplayIndexError(
+            DEPENDENCY_INDEX_INVALID,
+            "value document must contain canonical JSON values",
+            context={"cause": type(exc).__name__},
+        ) from exc
+
     resolved: list[tuple[tuple[BindingPathPart, ...], str]] = []
 
     def walk(value: Any, path: tuple[BindingPathPart, ...]) -> None:
         if isinstance(value, Mapping):
             if "ref" in value:
-                if set(value) != {"ref"} or not isinstance(value["ref"], str):
+                if (
+                    set(value) != {"ref"}
+                    or not isinstance(value["ref"], str)
+                    or not value["ref"]
+                ):
                     raise PureResultReplayIndexError(
                         DEPENDENCY_INDEX_INVALID,
-                        "binding ref document must contain only one string ref",
+                        "value-document ref must contain only one non-empty string",
                         context={"binding_path": list(path)},
                     )
                 resolved.append((path, value["ref"]))
                 return
-            if not value:
-                raise PureResultReplayIndexError(
-                    DEPENDENCY_INDEX_INVALID,
-                    "binding ref document cannot be empty",
-                    context={"binding_path": list(path)},
-                )
             for key in sorted(value, key=str):
-                if not isinstance(key, str) or not key:
+                if not isinstance(key, str):
                     raise PureResultReplayIndexError(
                         DEPENDENCY_INDEX_INVALID,
-                        "binding ref document keys must be non-empty strings",
+                        "value-document keys must be strings",
                         context={"binding_path": list(path)},
                     )
                 walk(value[key], (*path, key))
             return
         if isinstance(value, (list, tuple)):
-            if not value:
-                raise PureResultReplayIndexError(
-                    DEPENDENCY_INDEX_INVALID,
-                    "binding ref sequence cannot be empty",
-                    context={"binding_path": list(path)},
-                )
             for index, item in enumerate(value):
                 walk(item, (*path, index))
             return
+        if value is None or type(value) in {bool, int, float, str}:
+            return
         raise PureResultReplayIndexError(
             DEPENDENCY_INDEX_INVALID,
-            "binding metadata contains a value outside the ref-document grammar",
+            "value document contains a non-JSON value",
             context={"binding_path": list(path)},
         )
 
+    walk(value_document, ())
+    return tuple(resolved)
+
+
+def _document_contains_ref_key(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        return "ref" in value or any(
+            _document_contains_ref_key(item)
+            for item in value.values()
+        )
+    if isinstance(value, (list, tuple)):
+        return any(_document_contains_ref_key(item) for item in value)
+    return False
+
+
+def _typed_descriptor_contains_union(
+    descriptor: Mapping[str, Any],
+) -> bool:
+    kind = descriptor.get("kind")
+    if kind in {"union", "variant_case"}:
+        return True
+    if kind in {"optional", "list"}:
+        item = descriptor.get("item")
+        return isinstance(item, Mapping) and _typed_descriptor_contains_union(
+            item
+        )
+    if kind == "map":
+        return any(
+            isinstance(item, Mapping)
+            and _typed_descriptor_contains_union(item)
+            for item in (descriptor.get("key"), descriptor.get("value"))
+        )
+    if kind == "record":
+        fields_value = descriptor.get("fields")
+        return (
+            isinstance(fields_value, Sequence)
+            and not isinstance(fields_value, (str, bytes))
+            and any(
+                isinstance(field, Mapping)
+                and isinstance(field.get("type"), Mapping)
+                and _typed_descriptor_contains_union(field["type"])
+                for field in fields_value
+            )
+        )
+    return False
+
+
+def _raise_typed_binding_document_error(
+    message: str,
+    *,
+    path: tuple[BindingPathPart, ...],
+    cause: PureExprEvaluationError | None = None,
+) -> NoReturn:
+    context: dict[str, Any] = {"binding_path": list(path)}
+    if cause is not None:
+        context["cause"] = {
+            "code": cause.code,
+            "message": str(cause),
+        }
+    raise PureResultReplayIndexError(
+        DEPENDENCY_INDEX_INVALID,
+        message,
+        context=context,
+    ) from cause
+
+
+def _validate_typed_literal(
+    value: Any,
+    descriptor: Mapping[str, Any],
+    *,
+    path: tuple[BindingPathPart, ...],
+) -> None:
+    try:
+        _coerce_value(
+            value,
+            descriptor,
+            context="pure replay binding literal",
+        )
+    except PureExprEvaluationError as exc:
+        _raise_typed_binding_document_error(
+            "pure replay binding literal does not match its declared type",
+            path=path,
+            cause=exc,
+        )
+
+
+def _descriptor_fields(
+    descriptor: Mapping[str, Any],
+    *,
+    path: tuple[BindingPathPart, ...],
+) -> dict[str, Mapping[str, Any]]:
+    fields_value = descriptor.get("fields")
+    if (
+        not isinstance(fields_value, Sequence)
+        or isinstance(fields_value, (str, bytes))
+    ):
+        _raise_typed_binding_document_error(
+            "pure replay binding type has invalid field metadata",
+            path=path,
+        )
+    fields_by_name: dict[str, Mapping[str, Any]] = {}
+    for field in fields_value:
+        if (
+            not isinstance(field, Mapping)
+            or not isinstance(field.get("name"), str)
+            or not field["name"]
+            or not isinstance(field.get("type"), Mapping)
+            or field["name"] in fields_by_name
+        ):
+            _raise_typed_binding_document_error(
+                "pure replay binding type has invalid field metadata",
+                path=path,
+            )
+        fields_by_name[field["name"]] = field["type"]
+    return fields_by_name
+
+
+def _walk_typed_binding_value(
+    value: Any,
+    descriptor: Mapping[str, Any],
+    *,
+    path: tuple[BindingPathPart, ...],
+    resolved: list[tuple[tuple[BindingPathPart, ...], str]],
+) -> None:
+    if isinstance(value, Mapping) and "ref" in value:
+        if (
+            set(value) != {"ref"}
+            or not isinstance(value["ref"], str)
+            or not value["ref"]
+        ):
+            _raise_typed_binding_document_error(
+                "binding ref document must contain only one non-empty string ref",
+                path=path,
+            )
+        resolved.append((path, value["ref"]))
+        return
+
+    kind = descriptor.get("kind")
+    if kind == "primitive" and descriptor.get("name") == "Json":
+        for nested_path, ref in _walk_value_document_refs(value):
+            resolved.append(((*path, *nested_path), ref))
+        return
+    if (
+        not _typed_descriptor_contains_union(descriptor)
+        and not _document_contains_ref_key(value)
+    ):
+        _validate_typed_literal(value, descriptor, path=path)
+        return
+
+    if kind == "optional":
+        item_descriptor = descriptor.get("item")
+        if not isinstance(item_descriptor, Mapping):
+            _raise_typed_binding_document_error(
+                "pure replay optional binding metadata is invalid",
+                path=path,
+            )
+        if value is None:
+            _validate_typed_literal(value, descriptor, path=path)
+            return
+        _walk_typed_binding_value(
+            value,
+            item_descriptor,
+            path=path,
+            resolved=resolved,
+        )
+        return
+
+    if kind == "list":
+        item_descriptor = descriptor.get("item")
+        if (
+            not isinstance(item_descriptor, Mapping)
+            or not isinstance(value, (list, tuple))
+        ):
+            _raise_typed_binding_document_error(
+                "pure replay list binding metadata is invalid",
+                path=path,
+            )
+        for index, item in enumerate(value):
+            _walk_typed_binding_value(
+                item,
+                item_descriptor,
+                path=(*path, index),
+                resolved=resolved,
+            )
+        return
+
+    if kind == "map":
+        key_descriptor = descriptor.get("key")
+        value_descriptor = descriptor.get("value")
+        if (
+            not isinstance(value, Mapping)
+            or not isinstance(key_descriptor, Mapping)
+            or not isinstance(value_descriptor, Mapping)
+        ):
+            _raise_typed_binding_document_error(
+                "pure replay map binding metadata is invalid",
+                path=path,
+            )
+        for key in sorted(value, key=str):
+            _validate_typed_literal(
+                key,
+                key_descriptor,
+                path=(*path, str(key)),
+            )
+            _walk_typed_binding_value(
+                value[key],
+                value_descriptor,
+                path=(*path, str(key)),
+                resolved=resolved,
+            )
+        return
+
+    if kind == "record":
+        if not isinstance(value, Mapping):
+            _raise_typed_binding_document_error(
+                "pure replay record binding must be an object",
+                path=path,
+            )
+        fields_by_name = _descriptor_fields(descriptor, path=path)
+        if set(value) != set(fields_by_name):
+            _raise_typed_binding_document_error(
+                "pure replay record binding fields do not match its type",
+                path=path,
+            )
+        for field_name, field_descriptor in fields_by_name.items():
+            _walk_typed_binding_value(
+                value[field_name],
+                field_descriptor,
+                path=(*path, field_name),
+                resolved=resolved,
+            )
+        return
+
+    if kind in {"union", "variant_case"}:
+        if not isinstance(value, Mapping):
+            _raise_typed_binding_document_error(
+                "pure replay union binding must be an object",
+                path=path,
+            )
+        variant_value = value.get("variant", _DURABLE_VALUE_MISSING)
+        variant_descriptor: Mapping[str, Any] | None = None
+        if kind == "variant_case":
+            variant_name = descriptor.get("variant")
+            union_name = descriptor.get("union_name")
+            if (
+                not isinstance(variant_name, str)
+                or not variant_name
+                or not isinstance(union_name, str)
+                or not union_name
+                or variant_value is _DURABLE_VALUE_MISSING
+            ):
+                _raise_typed_binding_document_error(
+                    "pure replay variant-case binding metadata is invalid",
+                    path=path,
+                )
+            variant_descriptor = descriptor
+            _walk_typed_binding_value(
+                variant_value,
+                {
+                    "kind": "enum",
+                    "name": union_name,
+                    "allowed": [variant_name],
+                },
+                path=(*path, "variant"),
+                resolved=resolved,
+            )
+        else:
+            variants = descriptor.get("variants")
+            if (
+                not isinstance(variants, Sequence)
+                or isinstance(variants, (str, bytes))
+            ):
+                _raise_typed_binding_document_error(
+                    "pure replay union binding type is invalid",
+                    path=path,
+                )
+            variant_name = variant_value
+            if not isinstance(variant_name, str) or not variant_name:
+                _raise_typed_binding_document_error(
+                    "pure replay union binding must have a literal variant",
+                    path=path,
+                )
+            variant_descriptor = next(
+                (
+                    variant
+                    for variant in variants
+                    if isinstance(variant, Mapping)
+                    and variant.get("name") == variant_name
+                ),
+                None,
+            )
+        if not isinstance(variant_descriptor, Mapping):
+            _raise_typed_binding_document_error(
+                "pure replay union binding selects an unknown variant",
+                path=path,
+            )
+        fields_by_name = _descriptor_fields(
+            variant_descriptor,
+            path=path,
+        )
+        missing = set(fields_by_name) - set(value)
+        if missing:
+            _raise_typed_binding_document_error(
+                "pure replay union binding omits active fields",
+                path=path,
+            )
+        field_descriptors: dict[str, list[Mapping[str, Any]]] = {
+            field_name: [field_descriptor]
+            for field_name, field_descriptor in fields_by_name.items()
+        }
+        if kind == "union":
+            for variant in descriptor.get("variants", ()):
+                if not isinstance(variant, Mapping):
+                    continue
+                for field_name, field_descriptor in _descriptor_fields(
+                    variant,
+                    path=path,
+                ).items():
+                    candidates = field_descriptors.setdefault(
+                        field_name,
+                        [],
+                    )
+                    if not any(
+                        field_descriptor == candidate
+                        for candidate in candidates
+                    ):
+                        candidates.append(field_descriptor)
+        known_union_fields = set(field_descriptors)
+        unknown = set(value) - known_union_fields - {"variant"}
+        if unknown:
+            _raise_typed_binding_document_error(
+                "pure replay union binding has unknown fields",
+                path=path,
+            )
+        for field_name, field_descriptor in fields_by_name.items():
+            _walk_typed_binding_value(
+                value[field_name],
+                field_descriptor,
+                path=(*path, field_name),
+                resolved=resolved,
+            )
+        for inactive_name in known_union_fields - set(fields_by_name):
+            inactive_value = value.get(inactive_name, _DURABLE_VALUE_MISSING)
+            if (
+                inactive_value is not _DURABLE_VALUE_MISSING
+                and _document_contains_ref_key(inactive_value)
+            ):
+                _raise_typed_binding_document_error(
+                    "pure replay inactive union binding fields cannot contain refs",
+                    path=(*path, inactive_name),
+                )
+            if inactive_value is _DURABLE_VALUE_MISSING:
+                continue
+            for inactive_descriptor in field_descriptors[inactive_name]:
+                _walk_typed_binding_value(
+                    inactive_value,
+                    inactive_descriptor,
+                    path=(*path, inactive_name),
+                    resolved=resolved,
+                )
+        return
+
+    _raise_typed_binding_document_error(
+        "pure replay binding ref appears outside a typed container",
+        path=path,
+    )
+
+
+def _walk_typed_binding_ref_documents(
+    binding_refs: Mapping[str, Any],
+    *,
+    payload_bindings: Mapping[str, Any],
+) -> tuple[tuple[tuple[BindingPathPart, ...], str], ...]:
+    resolved: list[tuple[tuple[BindingPathPart, ...], str]] = []
     for binding_name in sorted(binding_refs):
         if not isinstance(binding_name, str) or not binding_name:
             raise PureResultReplayIndexError(
                 DEPENDENCY_INDEX_INVALID,
                 "binding names must be non-empty strings",
             )
-        walk(binding_refs[binding_name], (binding_name,))
+        binding_spec = payload_bindings.get(binding_name)
+        descriptor = (
+            binding_spec.get("type")
+            if isinstance(binding_spec, Mapping)
+            else None
+        )
+        if not isinstance(descriptor, Mapping):
+            raise PureResultReplayIndexError(
+                DEPENDENCY_INDEX_INVALID,
+                "pure replay binding type metadata is missing",
+                context={"binding_path": [binding_name]},
+            )
+        _walk_typed_binding_value(
+            binding_refs[binding_name],
+            descriptor,
+            path=(binding_name,),
+            resolved=resolved,
+        )
     return tuple(resolved)
 
 

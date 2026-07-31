@@ -2,7 +2,8 @@
 
 ## Metadata
 
-- **Status:** accepted M2 design; M2 feasibility complete
+- **Status:** accepted M2 design; M2 feasibility complete; M3a supported
+  activation implemented
 - **Kind:** architecture decision
 - **Owner:** Ollie
 - **Reviewers:** independent specification review, then independent quality review
@@ -11,7 +12,12 @@
   executable implementation landed through `cf0490d1` with completed-resume
   compatibility correction `ce02cd17`; final acceptance passed
   `M2_FEASIBILITY_FINAL_SPEC_APPROVED` then
-  `M2_FEASIBILITY_FINAL_QUALITY_APPROVED`
+  `M2_FEASIBILITY_FINAL_QUALITY_APPROVED`. M3a's corrected activation plan
+  passed `M3A_ACTIVATION_PLAN_SPEC_APPROVED` then
+  `M3A_ACTIVATION_PLAN_QUALITY_APPROVED`; its broad-exposed replay correction
+  passed `M3A_INTEGRATION_FIX_SPEC_APPROVED` then
+  `M3A_INTEGRATION_FIX_QUALITY_APPROVED`. M3a final closure review remains
+  pending.
 - **Created:** 2026-07-29
 - **Last material update:** 2026-07-30
 - **Related docs / plans:**
@@ -20,10 +26,14 @@
   - `docs/plans/2026-07-26-provider-at-least-once-loosening-amendment.md`
   - `docs/design/workflow_lisp_lexical_execution_checkpoints.md`
   - `docs/design/workflow_lisp_lexical_checkpoint_resumability.md`
+  - `docs/plans/2026-07-30-pure-result-replay-activation-component-plan.md`
   - `specs/state.md`
-- **Implementation status:** the explicit-profile feasibility mechanism is
-  implemented in M2; ordinary root and fresh-frame activation remains the
-  separate Phase M3a target
+- **Implementation status:** M2's explicit-profile feasibility mechanism and
+  M3a's supported automatic creation policy are implemented. The M3a Task 4
+  cache-witness/cursor correction passes 122 owner tests, 259
+  production-shape tests, 569-test collection, 968 focused tests, and 9,896
+  broad non-security tests. Restarted ordered final reviews, the closure
+  commit, and postcommit control remain.
 
 ## Summary
 
@@ -72,8 +82,9 @@ The landed runtime already supplies the essential seams:
 - an additive root persistence profile can distinguish new value-free-shell
   state from historical bundle-backed state without reinterpreting old rows;
 - the executable IR uses typed result addresses on several runtime surfaces,
-  but `pure_projection.binding_refs` still carry validated compatibility ref
-  documents and there is no existing typed replay dependency graph;
+  but `pure_projection.binding_refs` still carry validated compatibility value
+  documents containing exact ref leaves and typed literal leaves, and there is
+  no existing typed replay dependency graph;
 - lexical checkpoint records already treat a pure projection as having no
   completed-effect reference; and
 - restore payload validation permits an effect barrier without serializing
@@ -174,6 +185,17 @@ durable boundary, it replaces only the required valid shells in the active
 execution dictionary with recomputed full results. `RunState` retains the
 shells.
 
+Every retained-overlay cache hit first revalidates the current visit/result
+witness. It is accepted only when the state view contains either the exact
+durable shell or the exact validated active-executor full result already held
+by the private cache. The latter is the intentional fresh-execution view while
+the state manager holds the shell and is valid only when the current cursor is
+absent or targets an unrelated node. A cursor targeting the same presentation
+name or step identity conflicts with the completed active row. That conflict,
+a missing or non-one visit, a missing or malformed row, or an active row that
+differs from the validated cache fails closed; process-local cache presence
+cannot override current state authority.
+
 Progress and completion have one closed interpretation:
 
 - eligible-pure visit increment and `current_step` publication occur in one
@@ -266,20 +288,42 @@ fails closed. Resume never infers the profile from missing files or rows and
 never adds the field to an old run. This prevents deletion or corruption of a
 historical pure row from being mistaken for intentional elision.
 
+The supported automatic creation policy selects the profile at exactly three
+typed creation points:
+
+1. a successfully compiled typed public `.orc` run;
+2. a new `.orc` root created by `orchestrate resume --force-restart`; and
+3. a fresh non-iterative child whose validated callee provenance has
+   `frontend_kind == "workflow_lisp"`.
+
+Generic initialization remains explicit opt-in. Ordinary resume uses the
+persisted profile and never chooses or backfills one. Existing roots and
+frames, non-Workflow-Lisp callees, and iteration-owned frames remain
+historical-profile. A fresh non-iterative Workflow Lisp retry selects the
+profile without mutating its failed predecessor. Recurrent, loop-owned, and
+other multiply visited pure nodes remain durable within a profiled root.
+
 ### Transient replay dependency index
 
 The current runtime plan's `dependencies` are positional/control topology, not
-result dataflow, and `pure_projection.binding_refs` are closed compatibility
-ref documents rather than `NodeResultAddress` objects. Neither is sufficient
-replay authority.
+result dataflow, and `pure_projection.binding_refs` are compatibility value
+documents rather than `NodeResultAddress` objects. Exact `{"ref": ...}` leaves
+carry dependency edges, while compiler-owned literal leaves remain ordinary
+typed pure inputs. Neither surface alone is sufficient replay authority.
 
 After ordinary source, executable, and projection validation, the explicit
 profile derives one process-local dependency index without changing serialized
 IR or runtime-plan bytes:
 
 1. Walk only the validator-owned ref-bearing fields consumed by the runtime,
-   including pure binding refs and the selected consumer's typed/ref inputs.
-   Do not infer dependencies from arbitrary prompt or command text.
+   including pure binding value documents and the selected consumer's
+   typed/ref inputs. Validate every literal binding subtree against its
+   `payload.bindings.<name>.type`, treat only an exact non-empty
+   `{"ref": ...}` object as a typed hole, and reject malformed ref objects or
+   wrong literal shapes/types. Consumer checkpoint value documents may contain
+   ordinary JSON literals and compiler metadata; those leaves carry no edge,
+   while malformed ref objects still fail closed. Do not infer dependencies
+   from arbitrary prompt or command text.
 2. Parse each already-validated ref through the existing closed surface-ref
    grammar and the exact root/call-frame projection catalog.
 3. Bind workflow inputs to `WorkflowInputAddress` and step results to exact
@@ -308,6 +352,11 @@ a shell claims otherwise.
    may expose the increment without that cursor.
 2. The existing pure evaluator resolves bindings and evaluates the expression.
 3. The existing output-contract validator creates the same typed artifact map.
+   For a union projection, that map contains the discriminant, shared members,
+   and only the selected variant's members. The transient index retains every
+   statically possible typed output address, while result admission requires
+   exactly the active member set derived from the validated discriminant and
+   projection metadata.
 4. On failure, the ordinary failed result is persisted and `current_step` is
    cleared in the same state transaction.
 5. On success, the normalized result is inserted only into the active
@@ -564,13 +613,10 @@ dependency-index tranche landed at `159a8f5e`, atomic witness persistence at
 `5644bd73`, checkpoint/runtime integration at `cf0490d1`, and completed-resume
 compatibility correction at `ce02cd17`. M2 component (a) is historical
 complete after the final broad gate and ordered reviews approved its exact
-bytes. M3a is eligible but unselected and still requires a separate reviewed
-activation plan.
-
-Ordinary CLI-created roots and fresh call frames remain historical-profile.
-M2 proves the generic root/frame classification and conflict machinery, while
-automatic fresh-frame profile activation and positive nested-frame rollout
-remain M3a responsibilities.
+bytes. The separately reviewed M3a activation plan then landed public new-root
+and force-restart activation at `3442aef2`, fresh non-iterative typed Workflow
+Lisp child activation at `b931b7b8`, and both-direction activation-boundary
+locks at `8a01bc2b`.
 
 Fresh evidence collected 100 tests and passed the post-correction 11-module
 feasibility matrix with 694 tests in 8.31 seconds (log SHA-256
@@ -615,6 +661,57 @@ seconds (log SHA-256
 Ordered final review passed `M2_FEASIBILITY_FINAL_SPEC_APPROVED` then
 `M2_FEASIBILITY_FINAL_QUALITY_APPROVED` against the same closure bytes.
 
+## M3a Activation Evidence
+
+The M3a supported activation is implemented at the three typed creation points
+above. The Task 4 closure measurement used two otherwise identical ordinary
+public CLI executions in equal-length temporary workspaces: the activated run
+used production policy, while the historical control changed only the
+`run.py` root initializer's profile argument to `None`. A third run used
+explicit generic initialization as the existing replay-profile control.
+
+The activated public route has exact parity with both controls for declared
+outputs, artifacts, diagnostics, and settlement. Against the route-identical
+historical absent-profile control, it reduces durable leaves from 106 to 98
+(8 fewer; 7.547170%), `state.json` from 6,539 to 6,199 bytes (340 fewer;
+5.199572%), and run-owned sidecars from 622,815 to 611,912 bytes (10,903
+fewer; 1.750600%). This retains M2's required strict decrease on all three
+storage measures. The 1,983-byte external measurement log has SHA-256
+`4017d50f06235cb2a3687d57f45de3abff2b737f66afe1fb574b5fc8e20036ea`.
+Program-digest equality is not asserted across independently compiled
+temporary workspaces because their absolute source-origin provenance differs;
+program identity was not part of this route-parity measurement.
+
+The first Task 4 broad candidate then exposed three generic M2 assumptions on
+newly activated production shapes: pure binding metadata was treated as
+ref-only even though the compiler emits type-valid literal leaves; checkpoint
+consumer value documents were treated as ref-only even though they also carry
+compiler metadata; and replay settlement required every possible union member
+even though the established runtime omits inactive variant members. The
+failing gate recorded 10 failures, 9,865 passes, 19 skips, and 5 warnings in
+147.13 seconds (log SHA-256
+`6fdffec5e5c8a177372efff2a81d760fd62f1776c7932a2837a49d50ba4e4482`).
+The generic correction type-checks literal binding subtrees, extracts exact
+refs from metadata-bearing consumer documents, validates the exact active
+union member set, and treats a validated sparse overlay row—not presence of
+every possible member—as replay completion. The final-quality correction also
+requires every cache hit to revalidate the visit and exact shell/active-result
+row before returning. Restarted specification review found that the
+active-result exception also had to reject a cursor targeting the same node;
+that cursor conflict now fails closed while an unrelated downstream cursor
+remains valid. The correction changes no compiler output, serialized state,
+profile selection rule, checkpoint authority, or effect boundary. The complete
+122-test replay module and all five production-shape modules containing the 10
+original failures pass as a 381-test integration matrix. Refreshed evidence
+collects 569 tests, passes 968 focused tests, and passes 9,896 broad
+non-security tests with 19 skipped and 5 warnings in 147.72 seconds (log
+SHA-256
+`d4324439f68b6881f353d5e3f436cc4d460f4728b0359d3b8297a795284efb6d`).
+
+These measurements do not select component (b), M3b, or M3c. Ordered final
+reviews, the exact closure commit, and postcommit control remain pending on
+this closure candidate.
+
 ## Verification Strategy
 
 ### Unit and contract tests
@@ -634,9 +731,17 @@ Ordered final review passed `M2_FEASIBILITY_FINAL_SPEC_APPROVED` then
   fail-closed invalid state.
 - Replay ordering: chained pure projections resolve from bound inputs and
   durable effect artifacts.
-- Dependency typing: validated compatibility ref documents derive exact
-  transient addresses; unknown fields/members/scopes, positional-only edges,
-  and serialized-IR changes are rejected.
+- Dependency typing: validated compatibility value documents type-check
+  literal subtrees and derive exact transient addresses only from exact ref
+  leaves; malformed refs, wrong literal shapes/types, unknown
+  fields/members/scopes, positional-only edges, and serialized-IR changes are
+  rejected.
+- Sparse union results: the static index retains every possible output
+  address, while fresh settlement and replay admit exactly the discriminant,
+  shared members, and active variant members. Missing active and extra inactive
+  members fail closed. Overlay row presence prevents duplicate replay only
+  after the current visit and exact durable-shell/active-result witness is
+  revalidated.
 - Reachability: inactive branch projections do not evaluate; ambiguity and
   cycles fail or remain durable according to eligibility.
 - Checkpoints: pure points emit no new record; effect records omit derivable
@@ -737,9 +842,11 @@ additive profile, no value cache, no effect identity, and no second interpreter.
 The profile and exact-shell `result_storage` tag are the only new durable
 discriminators, and neither contains a pure value.
 
-M2 is complete because the fresh closure gates prove that durable value count
-and state/sidecar bytes both decrease and the exact candidate passed ordered
-specification then quality review. The external closure record binds the
+M2 is complete because its fresh closure gates prove that durable value count
+and state/sidecar bytes both decrease and its exact candidate passed ordered
+specification then quality review. M3a becomes historical complete only after
+the landed behavior commits plus its Task 4 broad gate, ordered final reviews,
+exact closure commit, and postcommit control. External closure records bind
 committed bytes without becoming runtime or repository authority.
 
 ## Stop / Revise Criteria
@@ -777,35 +884,20 @@ The M2 closure updates:
 The E-series roadmap is not edited here. Its persistence contracts remain
 subordinate to the accepted M2 result through its owner-maintained routing.
 
-## Implementation Handoff
+## Implementation Status
 
 The reviewed M2 feasibility plan landed the generic fixture and transient index
 at `159a8f5e`, the explicit profile and atomic witness persistence at
 `5644bd73`, runtime/checkpoint integration at `cf0490d1`, and the
-completed-resume compatibility correction at `ce02cd17`. The fixture
-selects the profile only through generic state initialization; it cannot inject
-a helper result or control replay through test-only state.
+completed-resume compatibility correction at `ce02cd17`.
 
-After the final M2 gates and ordered reviews bound this closure, a separate
-reviewed M3a plan may activate the profile for ordinary new Workflow
-Lisp roots and fresh non-iterative call frames, add positive nested-frame
-coverage, and run activation-specific narrow and broad gates. This design and
-its completion do not themselves select or implement that activation.
-
-Likely implementation owners are:
-
-- `orchestrator/workflow/outcomes.py`
-- a small replay/classification module under `orchestrator/workflow/`
-- `orchestrator/state.py`
-- `orchestrator/workflow/call_frame_state.py`
-- `orchestrator/workflow/runtime_plan.py`
-- `orchestrator/workflow/resume_planner.py`
-- `orchestrator/workflow/steps/pure_projection.py`
-- `orchestrator/workflow/executor.py`
-- `orchestrator/workflow_lisp/lexical_checkpoints.py`
-- `orchestrator/workflow_lisp/lexical_checkpoint_default_resume.py`
-- `orchestrator/workflow_lisp/lexical_checkpoint_restore.py`
-- focused pure-projection, resume, checkpoint, call-frame, and state tests
-
-The implementation plan must preserve explicit ownership boundaries and avoid
-growing `executor.py` with the replay algorithm.
+The reviewed M3a activation plan landed root activation at `3442aef2`, fresh
+call-frame activation at `b931b7b8`, and both-direction boundary coverage at
+`8a01bc2b`. Those behavior commits change only typed creation-point arguments
+and add no activation registry, state field, or compiler classifier. The first
+Task 4 broad gate exposed pre-existing replay compatibility gaps for typed
+literal/value documents and sparse union outputs, so Task 4 also carries the
+small generic runtime correction described above. It changes neither
+checkpoint authority nor serialized contracts. The corrected focused and
+9,896-pass broad gates pass; restarted ordered final review, exact commit, and
+postcommit control remain pending until recorded by that plan.

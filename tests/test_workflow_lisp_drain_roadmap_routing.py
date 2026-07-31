@@ -4445,7 +4445,21 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in track_header
     assert "later phase defaults remain recorded" in normalized_track_header
     assert "phase m2 is historical complete" in normalized_track_header
-    assert "m3a task 1 is selected" in normalized_track_header
+    assert "m3a tasks 1 3 landed" in normalized_track_header
+    assert "task 4 closure candidate" in normalized_track_header
+    assert "first final quality review then found and rejected a cache hit witness bypass" in (
+        normalized_track_header
+    )
+    assert "restarted final specification review then rejected that active form" in (
+        normalized_track_header
+    )
+    assert (
+        "passes 122 owner tests, the unchanged 259 production shape tests, a 381 "
+        "test combined matrix, 569 test collection, a 968 test focused gate, and "
+        "a 9,896 pass broad non security gate"
+    ) in normalized_track_header
+    assert "restarted ordered final reviews, exact closure commit, and postcommit control" in normalized_track_header
+    assert "not historical complete until those gates pass" in normalized_track_header
     assert Path(PURE_RESULT_REPLAY_DESIGN_PATH).name in track_header
     normalized_track = _normalized_routing_text(track)
     assert "minimum m2/m3a correctness machinery" in normalized_track
@@ -4458,7 +4472,7 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     )
     assert all(
         phase in listing_guard
-        for phase in ("mc", "mr", "m3", "m4")
+        for phase in ("mc", "mr", "m3b", "m3c", "m4")
     )
     assert "ml" not in listing_guard
 
@@ -4541,10 +4555,23 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "ml 2 allocator simplification" in normalized_substrate_index_route
     assert "phase ml is historical complete" in normalized_substrate_index_route
     assert "m2 component (a) is historical complete" in normalized_substrate_index_route
-    assert "m3a task 1 is selected" in normalized_substrate_index_route
+    assert "m3a tasks 1 3 landed" in normalized_substrate_index_route
+    assert "first final quality and restarted final specification reviews then rejected cache hit witness/cursor bypasses" in (
+        normalized_substrate_index_route
+    )
+    assert (
+        "passes 122 owner tests, 259 production shape tests, 569 test collection, "
+        "968 focused tests, and 9,896 broad non security tests"
+    ) in normalized_substrate_index_route
+    assert (
+        "not historical complete until the restarted ordered final review, "
+        "closure commit, and postcommit control pass"
+    ) in (
+        normalized_substrate_index_route
+    )
     assert "accepted m2 component (a) design" in _normalized_routing_text(index)
     assert "evidence gated and unselected" in normalized_substrate_index_route
-    for unselected_phase in ("mc", "mr", "m3", "m4"):
+    for unselected_phase in ("mc", "mr", "m3b", "m3c", "m4"):
         assert unselected_phase in normalized_substrate_index_route
 
     m2_section = track.split(
@@ -4559,7 +4586,10 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "5644bd73" in m2_section
     assert "cf0490d1" in m2_section
     assert "ce02cd17" in m2_section
-    assert "m3a task 1 is selected" in normalized_m2
+    assert "m3a tasks 1 3 landed" in normalized_m2
+    assert "3442aef2" in m2_section
+    assert "b931b7b8" in m2_section
+    assert "8a01bc2b" in m2_section
     assert "separately reviewed activation plan" in normalized_m2
     assert Path(PURE_RESULT_REPLAY_DESIGN_PATH).name in m2_section
     assert Path(PURE_RESULT_REPLAY_PLAN_PATH).name in m2_section
@@ -4596,10 +4626,29 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "loop/recur" in normalized_pure_replay
     assert "not selected" in normalized_pure_replay
     assert "m2 component (a) is historical complete" in normalized_pure_replay
-    assert "m3a is eligible but unselected" in normalized_pure_replay
-    assert "ordinary cli created roots and fresh call frames remain historical" in (
+    assert "m3a supported activation is implemented" in normalized_pure_replay
+    assert "successfully compiled typed public .orc run" in normalized_pure_replay
+    assert "new .orc root created by orchestrate resume force restart" in (
         normalized_pure_replay
     )
+    assert "fresh non iterative child" in normalized_pure_replay
+    assert 'frontend_kind == "workflow_lisp"' in pure_replay_design
+    assert "generic initialization remains explicit opt in" in (
+        normalized_pure_replay
+    )
+    assert "122 owner tests" in normalized_pure_replay
+    assert "569 test collection" in normalized_pure_replay
+    assert "968 focused tests" in normalized_pure_replay
+    assert "9,896 broad non security tests" in normalized_pure_replay
+    assert "cursor targeting the same presentation name or step identity conflicts" in (
+        normalized_pure_replay
+    )
+    assert "closure candidate passes its focused routing and broad gates" not in (
+        normalized_pure_replay
+    )
+    assert "component (b)" in normalized_pure_replay
+    assert "m3b" in normalized_pure_replay
+    assert "m3c" in normalized_pure_replay
     assert Path(PURE_RESULT_REPLAY_DESIGN_PATH).name in index
 
     normalized_pure_replay_plan = _normalized_routing_text(pure_replay_plan)
@@ -4663,6 +4712,13 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "exact value free completion shell" in normalized_state_spec
     assert "validated_frame_entry_replay" in normalized_state_spec
     assert "unknown profile fails closed" in normalized_state_spec
+    assert "typed public .orc run" in normalized_state_spec
+    assert ".orc force restart" in normalized_state_spec
+    assert "fresh non iterative typed workflow lisp child" in normalized_state_spec
+    assert "generic initialization remains explicit opt in" in normalized_state_spec
+    assert "fresh retry" in normalized_state_spec
+    assert "failed predecessor" in normalized_state_spec
+    assert "recurrent" in normalized_state_spec
 
     normalized_checkpoint_design = _normalized_routing_text(checkpoint_design)
     assert "derived_pure_replay.v1 eligible pure projection" in (
@@ -4678,27 +4734,124 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "does not authorize a runtime bundle read, reuse, or write" in (
         normalized_state_layout
     )
+    assert "supported automatic creation policy" in normalized_state_layout
+    assert "iteration owned" in normalized_state_layout
 
     normalized_design_index = _normalized_routing_text(design_index)
-    assert "accepted; m2 feasibility complete" in normalized_design_index
-    assert "m3a is eligible but unselected" in normalized_design_index
+    assert "accepted; m2 feasibility and m3a activation behavior implemented" in (
+        normalized_design_index
+    )
+    assert "typed public" in normalized_design_index
+    assert "fresh non iterative" in normalized_design_index
 
     normalized_capability_matrix = _normalized_routing_text(capability_matrix)
     assert "workflow lisp derived pure result replay profile" in (
         normalized_capability_matrix
     )
-    assert "| Workflow Lisp derived pure-result replay profile | Partial |" in (
+    assert "| Workflow Lisp derived pure-result replay profile | Implemented |" in (
         capability_matrix
     )
-    assert "implemented only for explicit generic state initialization" in (
+    assert "typed public new root" in (
         normalized_capability_matrix
     )
+    assert "fresh non iterative typed workflow lisp child" in (
+        normalized_capability_matrix
+    )
+    assert "106→98" in capability_matrix
+    assert "6,539→6,199" in capability_matrix
+    assert "622,815→611,912" in capability_matrix
+    assert "569 test collection" in normalized_capability_matrix
+    assert "968 focused tests" in normalized_capability_matrix
+    assert "cache witness/cursor fix" in normalized_capability_matrix
+    assert "9,896 broad non security tests with 19 skipped and 5 warnings" in (
+        normalized_capability_matrix
+    )
+    assert "restarted ordered final review, exact commit, and postcommit control remain" in (
+        normalized_capability_matrix
+    )
+    assert "component (b)" in normalized_capability_matrix
+    assert "m3b" in normalized_capability_matrix
+    assert "m3c" in normalized_capability_matrix
 
     normalized_activation_plan = _normalized_routing_text(
         pure_replay_activation_plan
     )
-    assert "status: reviewed implementation plan" in normalized_activation_plan
-    assert "task 1 selected" in normalized_activation_plan
+    assert "status: task 4 closure candidate" in normalized_activation_plan
+    assert "restarted final specification review found and rejected a relevant cursor cache hit bypass" in (
+        normalized_activation_plan
+    )
+    assert "tasks 1 3 landed" in normalized_activation_plan
+    assert "10 failures, 9,865 passes, 19 skips, and 5 warnings" in (
+        pure_replay_activation_plan
+    )
+    assert (
+        "6fdffec5e5c8a177372efff2a81d760fd62f1776c7932a2837a49d50ba4e4482"
+        in pure_replay_activation_plan
+    )
+    assert "typed literal binding leaves" in normalized_activation_plan
+    assert "metadata bearing consumer value documents" in (
+        normalized_activation_plan
+    )
+    assert "sparse union results" in normalized_activation_plan
+    assert "m3a_integration_fix_spec_approved" in normalized_activation_plan
+    assert "m3a_integration_fix_quality_approved" in normalized_activation_plan
+    assert "the corrected candidate reran these gates" in (
+        normalized_activation_plan
+    )
+    assert (
+        "- [x] In tmux, run the repository-standard broad non-security suite:"
+        in pure_replay_activation_plan
+    )
+    assert "568 tests in 2.15 seconds" in pure_replay_activation_plan
+    assert "967 tests in 8.52 seconds" in pure_replay_activation_plan
+    assert "569 tests in 2.03 seconds" in pure_replay_activation_plan
+    assert "968 tests in 9.72 seconds" in pure_replay_activation_plan
+    assert "9,890 tests, 19 skipped, and 5 warnings" in (
+        pure_replay_activation_plan
+    )
+    assert (
+        "8787a8eb3411c707cd636287b56b68945d80ba63e83ecb82fa5648aff7d356d7"
+        in pure_replay_activation_plan
+    )
+    assert "pre cache witness historical evidence" in normalized_activation_plan
+    assert "9,890 pass result does not satisfy the refreshed closure gate" in (
+        normalized_activation_plan
+    )
+    assert "green 9,890 pass broad gate remains the acceptance result" not in (
+        normalized_activation_plan
+    )
+    assert "pre cursor correction broad gate passed 9,895 tests with 19 skipped and 5 warnings" in (
+        normalized_activation_plan
+    )
+    assert (
+        "07615bb605d401a068a93aeed2476544104d0721fca4d45d80785ac57eafbab3"
+        in pure_replay_activation_plan
+    )
+    assert (
+        "c36a5895c55da9cc887be5deb47095f1bf95d268cdb4c55c50452a2f4ce8f918"
+        in pure_replay_activation_plan
+    )
+    assert (
+        "3236b6844ed3ce63239f85a911b190c7d8bdbe8457fa0046e07ed891ce0c474f"
+        in pure_replay_activation_plan
+    )
+    assert "post cursor correction broad gate passed 9,896 tests with 19 skipped and 5 warnings" in (
+        normalized_activation_plan
+    )
+    assert (
+        "d4324439f68b6881f353d5e3f436cc4d460f4728b0359d3b8297a795284efb6d"
+        in pure_replay_activation_plan
+    )
+    assert (
+        "refreshed broad gate also passes; restarted ordered final reviews remain before "
+        "the exact closure commit and postcommit control"
+    ) in normalized_activation_plan
+    assert (
+        "- [ ] Request `M3A_FINAL_SPEC_APPROVED`, then"
+        in pure_replay_activation_plan
+    )
+    for task_commit in ("3442aef2", "b931b7b8", "8a01bc2b"):
+        assert task_commit in pure_replay_activation_plan
     assert "6e06b4c0" in pure_replay_activation_plan
     assert "m3a_activation_plan_spec_approved" in normalized_activation_plan
     assert "m3a_activation_plan_quality_approved" in normalized_activation_plan
@@ -4729,7 +4882,10 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     )
     for task_number in range(5):
         assert f"## Task {task_number}:" in pure_replay_activation_plan
-    assert "m3a task 1 is selected" in normalized_track
+    assert "m3a tasks 1 3 landed" in normalized_track
+    assert "m3a is not historical complete until" in normalized_track
+    assert "569 test collection, 968 focused tests" in normalized_track
+    assert "refreshed 9,896 test broad non security gate" in normalized_track
     assert "m3a_activation_plan_spec_approved" in normalized_track
     assert "m3a_activation_plan_quality_approved" in normalized_track
 

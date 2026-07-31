@@ -2701,6 +2701,73 @@ def _replace_binding_refs(
     )
 
 
+def _replace_output_contracts(
+    bundle: Any,
+    *,
+    node_id: str,
+    output_contracts: Mapping[str, Any],
+):
+    node = bundle.ir.nodes[node_id]
+    config = node.execution_config
+    assert config is not None
+    pure_projection = {
+        **dict(config.pure_projection),
+        "output_contracts": output_contracts,
+    }
+    replacement = replace(
+        node,
+        execution_config=replace(
+            config,
+            pure_projection=MappingProxyType(pure_projection),
+        ),
+    )
+    return replace(
+        bundle.ir,
+        nodes=MappingProxyType(
+            {
+                **dict(bundle.ir.nodes),
+                node_id: replacement,
+            }
+        ),
+    )
+
+
+def _replace_checkpoint_value_document(
+    bundle: Any,
+    *,
+    node_id: str,
+    source_step_name: str,
+    value_document: Any,
+):
+    replaced = False
+    points = []
+    for point in bundle.runtime_plan.lexical_checkpoint_points:
+        if point.node_id != node_id:
+            points.append(point)
+            continue
+        details = dict(point.details)
+        restore = dict(details.get("restore", {}))
+        descriptors = []
+        for descriptor_value in restore.get("binding_descriptors", ()):
+            descriptor = dict(descriptor_value)
+            if not replaced:
+                descriptor["source_step_name"] = source_step_name
+                descriptor["value_document"] = value_document
+                replaced = True
+            descriptors.append(descriptor)
+        restore["binding_descriptors"] = descriptors
+        details["restore"] = restore
+        points.append(replace(point, details=details))
+    assert replaced
+    return replace(
+        bundle,
+        runtime_plan=replace(
+            bundle.runtime_plan,
+            lexical_checkpoint_points=tuple(points),
+        ),
+    )
+
+
 def test_pure_replay_dependency_index_keeps_serialized_plan_unchanged(
     tmp_path: Path,
 ) -> None:
@@ -2898,6 +2965,838 @@ def test_pure_replay_dependency_index_rejects_unbound_text_and_cross_frame_refs(
 
     assert excinfo.value.code == "pure_result_replay_unavailable"
     assert excinfo.value.reason == reason
+
+
+def test_pure_replay_dependency_index_accepts_typed_literal_bindings(
+    tmp_path: Path,
+) -> None:
+    _, bundle = _copy_and_compile_fixture(tmp_path)
+    a_id = _node_id_ending(bundle, "__a")
+    b_id = _node_id_ending(bundle, "__b")
+    a_node = bundle.ir.nodes[a_id]
+    a_config = a_node.execution_config
+    assert a_config is not None
+    binding_refs = dict(a_config.pure_projection["binding_refs"])
+    binding_refs["seed"] = 3
+    literal_ir = _replace_binding_refs(
+        bundle,
+        node_id=a_id,
+        binding_refs=binding_refs,
+    )
+
+    index = derive_pure_result_replay_index(replace(bundle, ir=literal_ir))
+
+    assert a_id in index.nodes
+    assert b_id in index.nodes
+    assert {
+        binding.path: binding.address
+        for binding in index.nodes[a_id].bindings
+    } == {
+        ("enabled",): WorkflowInputAddress("enabled"),
+    }
+    assert index.required_pure_node_ids(
+        (
+            NodeResultAddress(
+                node_id=a_id,
+                field="artifacts",
+                member="return__value",
+            ),
+        ),
+        reached_node_ids=(a_id,),
+    ) == (a_id,)
+
+
+@pytest.mark.parametrize("invalid_seed", ("3", {"unexpected": 3}))
+def test_pure_replay_dependency_index_rejects_wrong_typed_literal_bindings(
+    tmp_path: Path,
+    invalid_seed: Any,
+) -> None:
+    _, bundle = _copy_and_compile_fixture(tmp_path)
+    a_id = _node_id_ending(bundle, "__a")
+    a_node = bundle.ir.nodes[a_id]
+    a_config = a_node.execution_config
+    assert a_config is not None
+    binding_refs = dict(a_config.pure_projection["binding_refs"])
+    binding_refs["seed"] = invalid_seed
+    invalid_ir = _replace_binding_refs(
+        bundle,
+        node_id=a_id,
+        binding_refs=binding_refs,
+    )
+
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        derive_pure_result_replay_index(replace(bundle, ir=invalid_ir))
+
+    assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
+
+
+def test_pure_replay_typed_binding_walker_accepts_variant_case_discriminant_ref() -> None:
+    refs = pure_result_replay._walk_typed_binding_ref_documents(
+        {
+            "revised": {
+                "variant": {"ref": "root.steps.review.artifacts.return__variant"},
+                "report": {"ref": "root.steps.review.artifacts.return__report"},
+            }
+        },
+        payload_bindings={
+            "revised": {
+                "type": {
+                    "kind": "variant_case",
+                    "union_name": "ReviewDecision",
+                    "variant": "REVISE",
+                    "fields": [
+                        {
+                            "name": "report",
+                            "type": {"kind": "primitive", "name": "String"},
+                        }
+                    ],
+                }
+            }
+        },
+    )
+
+    assert refs == (
+        (
+            ("revised", "variant"),
+            "root.steps.review.artifacts.return__variant",
+        ),
+        (
+            ("revised", "report"),
+            "root.steps.review.artifacts.return__report",
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "active_value",
+    (
+        1,
+        {"ref": "root.steps.left.artifacts.return__value"},
+    ),
+    ids=("literal-active-field", "ref-active-field"),
+)
+def test_pure_replay_typed_binding_walker_rejects_wrong_inactive_union_literal(
+    active_value: Any,
+) -> None:
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        pure_result_replay._walk_typed_binding_ref_documents(
+            {
+                "decision": {
+                    "variant": "LEFT",
+                    "left": active_value,
+                    "right": "not-an-int",
+                }
+            },
+            payload_bindings={
+                "decision": {
+                    "type": {
+                        "kind": "union",
+                        "name": "Decision",
+                        "variants": [
+                            {
+                                "name": "LEFT",
+                                "fields": [
+                                    {
+                                        "name": "left",
+                                        "type": {
+                                            "kind": "primitive",
+                                            "name": "Int",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "name": "RIGHT",
+                                "fields": [
+                                    {
+                                        "name": "right",
+                                        "type": {
+                                            "kind": "primitive",
+                                            "name": "Int",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                }
+            },
+        )
+
+    assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
+
+
+def test_pure_replay_typed_binding_walker_rejects_nested_wrong_inactive_union_literal() -> None:
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        pure_result_replay._walk_typed_binding_ref_documents(
+            {
+                "envelope": {
+                    "label": "decision",
+                    "decision": {
+                        "variant": "LEFT",
+                        "left": 1,
+                        "right": "not-an-int",
+                    },
+                }
+            },
+            payload_bindings={
+                "envelope": {
+                    "type": {
+                        "kind": "record",
+                        "name": "Envelope",
+                        "fields": [
+                            {
+                                "name": "label",
+                                "type": {
+                                    "kind": "primitive",
+                                    "name": "String",
+                                },
+                            },
+                            {
+                                "name": "decision",
+                                "type": {
+                                    "kind": "union",
+                                    "name": "Decision",
+                                    "variants": [
+                                        {
+                                            "name": "LEFT",
+                                            "fields": [
+                                                {
+                                                    "name": "left",
+                                                    "type": {
+                                                        "kind": "primitive",
+                                                        "name": "Int",
+                                                    },
+                                                }
+                                            ],
+                                        },
+                                        {
+                                            "name": "RIGHT",
+                                            "fields": [
+                                                {
+                                                    "name": "right",
+                                                    "type": {
+                                                        "kind": "primitive",
+                                                        "name": "Int",
+                                                    },
+                                                }
+                                            ],
+                                        },
+                                    ],
+                                },
+                            },
+                        ],
+                    }
+                }
+            },
+        )
+
+    assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
+
+
+def test_pure_replay_typed_binding_walker_rejects_wrong_nested_union_in_inactive_field() -> None:
+    inner_union = {
+        "kind": "union",
+        "name": "Inner",
+        "variants": [
+            {
+                "name": "A",
+                "fields": [
+                    {
+                        "name": "a",
+                        "type": {"kind": "primitive", "name": "Int"},
+                    }
+                ],
+            },
+            {
+                "name": "B",
+                "fields": [
+                    {
+                        "name": "b",
+                        "type": {"kind": "primitive", "name": "Int"},
+                    }
+                ],
+            },
+        ],
+    }
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        pure_result_replay._walk_typed_binding_ref_documents(
+            {
+                "outer": {
+                    "variant": "LEFT",
+                    "left": 1,
+                    "payload": {
+                        "variant": "A",
+                        "a": 2,
+                        "b": "not-an-int",
+                    },
+                }
+            },
+            payload_bindings={
+                "outer": {
+                    "type": {
+                        "kind": "union",
+                        "name": "Outer",
+                        "variants": [
+                            {
+                                "name": "LEFT",
+                                "fields": [
+                                    {
+                                        "name": "left",
+                                        "type": {
+                                            "kind": "primitive",
+                                            "name": "Int",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "name": "RIGHT",
+                                "fields": [
+                                    {
+                                        "name": "payload",
+                                        "type": inner_union,
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                }
+            },
+        )
+
+    assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
+
+
+def test_pure_replay_typed_binding_walker_accepts_typed_inactive_union_literal() -> None:
+    refs = pure_result_replay._walk_typed_binding_ref_documents(
+        {
+            "decision": {
+                "variant": "LEFT",
+                "left": 1,
+                "right": 2,
+            }
+        },
+        payload_bindings={
+            "decision": {
+                "type": {
+                    "kind": "union",
+                    "name": "Decision",
+                    "variants": [
+                        {
+                            "name": "LEFT",
+                            "fields": [
+                                {
+                                    "name": "left",
+                                    "type": {
+                                        "kind": "primitive",
+                                        "name": "Int",
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "name": "RIGHT",
+                            "fields": [
+                                {
+                                    "name": "right",
+                                    "type": {
+                                        "kind": "primitive",
+                                        "name": "Int",
+                                    },
+                                }
+                            ],
+                        },
+                    ],
+                }
+            }
+        },
+    )
+
+    assert refs == ()
+
+
+def test_pure_replay_typed_binding_walker_validates_mixed_json_literals() -> None:
+    payload_bindings = {
+        "document": {
+            "type": {
+                "kind": "primitive",
+                "name": "Json",
+            }
+        }
+    }
+    refs = pure_result_replay._walk_typed_binding_ref_documents(
+        {
+            "document": {
+                "literal": {"enabled": True},
+                "dependency": {"ref": "inputs.seed"},
+            }
+        },
+        payload_bindings=payload_bindings,
+    )
+
+    assert refs == (
+        (
+            ("document", "dependency"),
+            "inputs.seed",
+        ),
+    )
+    for invalid_document in (
+        {"literal": float("nan")},
+        {
+            "literal": float("nan"),
+            "dependency": {"ref": "inputs.seed"},
+        },
+    ):
+        with pytest.raises(PureResultReplayIndexError) as excinfo:
+            pure_result_replay._walk_typed_binding_ref_documents(
+                {"document": invalid_document},
+                payload_bindings=payload_bindings,
+            )
+        assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
+    assert pure_result_replay._walk_typed_binding_ref_documents(
+        {"document": {"": {"literal": 1}}},
+        payload_bindings=payload_bindings,
+    ) == ()
+
+
+def _sparse_union_replay_bundle(bundle: Any, *, node_id: str):
+    node = bundle.ir.nodes[node_id]
+    config = node.execution_config
+    assert config is not None
+    scalar_contract = dict(
+        next(iter(config.pure_projection["output_contracts"].values()))
+    )
+    projection_base = {
+        "projection_class": "union_workflow_boundary",
+        "return_kind": "union",
+        "union_output_group": "return",
+        "discriminant_output": "return__variant",
+    }
+    output_contracts = {
+        "return__variant": {
+            "kind": "scalar",
+            "type": "enum",
+            "allowed": ["LEFT", "RIGHT"],
+            "projection": {
+                **projection_base,
+                "field_role": "discriminant",
+                "active_variants": ["LEFT", "RIGHT"],
+            },
+        },
+        "return__left": {
+            **scalar_contract,
+            "projection": {
+                **projection_base,
+                "field_role": "variant",
+                "active_variants": ["LEFT"],
+            },
+        },
+        "return__right": {
+            **scalar_contract,
+            "projection": {
+                **projection_base,
+                "field_role": "variant",
+                "active_variants": ["RIGHT"],
+            },
+        },
+    }
+    return replace(
+        bundle,
+        ir=_replace_output_contracts(
+            bundle,
+            node_id=node_id,
+            output_contracts=output_contracts,
+        ),
+    )
+
+
+def test_pure_replay_sparse_union_result_uses_overlay_row_presence(
+    tmp_path: Path,
+) -> None:
+    _, bundle = _copy_and_compile_fixture(tmp_path)
+    a_id = _node_id_ending(bundle, "__a")
+    union_bundle = _sparse_union_replay_bundle(bundle, node_id=a_id)
+    runtime = pure_result_replay.PureReplayRuntime(
+        bundle=union_bundle,
+        scope_path=ResumeScopePath.root(str(FIXTURE)),
+    )
+    witness = runtime.witness(a_id)
+    state = {
+        "step_visits": {witness.presentation_key: 1},
+        "steps": {
+            witness.presentation_key: (
+                pure_result_replay.build_pure_completion_shell(witness)
+            )
+        },
+        "bound_inputs": {"seed": 3, "enabled": True},
+    }
+    result = {
+        "name": witness.presentation_key,
+        "step_id": witness.step_id,
+        "visit_count": 1,
+        "status": "completed",
+        "exit_code": 0,
+        "artifacts": {
+            "return__variant": "LEFT",
+            "return__left": 3,
+        },
+    }
+    evaluations: list[str] = []
+
+    runtime.replay_node(
+        a_id,
+        state=state,
+        evaluate_node=lambda node_id, _state: (
+            evaluations.append(node_id) or result
+        ),
+    )
+    runtime.replay_node(
+        a_id,
+        state=state,
+        evaluate_node=lambda _node_id, _state: (_ for _ in ()).throw(
+            AssertionError("an existing sparse overlay row must not replay twice")
+        ),
+    )
+
+    assert evaluations == [a_id]
+    assert runtime.value_for_state_address(
+        NodeResultAddress(a_id, "artifacts", "return__left"),
+        state,
+    ) == 3
+    with pytest.raises(PureResultReplayIndexError) as inactive:
+        runtime.value_for_state_address(
+            NodeResultAddress(a_id, "artifacts", "return__right"),
+            state,
+        )
+    assert inactive.value.reason == DEPENDENCY_INDEX_INVALID
+
+
+def test_pure_replay_sparse_union_cache_hit_accepts_exact_active_result(
+    tmp_path: Path,
+) -> None:
+    _, bundle = _copy_and_compile_fixture(tmp_path)
+    a_id = _node_id_ending(bundle, "__a")
+    runtime = pure_result_replay.PureReplayRuntime(
+        bundle=_sparse_union_replay_bundle(bundle, node_id=a_id),
+        scope_path=ResumeScopePath.root(str(FIXTURE)),
+    )
+    witness = runtime.witness(a_id)
+    state = {
+        "step_visits": {witness.presentation_key: 1},
+        "steps": {
+            witness.presentation_key: (
+                pure_result_replay.build_pure_completion_shell(witness)
+            )
+        },
+        "bound_inputs": {"seed": 3, "enabled": True},
+    }
+    result = {
+        "name": witness.presentation_key,
+        "step_id": witness.step_id,
+        "visit_count": 1,
+        "status": "completed",
+        "exit_code": 0,
+        "artifacts": {
+            "return__variant": "LEFT",
+            "return__left": 3,
+        },
+    }
+    runtime.replay_node(
+        a_id,
+        state=state,
+        evaluate_node=lambda _node_id, _state: result,
+    )
+    state["steps"][witness.presentation_key] = result
+    state["current_step"] = {
+        "name": "downstream",
+        "index": witness.step_index + 1,
+        "type": "command",
+        "status": "running",
+        "step_id": "downstream",
+        "visit_count": 1,
+        "started_at": "2026-07-30T00:00:00Z",
+        "last_heartbeat_at": "2026-07-30T00:00:00Z",
+    }
+
+    runtime.replay_node(
+        a_id,
+        state=state,
+        evaluate_node=lambda _node_id, _state: (_ for _ in ()).throw(
+            AssertionError("an exact active result must use the retained cache")
+        ),
+    )
+
+
+def test_pure_replay_sparse_union_cache_hit_rejects_relevant_running_cursor(
+    tmp_path: Path,
+) -> None:
+    _, bundle = _copy_and_compile_fixture(tmp_path)
+    a_id = _node_id_ending(bundle, "__a")
+    runtime = pure_result_replay.PureReplayRuntime(
+        bundle=_sparse_union_replay_bundle(bundle, node_id=a_id),
+        scope_path=ResumeScopePath.root(str(FIXTURE)),
+    )
+    witness = runtime.witness(a_id)
+    state = {
+        "step_visits": {witness.presentation_key: 1},
+        "steps": {
+            witness.presentation_key: (
+                pure_result_replay.build_pure_completion_shell(witness)
+            )
+        },
+        "bound_inputs": {"seed": 3, "enabled": True},
+    }
+    result = {
+        "name": witness.presentation_key,
+        "step_id": witness.step_id,
+        "visit_count": 1,
+        "status": "completed",
+        "exit_code": 0,
+        "artifacts": {
+            "return__variant": "LEFT",
+            "return__left": 3,
+        },
+    }
+    runtime.replay_node(
+        a_id,
+        state=state,
+        evaluate_node=lambda _node_id, _state: result,
+    )
+    state["steps"][witness.presentation_key] = result
+    state["current_step"] = {
+        "name": witness.presentation_key,
+        "index": witness.step_index,
+        "type": "pure_projection",
+        "status": "running",
+        "step_id": witness.step_id,
+        "visit_count": witness.visit_count,
+        "started_at": "2026-07-30T00:00:00Z",
+        "last_heartbeat_at": "2026-07-30T00:00:00Z",
+    }
+
+    assert (
+        pure_result_replay.classify_pure_replay_progress(
+            state,
+            witness=witness,
+        )
+        == "progress_witness_invalid"
+    )
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        runtime.replay_node(
+            a_id,
+            state=state,
+            evaluate_node=lambda _node_id, _state: (_ for _ in ()).throw(
+                AssertionError("a relevant running cursor must invalidate cache")
+            ),
+        )
+
+    assert excinfo.value.reason == "progress_witness_invalid"
+
+
+@pytest.mark.parametrize(
+    "invalid_state_kind",
+    (
+        "missing-visits",
+        "non-one-visit",
+        "missing-shell",
+        "malformed-shell",
+    ),
+)
+def test_pure_replay_sparse_union_cache_hit_revalidates_durable_witness(
+    tmp_path: Path,
+    invalid_state_kind: str,
+) -> None:
+    _, bundle = _copy_and_compile_fixture(tmp_path)
+    a_id = _node_id_ending(bundle, "__a")
+    runtime = pure_result_replay.PureReplayRuntime(
+        bundle=_sparse_union_replay_bundle(bundle, node_id=a_id),
+        scope_path=ResumeScopePath.root(str(FIXTURE)),
+    )
+    witness = runtime.witness(a_id)
+    state: dict[str, Any] = {
+        "step_visits": {witness.presentation_key: 1},
+        "steps": {
+            witness.presentation_key: (
+                pure_result_replay.build_pure_completion_shell(witness)
+            )
+        },
+        "bound_inputs": {"seed": 3, "enabled": True},
+    }
+    result = {
+        "name": witness.presentation_key,
+        "step_id": witness.step_id,
+        "visit_count": 1,
+        "status": "completed",
+        "exit_code": 0,
+        "artifacts": {
+            "return__variant": "LEFT",
+            "return__left": 3,
+        },
+    }
+    runtime.replay_node(
+        a_id,
+        state=state,
+        evaluate_node=lambda _node_id, _state: result,
+    )
+
+    if invalid_state_kind == "missing-visits":
+        state["step_visits"] = {}
+    elif invalid_state_kind == "non-one-visit":
+        state["step_visits"] = {witness.presentation_key: 2}
+    elif invalid_state_kind == "missing-shell":
+        state["steps"] = {}
+    else:
+        state["steps"] = {
+            witness.presentation_key: {
+                **pure_result_replay.build_pure_completion_shell(witness),
+                "status": "running",
+            }
+        }
+
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        runtime.replay_node(
+            a_id,
+            state=state,
+            evaluate_node=lambda _node_id, _state: (_ for _ in ()).throw(
+                AssertionError("an invalid durable witness must not use cache")
+            ),
+        )
+
+    assert excinfo.value.reason == "progress_witness_invalid"
+
+
+@pytest.mark.parametrize(
+    "artifacts",
+    (
+        pytest.param(
+            {"return__variant": "LEFT"},
+            id="missing-active-variant-member",
+        ),
+        pytest.param(
+            {
+                "return__variant": "LEFT",
+                "return__left": 3,
+                "return__right": 4,
+            },
+            id="extra-inactive-variant-member",
+        ),
+    ),
+)
+def test_pure_replay_sparse_union_result_rejects_wrong_active_member_set(
+    tmp_path: Path,
+    artifacts: Mapping[str, Any],
+) -> None:
+    _, bundle = _copy_and_compile_fixture(tmp_path)
+    a_id = _node_id_ending(bundle, "__a")
+    runtime = pure_result_replay.PureReplayRuntime(
+        bundle=_sparse_union_replay_bundle(bundle, node_id=a_id),
+        scope_path=ResumeScopePath.root(str(FIXTURE)),
+    )
+    witness = runtime.witness(a_id)
+
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        runtime.record_full_result(
+            a_id,
+            witness=witness,
+            result={
+                "name": witness.presentation_key,
+                "step_id": witness.step_id,
+                "visit_count": 1,
+                "status": "completed",
+                "exit_code": 0,
+                "artifacts": dict(artifacts),
+            },
+        )
+
+    assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
+
+
+def test_pure_replay_value_document_ref_walker_ignores_typed_literals() -> None:
+    document = {
+        "__compiler_metadata__": "state/provider/result.json",
+        "payload": [
+            1,
+            True,
+            None,
+            {"source": {"ref": "inputs.seed"}},
+        ],
+    }
+
+    assert pure_result_replay._walk_value_document_refs(document) == (
+        (("payload", 3, "source"), "inputs.seed"),
+    )
+    assert pure_result_replay._walk_value_document_refs(
+        ["compiler-metadata", {"ref": "inputs.seed"}]
+    ) == (((1,), "inputs.seed"),)
+    assert pure_result_replay._walk_value_document_refs(
+        {"": {"ref": "inputs.seed"}}
+    ) == ((("",), "inputs.seed"),)
+
+    with pytest.raises(PureResultReplayIndexError) as malformed:
+        pure_result_replay._walk_value_document_refs(
+            [{"source": {"ref": "inputs.seed", "extra": True}}]
+        )
+    assert malformed.value.reason == DEPENDENCY_INDEX_INVALID
+
+    with pytest.raises(PureResultReplayIndexError) as noncanonical:
+        pure_result_replay._walk_value_document_refs(
+            [{"literal": float("inf")}, {"ref": "inputs.seed"}]
+        )
+    assert noncanonical.value.reason == DEPENDENCY_INDEX_INVALID
+
+
+def test_pure_replay_boundary_indexes_list_root_value_documents(
+    tmp_path: Path,
+) -> None:
+    _, bundle = _copy_and_compile_fixture(tmp_path)
+    a_id = _node_id_ending(bundle, "__a")
+    e1_id = _node_id_ending(bundle, "__e1__count_e1")
+    a_name = bundle.projection.entries_by_node_id[a_id].presentation_key
+    a_member = "return__value"
+    a_ref = f"root.steps.{a_name}.artifacts.{a_member}"
+    list_bundle = _replace_checkpoint_value_document(
+        bundle,
+        node_id=e1_id,
+        source_step_name="compiler-metadata-only",
+        value_document=["compiler-metadata", {"ref": a_ref}],
+    )
+    runtime = pure_result_replay.PureReplayRuntime(
+        bundle=list_bundle,
+        scope_path=ResumeScopePath.root(str(FIXTURE)),
+    )
+    witness = runtime.witness(a_id)
+    state = {
+        "step_visits": {a_name: 1},
+        "steps": {
+            a_name: pure_result_replay.build_pure_completion_shell(witness)
+        },
+        "bound_inputs": {"seed": 3, "enabled": True},
+    }
+
+    assert runtime.required_node_ids_for_boundary(
+        e1_id,
+        state=state,
+    ) == (a_id,)
+
+    malformed_bundle = _replace_checkpoint_value_document(
+        bundle,
+        node_id=e1_id,
+        source_step_name="compiler-metadata-only",
+        value_document=[
+            {"ref": a_ref, "unexpected": "not-a-ref-document"}
+        ],
+    )
+    malformed_runtime = pure_result_replay.PureReplayRuntime(
+        bundle=malformed_bundle,
+        scope_path=ResumeScopePath.root(str(FIXTURE)),
+    )
+    with pytest.raises(PureResultReplayIndexError) as malformed:
+        malformed_runtime.required_node_ids_for_boundary(
+            e1_id,
+            state=state,
+        )
+    assert malformed.value.reason == DEPENDENCY_INDEX_INVALID
 
 
 def test_pure_replay_dependency_index_rejects_cycle_and_multiple_visit_region(

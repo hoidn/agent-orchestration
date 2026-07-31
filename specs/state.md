@@ -14,8 +14,14 @@
     means historical bundle-backed result persistence. The only supported
     present value is `derived_pure_replay.v1`; an unknown profile fails closed.
     The field is written atomically when a root or nested call-frame state is
-    explicitly initialized under that profile, before any visit begins. Resume
-    never infers, backfills, or upgrades it from rows or sidecar presence.
+    created under that profile, before any visit begins. The supported
+    automatic creation policy selects it for a successfully compiled typed
+    public `.orc` run, a new `.orc` root created by
+    `orchestrate resume --force-restart`, and a fresh non-iterative child whose
+    validated loaded-bundle provenance has
+    `frontend_kind == "workflow_lisp"`. Generic initialization remains
+    explicit opt-in. Ordinary resume never infers, backfills, or upgrades the
+    field from source kind, rows, or sidecar presence.
   - `bound_inputs`: v2.1+ typed workflow inputs bound before execution starts
   - `workflow_outputs`: v2.1+ typed workflow outputs exported after successful workflow completion
   - `finalization`: v2.3+ workflow finalization bookkeeping (`status`, `body_status`, `current_index`, `completed_indices`, `workflow_outputs_status`, optional `failure`)
@@ -146,11 +152,38 @@ a mismatched visit, or a conflicting bundle/private-lineage/checkpoint/restore
 surface fails closed before mutation or effect dispatch. Replay validates only
 the required dependency leaves and reconstructs typed values into a
 process-local overlay; it never executes an effect or writes durable state.
+Pure binding value documents may contain exact `{"ref": ...}` leaves and
+ordinary literal leaves. Exact refs alone form dependency edges; every literal
+subtree must match its declared pure binding type, and malformed ref objects
+fail closed. Consumer/checkpoint value documents may additionally carry
+compiler metadata and JSON literals that form no edge. For a union pure result,
+the static replay catalog retains every possible typed address, while the
+transient result row contains exactly the discriminant, shared outputs, and
+active variant outputs. Missing active or extra inactive members are invalid;
+row presence, not presence of every possible union address, proves that the
+transient overlay has been reconstructed. A retained overlay row never
+overrides current state authority: every cache hit must revalidate the exact
+visit and must observe either the exact durable completion shell or the exact
+validated active-executor full result already held in that private cache. The
+active-result form is valid only when `current_step` is absent or belongs to an
+unrelated node; a cursor targeting the same presentation name or step identity
+conflicts with the completed row and fails closed. Missing or non-one visits,
+missing or malformed rows, and mismatched active rows also fail closed.
 
-This profile is available only through explicit generic state initialization in
-the M2 feasibility mechanism. Ordinary CLI-created roots and fresh nested call
-frames remain on the historical profile until a separately reviewed M3a
-activation changes that creation policy.
+The supported automatic creation policy selects this profile for a typed public
+`.orc` run, a new `.orc` force-restart root, and a fresh non-iterative typed
+Workflow Lisp child. Child selection comes from the callee's validated typed
+provenance and resolved non-iterative boundary, not from the parent profile,
+path suffix, alias, or step identity. A fresh retry after a failed
+non-iterative Workflow Lisp predecessor is new state and selects the profile;
+the failed predecessor remains byte-for-byte unchanged.
+
+Generic `StateManager.initialize(...)` callers remain explicit opt-in.
+Ordinary resume uses only the profile already persisted in the selected root
+or frame. Existing roots and frames, non-Workflow-Lisp callees, and
+iteration-owned child frames remain historical-profile. Recurrent, loop-owned,
+and other multiply visited pure nodes remain fully durable even inside a
+profiled root.
 
 - Output contract failure shape
   - If `expected_outputs`, `output_bundle`, or another deterministic structured

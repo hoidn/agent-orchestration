@@ -105,6 +105,12 @@ The current checkout adds these generated path roles:
   and historical compatibility. That carriage does not authorize a runtime
   bundle read, reuse, or write. The runtime may derive the canonical path
   read-only when auditing that no forbidden persisted surface exists.
+  The supported automatic creation policy selects the profile for typed public
+  `.orc` run and force-restart roots plus fresh non-iterative typed Workflow
+  Lisp children. Generic initialization remains explicit opt-in. Existing
+  roots/frames, non-Workflow-Lisp callees, and iteration-owned frames retain
+  historical bundle layout; a fresh eligible retry selects the profile without
+  changing its failed predecessor.
 - `ENTRYPOINT_MANAGED_WRITE_ROOT`
   Companion allocation that gives the generated write-root input a concrete
   run-scoped `.json` path under `.orchestrate/workflow_lisp/entry/...`.
@@ -159,6 +165,9 @@ State layout validation checks:
   transport, not public authored workflow inputs. Retained compiled allocation
   carriage for an exact-profile eligible projection is compatibility identity,
   not runtime persistence permission.
+- Automatic profile selection is confined to the supported typed creation
+  points above. Ordinary resume does not backfill existing state, and
+  recurrent or iteration-owned pure state remains durable.
 - Runtime-owned `resource_state` and `transition_audit` paths remain private
   generated state even when one transition still bridges to a legacy state
   document.
