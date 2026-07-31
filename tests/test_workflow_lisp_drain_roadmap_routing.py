@@ -4445,7 +4445,7 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in track_header
     assert "later phase defaults remain recorded" in normalized_track_header
     assert "phase m2 is historical complete" in normalized_track_header
-    assert "m3a is eligible but unselected" in normalized_track_header
+    assert "m3a task 1 is selected" in normalized_track_header
     assert Path(PURE_RESULT_REPLAY_DESIGN_PATH).name in track_header
     normalized_track = _normalized_routing_text(track)
     assert "minimum m2/m3a correctness machinery" in normalized_track
@@ -4541,7 +4541,7 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "ml 2 allocator simplification" in normalized_substrate_index_route
     assert "phase ml is historical complete" in normalized_substrate_index_route
     assert "m2 component (a) is historical complete" in normalized_substrate_index_route
-    assert "m3a is eligible but unselected" in normalized_substrate_index_route
+    assert "m3a task 1 is selected" in normalized_substrate_index_route
     assert "accepted m2 component (a) design" in _normalized_routing_text(index)
     assert "evidence gated and unselected" in normalized_substrate_index_route
     for unselected_phase in ("mc", "mr", "m3", "m4"):
@@ -4559,8 +4559,8 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "5644bd73" in m2_section
     assert "cf0490d1" in m2_section
     assert "ce02cd17" in m2_section
-    assert "m3a is eligible but unselected" in normalized_m2
-    assert "separate reviewed activation plan" in normalized_m2
+    assert "m3a task 1 is selected" in normalized_m2
+    assert "separately reviewed activation plan" in normalized_m2
     assert Path(PURE_RESULT_REPLAY_DESIGN_PATH).name in m2_section
     assert Path(PURE_RESULT_REPLAY_PLAN_PATH).name in m2_section
     assert "effect identity memo keys" in normalized_m2
@@ -4697,8 +4697,11 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     normalized_activation_plan = _normalized_routing_text(
         pure_replay_activation_plan
     )
-    assert "status: proposed plan" in normalized_activation_plan
-    assert "implementation unselected" in normalized_activation_plan
+    assert "status: reviewed implementation plan" in normalized_activation_plan
+    assert "task 1 selected" in normalized_activation_plan
+    assert "6e06b4c0" in pure_replay_activation_plan
+    assert "m3a_activation_plan_spec_approved" in normalized_activation_plan
+    assert "m3a_activation_plan_quality_approved" in normalized_activation_plan
     assert "480e7e2f" in pure_replay_activation_plan
     assert "1886104a" in pure_replay_activation_plan
     assert "typed creation point selection" in normalized_activation_plan
@@ -4726,9 +4729,9 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     )
     for task_number in range(5):
         assert f"## Task {task_number}:" in pure_replay_activation_plan
-    assert "proposed" in normalized_track
-    assert "m3a is eligible but unselected" in normalized_track
-    assert "awaiting ordered plan review" in normalized_track
+    assert "m3a task 1 is selected" in normalized_track
+    assert "m3a_activation_plan_spec_approved" in normalized_track
+    assert "m3a_activation_plan_quality_approved" in normalized_track
 
     normalized_plan = _normalized_routing_text(m1_plan)
     normalized_plan_header = _normalized_routing_text(

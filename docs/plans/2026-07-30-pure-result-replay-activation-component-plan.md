@@ -26,8 +26,12 @@ pytest, and repository routing tests.
 
 ---
 
-**Status:** proposed plan; ordered plan review pending; implementation
-unselected. Baseline commit `480e7e2f`, tree `1886104a`.
+**Status:** reviewed implementation plan; Task 1 selected. Baseline commit
+`480e7e2f`, tree `1886104a`. Ordered review approved corrected proposal commit
+`6e06b4c0`, tree `6a4c4d6d`, plan SHA-256
+`6b12b9c3071dc1325b62cb91d56cb201a8ccaeb50cc843912c26dee71630647d`,
+with `M3A_ACTIVATION_PLAN_SPEC_APPROVED` followed by
+`M3A_ACTIVATION_PLAN_QUALITY_APPROVED`.
 
 ## Authority and settled design
 
@@ -127,10 +131,10 @@ provenance/boundary fields are sufficient.
   `pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py`.
 - [x] Commit the proposed, unselected plan with subject
   `Propose pure replay activation plan`.
-- [ ] Request `M3A_ACTIVATION_PLAN_SPEC_APPROVED`, then
+- [x] Request `M3A_ACTIVATION_PLAN_SPEC_APPROVED`, then
   `M3A_ACTIVATION_PLAN_QUALITY_APPROVED`, against the exact proposed-plan
   commit. Replay only after a material finding.
-- [ ] After both reviews approve, update only this status, the Task 0
+- [x] After both reviews approve, update only this status, the Task 0
   checkboxes, substrate/index routing, and their routing assertions to select
   Task 1; commit with subject `Select pure replay activation`.
 

@@ -36,10 +36,12 @@
   [Pure-Result Replay Feasibility Component Plan](2026-07-30-pure-result-replay-feasibility-component-plan.md).
   Its broad non-security gate passed 9,868 tests with 19 skipped and 5
   warnings, followed by ordered final specification and quality approvals.
-  M3a is eligible but unselected. Its proposed
+  M3a Task 1 is selected under its reviewed
   [Pure-Result Replay Activation Component Plan](2026-07-30-pure-result-replay-activation-component-plan.md)
-  is awaiting ordered plan review.
-  Ordinary CLI-created roots and fresh call frames remain historical-profile.
+  after ordered `M3A_ACTIVATION_PLAN_SPEC_APPROVED` then
+  `M3A_ACTIVATION_PLAN_QUALITY_APPROVED` reviews of corrected proposal
+  `6e06b4c0`. Ordinary CLI-created roots and fresh call frames remain
+  historical-profile until their implementation tasks land.
   MC, MR, M3, and M4 are not selected by listing and still require their own
   component plans; within M3, only 3a is eligible.
 - **Relation:** parallel substrate track beside the completed
@@ -356,9 +358,10 @@ non-security gate passed 9,868 tests with 19 skipped and 5 warnings in 147.90
 seconds (log SHA-256
 `76308a56635e67d21a84f1254b812e41d4eebde7dc2444fe9cb6dd31a1e7c637`).
 Ordered final review passed `M2_FEASIBILITY_FINAL_SPEC_APPROVED` then
-`M2_FEASIBILITY_FINAL_QUALITY_APPROVED` against the same closure bytes. M3a is
-eligible but unselected pending its separate reviewed activation plan;
-ordinary CLI-created roots and fresh call frames remain historical-profile.
+`M2_FEASIBILITY_FINAL_QUALITY_APPROVED` against the same closure bytes. M3a
+Task 1 is selected under the separately reviewed activation plan; ordinary
+CLI-created roots and fresh call frames remain historical-profile until the
+corresponding implementation tasks land.
 
 The selected design stops persisting eligible successful compiler-generated
 pure-projection values and reconstructs them deterministically from validated
