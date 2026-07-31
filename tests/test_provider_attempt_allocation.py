@@ -11,8 +11,8 @@ import stat
 
 import pytest
 
+import orchestrator._common.io_atomic as io_atomic
 from orchestrator.state import ForEachState, RunState, StateManager
-import orchestrator.state_locking as state_locking
 from orchestrator.runtime_observability import (
     close_executor_session,
     open_executor_session,
@@ -704,11 +704,11 @@ def test_durable_writer_retries_short_writes_and_syncs_file_and_directory(
         replaces.append((Path(source), Path(target)))
         real_replace(source, target)
 
-    monkeypatch.setattr(state_locking.os, "write", short_write)
-    monkeypatch.setattr(state_locking.os, "fsync", tracking_fsync)
-    monkeypatch.setattr(state_locking.os, "replace", tracking_replace)
+    monkeypatch.setattr(io_atomic.os, "write", short_write)
+    monkeypatch.setattr(io_atomic.os, "fsync", tracking_fsync)
+    monkeypatch.setattr(io_atomic.os, "replace", tracking_replace)
 
-    state_locking.durable_atomic_write(destination, payload)
+    io_atomic.durable_atomic_write(destination, payload)
 
     assert destination.read_bytes() == payload
     assert len(write_sizes) > 1
@@ -1704,7 +1704,7 @@ def test_allocator_uses_no_repair_barrier_or_process_lock_layer(
     }
 
     assert not (obsolete_state_symbols & set(vars(state_module.StateManager)))
-    assert not (obsolete_lock_symbols & set(vars(state_locking)))
+    assert not (obsolete_lock_symbols & set(vars(io_atomic)))
     assert not (obsolete_coordination_symbols & set(vars(attempt_module)))
 
 

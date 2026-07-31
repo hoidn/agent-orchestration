@@ -12,7 +12,7 @@ from typing import Any, Mapping, Sequence
 
 from orchestrator._common.validation import (
     closed_mapping as _common_closed_mapping,
-    nonempty_string as _common_nonempty_string,
+    nonempty_string as _nonempty_string,
     ordinary_integer as _common_ordinary_integer,
 )
 from .prompt_fragment_contract import (
@@ -252,10 +252,6 @@ def _integer(
     return _common_ordinary_integer(value, context, minimum=minimum)
 
 
-def _nonempty_string(value: Any, *, context: str) -> str:
-    return _common_nonempty_string(value, context)
-
-
 def _require_sha256(value: Any, *, context: str) -> str:
     if not _is_sha256(value):
         raise ValueError(f"{context} must be a canonical sha256")
@@ -292,7 +288,7 @@ def _role_integer(
 
 def _role_string(value: Any, *, context: str) -> str:
     try:
-        return _nonempty_string(value, context=context)
+        return _nonempty_string(value, context)
     except ValueError as exc:
         raise _role_invalid(str(exc)) from exc
 

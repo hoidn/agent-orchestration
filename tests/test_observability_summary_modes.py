@@ -4,6 +4,10 @@ import json
 import time
 from pathlib import Path
 
+from orchestrator._common.io_atomic import (
+    atomic_write_text as common_atomic_write_text,
+)
+import orchestrator.observability.summary as summary_module
 from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.observability.summary import SummaryObserver
 from orchestrator.state import StateManager
@@ -35,6 +39,69 @@ class _FakeProviderExecutor:
         if self.delay_sec:
             time.sleep(self.delay_sec)
         return self.result
+
+
+def test_summary_indexes_delegate_exact_framed_json_while_locked(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-index"
+    observer = SummaryObserver(
+        run_root=run_root,
+        provider_executor=_FakeProviderExecutor(),
+        provider_name="summary",
+    )
+    writes: list[tuple[Path, str, dict[str, object]]] = []
+
+    def tracking_write(path: Path, text: str, **kwargs) -> None:
+        assert path.parent.is_dir()
+        lock_available = observer._index_lock.acquire(blocking=False)
+        if lock_available:
+            observer._index_lock.release()
+        assert not lock_available
+        writes.append((path, text, kwargs))
+
+    monkeypatch.setattr(
+        summary_module,
+        "atomic_write_text",
+        tracking_write,
+    )
+    monkeypatch.setattr(observer, "_render_root_hub", lambda payload: None)
+    index_path = observer.summaries_dir / "index.json"
+
+    observer._append_index_entry(
+        index_path=index_path,
+        entry={"step_name": "First", "kind": "step", "profile": "basic"},
+        root=run_root,
+        render_human_files=False,
+    )
+    observer._upsert_index_entry(
+        index_path=index_path,
+        root=run_root,
+        entry={"step_name": "Second", "kind": "phase", "profile": "basic"},
+    )
+
+    expected_entries = (
+        {"step_name": "First", "kind": "step", "profile": "basic"},
+        {"step_name": "Second", "kind": "phase", "profile": "basic"},
+    )
+    assert len(writes) == 2
+    for (path, text, kwargs), entry in zip(
+        writes,
+        expected_entries,
+        strict=True,
+    ):
+        assert path == index_path
+        assert kwargs == {}
+        assert text == json.dumps(
+            {
+                "schema": "orchestrator_summary_index/v1",
+                "run_root": str(run_root),
+                "entries": [entry],
+            },
+            indent=2,
+            sort_keys=True,
+        ) + "\n"
 
 
 def _wait_for(path: Path, timeout_sec: float = 2.0) -> bool:

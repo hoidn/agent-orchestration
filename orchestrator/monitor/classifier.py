@@ -71,10 +71,7 @@ def _refresh_terminal_state(run: MonitorRun) -> MonitorRun:
     if not isinstance(raw, Mapping):
         return run
     status = raw.get("status")
-    # Preserve the previous literal-set error for unhashable state.
-    if not isinstance(status, str):
-        hash(status)
-    if not is_run_terminal(status):
+    if not is_run_terminal(status, raise_on_unhashable=True):
         return run
     return replace(run, state=raw)
 

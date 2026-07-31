@@ -10,9 +10,9 @@ from types import MappingProxyType
 from typing import Any, Mapping, TypeAlias
 
 from ..._common.validation import (
-    closed_mapping,
+    closed_mapping as _closed,
     is_finite_positive_number,
-    nonempty_string,
+    nonempty_string as _nonempty,
     ordinary_integer,
 )
 from ...providers.interactive_terminal import (
@@ -27,18 +27,6 @@ PEER_TERMINAL_EVIDENCE_SCHEMA_VERSION = (
     "provider_peer_group_terminal_evidence.v1"
 )
 MAX_PEER_MESSAGE_BYTES = 65_536
-
-
-def _closed(
-    value: Any,
-    keys: frozenset[str],
-    field: str,
-) -> Mapping[str, Any]:
-    return closed_mapping(value, keys, field)
-
-
-def _nonempty(value: Any, field: str) -> str:
-    return nonempty_string(value, field)
 
 
 def _positive_integer(value: Any, field: str) -> int:

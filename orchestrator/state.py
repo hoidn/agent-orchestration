@@ -16,6 +16,8 @@ import random
 import string
 from contextlib import contextmanager
 
+from ._common.io_atomic import atomic_write_text
+
 
 StateStatus = Literal["running", "suspended", "completed", "failed"]
 StepStatus = Literal["pending", "running", "completed", "failed", "skipped"]
@@ -630,18 +632,12 @@ class StateManager:
             # Update timestamp
             self.state.updated_at = datetime.now(timezone.utc).isoformat()
 
-            temp_file = self.state_file.with_suffix('.tmp')
-            with open(temp_file, 'w') as f:
-                json.dump(self.state.to_dict(), f, indent=2)
-            temp_file.replace(self.state_file)
+            atomic_write_text(self.state_file, json.dumps(self.state.to_dict(), indent=2))
 
     def _write_json_atomic(self, path: Path, payload: Dict[str, Any]) -> None:
         """Write an arbitrary JSON payload atomically."""
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp_file = path.with_suffix(f"{path.suffix}.tmp")
-        with open(temp_file, 'w', encoding='utf-8') as f:
-            json.dump(payload, f, indent=2)
-        temp_file.replace(path)
+        atomic_write_text(path, json.dumps(payload, indent=2))
 
     def read_runtime_sidecar_json(self, path: Path | str) -> Optional[Dict[str, Any]]:
         """Read one runtime-sidecar JSON object when it exists."""

@@ -8,10 +8,10 @@ import re
 from typing import Any, Mapping
 from urllib.parse import quote
 
-from ..._common.canonical import compact_ascii_json_dumps
+from ..._common.canonical import compact_ascii_json_dumps as _canonical_json
 from ..._common.validation import (
-    closed_mapping,
-    nonempty_string,
+    closed_mapping as _closed_mapping,
+    nonempty_string as _nonempty_string,
     ordinary_integer,
 )
 
@@ -21,18 +21,6 @@ _MAX_MEMBER_COUNT = 8
 _ENCODED_COMPONENT = re.compile(
     r"(?:[A-Za-z0-9._~-]|%[0-9A-F]{2})+"
 )
-
-
-def _closed_mapping(
-    value: Any,
-    keys: frozenset[str],
-    field: str,
-) -> Mapping[str, Any]:
-    return closed_mapping(value, keys, field)
-
-
-def _nonempty_string(value: Any, field: str) -> str:
-    return nonempty_string(value, field)
 
 
 def _positive_int(value: Any, field: str) -> int:
@@ -91,10 +79,6 @@ def _relative_template(
 def _validate_encoded_component(value: str, field: str) -> None:
     if _ENCODED_COMPONENT.fullmatch(value) is None:
         raise ValueError(f"{field} must be a canonically encoded component")
-
-
-def _canonical_json(value: Mapping[str, Any]) -> str:
-    return compact_ascii_json_dumps(value)
 
 
 @dataclass(frozen=True, slots=True)

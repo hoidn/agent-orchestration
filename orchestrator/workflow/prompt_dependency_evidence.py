@@ -14,7 +14,7 @@ from orchestrator._common.status import is_run_terminal
 from orchestrator._common.validation import (
     closed_mapping as _common_closed_mapping,
     nonempty_string as _common_nonempty_string,
-    ordinary_integer as _common_ordinary_integer,
+    ordinary_integer as _integer,
 )
 from orchestrator.deps.content_snapshot import (
     MAX_INJECTION_BYTES,
@@ -131,10 +131,6 @@ def _closed(value: Any, keys: set[str], label: str) -> Mapping[str, Any]:
         raise ValueError(f"{label} must be a closed object") from None
 
 
-def _integer(value: Any, label: str, minimum: int = 0) -> int:
-    return _common_ordinary_integer(value, label, minimum=minimum)
-
-
 def _text(value: Any, label: str) -> str:
     try:
         return _common_nonempty_string(value, label)
@@ -175,7 +171,7 @@ def _run(run_state: RunState, scope: ProviderAttemptScope) -> dict[str, str]:
 def _attempt(scope: ProviderAttemptScope, ordinal: int) -> dict[str, Any]:
     if not isinstance(scope, ProviderAttemptScope):
         raise TypeError("ProviderAttemptScope required")
-    _integer(ordinal, "attempt ordinal", 1)
+    _integer(ordinal, "attempt ordinal", minimum=1)
     return {
         "scope": scope.to_dict(),
         "scope_sha256": scope.key,
@@ -432,7 +428,10 @@ def _validate_attempt(value: Any) -> ProviderAttemptScope:
         scope = ProviderAttemptScope.from_dict(node["scope"])
     except (TypeError, ValueError) as exc:
         raise ValueError("attempt scope is invalid") from exc
-    if node != _attempt(scope, _integer(node["ordinal"], "attempt ordinal", 1)):
+    if node != _attempt(
+        scope,
+        _integer(node["ordinal"], "attempt ordinal", minimum=1),
+    ):
         raise ValueError("attempt metadata contradicts scope")
     return scope
 
@@ -1289,7 +1288,11 @@ def validate_index(value: Any) -> dict[str, Any]:
             )
             if prior_runtime_step != row["runtime_step_id"]:
                 raise ValueError("index scope has conflicting runtime step identities")
-            _integer(row["attempt_ordinal"], f"index {label} ordinal", 1)
+            _integer(
+                row["attempt_ordinal"],
+                f"index {label} ordinal",
+                minimum=1,
+            )
             current = _index_sort(row)
             if prior is not None and current <= prior:
                 raise ValueError(f"index {label} rows are duplicate or unsorted")
@@ -1513,10 +1516,7 @@ def validate_terminal_evidence(
     if state_path.absolute() != (root / "state.json").absolute():
         raise ValueError("state_file must be the authoritative aggregate-root state.json")
     initial_bytes, state = _read_terminal_state(state_path)
-    # Preserve the previous literal-set error for unhashable state.
-    if not isinstance(state.status, str):
-        hash(state.status)
-    if not is_run_terminal(state.status):
+    if not is_run_terminal(state.status, raise_on_unhashable=True):
         raise ValueError("prompt dependency evidence validation requires terminal state")
     if state.run_root is None or Path(state.run_root).absolute() != root.absolute():
         raise ValueError("terminal state run root contradicts aggregate root")

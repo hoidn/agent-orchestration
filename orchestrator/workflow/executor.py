@@ -16,6 +16,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, NamedTuple, Optional
 
+from .._common.io_atomic import atomic_write_text
 from .._common.status import is_step_settled
 from ..state import StateManager, StepResult
 from ..exec.step_executor import StepExecutor
@@ -3201,12 +3202,8 @@ class WorkflowExecutor:
             if not isinstance(prior_result, Mapping):
                 return None
             prior_visit = prior_result.get("visit_count")
-            prior_status = prior_result.get("status")
-            # Preserve the previous literal-set error for unhashable state.
-            if not isinstance(prior_status, str):
-                hash(prior_status)
             if (
-                not is_step_settled(prior_status)
+                not is_step_settled(prior_result.get("status"), raise_on_unhashable=True)
                 or prior_result.get("step_id") != step_id
                 or isinstance(prior_visit, bool)
                 or not isinstance(prior_visit, int)
@@ -4408,12 +4405,8 @@ class WorkflowExecutor:
             if not isinstance(prior_result, Mapping):
                 return None
             prior_visit = prior_result.get("visit_count")
-            prior_status = prior_result.get("status")
-            # Preserve the previous literal-set error for unhashable state.
-            if not isinstance(prior_status, str):
-                hash(prior_status)
             if (
-                not is_step_settled(prior_status)
+                not is_step_settled(prior_result.get("status"), raise_on_unhashable=True)
                 or prior_result.get("step_id") != step_id
                 or isinstance(prior_visit, bool)
                 or not isinstance(prior_visit, int)
@@ -9801,25 +9794,6 @@ class WorkflowExecutor:
             },
         }
 
-    def _atomic_write_text(self, target: Path, content: str) -> None:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = target.parent / f".{target.name}.tmp-{os.getpid()}-{time.time_ns()}"
-        temp_path.write_text(content, encoding="utf-8")
-        os.replace(temp_path, target)
-
-    def _atomic_write_bytes(self, target: Path, content: bytes) -> None:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = target.parent / f".{target.name}.tmp-{os.getpid()}-{time.time_ns()}"
-        try:
-            temp_path.write_bytes(content)
-            os.replace(temp_path, target)
-        finally:
-            if temp_path.exists():
-                try:
-                    temp_path.unlink()
-                except OSError:
-                    pass
-
     def _workflow_input_contracts(self) -> Dict[str, Dict[str, Any]]:
         return dict(workflow_runtime_input_contracts(self.loaded_bundle))
 
@@ -10373,7 +10347,8 @@ class WorkflowExecutor:
 
         snapshot_dir = self._step_snapshot_dir(step)
         sidecar_path = snapshot_dir / f"{snapshot_name}.json"
-        self._atomic_write_text(sidecar_path, payload)
+        sidecar_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(sidecar_path, payload)
         sidecar_rel = sidecar_path.relative_to(self.state_manager.run_root).as_posix()
         return {
             "schema": snapshot_record["schema"],
@@ -10688,7 +10663,8 @@ class WorkflowExecutor:
                     )
                 try:
                     pointer_value = value if isinstance(value, str) else json.dumps(value, sort_keys=True)
-                    self._atomic_write_text(resolved_pointer, f"{pointer_value}\n")
+                    resolved_pointer.parent.mkdir(parents=True, exist_ok=True)
+                    atomic_write_text(resolved_pointer, f"{pointer_value}\n")
                 except OSError as exc:
                     return self._v214_failure_result(
                         "atomic_commit_failed",

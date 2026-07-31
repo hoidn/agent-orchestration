@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Mapping, Optional
 
+from ..._common.io_atomic import atomic_write_bytes
 from ...contracts.output_contract import OutputContractError
 from ..executor_runtime import RuntimeStepInput
 from ..pure_expr import canonical_json_for_pure_value
@@ -155,8 +156,10 @@ def execute_materialize_view(
     previous_target_bytes = runtime._capture_existing_file_bytes(target_path)
     previous_evidence_bytes = runtime._capture_existing_file_bytes(evidence_path)
     try:
-        runtime._atomic_write_bytes(target_path, rendered)
-        runtime._atomic_write_bytes(evidence_path, evidence_bytes)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_bytes(target_path, rendered)
+        evidence_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_bytes(evidence_path, evidence_bytes)
         artifacts = runtime._materialize_view_artifacts(
             runtime._workspace_relative_path(target_path),
             output_contracts=output_contracts,

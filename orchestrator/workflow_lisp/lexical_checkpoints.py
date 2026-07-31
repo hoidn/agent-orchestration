@@ -2012,10 +2012,7 @@ def assert_runtime_shadow_emission(
 
     final_state = executor.execute(on_error="stop")
     final_status = final_state.get("status")
-    # Preserve the previous literal-set error for unhashable state.
-    if not isinstance(final_status, str):
-        hash(final_status)
-    if not is_run_terminal(final_status):
+    if not is_run_terminal(final_status, raise_on_unhashable=True):
         raise AssertionError(f"unexpected workflow terminal status: {final_status}")
 
     observed_kinds: set[str] = set()

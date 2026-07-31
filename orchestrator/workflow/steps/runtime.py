@@ -21,10 +21,6 @@ class StepRuntime(Protocol):
     workflow_artifacts: Dict[str, Any]
     state_manager: Any
 
-    def _atomic_write_bytes(self, target: Path, content: bytes) -> None: ...
-
-    def _atomic_write_text(self, target: Path, content: str) -> None: ...
-
     def _bounded_private_runtime_bundle_path(
         self,
         bundle_path: Path,

@@ -3,6 +3,10 @@
 import json
 from pathlib import Path
 
+from orchestrator._common.io_atomic import (
+    atomic_write_text as common_atomic_write_text,
+)
+import orchestrator.observability.live_notes as live_notes_module
 from orchestrator.observability.live_notes import LiveAgentNoteObserver
 
 
@@ -28,6 +32,57 @@ class _FakeProviderExecutor:
 
     def execute(self, invocation):
         return self.result
+
+
+def test_live_note_writes_delegate_exact_text_after_parent_creation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-live"
+    observer = LiveAgentNoteObserver(
+        aggregate_run_root=run_root,
+        provider_executor=_FakeProviderExecutor(),
+        provider_name="summary",
+        interval_sec=60,
+        timeout_sec=10,
+        max_tail_chars=200,
+        source="transport",
+    )
+    writes: list[tuple[Path, str, dict[str, object]]] = []
+
+    def tracking_write(path: Path, text: str, **kwargs) -> None:
+        assert path.parent.is_dir()
+        writes.append((path, text, kwargs))
+        common_atomic_write_text(path, text, **kwargs)
+
+    monkeypatch.setattr(
+        live_notes_module,
+        "atomic_write_text",
+        tracking_write,
+    )
+
+    observer._write_note(
+        note="héllo\n",
+        step_name="Review",
+        step_id="root.review",
+        visit_count=2,
+        source_metadata={"source_kind": "transport"},
+    )
+
+    assert writes[0] == (
+        run_root / "summaries" / "live-current-step.md",
+        "héllo\n",
+        {},
+    )
+    metadata_path, metadata_text, metadata_kwargs = writes[1]
+    assert metadata_path == (
+        run_root / "summaries" / "live-current-step.json"
+    )
+    assert metadata_kwargs == {}
+    assert metadata_text.endswith("\n")
+    assert json.loads(metadata_text) == json.loads(
+        metadata_path.read_text(encoding="utf-8")
+    )
 
 
 def test_live_agent_note_observer_writes_markdown_and_metadata(tmp_path: Path):

@@ -2001,7 +2001,6 @@ def _workflow_peer_bindings(
                 asset_resolver=None,
             )
             self.finalized: list[dict[str, Any]] = []
-            self.atomic_writes: list[Path] = []
 
         def _provider_attempt_scope(self, **kwargs: Any) -> Any:
             return WorkflowExecutor._provider_attempt_scope(
@@ -2050,11 +2049,6 @@ def _workflow_peer_bindings(
 
         def _uses_qualified_identities(self) -> bool:
             return False
-
-        def _atomic_write_bytes(self, path: Path, content: bytes) -> None:
-            self.atomic_writes.append(path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(content)
 
         def _finalize_provider_peer_group_settlement(
             self,
@@ -2117,8 +2111,21 @@ def _failed_group_evidence(
 
 def test_workflow_peer_bindings_allocate_freeze_and_finalize_exact_visit(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _config, manager, executor, bindings = _workflow_peer_bindings(tmp_path)
+    atomic_writes: list[Path] = []
+    original_atomic_write_bytes = peer_bindings.atomic_write_bytes
+
+    def track_atomic_write(path: Path, content: bytes) -> None:
+        atomic_writes.append(path)
+        original_atomic_write_bytes(path, content)
+
+    monkeypatch.setattr(
+        peer_bindings,
+        "atomic_write_bytes",
+        track_atomic_write,
+    )
 
     bindings.assert_current_step()
     allocation = bindings.allocate_group()
@@ -2182,7 +2189,7 @@ def test_workflow_peer_bindings_allocate_freeze_and_finalize_exact_visit(
             for member in allocation.members
         )
     ] == [member.to_dict() for member in evidence.members]
-    assert executor.atomic_writes[-3:] == [
+    assert atomic_writes[-3:] == [
         allocation.members[0].realized_paths.evidence_path,
         allocation.members[1].realized_paths.evidence_path,
         allocation.realized_paths.terminal_evidence_path,

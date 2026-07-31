@@ -13,7 +13,10 @@ from pathlib import Path
 from typing import Any
 
 from ..._common.canonical import compact_ascii_json_dumps
-from ..._common.validation import nonempty_string, ordinary_integer
+from ..._common.validation import (
+    nonempty_string as _nonempty_string,
+    ordinary_integer,
+)
 from .models import (
     PeerAttemptIdentity,
     PeerGroupVisitIdentity,
@@ -51,10 +54,6 @@ def _validate_digest(value: object, *, field: str) -> str:
     ):
         raise ValueError(f"{field} must be a canonical sha256 digest")
     return value
-
-
-def _nonempty_string(value: object, *, field: str) -> str:
-    return nonempty_string(value, field)
 
 
 def _positive_int(value: object, *, field: str) -> int:

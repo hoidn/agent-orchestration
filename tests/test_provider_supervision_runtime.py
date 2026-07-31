@@ -234,9 +234,6 @@ class _RealBindingExecutor:
     ) -> tuple[str, None]:
         return step["provider"], None
 
-    def _atomic_write_bytes(self, path: Path, content: bytes) -> None:
-        path.write_bytes(content)
-
     def _finalize_provider_supervision_settlement(
         self,
         _step: Any,

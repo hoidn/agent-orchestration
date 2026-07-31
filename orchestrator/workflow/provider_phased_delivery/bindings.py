@@ -89,6 +89,10 @@ def _relative_path(value: object) -> str:
     return text
 
 
+def _canonical_sha256(value: object) -> str:
+    return sha256_compact_ascii_json(value, allow_nan=False)
+
+
 @dataclass(frozen=True, slots=True)
 class AttemptAllocation:
     """The exact existing attempt identity allocated once by the root owner."""
@@ -223,10 +227,7 @@ class AttemptComposition:
         if (
             initial_submit_keys.count != len(support_submit_keys)
             or initial_submit_keys.sha256
-            != sha256_compact_ascii_json(
-                list(support_submit_keys),
-                allow_nan=False,
-            )
+            != _canonical_sha256(list(support_submit_keys))
         ):
             raise ValueError(
                 "initial materialization submit keys disagree with support"
@@ -322,9 +323,8 @@ class CandidatePreflight:
         )
         if len(set(paths)) != len(paths):
             raise ValueError("candidate paths must be pairwise distinct")
-        expected = sha256_compact_ascii_json(
-            [binding.to_dict() for binding in self.bindings],
-            allow_nan=False,
+        expected = _canonical_sha256(
+            [binding.to_dict() for binding in self.bindings]
         )
         if self.preflight_sha256 != expected:
             raise ValueError("preflight_sha256 does not seal the bindings")
@@ -339,9 +339,8 @@ class CandidatePreflight:
             raise TypeError("bindings must be a tuple")
         return cls(
             bindings=bindings,
-            preflight_sha256=sha256_compact_ascii_json(
-                [binding.to_dict() for binding in bindings],
-                allow_nan=False,
+            preflight_sha256=_canonical_sha256(
+                [binding.to_dict() for binding in bindings]
             ),
         )
 
@@ -376,22 +375,18 @@ class CandidateSnapshot:
             for row in self.rows
         ]
         if (
-            sha256_compact_ascii_json(
-                binding_shape,
-                allow_nan=False,
-            )
+            _canonical_sha256(binding_shape)
             != self.preflight_sha256
         ):
             raise ValueError(
                 "snapshot rows disagree with preflight binding identity"
             )
-        expected = sha256_compact_ascii_json(
+        expected = _canonical_sha256(
             {
                 "preflight_sha256": self.preflight_sha256,
                 "submission_ordinal": self.submission_ordinal,
                 "rows": [row.to_dict() for row in self.rows],
-            },
-            allow_nan=False,
+            }
         )
         if self.snapshot_sha256 != expected:
             raise ValueError("snapshot_sha256 does not seal the snapshot")
@@ -433,10 +428,7 @@ class CandidateSnapshot:
             preflight_sha256=preflight.preflight_sha256,
             submission_ordinal=submission_ordinal,
             rows=rows,
-            snapshot_sha256=sha256_compact_ascii_json(
-                payload,
-                allow_nan=False,
-            ),
+            snapshot_sha256=_canonical_sha256(payload),
         )
 
     def manifest(self, disposition: str) -> CandidateDigestManifest:
@@ -588,7 +580,7 @@ class FrozenCandidate:
                 != "sha256:" + hashlib.sha256(item.content).hexdigest()
             ):
                 raise ValueError("frozen file bytes disagree with manifest")
-        expected = sha256_compact_ascii_json(
+        expected = _canonical_sha256(
             {
                 "snapshot_sha256": self.snapshot_sha256,
                 "manifest_sha256": self.manifest.manifest_sha256,
@@ -602,8 +594,7 @@ class FrozenCandidate:
                     }
                     for item in self.files
                 ],
-            },
-            allow_nan=False,
+            }
         )
         if self.frozen_sha256 != expected:
             raise ValueError("frozen_sha256 does not seal the frozen candidate")
@@ -636,10 +627,7 @@ class FrozenCandidate:
             snapshot_sha256=snapshot.snapshot_sha256,
             manifest=manifest,
             files=files,
-            frozen_sha256=sha256_compact_ascii_json(
-                payload,
-                allow_nan=False,
-            ),
+            frozen_sha256=_canonical_sha256(payload),
         )
 
 
@@ -681,7 +669,7 @@ def _deliveries_sha256(
         }
         for turn in actual_deliveries
     ]
-    return sha256_compact_ascii_json(payload, allow_nan=False)
+    return _canonical_sha256(payload)
 
 
 def _validate_delivery_grammar(

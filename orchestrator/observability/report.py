@@ -215,16 +215,14 @@ def _coerce_step_status(step_result: Any) -> Optional[str]:
             return "failed"
         child_statuses = [_coerce_step_status(value) for value in step_result.values()]
         if child_statuses and all(
-            is_step_settled(status)
-            for status in child_statuses
+            is_step_settled(status, raise_on_unhashable=True) for status in child_statuses
         ):
             return "completed"
     elif isinstance(step_result, list):
         # for_each summary arrays are considered complete if all iterations settled.
         child_statuses = [_coerce_step_status(item) for item in step_result]
         if child_statuses and all(
-            is_step_settled(status)
-            for status in child_statuses
+            is_step_settled(status, raise_on_unhashable=True) for status in child_statuses
         ):
             return "completed"
         return "running"

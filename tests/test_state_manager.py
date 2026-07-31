@@ -109,6 +109,25 @@ def _inject_state_write_crash(
     raise AssertionError(f"unsupported crash timing: {timing}")
 
 
+def test_arbitrary_json_atomic_write_preserves_historical_bytes(
+    tmp_path: Path,
+) -> None:
+    manager = StateManager(tmp_path, run_id="atomic-json-bytes")
+    destination = manager.run_root / "nested" / "payload.json"
+    payload = {
+        "non_ascii": "café",
+        "nested": [1, True, None],
+    }
+
+    manager._write_json_atomic(destination, payload)
+
+    assert destination.read_bytes() == json.dumps(
+        payload,
+        indent=2,
+    ).encode("utf-8")
+    assert not destination.read_bytes().endswith(b"\n")
+
+
 class TestStateManager:
     """Test state manager functionality per AT-4."""
 

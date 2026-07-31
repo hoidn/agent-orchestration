@@ -6,6 +6,7 @@ import json
 import sys
 from pathlib import Path
 
+from ..._common.io_atomic import atomic_write_text
 from orchestrator.workflow_lisp.contracts import derive_reusable_phase_state_compatibility
 
 from .reusable_phase_state_common import (
@@ -138,9 +139,7 @@ def main(argv: list[str] | None = None) -> int:
         summary_relpath = reusable_state_sidecar_path(bundle_relpath, sidecar_suffix)
         summary_path = Path(summary_relpath)
         summary_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = summary_path.with_suffix(summary_path.suffix + ".tmp")
-        temp_path.write_text(json.dumps(summary, sort_keys=True), encoding="utf-8")
-        temp_path.replace(summary_path)
+        atomic_write_text(summary_path, json.dumps(summary, sort_keys=True))
         return _emit_ack(bundle_path=bundle_relpath, summary_path=summary_relpath, schema=summary_schema)
     except ValueError as error:
         return emit_error(str(error))

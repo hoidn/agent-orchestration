@@ -10,6 +10,9 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator._common.io_atomic import (
+    atomic_write_text as common_atomic_write_text,
+)
 import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
 from orchestrator.workflow_lisp.adapters import (
     load_canonical_phase_result,
@@ -67,6 +70,42 @@ FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW_LIBRARY_ROOT = REPO_ROOT / "workflows" / "library"
 STDLIB_MODULE_ROOT = REPO_ROOT / "orchestrator" / "workflow_lisp" / "stdlib_modules"
+
+
+def test_reusable_result_bundle_delegates_exact_unframed_json(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(
+        "ORCHESTRATOR_OUTPUT_BUNDLE_PATH",
+        "state/results/reusable.json",
+    )
+    writes: list[tuple[Path, str, dict[str, object]]] = []
+
+    def tracking_write(path: Path, text: str, **kwargs) -> None:
+        assert path.parent.is_dir()
+        writes.append((path, text, kwargs))
+        common_atomic_write_text(path, text, **kwargs)
+
+    monkeypatch.setattr(
+        reusable_phase_state_common,
+        "atomic_write_text",
+        tracking_write,
+    )
+    payload = {"status": "RÉSUMÉ", "count": 2}
+
+    assert reusable_phase_state_common.emit_structured_result(payload) == 0
+
+    assert writes == [
+        (
+            Path("state/results/reusable.json"),
+            json.dumps(payload, sort_keys=True),
+            {},
+        )
+    ]
+    assert json.loads(capsys.readouterr().out) == payload
 
 
 def _design_delta_provider_externs() -> dict[str, str]:
@@ -3509,6 +3548,18 @@ def test_write_reusable_phase_state_writes_sidecar_summary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
+    writes: list[tuple[Path, str, dict[str, object]]] = []
+
+    def tracking_write(path: Path, text: str, **kwargs) -> None:
+        assert path.parent.is_dir()
+        writes.append((path, text, kwargs))
+        common_atomic_write_text(path, text, **kwargs)
+
+    monkeypatch.setattr(
+        write_reusable_phase_state_v1,
+        "atomic_write_text",
+        tracking_write,
+    )
     report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text("checks", encoding="utf-8")
@@ -3563,6 +3614,13 @@ def test_write_reusable_phase_state_writes_sidecar_summary(
             "under": "artifacts/work",
             "sha256": hashlib.sha256(report_path.read_bytes()).hexdigest(),
         }
+    ]
+    assert writes == [
+        (
+            Path("checks-state.reusable_state.json"),
+            json.dumps(summary, sort_keys=True),
+            {},
+        )
     ]
 
 

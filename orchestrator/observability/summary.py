@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 from typing import Any, Dict
 
+from .._common.io_atomic import atomic_write_text
 from orchestrator.providers.types import ProviderParams
 
 
@@ -267,9 +268,7 @@ class SummaryObserver:
                 entries = []
                 payload["entries"] = entries
             entries.append(entry)
-            tmp_path = index_path.with_suffix(".json.tmp")
-            tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            tmp_path.replace(index_path)
+            atomic_write_text(index_path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
             if render_human_files:
                 self._render_root_hub(payload)
 
@@ -301,9 +300,7 @@ class SummaryObserver:
                 filtered.append(existing)
             filtered.append(entry)
             payload["entries"] = filtered
-            tmp_path = index_path.with_suffix(".json.tmp")
-            tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            tmp_path.replace(index_path)
+            atomic_write_text(index_path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
             self._render_root_hub(payload)
 
     @staticmethod

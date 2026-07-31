@@ -12,6 +12,9 @@ from typing import Any, cast
 import pytest
 
 import orchestrator.workflow.executor as executor_module
+from orchestrator.workflow.provider_phased_delivery import (
+    runtime_bindings as runtime_bindings_module,
+)
 from orchestrator.providers.interactive_terminal import InteractiveTerminalError
 from orchestrator.providers.types import InteractiveSessionSupport
 from orchestrator.state import RunState, StateManager, StepResult
@@ -1948,6 +1951,44 @@ def test_phased_failure_runtime_result_uses_closed_diagnostic_summary() -> None:
     assert result["status"] == "failed"
     assert result["error"]["type"] == diagnostic.code
     assert result["error"]["message"] == diagnostic.rejected_value.summary
+
+
+def test_frozen_candidate_restoration_uses_common_durable_atomic_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "artifacts" / "result.json"
+    executor = _executor()
+    executor._resolve_workspace_path = MethodType(
+        lambda self, _path: destination,
+        executor,
+    )
+    binding = object.__new__(_WorkflowPhasedProviderAttemptBindings)
+    binding.executor = executor
+    calls: list[tuple[Path, bytes]] = []
+
+    monkeypatch.setattr(
+        runtime_bindings_module,
+        "durable_atomic_write",
+        lambda path, payload: calls.append((path, payload)),
+    )
+
+    restoration = binding._restore_frozen_candidate(
+        SimpleNamespace(
+            frozen_sha256="sha256:" + "a" * 64,
+            files=(
+                SimpleNamespace(
+                    binding=SimpleNamespace(
+                        workspace_relative_path="artifacts/result.json",
+                    ),
+                    content=b"candidate",
+                ),
+            ),
+        )
+    )
+
+    assert calls == [(destination, b"candidate")]
+    assert restoration.restored_paths == 1
 
 
 @pytest.mark.parametrize(

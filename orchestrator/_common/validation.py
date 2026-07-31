@@ -45,7 +45,7 @@ def ordinary_integer(
     value: object,
     field: str,
     *,
-    minimum: int,
+    minimum: int = 0,
 ) -> int:
     """Return a non-bool integer at ``minimum`` with an audited diagnostic."""
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:

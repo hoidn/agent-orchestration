@@ -11,6 +11,8 @@ COMMON_CANONICAL_PATH = REPO_ROOT / "orchestrator/_common/canonical.py"
 COMMON_VALIDATION_MODULE = "orchestrator._common.validation"
 COMMON_VALIDATION_PATH = REPO_ROOT / "orchestrator/_common/validation.py"
 COMMON_STATUS_PATH = REPO_ROOT / "orchestrator/_common/status.py"
+COMMON_IO_ATOMIC_MODULE = "orchestrator._common.io_atomic"
+COMMON_IO_ATOMIC_PATH = REPO_ROOT / "orchestrator/_common/io_atomic.py"
 
 
 @dataclass(frozen=True)
@@ -340,6 +342,14 @@ ADMITTED_HELPER_MANIFEST = {
                 "WorkflowExecutor._atomic_write_text",
                 "WorkflowExecutor._atomic_write_bytes",
             ),
+            (
+                "ast:executor_atomic_write_text@"
+                "WorkflowExecutor._project_snapshot_record:"
+                "sidecar_path|payload:count=1",
+                "ast:executor_atomic_write_text@"
+                "WorkflowExecutor._execute_materialize_artifacts:"
+                "resolved_pointer|f\"{pointer_value}\\n\":count=1",
+            ),
         ),
         AdmittedHelperSurface(
             "orchestrator/workflow/provider_supervision/bindings.py",
@@ -368,9 +378,8 @@ ADMITTED_HELPER_MANIFEST = {
             "orchestrator/workflow/steps/materialize_view.py",
             patterns=(
                 "ast:runtime_atomic_write_bytes@execute_materialize_view:"
-                "target_path|rendered:count=1",
-                "ast:runtime_atomic_write_bytes@execute_materialize_view:"
-                "evidence_path|evidence_bytes:count=1",
+                "target_path|rendered;"
+                "evidence_path|evidence_bytes:count=2",
             ),
         ),
         AdmittedHelperSurface(
@@ -428,6 +437,87 @@ ADMITTED_HELPER_MANIFEST = {
             "orchestrator/workflow_lisp/adapters/write_reusable_phase_state_v1.py",
             ("main",),
         ),
+    ),
+}
+
+ATOMIC_ABSENT_SYMBOLS = {
+    (
+        "orchestrator/workflow/executor.py",
+        "WorkflowExecutor._atomic_write_text",
+    ),
+    (
+        "orchestrator/workflow/executor.py",
+        "WorkflowExecutor._atomic_write_bytes",
+    ),
+    (
+        "orchestrator/workflow/steps/runtime.py",
+        "StepRuntime._atomic_write_bytes",
+    ),
+    (
+        "orchestrator/workflow/steps/runtime.py",
+        "StepRuntime._atomic_write_text",
+    ),
+}
+
+ATOMIC_SYMBOL_COMMON_PRIMITIVES = {
+    (
+        "orchestrator/state.py",
+        "StateManager._write_state",
+    ): "atomic_write_text",
+    (
+        "orchestrator/state.py",
+        "StateManager._write_json_atomic",
+    ): "atomic_write_text",
+    (
+        "orchestrator/workflow/adjudication/utils.py",
+        "_atomic_write_text",
+    ): "atomic_write_text",
+    (
+        "orchestrator/observability/live_notes.py",
+        "LiveAgentNoteObserver._write_text_atomic",
+    ): "atomic_write_text",
+    (
+        "orchestrator/workflow/transition_executor.py",
+        "_write_pending_replay",
+    ): "atomic_write_text",
+    (
+        "orchestrator/workflow_lisp/adapters/apply_resource_transition.py",
+        "_write_output_bundle",
+    ): "atomic_write_text",
+    (
+        "orchestrator/workflow_lisp/adapters/reusable_phase_state_common.py",
+        "emit_structured_result",
+    ): "atomic_write_text",
+    (
+        "orchestrator/workflow_lisp/adapters/write_reusable_phase_state_v1.py",
+        "main",
+    ): "atomic_write_text",
+}
+
+ATOMIC_DIRECT_CONSUMER_SCOPES = {
+    (
+        "orchestrator/workflow/executor.py",
+        "WorkflowExecutor._project_snapshot_record",
+    ),
+    (
+        "orchestrator/workflow/executor.py",
+        "WorkflowExecutor._execute_materialize_artifacts",
+    ),
+    (
+        "orchestrator/workflow/provider_supervision/bindings.py",
+        "WorkflowProviderSupervisionBindings.allocate_attempt",
+    ),
+    (
+        "orchestrator/workflow/provider_peer_group/bindings.py",
+        "WorkflowProviderPeerGroupBindings._write_no_replace",
+    ),
+    (
+        "orchestrator/workflow/steps/materialize_view.py",
+        "execute_materialize_view",
+    ),
+    (
+        "orchestrator/workflow/steps/pure_projection.py",
+        "execute_pure_projection",
     ),
 }
 
@@ -898,6 +988,79 @@ def _method_call_count(
         )
         for candidate in _walk_function_scope(node)
     )
+
+
+def _atomic_pattern(
+    pattern: str,
+) -> tuple[str, str, int] | None:
+    prefix = "ast:"
+    if not pattern.startswith(prefix):
+        return None
+    kind_and_target, count_text = pattern[len(prefix) :].rsplit(
+        ":count=",
+        1,
+    )
+    kind, target_and_arguments = kind_and_target.split("@", 1)
+    if kind not in {
+        "durable_atomic_write",
+        "executor_atomic_write_bytes",
+        "executor_atomic_write_text",
+        "path_replace",
+        "runtime_atomic_write_bytes",
+        "runtime_atomic_write_text",
+    }:
+        return None
+    target = target_and_arguments.split(":", 1)[0]
+    return kind, target, int(count_text)
+
+
+def _atomic_common_symbol(kind: str) -> str:
+    return {
+        "durable_atomic_write": "durable_atomic_write",
+        "executor_atomic_write_bytes": "atomic_write_bytes",
+        "executor_atomic_write_text": "atomic_write_text",
+        "path_replace": "atomic_write_text",
+        "runtime_atomic_write_bytes": "atomic_write_bytes",
+        "runtime_atomic_write_text": "atomic_write_text",
+    }[kind]
+
+
+def _is_temporary_name(value: str) -> bool:
+    return value.startswith(("temp", "tmp")) or value == "temporary"
+
+
+def _atomic_local_mechanics(node: ast.AST) -> tuple[int, int]:
+    temporary_constructions = 0
+    replacement_calls = 0
+    for candidate in _walk_function_scope(node):
+        if isinstance(candidate, (ast.Assign, ast.AnnAssign)):
+            targets = (
+                candidate.targets
+                if isinstance(candidate, ast.Assign)
+                else (candidate.target,)
+            )
+            if any(
+                isinstance(target, ast.Name)
+                and _is_temporary_name(target.id)
+                for target in targets
+            ):
+                temporary_constructions += 1
+        if not isinstance(candidate, ast.Call):
+            continue
+        dotted = _dotted_name(candidate.func)
+        if dotted == "tempfile.NamedTemporaryFile":
+            temporary_constructions += 1
+        if dotted == "os.replace":
+            replacement_calls += 1
+            continue
+        if (
+            isinstance(candidate.func, ast.Attribute)
+            and candidate.func.attr == "replace"
+            and isinstance(candidate.func.value, ast.Name)
+            and _is_temporary_name(candidate.func.value.id)
+        ):
+            replacement_calls += 1
+    return temporary_constructions, replacement_calls
 
 
 def _session_ladder_pattern(
@@ -1573,6 +1736,187 @@ def test_timeout_boundaries_use_common_finite_positive_validation() -> None:
             findings.append(
                 f"{path}:{target} excluded timeout control was swept"
             )
+
+    assert not findings, "\n".join(findings)
+
+
+def test_atomic_writers_use_the_exact_common_owner() -> None:
+    findings: list[str] = []
+    if not COMMON_IO_ATOMIC_PATH.is_file():
+        findings.append("missing orchestrator/_common/io_atomic.py")
+    else:
+        common_definitions = _top_level_function_names(COMMON_IO_ATOMIC_PATH)
+        missing = {
+            "durable_atomic_write",
+            "atomic_write_bytes",
+            "atomic_write_text",
+        } - common_definitions
+        if missing:
+            findings.append(
+                f"common atomic owner missing definitions: {sorted(missing)}"
+            )
+
+    state_locking_path = REPO_ROOT / "orchestrator/state_locking.py"
+    if state_locking_path.exists():
+        findings.append("orchestrator/state_locking.py must be deleted")
+
+    manifest_symbols = {
+        (surface.path, symbol)
+        for surface in ADMITTED_HELPER_MANIFEST["atomic"]
+        for symbol in surface.symbols
+    }
+    expected_symbols = (
+        set(ATOMIC_SYMBOL_COMMON_PRIMITIVES)
+        | ATOMIC_ABSENT_SYMBOLS
+        | {
+            (
+                "orchestrator/state_locking.py",
+                "durable_atomic_write",
+            )
+        }
+    )
+    if manifest_symbols != expected_symbols:
+        findings.append(
+            "atomic symbol owner map differs from admitted manifest: "
+            f"missing={sorted(manifest_symbols - expected_symbols)!r}, "
+            f"extra={sorted(expected_symbols - manifest_symbols)!r}"
+        )
+
+    for surface in ADMITTED_HELPER_MANIFEST["atomic"]:
+        if surface.path == "orchestrator/state_locking.py":
+            continue
+        qualified_functions = _qualified_functions(surface.path)
+        for symbol in surface.symbols:
+            key = (surface.path, symbol)
+            node = qualified_functions.get(symbol)
+            if key in ATOMIC_ABSENT_SYMBOLS:
+                if node is not None:
+                    findings.append(
+                        f"{surface.path}:{symbol} must be removed"
+                    )
+                continue
+
+            common_symbol = ATOMIC_SYMBOL_COMMON_PRIMITIVES.get(key)
+            if common_symbol is None:
+                continue
+            if node is None:
+                imported_aliases = _imported_symbol_names(
+                    surface.path,
+                    COMMON_IO_ATOMIC_MODULE,
+                    common_symbol,
+                )
+                if symbol in imported_aliases:
+                    continue
+                findings.append(f"{surface.path}:{symbol} scope is missing")
+                continue
+            temporary_count, replace_count = _atomic_local_mechanics(node)
+            if temporary_count or replace_count:
+                findings.append(
+                    f"{surface.path}:{symbol} retains local atomic mechanics "
+                    f"(temporary={temporary_count}, replace={replace_count})"
+                )
+            owner_count = _imported_symbol_call_count(
+                surface.path,
+                node,
+                module_name=COMMON_IO_ATOMIC_MODULE,
+                symbol=common_symbol,
+            )
+            if owner_count != 1:
+                findings.append(
+                    f"{surface.path}:{symbol} must call {common_symbol} "
+                    f"exactly once; found {owner_count}"
+                )
+
+    observed_direct_scopes: set[tuple[str, str]] = set()
+    for surface in ADMITTED_HELPER_MANIFEST["atomic"]:
+        if surface.path == "orchestrator/state_locking.py":
+            continue
+        qualified_functions = _qualified_functions(surface.path)
+        for pattern in surface.patterns:
+            parsed = _atomic_pattern(pattern)
+            if parsed is None:
+                continue
+            kind, target, expected_count = parsed
+            node = qualified_functions.get(target)
+            if node is None:
+                findings.append(
+                    f"{surface.path}:{target} atomic scope is missing"
+                )
+                continue
+            temporary_count, replace_count = _atomic_local_mechanics(node)
+            if temporary_count or replace_count:
+                findings.append(
+                    f"{surface.path}:{target} retains local atomic mechanics "
+                    f"(temporary={temporary_count}, replace={replace_count})"
+                )
+            common_symbol = _atomic_common_symbol(kind)
+            owner_count = _imported_symbol_call_count(
+                surface.path,
+                node,
+                module_name=COMMON_IO_ATOMIC_MODULE,
+                symbol=common_symbol,
+            )
+            if owner_count != expected_count:
+                findings.append(
+                    f"{surface.path}:{target} must call {common_symbol} "
+                    f"exactly {expected_count} time(s); found {owner_count}"
+                )
+            if kind.startswith(("executor_atomic_", "runtime_atomic_")):
+                observed_direct_scopes.add((surface.path, target))
+
+    if observed_direct_scopes != ATOMIC_DIRECT_CONSUMER_SCOPES:
+        findings.append(
+            "direct executor-method consumer scopes differ from the exact "
+            f"six-scope census: observed={sorted(observed_direct_scopes)!r}"
+        )
+
+    excluded_local_replacement_controls = (
+        (
+            "orchestrator/workflow/adjudication/utils.py",
+            "_replace_file",
+        ),
+        (
+            "orchestrator/workflow/transition_executor.py",
+            "_commit_targets",
+        ),
+        (
+            "orchestrator/providers/observation.py",
+            "ProviderObservationHandle.finalize",
+        ),
+        (
+            "orchestrator/experiments/_runner_block.py",
+            "_atomic_record",
+        ),
+    )
+    for path, target in excluded_local_replacement_controls:
+        node = _qualified_functions(path).get(target)
+        if node is None:
+            findings.append(f"{path}:{target} excluded control is missing")
+            continue
+        temporary_count, replace_count = _atomic_local_mechanics(node)
+        if not temporary_count or not replace_count:
+            findings.append(
+                f"{path}:{target} excluded local replacement was swept"
+            )
+
+    excluded_append_controls = (
+        (
+            "orchestrator/workflow/provider_peer_group/ledger.py",
+            "PeerMessageLedger._append_row",
+        ),
+        (
+            "orchestrator/workflow/provider_phased_delivery/ledger.py",
+            "ProviderPromptPhaseLedgerWriter._append_locked",
+        ),
+    )
+    for path, target in excluded_append_controls:
+        node = _qualified_functions(path).get(target)
+        if node is None or not any(
+            isinstance(candidate, ast.Call)
+            and _dotted_name(candidate.func) == "os.fsync"
+            for candidate in _walk_function_scope(node)
+        ):
+            findings.append(f"{path}:{target} excluded fsynced append was swept")
 
     assert not findings, "\n".join(findings)
 

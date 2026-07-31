@@ -12,7 +12,8 @@ from typing import Any, Mapping, Protocol, runtime_checkable
 from uuid import uuid4
 
 from ..._common.canonical import compact_ascii_json_dumps
-from ..._common.validation import nonempty_string
+from ..._common.io_atomic import atomic_write_bytes
+from ..._common.validation import nonempty_string as _nonempty
 from ...contracts.output_contract import (
     OutputContractError,
     validate_output_bundle,
@@ -111,10 +112,6 @@ def _provider_peer_endpoint_socket_path(
         ):
             return candidate
     raise ValueError(_PEER_ENDPOINT_PATH_UNAVAILABLE)
-
-
-def _nonempty(value: object, *, field: str) -> str:
-    return nonempty_string(value, field)
 
 
 def _header_value(value: object, *, field: str) -> str:
@@ -1254,7 +1251,7 @@ class WorkflowProviderPeerGroupBindings:
             raise ValueError(
                 f"provider peer evidence preimage exists: {path}"
             ) from exc
-        self.executor._atomic_write_bytes(path, payload)
+        atomic_write_bytes(path, payload)
         try:
             observed = path.read_bytes()
         except OSError as exc:

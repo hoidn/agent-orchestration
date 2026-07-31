@@ -7,6 +7,8 @@ import os
 import sys
 from pathlib import Path
 
+from ..._common.io_atomic import atomic_write_text
+
 
 def _load_payload(argv: list[str]) -> dict[str, object]:
     if len(argv) > 1:
@@ -68,9 +70,7 @@ def _write_output_bundle(result: dict[str, object]) -> None:
         return
     bundle_path = _workspace_relpath(bundle_path_raw)
     bundle_path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = bundle_path.with_suffix(bundle_path.suffix + ".tmp")
-    temp_path.write_text(json.dumps(result, sort_keys=True), encoding="utf-8")
-    temp_path.replace(bundle_path)
+    atomic_write_text(bundle_path, json.dumps(result, sort_keys=True))
 
 
 def main(argv: list[str] | None = None) -> int:

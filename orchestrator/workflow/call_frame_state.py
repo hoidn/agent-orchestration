@@ -219,12 +219,8 @@ class _CallFrameStateManager:
             export_status = "completed" if self.state.status == "completed" else "suppressed"
         else:
             export_status = "not_configured"
-        if body_status is None:
-            # Preserve the previous literal-set error for unhashable state.
-            if not isinstance(self.state.status, str):
-                hash(self.state.status)
-            if is_run_terminal(self.state.status):
-                body_status = self.state.status
+        if body_status is None and is_run_terminal(self.state.status, raise_on_unhashable=True):
+            body_status = self.state.status
 
         return {
             "call_frame_id": self.frame_id,

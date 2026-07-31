@@ -12,6 +12,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping
 
+from ..._common.io_atomic import atomic_write_text
 from .models import ManifestEntry
 
 def _resolve_json_pointer(document: Any, pointer: str) -> tuple[bool, Any]:
@@ -166,14 +167,7 @@ def _replace_file(source: Path, dest: Path) -> None:
 
 def _atomic_write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, dir=str(path.parent)) as handle:
-        handle.write(content)
-        temp_path = Path(handle.name)
-    try:
-        os.replace(temp_path, path)
-    finally:
-        if temp_path.exists():
-            temp_path.unlink()
+    atomic_write_text(path, content, mode=0o600)
 
 
 def _utc_now() -> str:

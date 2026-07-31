@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from ..._common.io_atomic import atomic_write_text
 from orchestrator.contracts.output_contract import (
     OutputContractError,
     validate_output_bundle,
@@ -32,9 +33,7 @@ def emit_structured_result(payload: Mapping[str, object]) -> int:
         bundle_relpath = workspace_relpath(bundle_path_raw)
         bundle_path = Path(bundle_relpath)
         bundle_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = bundle_path.with_suffix(".tmp")
-        temp_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
-        temp_path.replace(bundle_path)
+        atomic_write_text(bundle_path, json.dumps(payload, sort_keys=True))
     json.dump(payload, sys.stdout)
     sys.stdout.write("\n")
     return 0

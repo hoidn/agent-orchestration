@@ -5,6 +5,7 @@ from __future__ import annotations
 from hashlib import sha256
 from typing import Any, Dict, Optional
 
+from ..._common.io_atomic import atomic_write_text
 from ...contracts.output_contract import OutputContractError
 from ..executor_runtime import RuntimeStepInput
 from ..pure_expr import (
@@ -141,7 +142,8 @@ def execute_pure_projection(
             "bindings_digest": bindings_digest,
             "result": result_value,
         }
-        runtime._atomic_write_text(bundle_path, canonical_json_for_pure_value(bundle_record))
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(bundle_path, canonical_json_for_pure_value(bundle_record))
     return {
         "status": "completed",
         "exit_code": 0,

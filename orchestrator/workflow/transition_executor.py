@@ -10,6 +10,7 @@ from pathlib import Path
 import subprocess
 from typing import Any
 
+from .._common.io_atomic import atomic_write_text
 from .pure_expr import evaluate_pure_expr
 from .transition_contract import (
     TRANSITION_SCHEMA_VERSION,
@@ -803,9 +804,7 @@ def _pending_replay_path(audit_path: Path) -> Path:
 def _write_pending_replay(audit_path: Path, row: Mapping[str, Any]) -> None:
     pending_path = _pending_replay_path(audit_path)
     pending_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = pending_path.with_suffix(f"{pending_path.suffix}.tmp")
-    tmp_path.write_text(serialize_transition_audit_record(row) + "\n", encoding="utf-8")
-    tmp_path.replace(pending_path)
+    atomic_write_text(pending_path, serialize_transition_audit_record(row) + "\n")
 
 
 def _read_pending_replay(audit_path: Path) -> dict[str, Any] | None:

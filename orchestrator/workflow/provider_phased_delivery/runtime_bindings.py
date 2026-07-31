@@ -8,6 +8,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, cast
 
+from ..._common.io_atomic import durable_atomic_write
 from ..._common.validation import is_finite_positive_number
 from ...contracts.output_contract import (
     OutputContractError,
@@ -1287,7 +1288,6 @@ class _WorkflowPhasedProviderAttemptBindings:
             ) from exc
 
     def _restore_frozen_candidate(self, frozen):
-        from ...state_locking import durable_atomic_write
         from .bindings import (
             FrozenCandidateRestoration,
         )

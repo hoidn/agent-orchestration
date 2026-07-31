@@ -4,6 +4,10 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator._common.io_atomic import (
+    atomic_write_text as common_atomic_write_text,
+)
+import orchestrator.monitor.ledger as ledger_module
 from orchestrator.monitor.ledger import NotificationLedger
 from orchestrator.monitor.models import MonitorEvent, MonitorEventKind, MonitorRun, MonitorWorkspace
 
@@ -57,6 +61,40 @@ def test_ledger_save_uses_temp_file_rename_without_leaving_temp_file(tmp_path: P
     assert not list(path.parent.glob("*.tmp"))
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["schema"] == "orchestrator-monitor-ledger/v1"
+
+
+def test_ledger_save_delegates_exact_unframed_json_after_parent_creation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "nested" / "notifications.json"
+    ledger = NotificationLedger.load(path)
+    ledger.mark_sent(
+        _event(tmp_path),
+        sent_at="2026-04-28T12:00:00+00:00",
+    )
+    writes: list[tuple[Path, str, dict[str, object]]] = []
+
+    def tracking_write(target: Path, text: str, **kwargs) -> None:
+        assert target.parent.is_dir()
+        writes.append((target, text, kwargs))
+        common_atomic_write_text(target, text, **kwargs)
+
+    monkeypatch.setattr(ledger_module, "atomic_write_text", tracking_write)
+
+    ledger.save()
+
+    assert writes == [
+        (
+            path,
+            json.dumps(
+                {"schema": ledger_module.LEDGER_SCHEMA, "sent": ledger.sent},
+                indent=2,
+            ),
+            {},
+        )
+    ]
+    assert not path.read_text(encoding="utf-8").endswith("\n")
 
 
 def test_malformed_ledger_raises_clear_error(tmp_path: Path):

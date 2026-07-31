@@ -9,6 +9,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Mapping
 
 from orchestrator._common.canonical import compact_ascii_json_dumps
+from orchestrator._common.io_atomic import atomic_write_bytes
 from orchestrator._common.validation import nonempty_string as _nonempty
 from ...contracts.output_contract import (
     OutputContractError,
@@ -983,10 +984,8 @@ class WorkflowProviderSupervisionBindings:
             ordinal,
             success.evidence,
         )
-        self.executor._atomic_write_bytes(
-            turn.evidence_path,
-            publication.payload,
-        )
+        turn.evidence_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_bytes(turn.evidence_path, publication.payload)
         final_prompt = success.final_prompt.decode("utf-8", errors="strict")
         self._final_prompts[turn.turn_role] = final_prompt
         return ProviderSupervisionAttemptBinding(

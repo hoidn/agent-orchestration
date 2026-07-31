@@ -1,4 +1,5 @@
 from pathlib import Path
+import stat
 
 import pytest
 
@@ -10,6 +11,18 @@ from orchestrator.workflow.adjudication import (
     create_baseline_snapshot,
     prepare_candidate_workspace_from_baseline,
 )
+from orchestrator.workflow.adjudication.utils import _atomic_write_text
+
+
+def test_adjudication_atomic_text_keeps_utf8_bytes_and_restrictive_mode(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "nested" / "manifest.json"
+
+    _atomic_write_text(destination, "café\n")
+
+    assert destination.read_bytes() == "café\n".encode("utf-8")
+    assert stat.S_IMODE(destination.stat().st_mode) == 0o600
 
 
 def test_adjudication_runtime_helpers_are_split_into_public_submodules() -> None:

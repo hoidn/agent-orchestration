@@ -8,6 +8,9 @@ import sys
 
 import pytest
 
+from orchestrator._common.io_atomic import (
+    atomic_write_text as common_atomic_write_text,
+)
 
 def _import_transition_contract():
     return importlib.import_module("orchestrator.workflow.transition_contract")
@@ -39,6 +42,41 @@ def _record(name: str, fields: list[dict[str, object]]) -> dict[str, object]:
 
 def _binding(name: str) -> dict[str, object]:
     return {"kind": "binding", "name": name}
+
+
+def test_pending_replay_delegates_exact_framed_record_after_parent_creation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transition_executor = _import_transition_executor()
+    audit_path = tmp_path / "nested" / "transition-audit.jsonl"
+    row = {"status": "COMMITTED", "message": "héllo"}
+    writes: list[tuple[Path, str, dict[str, object]]] = []
+
+    def tracking_write(path: Path, text: str, **kwargs) -> None:
+        assert path.parent.is_dir()
+        writes.append((path, text, kwargs))
+        common_atomic_write_text(path, text, **kwargs)
+
+    monkeypatch.setattr(
+        transition_executor,
+        "atomic_write_text",
+        tracking_write,
+    )
+
+    transition_executor._write_pending_replay(audit_path, row)
+
+    pending_path = audit_path.with_name(
+        f"{audit_path.name}.pending.json"
+    )
+    assert writes == [
+        (
+            pending_path,
+            transition_executor.serialize_transition_audit_record(row)
+            + "\n",
+            {},
+        )
+    ]
 
 
 def _field_access(base: dict[str, object], field: str) -> dict[str, object]:

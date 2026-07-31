@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
 
+from .._common.io_atomic import atomic_write_text
 from .models import MonitorEvent
 
 LEDGER_SCHEMA = "orchestrator-monitor-ledger/v1"
@@ -59,10 +60,8 @@ class NotificationLedger:
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_name(f"{self.path.name}.tmp")
         payload = {"schema": LEDGER_SCHEMA, "sent": self.sent}
-        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        tmp.replace(self.path)
+        atomic_write_text(self.path, json.dumps(payload, indent=2))
 
     def _event_key(self, event: MonitorEvent) -> tuple[str, str, str]:
         workspace = str(event.run.workspace.path.expanduser().resolve(strict=False))

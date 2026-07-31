@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from .._common.io_atomic import atomic_write_text
 from orchestrator.providers.types import ProviderParams
 
 
@@ -387,9 +388,7 @@ class LiveAgentNoteObserver:
 
     def _write_text_atomic(self, path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(text, encoding="utf-8")
-        tmp.replace(path)
+        atomic_write_text(path, text)
 
     def _write_json_atomic(self, path: Path, payload: dict[str, Any]) -> None:
         self._write_text_atomic(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")

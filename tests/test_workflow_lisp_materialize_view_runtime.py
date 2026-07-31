@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import orchestrator.workflow.steps.materialize_view as materialize_view_module
 from orchestrator.exceptions import WorkflowValidationError
 from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
@@ -620,7 +621,7 @@ def test_materialize_view_runtime_fails_closed_when_resume_schema_changes(tmp_pa
     assert resumed["steps"]["MaterializeView"]["error"]["type"] == "materialize_view_resume_schema_mismatch"
 
 
-def test_materialize_view_runtime_preserves_atomic_commit_when_rename_fails(
+def test_materialize_view_runtime_preserves_atomic_commit_when_target_write_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -636,10 +637,10 @@ def test_materialize_view_runtime_preserves_atomic_commit_when_rename_fails(
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_text("old\n", encoding="utf-8")
 
-    def _boom(_src: str, _dst: str) -> None:
-        raise OSError("rename failed")
+    def _boom(_path: Path, _content: bytes) -> None:
+        raise OSError("target write failed")
 
-    monkeypatch.setattr("orchestrator.workflow.executor.os.replace", _boom)
+    monkeypatch.setattr(materialize_view_module, "atomic_write_bytes", _boom)
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
     runtime_step = executor._runtime_step_by_name("MaterializeView")
     assert runtime_step is not None
@@ -670,14 +671,18 @@ def test_materialize_view_runtime_preserves_atomic_commit_when_evidence_write_fa
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_text("old\n", encoding="utf-8")
     evidence_path = tmp_path / "artifacts/work/.materialized-summary.json.materialize-view-evidence.json"
-    original_atomic_write_bytes = WorkflowExecutor._atomic_write_bytes
+    original_atomic_write_bytes = materialize_view_module.atomic_write_bytes
 
-    def _fail_evidence_write(self: WorkflowExecutor, path: Path, content: bytes) -> None:
+    def _fail_evidence_write(path: Path, content: bytes) -> None:
         if path == evidence_path:
             raise OSError("evidence write failed")
-        original_atomic_write_bytes(self, path, content)
+        original_atomic_write_bytes(path, content)
 
-    monkeypatch.setattr(WorkflowExecutor, "_atomic_write_bytes", _fail_evidence_write)
+    monkeypatch.setattr(
+        materialize_view_module,
+        "atomic_write_bytes",
+        _fail_evidence_write,
+    )
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
     runtime_step = executor._runtime_step_by_name("MaterializeView")
     assert runtime_step is not None

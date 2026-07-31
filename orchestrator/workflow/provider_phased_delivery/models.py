@@ -389,6 +389,10 @@ def _manifest_payload(
     }
 
 
+def _canonical_sha256(value: object) -> str:
+    return sha256_compact_ascii_json(value, allow_nan=False)
+
+
 @dataclass(frozen=True, slots=True)
 class CandidateDigestManifest:
     submission_ordinal: int
@@ -431,13 +435,12 @@ class CandidateDigestManifest:
         ):
             raise ValueError("frozen manifest requires every row regular")
         _require_digest(self.manifest_sha256, field="manifest_sha256")
-        expected = sha256_compact_ascii_json(
+        expected = _canonical_sha256(
             _manifest_payload(
                 submission_ordinal=self.submission_ordinal,
                 disposition=self.disposition,
                 rows=self.rows,
-            ),
-            allow_nan=False,
+            )
         )
         if self.manifest_sha256 != expected:
             raise ValueError("manifest_sha256 does not seal the manifest")
@@ -456,13 +459,12 @@ class CandidateDigestManifest:
             raise TypeError(
                 "manifest rows must contain exact CandidateDigestRow values"
             )
-        digest = sha256_compact_ascii_json(
+        digest = _canonical_sha256(
             _manifest_payload(
                 submission_ordinal=submission_ordinal,
                 disposition=disposition,
                 rows=rows,
-            ),
-            allow_nan=False,
+            )
         )
         return cls(
             submission_ordinal=submission_ordinal,

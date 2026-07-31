@@ -17,7 +17,7 @@ from typing import Any, Mapping
 from ..._common.canonical import compact_ascii_json_dumps
 from ..._common.validation import (
     is_finite_positive_number,
-    nonempty_string,
+    nonempty_string as _nonempty,
 )
 from .models import (
     MAX_PEER_MESSAGE_BYTES,
@@ -109,10 +109,6 @@ def _read_frame(connection: socket.socket) -> bytes:
         if newline != len(combined) - 1:
             raise ValueError("peer protocol accepts exactly one frame")
         return combined
-
-
-def _nonempty(value: object, *, field: str) -> str:
-    return nonempty_string(value, field)
 
 
 def encode_active_peer_binding(

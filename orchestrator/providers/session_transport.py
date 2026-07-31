@@ -52,21 +52,13 @@ class SessionIdentitySnapshot:
     error: Mapping[str, Any] | None = None
     resume_boundary_seen: bool = False
 
-    def assistant_text_is_eligible(
-        self,
-        *,
-        expected_session_id: str | None,
-    ) -> bool:
+    def assistant_text_is_eligible(self, *, expected_session_id: str | None) -> bool:
         """Return whether assistant text may surface for this identity view."""
-        if self.status in {"ambiguous", "invalid"}:
-            return False
-        if (
+        return self.status not in {"ambiguous", "invalid"} and not (
             expected_session_id is not None
             and self.status == "unique"
             and self.session_ids != (expected_session_id,)
-        ):
-            return False
-        return True
+        )
 
 
 def extract_codex_assistant_text(event: Mapping[str, Any]) -> str | None:

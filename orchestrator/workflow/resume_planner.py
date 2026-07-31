@@ -359,16 +359,9 @@ class ResumePlanner:
         )
         if step_result is None:
             return "absent"
-        if isinstance(step_result, dict):
-            status = step_result.get("status")
-            # Preserve the previous literal-set error for unhashable state.
-            if not isinstance(status, str):
-                hash(status)
-        else:
-            status = None
         if (
             not isinstance(step_result, dict)
-            or not is_step_settled(status)
+            or not is_step_settled(step_result.get("status"), raise_on_unhashable=True)
             or step_result.get("step_id") != step_id
         ):
             return "integrity_error"
