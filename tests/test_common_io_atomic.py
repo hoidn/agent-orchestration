@@ -15,7 +15,7 @@ from orchestrator._common.io_atomic import (
 
 
 def _temporary_paths(destination: Path) -> list[Path]:
-    return list(destination.parent.glob(f".{destination.name}.*.tmp"))
+    return list(destination.parent.glob(".orc-tmp-*.tmp"))
 
 
 def test_atomic_write_bytes_replaces_with_complete_payload(tmp_path: Path) -> None:
@@ -267,7 +267,26 @@ def test_atomic_write_bytes_uses_unique_temporary_names(
     assert destination.read_bytes() == b"second"
     assert len(temporary_names) == 2
     assert len(set(temporary_names)) == 2
-    assert all(name.startswith(f".{destination.name}.") for name in temporary_names)
+    assert all(name.startswith(".orc-tmp-") for name in temporary_names)
+    assert all(
+        len(os.fsencode(name)) <= os.pathconf(tmp_path, "PC_NAME_MAX")
+        for name in temporary_names
+    )
+    assert _temporary_paths(destination) == []
+
+
+@pytest.mark.parametrize("writer", (atomic_write_bytes, durable_atomic_write))
+def test_atomic_writers_support_a_destination_at_name_max(
+    tmp_path: Path,
+    writer: Callable[[Path, bytes], None],
+) -> None:
+    name_max = os.pathconf(tmp_path, "PC_NAME_MAX")
+    suffix = ".bin"
+    destination = tmp_path / (("a" * (name_max - len(suffix))) + suffix)
+
+    writer(destination, b"replacement")
+
+    assert destination.read_bytes() == b"replacement"
     assert _temporary_paths(destination) == []
 
 

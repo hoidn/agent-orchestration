@@ -7,7 +7,7 @@ import os
 import sys
 from pathlib import Path
 
-from ..._common.io_atomic import atomic_write_text
+from orchestrator._common.io_atomic import atomic_write_text
 
 
 def _load_payload(argv: list[str]) -> dict[str, object]:

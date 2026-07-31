@@ -11,7 +11,7 @@ _ORDINARY_FILE_MODE, _RESTRICTIVE_FILE_MODE = 0o666, 0o600
 
 def _temporary_path(destination: Path) -> Path:
     return destination.with_name(
-        f".{destination.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp"
+        f".orc-tmp-{os.getpid()}-{secrets.token_hex(8)}.tmp"
     )
 
 
