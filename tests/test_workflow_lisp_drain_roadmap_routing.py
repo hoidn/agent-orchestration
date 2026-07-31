@@ -55,6 +55,9 @@ PURE_RESULT_REPLAY_PLAN_PATH = (
 PURE_RESULT_REPLAY_ACTIVATION_PLAN_PATH = (
     "docs/plans/2026-07-30-pure-result-replay-activation-component-plan.md"
 )
+MC_COMMON_HELPER_PLAN_PATH = (
+    "docs/plans/2026-07-30-mc-common-helper-consolidation-component-plan.md"
+)
 LEXICAL_EXECUTION_CHECKPOINTS_DESIGN_PATH = (
     "docs/design/workflow_lisp_lexical_execution_checkpoints.md"
 )
@@ -4417,6 +4420,8 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert Path(PURE_RESULT_REPLAY_PLAN_PATH).name in index
     assert Path(PURE_RESULT_REPLAY_ACTIVATION_PLAN_PATH).name in track
     assert Path(PURE_RESULT_REPLAY_ACTIVATION_PLAN_PATH).name in index
+    assert Path(MC_COMMON_HELPER_PLAN_PATH).name in track
+    assert Path(MC_COMMON_HELPER_PLAN_PATH).name in index
     assert "### [M1 Estate Shrink Implementation Plan]" in index
 
     m0_section = track.split("## Phase M0: Green Baseline", 1)[1].split(
@@ -4472,15 +4477,15 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "minimum m2/m3a correctness machinery" in normalized_track
     assert "strictly reduce both durable value count" in normalized_track
     assert "does not authorize adjacent refactoring" in normalized_track
+    assert "mc is selected through the reviewed" in normalized_track_header
+    assert "mr 4 is historical complete at 836721ce" in normalized_track_header
     listing_guard = next(
         clause
         for clause in normalized_track_header.split(".")
-        if "selected by listing" in clause
+        if "not selected by listing" in clause
     )
-    assert all(
-        phase in listing_guard
-        for phase in ("mc", "mr", "m3b", "m3c", "m4")
-    )
+    assert all(phase in listing_guard for phase in ("mr", "m3b", "m3c", "m4"))
+    assert "mc" not in listing_guard
     assert "ml" not in listing_guard
 
     m1_section = track.split("## Phase M1: Estate Shrink", 1)[1].split(
@@ -4584,7 +4589,11 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     )
     assert "accepted m2 component (a) design" in _normalized_routing_text(index)
     assert "evidence gated and unselected" in normalized_substrate_index_route
-    for unselected_phase in ("mc", "mr", "m3b", "m3c", "m4"):
+    assert "mc is selected under the reviewed" in normalized_substrate_index_route
+    assert "mr 4 is historical complete at 836721ce" in (
+        normalized_substrate_index_route
+    )
+    for unselected_phase in ("remaining mr", "m3b", "m3c", "m4"):
         assert unselected_phase in normalized_substrate_index_route
 
     m2_section = track.split(
@@ -5003,6 +5012,66 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "5b63aca18c2c013395aecede0210e4b522f7c846549ed23d879505635f226810" in (
         m0_plan
     )
+
+
+def test_mc_routes_current_census_and_reviewed_nonsecurity_component_plan() -> None:
+    track = (REPO_ROOT / SUBSTRATE_MAINTENANCE_TRACK_PATH).read_text(
+        encoding="utf-8"
+    )
+    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
+    plan = (REPO_ROOT / MC_COMMON_HELPER_PLAN_PATH).read_text(encoding="utf-8")
+    normalized_track = _normalized_routing_text(track)
+    normalized_index = _normalized_routing_text(index)
+    normalized_plan = _normalized_routing_text(plan)
+
+    assert Path(MC_COMMON_HELPER_PLAN_PATH).name in track
+    assert Path(MC_COMMON_HELPER_PLAN_PATH).name in index
+    assert "status: selected under the reviewed" in normalized_track
+    assert "execute current work from the reviewed" in normalized_index
+    assert "db01eb6a14e1c9c959b4359630667c62aeb4b507" in plan
+    assert "fd6f54416f4f39090c679bb81d768b1fa7c7cff5" in plan
+
+    assert plan.index("MC_PLAN_SPEC_APPROVED") < plan.index(
+        "MC_PLAN_QUALITY_APPROVED"
+    )
+    assert plan.index("MC_FINAL_SPEC_APPROVED") < plan.index(
+        "MC_FINAL_QUALITY_APPROVED"
+    )
+    for task_number in range(7):
+        assert f"## Task {task_number}:" in plan
+    for shared_module in (
+        "orchestrator/_common/canonical.py",
+        "orchestrator/_common/validation.py",
+        "orchestrator/_common/status.py",
+        "orchestrator/_common/io_atomic.py",
+    ):
+        assert shared_module in plan
+
+    assert "admitted production loc is net negative" in normalized_plan
+    assert "test and documentation totals separately" in normalized_plan
+    assert "no digest migration" in normalized_plan
+    assert "non finite provider timeouts fail before side effects" in (
+        normalized_plan
+    )
+    assert "failed non durable atomic writes leave the destination unchanged" in (
+        normalized_plan
+    )
+    for excluded_surface in (
+        "report/monitor symlink policy",
+        "provider isolation",
+        "dashboard",
+        "experiment/e series",
+        "wcc middle end",
+        "security surface",
+    ):
+        assert excluded_surface in normalized_plan
+
+    assert "mr 4 is historical complete at 836721ce" in normalized_track
+    assert "literal pre m3 windows" in normalized_track
+    assert "require an explicit supersession/no go or reviewed post m3 re sequencing" in (
+        normalized_track
+    )
+    assert "no remaining tranche is selected by this row" in normalized_track
 
 
 def test_ml0_selects_at_least_once_recovery_with_reviewable_component_bounds() -> None:

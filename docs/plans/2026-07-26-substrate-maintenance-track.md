@@ -62,18 +62,18 @@
   `c5d8247ab6d47b209d14ee203513a0eda876acb1`, after restarted ordered final
   reviews and a 189-pass postcommit control. External closure-record SHA-256:
   `fa8530a87a61f484e19ed1b3d5716f6e30b2061efb4ff12769bfc0b6051cf42b`.
-  MC, MR, M3b, M3c, and M4 are not selected by listing and still require
-  their own component plans.
+  MC is selected through the reviewed
+  [MC Common-Helper Consolidation Component Plan](2026-07-30-mc-common-helper-consolidation-component-plan.md).
+  MR-4 is historical complete at `836721ce`; the remaining MR tranches, M3b,
+  M3c, and M4 are not selected by listing and still require their own valid
+  entry gates and component plans.
 - **Relation:** parallel substrate track beside the completed
   `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`
   (Q/L tracks). The accepted Q3 identity satisfies M2's entry prerequisite,
   but selected component (a) creates no memo key or second identity;
   component (b), if its evidence threshold ever reopens, must consume Q3's
-  definition. MR-4 (compiler session state) was coupled to the
-  L-series — later L stages, notably L3's per-source entry selection,
-  raise per-process compile pressure on exactly the reentrancy MR-4
-  fixes, so MR-4 schedules in coordination with both series and should
-  complete before or with L3.
+  definition. MR-4 (compiler session state) was coupled to the L-series and
+  completed at `836721ce` before L3 closed over its reentrant compile path.
 - **Adopted amendment:**
   `docs/plans/2026-07-26-provider-at-least-once-loosening-amendment.md`
   (adopted as shape 2026-07-26; execution gated per phase) records the
@@ -174,8 +174,8 @@ seams that loosening defines.
 | M0 | Historical green baseline | complete at `f15b888d` under the reviewed [M0 component plan](2026-07-29-m0-green-baseline-component-plan.md) and external exact-commit closure | satisfied: bare `pytest` green; exact reviewed bytes committed; 418-pass postcommit control |
 | M1 | Estate shrink + adopted inventory extension | selected at reviewed Task 0 commit `4e71093d` under the [M1 component plan](2026-07-29-m1-estate-shrink-component-plan.md) | satisfied at `57c2604e`, tree `fc0fdbef`; ordered reviews and postcommit selector passed |
 | ML | Provider at-least-once loosening | historical complete: selected at `e2e39422`; ML-1 at `9c14dae3`; ML-2 at `b8783f66`, tree `b833b03c`; ML-4 Tasks 1–4 at `c45928f4`, `b3370858`, `ed19624c`, and `758c67e0`, with closure through the commit containing this record | satisfied: 5 E2E passed; 156 owning adjudication tests passed; 3 lock-control tests passed with 120 deselected; broad non-security suite 9,714 passed, 19 skipped, 5 warnings |
-| MC | Common-helper consolidation | M0 complete; Q0-listed files deferred until Q0 closes | net LOC strictly negative; no residual private clones; touched-module suites green |
-| MR | Behavior-preserving structural refactors | per-tranche: MR-5a after M0; MR-1 after ML-1; MR-2 after ML; MR-3 with/after ML-2; MR-4 Q-coordinated | golden-parity gates per tranche; MR-1..MR-3 complete before M3 starts |
+| MC | Common-helper consolidation | selected under the reviewed [MC component plan](2026-07-30-mc-common-helper-consolidation-component-plan.md); M0 and Q0 complete | admitted production LOC strictly negative; no residual admitted private clones; touched-module and broad non-security suites green |
+| MR | Behavior-preserving structural refactors | MR-4 historical complete at `836721ce`; every remaining tranche unselected; MR-1..MR-3 and MR-5b/c missed their recorded pre-M3 window and require explicit disposition before re-entry | MR-4 gate satisfied; no remaining tranche is selected by this row |
 | M2 | Persistence-parsimony design | historical complete: ML complete; Q3 identity accepted; owner depth fixed at component (a) | satisfied by accepted pure-result replay design, executable feasibility fixture, broad gate, and ordered final reviews |
 | M3 | Persistence implementation | M3a historical complete at `76427bde`, tree `c5d8247a`; 3b/3c retain their separate gates | M3a satisfied by refreshed focused/broad evidence, ordered final review, exact closure commit, and 189-pass postcommit control; no later tranche is selected by this row |
 | M4 | Structural decomposition | M3 complete or owner-recorded M2/M3 no-go; owner M4 go decision | touched modules split along the then-current seams; full suite green; no behavior change |
@@ -322,18 +322,30 @@ M3, or M4.
 
 ## Phase MC: Common-Helper Consolidation
 
-Adopted amendment phase; scope and gates in the amendment (§Phase MC):
-one `orchestrator/_common/` package (atomic IO, canonical digests, scalar
-validation, status/type predicates) replacing ~60 drifted clone sites; net
-LOC strictly negative.
+**Status:** selected under the reviewed
+[MC Common-Helper Consolidation Component Plan](2026-07-30-mc-common-helper-consolidation-component-plan.md).
+The fresh census admits exact non-security canonical, scalar-validation,
+status/session-predicate, timeout, and atomic-replacement clones into one
+small `orchestrator/_common/` package. Protocol-specific serializers and
+validators stay local. The report/monitor run-directory and symlink-policy
+row, provider isolation, dashboard, experiments/E-series, WCC middle-end, and
+every other security surface remain explicitly deferred.
+
+Gate: admitted production LOC strictly negative; no residual admitted private
+clone; exact byte/error/status parity; finite timeout and failed-temp cleanup
+both-direction tests; touched-module and broad non-security suites green; one
+ordered final specification then quality review.
 
 ## Phase MR: Behavior-Preserving Structural Refactors
 
-Adopted amendment phase; tranche scope and gates in the amendment
-(§Phase MR): MR-1 provider-family descriptor parametrization, MR-2 attempt
-pipeline and step-loop extraction (M4 prep), MR-3 call-frame lifecycle
-unification, MR-4 compiler session state (Q-track-coordinated; recorded
-deletion-bound exception), MR-5 scoped error-hygiene rider.
+Adopted amendment phase; tranche scope and gates remain in the amendment
+(§Phase MR). MR-4 compiler session state is historical complete at
+`836721ce` and is not reopened. MR-1 provider-family descriptor
+parametrization, MR-2 attempt pipeline and step-loop extraction, MR-3
+call-frame lifecycle unification, and MR-5 scoped error hygiene remain
+unselected. The literal pre-M3 windows for MR-1..MR-3 and MR-5b/c have passed;
+they require an explicit supersession/no-go or reviewed post-M3
+re-sequencing act before execution.
 
 ## Phase M2: Persistence-Parsimony Design
 
@@ -474,18 +486,14 @@ abstractions beyond the module boundaries themselves.
   may interleave with Q0–Q2, which touch frontend/prompt surfaces. Commits
   stage explicit paths; the standing benign-delta absorption regime covers
   concurrent doc edits.
-- ML, MR-1..MR-3, and MR-5b/c touch executor/resume/state surfaces: they
-  enter only after the active Q0 implementation gate (Q0's plan protects
-  `state.py`, `provider_attempts.py`, `prompt_dependency_evidence.py`,
-  `call_frame_state.py`, and `providers/`), run strictly before M3, and may
-  overlap the design-only M2 window. MC may interleave with M1/ML but
-  defers call-site migration in Q0-listed files until Q0 closes; MR-5a may
-  start after M0.
-- MR-4 runs only in coordination with the Q-track — before or after Q1,
-  never concurrent with Q1 elaboration churn.
-- M2 serializes after Q3 (identity junction) and after ML. M3 is exclusive
-  with any other work on executor, checkpoint, or resume surfaces
-  (MR-1..MR-3 therefore complete before M3 starts).
+- ML is historical complete. MR-1..MR-3 and MR-5b/c did not execute inside
+  their recorded pre-M3 window and remain inert pending explicit disposition;
+  the stale condition is not silently treated as satisfied. MC is selected
+  after Q0 and M3a closure under its own current census and serial task plan.
+- MR-4 is historical complete at `836721ce`; no Q/L gate is reopened.
+- M2 serialized after Q3 (identity junction) and after ML. Any separately
+  selected M3b/M3c work remains exclusive with other work on executor,
+  checkpoint, or resume surfaces.
 - M4 is exclusive with everything touching the modules being split.
 
 ## Verification
