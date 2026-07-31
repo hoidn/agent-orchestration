@@ -173,7 +173,7 @@ navigation are complete.
 ### [Substrate Maintenance And Persistence Parsimony Track](plans/2026-07-26-substrate-maintenance-track.md)
 **Description:** Active parallel substrate track. M0 is historical complete at `f15b888d`; M1 is historical complete at `57c2604e`, tree `fc0fdbef`, with its ordered reviews and postcommit selector closed. Phase ML is historical complete: ML-1 at `9c14dae3`, tree `0b149f96`; ML-2 at `b8783f66`, tree `b833b03c`; and ML-4 Tasks 1–4 at `c45928f4`, `b3370858`, `ed19624c`, and `758c67e0`. M2 component (a) is historical complete through `159a8f5e`, `5644bd73`, and `cf0490d1`, with completed-resume compatibility correction `ce02cd17`, a 9,868-pass broad gate, and ordered final reviews. Its [Pure-Result Replay design](design/workflow_lisp_pure_result_replay.md) is the accepted M2 component (a) design.
 **Keywords:** workflow-lisp, substrate, maintenance, persistence, roadmap, m0, m1, ml, at-least-once
-**Use this when:** Selecting or auditing substrate work beside the completed Q/L roadmap. Phase ML and M2 component (a) are historical complete. M3a is eligible but unselected pending its separate reviewed activation plan; ordinary CLI-created roots and fresh call frames remain historical-profile. Component (b) is evidence-gated and unselected, and MC, MR, M3b, M3c, and M4 remain unselected. ML-3/provider-isolation remains deferred; no Q5 or L-series gate is reopened or re-reviewed.
+**Use this when:** Selecting or auditing substrate work beside the completed Q/L roadmap. Phase ML and M2 component (a) are historical complete. M3a is eligible but unselected while its proposed activation component plan awaits ordered review; ordinary CLI-created roots and fresh call frames remain historical-profile. Component (b) is evidence-gated and unselected, and MC, MR, M3b, M3c, and M4 remain unselected. ML-3/provider-isolation remains deferred; no Q5 or L-series gate is reopened or re-reviewed.
 
 ### [Workflow Lisp Pure-Result Replay](design/workflow_lisp_pure_result_replay.md)
 **Description:** Accepted, completed M2 component-(a) design for replacing eligible successful pure-projection values with exact value-free completion shells and reconstructing the values from validated bound inputs and durable effect results.
@@ -184,6 +184,11 @@ navigation are complete.
 **Description:** Historical-complete record for the reviewed four-implementation-task M2 component-(a) execution plan and its real compiler/state-manager/fresh-executor/new-executor-resume proof, including the transient typed dependency index, atomic value-free shells, audited persistence suppression, and checkpoint-safe replay.
 **Keywords:** workflow-lisp, persistence, resume, replay, feasibility, m2, component-plan
 **Use this when:** Auditing M2 task commits and executable evidence. Normal CLI state stays historical-profile. The completed M2 gate makes M3a eligible but unselected pending its separate reviewed plan.
+
+### [Pure-Result Replay Activation Component Plan](plans/2026-07-30-pure-result-replay-activation-component-plan.md)
+**Description:** Proposed M3a plan for activating the accepted replay profile at typed public new-root, force-restart, and fresh non-iterative Workflow Lisp call-frame creation points.
+**Keywords:** workflow-lisp, persistence, replay, activation, m3a, component-plan
+**Use this when:** Reviewing the M3a activation boundary. The proposed plan is discoverable but implementation-unselected until its ordered plan reviews approve it; existing roots/frames, generic initialization, non-Workflow-Lisp callees, and iteration-owned frames remain historical-profile.
 
 ### [M0 Green Baseline Implementation Plan](plans/2026-07-29-m0-green-baseline-component-plan.md)
 **Description:** Historical reviewed five-task M0 plan. The exact candidate closed at `f15b888d`, tree `8a75f24f`, after ordered external reviews and a 418-pass postcommit control.

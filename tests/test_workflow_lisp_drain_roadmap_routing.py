@@ -52,6 +52,9 @@ PURE_RESULT_REPLAY_DESIGN_PATH = (
 PURE_RESULT_REPLAY_PLAN_PATH = (
     "docs/plans/2026-07-30-pure-result-replay-feasibility-component-plan.md"
 )
+PURE_RESULT_REPLAY_ACTIVATION_PLAN_PATH = (
+    "docs/plans/2026-07-30-pure-result-replay-activation-component-plan.md"
+)
 LEXICAL_EXECUTION_CHECKPOINTS_DESIGN_PATH = (
     "docs/design/workflow_lisp_lexical_execution_checkpoints.md"
 )
@@ -4391,6 +4394,9 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     pure_replay_plan = (
         REPO_ROOT / PURE_RESULT_REPLAY_PLAN_PATH
     ).read_text(encoding="utf-8")
+    pure_replay_activation_plan = (
+        REPO_ROOT / PURE_RESULT_REPLAY_ACTIVATION_PLAN_PATH
+    ).read_text(encoding="utf-8")
     checkpoint_design = (
         REPO_ROOT / LEXICAL_EXECUTION_CHECKPOINTS_DESIGN_PATH
     ).read_text(encoding="utf-8")
@@ -4409,6 +4415,8 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in index
     assert Path(PURE_RESULT_REPLAY_PLAN_PATH).name in track
     assert Path(PURE_RESULT_REPLAY_PLAN_PATH).name in index
+    assert Path(PURE_RESULT_REPLAY_ACTIVATION_PLAN_PATH).name in track
+    assert Path(PURE_RESULT_REPLAY_ACTIVATION_PLAN_PATH).name in index
     assert "### [M1 Estate Shrink Implementation Plan]" in index
 
     m0_section = track.split("## Phase M0: Green Baseline", 1)[1].split(
@@ -4685,6 +4693,42 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "implemented only for explicit generic state initialization" in (
         normalized_capability_matrix
     )
+
+    normalized_activation_plan = _normalized_routing_text(
+        pure_replay_activation_plan
+    )
+    assert "status: proposed plan" in normalized_activation_plan
+    assert "implementation unselected" in normalized_activation_plan
+    assert "480e7e2f" in pure_replay_activation_plan
+    assert "1886104a" in pure_replay_activation_plan
+    assert "typed creation point selection" in normalized_activation_plan
+    assert "generic initializer inference" in normalized_activation_plan
+    assert "parent profile inheritance" in normalized_activation_plan
+    for activation_owner in (
+        "orchestrator/cli/commands/run.py",
+        "orchestrator/cli/commands/resume.py",
+        "orchestrator/workflow/calls.py",
+    ):
+        assert activation_owner in pure_replay_activation_plan
+    for preserved_boundary in (
+        "generic state initialization remains opt in",
+        "ordinary resume never chooses or backfills a profile",
+        "child_existing_frame is not none",
+        "boundary.iteration_owner_node_id is not none",
+        "component (b) memo keys",
+        "do not modify e/p routing",
+    ):
+        assert preserved_boundary in normalized_activation_plan
+    assert pure_replay_activation_plan.index(
+        "M3A_ACTIVATION_PLAN_SPEC_APPROVED"
+    ) < pure_replay_activation_plan.index(
+        "M3A_ACTIVATION_PLAN_QUALITY_APPROVED"
+    )
+    for task_number in range(5):
+        assert f"## Task {task_number}:" in pure_replay_activation_plan
+    assert "proposed" in normalized_track
+    assert "m3a is eligible but unselected" in normalized_track
+    assert "awaiting ordered plan review" in normalized_track
 
     normalized_plan = _normalized_routing_text(m1_plan)
     normalized_plan_header = _normalized_routing_text(

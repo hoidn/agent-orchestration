@@ -36,7 +36,9 @@
   [Pure-Result Replay Feasibility Component Plan](2026-07-30-pure-result-replay-feasibility-component-plan.md).
   Its broad non-security gate passed 9,868 tests with 19 skipped and 5
   warnings, followed by ordered final specification and quality approvals.
-  M3a is eligible but unselected pending its separate reviewed activation plan.
+  M3a is eligible but unselected. Its proposed
+  [Pure-Result Replay Activation Component Plan](2026-07-30-pure-result-replay-activation-component-plan.md)
+  is awaiting ordered plan review.
   Ordinary CLI-created roots and fresh call frames remain historical-profile.
   MC, MR, M3, and M4 are not selected by listing and still require their own
   component plans; within M3, only 3a is eligible.
@@ -378,9 +380,10 @@ append-only evidence, and keep public boundaries durable and typed.
 Potential tranches, each requiring selection, RED fixtures, and its own gate:
 
 - **3a** Pure-result elision: eligible but unselected after the exact M2 closure
-  lands. It is the only tranche admitted by the selected M2 depth and requires
-  a separate reviewed activation plan before implementation. Gate: golden-run
-  byte parity on diagnostics,
+  landed. Its proposed
+  [activation component plan](2026-07-30-pure-result-replay-activation-component-plan.md)
+  does not select implementation before ordered plan review. It is the only
+  tranche admitted by the selected M2 depth. Gate: golden-run byte parity on diagnostics,
   artifacts, and settlement results between persisted and recomputed
   execution; measured ledger reduction recorded.
 - **3b** Identity keys: not selected; requires component-(b) re-entry and an
