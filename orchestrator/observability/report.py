@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Optional
 
+from orchestrator._common.status import is_step_settled
 from orchestrator.runtime_observability import compute_active_runtime
 from orchestrator.workflow.judgment_views import (
     empty_judgment_views,
@@ -213,12 +214,18 @@ def _coerce_step_status(step_result: Any) -> Optional[str]:
         if isinstance(exit_code, int):
             return "failed"
         child_statuses = [_coerce_step_status(value) for value in step_result.values()]
-        if child_statuses and all(status in {"completed", "failed", "skipped"} for status in child_statuses):
+        if child_statuses and all(
+            is_step_settled(status)
+            for status in child_statuses
+        ):
             return "completed"
     elif isinstance(step_result, list):
         # for_each summary arrays are considered complete if all iterations settled.
         child_statuses = [_coerce_step_status(item) for item in step_result]
-        if child_statuses and all(status in {"completed", "failed", "skipped"} for status in child_statuses):
+        if child_statuses and all(
+            is_step_settled(status)
+            for status in child_statuses
+        ):
             return "completed"
         return "running"
     return None

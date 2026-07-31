@@ -1105,12 +1105,8 @@ class ProviderExecutor:
             if accumulator is None:
                 return
             snapshot = accumulator.snapshot()
-            if snapshot.status in {"ambiguous", "invalid"}:
-                return
-            if (
-                expected_session_id is not None
-                and snapshot.status == "unique"
-                and snapshot.session_ids != (expected_session_id,)
+            if not snapshot.assistant_text_is_eligible(
+                expected_session_id=expected_session_id,
             ):
                 return
             if stream_output:
@@ -2393,12 +2389,8 @@ class ProviderExecutor:
                 if accumulator is None:
                     return
                 snapshot = accumulator.snapshot()
-                if snapshot.status in {"ambiguous", "invalid"}:
-                    return
-                if (
-                    expected_session_id is not None
-                    and snapshot.status == "unique"
-                    and snapshot.session_ids != (expected_session_id,)
+                if not snapshot.assistant_text_is_eligible(
+                    expected_session_id=expected_session_id,
                 ):
                     return
                 if stream_output:
@@ -2561,12 +2553,8 @@ class ProviderExecutor:
                 if not isinstance(active_accumulator, CodexExecJsonlAccumulator):
                     return
                 snapshot = active_accumulator.snapshot()
-                if snapshot.status in {"ambiguous", "invalid"}:
-                    return
-                if (
-                    expected_session_id is not None
-                    and snapshot.status == "unique"
-                    and snapshot.session_ids != (expected_session_id,)
+                if not snapshot.assistant_text_is_eligible(
+                    expected_session_id=expected_session_id,
                 ):
                     return
                 self._emit_session_assistant_text(assistant_text)
@@ -2579,12 +2567,8 @@ class ProviderExecutor:
         accumulator.feed(raw_chunk)
         snapshot = accumulator.snapshot()
         stream_state["session_ids"] = set(snapshot.session_ids)
-        if snapshot.status in {"ambiguous", "invalid"}:
-            stream_state["blocked"] = True
-        elif (
-            expected_session_id is not None
-            and snapshot.status == "unique"
-            and snapshot.session_ids != (expected_session_id,)
+        if not snapshot.assistant_text_is_eligible(
+            expected_session_id=expected_session_id,
         ):
             stream_state["blocked"] = True
 

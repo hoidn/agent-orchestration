@@ -12,6 +12,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional
 
+from .._common.status import is_run_terminal
 from ..state import (
     ForEachState,
     RunState,
@@ -218,8 +219,12 @@ class _CallFrameStateManager:
             export_status = "completed" if self.state.status == "completed" else "suppressed"
         else:
             export_status = "not_configured"
-        if body_status is None and self.state.status in {"completed", "failed"}:
-            body_status = self.state.status
+        if body_status is None:
+            # Preserve the previous literal-set error for unhashable state.
+            if not isinstance(self.state.status, str):
+                hash(self.state.status)
+            if is_run_terminal(self.state.status):
+                body_status = self.state.status
 
         return {
             "call_frame_id": self.frame_id,

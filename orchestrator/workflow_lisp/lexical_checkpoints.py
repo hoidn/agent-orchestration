@@ -14,6 +14,7 @@ from orchestrator._common.canonical import (
     canonical_json_dumps,
     sha256_json as _sha256_json,
 )
+from orchestrator._common.status import is_run_terminal
 from orchestrator.workflow.state_layout import (
     GeneratedPathAllocation,
     GeneratedPathAllocationRequest,
@@ -2010,8 +2011,12 @@ def assert_runtime_shadow_emission(
         state_manager.initialize(str(workflow_path), bound_inputs=dict(inputs))
 
     final_state = executor.execute(on_error="stop")
-    if final_state.get("status") not in {"completed", "failed"}:
-        raise AssertionError(f"unexpected workflow terminal status: {final_state.get('status')}")
+    final_status = final_state.get("status")
+    # Preserve the previous literal-set error for unhashable state.
+    if not isinstance(final_status, str):
+        hash(final_status)
+    if not is_run_terminal(final_status):
+        raise AssertionError(f"unexpected workflow terminal status: {final_status}")
 
     observed_kinds: set[str] = set()
     observed_records: list[Mapping[str, Any]] = []

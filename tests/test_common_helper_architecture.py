@@ -10,6 +10,7 @@ COMMON_CANONICAL_MODULE = "orchestrator._common.canonical"
 COMMON_CANONICAL_PATH = REPO_ROOT / "orchestrator/_common/canonical.py"
 COMMON_VALIDATION_MODULE = "orchestrator._common.validation"
 COMMON_VALIDATION_PATH = REPO_ROOT / "orchestrator/_common/validation.py"
+COMMON_STATUS_PATH = REPO_ROOT / "orchestrator/_common/status.py"
 
 
 @dataclass(frozen=True)
@@ -195,7 +196,7 @@ ADMITTED_HELPER_MANIFEST = {
             "orchestrator/state.py",
             patterns=(
                 "ast:literal_type_alias@StateStatus:"
-                "running|completed|failed",
+                "running|suspended|completed|failed",
                 "ast:literal_type_alias@StepStatus:"
                 "pending|running|completed|failed|skipped",
             ),
@@ -667,6 +668,268 @@ def _pattern_function_scope(
     return None
 
 
+def _literal_string_values(node: ast.AST) -> tuple[str, ...] | None:
+    if not isinstance(node, (ast.List, ast.Set, ast.Tuple)):
+        return None
+    if not all(
+        isinstance(element, ast.Constant)
+        and isinstance(element.value, str)
+        for element in node.elts
+    ):
+        return None
+    return tuple(element.value for element in node.elts)
+
+
+def _literal_type_alias_values(path: str, name: str) -> tuple[str, ...] | None:
+    for node in _module(path).body:
+        value: ast.AST | None = None
+        if (
+            isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == name
+                for target in node.targets
+            )
+        ):
+            value = node.value
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == name
+        ):
+            value = node.value
+        if (
+            isinstance(value, ast.Subscript)
+            and isinstance(value.value, ast.Name)
+            and value.value.id == "Literal"
+        ):
+            slice_node = value.slice
+            if isinstance(slice_node, ast.Tuple):
+                return _literal_string_values(slice_node)
+            if (
+                isinstance(slice_node, ast.Constant)
+                and isinstance(slice_node.value, str)
+            ):
+                return (slice_node.value,)
+    return None
+
+
+def _status_pattern(
+    pattern: str,
+    kind: str,
+) -> tuple[str, tuple[str, ...], int] | None:
+    prefix = f"ast:{kind}@"
+    if not pattern.startswith(prefix):
+        return None
+    target_and_values, count_text = pattern[len(prefix) :].rsplit(
+        ":count=",
+        1,
+    )
+    target, values_text = target_and_values.rsplit(":", 1)
+    return target, tuple(values_text.split("|")), int(count_text)
+
+
+def _literal_alias_pattern(
+    pattern: str,
+) -> tuple[str, tuple[str, ...]] | None:
+    prefix = "ast:literal_type_alias@"
+    if not pattern.startswith(prefix):
+        return None
+    name, values_text = pattern[len(prefix) :].split(":", 1)
+    return name, tuple(values_text.split("|"))
+
+
+def _membership_count(node: ast.AST, values: tuple[str, ...]) -> int:
+    expected = frozenset(values)
+    count = 0
+    for candidate in _walk_function_scope(node):
+        if (
+            not isinstance(candidate, ast.Compare)
+            or len(candidate.ops) != 1
+            or not isinstance(candidate.ops[0], (ast.In, ast.NotIn))
+            or len(candidate.comparators) != 1
+        ):
+            continue
+        actual = _literal_string_values(candidate.comparators[0])
+        if actual is not None and frozenset(actual) == expected:
+            count += 1
+    return count
+
+
+def _walk_function_scope(node: ast.AST):
+    """Walk one function body without admitting nested function bodies."""
+    stack = list(reversed(list(ast.iter_child_nodes(node))))
+    while stack:
+        candidate = stack.pop()
+        if isinstance(
+            candidate,
+            (
+                ast.AsyncFunctionDef,
+                ast.ClassDef,
+                ast.FunctionDef,
+                ast.Lambda,
+            ),
+        ):
+            continue
+        yield candidate
+        stack.extend(reversed(list(ast.iter_child_nodes(candidate))))
+
+
+def _dotted_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        prefix = _dotted_name(node.value)
+        if prefix is not None:
+            return f"{prefix}.{node.attr}"
+    return None
+
+
+def _module_matches(
+    *,
+    imported_module: str | None,
+    level: int,
+    absolute_module: str,
+) -> bool:
+    if imported_module is None:
+        return False
+    if level == 0:
+        return imported_module == absolute_module
+    return imported_module == absolute_module.removeprefix("orchestrator.")
+
+
+def _imported_symbol_names(
+    path: str,
+    module_name: str,
+    symbol: str,
+) -> set[str]:
+    names: set[str] = set()
+    for node in _module(path).body:
+        if not isinstance(node, ast.ImportFrom) or not _module_matches(
+            imported_module=node.module,
+            level=node.level,
+            absolute_module=module_name,
+        ):
+            continue
+        for alias in node.names:
+            if alias.name == symbol:
+                names.add(alias.asname or alias.name)
+    return names
+
+
+def _imported_module_names(path: str, module_name: str) -> set[str]:
+    names: set[str] = set()
+    for node in _module(path).body:
+        if not isinstance(node, ast.Import):
+            continue
+        for alias in node.names:
+            if alias.name == module_name:
+                names.add(alias.asname or alias.name)
+    return names
+
+
+def _imported_symbol_call_count(
+    path: str,
+    node: ast.AST,
+    *,
+    module_name: str,
+    symbol: str,
+) -> int:
+    direct_names = _imported_symbol_names(path, module_name, symbol)
+    qualified_names = {
+        f"{module_alias}.{symbol}"
+        for module_alias in _imported_module_names(path, module_name)
+    }
+    return sum(
+        isinstance(candidate, ast.Call)
+        and (
+            _dotted_name(candidate.func) in direct_names
+            or _dotted_name(candidate.func) in qualified_names
+        )
+        for candidate in _walk_function_scope(node)
+    )
+
+
+def _imported_owner_method_call_count(
+    path: str,
+    node: ast.AST,
+    *,
+    module_name: str,
+    owner_symbol: str,
+    method_name: str,
+) -> int:
+    owner_names = _imported_symbol_names(path, module_name, owner_symbol)
+    qualified_names = {
+        f"{owner_name}.{method_name}"
+        for owner_name in owner_names
+    }
+    qualified_names.update(
+        f"{module_alias}.{owner_symbol}.{method_name}"
+        for module_alias in _imported_module_names(path, module_name)
+    )
+    return sum(
+        isinstance(candidate, ast.Call)
+        and _dotted_name(candidate.func) in qualified_names
+        for candidate in _walk_function_scope(node)
+    )
+
+
+def _method_call_count(
+    node: ast.AST,
+    method_name: str,
+    *,
+    receiver_name: str | None = None,
+) -> int:
+    return sum(
+        isinstance(candidate, ast.Call)
+        and isinstance(candidate.func, ast.Attribute)
+        and candidate.func.attr == method_name
+        and (
+            receiver_name is None
+            or (
+                isinstance(candidate.func.value, ast.Name)
+                and candidate.func.value.id == receiver_name
+            )
+        )
+        for candidate in _walk_function_scope(node)
+    )
+
+
+def _session_ladder_pattern(
+    pattern: str,
+) -> tuple[str, int] | None:
+    prefix = "ast:session_snapshot_eligibility_ladder@"
+    if not pattern.startswith(prefix):
+        return None
+    target, count_text = pattern[len(prefix) :].rsplit(":count=", 1)
+    return target, int(count_text)
+
+
+def _retains_session_snapshot_eligibility_ladder(node: ast.AST) -> bool:
+    scoped_nodes = tuple(_walk_function_scope(node))
+    names = {
+        candidate.id
+        for candidate in scoped_nodes
+        if isinstance(candidate, ast.Name)
+    }
+    attributes = {
+        candidate.attr
+        for candidate in scoped_nodes
+        if isinstance(candidate, ast.Attribute)
+    }
+    constants = {
+        candidate.value
+        for candidate in scoped_nodes
+        if isinstance(candidate, ast.Constant)
+        and isinstance(candidate.value, str)
+    }
+    return (
+        _membership_count(node, ("ambiguous", "invalid")) >= 1
+        and "expected_session_id" in names
+        and "session_ids" in attributes
+        and "unique" in constants
+    )
+
+
 def test_admitted_helper_manifest_is_exact_and_machine_addressable() -> None:
     assert set(ADMITTED_HELPER_MANIFEST) == {
         "canonical",
@@ -824,6 +1087,181 @@ def test_provider_scalar_helpers_use_common_mechanics() -> None:
                 findings.append(
                     f"{surface.path}:{target} retains {count} direct "
                     "compact ASCII JSON call(s)"
+                )
+
+    assert not findings, "\n".join(findings)
+
+
+def test_status_helpers_have_one_common_owner() -> None:
+    findings: list[str] = []
+    if not COMMON_STATUS_PATH.is_file():
+        findings.append("missing orchestrator/_common/status.py")
+    else:
+        common_definitions = _top_level_function_names(COMMON_STATUS_PATH)
+        missing = {
+            "is_run_terminal",
+            "is_step_settled",
+        } - common_definitions
+        if missing:
+            findings.append(
+                f"common status owner missing definitions: {sorted(missing)}"
+            )
+
+    for surface in ADMITTED_HELPER_MANIFEST["status"]:
+        qualified_functions = _qualified_functions(surface.path)
+        if "SessionIdentitySnapshot" in surface.symbols:
+            owner = qualified_functions.get(
+                "SessionIdentitySnapshot.assistant_text_is_eligible"
+            )
+            if owner is None:
+                findings.append(
+                    f"{surface.path} missing "
+                    "SessionIdentitySnapshot.assistant_text_is_eligible"
+                )
+            elif not _retains_session_snapshot_eligibility_ladder(owner):
+                findings.append(
+                    f"{surface.path}:SessionIdentitySnapshot."
+                    "assistant_text_is_eligible lost its exact owned ladder"
+                )
+        if "ResumePlanner.entry_is_terminal" in surface.symbols:
+            recursive_owner = qualified_functions.get(
+                "ResumePlanner.entry_is_terminal"
+            )
+            scalar_owner = qualified_functions.get(
+                "ResumePlanner.entry_status_is_terminal"
+            )
+            if recursive_owner is None:
+                findings.append(
+                    f"{surface.path} missing resume terminality owner"
+                )
+            elif (
+                _method_call_count(
+                    recursive_owner,
+                    "entry_status_is_terminal",
+                    receiver_name="self",
+                )
+                != 1
+            ):
+                findings.append(
+                    f"{surface.path}:ResumePlanner.entry_is_terminal must "
+                    "call its scalar owner exactly once"
+                )
+            if scalar_owner is None:
+                findings.append(
+                    f"{surface.path} missing "
+                    "ResumePlanner.entry_status_is_terminal"
+                )
+            elif _membership_count(
+                scalar_owner,
+                ("completed", "skipped"),
+            ) != 1:
+                findings.append(
+                    f"{surface.path}:ResumePlanner.entry_status_is_terminal "
+                    "must retain the distinct completed|skipped rule"
+                )
+
+        for pattern in surface.patterns:
+            alias_pattern = _literal_alias_pattern(pattern)
+            if alias_pattern is not None:
+                name, expected = alias_pattern
+                actual = _literal_type_alias_values(surface.path, name)
+                if actual != expected:
+                    findings.append(
+                        f"{surface.path}:{name} is {actual!r}, "
+                        f"expected {expected!r}"
+                    )
+                continue
+
+            ladder_pattern = _session_ladder_pattern(pattern)
+            if ladder_pattern is not None:
+                target, expected_count = ladder_pattern
+                node = _pattern_function_scope(qualified_functions, target)
+                if node is None:
+                    findings.append(
+                        f"{surface.path}:{target} snapshot-ladder scope is missing"
+                    )
+                elif _retains_session_snapshot_eligibility_ladder(node):
+                    findings.append(
+                        f"{surface.path}:{target} retains a direct "
+                        "session-snapshot eligibility ladder"
+                    )
+                elif (
+                    _method_call_count(
+                        node,
+                        "assistant_text_is_eligible",
+                        receiver_name="snapshot",
+                    )
+                    != expected_count
+                ):
+                    findings.append(
+                        f"{surface.path}:{target} must call "
+                        "snapshot.assistant_text_is_eligible exactly "
+                        f"{expected_count} time(s)"
+                    )
+                continue
+
+            membership_kind: str | None = None
+            membership_pattern = None
+            for candidate_kind in (
+                "run_terminal_membership",
+                "step_settled_membership",
+                "status_membership",
+            ):
+                membership_pattern = _status_pattern(
+                    pattern,
+                    candidate_kind,
+                )
+                if membership_pattern is not None:
+                    membership_kind = candidate_kind
+                    break
+            if membership_pattern is None:
+                continue
+            target, values, expected_count = membership_pattern
+            node = _pattern_function_scope(qualified_functions, target)
+            if node is None:
+                findings.append(
+                    f"{surface.path}:{target} status-membership scope is missing"
+                )
+                continue
+            count = _membership_count(node, values)
+            if count:
+                findings.append(
+                    f"{surface.path}:{target} retains {count} direct "
+                    f"{'|'.join(values)} membership check(s)"
+                )
+                continue
+            if membership_kind == "run_terminal_membership":
+                owner_count = _imported_symbol_call_count(
+                    surface.path,
+                    node,
+                    module_name="orchestrator._common.status",
+                    symbol="is_run_terminal",
+                )
+                owner_description = "is_run_terminal"
+            elif membership_kind == "step_settled_membership":
+                owner_count = _imported_symbol_call_count(
+                    surface.path,
+                    node,
+                    module_name="orchestrator._common.status",
+                    symbol="is_step_settled",
+                )
+                owner_description = "is_step_settled"
+            else:
+                owner_count = _imported_owner_method_call_count(
+                    surface.path,
+                    node,
+                    module_name="orchestrator.workflow.resume_planner",
+                    owner_symbol="ResumePlanner",
+                    method_name="entry_status_is_terminal",
+                )
+                owner_description = (
+                    "ResumePlanner.entry_status_is_terminal"
+                )
+            if owner_count != expected_count:
+                findings.append(
+                    f"{surface.path}:{target} must call "
+                    f"{owner_description} exactly {expected_count} time(s); "
+                    f"found {owner_count}"
                 )
 
     assert not findings, "\n".join(findings)

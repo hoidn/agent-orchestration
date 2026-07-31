@@ -135,6 +135,93 @@ def test_session_identity_snapshot_resume_boundary_defaults_false_and_is_immutab
         snapshot.resume_boundary_seen = True
 
 
+@pytest.mark.parametrize(
+    (
+        "status",
+        "session_ids",
+        "expected_session_id",
+        "expected_eligible",
+    ),
+    (
+        pytest.param("missing", (), None, True, id="missing-unconstrained"),
+        pytest.param(
+            "missing",
+            (),
+            "session-expected",
+            True,
+            id="missing-before-identity",
+        ),
+        pytest.param(
+            "unique",
+            ("session-observed",),
+            None,
+            True,
+            id="unique-unconstrained",
+        ),
+        pytest.param(
+            "unique",
+            ("session-expected",),
+            "session-expected",
+            True,
+            id="unique-match",
+        ),
+        pytest.param(
+            "unique",
+            ("session-other",),
+            "session-expected",
+            False,
+            id="unique-mismatch",
+        ),
+        pytest.param(
+            "ambiguous",
+            ("session-expected", "session-other"),
+            None,
+            False,
+            id="ambiguous-unconstrained",
+        ),
+        pytest.param(
+            "ambiguous",
+            ("session-expected", "session-other"),
+            "session-expected",
+            False,
+            id="ambiguous-constrained",
+        ),
+        pytest.param(
+            "invalid",
+            (),
+            None,
+            False,
+            id="invalid-unconstrained",
+        ),
+        pytest.param(
+            "invalid",
+            ("session-expected",),
+            "session-expected",
+            False,
+            id="invalid-constrained",
+        ),
+    ),
+)
+def test_session_identity_snapshot_owns_assistant_text_eligibility(
+    status: Any,
+    session_ids: tuple[str, ...],
+    expected_session_id: str | None,
+    expected_eligible: bool,
+) -> None:
+    snapshot = _session_transport_module().SessionIdentitySnapshot(
+        status=status,
+        session_ids=session_ids,
+        terminal_seen=False,
+    )
+
+    assert (
+        snapshot.assistant_text_is_eligible(
+            expected_session_id=expected_session_id,
+        )
+        is expected_eligible
+    )
+
+
 def test_codex_jsonl_resume_boundary_requires_exact_top_level_turn_started():
     accumulator = _new_accumulator()
     accumulator.feed(

@@ -7,6 +7,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
+from orchestrator._common.status import is_run_terminal
 from orchestrator.dashboard.cursor import ExecutionCursorProjector
 
 from .models import MonitorEvent, MonitorEventKind, MonitorRun
@@ -69,7 +70,11 @@ def _refresh_terminal_state(run: MonitorRun) -> MonitorRun:
         return run
     if not isinstance(raw, Mapping):
         return run
-    if raw.get("status") not in {"completed", "failed"}:
+    status = raw.get("status")
+    # Preserve the previous literal-set error for unhashable state.
+    if not isinstance(status, str):
+        hash(status)
+    if not is_run_terminal(status):
         return run
     return replace(run, state=raw)
 

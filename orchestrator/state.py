@@ -17,7 +17,7 @@ import string
 from contextlib import contextmanager
 
 
-StateStatus = Literal["running", "completed", "failed"]
+StateStatus = Literal["running", "suspended", "completed", "failed"]
 StepStatus = Literal["pending", "running", "completed", "failed", "skipped"]
 
 

@@ -26,6 +26,7 @@ from orchestrator.workflow.resume_projection_integrity import (
     ResumeScopePath,
     audit_scope,
 )
+from orchestrator.workflow.resume_planner import ResumePlanner
 from orchestrator.workflow.pure_result_replay import (
     DERIVED_PURE_REPLAY_PROFILE,
 )
@@ -549,7 +550,7 @@ def _resume_workflow_with_writer_lock_held(
         for step_name, step_result in steps_state.items():
             if isinstance(step_result, dict):
                 status = step_result.get('status', 'pending')
-                if status in ['completed', 'skipped']:
+                if ResumePlanner.entry_status_is_terminal(status):
                     completed_steps.append(step_name)
                 else:
                     pending_steps.append(step_name)

@@ -16,6 +16,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, NamedTuple, Optional
 
+from .._common.status import is_step_settled
 from ..state import StateManager, StepResult
 from ..exec.step_executor import StepExecutor
 from ..exec.retry import RetryPolicy
@@ -3200,9 +3201,12 @@ class WorkflowExecutor:
             if not isinstance(prior_result, Mapping):
                 return None
             prior_visit = prior_result.get("visit_count")
+            prior_status = prior_result.get("status")
+            # Preserve the previous literal-set error for unhashable state.
+            if not isinstance(prior_status, str):
+                hash(prior_status)
             if (
-                prior_result.get("status")
-                not in {"completed", "failed", "skipped"}
+                not is_step_settled(prior_status)
                 or prior_result.get("step_id") != step_id
                 or isinstance(prior_visit, bool)
                 or not isinstance(prior_visit, int)
@@ -4404,9 +4408,12 @@ class WorkflowExecutor:
             if not isinstance(prior_result, Mapping):
                 return None
             prior_visit = prior_result.get("visit_count")
+            prior_status = prior_result.get("status")
+            # Preserve the previous literal-set error for unhashable state.
+            if not isinstance(prior_status, str):
+                hash(prior_status)
             if (
-                prior_result.get("status")
-                not in {"completed", "failed", "skipped"}
+                not is_step_settled(prior_status)
                 or prior_result.get("step_id") != step_id
                 or isinstance(prior_visit, bool)
                 or not isinstance(prior_visit, int)

@@ -10,6 +10,7 @@ from pathlib import Path
 import secrets
 from typing import Any, Callable, Mapping
 
+from orchestrator._common.status import is_run_terminal
 from orchestrator._common.validation import (
     closed_mapping as _common_closed_mapping,
     nonempty_string as _common_nonempty_string,
@@ -1512,7 +1513,10 @@ def validate_terminal_evidence(
     if state_path.absolute() != (root / "state.json").absolute():
         raise ValueError("state_file must be the authoritative aggregate-root state.json")
     initial_bytes, state = _read_terminal_state(state_path)
-    if state.status not in {"completed", "failed"}:
+    # Preserve the previous literal-set error for unhashable state.
+    if not isinstance(state.status, str):
+        hash(state.status)
+    if not is_run_terminal(state.status):
         raise ValueError("prompt dependency evidence validation requires terminal state")
     if state.run_root is None or Path(state.run_root).absolute() != root.absolute():
         raise ValueError("terminal state run root contradicts aggregate root")

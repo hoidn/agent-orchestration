@@ -2118,6 +2118,36 @@ def test_repeat_until_runtime_plan_checkpoint_metadata_preserves_projection_resu
     assert restart_index == bundle.projection.compatibility_index_by_node_id["root.review_loop"]
 
 
+def test_resume_status_owner_keeps_failure_and_unhashable_scalar_nonterminal() -> None:
+    predicate = ResumePlanner.entry_status_is_terminal
+    assert predicate("completed") is True
+    assert predicate("skipped") is True
+    assert predicate("failed") is False
+    assert predicate("suspended") is False
+    assert predicate([]) is False
+
+
+def test_interrupted_provider_relation_retains_set_membership_type_error() -> None:
+    planner = ResumePlanner()
+    state = {
+        "steps": {
+            "Review": {
+                "status": [],
+                "step_id": "root.review",
+                "visit_count": 1,
+            }
+        }
+    }
+
+    with pytest.raises(TypeError, match=r"unhashable type: 'list'"):
+        planner._interrupted_provider_result_relation(
+            state,
+            step_name="Review",
+            step_id="root.review",
+            visit_count=1,
+        )
+
+
 def test_frontend_generated_loop_recur_runtime_plan_preserves_repeat_until_resume_authority(
     tmp_path: Path,
 ):

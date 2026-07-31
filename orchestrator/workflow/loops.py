@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Mapping, Optional
 
+from .._common.status import is_step_settled
 from ..state import ForEachState, StepResult
 from .executable_ir import ExecutableNodeKind
 from .executor_runtime import LoopRuntime, RuntimeStepInput
@@ -571,7 +572,7 @@ class LoopExecutor:
                     if not isinstance(nested_result, dict):
                         all_steps_complete = False
                         break
-                    if nested_result.get("status") not in ["completed", "failed", "skipped"]:
+                    if not is_step_settled(nested_result.get("status")):
                         all_steps_complete = False
                         break
                 if not all_steps_complete:
@@ -642,7 +643,7 @@ class LoopExecutor:
                     if not isinstance(nested_result, dict):
                         all_steps_complete = False
                         break
-                    if nested_result.get("status") not in ["completed", "failed", "skipped"]:
+                    if not is_step_settled(nested_result.get("status")):
                         all_steps_complete = False
                         break
                 if not all_steps_complete:

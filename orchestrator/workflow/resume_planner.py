@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+from .._common.status import is_step_settled
 from .state_projection import CompatibilityNodeProjection, WorkflowStateProjection
 
 
@@ -26,12 +27,17 @@ class _ProjectedCurrentStep:
 class ResumePlanner:
     """Determine where a resumed run should re-enter top-level execution."""
 
+    @staticmethod
+    def entry_status_is_terminal(status: object) -> bool:
+        """Return True for the resume-owned completed/skipped scalar rule."""
+        return status in ("completed", "skipped")
+
     def entry_is_terminal(self, entry: Any) -> bool:
         """Return True when persisted step state is fully completed/skipped."""
         if isinstance(entry, dict):
             status = entry.get("status")
             if isinstance(status, str):
-                return status in ["completed", "skipped"]
+                return self.entry_status_is_terminal(status)
             if not entry:
                 return False
             return all(self.entry_is_terminal(value) for value in entry.values())
@@ -353,10 +359,16 @@ class ResumePlanner:
         )
         if step_result is None:
             return "absent"
+        if isinstance(step_result, dict):
+            status = step_result.get("status")
+            # Preserve the previous literal-set error for unhashable state.
+            if not isinstance(status, str):
+                hash(status)
+        else:
+            status = None
         if (
             not isinstance(step_result, dict)
-            or step_result.get("status")
-            not in {"completed", "failed", "skipped"}
+            or not is_step_settled(status)
             or step_result.get("step_id") != step_id
         ):
             return "integrity_error"
