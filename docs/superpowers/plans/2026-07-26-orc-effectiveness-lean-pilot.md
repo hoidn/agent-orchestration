@@ -16,19 +16,22 @@ exploratory blocks. The coordinator is frozen and parity-tested against the
 
 **Tech Stack:** Python 3, `pytest`, `jsonschema`, `tarfile`, `subprocess`, SHA-256 canonical JSON, Workflow Lisp, existing provider CLIs, and JSON evidence.
 
-> **Execution status (2026-07-27):** Tasks 1–6, locked A0 calibration round 1,
-> the Task 7 provider-free controller, and the recursive pre-calibration
-> module-size gate are focused green. The first locked live series (`a1-v5`)
-> completed its smoke and three live blocks but halted during blinded review
-> on an empty-payload citation-guidance defect; it produced no review bindings,
-> unblinding, summary, or report. A provider-free successor (`a1-v6`) was
-> superseded before launch when its source/import lineage was found not to
-> prove the exact treatment runtime. The citation correction is reviewed and
-> Task 3A of
-> `docs/plans/2026-07-27-lean-pilot-a1-v5-review-citation-incident-recovery.md`
-> is pinning that runtime for fresh successor `a1-v7`. The calibration seal
-> remains
-> `sha256:ad2570d72a0608173232d53beee7990c0e2afaa198f549bae8769083cc8e7f8f`.
+> **Execution status (2026-07-31): historical complete.** Tasks 1–6, locked A0
+> calibration round 1, the provider-free controller, and Task 7 are complete.
+> The immutable `a1-v5` review-citation incident and the prelaunch-only `a1-v6`
+> source/import-lineage mismatch remain preserved provenance. Fresh successor
+> `a1-v7` completed one smoke and exactly three valid live blocks without
+> resuming or rerunning any pilot attempt. Its lock digest is
+> `sha256:b8d69ba2f3d2b2e7bc6d9181d776db0b7abacd2035f851cd44be613dac6d8503`;
+> its authoritative summary digest is
+> `sha256:153263159d6516d032be83bd8f53954be0ba05b39af58be23d1abdca34085e89`;
+> and the deterministic report is
+> `docs/reports/2026-07-26-orc-effectiveness-lean-pilot.md`. Final evidence
+> review approved with `LEAN_PILOT_FINAL_EVIDENCE_APPROVED`. `DIRECT` won 3/3
+> against `ORC`, while `ORC` was viable in 1/3; the evidence remains
+> exploratory. The owner-decision handoff records
+> `PROCEED_TO_E0_ACTIVATION`, not a favorable-effectiveness claim or automatic
+> E1+ authorization.
 
 ## Global Constraints
 
@@ -1495,7 +1498,7 @@ record kind, reusable framework, or module above 500 physical lines. It does
 not modify reusable runtime, Workflow Lisp, provider-isolation, or PtychoPINN
 product code.
 
-- [ ] **Step 1: Implement the pilot-specific controller, require passing calibration, then freeze the pilot lock before any real-provider outcome**
+- [x] **Step 1: Implement the pilot-specific controller, require passing calibration, then freeze the pilot lock before any real-provider outcome**
 
 Enter this task only with a passing locked calibration. If both calibration
 rounds failed, preserve `CALIBRATION_FAILED`, complete Task 6 and its
@@ -1652,7 +1655,7 @@ python scripts/experiments/lean_pilot.py validate-lock \
 
 Expected: exits `0` and prints the canonical lock digest.
 
-- [ ] **Step 2: Run one unscored real-provider apparatus smoke**
+- [x] **Step 2: Run one unscored real-provider apparatus smoke**
 
 Use one fresh provider/model allocation per arm and the same three treatments
 on A1 under the exact locked closed environment and standard manifests. The
@@ -1688,7 +1691,7 @@ incident artifacts, emit no fabricated summary, and require a separately
 locked pilot. Do not rewrite the committed attempt or add a fifth record to
 force `STOP_APPARATUS_NOT_VIABLE`.
 
-- [ ] **Step 3: Run up to five live attempts to obtain three valid A1 blocks**
+- [x] **Step 3: Run up to five live attempts to obtain three valid A1 blocks**
 
 Launch each attempt with the next ordered opaque live ID from the immutable
 lock. Preserve every `INVALID`, `ABORTED`, or surviving `STARTED` record; each
@@ -1705,7 +1708,7 @@ immediately for each valid attempt, but do not start live review until
 denominator collection is complete. The post-`VALID` apparatus-defect rule
 from Step 2 applies identically to live attempts.
 
-- [ ] **Step 4: Conduct blinded live review**
+- [x] **Step 4: Conduct blinded live review**
 
 For every valid block, generate opaque packages and obtain one fresh session
 for each of the two stable calibrated reviewer identities. The locked
@@ -1733,7 +1736,7 @@ reading any label-map content and publishing canonical unblinding bindings. If
 five attempts yield fewer than three valid blocks, still review every valid
 block before generating the truthful shortfall summary.
 
-- [ ] **Step 5: Generate the authoritative pilot summary**
+- [x] **Step 5: Generate the authoritative pilot summary**
 
 Generate JSON first, then Markdown:
 
@@ -1761,7 +1764,7 @@ The deterministic summary does not choose whether to stop, repeat, or invest.
 That owner decision occurs after the final evidence review and is recorded in
 the next route, not backfilled into `pilot_summary.v1`.
 
-- [ ] **Step 6: Obtain the final evidence review gate**
+- [x] **Step 6: Obtain the final evidence review gate**
 
 One independent reviewer checks:
 
@@ -1775,7 +1778,7 @@ One independent reviewer checks:
 
 A second review is required only if the first identifies a concrete contract violation after results exist; it verifies the repair and that the definition digest changed when required. Do not require a second ceremonial approval when the first review approves.
 
-- [ ] **Step 7: Run final verification**
+- [x] **Step 7: Run final verification**
 
 Run focused checks first:
 
@@ -1794,7 +1797,7 @@ pytest -q -n 16 --dist=worksteal
 
 Record exact pass/fail/skip counts. Do not weaken checks to close the report.
 
-- [ ] **Step 8: Route the observed status and commit reviewed paths**
+- [x] **Step 8: Route the observed status and commit reviewed paths**
 
 Update indexes/status only with facts established by the run. Stage the frozen lock, source/rubric assets, implementation, tests, and report; do not stage external raw provider logs or unrelated shared-tree changes.
 

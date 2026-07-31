@@ -2,34 +2,45 @@
 
 ## Metadata
 
-- **Status:** accepted by owner direction for implementation
+- **Status:** implemented; A1-v7 exploratory evidence and owner handoff complete
 - **Kind:** experiment design and architecture decision
 - **Owner:** agent-orchestration maintainers
 - **Domain owner for a prospective PtychoPINN benchmark:** PtychoPINN maintainers
 - **Reviewers:** owner-directed program revision on 2026-07-26; the three original evidence gates plus owner-approved focused contract and module-quality rereviews after accepted contract or source-layout changes
 - **Created:** 2026-07-26
-- **Last material update:** 2026-07-27
+- **Last material update:** 2026-07-31
 - **Supersedes:** [the 2026-07-23 evidence-platform experiment design](2026-07-23-orc-vs-one-shot-experiment-design.md)
 - **Implementation plan:** [`.orc` Effectiveness Lean Pilot Implementation Plan](../plans/2026-07-26-orc-effectiveness-lean-pilot.md)
-- **Related evidence:** [effectiveness doubts report](../../reports/2026-07-22-compelling-example-search-and-effectiveness-doubts.md) and [historical control-plane feasibility report](../../reports/2026-07-23-experiment-control-plane-feasibility.md)
+- **Related evidence:** [effectiveness doubts report](../../reports/2026-07-22-compelling-example-search-and-effectiveness-doubts.md), [historical control-plane feasibility report](../../reports/2026-07-23-experiment-control-plane-feasibility.md), [A1-v7 deterministic report](../../reports/2026-07-26-orc-effectiveness-lean-pilot.md), and [owner-decision handoff](../../reports/2026-07-31-orc-effectiveness-lean-pilot-owner-decision.md)
 - **Implementation target:** one minimal three-treatment pilot harness, evaluator calibration, a controlled-task pilot, a deterministic readiness record, and an explicit owner-decision handoff
 
 Purpose: determine whether further investment in a realistic `.orc` versus one-shot comparison is justified before building a reusable experiment platform or completing unrelated runtime capabilities.
 
 Authority: this document owns the current experiment design and claim boundaries. Normative Workflow Lisp and provider behavior remains owned by `specs/`, accepted component designs, and current tests. This design does not change runtime behavior, authorize a PtychoPINN product change, or promote a benchmark output.
 
-Copy safety: this is a target experiment design. It is not evidence that the pilot has run or that `.orc` is effective.
+Copy safety: this design is the apparatus contract, not a claim that `.orc` is
+effective. Current evidence is owned by the content-addressed A1-v7 summary,
+its deterministic report, and the final independent review.
 
-Implementation status: the reusable contracts, workspace, runner, treatment
-parity, evaluation, and reporting slices and the module-size gate are focused
-green. Locked A0 calibration round 1 passed with six unique sessions; its
-external controller seal is
+Implementation status: historical complete. The reusable contracts,
+workspace, runner, treatment parity, evaluation, reporting, provider-free
+controller, and recursive module-size gate are implemented. Locked A0
+calibration round 1 passed with external controller seal
 `sha256:ad2570d72a0608173232d53beee7990c0e2afaa198f549bae8769083cc8e7f8f`.
-The Task 7 provider-free controller and its focused contract/module-quality
-gate are active under the accepted readiness amendment. The controller
-implementation and focused behavioral suites are green; the focused
-rereviews and broad verification must close before lock creation. No pilot
-lock, real-provider smoke, or live A1 block has run.
+Fresh successor `a1-v7` then completed one smoke and the exact three-block live
+prefix under pilot-lock digest
+`sha256:b8d69ba2f3d2b2e7bc6d9181d776db0b7abacd2035f851cd44be613dac6d8503`.
+The authoritative summary digest is
+`sha256:153263159d6516d032be83bd8f53954be0ba05b39af58be23d1abdca34085e89`;
+the deterministic report is
+[`docs/reports/2026-07-26-orc-effectiveness-lean-pilot.md`](../../reports/2026-07-26-orc-effectiveness-lean-pilot.md)
+at digest
+`sha256:f5a0884fc14ee399d3753644180c380387d6a78b60315e2c445daffc1baffc3c`,
+and the final review verdict is `LEAN_PILOT_FINAL_EVIDENCE_APPROVED`.
+`DIRECT` won 3/3 against `ORC`; `ORC` was viable in 1/3. The owner-decision
+handoff records `PROCEED_TO_E0_ACTIVATION` without turning this exploratory
+result into a favorable or general `.orc` claim and without selecting E1+.
+No pilot run was resumed or rerun.
 
 ## Summary
 

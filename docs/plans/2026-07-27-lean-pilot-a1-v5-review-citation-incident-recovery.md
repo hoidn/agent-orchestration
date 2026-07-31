@@ -1,5 +1,7 @@
 # Lean-Pilot a1-v5 Review-Citation Incident Recovery Implementation Plan
 
+**Status:** Historical complete through fresh successor `a1-v7` on 2026-07-31
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` to implement this plan task by
 > task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -18,6 +20,28 @@ session, label map, or outcome enters the successor evidence.
 
 **Tech Stack:** Python 3.11, canonical JSON, pytest, Git, tmux, Codex provider
 CLI.
+
+## Execution result
+
+The citation-guidance correction and the generic treatment-runtime binding
+landed under the plan's ordered review gates. The non-summarizable `a1-v5`
+incident remains immutable, and prelaunch-only `a1-v6` remains preserved as
+`SUPERSEDED_PRELAUNCH_SOURCE_AND_IMPORT_LINEAGE_MISMATCH`. Neither supplied an
+attempt, package, session, label map, or outcome to the successor denominator.
+
+Fresh successor `a1-v7` ran exactly one captured controller. It completed one
+valid smoke and the exact three-block valid live prefix, sealed all six review
+results before unblinding, and generated terminal
+`EVIDENCE_COMPLETE_OWNER_DECISION_REQUIRED`. The lock digest is
+`sha256:b8d69ba2f3d2b2e7bc6d9181d776db0b7abacd2035f851cd44be613dac6d8503`;
+the authoritative summary digest is
+`sha256:153263159d6516d032be83bd8f53954be0ba05b39af58be23d1abdca34085e89`;
+and the deterministic report digest is
+`sha256:f5a0884fc14ee399d3753644180c380387d6a78b60315e2c445daffc1baffc3c`.
+Independent final evidence review approved. `DIRECT` won 3/3 against `ORC`,
+while `ORC` was viable in 1/3; the result remains exploratory only. No pilot
+run was resumed or rerun. The owner-decision handoff separately records
+`PROCEED_TO_E0_ACTIVATION` without selecting E1+.
 
 ---
 
@@ -116,7 +140,7 @@ production module above 500 physical lines is added.
 
 ### Task 1: Reproduce the missing reviewer guidance and preserve strict ingestion
 
-- [ ] **Step 1: Add the failing structured-guidance test**
+- [x] **Step 1: Add the failing structured-guidance test**
 
 Extend the live-review test package with:
 
@@ -142,7 +166,7 @@ For a nonempty UTF-8 payload, require
 `line_count=null`, and `EXACT_PATH_ONLY`. Require path order to match the
 sorted citable-file order.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run:
 
@@ -153,7 +177,7 @@ pytest -q \
 
 Expected: fail because `citation_contract` has no per-payload locator metadata.
 
-- [ ] **Step 3: Add explicit ingestion controls**
+- [x] **Step 3: Add explicit ingestion controls**
 
 Add focused tests proving:
 
@@ -166,14 +190,14 @@ These are contract-preservation tests. If an assertion already follows from a
 broader parameterized test, keep one explicit empty-payload regression test
 rather than duplicating the whole ingestion fixture.
 
-- [ ] **Step 4: Verify the controls before implementation**
+- [x] **Step 4: Verify the controls before implementation**
 
 Run the new ingestion selectors. Exact-path behavior must pass under the
 current validator and every invalid locator must fail closed.
 
 ### Task 2: Publish verified locator metadata
 
-- [ ] **Step 1: Implement the minimal derivation**
+- [x] **Step 1: Implement the minimal derivation**
 
 While `_package_contract` verifies each manifest row, derive the row from the
 already loaded `payload` bytes:
@@ -195,7 +219,7 @@ Publish a sorted tuple of rows with:
 `EXACT_PATH_OR_LINE_LOCATION` is permitted only when `line_count > 0`.
 Everything else is `EXACT_PATH_ONLY`.
 
-- [ ] **Step 2: Add the rows and rule to the structured inspection contract**
+- [x] **Step 2: Add the rows and rule to the structured inspection contract**
 
 Retain `citable_files`, `navigation_only_files`, `allowed_forms`,
 `line_numbering`, and `exact_path_precedence`. Add:
@@ -207,7 +231,7 @@ Retain `citable_files`, `navigation_only_files`, `allowed_forms`,
 
 Do not normalize provider output or change `_validate_citation`.
 
-- [ ] **Step 3: Run GREEN and adjacent selectors**
+- [x] **Step 3: Run GREEN and adjacent selectors**
 
 Run:
 
@@ -226,13 +250,13 @@ pytest --collect-only -q tests/experiments
 pytest -q tests/experiments
 ```
 
-- [ ] **Step 4: Verify structural limits**
+- [x] **Step 4: Verify structural limits**
 
 Recursively count `orchestrator/experiments/**/*.py`; every module must remain
 at or below 500 physical lines. Run the exact facade/module-layout selectors
 from the governing plan.
 
-- [ ] **Step 5: Commit only the incident fix**
+- [x] **Step 5: Commit only the incident fix**
 
 Preserve every unrelated staged, modified, and untracked path. Stage and commit
 exactly:
@@ -253,7 +277,7 @@ git commit --only \
 
 ### Task 3: Obtain ordered independent reviews
 
-- [ ] **Step 1: Specification review**
+- [x] **Step 1: Specification review**
 
 One fresh reviewer checks:
 
@@ -263,7 +287,7 @@ One fresh reviewer checks:
 - no validator weakening, normalization, or retry;
 - no public API, schema, record kind, or family-specific behavior.
 
-- [ ] **Step 2: Quality review**
+- [x] **Step 2: Quality review**
 
 After specification approval, a second fresh reviewer checks:
 
@@ -298,7 +322,7 @@ reviewed `fix_commit` and `fix_tree`, not an earlier implementation commit.
 
 ### Task 3A: Pin treatment imports and reconstruct the exact source lineage
 
-- [ ] **Step 1: Add RED contract and behavior tests**
+- [x] **Step 1: Add RED contract and behavior tests**
 
 Cover the closed `apparatus.treatment_runtime` object, exact full commit/tree
 formats, canonical non-root import path, equality with
@@ -314,7 +338,7 @@ or `-P` is absent, and forbid `-I`. A positive child probe must resolve a
 sentinel module only from the locked clone even when a hostile ambient/editable
 copy exists.
 
-- [ ] **Step 2: Implement the strict generic binding**
+- [x] **Step 2: Implement the strict generic binding**
 
 Keep the four record kinds and existing `run_block` signature. Add no
 provider-isolation dependency. `prepare` derives the binding only from its
@@ -327,7 +351,7 @@ bytecode-disabled Python flags as the exact `-B -P` prefix, require the nested
 Workflow Lisp command's exact `<resolved-python> -B -P -m orchestrator`
 prefix, reject either missing flag, and forbid `-I`.
 
-- [ ] **Step 3: Build one isolated reviewed source revision**
+- [x] **Step 3: Build one isolated reviewed source revision**
 
 Use an ordinary `--no-hardlinks` clone, never a worktree. Detach at
 `a2099be6`, apply only the two citation-fix commits and the scoped
@@ -368,7 +392,7 @@ tests/experiments/test_lean_pilot_treatment_parity.py
 
 No other path is permitted in the synthetic source revision.
 
-- [ ] **Step 4: Run verification and ordered reviews**
+- [x] **Step 4: Run verification and ordered reviews**
 
 Run the exact RED/GREEN selectors, the treatment-parity and provider-free
 integration smoke, all `tests/experiments` with
@@ -387,7 +411,7 @@ rename it. Add
 incident artifact in a1-v7. Both are auxiliary operations provenance, not
 experiment records or evidence inputs.
 
-- [ ] **Step 1: Preserve and bind a1-v5**
+- [x] **Step 1: Preserve and bind a1-v5**
 
 The immutable predecessor root is:
 
@@ -450,7 +474,7 @@ inputs, unblinding inputs, and successor synthesis. It is not an outcome input;
 its only successor-facing claims are provenance, consumed-session exclusion,
 and the prohibition on predecessor reuse.
 
-- [ ] **Step 2: Revalidate unchanged calibration**
+- [x] **Step 2: Revalidate unchanged calibration**
 
 The metadata repair changes only the live structured inspection contract.
 Rubric, stable reviewer identities, execution policy, output schema, and
@@ -459,7 +483,7 @@ seal under the current validators and record that limited basis. Do not claim
 that calibration proved the new metadata; the new focused tests and reviews
 prove it.
 
-- [ ] **Step 3: Prepare fresh identities and roots**
+- [x] **Step 3: Prepare fresh identities and roots**
 
 Create a new randomization seed, smoke ID, five ordered live IDs, pilot ID,
 control root, evidence root, work root, evaluation root, package root, and
@@ -480,7 +504,7 @@ test ! -e "$clean/.git/objects/info/alternates"
 test -z "$(git -C "$clean" status --porcelain=v1 --untracked-files=all)"
 ```
 
-- [ ] **Step 4: Regenerate and verify bindings**
+- [x] **Step 4: Regenerate and verify bindings**
 
 Regenerate the source map, apparatus, lock, runtime provenance, provider-free
 preflight, capture wrapper, and launch wrapper. The source map starts from the
@@ -522,7 +546,7 @@ Run the provider-free gates:
 "$base/operations/capture-controller-exit-$fix_short.sh" --self-test
 ```
 
-- [ ] **Step 5: Obtain two launch reviews**
+- [x] **Step 5: Obtain two launch reviews**
 
 One reviewer checks the frozen contract and predecessor disposition; a second
 checks the exact hash-gated zero-argument tmux launch. Neither reviewer launches
@@ -530,7 +554,7 @@ the provider.
 
 ### Task 5: Execute and close the governing lean-pilot plan
 
-- [ ] **Step 1: Run exactly one captured controller**
+- [x] **Step 1: Run exactly one captured controller**
 
 Launch one hash-gated controller in tmux. Do not restart it. Monitor the
 persisted block/review state and provider process until it completes or a
@@ -551,14 +575,14 @@ The placeholder above is a plan-time value only; replace it in the executed
 outer gate with the reviewed literal digest. Do not pass `--execute` to the
 capture wrapper.
 
-- [ ] **Step 2: Enforce the locked denominator and review order**
+- [x] **Step 2: Enforce the locked denominator and review order**
 
 Require one valid smoke, then the exact contiguous live prefix stopping at
 three valid blocks or five IDs. Start no review before collection closes.
 Require every live reviewer slot to have one fresh session and one immutable
 transport. Seal all review bindings before unblinding.
 
-- [ ] **Step 3: Generate fresh deterministic outputs**
+- [x] **Step 3: Generate fresh deterministic outputs**
 
 On successful controller completion, generate `pilot_summary.v1` into a fresh
 external summary root and
@@ -566,14 +590,14 @@ external summary root and
 The structured JSON is authoritative and the Markdown is its deterministic
 view.
 
-- [ ] **Step 4: Obtain final evidence review**
+- [x] **Step 4: Obtain final evidence review**
 
 One independent reviewer checks exact lock/denominator adherence, calibration,
 blinding, treatment-failure accounting, disagreement handling, `UNKNOWN`
 costs, deterministic regeneration, and task-specific claim limits. Use a
 second reviewer only after a concrete violation and repair.
 
-- [ ] **Step 5: Run final verification and reconcile status**
+- [x] **Step 5: Run final verification and reconcile status**
 
 Run focused collection/tests, lock validation, a smoke/integration check, the
 recursive module-size check, and full
@@ -581,7 +605,7 @@ recursive module-size check, and full
 plan, readiness amendment, docs routing, and report without promoting
 provider-phase isolation or making a general ORC-effectiveness claim.
 
-- [ ] **Step 6: Commit only scoped reviewed paths**
+- [x] **Step 6: Commit only scoped reviewed paths**
 
 Do not commit external evidence or unrelated shared-tree changes. Record the
 truthful terminal:

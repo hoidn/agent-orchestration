@@ -1,6 +1,6 @@
 # Lean Pilot Task 7 Readiness Amendment
 
-**Status:** Accepted implementation plan
+**Status:** Historical complete; Task 7 closed through A1-v7
 
 **Governing design:** `docs/superpowers/specs/2026-07-26-orc-effectiveness-lean-pilot-design.md`
 
@@ -18,10 +18,15 @@ Round-1 calibration passed with six unique provider sessions. Its external
 controller seal is canonical at
 `sha256:ad2570d72a0608173232d53beee7990c0e2afaa198f549bae8769083cc8e7f8f`.
 The retained pre-session configuration failure started no provider session and
-is excluded from the six-review matrix. No pilot lock, apparatus smoke, or live
-A1 attempt exists yet. The Task 7 provider-free controller implementation and
-focused behavioral suites are green; its focused contract and module-quality
-rereviews plus broad verification remain the active pre-lock gate.
+is excluded from the six-review matrix. The readiness contract was implemented
+and reviewed before live execution. Fresh successor `a1-v7` then completed one
+apparatus smoke and exactly three valid live blocks under lock digest
+`sha256:b8d69ba2f3d2b2e7bc6d9181d776db0b7abacd2035f851cd44be613dac6d8503`.
+Its authoritative summary digest is
+`sha256:153263159d6516d032be83bd8f53954be0ba05b39af58be23d1abdca34085e89`,
+and final evidence review approved. `DIRECT` won 3/3 against `ORC`; `ORC` was
+viable in 1/3. These are exploratory controlled-task results only. No pilot
+attempt was resumed or rerun.
 
 ## Accepted Contract
 

@@ -130,6 +130,27 @@ LANGUAGE_SERVER_L5_PLAN_PATH = (
 EVOLUTION_FOLLOW_ON_ROADMAP_PATH = (
     "docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md"
 )
+LEAN_PILOT_DESIGN_PATH = (
+    "docs/superpowers/specs/2026-07-26-orc-effectiveness-lean-pilot-design.md"
+)
+LEAN_PILOT_IMPLEMENTATION_PLAN_PATH = (
+    "docs/superpowers/plans/2026-07-26-orc-effectiveness-lean-pilot.md"
+)
+LEAN_PILOT_READINESS_AMENDMENT_PATH = (
+    "docs/plans/2026-07-27-orc-effectiveness-lean-pilot-task7-readiness-amendment.md"
+)
+LEAN_PILOT_INCIDENT_RECOVERY_PATH = (
+    "docs/plans/2026-07-27-lean-pilot-a1-v5-review-citation-incident-recovery.md"
+)
+LEAN_PILOT_REPORT_PATH = (
+    "docs/reports/2026-07-26-orc-effectiveness-lean-pilot.md"
+)
+LEAN_PILOT_FINAL_REVIEW_PATH = (
+    "artifacts/review/lean-pilot-a1-v7-final-evidence-review.md"
+)
+LEAN_PILOT_OWNER_DECISION_PATH = (
+    "docs/reports/2026-07-31-orc-effectiveness-lean-pilot-owner-decision.md"
+)
 TRACKED_DESIGN_RETIREMENT_PLAN_PATH = (
     "docs/plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md"
 )
@@ -1152,6 +1173,122 @@ def test_stage_8_language_server_closeout_status_is_consistent() -> None:
     assert "none is selected by listing" in normalized_successor
     assert "parked" in normalized_successor
     assert "not a selector" in normalized_successor
+
+
+def test_lean_pilot_a1_v7_closure_routes_exact_evidence_and_narrow_owner_handoff() -> None:
+    design = (REPO_ROOT / LEAN_PILOT_DESIGN_PATH).read_text(encoding="utf-8")
+    implementation_plan = (
+        REPO_ROOT / LEAN_PILOT_IMPLEMENTATION_PLAN_PATH
+    ).read_text(encoding="utf-8")
+    readiness = (REPO_ROOT / LEAN_PILOT_READINESS_AMENDMENT_PATH).read_text(
+        encoding="utf-8"
+    )
+    recovery = (REPO_ROOT / LEAN_PILOT_INCIDENT_RECOVERY_PATH).read_text(
+        encoding="utf-8"
+    )
+    report_path = REPO_ROOT / LEAN_PILOT_REPORT_PATH
+    report = report_path.read_text(encoding="utf-8")
+    final_review_path = REPO_ROOT / LEAN_PILOT_FINAL_REVIEW_PATH
+    final_review = final_review_path.read_text(encoding="utf-8")
+    owner_decision = (REPO_ROOT / LEAN_PILOT_OWNER_DECISION_PATH).read_text(
+        encoding="utf-8"
+    )
+    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
+    capability_row = _markdown_table_row(
+        REPO_ROOT / CAPABILITY_STATUS_MATRIX_PATH,
+        "| `.orc` effectiveness lean-pilot apparatus |",
+    )
+
+    lock_digest = (
+        "b8d69ba2f3d2b2e7bc6d9181d776db0b7abacd2035f851cd44be613dac6d8503"
+    )
+    summary_digest = (
+        "153263159d6516d032be83bd8f53954be0ba05b39af58be23d1abdca34085e89"
+    )
+    report_digest = (
+        "f5a0884fc14ee399d3753644180c380387d6a78b60315e2c445daffc1baffc3c"
+    )
+    review_digest = (
+        "c990645c3bfa54e9a1d2b0222272440296ba109685cbdc25cd9bae9db4024d01"
+    )
+
+    assert hashlib.sha256(report_path.read_bytes()).hexdigest() == report_digest
+    assert (
+        hashlib.sha256(final_review_path.read_bytes()).hexdigest()
+        == review_digest
+    )
+    for surface in (
+        design,
+        implementation_plan,
+        readiness,
+        recovery,
+        final_review,
+        owner_decision,
+        index,
+        capability_row,
+    ):
+        assert lock_digest in surface
+        assert summary_digest in surface
+
+    assert report_digest in design
+    assert report_digest in recovery
+    assert report_digest in final_review
+    assert report_digest in owner_decision
+    assert review_digest in owner_decision
+
+    normalized_design = _normalized_routing_text(design)
+    assert "status: implemented" in normalized_design
+    assert "historical complete" in normalized_design
+    assert "direct won 3/3 against orc" in normalized_design
+    assert "orc was viable in 1/3" in normalized_design
+    assert "no pilot run was resumed or rerun" in normalized_design
+
+    task_7 = implementation_plan.split(
+        "## Task 7: Run The Apparatus Smoke And Bounded A1 Pilot",
+        1,
+    )[1].split("## Completion Definition", 1)[0]
+    assert "- [ ]" not in task_7
+    assert task_7.count("- [x]") == 8
+    assert re.search(r"(?m)^- \[ \]", recovery) is None
+    assert recovery.count("- [x]") == 26
+    assert "historical complete" in _normalized_routing_text(readiness)
+    assert "historical complete" in _normalized_routing_text(recovery)
+
+    assert "Status: `EVIDENCE_COMPLETE_OWNER_DECISION_REQUIRED`" in report
+    assert "DIRECT_VS_ORC: A=3, B=0" in report
+    assert "ORC: viable=1, nonviable=2" in report
+    assert "This report is exploratory controlled-task evidence only." in report
+    assert "LEAN_PILOT_FINAL_EVIDENCE_APPROVED" in final_review
+    assert "four treatment-specific `PROTOCOL_FAILURE`" in final_review
+    assert "no pilot attempt was resumed, rerun" in _normalized_routing_text(
+        final_review
+    )
+
+    normalized_decision = _normalized_routing_text(owner_decision)
+    assert "PROCEED_TO_E0_ACTIVATION" in owner_decision
+    assert "> dont stop, continue with E asap" in owner_decision
+    assert "it is not a claim that the pilot favored .orc" in normalized_decision
+    assert "does not automatically authorize e1" in normalized_decision
+    assert "no e1+ implementation is selected by this record alone" in (
+        normalized_decision
+    )
+
+    for path in (
+        LEAN_PILOT_DESIGN_PATH,
+        LEAN_PILOT_IMPLEMENTATION_PLAN_PATH,
+        LEAN_PILOT_READINESS_AMENDMENT_PATH,
+        LEAN_PILOT_INCIDENT_RECOVERY_PATH,
+        LEAN_PILOT_REPORT_PATH,
+        LEAN_PILOT_FINAL_REVIEW_PATH,
+        LEAN_PILOT_OWNER_DECISION_PATH,
+    ):
+        assert Path(path).name in index
+    normalized_capability = _normalized_routing_text(capability_row)
+    assert "implemented" in normalized_capability
+    assert "direct won 3/3 against orc" in normalized_capability
+    assert "orc in 1/3" in normalized_capability
+    assert "exploratory only" in normalized_capability
+    assert "does not automatically select e1+" in normalized_capability
 
 
 def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
