@@ -18,7 +18,10 @@ from orchestrator.workflow.executable_ir import ExecutableNodeKind, ProviderStep
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
 from orchestrator.workflow.signatures import bind_workflow_inputs
-from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+from orchestrator.workflow_lisp.compiler import (
+    compile_stage3_entrypoint,
+    compile_stage3_module,
+)
 from orchestrator.workflow_lisp.effects import UsesProviderEffect
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
 from orchestrator.workflow_lisp.expressions import LiteralExpr, NameExpr, ProviderResultExpr
@@ -31,6 +34,10 @@ ROOT = Path(__file__).resolve().parents[1]
 LIBRARY_ROOT = ROOT / "workflows/library"
 SOURCE = LIBRARY_ROOT / "control/direct_task.orc"
 ENTRY = "control/direct_task::direct-task"
+ORDINARY_SOURCE = (
+    ROOT
+    / "tests/fixtures/workflow_lisp/phased_contract_delivery/composed.orc"
+)
 
 
 def _compile_direct_task(workspace: Path):
@@ -73,11 +80,12 @@ def _direct_task_manager(workspace: Path, bundle, *, run_id: str) -> StateManage
     return manager
 
 
-def _direct_provider_patches(
+def _deterministic_provider_patches(
     workspace: Path,
     captured: dict[str, list[object]],
     *,
     exit_code: int,
+    output_bundle_value: object,
 ):
     def prepare_invocation(_self, provider_name, *_args, **kwargs):
         prompt = kwargs.get("prompt_content", "")
@@ -117,7 +125,10 @@ def _direct_provider_patches(
             if not output_path.is_absolute():
                 output_path = workspace / output_path
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(json.dumps(True) + "\n", encoding="utf-8")
+            output_path.write_text(
+                json.dumps(output_bundle_value, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
         return ProviderExecutionResult(
             exit_code=exit_code,
             stdout=b"provider stdout is observability only",
@@ -129,6 +140,195 @@ def _direct_provider_patches(
         patch.object(ProviderExecutor, "prepare_invocation", prepare_invocation),
         patch.object(ProviderExecutor, "execute", execute_provider),
     )
+
+
+def _provider_boundary_accounting_structure(bundle, state, run_root: Path):
+    def mask_named_values(value, *, field_kind: str):
+        assert isinstance(value, dict)
+        return {
+            f"<{field_kind}:{index}>": "<masked-value>"
+            for index, _name in enumerate(sorted(value))
+        }
+
+    def add_structural_paths(value, path, paths) -> None:
+        if isinstance(value, dict):
+            paths.add((*path, "<mapping>"))
+            for key, item in value.items():
+                add_structural_paths(item, (*path, str(key)), paths)
+            return
+        if isinstance(value, (list, tuple)):
+            paths.add((*path, "<sequence>"))
+            for index, item in enumerate(value):
+                add_structural_paths(item, (*path, f"[{index}]"), paths)
+            return
+        paths.add((*path, "<value>"))
+
+    [provider_node] = [
+        node
+        for node in bundle.ir.nodes.values()
+        if node.kind is ExecutableNodeKind.PROVIDER
+    ]
+    config = provider_node.execution_config
+    assert isinstance(config, ProviderStepConfig)
+    [(provider_step_name, provider_step)] = [
+        (step_name, step)
+        for step_name, step in state["steps"].items()
+        if step.get("step_id") == provider_node.step_id
+    ]
+
+    allocations = state["provider_attempt_allocations"]
+    [scope_sha256] = allocations
+    allocation = allocations[scope_sha256]
+    scope = allocation["scope"]
+    assert scope["runtime_step_id"] == provider_node.step_id
+    assert scope["enclosing_step"]["step_id"] == provider_node.step_id
+
+    debug = provider_step["debug"]
+    binding = debug["prompt_attempt_result_binding"]
+    assert binding["scope_sha256"] == scope_sha256
+    evidence = json.loads(
+        (run_root / binding["evidence_relative_path"]).read_text(
+            encoding="utf-8"
+        )
+    )
+    attempt = evidence["attempt"]
+    attempt_scope = attempt["scope"]
+    assert attempt["scope_sha256"] == scope_sha256
+    assert attempt["ordinal"] == binding["attempt_ordinal"]
+    assert attempt_scope == scope
+
+    prompt_attempt_identity = evidence["prompt_attempt_identity"]
+    identity_roles = prompt_attempt_identity["roles"]
+    provider_policy = identity_roles["provider_policy"]
+    resolved_provider_policy = provider_policy["payload"]
+    outcome = provider_step["outcome"]
+    output_bundle = config.common.output_bundle
+    assert output_bundle is not None
+    compiled_result_shape = tuple(
+        (field["name"], field["json_pointer"], field["type"])
+        for field in output_bundle["fields"]
+    )
+    assert frozenset(provider_step["artifacts"]) == frozenset(
+        field_name for field_name, _pointer, _type in compiled_result_shape
+    )
+
+    normalized_provider_step = deepcopy(provider_step)
+    normalized_provider_step["artifacts"] = mask_named_values(
+        provider_step["artifacts"],
+        field_kind="artifact-field",
+    )
+
+    # The content-addressed allocation map key is omitted from this owner
+    # because its sole value is projected recursively, without masking,
+    # under the provider-attempt owner below.
+    run_accounting = deepcopy(state)
+    run_accounting.pop("provider_attempt_allocations")
+    run_accounting["bound_inputs"] = {
+        "<bound-inputs>": "<masked-value>"
+    }
+    assert set(run_accounting["steps"]) == {provider_step_name}
+    run_accounting["steps"] = {
+        "<provider-step>": normalized_provider_step
+    }
+    assert set(run_accounting["step_visits"]) == {provider_step_name}
+    run_accounting["step_visits"] = {
+        "<provider-step>": run_accounting["step_visits"][provider_step_name]
+    }
+    run_accounting["workflow_outputs"] = mask_named_values(
+        state["workflow_outputs"],
+        field_kind="workflow-output-field",
+    )
+
+    runtime_owned_objects = {
+        "run": run_accounting,
+        "provider_step": normalized_provider_step,
+        "provider_attempt_allocation": allocation,
+        "prompt_attempt_evidence": evidence,
+    }
+    normalized_runtime_owned_paths = set()
+    for owner, value in runtime_owned_objects.items():
+        add_structural_paths(
+            value,
+            (owner,),
+            normalized_runtime_owned_paths,
+        )
+
+    unmasked_runtime_owned_paths = set()
+    for owner, value in {
+        "run": state,
+        "provider_step": provider_step,
+        "provider_attempt_allocation": allocation,
+        "prompt_attempt_evidence": evidence,
+    }.items():
+        add_structural_paths(
+            value,
+            (owner,),
+            unmasked_runtime_owned_paths,
+        )
+
+    cost_accounting_field_names = frozenset(
+        {
+            "cost",
+            "cost_usd",
+            "estimated_cost",
+            "estimated_cost_usd",
+            "provider_cost",
+            "provider_cost_usd",
+            "total_cost",
+            "total_cost_usd",
+        }
+    )
+    token_usage_accounting_field_names = frozenset(
+        {
+            "usage",
+            "usage_details",
+            "usage_metadata",
+            "token_usage",
+            "tokens",
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+            "prompt_tokens",
+            "completion_tokens",
+            "reasoning_tokens",
+            "cached_tokens",
+            "cached_input_tokens",
+            "cache_read_tokens",
+            "cache_write_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+        }
+    )
+
+    def contains_exact_field(field_names) -> bool:
+        return any(
+            path_segment in field_names
+            for path in unmasked_runtime_owned_paths
+            for path_segment in path
+        )
+
+    return {
+        "normalized_runtime_owned_paths": frozenset(
+            normalized_runtime_owned_paths
+        ),
+        "provider_attempt_allocation": {
+            "count": len(allocations),
+            "last_allocated_ordinal": allocation["last_allocated_ordinal"],
+        },
+        "resolved_provider": resolved_provider_policy["provider_name"],
+        "duration_ms": provider_step["duration_ms"],
+        "compiled_result_shape": compiled_result_shape,
+        "persisted_artifact_shape": frozenset(provider_step["artifacts"]),
+        "workflow_output_shape": frozenset(state["workflow_outputs"]),
+        "design_accounting_absence": {
+            "provider_cost": not contains_exact_field(
+                cost_accounting_field_names
+            ),
+            "provider_token_usage": not contains_exact_field(
+                token_usage_accounting_field_names
+            ),
+        },
+    }
 
 
 def _assert_composed_prompt_metadata(bundle) -> None:
@@ -292,10 +492,11 @@ def test_direct_task_executes_once_and_committed_boundary_resume_reuses_result(
         "preparations": [],
         "executions": [],
     }
-    prepare, execute = _direct_provider_patches(
+    prepare, execute = _deterministic_provider_patches(
         tmp_path,
         captured,
         exit_code=0,
+        output_bundle_value=True,
     )
     original_emit = (
         WorkflowExecutor._emit_lexical_checkpoint_shadow_after_step_commit
@@ -445,10 +646,11 @@ def test_direct_task_retryable_failure_is_not_retried_with_zero_retries(
         "preparations": [],
         "executions": [],
     }
-    prepare, execute = _direct_provider_patches(
+    prepare, execute = _deterministic_provider_patches(
         tmp_path,
         captured,
         exit_code=1,
+        output_bundle_value=True,
     )
 
     with prepare, execute:
@@ -467,3 +669,240 @@ def test_direct_task_retryable_failure_is_not_retried_with_zero_retries(
     assert persisted["status"] == "failed"
     [allocation] = persisted["provider_attempt_allocations"].values()
     assert allocation["last_allocated_ordinal"] == 1
+
+
+def test_direct_task_matches_ordinary_provider_accounting_structure(
+    tmp_path: Path,
+) -> None:
+    direct_workspace = tmp_path / "direct"
+    ordinary_workspace = tmp_path / "ordinary"
+    direct_workspace.mkdir()
+    ordinary_workspace.mkdir()
+
+    direct_bundle = _compile_direct_task(direct_workspace)
+    ordinary_result = compile_stage3_module(
+        ORDINARY_SOURCE.relative_to(ROOT),
+        entry_workflow="composed-review",
+        provider_externs={"providers.review": "test-ordinary-provider"},
+        prompt_externs={},
+        validate_shared=True,
+        workspace_root=ROOT,
+        lowering_route="wcc_m4",
+    )
+    ordinary_bundle = ordinary_result.validated_bundles["composed-review"]
+
+    direct_manager = _direct_task_manager(
+        direct_workspace,
+        direct_bundle,
+        run_id="direct-accounting-parity",
+    )
+    ordinary_contracts = {
+        name: contract
+        for name, contract in workflow_runtime_input_contracts(
+            ordinary_bundle
+        ).items()
+        if not name.startswith("__write_root__")
+    }
+    ordinary_manager = StateManager(
+        workspace=ordinary_workspace,
+        run_id="ordinary-accounting-parity",
+    )
+    ordinary_manager.initialize(
+        ORDINARY_SOURCE.as_posix(),
+        context=bundle_context_dict(ordinary_bundle),
+        bound_inputs=bind_workflow_inputs(
+            ordinary_contracts,
+            {"subject": "complete the ordinary structured review"},
+            ordinary_workspace,
+        ),
+    )
+
+    direct_captured: dict[str, list[object]] = {
+        "preparations": [],
+        "executions": [],
+    }
+    direct_prepare, direct_execute = _deterministic_provider_patches(
+        direct_workspace,
+        direct_captured,
+        exit_code=0,
+        output_bundle_value=True,
+    )
+    with direct_prepare, direct_execute:
+        direct_completed = WorkflowExecutor(
+            direct_bundle,
+            direct_workspace,
+            direct_manager,
+            max_retries=0,
+            retry_delay_ms=0,
+        ).execute(on_error="stop")
+
+    ordinary_captured: dict[str, list[object]] = {
+        "preparations": [],
+        "executions": [],
+    }
+    ordinary_prepare, ordinary_execute = _deterministic_provider_patches(
+        ordinary_workspace,
+        ordinary_captured,
+        exit_code=0,
+        output_bundle_value={"approved": True},
+    )
+    with ordinary_prepare, ordinary_execute:
+        ordinary_completed = WorkflowExecutor(
+            ordinary_bundle,
+            ordinary_workspace,
+            ordinary_manager,
+            max_retries=0,
+            retry_delay_ms=0,
+        ).execute(on_error="stop")
+
+    assert direct_completed["status"] == "completed"
+    assert ordinary_completed["status"] == "completed"
+    assert len(direct_captured["preparations"]) == 1
+    assert len(direct_captured["executions"]) == 1
+    assert len(ordinary_captured["preparations"]) == 1
+    assert len(ordinary_captured["executions"]) == 1
+
+    direct_structure = _provider_boundary_accounting_structure(
+        direct_bundle,
+        json.loads(direct_manager.state_file.read_text(encoding="utf-8")),
+        direct_manager.run_root,
+    )
+    ordinary_structure = _provider_boundary_accounting_structure(
+        ordinary_bundle,
+        json.loads(
+            ordinary_manager.state_file.read_text(encoding="utf-8")
+        ),
+        ordinary_manager.run_root,
+    )
+
+    direct_owned_paths = direct_structure["normalized_runtime_owned_paths"]
+    ordinary_owned_paths = ordinary_structure[
+        "normalized_runtime_owned_paths"
+    ]
+    assert direct_owned_paths == ordinary_owned_paths
+    required_paths = {
+        ("run", "status", "<value>"),
+        ("run", "workflow_outputs", "<mapping>"),
+        (
+            "run",
+            "workflow_outputs",
+            "<workflow-output-field:0>",
+            "<value>",
+        ),
+        ("run", "artifact_versions", "<mapping>"),
+        ("run", "steps", "<provider-step>", "<mapping>"),
+        ("provider_step", "status", "<value>"),
+        ("provider_step", "duration_ms", "<value>"),
+        ("provider_step", "artifacts", "<mapping>"),
+        (
+            "provider_step",
+            "artifacts",
+            "<artifact-field:0>",
+            "<value>",
+        ),
+        (
+            "provider_step",
+            "debug",
+            "prompt_attempt_result_binding",
+            "evidence_file_sha256",
+            "<value>",
+        ),
+        (
+            "provider_attempt_allocation",
+            "last_allocated_ordinal",
+            "<value>",
+        ),
+        (
+            "provider_attempt_allocation",
+            "scope",
+            "enclosing_step",
+            "visit_count",
+            "<value>",
+        ),
+        (
+            "prompt_attempt_evidence",
+            "prompt_attempt_identity",
+            "roles",
+            "runtime_contributions",
+            "payload",
+            "rows",
+            "[0]",
+            "bytes",
+            "<value>",
+        ),
+        ("prompt_attempt_evidence", "record_sha256", "<value>"),
+    }
+    assert required_paths <= direct_owned_paths
+    outcome_path = ("provider_step", "outcome")
+    for field in ("status", "phase", "class", "retryable"):
+        assert (*outcome_path, field, "<value>") in direct_owned_paths
+    attempt_path = ("prompt_attempt_evidence", "attempt")
+    for field in ("ordinal", "scope_sha256"):
+        assert (*attempt_path, field, "<value>") in direct_owned_paths
+    policy_payload_path = (
+        "prompt_attempt_evidence",
+        "prompt_attempt_identity",
+        "roles",
+        "provider_policy",
+        "payload",
+    )
+    for field in (
+        "provider_name",
+        "model",
+        "effort",
+        "input_mode",
+        "timeout_sec",
+    ):
+        assert (*policy_payload_path, field, "<value>") in direct_owned_paths
+
+    for structure in (direct_structure, ordinary_structure):
+        assert structure["provider_attempt_allocation"] == {
+            "count": 1,
+            "last_allocated_ordinal": 1,
+        }
+        assert isinstance(structure["resolved_provider"], str)
+        assert structure["resolved_provider"]
+        assert type(structure["duration_ms"]) is int
+        assert structure["duration_ms"] >= 0
+
+    assert direct_structure["compiled_result_shape"] == (
+        ("__result__", "", "bool"),
+    )
+    assert ordinary_structure["compiled_result_shape"] == (
+        ("approved", "/approved", "bool"),
+    )
+    assert (
+        direct_structure["compiled_result_shape"]
+        != ordinary_structure["compiled_result_shape"]
+    )
+    assert direct_structure["persisted_artifact_shape"] == frozenset(
+        {"__result__"}
+    )
+    assert ordinary_structure["persisted_artifact_shape"] == frozenset(
+        {"approved"}
+    )
+    assert (
+        direct_structure["persisted_artifact_shape"]
+        != ordinary_structure["persisted_artifact_shape"]
+    )
+    assert direct_structure["workflow_output_shape"] == frozenset(
+        {"__result__"}
+    )
+    assert ordinary_structure["workflow_output_shape"] == frozenset(
+        {"return__approved"}
+    )
+    assert (
+        direct_structure["workflow_output_shape"]
+        != ordinary_structure["workflow_output_shape"]
+    )
+
+    # The ordinary runtime exposes duration but currently persists no
+    # design-listed provider cost or token-usage datum for either arm.
+    assert direct_structure["design_accounting_absence"] == {
+        "provider_cost": True,
+        "provider_token_usage": True,
+    }
+    assert ordinary_structure["design_accounting_absence"] == {
+        "provider_cost": True,
+        "provider_token_usage": True,
+    }
