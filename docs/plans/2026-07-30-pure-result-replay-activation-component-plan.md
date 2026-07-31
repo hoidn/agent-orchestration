@@ -208,6 +208,21 @@ provenance/boundary fields are sufficient.
   fixture from `_compile_imported_pure_replay_call_fixture(...)`. A fresh
   non-iterative child whose typed provenance is Workflow Lisp must receive
   `DERIVED_PURE_REPLAY_PROFILE`; the parent profile must not be consulted.
+- [ ] Extend only that test fixture's parent with one eligible, data-dependent
+  pure prefix consumed by the call:
+
+  ```lisp
+  (let* ((forwarded-seed (+ seed 0)))
+    (call orchestrate
+      :seed forwarded-seed
+      :enabled enabled))
+  ```
+
+  Execute the parent under Task 1's activated new-root policy. Before
+  interrupting the child, require the parent prefix to have an exact
+  completion shell and no bundle. This supplies the validated prior replay
+  boundary that root default resume needs; do not change checkpoint or
+  `VALIDATED_FRAME_ENTRY_REPLAY` semantics to make a direct-call prefix pass.
 - [ ] Add a RED clean integration test that executes that compiled parent,
   verifies the child's persisted state carries the profile, checks A/B are
   exact value-free shells, finds no child pure bundles, and compares declared
@@ -217,6 +232,9 @@ provenance/boundary fields are sufficient.
   load the root through a fresh state manager/executor, resume through the
   parent, and require E1 exactly once, E2 exactly once, completed child
   settlement, exact output parity, and no pure value-bearing child surface.
+  The expected RED is the missing child profile/value-elision assertions, not
+  `lexical_default_resume_prior_boundary_missing`; the parent prefix must make
+  the root resume path valid before production child activation changes.
 - [ ] Run:
 
   ```bash
@@ -274,9 +292,12 @@ provenance/boundary fields are sufficient.
 - [ ] Add a fresh retry control: a new non-iterative Workflow Lisp retry frame
   after a failed predecessor receives the profile, while the failed
   predecessor stays byte-for-byte unchanged.
-- [ ] Extend the existing `list/map-effect` runtime test to require every
-  iteration-owned child frame to omit `result_persistence_profile`, even
-  though its callee has typed Workflow Lisp provenance.
+- [ ] Add an iteration control that starts from an actively profiled root and
+  executes one `list/map-effect` item. Require every iteration-owned child
+  frame to omit `result_persistence_profile`, even though its callee has typed
+  Workflow Lisp provenance, and retain the child's ordinary value-bearing
+  output. A historical parent alone would not catch accidental parent-profile
+  inheritance.
 - [ ] Retain the recurrent-pure M2 control proving a recurrent node remains
   fully durable inside an activated root.
 - [ ] Run:
