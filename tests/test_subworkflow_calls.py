@@ -68,6 +68,14 @@ def _projection_run_tree_snapshot(run_root: Path) -> tuple[tuple[str, str, bytes
     return tuple(sorted(entries, key=lambda entry: entry[0]))
 
 
+def _canonical_json_bytes(value: Any) -> bytes:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
 def test_projection_resume_integrity_run_tree_snapshot_tracks_symlink_targets(
     tmp_path: Path,
 ) -> None:
@@ -1206,12 +1214,37 @@ def test_existing_reached_call_frame_audit_hook_is_read_only_and_precedes_constr
     assert _projection_run_tree_snapshot(manager.run_root) == before_tree
 
 
-def test_fresh_call_frame_does_not_inherit_parent_replay_profile_or_run_audit_hook(
+def test_fresh_non_workflow_lisp_call_frame_ignores_parent_profile_and_orc_suffix(
     tmp_path: Path,
 ) -> None:
     root_bundle = WorkflowLoader(tmp_path).load_bundle(
         _write_projection_integrity_call_graph(tmp_path)
     )
+    middle_bundle = workflow_import_bundle(root_bundle, "middle")
+    assert middle_bundle is not None
+    middle_provenance = workflow_provenance(middle_bundle)
+    assert middle_provenance is not None
+    suffix_only_bundle = replace(
+        middle_bundle,
+        provenance=replace(
+            middle_provenance,
+            workflow_path=tmp_path / "imports" / "misleading.orc",
+            frontend_kind=None,
+        ),
+    )
+    root_bundle = replace(
+        root_bundle,
+        imports=MappingProxyType(
+            {
+                **root_bundle.imports,
+                "middle": suffix_only_bundle,
+            }
+        ),
+    )
+    suffix_only_provenance = workflow_provenance(suffix_only_bundle)
+    assert suffix_only_provenance is not None
+    assert suffix_only_provenance.workflow_path.suffix == ".orc"
+    assert suffix_only_provenance.frontend_kind is None
     manager = StateManager(tmp_path, run_id="fresh-call-no-profile-inheritance")
     manager.initialize(
         "workflow.yaml",
@@ -1254,6 +1287,104 @@ def test_fresh_call_frame_does_not_inherit_parent_replay_profile_or_run_audit_ho
     assert audit_calls == []
     assert constructor_kwargs.get("result_persistence_profile") is None
     assert constructor_kwargs["existing_frame"] is None
+
+
+def test_existing_absent_replay_profile_workflow_lisp_frame_is_unchanged_before_execution(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.call_frame_state import (
+        _CallFrameStateManager,
+    )
+
+    class ChildExecutionReached(BaseException):
+        pass
+
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    middle_bundle = workflow_import_bundle(root_bundle, "middle")
+    assert middle_bundle is not None
+    middle_bundle = _typed_workflow_lisp_import(middle_bundle, "leaf")
+    leaf_bundle = workflow_import_bundle(middle_bundle, "leaf")
+    assert leaf_bundle is not None
+    leaf_provenance = workflow_provenance(leaf_bundle)
+    assert leaf_provenance is not None
+    assert leaf_provenance.frontend_kind == "workflow_lisp"
+
+    manager = StateManager(
+        tmp_path,
+        run_id="existing-absent-profile-call-frame",
+    )
+    manager.initialize(
+        "workflow.yaml",
+        context=bundle_context_dict(root_bundle),
+    )
+    executor = WorkflowExecutor(middle_bundle, tmp_path, manager)
+    executor.resume_mode = True
+    call_step = materialize_projection_body_steps(middle_bundle)[0]
+    frame_id = f"{call_step['step_id']}::visit::1"
+    seeded = _CallFrameStateManager(
+        parent_manager=manager,
+        workflow=leaf_bundle,
+        frame_id=frame_id,
+        call_step_name=call_step["name"],
+        call_step_id=call_step["step_id"],
+        import_alias="leaf",
+        bound_inputs={},
+        result_persistence_profile=None,
+    )
+    seeded.update_bound_input_resume_validation(
+        status="reused",
+        diagnostics=[],
+    )
+    persisted = manager.load()
+    persisted.step_visits = {call_step["name"]: 1}
+    manager._write_state()
+    state = manager.load().to_dict()
+    selected_frame = state["call_frames"][frame_id]
+    selected_state = selected_frame["state"]
+    assert "result_persistence_profile" not in selected_state
+    selected_frame_bytes = _canonical_json_bytes(selected_frame)
+    constructor_profiles: list[str | None] = []
+
+    def construct_manager(*args: Any, **kwargs: Any) -> Any:
+        constructor_profiles.append(
+            kwargs.get("result_persistence_profile")
+        )
+        assert kwargs["existing_frame"] is selected_frame
+        assert _canonical_json_bytes(kwargs["existing_frame"]) == (
+            selected_frame_bytes
+        )
+        constructed = _CallFrameStateManager(*args, **kwargs)
+        assert _canonical_json_bytes(
+            manager.load().to_dict()["call_frames"][frame_id]
+        ) == selected_frame_bytes
+        return constructed
+
+    def reach_child_execution(*_args: Any, **_kwargs: Any) -> Any:
+        assert _canonical_json_bytes(
+            manager.load().to_dict()["call_frames"][frame_id]
+        ) == selected_frame_bytes
+        raise ChildExecutionReached
+
+    with patch(
+        "orchestrator.workflow.call_frame_state._CallFrameStateManager",
+        side_effect=construct_manager,
+    ), patch(
+        "orchestrator.workflow.executor.WorkflowExecutor",
+        side_effect=reach_child_execution,
+    ):
+        with pytest.raises(ChildExecutionReached):
+            executor.call_executor.execute_call(call_step, state)
+
+    assert constructor_profiles == [None]
+    assert (
+        _canonical_json_bytes(state["call_frames"][frame_id])
+        == selected_frame_bytes
+    )
+    assert _canonical_json_bytes(
+        manager.load().to_dict()["call_frames"][frame_id]
+    ) == selected_frame_bytes
 
 
 def test_imported_workflows_must_validate_independently(tmp_path: Path):
@@ -2373,6 +2504,10 @@ def test_resumed_parent_still_fails_closed_for_persisted_child_without_prior_bou
 
 
 def test_failed_workflow_lisp_child_retry_still_allocates_fresh_frame(tmp_path: Path):
+    from orchestrator.workflow.call_frame_state import (
+        _CallFrameStateManager,
+    )
+
     library = _library_workflow()
     library["steps"].insert(
         0,
@@ -2427,9 +2562,15 @@ def test_failed_workflow_lisp_child_retry_still_allocates_fresh_frame(tmp_path: 
     assert first_state["status"] == "failed"
     assert len(first_state["call_frames"]) == 1
     failed_frame_id = next(iter(first_state["call_frames"]))
+    assert failed_frame_id == "root.run_review_loop::visit::1"
+    failed_frame_bytes = _canonical_json_bytes(
+        first_state["call_frames"][failed_frame_id]
+    )
+    expected_retry_id = f"{failed_frame_id}::retry::1"
     (tmp_path / "state").mkdir(exist_ok=True)
     (tmp_path / "state" / "child-retry-ready.txt").write_text("ready\n", encoding="utf-8")
     child_default_resume_calls: list[dict] = []
+    constructor_calls: list[tuple[str, Any, str | None]] = []
 
     def _default_resume_decision(executor, state, *, restart_node_id):
         if isinstance(executor.state_manager, StateManager):
@@ -2451,10 +2592,23 @@ def test_failed_workflow_lisp_child_retry_still_allocates_fresh_frame(tmp_path: 
             "diagnostics": ["lexical_default_resume_prior_boundary_missing"],
         }
 
+    def construct_manager(*args: Any, **kwargs: Any) -> Any:
+        constructor_calls.append(
+            (
+                kwargs["frame_id"],
+                kwargs["existing_frame"],
+                kwargs.get("result_persistence_profile"),
+            )
+        )
+        return _CallFrameStateManager(*args, **kwargs)
+
     with patch.object(
         WorkflowExecutor,
         "_determine_resume_default_resume_decision",
         _default_resume_decision,
+    ), patch(
+        "orchestrator.workflow.call_frame_state._CallFrameStateManager",
+        side_effect=construct_manager,
     ):
         resumed_state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(resume=True)
 
@@ -2462,15 +2616,31 @@ def test_failed_workflow_lisp_child_retry_still_allocates_fresh_frame(tmp_path: 
     assert child_default_resume_calls == []
     assert set(resumed_state["call_frames"]) == {
         failed_frame_id,
-        f"{failed_frame_id}::retry::1",
+        expected_retry_id,
     }
-    assert resumed_state["call_frames"][failed_frame_id]["status"] == "failed"
-    retry_frame = resumed_state["call_frames"][f"{failed_frame_id}::retry::1"]
+    assert constructor_calls == [
+        (
+            expected_retry_id,
+            None,
+            DERIVED_PURE_REPLAY_PROFILE,
+        )
+    ]
+    assert _canonical_json_bytes(
+        resumed_state["call_frames"][failed_frame_id]
+    ) == failed_frame_bytes
+    assert _canonical_json_bytes(
+        state_manager.load().to_dict()["call_frames"][failed_frame_id]
+    ) == failed_frame_bytes
+    retry_frame = resumed_state["call_frames"][expected_retry_id]
     assert retry_frame["status"] == "completed"
     assert retry_frame["bound_input_resume_validation"] == {
         "status": "fresh",
         "diagnostics": [],
     }
+    assert (
+        retry_frame["state"]["result_persistence_profile"]
+        == DERIVED_PURE_REPLAY_PROFILE
+    )
 
 
 def test_call_outputs_publish_into_caller_lineage_with_outer_producer(tmp_path: Path):

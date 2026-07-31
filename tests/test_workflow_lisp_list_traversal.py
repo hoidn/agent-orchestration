@@ -17,11 +17,18 @@ from orchestrator.providers.executor import (
 )
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
+from orchestrator.workflow.loaded_bundle import (
+    workflow_import_bundle,
+    workflow_provenance,
+    workflow_runtime_input_contracts,
+)
 from orchestrator.workflow.prompt_dependency_evidence import (
     evidence_relative_path,
 )
 from orchestrator.workflow.provider_attempts import ProviderAttemptScope
+from orchestrator.workflow.pure_result_replay import (
+    DERIVED_PURE_REPLAY_PROFILE,
+)
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow.validation import (
     _WorkflowMappingValidator,
@@ -3572,6 +3579,7 @@ def _run_effect_map_source(
     max_iterations: int,
     entry_params: str = "()",
     bound_inputs: dict[str, object] | None = None,
+    result_persistence_profile: str | None = None,
 ):
     result = _build_source(
         tmp_path,
@@ -3605,6 +3613,7 @@ def _run_effect_map_source(
     state_manager.initialize(
         str(tmp_path / f"{module_name}.orc"),
         bound_inputs=bound_inputs,
+        result_persistence_profile=result_persistence_profile,
     )
     state = WorkflowExecutor(
         result.validated_bundle,
@@ -3656,7 +3665,12 @@ def test_frontend_effect_map_runtime_commits_exact_calls_in_source_order(
     expected_inputs: list[int],
     expected_outputs: list[int],
 ) -> None:
-    _, repeat_step, state = _run_effect_map_source(
+    root_profile = (
+        DERIVED_PURE_REPLAY_PROFILE
+        if case_name == "one"
+        else None
+    )
+    result, repeat_step, state = _run_effect_map_source(
         tmp_path,
         module_name=f"effect_map_runtime_{case_name}",
         child_param_type="Int",
@@ -3666,6 +3680,7 @@ def test_frontend_effect_map_runtime_commits_exact_calls_in_source_order(
         max_iterations=max_iterations,
         entry_params="((items List[Int]))",
         bound_inputs={"items": expected_inputs},
+        result_persistence_profile=root_profile,
     )
 
     frames = _effect_map_call_frames(state)
@@ -3682,6 +3697,49 @@ def test_frontend_effect_map_runtime_commits_exact_calls_in_source_order(
         frame["state"]["workflow_outputs"]["__result__"]
         for frame in frames
     ] == expected_outputs
+    if case_name == "one":
+        assert (
+            state["result_persistence_profile"]
+            == DERIVED_PURE_REPLAY_PROFILE
+        )
+        assert len(frames) == 1
+        iteration_boundaries = [
+            boundary
+            for boundary in result.validated_bundle.projection.call_boundaries.values()
+            if (
+                boundary.iteration_owner_node_id is not None
+                and boundary.import_alias.endswith("::child")
+            )
+        ]
+        assert len(iteration_boundaries) == 1
+        boundary = iteration_boundaries[0]
+        expected_frame_id = (
+            result.validated_bundle.projection.call_boundary_runtime_step_id(
+                boundary.node_id,
+                iteration_index=0,
+            )
+            + "::visit::1"
+        )
+        assert frames[0]["call_frame_id"] == expected_frame_id
+        child_bundle = workflow_import_bundle(
+            result.validated_bundle,
+            boundary.import_alias,
+        )
+        assert child_bundle is not None
+        child_provenance = workflow_provenance(child_bundle)
+        assert child_provenance is not None
+        assert child_provenance.frontend_kind == "workflow_lisp"
+        child_state = frames[0]["state"]
+        assert "result_persistence_profile" not in child_state
+        assert child_state["workflow_outputs"] == {"__result__": 8}
+        assert len(child_bundle.ir.body_region) == 1
+        terminal_node_id = child_bundle.ir.body_region[0]
+        terminal_key = child_bundle.projection.entries_by_node_id[
+            terminal_node_id
+        ].presentation_key
+        assert child_state["steps"][terminal_key]["artifacts"] == {
+            "__result__": 8
+        }
     if case_name == "at_cap":
         assert loop_state["artifacts"]["state__remaining"] == []
         assert (
