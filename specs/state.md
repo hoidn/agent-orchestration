@@ -10,6 +10,12 @@
   - Timestamps: `started_at`, `updated_at`
   - `status`: `running | completed | failed`
   - `context`: key/value map
+  - `result_persistence_profile`: optional additive schema-2.1 selector. Absence
+    means historical bundle-backed result persistence. The only supported
+    present value is `derived_pure_replay.v1`; an unknown profile fails closed.
+    The field is written atomically when a root or nested call-frame state is
+    explicitly initialized under that profile, before any visit begins. Resume
+    never infers, backfills, or upgrades it from rows or sidecar presence.
   - `bound_inputs`: v2.1+ typed workflow inputs bound before execution starts
   - `workflow_outputs`: v2.1+ typed workflow outputs exported after successful workflow completion
   - `finalization`: v2.3+ workflow finalization bookkeeping (`status`, `body_status`, `current_index`, `completed_indices`, `workflow_outputs_status`, optional `failure`)
@@ -99,6 +105,52 @@
   - v2.5 reusable `call` is the schema boundary that moves state to `2.1`, because bare artifact-name ledgers cannot preserve callee-private lineage or freshness safely.
   - v2.7 `repeat_until` extends schema `2.1` additively; loop-frame bookkeeping lives under the new top-level `repeat_until` map.
   - v2.13 managed provider jobs extend schema `2.1` additively; managed recovery metadata lives on the step result and run-owned sidecars rather than the artifact lineage surfaces.
+
+## Derived Pure-Result Persistence Profile
+
+Under exact `result_persistence_profile: derived_pure_replay.v1`, a successful
+eligible, acyclic, single-visit compiler-generated `pure_projection` persists
+this exact value-free completion shell:
+
+```json
+{
+  "name": "<presentation-key>",
+  "step_id": "<qualified-node-id>",
+  "visit_count": 1,
+  "status": "completed",
+  "exit_code": 0,
+  "outcome": {
+    "status": "completed",
+    "phase": "execution",
+    "class": "completed",
+    "retryable": false
+  },
+  "result_storage": "derived_pure_replay.v1"
+}
+```
+
+The exact value-free completion shell permits no other keys. In particular it
+contains no `output`, `lines`, `json`, `text`, `artifacts`, private-lineage
+value, `error`, `debug`, duration/timestamp field, bundle reference, or result
+value. A value-bearing or structurally different purported shell is a
+`pure_result_replay_unavailable` failure with reason `profile_conflict`.
+Failed and skipped rows remain full durable rows. Historical-profile,
+noneligible, recurrent, and loop-owned pure nodes retain their existing durable
+row and bundle behavior.
+
+Eligible-pure visit increment plus matching `current_step` publication is one
+atomic state transaction. Successful exact-shell settlement or ordinary
+full-failure settlement plus cursor clearing is another atomic state
+transaction. A positive visit without a matching current cursor or exact shell,
+a mismatched visit, or a conflicting bundle/private-lineage/checkpoint/restore
+surface fails closed before mutation or effect dispatch. Replay validates only
+the required dependency leaves and reconstructs typed values into a
+process-local overlay; it never executes an effect or writes durable state.
+
+This profile is available only through explicit generic state initialization in
+the M2 feasibility mechanism. Ordinary CLI-created roots and fresh nested call
+frames remain on the historical profile until a separately reviewed M3a
+activation changes that creation policy.
 
 - Output contract failure shape
   - If `expected_outputs`, `output_bundle`, or another deterministic structured
@@ -739,12 +791,26 @@ Checksum-compatible resume projection integrity:
 
 Workflow Lisp lexical-checkpoint default resume:
 - Node-local restore selection is primary. A prior-boundary fallback is allowed only when the restart node owns lexical checkpoint metadata and restore selection positively reports typed `record_absent` for that node's next boundary.
+- Under exact `derived_pure_replay.v1`, replay-eligible pure points are filtered
+  from the durable checkpoint candidate set before unique-nearest selection.
+  They are replay-only: the runtime validates exact shells and dependency
+  leaves without reading, reusing, or writing a pure-result bundle or
+  pure-boundary checkpoint. Historical and noneligible pure points retain their
+  existing replay-or-reuse policy.
+- `VALIDATED_FRAME_ENTRY_REPLAY` is the only admitted zero-record case. It
+  requires validated bound-input leaves and exact profile/progress witnesses.
+  It neither relaxes root/callee checksum or projection validation nor creates
+  a durable checkpoint.
 - Only the canonical checkpoint index whose `program_point_id` matches the runtime-plan point and whose `storage_allocation_id` matches the canonical lexical-checkpoint-index allocation may establish absence. A missing canonical index or a valid canonical index with an empty `records` list is `record_absent`; a present unreadable, malformed, incomplete, foreign, stale, or otherwise invalid index is `record_present_unusable` and fails closed with a stable diagnostic.
 - Every index `record_id` must be one safe filename component and cannot introduce absolute or relative path structure, separators, traversal components, NULs, or unsupported filename characters. Its record reference must equal the canonical workspace-relative record path derived from that ID, checkpoint point, and storage scope. The lexical path must be a direct child of the canonical record family; after normalization and symlink resolution it must remain a direct child of the resolved family and below the resolved workspace. Absolute paths, parent escapes, record-path symlinks, and symlinked components below the workspace fail closed before record I/O. Entry `record_id`, `program_point_id`, `point_kind`, and `frame_identity` must match the runtime-plan point and loaded record as applicable, and the loaded record plus restore payload must pass the ordinary checkpoint-record and restore validators.
 - Canonical checkpoint index and record JSON must be read beneath a trusted workspace directory descriptor. Each parent component is opened descriptor-relative as a directory with no-follow semantics, and the final file is opened descriptor-relative with no-follow and nonblocking semantics, verified as a regular file with `fstat`, and decoded from that already-open descriptor; pathname validation followed by pathname reopen is not permitted. Nonblocking final-open support is required so a FIFO or other nonregular target is rejected without waiting for a peer; unavailable support fails closed. Missing canonical index state is `record_absent` only when the descriptor-relative open reports `FileNotFoundError`; symlink, permission, invalid-parent, nonregular target, unsupported descriptor-relative operation, or mutation-during-read state is present-unusable and fails closed. Record-side equivalents fail as reference-invalid or unreadable without weakening malformed-JSON diagnostics.
 - The runtime must derive the complete nearest-prior effect-boundary candidate set only from canonical `runtime_plan.ordered_node_ids`. The restart node and every eligible point must be uniquely ordered, and exactly one nearest candidate is required. That candidate's checkpoint ID must occur exactly once across all `runtime_plan.lexical_checkpoint_points`, including older, later, and non-effect points; missing, unordered, duplicate, or ambiguous state fails closed before checkpoint-ID restore selection.
 - The globally unique prior checkpoint ID must pass the same restore validator used for node-local selection. Root/callee checksum, checkpoint/program identity, effect policy, completed-effect reference, source lineage, binding schema, and authoritative-state validation remain unchanged.
 - A successful prior-boundary selection activates its validated restore payload but preserves the original restart node. An invalid, unsafe, absent, or non-restorable nearest point fails closed; default resume never searches an older point. Any coarse or older-boundary recovery is explicit/operator-directed or future functionality.
+- Pure-replay leaf audit and reconstruction do not dispatch effects, increment
+  visits, settle results, or mutate state. An invalid nearest durable boundary
+  remains terminal; filtering an admitted pure point never permits scanning
+  past that boundary.
 
 Recovery mechanisms:
 ```bash

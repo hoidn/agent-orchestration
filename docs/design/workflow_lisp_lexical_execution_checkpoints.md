@@ -136,8 +136,10 @@ What exists today, stated as consumed fact rather than redesigned:
   schema version of recorded state does not match the executable.
 - Generated path identity is resume-stable: the same run and
   call-frame/loop identity reconstructs the same concrete generated path
-  (`workflow_lisp_state_layout.md`), and generated pure-projection bundles
-  already resume at step-visit scope.
+  (`workflow_lisp_state_layout.md`). Historical and noneligible generated
+  pure-projection bundles resume at step-visit scope; an eligible node under
+  the explicit derived-pure profile retains compiled path carriage only and
+  does not use that bundle at runtime.
 - Validated structured output is the only sanctioned reuse channel for
   provider/command results (runtime migration foundation).
 - `resume-or-start` is the authored surface for domain-state reuse: it
@@ -431,7 +433,8 @@ derived from its form and declarations:
 
 | Boundary | Policy | Mechanics |
 | --- | --- | --- |
-| Pure projection | `replay_or_reuse` | Deterministic: reuse the bundle if present and digest-valid, else re-evaluate; semantically equivalent either way. |
+| `derived_pure_replay.v1` eligible pure projection | `replay_only` | Filter the point from durable checkpoint candidates, validate its exact value-free shell and dependency leaves, and reconstruct its value transiently. Do not read, reuse, or write a pure-result bundle or pure-boundary checkpoint. |
+| Historical or noneligible pure projection | `replay_or_reuse` | Reuse the bundle if present and digest-valid, else re-evaluate; recurrent and loop-owned nodes remain in this class. |
 | Provider result | `reuse_validated_or_rerun` | If a validated structured-output bundle exists for this boundary's identity, reuse it (no re-prompt); otherwise re-run the provider from the boundary. Never resume "inside" a provider. |
 | Command result (declared idempotent) | `reuse_validated_or_rerun` | Same as provider: bundle reuse or full re-run. |
 | Command result (non-idempotent, no protocol) | `fail_closed` | If the checkpoint shows this boundary pending (started, completion unknown), resume refuses with `pending_effect_unsafe`, naming the step, the source form, and the operator's options. |
@@ -446,6 +449,14 @@ external command and *before validating* its result, there is no safe
 automatic answer. The design's answer is honesty — fail closed, say
 exactly which boundary is unsafe and why, and make safe-by-declaration
 (idempotence or a certified protocol) the path to automation.
+
+This table incorporates the accepted M2 pure-result-replay contract only; it
+does not change the draft status of the broader checkpoint design. Historical
+and noneligible pure projections retain `replay_or_reuse`. For the exact
+profile's admitted class, replay-only filtering occurs before unique-nearest
+durable-boundary selection. A zero-record frame-entry case may use only
+`VALIDATED_FRAME_ENTRY_REPLAY`; an invalid nearest durable record still fails
+closed and never causes a scan to an older point.
 
 ### 8.5 What authors see
 
@@ -533,8 +544,10 @@ differential oracle.
 - Branch-local resume: re-enter a `match` arm with proof re-established.
 - Loop resume: continue iteration N of a value-carrying `loop/recur` from
   its frame — including loops with no domain resources at all.
-- Mid-`let*` resume between completed effect boundaries, reusing
-  completed pure-projection results by digest.
+- Mid-`let*` resume between completed effect boundaries. Historical and
+  noneligible pure projections may reuse completed results by digest; an
+  admitted `derived_pure_replay.v1` projection instead reconstructs the
+  required typed value from validated leaves without bundle reuse.
 - Differential evidence: for a corpus of interrupted runs, flag-on resume
   reaches the same terminal typed results, artifacts, and resource
   versions as flag-off (coarse) resume and as uninterrupted runs.
@@ -729,8 +742,10 @@ searches older points.
   boundaries.
 - Boundary inspection tests for the `resume_only` rule and checkpoint
   path privacy.
-- Determinism: pure-projection replay-vs-reuse equivalence under both
-  paths.
+- Determinism: historical pure-projection replay-vs-reuse equivalence remains a
+  compatibility control. The explicit replay profile additionally proves no
+  eligible pure bundle/checkpoint read or write, exact frame-entry replay, and
+  nearest-durable failure in both directions.
 
 ## 18. Declarative Acceptance Scenarios
 

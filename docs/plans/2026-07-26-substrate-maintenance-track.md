@@ -27,17 +27,19 @@
   9,714 broad non-security tests with 19 skipped and 5 warnings.
   Amendment phases ML, MC, MR and the M1 inventory extension were adopted into
   this shape 2026-07-26 by owner direction (provider-repeat cost model and
-  incorporation request). Phase M2 is now selected at its recorded
-  component-(a)-only depth; its candidate
+  incorporation request). Phase M2 is historical complete at its recorded
+  component-(a)-only depth: the accepted
   [Pure-Result Replay design](../design/workflow_lisp_pure_result_replay.md)
-  passed ordered specification then quality review for the feasibility
-  tranche, with its executable prerequisite still open. The bounded
-  [Pure-Result Replay Feasibility Component Plan](2026-07-30-pure-result-replay-feasibility-component-plan.md)
-  passed ordered specification then quality review and selects its Task 1
-  feasibility work; it does not select M3a. MC, MR, M3, and M4 are not
-  selected by listing and
-  still require their own component plans; M3 additionally requires accepted
-  M2 design.
+  is implemented through `159a8f5e`, `5644bd73`, and `cf0490d1`, with
+  completed-resume compatibility correction `ce02cd17`, under the
+  reviewed
+  [Pure-Result Replay Feasibility Component Plan](2026-07-30-pure-result-replay-feasibility-component-plan.md).
+  Its broad non-security gate passed 9,868 tests with 19 skipped and 5
+  warnings, followed by ordered final specification and quality approvals.
+  M3a is eligible but unselected pending its separate reviewed activation plan.
+  Ordinary CLI-created roots and fresh call frames remain historical-profile.
+  MC, MR, M3, and M4 are not selected by listing and still require their own
+  component plans; within M3, only 3a is eligible.
 - **Relation:** parallel substrate track beside the completed
   `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`
   (Q/L tracks). The accepted Q3 identity satisfies M2's entry prerequisite,
@@ -150,8 +152,8 @@ seams that loosening defines.
 | ML | Provider at-least-once loosening | historical complete: selected at `e2e39422`; ML-1 at `9c14dae3`; ML-2 at `b8783f66`, tree `b833b03c`; ML-4 Tasks 1–4 at `c45928f4`, `b3370858`, `ed19624c`, and `758c67e0`, with closure through the commit containing this record | satisfied: 5 E2E passed; 156 owning adjudication tests passed; 3 lock-control tests passed with 120 deselected; broad non-security suite 9,714 passed, 19 skipped, 5 warnings |
 | MC | Common-helper consolidation | M0 complete; Q0-listed files deferred until Q0 closes | net LOC strictly negative; no residual private clones; touched-module suites green |
 | MR | Behavior-preserving structural refactors | per-tranche: MR-5a after M0; MR-1 after ML-1; MR-2 after ML; MR-3 with/after ML-2; MR-4 Q-coordinated | golden-parity gates per tranche; MR-1..MR-3 complete before M3 starts |
-| M2 | Persistence-parsimony design | selected: ML complete; Q3 identity accepted; owner depth fixed at component (a) | accepted pure-result replay design with one executable feasibility fixture |
-| M3 | Persistence implementation | M2 complete | per-tranche parity gates (below) |
+| M2 | Persistence-parsimony design | historical complete: ML complete; Q3 identity accepted; owner depth fixed at component (a) | satisfied by accepted pure-result replay design, executable feasibility fixture, broad gate, and ordered final reviews |
+| M3 | Persistence implementation | only M3a becomes eligible after the exact M2 closure; 3b/3c retain their separate gates | per-tranche reviewed plans and parity gates (below); no tranche selected by this row |
 | M4 | Structural decomposition | M3 complete or owner-recorded M2/M3 no-go; owner M4 go decision | touched modules split along the then-current seams; full suite green; no behavior change |
 
 ## Phase M0: Green Baseline
@@ -311,14 +313,50 @@ deletion-bound exception), MR-5 scoped error-hygiene rider.
 
 ## Phase M2: Persistence-Parsimony Design
 
-**Status:** selected at the owner-recorded component-(a)-only depth. The
-candidate [Pure-Result Replay design](../design/workflow_lisp_pure_result_replay.md)
-passed `M2_FEASIBILITY_SPEC_APPROVED` then
-`M2_FEASIBILITY_QUALITY_APPROVED`. Its required
-public run/resume feasibility fixture is not yet landed, so M2 is not complete
-and M3a is not implementation-selected. The bounded
-[Pure-Result Replay Feasibility Component Plan](2026-07-30-pure-result-replay-feasibility-component-plan.md)
-is reviewed for execution, and its Task 1 fixture/index tranche is selected.
+**Status:** historical complete at the owner-recorded
+component-(a)-only depth. The accepted
+[Pure-Result Replay design](../design/workflow_lisp_pure_result_replay.md)
+passed the initial `M2_FEASIBILITY_SPEC_APPROVED` then
+`M2_FEASIBILITY_QUALITY_APPROVED` direction gate. Under the reviewed
+[Pure-Result Replay Feasibility Component Plan](2026-07-30-pure-result-replay-feasibility-component-plan.md),
+Task 0 landed at `09c286dc`, the fixture/index tranche at `159a8f5e`, atomic
+profile witnesses at `5644bd73`, runtime/checkpoint integration at `cf0490d1`,
+and completed-resume compatibility correction at `ce02cd17`.
+
+Fresh post-correction evidence collected 100 tests and passed the 11-module
+feasibility matrix with 694 tests in 8.31 seconds (log SHA-256
+`f374f391c96e6b1535bd212ac707cf77feae6f44fa630dfb4664c5b6e54b1336`).
+Canonical executable IR SHA-256
+`d24c09692754cf5d3846f99a694a6e108013ee0a6764878a7f5a1101c7f224cc`
+and runtime-plan SHA-256
+`1857767685cf7e67d43acbb819105eb8ce9e5b6b62fc720bffef7ca365762bbb`
+are equal across profiles. Outputs, artifacts, diagnostics, and settlement have
+exact parity; replay calls are `[E1, E2]`, E1 executes exactly once, historical
+pure bundles count 2, replay pure bundles count 0, and A/B replay rows are exact
+shells. Equivalent resumed samples reduce durable leaves from 80 to 72
+(8 fewer; 10.0%), `state.json` from 4,975 to 4,636 bytes (339 fewer;
+6.814070%), and run-owned sidecars from 26,452 to 15,561 bytes (10,891 fewer;
+41.172690%).
+
+The public historical-profile CLI smoke completed with output `count=3`,
+`label=tick`, and no `result_persistence_profile` in state. Source change from
+Task 0 through the Task 3 correction is orchestrator +3,518/-84 across 12
+files and tests +5,911/-15 across 12 files, total +9,429/-99 across 24 files
+(numstat log
+SHA-256
+`e8144fdb40bf2ab36a9abb197fb18bd9e8672004e54ee5e82026ab829aff037c`).
+The first broad candidate passed 9,867 tests with 19 skipped and 5 warnings but
+exposed one completed-resume evidence-revalidation regression. Correction
+`ce02cd17` passed ordered specification then quality review, 160
+affected-module tests, and the post-correction 694-test feasibility matrix.
+The routing selector passes 67 tests in 1.48 seconds. The corrected broad
+non-security gate passed 9,868 tests with 19 skipped and 5 warnings in 147.90
+seconds (log SHA-256
+`76308a56635e67d21a84f1254b812e41d4eebde7dc2444fe9cb6dd31a1e7c637`).
+Ordered final review passed `M2_FEASIBILITY_FINAL_SPEC_APPROVED` then
+`M2_FEASIBILITY_FINAL_QUALITY_APPROVED` against the same closure bytes. M3a is
+eligible but unselected pending its separate reviewed activation plan;
+ordinary CLI-created roots and fresh call frames remain historical-profile.
 
 The selected design stops persisting eligible successful compiler-generated
 pure-projection values and reconstructs them deterministically from validated
@@ -339,9 +377,10 @@ append-only evidence, and keep public boundaries durable and typed.
 
 Potential tranches, each requiring selection, RED fixtures, and its own gate:
 
-- **3a** Pure-result elision: not selected until the M2 executable fixture and
-  design acceptance close. It is the only tranche admitted by the selected M2
-  depth. Gate: golden-run byte parity on diagnostics,
+- **3a** Pure-result elision: eligible but unselected after the exact M2 closure
+  lands. It is the only tranche admitted by the selected M2 depth and requires
+  a separate reviewed activation plan before implementation. Gate: golden-run
+  byte parity on diagnostics,
   artifacts, and settlement results between persisted and recomputed
   execution; measured ledger reduction recorded.
 - **3b** Identity keys: not selected; requires component-(b) re-entry and an

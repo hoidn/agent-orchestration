@@ -52,6 +52,15 @@ PURE_RESULT_REPLAY_DESIGN_PATH = (
 PURE_RESULT_REPLAY_PLAN_PATH = (
     "docs/plans/2026-07-30-pure-result-replay-feasibility-component-plan.md"
 )
+LEXICAL_EXECUTION_CHECKPOINTS_DESIGN_PATH = (
+    "docs/design/workflow_lisp_lexical_execution_checkpoints.md"
+)
+WORKFLOW_LISP_STATE_LAYOUT_DESIGN_PATH = (
+    "docs/design/workflow_lisp_state_layout.md"
+)
+DESIGN_INDEX_PATH = "docs/design/README.md"
+CAPABILITY_STATUS_MATRIX_PATH = "docs/capability_status_matrix.md"
+STATE_SPEC_PATH = "specs/state.md"
 M0_GREEN_BASELINE_PLAN_PATH = (
     "docs/plans/2026-07-29-m0-green-baseline-component-plan.md"
 )
@@ -4382,6 +4391,17 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     pure_replay_plan = (
         REPO_ROOT / PURE_RESULT_REPLAY_PLAN_PATH
     ).read_text(encoding="utf-8")
+    checkpoint_design = (
+        REPO_ROOT / LEXICAL_EXECUTION_CHECKPOINTS_DESIGN_PATH
+    ).read_text(encoding="utf-8")
+    state_layout_design = (
+        REPO_ROOT / WORKFLOW_LISP_STATE_LAYOUT_DESIGN_PATH
+    ).read_text(encoding="utf-8")
+    design_index = (REPO_ROOT / DESIGN_INDEX_PATH).read_text(encoding="utf-8")
+    capability_matrix = (
+        REPO_ROOT / CAPABILITY_STATUS_MATRIX_PATH
+    ).read_text(encoding="utf-8")
+    state_spec = (REPO_ROOT / STATE_SPEC_PATH).read_text(encoding="utf-8")
 
     assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in track
     assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in index
@@ -4416,7 +4436,8 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "postcommit selector passed" in normalized_track_header
     assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in track_header
     assert "later phase defaults remain recorded" in normalized_track_header
-    assert "phase m2 is now selected" in normalized_track_header
+    assert "phase m2 is historical complete" in normalized_track_header
+    assert "m3a is eligible but unselected" in normalized_track_header
     assert Path(PURE_RESULT_REPLAY_DESIGN_PATH).name in track_header
     normalized_track = _normalized_routing_text(track)
     assert "minimum m2/m3a correctness machinery" in normalized_track
@@ -4511,11 +4532,9 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     )
     assert "ml 2 allocator simplification" in normalized_substrate_index_route
     assert "phase ml is historical complete" in normalized_substrate_index_route
-    assert "m2 component" in normalized_substrate_index_route
-    assert "is selected" in normalized_substrate_index_route
-    assert "remains proposed with the executable prerequisite open" in (
-        _normalized_routing_text(index)
-    )
+    assert "m2 component (a) is historical complete" in normalized_substrate_index_route
+    assert "m3a is eligible but unselected" in normalized_substrate_index_route
+    assert "accepted m2 component (a) design" in _normalized_routing_text(index)
     assert "evidence gated and unselected" in normalized_substrate_index_route
     for unselected_phase in ("mc", "mr", "m3", "m4"):
         assert unselected_phase in normalized_substrate_index_route
@@ -4525,13 +4544,15 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
         1,
     )[1].split("## Phase M3:", 1)[0]
     normalized_m2 = _normalized_routing_text(m2_section)
-    assert "status: selected" in normalized_m2
+    assert "status: historical complete" in normalized_m2
     assert "component" in normalized_m2
     assert "only depth" in normalized_m2
-    assert "required public run/resume feasibility fixture is not yet landed" in (
-        normalized_m2
-    )
-    assert "m3a is not implementation selected" in normalized_m2
+    assert "159a8f5e" in m2_section
+    assert "5644bd73" in m2_section
+    assert "cf0490d1" in m2_section
+    assert "ce02cd17" in m2_section
+    assert "m3a is eligible but unselected" in normalized_m2
+    assert "separate reviewed activation plan" in normalized_m2
     assert Path(PURE_RESULT_REPLAY_DESIGN_PATH).name in m2_section
     assert Path(PURE_RESULT_REPLAY_PLAN_PATH).name in m2_section
     assert "effect identity memo keys" in normalized_m2
@@ -4540,8 +4561,8 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "one full workflow re execution" in normalized_m2
 
     normalized_pure_replay = _normalized_routing_text(pure_replay_design)
-    assert "status: proposed" in normalized_pure_replay
-    assert "executable feasibility prerequisite open" in normalized_pure_replay
+    assert "status: accepted" in normalized_pure_replay
+    assert "m2 feasibility complete" in normalized_pure_replay
     assert "result_persistence_profile" in pure_replay_design
     assert "derived_pure_replay.v1" in pure_replay_design
     assert "value free completion shells" in normalized_pure_replay
@@ -4566,23 +4587,36 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "interrupted effect e2" in normalized_pure_replay
     assert "loop/recur" in normalized_pure_replay
     assert "not selected" in normalized_pure_replay
-    assert "m2 is not complete" in normalized_pure_replay
-    assert "m3a is not implementation selected" in normalized_pure_replay
+    assert "m2 component (a) is historical complete" in normalized_pure_replay
+    assert "m3a is eligible but unselected" in normalized_pure_replay
+    assert "ordinary cli created roots and fresh call frames remain historical" in (
+        normalized_pure_replay
+    )
     assert Path(PURE_RESULT_REPLAY_DESIGN_PATH).name in index
 
     normalized_pure_replay_plan = _normalized_routing_text(pure_replay_plan)
-    assert "status: reviewed execution plan" in (
+    assert "status: historical complete" in (
         normalized_pure_replay_plan
     )
     assert "19a98c8b" in pure_replay_plan
-    assert "m2 remains incomplete" in normalized_pure_replay_plan
-    assert "m3a remains unselected" in normalized_pure_replay_plan
-    assert "task 1 is selected" in normalized_pure_replay_plan
+    for task_commit in (
+        "09c286dc",
+        "159a8f5e",
+        "5644bd73",
+        "cf0490d1",
+        "ce02cd17",
+    ):
+        assert task_commit in pure_replay_plan
+    assert "m2 component (a) is historical complete" in normalized_pure_replay_plan
+    assert "m3a is eligible but unselected" in normalized_pure_replay_plan
     assert "normal orchestrate run and orchestrate resume creation stays on the historical profile" in (
         normalized_pure_replay_plan
     )
     assert "m2_feasibility_plan_spec_approved" in normalized_pure_replay_plan
     assert "m2_feasibility_plan_quality_approved" in normalized_pure_replay_plan
+    assert "m2_feasibility_final_spec_approved" in normalized_pure_replay_plan
+    assert "m2_feasibility_final_quality_approved" in normalized_pure_replay_plan
+    assert "9,868 passed, 19 skipped, 5 warnings" in pure_replay_plan
     assert "make only m3a eligible while leaving it unselected" in (
         normalized_pure_replay_plan
     )
@@ -4613,6 +4647,43 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
         "prepare the complete closure\n  candidate before review"
     ) < pure_replay_plan.index(
         "repository-standard broad non-security suite against\n  the complete closure candidate"
+    )
+
+    normalized_state_spec = _normalized_routing_text(state_spec)
+    assert "result_persistence_profile" in state_spec
+    assert "derived_pure_replay.v1" in state_spec
+    assert "exact value free completion shell" in normalized_state_spec
+    assert "validated_frame_entry_replay" in normalized_state_spec
+    assert "unknown profile fails closed" in normalized_state_spec
+
+    normalized_checkpoint_design = _normalized_routing_text(checkpoint_design)
+    assert "derived_pure_replay.v1 eligible pure projection" in (
+        normalized_checkpoint_design
+    )
+    assert "replay only" in normalized_checkpoint_design
+    assert "historical and noneligible pure projections retain replay_or_reuse" in (
+        normalized_checkpoint_design
+    )
+
+    normalized_state_layout = _normalized_routing_text(state_layout_design)
+    assert "compiled path carriage" in normalized_state_layout
+    assert "does not authorize a runtime bundle read, reuse, or write" in (
+        normalized_state_layout
+    )
+
+    normalized_design_index = _normalized_routing_text(design_index)
+    assert "accepted; m2 feasibility complete" in normalized_design_index
+    assert "m3a is eligible but unselected" in normalized_design_index
+
+    normalized_capability_matrix = _normalized_routing_text(capability_matrix)
+    assert "workflow lisp derived pure result replay profile" in (
+        normalized_capability_matrix
+    )
+    assert "| Workflow Lisp derived pure-result replay profile | Partial |" in (
+        capability_matrix
+    )
+    assert "implemented only for explicit generic state initialization" in (
+        normalized_capability_matrix
     )
 
     normalized_plan = _normalized_routing_text(m1_plan)

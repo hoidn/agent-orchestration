@@ -2,13 +2,16 @@
 
 ## Metadata
 
-- **Status:** proposed; executable feasibility prerequisite open
+- **Status:** accepted M2 design; M2 feasibility complete
 - **Kind:** architecture decision
 - **Owner:** Ollie
 - **Reviewers:** independent specification review, then independent quality review
-- **Review status:** `M2_FEASIBILITY_SPEC_APPROVED`, then
-  `M2_FEASIBILITY_QUALITY_APPROVED`; final design acceptance remains gated on
-  the executable fixture
+- **Review status:** initial direction approved by
+  `M2_FEASIBILITY_SPEC_APPROVED`, then `M2_FEASIBILITY_QUALITY_APPROVED`;
+  executable implementation landed through `cf0490d1` with completed-resume
+  compatibility correction `ce02cd17`; final acceptance passed
+  `M2_FEASIBILITY_FINAL_SPEC_APPROVED` then
+  `M2_FEASIBILITY_FINAL_QUALITY_APPROVED`
 - **Created:** 2026-07-29
 - **Last material update:** 2026-07-30
 - **Related docs / plans:**
@@ -18,7 +21,9 @@
   - `docs/design/workflow_lisp_lexical_execution_checkpoints.md`
   - `docs/design/workflow_lisp_lexical_checkpoint_resumability.md`
   - `specs/state.md`
-- **Implementation target:** substrate Phase M3a
+- **Implementation status:** the explicit-profile feasibility mechanism is
+  implemented in M2; ordinary root and fresh-frame activation remains the
+  separate Phase M3a target
 
 ## Summary
 
@@ -62,8 +67,8 @@ The landed runtime already supplies the essential seams:
 - the executor's mutable execution dictionary is distinct from
   `StateManager`'s serialized `RunState`;
 - `step_visits` and `current_step` carry the progress vocabulary needed for
-  replay, but today's separate visit-increment and `current_step` writes leave
-  a crash gap that M3a must close atomically;
+  replay, and the explicit-profile feasibility mechanism now closes their
+  former crash gap with atomic begin and settlement transactions;
 - an additive root persistence profile can distinguish new value-free-shell
   state from historical bundle-backed state without reinterpreting old rows;
 - the executable IR uses typed result addresses on several runtime surfaces,
@@ -74,9 +79,10 @@ The landed runtime already supplies the essential seams:
 - restore payload validation permits an effect barrier without serializing
   every derivable binding.
 
-The existing checkpoint designs permit deterministic pure recomputation but
-currently also permit bundle reuse. This design narrows that choice for the
-eligible class: recomputation is the only new-write and new-resume path.
+The historical checkpoint policy permits deterministic pure recomputation or
+validated bundle reuse. The accepted explicit profile narrows that choice for
+the eligible class: replay is the only resume path, and no new pure-result
+bundle or pure-boundary checkpoint is written.
 Existing root/callee checksums, executable and source identity, projection
 integrity, bound-input validation, checkpoint validation, completed-effect
 validation, and output-contract validation remain prerequisites.
@@ -207,10 +213,10 @@ atomically writes its ordinary full result and clears `current_step`.
 The chosen approach keeps existing effect rows as the durable barrier and
 uses an existing `steps` entry as value-free completion evidence. It reuses
 the existing pure evaluator, reference parser/resolver, state projection,
-contracts, and runtime plan rather than creating a second interpreter. M3a
-must derive an identity-neutral typed dependency index in memory; it must not
-claim that today's positional runtime dependencies or raw pure binding refs
-already form that graph.
+contracts, and runtime plan rather than creating a second interpreter. The M2
+feasibility mechanism derives an identity-neutral typed dependency index in
+memory; neither positional runtime dependencies nor raw pure binding refs are
+treated as that graph.
 
 ## Eligibility Contract
 
@@ -241,7 +247,8 @@ nodes stay durable until a later loop design explicitly admits them.
 
 ### Persistence profile
 
-New Workflow Lisp root state and new nested call-frame state carry:
+A Workflow Lisp root or nested call-frame state explicitly initialized under
+the replay profile carries:
 
 ```json
 {
@@ -266,9 +273,9 @@ result dataflow, and `pure_projection.binding_refs` are closed compatibility
 ref documents rather than `NodeResultAddress` objects. Neither is sufficient
 replay authority.
 
-After ordinary source, executable, and projection validation, M3a derives one
-process-local dependency index without changing serialized IR or runtime-plan
-bytes:
+After ordinary source, executable, and projection validation, the explicit
+profile derives one process-local dependency index without changing serialized
+IR or runtime-plan bytes:
 
 1. Walk only the validator-owned ref-bearing fields consumed by the runtime,
    including pure binding refs and the selected consumer's typed/ref inputs.
@@ -382,7 +389,7 @@ not a second execution visit.
 
 ### Durable/transient split
 
-| Surface | Durable after M3a? | Reason |
+| Surface | Durable under `derived_pure_replay.v1`? | Reason |
 | --- | ---: | --- |
 | Successful eligible pure value | No | Deterministically derived. |
 | Successful eligible pure completion shell | Yes | Value-free visit settlement and status/report topology. |
@@ -504,10 +511,9 @@ runtime never scans past it.
   the derived value as non-authoritative. Declared workflow outputs,
   artifacts, diagnostics, and settlement values remain unchanged.
 
-## Required Pre-Acceptance Feasibility Fixture
+## Completed M2 Feasibility Fixture
 
-The still-open M2 feasibility prerequisite is one generic acyclic program with
-this shape:
+The M2 feasibility proof uses one generic acyclic program with this shape:
 
 ```text
 bound input
@@ -553,11 +559,61 @@ the external effect adapter is deterministic and counted. It proves:
     without changing public artifacts, diagnostics, or settlement.
 
 This fixture is both the M2 executable feasibility proof and the first RED/GREEN
-acceptance spine for M3a. It must not call a replay helper directly.
-It has not landed yet. Therefore this design remains proposed, M2 is not
-complete, and M3a is not implementation-selected. A bounded reviewed M2
-feasibility plan must execute this public compiler/state-manager/fresh-executor/
-new-executor-resume spine before the status can move to accepted.
+acceptance spine for M3a. It does not call a replay helper directly. The
+dependency-index tranche landed at `159a8f5e`, atomic witness persistence at
+`5644bd73`, checkpoint/runtime integration at `cf0490d1`, and completed-resume
+compatibility correction at `ce02cd17`. M2 component (a) is historical
+complete after the final broad gate and ordered reviews approved its exact
+bytes. M3a is eligible but unselected and still requires a separate reviewed
+activation plan.
+
+Ordinary CLI-created roots and fresh call frames remain historical-profile.
+M2 proves the generic root/frame classification and conflict machinery, while
+automatic fresh-frame profile activation and positive nested-frame rollout
+remain M3a responsibilities.
+
+Fresh evidence collected 100 tests and passed the post-correction 11-module
+feasibility matrix with 694 tests in 8.31 seconds (log SHA-256
+`f374f391c96e6b1535bd212ac707cf77feae6f44fa630dfb4664c5b6e54b1336`).
+Canonical executable IR SHA-256
+`d24c09692754cf5d3846f99a694a6e108013ee0a6764878a7f5a1101c7f224cc`
+and runtime-plan SHA-256
+`1857767685cf7e67d43acbb819105eb8ce9e5b6b62fc720bffef7ca365762bbb`
+are equal across profiles. Outputs, artifacts, diagnostics, and settlement have
+exact parity; replay calls are `[E1, E2]`, E1 executes exactly once, historical
+pure bundles count 2, replay pure bundles count 0, and A/B replay rows are exact
+shells.
+
+Equivalent resumed samples reduce durable leaves from 80 to 72 (8 fewer;
+10.0%), `state.json` from 4,975 to 4,636 bytes (339 fewer; 6.814070%), and
+run-owned sidecars from 26,452 to 15,561 bytes (10,891 fewer; 41.172690%).
+The public historical-profile CLI smoke completed with output `count=3`,
+`label=tick`, and omitted `result_persistence_profile`. Source change from
+`09c286dc` through `ce02cd17` is orchestrator +3,518/-84 across 12 files and
+tests +5,911/-15 across 12 files, total +9,429/-99 across 24 files (numstat
+log SHA-256
+`e8144fdb40bf2ab36a9abb197fb18bd9e8672004e54ee5e82026ab829aff037c`).
+The consolidated 3,157-byte measurement log has SHA-256
+`6f735d18c315cd746bd10a3d940ca8ec52c032ec96658fea7a18bd9c5c22483f`.
+
+The first broad candidate exposed one completed-resume compatibility regression:
+9,867 tests passed, 19 skipped, and one Q4 judgment-view evidence-loss test
+failed because a completed run with no restart node no longer traversed its
+terminal rows for evidence revalidation (log SHA-256
+`dab15bbc475e88470060dc0234c099361d777b2c9117808633bdd19c9fb990f3`).
+The generic lifecycle correction `ce02cd17` preserves the historical
+completed-state sweep except for exact phased reuse while keeping a running
+post-body interruption epilogue-only. It passed
+`M2_FEASIBILITY_TASK3_CORRECTION_SPEC_APPROVED` then
+`M2_FEASIBILITY_TASK3_CORRECTION_QUALITY_APPROVED`, 160 affected-module tests,
+and the post-correction 694-test matrix.
+
+The routing selector passes 67 tests in 1.48 seconds. The corrected broad
+non-security gate passes 9,868 tests with 19 skipped and 5 warnings in 147.90
+seconds (log SHA-256
+`76308a56635e67d21a84f1254b812e41d4eebde7dc2444fe9cb6dd31a1e7c637`).
+Ordered final review passed `M2_FEASIBILITY_FINAL_SPEC_APPROVED` then
+`M2_FEASIBILITY_FINAL_QUALITY_APPROVED` against the same closure bytes.
 
 ## Verification Strategy
 
@@ -675,21 +731,16 @@ for that node.
 
 ## Success Criteria
 
-- Independent specification review approves the exact eligibility, state,
-  resume, checkpoint, compatibility, and failure contracts.
-- Independent quality review finds the design coherent enough for the bounded
-  feasibility tranche; it must not label M2 complete before the fixture runs.
-- The executable feasibility fixture exercises the public run/resume path and
-  both directions of every load-bearing rule.
-- M3a can be planned without inventing another state schema, value cache,
-  effect identity, or interpreter.
-- The additive run profile and exact shell `result_storage` tag are the only
-  new durable discriminators; neither contains a pure value.
-- The fixture's durable value count and state/sidecar bytes both decrease,
-  with no replacement value cache or evidence-controlled behavior.
-- After the fixture passes, one ordered specification then quality closure
-  review accepts or revises the design. Only acceptance completes M2 and
-  permits selection of M3a.
+The completed implementation supplies the public run/resume fixture and both
+directions of every load-bearing rule. It introduces no state schema beyond the
+additive profile, no value cache, no effect identity, and no second interpreter.
+The profile and exact-shell `result_storage` tag are the only new durable
+discriminators, and neither contains a pure value.
+
+M2 is complete because the fresh closure gates prove that durable value count
+and state/sidecar bytes both decrease and the exact candidate passed ordered
+specification then quality review. The external closure record binds the
+committed bytes without becoming runtime or repository authority.
 
 ## Stop / Revise Criteria
 
@@ -713,7 +764,7 @@ silently expand this design.
 
 ## Documentation Impact
 
-Implementation must update:
+The M2 closure updates:
 
 - `specs/state.md` for the additive replay profile and exact value-free shell;
 - the lexical checkpoint design's pure policy from reuse-or-recompute to
@@ -728,29 +779,18 @@ subordinate to the accepted M2 result through its owner-maintained routing.
 
 ## Implementation Handoff
 
-First plan the open M2 feasibility prerequisite as bounded TDD tasks:
+The reviewed M2 feasibility plan landed the generic fixture and transient index
+at `159a8f5e`, the explicit profile and atomic witness persistence at
+`5644bd73`, runtime/checkpoint integration at `cf0490d1`, and the
+completed-resume compatibility correction at `ce02cd17`. The fixture
+selects the profile only through generic state initialization; it cannot inject
+a helper result or control replay through test-only state.
 
-1. land the generic compiler/executor fixture and a passing historical-profile
-   control, then add RED replay-profile state/sidecar/checkpoint assertions;
-2. derive and validate the identity-neutral typed dependency index without
-   changing serialized executable/runtime-plan bytes;
-3. add explicit profile initialization, exact shell validation, atomic
-   begin/settlement, interrupted-same-visit execution, and progress-witness
-   failures for root state;
-4. suppress replay-profile bundle/private-lineage/checkpoint values, add
-   mixed-surface audits, filter eligible pure checkpoint points, and implement
-   validated frame-entry plus nearest-durable replay;
-5. run the public fresh/new-executor-resume spine, nested-conflict and loop
-   controls, byte/value reduction measurement, and ordered M2 closure reviews.
-
-The feasibility tranche may select the profile only through the generic
-state-initialization contract used by the fixture; normal CLI creation remains
-historical until M2 is accepted. The fixture cannot inject a helper result or
-control replay through test-only state. If the mechanism passes and the design
-is accepted, a separate reviewed M3a plan activates the profile for new
-Workflow Lisp roots and fresh non-iterative call frames, expands positive
-nested-frame coverage, updates normative/capability/routing docs, and runs the
-complete narrow and broad gates.
+After the final M2 gates and ordered reviews bound this closure, a separate
+reviewed M3a plan may activate the profile for ordinary new Workflow
+Lisp roots and fresh non-iterative call frames, add positive nested-frame
+coverage, and run activation-specific narrow and broad gates. This design and
+its completion do not themselves select or implement that activation.
 
 Likely implementation owners are:
 

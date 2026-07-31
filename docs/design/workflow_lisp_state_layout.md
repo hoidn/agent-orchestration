@@ -98,7 +98,13 @@ The current checkout adds these generated path roles:
   Compiler/runtime-private bundle transport for a visible generated
   `pure_projection` step. These allocations are `PRIVATE_GENERATED`, resume at
   `STEP_VISIT` scope, and normally render through a generated managed
-  write-root input rather than a user-authored path.
+  write-root input rather than a user-authored path. Historical and noneligible
+  projections retain that behavior. Under exact
+  `result_persistence_profile: derived_pure_replay.v1`, an eligible projection
+  retains the allocation only as compiled path carriage for executable identity
+  and historical compatibility. That carriage does not authorize a runtime
+  bundle read, reuse, or write. The runtime may derive the canonical path
+  read-only when auditing that no forbidden persisted surface exists.
 - `ENTRYPOINT_MANAGED_WRITE_ROOT`
   Companion allocation that gives the generated write-root input a concrete
   run-scoped `.json` path under `.orchestrate/workflow_lisp/entry/...`.
@@ -136,8 +142,10 @@ State layout validation checks:
 - generated names are stable across compile/resume where required
 - generated private write paths are collision-proof across parallel/repeated
   runs unless explicitly authored as stable workspace artifacts
-- `pure_projection_bundle` allocations round-trip through the same managed
-  write-root bridge as other private generated result bundles
+- historical and noneligible `pure_projection_bundle` allocations round-trip
+  through the same managed write-root bridge as other private generated result
+  bundles; exact-profile eligible projections instead validate absence and
+  create no bridge output
 - `resource_state` and `transition_audit` allocations remain private generated
   state, not public boundary inputs or materialized view paths
 - `materialized_value_view` allocations remain rendered views, not bridge
@@ -147,8 +155,10 @@ State layout validation checks:
 
 - State layout has deterministic semantic identity.
 - Private generated write paths are run-isolated by default.
-- Generated pure projection bundles remain private transport, not public
-  authored workflow inputs.
+- Historical and noneligible generated pure projection bundles remain private
+  transport, not public authored workflow inputs. Retained compiled allocation
+  carriage for an exact-profile eligible projection is compatibility identity,
+  not runtime persistence permission.
 - Runtime-owned `resource_state` and `transition_audit` paths remain private
   generated state even when one transition still bridges to a legacy state
   document.
