@@ -1,12 +1,20 @@
 # Workflow Lisp Language Server L6 Utility Roadmap
 
-Status: owner-selected 2026-07-31 as the tracked L6 stage. The predecessor
-language-quality roadmap is complete (L0–L5 closed) and is not reopened by
-this document; L6 is a successor stage under the same L-series discipline,
-carried by this standalone surface. Selection here authorizes the design
-act only: implementation requires an accepted design amendment to the
-[language server design](../design/workflow_lisp_language_server.md),
-ordered specification then quality reviews, and a reviewed component plan.
+Status: accepted design; no implementation selected. The owner-selected L6
+design act is complete at commit
+`e7de48e2710dddefbf14717575973b4ce41b5a06`, tree
+`0a2bb399c10b4242c314f9fcc924cf89f6a6b9b6`, with accepted
+[language-server design](../design/workflow_lisp_language_server.md) SHA-256
+`3c52e3d0fb9c5683eae80ae3d81aae7d6e75bef71ef72c7daf19e6da1ecee338`
+after ordered `L6_DESIGN_SPEC_APPROVED` then
+`L6_DESIGN_QUALITY_APPROVED`; see the
+[exact design review](../../artifacts/review/workflow-lisp-language-server-l6-design-review.md).
+The predecessor language-quality roadmap remains complete (L0-L5 closed) and
+is not reopened. The proposed
+[L6 utility component plan](2026-07-31-workflow-lisp-language-server-l6-utility-component-plan.md)
+is pending ordered specification then quality review and selects nothing.
+Implementation still requires an accepted plan plus explicit owner activation
+naming the exact independently selected unit or units.
 
 Created: 2026-07-31
 
@@ -20,11 +28,11 @@ and reflected in the capability matrix.
 Server-side utility increments over the existing clean-compile snapshot.
 L6 touches no compiler frontend code and requires no P-series prerequisite.
 
-| Item | Work | Source of truth consumed |
-| --- | --- | --- |
-| L6a | Hover: signature and declared-type presentation for authored callables and symbols at the cursor | the existing L1 symbol/signature catalogs on the current successful snapshot |
-| L6b | References: `textDocument/references` as the reverse of the L5 definition index, over exactly the L5-admitted shapes | the existing L5 read-only occurrence index |
-| L6c | Syntax grammar: a dedicated `.orc` tree-sitter or TextMate grammar | separable deliverable; the language server design already records it as architecturally independent; no server change |
+| Item | Accepted design work | Source of truth consumed | Design/selection status |
+| --- | --- | --- | --- |
+| L6a | Hover: signature and declared-type presentation for authored callables and symbols at the cursor | the existing L1 symbol/signature catalogs on the current successful snapshot | Accepted design; unselected. The proposed [component plan](2026-07-31-workflow-lisp-language-server-l6-utility-component-plan.md) is pending ordered review and selects nothing. |
+| L6b | References: `textDocument/references` as the reverse of the L5 definition index, over exactly the L5-admitted shapes | the existing L5 read-only occurrence index | Accepted design; unselected. The proposed [component plan](2026-07-31-workflow-lisp-language-server-l6-utility-component-plan.md) is pending ordered review and selects nothing. |
+| L6c | Syntax grammar: the accepted standalone `.orc` TextMate JSON grammar with its bounded acceptance-only tokenizer oracle | separable deliverable; the language server design records it as architecturally independent; no server change | Accepted design; unselected. The proposed [component plan](2026-07-31-workflow-lisp-language-server-l6-utility-component-plan.md) is pending ordered review and selects nothing. |
 
 ## Bounds (inherited from the L-series, binding)
 

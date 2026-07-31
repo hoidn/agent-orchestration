@@ -1731,14 +1731,25 @@ The direct implementation owners are `orchestrator/lsp/state.py`,
 `orchestrator/lsp/server.py`, with focused evidence in the corresponding LSP
 state, driver, navigation, integration, stdio, and end-to-end test modules.
 
-## Proposed L6 Utility Amendment
+## Accepted L6 Utility Design Amendment
 
-**Amendment status:** proposed under the owner-selected
-[L6 utility roadmap](../plans/2026-07-31-workflow-lisp-language-server-l6-utility-roadmap.md).
-It has not yet passed the required independent specification review followed
-by independent quality review. It does not change the implemented L0-L5
-status or authorize implementation. After those ordered reviews, a separate
-reviewed component plan must select any implementation work.
+**Amendment status:** accepted design at commit
+`e7de48e2710dddefbf14717575973b4ce41b5a06`, tree
+`0a2bb399c10b4242c314f9fcc924cf89f6a6b9b6`, with accepted design SHA-256
+`3c52e3d0fb9c5683eae80ae3d81aae7d6e75bef71ef72c7daf19e6da1ecee338`
+after ordered `L6_DESIGN_SPEC_APPROVED` then
+`L6_DESIGN_QUALITY_APPROVED`. The initial proposal was commit
+`848cee55b15a14189a54fd497ebbe24b37cba71d`; the exact binding and resolved
+findings are recorded in the
+[L6 design review](../../artifacts/review/workflow-lisp-language-server-l6-design-review.md).
+
+Acceptance does not change the implemented L0-L5 status or authorize L6
+implementation: no implementation is selected. The expected
+[L6 utility component plan](../plans/2026-07-31-workflow-lisp-language-server-l6-utility-component-plan.md)
+is proposed and pending ordered specification then quality review; while
+pending, it selects nothing. A reviewed plan plus explicit owner activation
+must name the exact independently selected L6 unit or units before any
+implementation work begins.
 
 L6 is three independently selectable utility units over already-retained
 compiler or navigation facts:

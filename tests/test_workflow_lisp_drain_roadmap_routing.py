@@ -127,6 +127,28 @@ LANGUAGE_SERVER_L4_PLAN_PATH = (
 LANGUAGE_SERVER_L5_PLAN_PATH = (
     "docs/plans/2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md"
 )
+LANGUAGE_SERVER_L6_DESIGN_PATH = "docs/design/workflow_lisp_language_server.md"
+LANGUAGE_SERVER_L6_ROADMAP_PATH = (
+    "docs/plans/2026-07-31-workflow-lisp-language-server-l6-utility-roadmap.md"
+)
+LANGUAGE_SERVER_L6_COMPONENT_PLAN_PATH = (
+    "docs/plans/2026-07-31-workflow-lisp-language-server-l6-utility-component-plan.md"
+)
+LANGUAGE_SERVER_L6_DESIGN_REVIEW_PATH = (
+    "artifacts/review/workflow-lisp-language-server-l6-design-review.md"
+)
+LANGUAGE_SERVER_L6_PROPOSAL_COMMIT = (
+    "848cee55b15a14189a54fd497ebbe24b37cba71d"
+)
+LANGUAGE_SERVER_L6_ACCEPTED_COMMIT = (
+    "e7de48e2710dddefbf14717575973b4ce41b5a06"
+)
+LANGUAGE_SERVER_L6_ACCEPTED_TREE = (
+    "0a2bb399c10b4242c314f9fcc924cf89f6a6b9b6"
+)
+LANGUAGE_SERVER_L6_ACCEPTED_DESIGN_SHA256 = (
+    "3c52e3d0fb9c5683eae80ae3d81aae7d6e75bef71ef72c7daf19e6da1ecee338"
+)
 EVOLUTION_FOLLOW_ON_ROADMAP_PATH = (
     "docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md"
 )
@@ -4602,6 +4624,117 @@ def test_language_server_l5_routes_shipped_admitted_shapes_and_closes_stage() ->
         "implementation through fc1b01ee, 9e59929d, and "
         "xdist evidence correction 8c704f3f"
     ) in normalized_l3_row
+
+
+def test_language_server_l6_routes_exact_accepted_design_without_selecting_work() -> None:
+    design = (REPO_ROOT / LANGUAGE_SERVER_L6_DESIGN_PATH).read_text(
+        encoding="utf-8"
+    )
+    roadmap = (REPO_ROOT / LANGUAGE_SERVER_L6_ROADMAP_PATH).read_text(
+        encoding="utf-8"
+    )
+    review = (REPO_ROOT / LANGUAGE_SERVER_L6_DESIGN_REVIEW_PATH).read_text(
+        encoding="utf-8"
+    )
+    design_index_row = _markdown_table_row(
+        REPO_ROOT / DESIGN_INDEX_PATH,
+        "workflow_lisp_language_server.md",
+    )
+    docs_index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
+    docs_index_section = _markdown_heading_section(
+        docs_index,
+        "### [Workflow Lisp Language Server L6 Utility Roadmap]",
+    )
+
+    assert _git_is_ancestor(
+        LANGUAGE_SERVER_L6_PROPOSAL_COMMIT,
+        LANGUAGE_SERVER_L6_ACCEPTED_COMMIT,
+    )
+    assert (
+        _git_bytes(
+            "rev-parse",
+            f"{LANGUAGE_SERVER_L6_ACCEPTED_COMMIT}^{{tree}}",
+        )
+        .decode()
+        .strip()
+        == LANGUAGE_SERVER_L6_ACCEPTED_TREE
+    )
+    accepted_design = _git_bytes(
+        "show",
+        f"{LANGUAGE_SERVER_L6_ACCEPTED_COMMIT}:{LANGUAGE_SERVER_L6_DESIGN_PATH}",
+    )
+    assert _sha256_bytes(accepted_design) == LANGUAGE_SERVER_L6_ACCEPTED_DESIGN_SHA256
+
+    for binding in (
+        LANGUAGE_SERVER_L6_PROPOSAL_COMMIT,
+        LANGUAGE_SERVER_L6_ACCEPTED_COMMIT,
+        LANGUAGE_SERVER_L6_ACCEPTED_TREE,
+        LANGUAGE_SERVER_L6_ACCEPTED_DESIGN_SHA256,
+    ):
+        assert binding in review
+    assert review.index("L6_DESIGN_SPEC_APPROVED") < review.index(
+        "L6_DESIGN_QUALITY_APPROVED"
+    )
+    normalized_review = _normalized_routing_text(review)
+    for accepted_boundary in (
+        "procedure call",
+        "workflow call",
+        "proc ref",
+        "vscode textmate",
+        "vscode oniguruma",
+        "depth 20",
+        "ordinary symbol",
+        "standalone",
+        "frontend free",
+        "p independent",
+        "no implementation selected",
+    ):
+        assert accepted_boundary in normalized_review
+
+    design_status = _markdown_heading_section(
+        design,
+        "## Accepted L6 Utility Design Amendment",
+    )
+    roadmap_status = roadmap.split("## Scope", 1)[0]
+    l6_rows = {
+        item: _markdown_table_row(
+            REPO_ROOT / LANGUAGE_SERVER_L6_ROADMAP_PATH,
+            f"| {item} |",
+        )
+        for item in ("L6a", "L6b", "L6c")
+    }
+    assert "TextMate" in l6_rows["L6c"]
+    assert "tree-sitter or TextMate" not in l6_rows["L6c"]
+
+    routed_surfaces = (
+        design_status,
+        roadmap_status,
+        *l6_rows.values(),
+        design_index_row,
+        docs_index_section,
+        review,
+    )
+    for surface in routed_surfaces:
+        normalized = _normalized_routing_text(surface)
+        assert "accepted design" in normalized
+        assert (
+            "no implementation selected" in normalized
+            or "no implementation is selected" in normalized
+            or "unselected" in normalized
+        )
+        assert Path(LANGUAGE_SERVER_L6_COMPONENT_PLAN_PATH).name in surface
+        assert "pending ordered" in normalized
+        assert "selects nothing" in normalized
+
+    for surface in (design_status, roadmap_status, design_index_row, docs_index_section):
+        assert LANGUAGE_SERVER_L6_ACCEPTED_COMMIT in surface
+        assert LANGUAGE_SERVER_L6_ACCEPTED_TREE in surface
+        assert LANGUAGE_SERVER_L6_ACCEPTED_DESIGN_SHA256 in surface
+        assert "L6_DESIGN_SPEC_APPROVED" in surface
+        assert "L6_DESIGN_QUALITY_APPROVED" in surface
+        assert surface.index("L6_DESIGN_SPEC_APPROVED") < surface.index(
+            "L6_DESIGN_QUALITY_APPROVED"
+        )
 
 
 def test_phased_contract_delivery_routes_completed_surface() -> None:
