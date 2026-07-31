@@ -29,9 +29,14 @@ transportable direct `Bool` returns, the WCC M4 compile route, existing
 provider-attempt/state machinery, `WorkflowExecutor`, deterministic mocked
 provider execution, pytest/pytest-xdist, and repository routing tests.
 
-**Status:** proposed, implementation unselected. Ordered
-`E0_PLAN_SPEC_APPROVED` then `E0_PLAN_QUALITY_APPROVED` and the exact
-plan-status/routing selection commit are required before Task 1 begins.
+**Status:** accepted for execution; E0 selected; Task 1 is next. The final
+candidate at `b401c493a0e0c7a9614d96cd18bfb8f4fa29f494`, tree
+`291bc6130412a04ef9e3886cca23579c3fb325f0`, plan SHA-256
+`0e906fdf2daa06bf8d6bb9720cd71e1086174f46dda97cb8204add16aa490809`
+passed ordered `E0_PLAN_SPEC_APPROVED` then `E0_PLAN_QUALITY_APPROVED` as
+recorded in `artifacts/review/e0-direct-control-plan-review.md`. Selected
+tranche: E0 only. E1, E2, E3, C1, C2, and C3 remain unselected. No E0
+implementation exists until Task 1 lands.
 
 ---
 
@@ -240,24 +245,26 @@ surface.
 - Modify: `docs/index.md`
 - Modify: `tests/test_workflow_lisp_drain_roadmap_routing.py`
 
-- [ ] Run `git diff --check` and the current E-series routing selector.
-- [ ] Commit the complete proposed plan and routing while every E tranche
+- [x] Run `git diff --check` and the current E-series routing selector.
+- [x] Commit the complete proposed plan and routing while every E tranche
       remains unselected, with subject `Propose E0 direct control plan`, then
       rerun the postcommit routing selector.
-- [ ] Obtain independent `E0_PLAN_SPEC_APPROVED` against that exact proposal
+- [x] Obtain independent `E0_PLAN_SPEC_APPROVED` against that exact proposal
       commit, the accepted E0 design, current roadmap authority, and
       activation interpretation.
-- [ ] Resolve any material finding and repeat specification review.
-- [ ] Obtain distinct `E0_PLAN_QUALITY_APPROVED`; repeat the ordered pair only
+- [x] Resolve any material finding and repeat specification review.
+- [x] Obtain distinct `E0_PLAN_QUALITY_APPROVED`; repeat the ordered pair only
       after a material correction.
-- [ ] Record both verdicts and the reviewed plan SHA-256 in the plan-review
+- [x] Record both verdicts and the reviewed plan SHA-256 in the plan-review
       artifact. Change this status to accepted-for-execution without changing
       scope.
-- [ ] Add a RED routing assertion for the predeclared selection delta, update
+- [x] Add a RED routing assertion for the predeclared selection delta, update
       only plan/roadmap/routing status to `E0 selected`, and keep every later
       tranche explicitly unselected.
-- [ ] Run the routing test GREEN, inspect exact bytes, commit with subject
-      `Select E0 direct control`, and run the postcommit routing selector.
+- [ ] Run the routing test GREEN, inspect exact bytes, and commit with subject
+      `Select E0 direct control`.
+- [ ] Run the postcommit routing selector and record the exact selection
+      commit/tree before Task 1.
 
 Task 0 exit: the exact reviewed plan is the selection record, the roadmap
 selects only E0, and implementation remains absent until the committed

@@ -21,8 +21,9 @@ Current implementation status: the recovered E0/C1 designs passed ordered
 `E_DESIGNS_SPEC_APPROVED` then `E_DESIGNS_QUALITY_APPROVED`. ML closure and
 the lean-pilot owner-decision handoff are complete. The
 [E0 direct-control component plan](2026-07-31-workflow-lisp-e0-direct-control-component-plan.md)
-is proposed for ordered review; no E implementation is selected yet and no
-tranche in this document is selected.
+passed ordered `E0_PLAN_SPEC_APPROVED` then `E0_PLAN_QUALITY_APPROVED`. E0 is
+the sole selected tranche and Task 1 is next; no E0 behavior is implemented
+yet. E1, E2, E3, C1, C2, and C3 remain unselected.
 
 Copy safety: planning reference only; do not use this document as evidence that
 any evolution, variant, trial, prompt-program, or sandbox surface is implemented
