@@ -194,22 +194,30 @@ exception.
 
 ## Execution discipline
 
-For each implementation task:
+Task 1 is the sole behavior-implementation task: its missing production source
+must produce the named RED before the minimum source addition turns it GREEN.
+Tasks 2 and 3 are characterization/feasibility gates over the already-landed
+compiler and runtime and are expected to begin GREEN after Task 1. They must
+not manufacture a RED. If either begins RED, record the exact failed E0 proof
+and stop/narrow E0; production changes require a design amendment rather than
+an opportunistic fix in those tasks. Task 4 is routing and Task 5 is closure
+evidence, so neither manufactures a behavioral RED.
+
+For each task:
 
 1. refresh `git status --short` and preserve unrelated bytes;
-2. have a fresh implementation subagent write the smallest named RED test;
-3. run that selector and capture the intended failure;
-4. implement only the task-owned source needed for GREEN;
-5. run the narrow selector and adjacent regressions;
-6. run `pytest --collect-only -q` for the new test module;
-7. inspect the complete diff and run `git diff --check`;
-8. obtain an independent specification review;
-9. correct material findings through a new RED/GREEN cycle and repeat spec
-   review;
-10. obtain a distinct quality review; after any material correction, repeat
-    ordered spec then quality review;
-11. stage only exact reviewed paths, inspect the staged diff, and commit; and
-12. run the named postcommit control before advancing.
+2. follow that task's RED/GREEN or expected-GREEN choreography exactly;
+3. run the narrow selector and adjacent regressions;
+4. run `pytest --collect-only -q` for the new test module;
+5. inspect the complete diff and run `git diff --check`;
+6. obtain an independent specification review;
+7. correct material behavior findings through the owning Task-1 RED/GREEN
+   cycle, or stop for design amendment when a Task-2/3 proof fails, then
+   repeat spec review;
+8. obtain a distinct quality review; after any material correction, repeat
+   ordered spec then quality review;
+9. stage only exact reviewed paths, inspect the staged diff, and commit; and
+10. run the named postcommit control before advancing.
 
 Use tmux for commands expected to exceed one minute. The final broad suite is
 the repository-standard non-security suite with 16 xdist workers. Do not
@@ -291,14 +299,18 @@ postcommit selector passes.
 - [ ] Execute one fresh production E0 entry and require exactly one prepared
       invocation, exactly one execution, completed status, scalar
       `workflow_outputs == {"__result__": true}`, and one persisted provider
-      attempt allocation. Construct the executor with `max_retries=0`.
+      attempt allocation whose `last_allocated_ordinal == 1`. Construct the
+      executor with `max_retries=0`.
 - [ ] Add the opposing retryable-failure case under the same zero-retry
       policy. A provider execution that returns a retryable nonzero exit must
       produce exactly one prepare call, exactly one execute call, and a
-      terminal failed run; it must not make a second provider invocation.
+      terminal failed run; its sole persisted allocation must also have
+      `last_allocated_ordinal == 1`, proving it did not make a second provider
+      invocation.
 - [ ] Load the same completed root and execute ordinary resume. Require the
       validated committed result to be reused with zero additional provider
-      preparation/execution and unchanged result.
+      preparation/execution, unchanged result, and byte-for-byte/deep-equal
+      provider-attempt allocation state.
 - [ ] Assert composition by typed fragment/output-contract roles or compiler
       metadata, never by literal prompt prose.
 - [ ] Run the runtime test, native-return E2E, provider-attempt recovery, and
@@ -322,8 +334,8 @@ postcommit selector passes.
       `max_retries=0`.
 - [ ] Project provider-boundary state and provider-attempt allocation through
       one test-only structural helper. Require equal runtime-owned key sets
-      and one attempt for each run while explicitly requiring unequal result
-      shapes.
+      and exactly one allocation with `last_allocated_ordinal == 1` for each
+      run while explicitly requiring unequal result shapes.
 - [ ] Require the helper to discover the provider boundary from compiled/state
       facts, not a hard-coded authored step ID.
 - [ ] Record any mutually absent design-listed datum as a factual runtime
