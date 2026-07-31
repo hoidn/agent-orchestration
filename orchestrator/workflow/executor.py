@@ -4241,6 +4241,7 @@ class WorkflowExecutor:
                     completed_phased_resume_boundary
                 ),
                 resume_restart_node_id=resume_restart_node_id,
+                resume_from_completed_state=completed_resume_candidate,
             )
             if loop_result.early_result is not None:
                 return loop_result.early_result
@@ -4504,6 +4505,7 @@ class WorkflowExecutor:
         terminal_status: str,
         completed_phased_resume_boundary: Mapping[str, Any] | None,
         resume_restart_node_id: str | None = None,
+        resume_from_completed_state: bool = False,
     ) -> _ExecuteStepLoopResult:
 
         try:
@@ -4619,7 +4621,17 @@ class WorkflowExecutor:
                 self._lexical_restore_overlay = None
             step_index = 0
             current_node_id = resume_restart_node_id
-            if current_node_id is None and not resume:
+            completed_phased_reuse = (
+                completed_phased_resume_boundary is not None
+                and completed_phased_resume_boundary.get("kind") == "reuse"
+            )
+            if current_node_id is None and (
+                not resume
+                or (
+                    resume_from_completed_state
+                    and not completed_phased_reuse
+                )
+            ):
                 current_node_id = self._first_execution_node_id()
             while True:
                 if current_node_id is None:
