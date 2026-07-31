@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
-import json
 from pathlib import PurePosixPath
 import re
 from types import MappingProxyType
 from typing import Mapping
 
+from orchestrator._common.canonical import sha256_compact_ascii_json
 from orchestrator.providers.interactive_terminal import (
     InteractiveTerminalStartOutcome,
 )
@@ -390,17 +389,6 @@ def _manifest_payload(
     }
 
 
-def _canonical_sha256(value: object) -> str:
-    payload = json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-        allow_nan=False,
-    ).encode("utf-8")
-    return "sha256:" + hashlib.sha256(payload).hexdigest()
-
-
 @dataclass(frozen=True, slots=True)
 class CandidateDigestManifest:
     submission_ordinal: int
@@ -443,12 +431,13 @@ class CandidateDigestManifest:
         ):
             raise ValueError("frozen manifest requires every row regular")
         _require_digest(self.manifest_sha256, field="manifest_sha256")
-        expected = _canonical_sha256(
+        expected = sha256_compact_ascii_json(
             _manifest_payload(
                 submission_ordinal=self.submission_ordinal,
                 disposition=self.disposition,
                 rows=self.rows,
-            )
+            ),
+            allow_nan=False,
         )
         if self.manifest_sha256 != expected:
             raise ValueError("manifest_sha256 does not seal the manifest")
@@ -467,12 +456,13 @@ class CandidateDigestManifest:
             raise TypeError(
                 "manifest rows must contain exact CandidateDigestRow values"
             )
-        digest = _canonical_sha256(
+        digest = sha256_compact_ascii_json(
             _manifest_payload(
                 submission_ordinal=submission_ordinal,
                 disposition=disposition,
                 rows=rows,
-            )
+            ),
+            allow_nan=False,
         )
         return cls(
             submission_ordinal=submission_ordinal,

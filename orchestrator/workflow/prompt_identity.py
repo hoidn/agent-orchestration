@@ -10,6 +10,11 @@ import re
 from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 
+from orchestrator._common.validation import (
+    closed_mapping as _common_closed_mapping,
+    nonempty_string as _common_nonempty_string,
+    ordinary_integer as _common_ordinary_integer,
+)
 from .prompt_fragment_contract import (
     COMPILER_PROMPT_ATTEMPT_BINDING_PLAN_SCHEMA,
     CompilerPromptAttemptBindingPlan,
@@ -228,9 +233,10 @@ def _closed(
     *,
     context: str,
 ) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping) or set(value) != keys:
-        raise ValueError(f"{context} must be a closed object")
-    return value
+    try:
+        return _common_closed_mapping(value, keys, context)
+    except ValueError:
+        raise ValueError(f"{context} must be a closed object") from None
 
 
 def _integer(
@@ -239,17 +245,15 @@ def _integer(
     context: str,
     minimum: int = 0,
 ) -> int:
-    if type(value) is not int or value < minimum:
+    if type(value) is not int:
         raise ValueError(
             f"{context} must be an integer >= {minimum}"
         )
-    return value
+    return _common_ordinary_integer(value, context, minimum=minimum)
 
 
 def _nonempty_string(value: Any, *, context: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{context} must be a non-empty string")
-    return value
+    return _common_nonempty_string(value, context)
 
 
 def _require_sha256(value: Any, *, context: str) -> str:

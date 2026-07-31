@@ -11,6 +11,8 @@ import tempfile
 from typing import Any, Mapping, Protocol, runtime_checkable
 from uuid import uuid4
 
+from ..._common.canonical import compact_ascii_json_dumps
+from ..._common.validation import nonempty_string
 from ...contracts.output_contract import (
     OutputContractError,
     validate_output_bundle,
@@ -112,9 +114,7 @@ def _provider_peer_endpoint_socket_path(
 
 
 def _nonempty(value: object, *, field: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{field} must be a non-empty string")
-    return value
+    return nonempty_string(value, field)
 
 
 def _header_value(value: object, *, field: str) -> str:
@@ -1222,22 +1222,16 @@ class WorkflowProviderPeerGroupBindings:
             identity.realized_paths.members,
             strict=True,
         ):
-            member_payload = json.dumps(
-                member_evidence.to_dict(),
-                ensure_ascii=True,
-                sort_keys=True,
-                separators=(",", ":"),
+            member_payload = compact_ascii_json_dumps(
+                member_evidence.to_dict()
             ).encode("ascii")
             self._write_no_replace(
                 member_paths.evidence_path,
                 member_payload,
             )
         path = identity.realized_paths.terminal_evidence_path
-        payload = json.dumps(
-            evidence.to_dict(),
-            ensure_ascii=True,
-            sort_keys=True,
-            separators=(",", ":"),
+        payload = compact_ascii_json_dumps(
+            evidence.to_dict()
         ).encode("ascii")
         self._write_no_replace(path, payload)
         self._terminal_evidence_written = True

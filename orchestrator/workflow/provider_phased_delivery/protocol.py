@@ -22,6 +22,8 @@ import socket
 import time
 from typing import Any, Mapping
 
+from orchestrator._common.canonical import compact_ascii_json_dumps
+
 from .diagnostics import (
     DiagnosticSource,
     DiagnosticSpan,
@@ -51,11 +53,8 @@ class PhasedSubmitProtocolClosedError(RuntimeError):
 
 def _canonical(value: Mapping[str, Any]) -> bytes:
     return (
-        json.dumps(
+        compact_ascii_json_dumps(
             dict(value),
-            ensure_ascii=True,
-            sort_keys=True,
-            separators=(",", ":"),
             allow_nan=False,
         ).encode("ascii")
         + b"\n"

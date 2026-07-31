@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-import json
 from typing import Any, Mapping
+
+from orchestrator._common.canonical import compact_ascii_json_dumps
 
 
 PROVIDER_STEERING_DIRECTIVE_TYPE_NAME = "ProviderSteeringDirective"
@@ -68,12 +69,7 @@ class ProviderSteeringDirectiveTypeDescriptor:
         }
 
     def canonical_json(self) -> str:
-        return json.dumps(
-            self.to_dict(),
-            ensure_ascii=True,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+        return compact_ascii_json_dumps(self.to_dict())
 
 
 PROVIDER_STEERING_DIRECTIVE_TYPE_DESCRIPTOR = (
@@ -158,9 +154,4 @@ class ProviderSteeringDirective:
         return payload
 
     def canonical_json(self) -> str:
-        return json.dumps(
-            self.to_dict(),
-            ensure_ascii=True,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+        return compact_ascii_json_dumps(self.to_dict())

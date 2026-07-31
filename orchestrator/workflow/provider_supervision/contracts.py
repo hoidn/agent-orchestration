@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-import json
 import math
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
+from orchestrator._common.canonical import compact_ascii_json_dumps
 from ...contracts.output_contract import (
     OutputContractError,
     validate_contract_value,
@@ -362,12 +362,7 @@ def derive_result_bundle_contract(
         specs_by_variant: dict[str, dict[str, dict[str, Any]]] = {}
         for name, fields in variant_fields.items():
             indexed = {
-                json.dumps(
-                    field,
-                    ensure_ascii=True,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ): field
+                compact_ascii_json_dumps(field): field
                 for field in fields
             }
             specs_by_variant[name] = indexed

@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 from pathlib import Path, PurePosixPath
 import re
 from typing import Any, Mapping
 from urllib.parse import quote
+
+from ..._common.canonical import compact_ascii_json_dumps
+from ..._common.validation import (
+    closed_mapping,
+    nonempty_string,
+    ordinary_integer,
+)
 
 
 _MIN_MEMBER_COUNT = 2
@@ -22,23 +28,18 @@ def _closed_mapping(
     keys: frozenset[str],
     field: str,
 ) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping) or set(value) != keys:
-        raise ValueError(
-            f"{field} must be a closed object with keys {sorted(keys)}"
-        )
-    return value
+    return closed_mapping(value, keys, field)
 
 
 def _nonempty_string(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{field} must be a non-empty string")
-    return value
+    return nonempty_string(value, field)
 
 
 def _positive_int(value: Any, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ValueError(f"{field} must be a positive integer")
-    return value
+    try:
+        return ordinary_integer(value, field, minimum=1)
+    except ValueError:
+        raise ValueError(f"{field} must be a positive integer") from None
 
 
 def _component(value: Any, field: str) -> str:
@@ -93,12 +94,7 @@ def _validate_encoded_component(value: str, field: str) -> None:
 
 
 def _canonical_json(value: Mapping[str, Any]) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=True,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    return compact_ascii_json_dumps(value)
 
 
 @dataclass(frozen=True, slots=True)

@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..._common.canonical import compact_ascii_json_dumps
+from ..._common.validation import nonempty_string, ordinary_integer
 from .models import (
     PeerAttemptIdentity,
     PeerGroupVisitIdentity,
@@ -31,12 +33,7 @@ def _utc_now() -> datetime:
 
 def _canonical_row_bytes(row: Mapping[str, Any]) -> bytes:
     return (
-        json.dumps(
-            dict(row),
-            ensure_ascii=True,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("ascii")
+        compact_ascii_json_dumps(dict(row)).encode("ascii")
         + b"\n"
     )
 
@@ -57,21 +54,21 @@ def _validate_digest(value: object, *, field: str) -> str:
 
 
 def _nonempty_string(value: object, *, field: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{field} must be a non-empty string")
-    return value
+    return nonempty_string(value, field)
 
 
 def _positive_int(value: object, *, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ValueError(f"{field} must be a positive integer")
-    return value
+    try:
+        return ordinary_integer(value, field, minimum=1)
+    except ValueError:
+        raise ValueError(f"{field} must be a positive integer") from None
 
 
 def _nonnegative_int(value: object, *, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ValueError(f"{field} must be a non-negative integer")
-    return value
+    try:
+        return ordinary_integer(value, field, minimum=0)
+    except ValueError:
+        raise ValueError(f"{field} must be a non-negative integer") from None
 
 
 def _timestamp(clock: Callable[[], datetime]) -> str:

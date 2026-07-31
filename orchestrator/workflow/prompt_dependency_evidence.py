@@ -10,6 +10,11 @@ from pathlib import Path
 import secrets
 from typing import Any, Callable, Mapping
 
+from orchestrator._common.validation import (
+    closed_mapping as _common_closed_mapping,
+    nonempty_string as _common_nonempty_string,
+    ordinary_integer as _common_ordinary_integer,
+)
 from orchestrator.deps.content_snapshot import (
     MAX_INJECTION_BYTES,
     MAX_INSTRUCTION_BYTES,
@@ -119,21 +124,21 @@ def _is_sha(value: Any) -> bool:
 
 
 def _closed(value: Any, keys: set[str], label: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping) or set(value) != keys:
-        raise ValueError(f"{label} must be a closed object")
-    return value
+    try:
+        return _common_closed_mapping(value, keys, label)
+    except ValueError:
+        raise ValueError(f"{label} must be a closed object") from None
 
 
 def _integer(value: Any, label: str, minimum: int = 0) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-        raise ValueError(f"{label} must be an integer >= {minimum}")
-    return value
+    return _common_ordinary_integer(value, label, minimum=minimum)
 
 
 def _text(value: Any, label: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{label} must be non-empty")
-    return value
+    try:
+        return _common_nonempty_string(value, label)
+    except ValueError:
+        raise ValueError(f"{label} must be non-empty") from None
 
 
 def _seal(record: dict[str, Any]) -> dict[str, Any]:

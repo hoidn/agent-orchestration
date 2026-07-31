@@ -16,6 +16,7 @@ from types import MappingProxyType
 from typing import Callable, Mapping, Protocol, Sequence
 import uuid
 
+from orchestrator._common.validation import nonempty_string as _nonempty
 from .types import (
     InteractiveSessionSupport,
     PreparedProviderPolicy,
@@ -67,13 +68,6 @@ class InteractiveTerminalError(RuntimeError):
     def __init__(self, code: str, message: str | None = None) -> None:
         self.code = code
         super().__init__(message or code)
-
-
-def _nonempty(value: object, field: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{field} must be a non-empty string")
-    return value
-
 
 @dataclass(frozen=True)
 class PaneProcessStatus:

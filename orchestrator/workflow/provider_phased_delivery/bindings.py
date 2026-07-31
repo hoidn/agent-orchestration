@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-import json
 from pathlib import Path, PurePosixPath
 import re
 from typing import Mapping, Protocol
 
+from orchestrator._common.canonical import sha256_compact_ascii_json
 from orchestrator.providers.interactive_terminal import (
     CloseOfferReceipt,
     FailedCleanupProof,
@@ -87,17 +87,6 @@ def _relative_path(value: object) -> str:
             "workspace_relative_path must be normalized relative POSIX text"
         )
     return text
-
-
-def _canonical_sha256(value: object) -> str:
-    payload = json.dumps(
-        value,
-        ensure_ascii=True,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("ascii")
-    return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,7 +223,10 @@ class AttemptComposition:
         if (
             initial_submit_keys.count != len(support_submit_keys)
             or initial_submit_keys.sha256
-            != _canonical_sha256(list(support_submit_keys))
+            != sha256_compact_ascii_json(
+                list(support_submit_keys),
+                allow_nan=False,
+            )
         ):
             raise ValueError(
                 "initial materialization submit keys disagree with support"
@@ -330,8 +322,9 @@ class CandidatePreflight:
         )
         if len(set(paths)) != len(paths):
             raise ValueError("candidate paths must be pairwise distinct")
-        expected = _canonical_sha256(
-            [binding.to_dict() for binding in self.bindings]
+        expected = sha256_compact_ascii_json(
+            [binding.to_dict() for binding in self.bindings],
+            allow_nan=False,
         )
         if self.preflight_sha256 != expected:
             raise ValueError("preflight_sha256 does not seal the bindings")
@@ -346,8 +339,9 @@ class CandidatePreflight:
             raise TypeError("bindings must be a tuple")
         return cls(
             bindings=bindings,
-            preflight_sha256=_canonical_sha256(
-                [binding.to_dict() for binding in bindings]
+            preflight_sha256=sha256_compact_ascii_json(
+                [binding.to_dict() for binding in bindings],
+                allow_nan=False,
             ),
         )
 
@@ -381,16 +375,23 @@ class CandidateSnapshot:
             }
             for row in self.rows
         ]
-        if _canonical_sha256(binding_shape) != self.preflight_sha256:
+        if (
+            sha256_compact_ascii_json(
+                binding_shape,
+                allow_nan=False,
+            )
+            != self.preflight_sha256
+        ):
             raise ValueError(
                 "snapshot rows disagree with preflight binding identity"
             )
-        expected = _canonical_sha256(
+        expected = sha256_compact_ascii_json(
             {
                 "preflight_sha256": self.preflight_sha256,
                 "submission_ordinal": self.submission_ordinal,
                 "rows": [row.to_dict() for row in self.rows],
-            }
+            },
+            allow_nan=False,
         )
         if self.snapshot_sha256 != expected:
             raise ValueError("snapshot_sha256 does not seal the snapshot")
@@ -432,7 +433,10 @@ class CandidateSnapshot:
             preflight_sha256=preflight.preflight_sha256,
             submission_ordinal=submission_ordinal,
             rows=rows,
-            snapshot_sha256=_canonical_sha256(payload),
+            snapshot_sha256=sha256_compact_ascii_json(
+                payload,
+                allow_nan=False,
+            ),
         )
 
     def manifest(self, disposition: str) -> CandidateDigestManifest:
@@ -584,7 +588,7 @@ class FrozenCandidate:
                 != "sha256:" + hashlib.sha256(item.content).hexdigest()
             ):
                 raise ValueError("frozen file bytes disagree with manifest")
-        expected = _canonical_sha256(
+        expected = sha256_compact_ascii_json(
             {
                 "snapshot_sha256": self.snapshot_sha256,
                 "manifest_sha256": self.manifest.manifest_sha256,
@@ -598,7 +602,8 @@ class FrozenCandidate:
                     }
                     for item in self.files
                 ],
-            }
+            },
+            allow_nan=False,
         )
         if self.frozen_sha256 != expected:
             raise ValueError("frozen_sha256 does not seal the frozen candidate")
@@ -631,7 +636,10 @@ class FrozenCandidate:
             snapshot_sha256=snapshot.snapshot_sha256,
             manifest=manifest,
             files=files,
-            frozen_sha256=_canonical_sha256(payload),
+            frozen_sha256=sha256_compact_ascii_json(
+                payload,
+                allow_nan=False,
+            ),
         )
 
 
@@ -673,7 +681,7 @@ def _deliveries_sha256(
         }
         for turn in actual_deliveries
     ]
-    return _canonical_sha256(payload)
+    return sha256_compact_ascii_json(payload, allow_nan=False)
 
 
 def _validate_delivery_grammar(

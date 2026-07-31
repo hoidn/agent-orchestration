@@ -10,6 +10,11 @@ import math
 from types import MappingProxyType
 from typing import Any, Mapping, TypeAlias
 
+from ..._common.validation import (
+    closed_mapping,
+    nonempty_string,
+    ordinary_integer,
+)
 from ...providers.interactive_terminal import (
     FailedCleanupProof,
     NaturalShutdownProof,
@@ -29,23 +34,18 @@ def _closed(
     keys: frozenset[str],
     field: str,
 ) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping) or set(value) != keys:
-        raise ValueError(
-            f"{field} must be a closed object with keys {sorted(keys)}"
-        )
-    return value
+    return closed_mapping(value, keys, field)
 
 
 def _nonempty(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{field} must be a non-empty string")
-    return value
+    return nonempty_string(value, field)
 
 
 def _positive_integer(value: Any, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ValueError(f"{field} must be a positive integer")
-    return value
+    try:
+        return ordinary_integer(value, field, minimum=1)
+    except ValueError:
+        raise ValueError(f"{field} must be a positive integer") from None
 
 
 def _sha256(value: Any, field: str) -> str:

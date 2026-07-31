@@ -18,6 +18,14 @@ def _canonical_api() -> tuple[Any, Any]:
     return module.canonical_json_dumps, module.sha256_json
 
 
+def _provider_canonical_api() -> tuple[Any, Any]:
+    module = importlib.import_module("orchestrator._common.canonical")
+    return (
+        module.compact_ascii_json_dumps,
+        module.sha256_compact_ascii_json,
+    )
+
+
 @pytest.mark.parametrize(
     ("value", "expected_text", "expected_digest"),
     (
@@ -91,3 +99,83 @@ def test_canonical_json_keeps_text_bytes_and_newline_ownership_distinct() -> Non
         == "sha256:8a1936507598abf7457bb37ffdea6ce20b2220c2df01846c8761ad38cc2e89fb"
     )
     assert newline_owned_digest != sha256_json(value)
+
+
+def test_compact_ascii_json_golden_vector_and_prefixed_digest() -> None:
+    compact_ascii_json_dumps, sha256_compact_ascii_json = (
+        _provider_canonical_api()
+    )
+    value = {"z": "café", "a": [1, True, None]}
+
+    rendered = compact_ascii_json_dumps(value)
+
+    assert rendered == '{"a":[1,true,null],"z":"caf\\u00e9"}'
+    assert rendered.isascii()
+    assert (
+        sha256_compact_ascii_json(value)
+        == "sha256:9c9604bc6439a99e638dd772ab98c11032c6612f11392d2e6398edc989ea8d1b"
+    )
+
+
+def test_compact_ascii_json_leaves_zero_one_and_two_newline_framing_local() -> None:
+    compact_ascii_json_dumps, _ = _provider_canonical_api()
+    rendered = compact_ascii_json_dumps({"frame": "value"})
+
+    assert rendered.encode("ascii") == b'{"frame":"value"}'
+    assert (rendered + "\n").encode("ascii") == b'{"frame":"value"}\n'
+    assert (rendered + "\n\n").encode("ascii") == b'{"frame":"value"}\n\n'
+
+
+@pytest.mark.parametrize(
+    ("value", "token"),
+    (
+        (float("nan"), "NaN"),
+        (float("inf"), "Infinity"),
+        (float("-inf"), "-Infinity"),
+    ),
+)
+def test_compact_ascii_json_preserves_permissive_nonfinite_profile(
+    value: float,
+    token: str,
+) -> None:
+    compact_ascii_json_dumps, _ = _provider_canonical_api()
+
+    assert compact_ascii_json_dumps({"value": value}) == f'{{"value":{token}}}'
+
+
+@pytest.mark.parametrize(
+    ("value", "rendered"),
+    (
+        (float("nan"), "nan"),
+        (float("inf"), "inf"),
+        (float("-inf"), "-inf"),
+    ),
+)
+def test_compact_ascii_json_preserves_rejecting_nonfinite_profile(
+    value: float,
+    rendered: str,
+) -> None:
+    compact_ascii_json_dumps, sha256_compact_ascii_json = (
+        _provider_canonical_api()
+    )
+    expected = f"Out of range float values are not JSON compliant: {rendered}"
+
+    with pytest.raises(ValueError) as dump_exc:
+        compact_ascii_json_dumps({"value": value}, allow_nan=False)
+    with pytest.raises(ValueError) as digest_exc:
+        sha256_compact_ascii_json({"value": value}, allow_nan=False)
+
+    assert str(dump_exc.value) == expected
+    assert str(digest_exc.value) == expected
+
+
+@pytest.mark.parametrize("value", (Path("opaque"), _Opaque()))
+def test_compact_ascii_json_has_no_lexical_string_fallback(value: object) -> None:
+    compact_ascii_json_dumps, sha256_compact_ascii_json = (
+        _provider_canonical_api()
+    )
+
+    with pytest.raises(TypeError):
+        compact_ascii_json_dumps({"value": value})
+    with pytest.raises(TypeError):
+        sha256_compact_ascii_json({"value": value})

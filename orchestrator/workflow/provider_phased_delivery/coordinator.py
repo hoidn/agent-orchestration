@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import hashlib
-import json
 import math
 from typing import Literal, NoReturn
 
+from orchestrator._common.canonical import compact_ascii_json_dumps
 from orchestrator.providers.interactive_terminal import (
     CloseOfferReceipt,
     InteractiveMemberHandle,
@@ -163,11 +163,9 @@ def _close_projection(
         errors="strict",
     )
     submit_keys = composition.invocation.support.graceful_close_submit_keys
-    encoded_keys = json.dumps(
+    encoded_keys = compact_ascii_json_dumps(
         list(submit_keys),
-        ensure_ascii=True,
-        sort_keys=True,
-        separators=(",", ":"),
+        allow_nan=True,
     ).encode("ascii")
     return {
         "close_text": ByteDigestProjection(

@@ -14,6 +14,8 @@ import socket
 from threading import Event, Lock, Thread, current_thread
 from typing import Any, Mapping
 
+from ..._common.canonical import compact_ascii_json_dumps
+from ..._common.validation import nonempty_string
 from .models import (
     MAX_PEER_MESSAGE_BYTES,
     PeerAcknowledgeRequest,
@@ -47,12 +49,7 @@ class PeerProtocolClosedError(RuntimeError):
 
 def _canonical_frame(value: Mapping[str, Any]) -> bytes:
     return (
-        json.dumps(
-            dict(value),
-            ensure_ascii=True,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("ascii")
+        compact_ascii_json_dumps(dict(value)).encode("ascii")
         + b"\n"
     )
 
@@ -112,9 +109,7 @@ def _read_frame(connection: socket.socket) -> bytes:
 
 
 def _nonempty(value: object, *, field: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{field} must be a non-empty string")
-    return value
+    return nonempty_string(value, field)
 
 
 def encode_active_peer_binding(

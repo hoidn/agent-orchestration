@@ -18,7 +18,35 @@ def canonical_json_dumps(value: Any) -> str:
     )
 
 
+def compact_ascii_json_dumps(
+    value: Any,
+    *,
+    allow_nan: bool = True,
+) -> str:
+    """Return compact sorted ASCII JSON without an object fallback."""
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=allow_nan,
+    )
+
+
 def sha256_json(value: Any) -> str:
     """Return the historical full prefixed digest of canonical JSON bytes."""
     canonical_bytes = canonical_json_dumps(value).encode("utf-8")
+    return f"sha256:{hashlib.sha256(canonical_bytes).hexdigest()}"
+
+
+def sha256_compact_ascii_json(
+    value: Any,
+    *,
+    allow_nan: bool = True,
+) -> str:
+    """Return the prefixed digest of compact ASCII JSON without framing."""
+    canonical_bytes = compact_ascii_json_dumps(
+        value,
+        allow_nan=allow_nan,
+    ).encode("ascii")
     return f"sha256:{hashlib.sha256(canonical_bytes).hexdigest()}"

@@ -8,6 +8,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Mapping
 
+from orchestrator._common.canonical import compact_ascii_json_dumps
+from orchestrator._common.validation import nonempty_string as _nonempty
 from ...contracts.output_contract import (
     OutputContractError,
     validate_output_bundle,
@@ -53,13 +55,6 @@ PROVIDER_SUPERVISION_OBSERVATION_INJECTION_SCHEMA_VERSION = (
 PROVIDER_SUPERVISION_OBSERVATION_INJECTION_KIND = (
     "live_provider_observation_target"
 )
-
-
-def _nonempty(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{field} must be a non-empty string")
-    return value
-
 
 @dataclass(frozen=True)
 class ProviderSupervisionTurnBinding:
@@ -964,12 +959,7 @@ class WorkflowProviderSupervisionBindings:
                     composed
                     + "\n\n"
                     + "Runtime live-provider observation target:\n"
-                    + json.dumps(
-                        injection_payload,
-                        ensure_ascii=True,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    )
+                    + compact_ascii_json_dumps(injection_payload)
                 )
             composed = composer.apply_output_contract_prompt_suffix(
                 pending["contract_step"],

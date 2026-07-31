@@ -3,33 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
-from typing import Any, Literal, Mapping
+from typing import Any, Literal
 
+from orchestrator._common.canonical import (
+    compact_ascii_json_dumps as _canonical_json,
+)
+from orchestrator._common.validation import (
+    closed_mapping as _closed_mapping,
+    nonempty_string as _nonempty_string,
+)
 from ...providers.control import ProviderCancellationResult
 from ...providers.session_transport import SessionIdentitySnapshot
-
-
-def _closed_mapping(value: Any, keys: frozenset[str], field: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping) or set(value) != keys:
-        raise ValueError(f"{field} must be a closed object with keys {sorted(keys)}")
-    return value
-
-
-def _nonempty_string(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{field} must be a non-empty string")
-    return value
-
-
-def _canonical_json(value: Mapping[str, Any]) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=True,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-
 
 ProviderSupervisionResumeBoundaryOutcome = Literal[
     "active_eligible",

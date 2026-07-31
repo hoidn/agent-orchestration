@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-import json
 from typing import Any
 
+from orchestrator._common.canonical import compact_ascii_json_dumps
 from orchestrator.providers.types import INTERACTIVE_TERMINAL_SUBMIT_KEYS
 from orchestrator.workflow.prompting import CanonicalPromptCut
 
@@ -34,11 +34,9 @@ def _byte_projection(payload: bytes) -> ByteDigestProjection:
 
 
 def _canonical_json_bytes(value: object) -> bytes:
-    return json.dumps(
+    return compact_ascii_json_dumps(
         value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
+        allow_nan=True,
     ).encode("utf-8", errors="strict")
 
 

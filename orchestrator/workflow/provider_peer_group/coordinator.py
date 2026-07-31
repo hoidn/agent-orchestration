@@ -11,12 +11,12 @@ from concurrent.futures import (
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
-import json
 import time
 from threading import Lock
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Protocol
 
+from ..._common.canonical import compact_ascii_json_dumps
 from ...providers.interactive_terminal import (
     CloseOfferReceipt,
     FailedCleanupProof,
@@ -1311,11 +1311,8 @@ class ProviderPeerGroupCoordinator:
 
     @staticmethod
     def _canonical_request(request: PeerRequest) -> bytes:
-        return json.dumps(
-            request.to_dict(),
-            ensure_ascii=True,
-            sort_keys=True,
-            separators=(",", ":"),
+        return compact_ascii_json_dumps(
+            request.to_dict()
         ).encode("ascii")
 
     @staticmethod

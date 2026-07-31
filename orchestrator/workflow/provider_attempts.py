@@ -10,6 +10,11 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
+from orchestrator._common.validation import (
+    closed_mapping as _closed_mapping,
+    nonempty_string as _nonempty_string,
+    ordinary_integer as _ordinary_integer,
+)
 from ..state import RunState, StateManager
 from .identity import STEP_ID_PATTERN
 from .resume_projection_integrity import ResumeScopePath
@@ -31,25 +36,6 @@ class AggregateRunOwner:
     resume_scope_path: ResumeScopePath
     leaf_state: RunState
     aggregate_root: Path
-
-
-def _closed_mapping(value: Any, keys: set[str], field: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping) or set(value) != keys:
-        raise ValueError(f"{field} must be a closed object with keys {sorted(keys)}")
-    return value
-
-
-def _nonempty_string(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{field} must be a non-empty string")
-    return value
-
-
-def _ordinary_integer(value: Any, field: str, *, minimum: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-        raise ValueError(f"{field} must be an integer >= {minimum}")
-    return value
-
 
 _MEMBER_TURN_RUNTIME_STEP_PREFIX = "provider_attempt_member_turn.v1:"
 _MEMBER_TURN_KEYS = {

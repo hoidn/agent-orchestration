@@ -3,28 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 from pathlib import PurePosixPath
-from typing import Any, Mapping
+from typing import Any
 from urllib.parse import quote
 
+from orchestrator._common.canonical import compact_ascii_json_dumps
+from orchestrator._common.validation import (
+    closed_mapping as _closed_mapping,
+    nonempty_string as _nonempty_string,
+)
 
 _TURN_ROLES = frozenset(
     {"worker_fresh", "worker_resume", "supervisor_directive"}
 )
-
-
-def _closed_mapping(value: Any, keys: frozenset[str], field: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping) or set(value) != keys:
-        raise ValueError(f"{field} must be a closed object with keys {sorted(keys)}")
-    return value
-
-
-def _nonempty_string(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{field} must be a non-empty string")
-    return value
-
 
 def _relative_template(value: Any, field: str) -> str:
     raw = _nonempty_string(value, field)
@@ -162,12 +153,7 @@ class ProviderSupervisionPaths:
         }
 
     def canonical_json(self) -> str:
-        return json.dumps(
-            self.to_dict(),
-            ensure_ascii=True,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+        return compact_ascii_json_dumps(self.to_dict())
 
 
 def derive_provider_supervision_paths(

@@ -8,6 +8,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COMMON_CANONICAL_MODULE = "orchestrator._common.canonical"
 COMMON_CANONICAL_PATH = REPO_ROOT / "orchestrator/_common/canonical.py"
+COMMON_VALIDATION_MODULE = "orchestrator._common.validation"
+COMMON_VALIDATION_PATH = REPO_ROOT / "orchestrator/_common/validation.py"
 
 
 @dataclass(frozen=True)
@@ -468,6 +470,36 @@ def _top_level_function_names(path: str | Path) -> set[str]:
     }
 
 
+def _qualified_functions(path: str | Path) -> dict[str, ast.AST]:
+    functions: dict[str, ast.AST] = {}
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.scope: list[str] = []
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            self.scope.append(node.name)
+            self.generic_visit(node)
+            self.scope.pop()
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            qualified = ".".join((*self.scope, node.name))
+            functions[qualified] = node
+            self.scope.append(node.name)
+            self.generic_visit(node)
+            self.scope.pop()
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            qualified = ".".join((*self.scope, node.name))
+            functions[qualified] = node
+            self.scope.append(node.name)
+            self.generic_visit(node)
+            self.scope.pop()
+
+    Visitor().visit(_module(path))
+    return functions
+
+
 def _imports_from(
     path: str,
     module_name: str,
@@ -532,6 +564,107 @@ def _inline_prefixed_json_digest_count(path: str) -> int:
         _is_inline_prefixed_sha256_of_canonical_json(node)
         for node in ast.walk(_module(path))
     )
+
+
+_VALIDATION_HELPER_NAMES = {
+    "_closed",
+    "_closed_mapping",
+    "_integer",
+    "_nonempty",
+    "_nonempty_string",
+    "_nonnegative_int",
+    "_ordinary_integer",
+    "_positive_int",
+    "_positive_integer",
+    "_text",
+}
+_CANONICAL_HELPER_NAMES = {
+    "_canonical",
+    "_canonical_frame",
+    "_canonical_json",
+    "_canonical_json_bytes",
+    "_canonical_jsonl",
+    "_canonical_request",
+    "_canonical_row_bytes",
+    "_canonical_sha256",
+    "canonical_json",
+}
+
+
+def _retains_direct_validation_mechanics(node: ast.AST) -> bool:
+    return any(
+        isinstance(candidate, ast.Call)
+        and isinstance(candidate.func, ast.Name)
+        and candidate.func.id in {"isinstance", "set", "type"}
+        for candidate in ast.walk(node)
+    )
+
+
+def _calls_common_validation(
+    node: ast.AST,
+    imported_names: set[str],
+) -> bool:
+    return any(
+        isinstance(candidate, ast.Call)
+        and isinstance(candidate.func, ast.Name)
+        and candidate.func.id in imported_names
+        for candidate in ast.walk(node)
+    )
+
+
+def _is_compact_ascii_json_call(node: ast.AST) -> bool:
+    if (
+        not isinstance(node, ast.Call)
+        or not isinstance(node.func, ast.Attribute)
+        or node.func.attr != "dumps"
+        or not isinstance(node.func.value, ast.Name)
+        or node.func.value.id != "json"
+    ):
+        return False
+    keywords = {
+        keyword.arg: keyword.value
+        for keyword in node.keywords
+        if keyword.arg is not None
+    }
+    separators = keywords.get("separators")
+    return (
+        isinstance(keywords.get("ensure_ascii"), ast.Constant)
+        and keywords["ensure_ascii"].value is True
+        and isinstance(keywords.get("sort_keys"), ast.Constant)
+        and keywords["sort_keys"].value is True
+        and isinstance(separators, (ast.Tuple, ast.List))
+        and [
+            element.value
+            for element in separators.elts
+            if isinstance(element, ast.Constant)
+        ]
+        == [",", ":"]
+        and "default" not in keywords
+    )
+
+
+def _direct_compact_ascii_json_count(node: ast.AST) -> int:
+    return sum(_is_compact_ascii_json_call(candidate) for candidate in ast.walk(node))
+
+
+def _compact_ascii_pattern_target(pattern: str) -> str | None:
+    prefix = "ast:compact_ascii_json@"
+    if not pattern.startswith(prefix):
+        return None
+    return pattern[len(prefix) :].rsplit(":count=", 1)[0]
+
+
+def _pattern_function_scope(
+    functions: dict[str, ast.AST],
+    target: str,
+) -> ast.AST | None:
+    candidate = target
+    while candidate:
+        node = functions.get(candidate)
+        if node is not None:
+            return node
+        candidate = candidate.rpartition(".")[0]
+    return None
 
 
 def test_admitted_helper_manifest_is_exact_and_machine_addressable() -> None:
@@ -605,6 +738,93 @@ def test_canonical_helpers_have_one_common_owner() -> None:
             f"{build_artifacts_path} retains {inline_digest_count} "
             "inline prefixed canonical-JSON digests"
         )
+
+    assert not findings, "\n".join(findings)
+
+
+def test_provider_scalar_helpers_use_common_mechanics() -> None:
+    findings: list[str] = []
+    if not COMMON_VALIDATION_PATH.is_file():
+        findings.append("missing orchestrator/_common/validation.py")
+    else:
+        common_validation_definitions = _top_level_function_names(
+            COMMON_VALIDATION_PATH
+        )
+        missing_validation = {
+            "closed_mapping",
+            "nonempty_string",
+            "ordinary_integer",
+        } - common_validation_definitions
+        if missing_validation:
+            findings.append(
+                "common validation owner missing definitions: "
+                f"{sorted(missing_validation)}"
+            )
+
+    common_canonical_definitions = _top_level_function_names(
+        COMMON_CANONICAL_PATH
+    )
+    missing_canonical = {
+        "compact_ascii_json_dumps",
+        "sha256_compact_ascii_json",
+    } - common_canonical_definitions
+    if missing_canonical:
+        findings.append(
+            "common canonical owner missing provider definitions: "
+            f"{sorted(missing_canonical)}"
+        )
+
+    for surface in ADMITTED_HELPER_MANIFEST["provider_scalars"]:
+        qualified_functions = _qualified_functions(surface.path)
+        imported_validation_names = {
+            alias or name
+            for name, alias in _imports_from(
+                surface.path,
+                COMMON_VALIDATION_MODULE,
+            )
+            if name
+            in {"closed_mapping", "nonempty_string", "ordinary_integer"}
+        }
+        for symbol in surface.symbols:
+            node = qualified_functions.get(symbol)
+            if node is None:
+                continue
+            helper_name = symbol.rsplit(".", 1)[-1]
+            if (
+                helper_name in _VALIDATION_HELPER_NAMES
+                and _retains_direct_validation_mechanics(node)
+                and not _calls_common_validation(
+                    node,
+                    imported_validation_names,
+                )
+            ):
+                findings.append(
+                    f"{surface.path}:{symbol} retains direct validation mechanics"
+                )
+            elif helper_name in _CANONICAL_HELPER_NAMES:
+                count = _direct_compact_ascii_json_count(node)
+                if count:
+                    findings.append(
+                        f"{surface.path}:{symbol} retains {count} direct "
+                        "compact ASCII JSON call(s)"
+                    )
+
+        for pattern in surface.patterns:
+            target = _compact_ascii_pattern_target(pattern)
+            if target is None:
+                continue
+            node = _pattern_function_scope(qualified_functions, target)
+            if node is None:
+                findings.append(
+                    f"{surface.path}:{target} compact-JSON scope is missing"
+                )
+                continue
+            count = _direct_compact_ascii_json_count(node)
+            if count:
+                findings.append(
+                    f"{surface.path}:{target} retains {count} direct "
+                    "compact ASCII JSON call(s)"
+                )
 
     assert not findings, "\n".join(findings)
 
