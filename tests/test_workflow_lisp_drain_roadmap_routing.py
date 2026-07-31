@@ -1319,6 +1319,17 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
     ).read_text(encoding="utf-8")
     design_index = (REPO_ROOT / DESIGN_INDEX_PATH).read_text(encoding="utf-8")
     index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
+    workflow_catalog_path = REPO_ROOT / "workflows" / "README.md"
+    workflow_catalog = workflow_catalog_path.read_text(encoding="utf-8")
+    direct_control_catalog = next(
+        (
+            line
+            for line in workflow_catalog.splitlines()
+            if line.startswith("|")
+            and "| `workflows/library/control/direct_task.orc` |" in line
+        ),
+        "",
+    )
     trial_capability = _markdown_table_row(
         REPO_ROOT / CAPABILITY_STATUS_MATRIX_PATH,
         "| Workflow Lisp canonical trial runs (E0-E3 direction) |",
@@ -1335,9 +1346,14 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
     assert "e_designs_quality_approved" in normalized_roadmap
     assert "e0 is the sole selected tranche" in normalized_roadmap
     assert "task 1's canonical source and compile contract" in normalized_roadmap
-    assert "task 2 runtime characterization is in progress" in normalized_roadmap
+    assert "task 2 runtime proof landed at 3d41a8bf" in normalized_roadmap
+    assert "task 3 accounting parity proof landed at 3b934373" in normalized_roadmap
+    assert "e0 is implemented pending final gate" in normalized_roadmap
     assert "e0 is not complete" in normalized_roadmap
-    assert "e1, e2, e3, c1, c2, and c3 remain unselected" in normalized_roadmap
+    assert "e1, e2, e3, c1, c2, and c3 remain unselected" in (
+        normalized_roadmap
+    )
+    assert "all remain designed" in normalized_roadmap
     assert "owner decision handoff is complete" in normalized_roadmap
     assert "creates no effect identity memo key" in normalized_roadmap
     assert "docs/superpowers/plans/2026-07-26-orc-effectiveness-lean-pilot.md" in roadmap
@@ -1370,20 +1386,52 @@ def test_e_series_routes_only_reviewed_e0_selection_during_implementation() -> N
     assert "run/resume explicitly excludes lean pilot attempts" in normalized_gates
     assert "no cross run memo" in normalized_gates
     assert "principle 30" in normalized_gates
-    assert "| Designed |" in trial_capability
+    assert "| Implemented (pending final gate) |" in trial_capability
+    normalized_trial_capability = _normalized_routing_text(trial_capability)
+    assert "task 2 runtime proof at 3d41a8bf" in normalized_trial_capability
+    assert "task 3 accounting parity proof at 3b934373" in (
+        normalized_trial_capability
+    )
+    assert "e0 alone is implemented pending final gate" in (
+        normalized_trial_capability
+    )
+    assert "e1 e3 and c1 c3 remain designed and unselected" in (
+        normalized_trial_capability
+    )
     assert "| Designed |" in gates_capability
     assert "No current syntax/runtime capability may be inferred" in gates_capability
     assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in roadmap
     assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in design_index
     assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in index
     assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in sequence
-    assert "Task 1 landed at" in plan
+    normalized_plan = _normalized_routing_text(plan)
+    assert "task 1 landed at b71bf62a" in normalized_plan
+    assert "task 2 landed at 3d41a8bf" in normalized_plan
+    assert "task 3 landed at 3b934373" in normalized_plan
+    assert "e0 implemented pending final gate" in normalized_plan
     assert "E0_PLAN_AMENDMENT_SPEC_APPROVED" in plan
     assert "E0_PLAN_AMENDMENT_QUALITY_APPROVED" in plan
     assert "does not select e1" in _normalized_routing_text(plan)
-    assert "e0 alone is selected" in _normalized_routing_text(
+    assert "e0 remains the sole selected tranche" in _normalized_routing_text(
         trial_capability
     )
+    normalized_design_index = _normalized_routing_text(design_index)
+    normalized_index = _normalized_routing_text(index)
+    assert "e0 implemented pending final gate" in normalized_design_index
+    assert "e0 is implemented pending final gate" in normalized_index
+    assert direct_control_catalog, "direct-control library catalog row is missing"
+    normalized_catalog = _normalized_routing_text(direct_control_catalog)
+    for required_catalog_fact in (
+        "control/direct_task::direct task",
+        "task: string",
+        "model: string",
+        "effort: string",
+        "direct bool",
+        "exactly one composed provider boundary",
+        "not copy safe until pass_e0",
+    ):
+        assert required_catalog_fact in normalized_catalog
+    assert "workflows/library/control/direct_task.orc" in workflow_catalog
     normalized_plan_review = _normalized_routing_text(plan_review)
     assert "e0_plan_spec_approved" in normalized_plan_review
     assert "e0_plan_quality_approved" in normalized_plan_review

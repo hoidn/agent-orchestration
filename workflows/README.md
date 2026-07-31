@@ -170,6 +170,7 @@ Resolution rules:
 
 | Path | DSL | Workflow Name | Purpose |
 | --- | --- | --- | --- |
+| `workflows/library/control/direct_task.orc` | `2.23` | `control/direct_task::direct-task` | E0 canonical direct control with typed inputs `task: String`, `model: String`, and `effort: String`, exactly one composed provider boundary, and a direct `Bool` result. This candidate is not copy-safe until `PASS_E0`; after that gate it is copy-safe only for the bounded one-call direct-task shape, not for trials, child runs, controllers, report-shaped results, or customized orchestration. |
 | `workflows/library/tracked_design_phase.orc` | `2.14` | `tracked-design-phase` | Additive Workflow Lisp migration-tranche counterpart for compile/surface-parity checks of the tracked design phase contract. |
 | `workflows/library/tracked_plan_phase.orc` | `2.14` | `tracked-plan-phase` | Additive Workflow Lisp migration-tranche counterpart for compile/surface-parity checks of the tracked plan phase contract. |
 | `workflows/library/design_plan_impl_implementation_phase.orc` | `2.14` | `design-plan-impl-implementation-phase` | Additive Workflow Lisp migration-tranche counterpart for compile/surface-parity checks of the implementation phase contract. |

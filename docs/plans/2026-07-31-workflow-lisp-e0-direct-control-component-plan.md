@@ -29,16 +29,20 @@ transportable direct `Bool` returns, the WCC M4 compile route, existing
 provider-attempt/state machinery, `WorkflowExecutor`, deterministic mocked
 provider execution, pytest/pytest-xdist, and repository routing tests.
 
-**Status:** accepted for execution; E0 selected; Task 1 landed at
-`b71bf62aa3cc8640e5ae9df47f1ec09794a5eb5c`; Task 2 is paused at the
-reviewed feasibility correction below. The
+**Status:** accepted for execution; E0 implemented pending final gate. Task 1
+landed at `b71bf62aa3cc8640e5ae9df47f1ec09794a5eb5c`; Task 2 landed at
+`3d41a8bf503af14b5aaaaf29e69bc03dfdbb6d5d`; and Task 3 landed at
+`3b9343732d5e764e6e2ebb8f5d2501536d4701ea`. Each passed its ordered
+specification then quality review. This Task 4 routing candidate is prepared;
+its ordered reviews, commit, and Task 5 final gate remain. The
 original reviewed candidate at `b401c493a0e0c7a9614d96cd18bfb8f4fa29f494`, tree
 `291bc6130412a04ef9e3886cca23579c3fb325f0`, plan SHA-256
 `0e906fdf2daa06bf8d6bb9720cd71e1086174f46dda97cb8204add16aa490809`
 passed ordered `E0_PLAN_SPEC_APPROVED` then `E0_PLAN_QUALITY_APPROVED` as
 recorded in `artifacts/review/e0-direct-control-plan-review.md`. Selected
-tranche: E0 only. E1, E2, E3, C1, C2, and C3 remain unselected. No E0
-implementation existed at selection time. The selection routing landed at
+tranche remains E0 only. E1, E2, E3, C1, C2, and C3 remain Designed and
+unselected. E0 is not complete. No E0 implementation existed at selection
+time. The selection routing landed at
 `877ac609222c35584a6c227c6aec3b6903f607bd`, tree
 `0e8783d6582c5fce7bae799021aeea690fb660ac`; its postcommit routing control
 passed 70 tests.
@@ -335,22 +339,22 @@ postcommit selector passes.
 - Production changes are forbidden; a RED caused by missing runtime behavior
   is a design-feasibility failure, not authority to modify the runtime.
 
-- [ ] Add a deterministic provider harness that records prepare/execute calls
+- [x] Add a deterministic provider harness that records prepare/execute calls
       and writes direct JSON `true` to the runtime-owned output bundle.
-- [ ] Execute one fresh production E0 entry with a test-only interruption
+- [x] Execute one fresh production E0 entry with a test-only interruption
       immediately after the successful provider boundary commit and before
       root finalization. Require exactly one prepared invocation, exactly one
       execution, a persisted completed provider result carrying scalar
       `true`, and one provider-attempt allocation whose
       `last_allocated_ordinal == 1`. Construct the executor with
       `max_retries=0`.
-- [ ] Add the opposing retryable-failure case under the same zero-retry
+- [x] Add the opposing retryable-failure case under the same zero-retry
       policy. A provider execution that returns a retryable nonzero exit must
       produce exactly one prepare call, exactly one execute call, and a
       terminal failed run; its sole persisted allocation must also have
       `last_allocated_ordinal == 1`, proving it did not make a second provider
       invocation.
-- [ ] Load that same incomplete root after its provider boundary is committed
+- [x] Load that same incomplete root after its provider boundary is committed
       and execute ordinary resume. Require the validated committed result to
       be reused with zero additional provider preparation/execution, final
       completed status, scalar `workflow_outputs == {"__result__": true}`,
@@ -358,11 +362,11 @@ postcommit selector passes.
       provider-attempt allocation state. Use fresh hard-fail patches for
       attempt allocation, provider preparation, and provider execution during
       resume. Do not execute an already terminal root as the reuse proof.
-- [ ] Assert composition by typed fragment/output-contract roles or compiler
+- [x] Assert composition by typed fragment/output-contract roles or compiler
       metadata, never by literal prompt prose.
-- [ ] Run the runtime test, native-return E2E, provider-attempt recovery, and
+- [x] Run the runtime test, native-return E2E, provider-attempt recovery, and
       pure-result replay regressions.
-- [ ] Obtain ordered `E0_TASK2_SPEC_APPROVED` then
+- [x] Obtain ordered `E0_TASK2_SPEC_APPROVED` then
       `E0_TASK2_QUALITY_APPROVED`, commit with subject
       `Prove direct control execution`, and rerun the postcommit selector.
 
@@ -375,22 +379,22 @@ postcommit selector passes.
   `tests/fixtures/workflow_lisp/phased_contract_delivery/composed.orc`
 - Production changes are forbidden.
 
-- [ ] Add a deterministic ordinary-arm execution of the existing composed
+- [x] Add a deterministic ordinary-arm execution of the existing composed
       one-provider fixture with a structured result whose artifact shape
       differs from E0's scalar result. Bind both executors to
       `max_retries=0`.
-- [ ] Project provider-boundary state and provider-attempt allocation through
+- [x] Project provider-boundary state and provider-attempt allocation through
       one test-only structural helper. Require equal runtime-owned key sets
       and exactly one allocation with `last_allocated_ordinal == 1` for each
       run while explicitly requiring unequal result shapes.
-- [ ] Require the helper to discover the provider boundary from compiled/state
+- [x] Require the helper to discover the provider boundary from compiled/state
       facts, not a hard-coded authored step ID.
-- [ ] Record any mutually absent design-listed datum as a factual runtime
+- [x] Record any mutually absent design-listed datum as a factual runtime
       limitation; do not add production fields or weaken equality for fields
       present on only one side.
-- [ ] Run the new accounting test plus runtime observability, prompt-context,
+- [x] Run the new accounting test plus runtime observability, prompt-context,
       provider-attempt, and phased-composed regressions.
-- [ ] Obtain ordered `E0_TASK3_SPEC_APPROVED` then
+- [x] Obtain ordered `E0_TASK3_SPEC_APPROVED` then
       `E0_TASK3_QUALITY_APPROVED`, commit with subject
       `Prove direct control accounting parity`, and rerun the postcommit
       selector.
@@ -407,15 +411,15 @@ postcommit selector passes.
 - Modify: `tests/test_workflow_lisp_drain_roadmap_routing.py`
 - Modify: this plan
 
-- [ ] Add the direct-control workflow to the library catalog with its exact
+- [x] Add the direct-control workflow to the library catalog with its exact
       entry, typed inputs, direct result, one-call boundary, and copy-safety
       limits.
-- [ ] Promote only E0 from Designed/selected to implemented-pending-final-gate
+- [x] Promote only E0 from Designed/selected to implemented-pending-final-gate
       while E1/E2/E3 and C1/C2/C3 remain Designed/unselected.
-- [ ] Preserve the accepted target-design files byte-for-byte; route factual
+- [x] Preserve the accepted target-design files byte-for-byte; route factual
       E0 implementation and evidence through current status surfaces.
-- [ ] Update routing assertions behaviorally—no prompt-text assertions.
-- [ ] Run the direct-control module and complete routing suite.
+- [x] Update routing assertions behaviorally—no prompt-text assertions.
+- [x] Run the direct-control module and complete routing suite.
 - [ ] Obtain ordered `E0_TASK4_SPEC_APPROVED` then
       `E0_TASK4_QUALITY_APPROVED`, commit with subject
       `Route canonical direct control`, and rerun the postcommit selector.

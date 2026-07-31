@@ -23,12 +23,16 @@ the lean-pilot owner-decision handoff are complete. The
 [E0 direct-control component plan](2026-07-31-workflow-lisp-e0-direct-control-component-plan.md)
 passed ordered `E0_PLAN_SPEC_APPROVED` then `E0_PLAN_QUALITY_APPROVED`. E0 is
 the sole selected tranche. Task 1's canonical source and compile contract
-landed at `b71bf62a`; Task 2 runtime characterization is in progress under a
-reviewed component-plan feasibility correction. E0 is not complete. E1, E2,
-E3, C1, C2, and C3 remain unselected.
+landed at `b71bf62a`; Task 2 runtime proof landed at `3d41a8bf`; and Task 3
+accounting-parity proof landed at `3b934373`. E0 is implemented pending final
+gate: its Task 4 routing candidate and Task 5 final verification remain, so E0
+is not complete. E1, E2, E3, C1, C2, and C3 remain unselected; all remain
+Designed.
 
-Copy safety: planning reference only; do not use this document as evidence that
-any evolution, variant, trial, prompt-program, or sandbox surface is implemented
+Copy safety: planning reference only. The canonical direct-control source is
+not copy-safe until `PASS_E0`; the accepted target-design examples and every
+E1+ evolution, variant, trial, prompt-program, or sandbox surface remain
+non-copy-safe.
 
 ## Current E Program Shape And Gates (2026-07-30)
 
