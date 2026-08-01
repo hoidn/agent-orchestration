@@ -6,6 +6,7 @@ import inspect
 import json
 from dataclasses import FrozenInstanceError, fields, replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -193,6 +194,64 @@ def _imported_request(build, tmp_path: Path):
         command_boundaries_path=CLI_FIXTURES / "commands.json",
         workspace_root=tmp_path,
     )
+
+
+def _write_imported_catalog_fixture(tmp_path: Path) -> tuple[Path, Path]:
+    source_root = tmp_path / "src"
+    module_root = source_root / "catalog"
+    module_root.mkdir(parents=True)
+    (module_root / "shared.orc").write_text(
+        """(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.18")
+  (defmodule catalog/shared)
+  (export Result shared)
+  (defrecord Result
+    (value String))
+  (defworkflow shared
+    ((value String))
+    -> Result
+    (record Result
+      :value value)))
+""",
+        encoding="utf-8",
+    )
+    (module_root / "entry.orc").write_text(
+        """(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.18")
+  (defmodule catalog/entry)
+  (import catalog/shared :only (Result shared))
+  (export selected sibling)
+  (defworkflow selected
+    ((value String))
+    -> Result
+    (call shared
+      :value value))
+  (defworkflow sibling
+    ((value String))
+    -> Result
+    (call shared
+      :value value)))
+""",
+        encoding="utf-8",
+    )
+    manifest_path = source_root / "imports.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "selected": {
+                    "kind": "compiled",
+                    "path": "catalog/entry.orc",
+                    "entry_workflow": "selected",
+                }
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return source_root, manifest_path
 
 
 def _assert_exact_production_request_capture(
@@ -692,6 +751,65 @@ def test_recursive_imported_builds_share_trace_and_never_emit_child_artifacts(
     )
     assert emitted_build_roots == (persistent.build_root,)
     assert imported.bundle_fingerprint != persistent.manifest.fingerprint
+
+
+def test_imported_binding_retains_frozen_complete_canonical_bundle_catalog(
+    tmp_path: Path,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    source_root, manifest_path = _write_imported_catalog_fixture(tmp_path)
+    before = _tree_snapshot(tmp_path)
+
+    configuration = build.load_frontend_initialization_configuration(
+        workspace_root=tmp_path,
+        source_roots=(source_root,),
+        imported_workflow_bundles_path=manifest_path,
+    )
+
+    assert _tree_snapshot(tmp_path) == before
+    assert not (tmp_path / ".orchestrate").exists()
+    binding = configuration.imported_workflow_bundles[0]
+    catalog = binding.bundle_catalog
+    assert tuple(catalog) == (
+        "catalog/entry::selected",
+        "catalog/entry::sibling",
+        "catalog/shared::shared",
+    )
+    assert binding.workflow_name == "catalog/entry::selected"
+    assert binding.bundle is catalog[binding.workflow_name]
+    shared = catalog["catalog/shared::shared"]
+    for catalog_bundle in catalog.values():
+        for imported_bundle in catalog_bundle.imports.values():
+            assert imported_bundle is catalog[imported_bundle.surface.name]
+    for workflow_name in (
+        "catalog/entry::selected",
+        "catalog/entry::sibling",
+    ):
+        imported = tuple(catalog[workflow_name].imports.values())
+        assert imported == (shared,)
+        with pytest.raises(TypeError):
+            catalog[workflow_name].imports["other"] = shared  # type: ignore[index]
+    with pytest.raises(TypeError):
+        catalog["other"] = shared  # type: ignore[index]
+
+    coverage = binding.bundle.provenance.frontend_source_map_coverage
+    assert coverage is binding.bundle.surface.provenance.frontend_source_map_coverage
+    assert coverage is binding.bundle.ir.provenance.frontend_source_map_coverage
+    with pytest.raises(TypeError):
+        coverage["frontend_ast"] = "mutated"
+
+
+def test_imported_catalog_flattening_rejects_canonical_name_conflicts() -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    compile_result = SimpleNamespace(
+        compiled_results_by_name={
+            "first": SimpleNamespace(validated_bundles={"duplicate": object()}),
+            "second": SimpleNamespace(validated_bundles={"duplicate": object()}),
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="canonical-name conflict.*duplicate"):
+        build._flatten_compiled_bundle_catalog(compile_result)
 
 
 def test_library_only_in_memory_result_is_explicit_and_non_runnable(

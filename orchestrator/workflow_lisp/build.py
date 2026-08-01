@@ -179,6 +179,7 @@ class ImportedWorkflowBundleBinding:
     bundle_fingerprint: str | None
     load_status: str
     bundle: LoadedWorkflowBundle
+    bundle_catalog: Mapping[str, LoadedWorkflowBundle]
 
 
 @dataclass(frozen=True)
@@ -470,18 +471,21 @@ def _freeze_command_boundaries(
     )
 
 
-def _freeze_imported_workflow_binding(
-    binding: ImportedWorkflowBundleBinding,
-) -> ImportedWorkflowBundleBinding:
-    """Freeze the reproduced mutable provenance payload on a retained bundle."""
+def _freeze_imported_workflow_bundle(
+    bundle: LoadedWorkflowBundle,
+    *,
+    imports: Mapping[str, LoadedWorkflowBundle],
+) -> LoadedWorkflowBundle:
+    """Freeze one catalog bundle and its reproduced provenance payload."""
 
-    bundle = binding.bundle
     coverage = bundle.provenance.frontend_source_map_coverage
-    if coverage is None:
-        return binding
-    provenance = replace(
-        bundle.provenance,
-        frontend_source_map_coverage=_freeze_configuration_mapping(coverage),
+    provenance = (
+        bundle.provenance
+        if coverage is None
+        else replace(
+            bundle.provenance,
+            frontend_source_map_coverage=_freeze_configuration_mapping(coverage),
+        )
     )
     surface = (
         replace(bundle.surface, provenance=provenance)
@@ -512,14 +516,93 @@ def _freeze_imported_workflow_binding(
         else bundle.ir
     )
     return replace(
+        bundle,
+        surface=surface,
+        core_workflow_ast=core_workflow_ast,
+        ir=executable_ir,
+        imports=imports,
+        provenance=provenance,
+    )
+
+
+def _freeze_imported_bundle_catalog(
+    bundle_catalog: Mapping[str, LoadedWorkflowBundle],
+) -> Mapping[str, LoadedWorkflowBundle]:
+    """Rebuild one canonical catalog with shared immutable import identities."""
+
+    source_catalog = dict(bundle_catalog)
+    import_storage_by_name: dict[str, dict[str, LoadedWorkflowBundle]] = {
+        canonical_name: {} for canonical_name in source_catalog
+    }
+    frozen_by_name: dict[str, LoadedWorkflowBundle] = {}
+
+    for canonical_name in sorted(source_catalog):
+        frozen_by_name[canonical_name] = _freeze_imported_workflow_bundle(
+            source_catalog[canonical_name],
+            imports=MappingProxyType(import_storage_by_name[canonical_name]),
+        )
+    for canonical_name in sorted(source_catalog):
+        import_storage = import_storage_by_name[canonical_name]
+        for alias, imported_bundle in source_catalog[canonical_name].imports.items():
+            imported_name = imported_bundle.surface.name
+            import_storage[alias] = frozen_by_name.get(
+                imported_name,
+                imported_bundle,
+            )
+    return MappingProxyType(
+        {
+            canonical_name: frozen_by_name[canonical_name]
+            for canonical_name in sorted(frozen_by_name)
+        }
+    )
+
+
+def _freeze_imported_workflow_binding(
+    binding: ImportedWorkflowBundleBinding,
+) -> ImportedWorkflowBundleBinding:
+    """Freeze a retained bundle catalog while preserving canonical identity."""
+
+    bundle_catalog = _freeze_imported_bundle_catalog(binding.bundle_catalog)
+    workflow_name = binding.workflow_name
+    if workflow_name is None or workflow_name not in bundle_catalog:
+        raise RuntimeError(
+            "compiled imported workflow is missing from its bundle catalog"
+        )
+    return replace(
         binding,
-        bundle=replace(
-            bundle,
-            surface=surface,
-            core_workflow_ast=core_workflow_ast,
-            ir=executable_ir,
-            provenance=provenance,
-        ),
+        bundle=bundle_catalog[workflow_name],
+        bundle_catalog=bundle_catalog,
+    )
+
+
+def _flatten_compiled_bundle_catalog(
+    compile_result: LinkedStage3CompileResult,
+) -> Mapping[str, LoadedWorkflowBundle]:
+    """Flatten every module's validated workflows by canonical name."""
+
+    bundle_catalog: dict[str, LoadedWorkflowBundle] = {}
+    compiled_results_by_name = dict(compile_result.compiled_results_by_name)
+    graph = getattr(compile_result, "graph", None)
+    entry_module_name = getattr(graph, "entry_module_name", None)
+    entry_result = getattr(compile_result, "entry_result", None)
+    # The shared-validation pass replaces `entry_result` after the linked
+    # module map is built, so flatten the current entry object rather than its
+    # pre-pass value retained in that map.
+    if entry_module_name in compiled_results_by_name and entry_result is not None:
+        compiled_results_by_name[entry_module_name] = entry_result
+    for compiled_result in compiled_results_by_name.values():
+        for canonical_name, bundle in compiled_result.validated_bundles.items():
+            if canonical_name in bundle_catalog:
+                raise RuntimeError(
+                    "imported workflow bundle catalog canonical-name conflict for "
+                    f"`{canonical_name}`"
+                )
+            bundle_catalog[canonical_name] = bundle
+    return MappingProxyType(
+        {
+            canonical_name: bundle_catalog[canonical_name]
+            for canonical_name in sorted(bundle_catalog)
+        }
     )
 
 
@@ -1431,6 +1514,15 @@ def _load_imported_workflow_bundle_manifest(
         workflow_name = compiled_result.selected_workflow_name
         if workflow_name is None:
             raise RuntimeError("compiled imported workflow is missing its selected name")
+        bundle_catalog = dict(
+            _flatten_compiled_bundle_catalog(compiled_result.compile_result)
+        )
+        if workflow_name not in bundle_catalog:
+            raise RuntimeError(
+                "compiled imported workflow is missing from its bundle catalog"
+            )
+        bundle_catalog[workflow_name] = bundle
+        frozen_bundle_catalog = _freeze_imported_bundle_catalog(bundle_catalog)
         load_status = "compiled"
         bindings.append(
             ImportedWorkflowBundleBinding(
@@ -1441,7 +1533,8 @@ def _load_imported_workflow_bundle_manifest(
                 workflow_name=workflow_name,
                 bundle_fingerprint=bundle_fingerprint,
                 load_status=load_status,
-                bundle=bundle,
+                bundle=frozen_bundle_catalog[workflow_name],
+                bundle_catalog=frozen_bundle_catalog,
             )
         )
     return tuple(bindings)
