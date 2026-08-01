@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** executing; E1 is owner-selected, Tasks 0–2 are closed, and
-  Task 3 is the active implementation step
+- **Status:** executing; E1 is owner-selected, Tasks 0–3 are closed, and
+  Task 4 is the active implementation step
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E1 only — pinned-workspace child execution through
   `run-ref`
@@ -500,13 +500,27 @@ distinct `E1_TASK2_QUALITY_APPROVED` against the exact correction commit.
 `orchestrator/cli/commands/compile.py`, `orchestrator/cli/main.py`;
 create/modify non-security CLI compiler tests.
 
-- [ ] RED: success and failure produce the exact versioned JSON document;
+- [x] RED: success and failure produce the exact versioned JSON document;
       unflagged CLI behavior is unchanged; diagnostics preserve stable codes,
       source locations, phases, and order.
-- [ ] Implement one shared serializer consumed by CLI and later child code.
-- [ ] Prove this is external batch compilation, not C1 or a parallel checker.
-- [ ] Run compile/diagnostic/CLI selectors, ordered reviews, commit, and
+- [x] Implement one shared serializer consumed by CLI and later child code.
+- [x] Prove this is external batch compilation, not C1 or a parallel checker.
+- [x] Run compile/diagnostic/CLI selectors, ordered reviews, commit, and
       postcommit controls.
+
+Task 3 landed its structured full-compiler API at
+`4ea488711e91bf3082f07b9f82fceadc7cb3f6bd`, tree
+`eb95cf62f1858879c7eb231251d7da9f70debc1c`. Follow-up TDD corrections bind
+imported source bytes, replace path-bearing imported manifests with semantic
+bindings, canonicalize and uniqueness-check every identity vector, validate
+the complete nested accepted document, and admit an absolute primary source
+outside the caller CWD without exposing that path. The exact reviewed tip is
+`949bd4df25eac38d8739120ecf78019c0f6da833`, tree
+`cd6ddba6416eb75649d85df560f93e989497e714`. Fresh final controls passed 163
+diagnostic/CLI tests and 362 adjacent build, LSP, hermeticity, normative, and
+source tests. Ordered replay returned `E1_TASK3_SPEC_APPROVED` and distinct
+`E1_TASK3_QUALITY_APPROVED`. The surface remains the ordinary full compiler;
+no C1 checker or reduced compilation path was added.
 
 ## Task 4: Add the typed `run-ref` compiler and shared IR surface
 
