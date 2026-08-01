@@ -23,6 +23,7 @@ from orchestrator.workflow_lisp.expressions import (
     RunRefSource,
     ExprNode,
     FunctionCallExpr,
+    IfExpr,
     LiteralExpr,
     NameExpr,
     ProcedureCallExpr,
@@ -1319,11 +1320,17 @@ def test_run_ref_compiler_type_rejects_shape_equal_unowned_binding() -> None:
 
     expr = _mode_one_expr()
     owned_env = _type_env()
+    owned_session = CompilerSession()
     typecheck_expression(
         expr,
         type_env=owned_env,
         value_env={},
         workflow_catalog=_catalog(expr),
+        compiler_session=owned_session,
+    )
+    register_all_known_run_ref_types(
+        owned_env,
+        session_state=owned_session.typecheck,
     )
     shape_equal_unowned = owned_env._type_refs["WorkspaceDelta"]
     unowned_env = _type_env(shape_equal_unowned)
@@ -1355,3 +1362,65 @@ def test_run_ref_fixed_catalog_rejects_missing_target_primitive(
             value_env={},
             workflow_catalog=_catalog(expr),
         )
+
+
+def test_run_ref_nested_late_failure_rolls_back_session_and_type_environment() -> None:
+    run_ref = _mode_one_expr()
+    outer = IfExpr(
+        condition_expr=LiteralExpr(True, "bool", run_ref.span, FORM_PATH),
+        then_expr=run_ref,
+        else_expr=LiteralExpr("mismatch", "string", run_ref.span, FORM_PATH),
+        span=run_ref.span,
+        form_path=FORM_PATH,
+    )
+    type_env = _type_env()
+    session = CompilerSession()
+    original_types = dict(type_env._type_refs)
+    original_owned_names = set(type_env._compiler_owned_type_names)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            outer,
+            type_env=type_env,
+            value_env={},
+            workflow_catalog=_catalog(run_ref),
+            compiler_session=session,
+        )
+    assert excinfo.value.diagnostics[0].code == "type_mismatch"
+    assert session.typecheck.run_ref_metadata_by_name == {}
+    assert session.typecheck.run_ref_metadata_by_expr_key == {}
+    assert type_env._type_refs == original_types
+    assert type_env._compiler_owned_type_names == original_owned_names
+
+
+def test_run_ref_success_resolves_without_mutation_then_hydrates_explicitly() -> None:
+    expr = _mode_one_expr()
+    type_env = _type_env()
+    session = CompilerSession()
+    original_types = dict(type_env._type_refs)
+    original_owned_names = set(type_env._compiler_owned_type_names)
+
+    typed = typecheck_expression(
+        expr,
+        type_env=type_env,
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=session,
+    )
+    assert type_env._type_refs == original_types
+    assert type_env._compiler_owned_type_names == original_owned_names
+    assert type_env.resolve_type(
+        typed.type_ref.name,
+        span=expr.span,
+        form_path=FORM_PATH,
+        session_state=session.typecheck,
+    ) == typed.type_ref
+    assert type_env._type_refs == original_types
+    assert type_env._compiler_owned_type_names == original_owned_names
+
+    register_all_known_run_ref_types(
+        type_env,
+        session_state=session.typecheck,
+    )
+    assert typed.type_ref.name in type_env._compiler_owned_type_names
+    assert type_env._type_refs[typed.type_ref.name] == typed.type_ref

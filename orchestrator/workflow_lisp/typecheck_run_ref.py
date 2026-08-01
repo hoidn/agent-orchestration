@@ -184,6 +184,25 @@ def _install_type(type_env, type_ref: TypeRef) -> None:
         )
 
 
+def _validate_staged_type(type_env, type_ref: TypeRef) -> None:
+    existing = type_env._type_refs.get(type_ref.name)
+    if existing is None:
+        return
+    compiler_owned_names = getattr(
+        type_env,
+        "_compiler_owned_type_names",
+        set(),
+    )
+    if type_ref.name not in compiler_owned_names:
+        raise TypecheckSessionStateCollisionError(
+            f"run-ref compiler type name is already bound by non-compiler type {type_ref.name!r}"
+        )
+    if _type_identity(existing) != _type_identity(type_ref):
+        raise TypecheckSessionStateCollisionError(
+            f"run-ref compiler type collision for {type_ref.name!r}"
+        )
+
+
 def _fixed_types(type_env) -> tuple[tuple[str, TypeRef], ...]:
     def primitive(name: str) -> PrimitiveTypeRef:
         existing = type_env._type_refs.get(name)
@@ -296,7 +315,7 @@ def _fixed_types(type_env) -> tuple[tuple[str, TypeRef], ...]:
         accounting,
     )
     for type_ref in fixed:
-        _install_type(type_env, type_ref)
+        _validate_staged_type(type_env, type_ref)
     return tuple((type_ref.name, type_ref) for type_ref in fixed)
 
 
@@ -369,7 +388,7 @@ def _register_result_metadata(
             ("accounting", fixed_by_name["RunRefAccounting"]),
         ),
     )
-    _install_type(context.type_env, result_type)
+    _validate_staged_type(context.type_env, result_type)
     metadata = RunRefSiteMetadata(
         generated_type_name=generated_name,
         site_digest=site_digest,
@@ -449,9 +468,39 @@ def metadata_for_run_ref_expr(
 def register_all_known_run_ref_types(type_env, *, session_state) -> None:
     """Hydrate another type environment with every known run-ref carrier."""
 
+    staged: dict[str, TypeRef] = {}
     for metadata in session_state.run_ref_metadata_by_name.values():
-        for _, type_ref in metadata.compiler_owned_types:
-            _install_type(type_env, type_ref)
+        for type_name, type_ref in metadata.compiler_owned_types:
+            existing = staged.get(type_name)
+            if existing is not None and _type_identity(existing) != _type_identity(
+                type_ref
+            ):
+                raise TypecheckSessionStateCollisionError(
+                    f"ambiguous staged run-ref compiler type {type_name!r}"
+                )
+            staged[type_name] = type_ref
+    for type_ref in staged.values():
+        _validate_staged_type(type_env, type_ref)
+    for type_ref in staged.values():
+        _install_type(type_env, type_ref)
+
+
+def known_run_ref_type(type_name: str, *, session_state) -> TypeRef | None:
+    """Return one staged run-ref compiler type without mutating a type env."""
+
+    matched: TypeRef | None = None
+    for metadata in session_state.run_ref_metadata_by_name.values():
+        for known_name, type_ref in metadata.compiler_owned_types:
+            if known_name != type_name:
+                continue
+            if matched is not None and _type_identity(matched) != _type_identity(
+                type_ref
+            ):
+                raise TypecheckSessionStateCollisionError(
+                    f"ambiguous staged run-ref compiler type {type_name!r}"
+                )
+            matched = type_ref
+    return matched
 
 
 def _require_transportable(type_ref, *, expr, role: str) -> None:

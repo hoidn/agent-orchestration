@@ -527,7 +527,6 @@ class FrontendTypeEnvironment:
             expansion_stack=expansion_stack,
             local_type_params=local_type_params,
             session_state=session_state,
-            compiler_owned_type_names=self._compiler_owned_type_names,
         )
 
     def record_field(
@@ -696,7 +695,6 @@ class FrontendTypeEnvironment:
         expansion_stack: tuple[object, ...] = (),
         local_type_params: frozenset[str] = frozenset(),
         session_state: TypecheckSessionState | None = None,
-        compiler_owned_type_names: set[str] | None = None,
     ) -> TypeRef:
         if name.startswith("%loop-state.") and session_state is not None:
             from .loop_state import register_known_carrier_type
@@ -708,24 +706,19 @@ class FrontendTypeEnvironment:
                 span=span,
                 form_path=form_path,
             )
-        if name.startswith("RunRefResult$") and session_state is not None:
-            from .typecheck_run_ref import register_all_known_run_ref_types
-
-            register_all_known_run_ref_types(
-                type_env=type(
-                    "_TypeEnvProxy",
-                    (),
-                    {
-                        "_type_refs": type_refs,
-                        "_compiler_owned_type_names": (
-                            compiler_owned_type_names
-                            if compiler_owned_type_names is not None
-                            else set()
-                        ),
-                    },
-                )(),
-                session_state=session_state,
+        if session_state is not None:
+            from .typecheck_run_ref import (
+                RUN_REF_FIXED_TYPE_NAMES,
+                known_run_ref_type,
             )
+
+            if name.startswith("RunRefResult$") or name in RUN_REF_FIXED_TYPE_NAMES:
+                known_type = known_run_ref_type(
+                    name,
+                    session_state=session_state,
+                )
+                if known_type is not None:
+                    return known_type
         parsed = parse_type_expression(
             name,
             span=span,
