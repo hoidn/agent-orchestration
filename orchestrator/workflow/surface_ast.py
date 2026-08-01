@@ -9,6 +9,10 @@ from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
 from orchestrator.providers.types import validate_phased_delivery_carriage
+from orchestrator.workflow.run_ref.config import (
+    RunRefStaticConfig,
+    validate_run_ref_static_config_authority,
+)
 
 from .prompt_dependency_contract import CompilerPromptDependencyContract
 from .prompt_fragment_contract import (
@@ -52,6 +56,7 @@ class SurfaceStepKind(str, Enum):
     PROVIDER = "provider"
     PROVIDER_SUPERVISION = "provider_supervision"
     PROVIDER_PEER_GROUP = "provider_peer_group"
+    RUN_REF = "run_ref"
     ADJUDICATED_PROVIDER = "adjudicated_provider"
     WAIT_FOR = "wait_for"
     ASSERT = "assert"
@@ -304,6 +309,13 @@ class SurfaceStep:
         default=None,
         metadata={"json_omit_if_none": True},
     )
+    run_ref: RunRefStaticConfig | None = field(
+        default=None,
+        metadata={
+            "json_omit_if_none": True,
+            "json_value_attr": "record",
+        },
+    )
     wait_for: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     set_scalar: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     resource_transition: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
@@ -326,6 +338,10 @@ class SurfaceStep:
     call_bindings: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
 
     def __post_init__(self) -> None:
+        if (self.kind is SurfaceStepKind.RUN_REF) != (self.run_ref is not None):
+            raise ValueError("run_ref kind/config pairing is invalid")
+        if self.run_ref is not None:
+            validate_run_ref_static_config_authority(self.run_ref)
         validate_compiler_prompt_fragment_pair(
             self.compiler_prompt_fragment_contract,
             self.compiled_prompt_fragment_identity,
@@ -381,6 +397,11 @@ class SurfaceWorkflow:
                 ),
             )
         ):
+            if (
+                step.kind is SurfaceStepKind.RUN_REF
+                and not _target_dsl_at_least(self.version, (2, 24))
+            ):
+                raise ValueError("run_ref surface requires target DSL 2.24 or later")
             if step.kind is not SurfaceStepKind.PROVIDER:
                 continue
             validate_compiler_prompt_attempt_pair(
@@ -400,6 +421,14 @@ class SurfaceWorkflow:
                 ),
                 target_dsl_version=self.version,
             )
+
+
+def _target_dsl_at_least(value: str, minimum: tuple[int, ...]) -> bool:
+    try:
+        parts = tuple(int(part) for part in value.split("."))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError("surface workflow target DSL version is invalid") from exc
+    return parts >= minimum
 
 
 def _iter_surface_steps(

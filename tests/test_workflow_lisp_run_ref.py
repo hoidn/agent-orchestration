@@ -1,5 +1,6 @@
 from copy import deepcopy
 from dataclasses import FrozenInstanceError, replace
+from pathlib import Path
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -7,6 +8,7 @@ from typing import get_args
 
 import pytest
 
+from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.run_ref.config import (
     ArrayBinding,
     LiteralBinding,
@@ -23,6 +25,14 @@ from orchestrator.workflow.state_layout import (
     GeneratedPathResumeScope,
     GeneratedPathSemanticRole,
 )
+from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind
+from orchestrator.workflow.validation import (
+    WorkflowBoundaryValidationPolicy,
+    WorkflowMappingBuildRequest,
+    WorkflowMappingValidationOptions,
+    validate_workflow_mapping,
+)
+from orchestrator.workflow_lisp.build_manifest_io import _json_data
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.compiler_session import (
     CompilerSession,
@@ -3000,6 +3010,221 @@ def _run_ref_lowering_context(type_env, *, lowering_session=None):
         source_read_trace=None,
         normalize_generated_step_id=lambda name: name,
     )
+
+
+def _surface_run_ref_config() -> RunRefStaticConfig:
+    expr = _mode_one_expr()
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(expr)
+    steps, _ = _lower_run_ref_operation(
+        _lowerable_run_ref(typed, type_env=type_env),
+        result_type=typed.type_ref,
+        context=_run_ref_lowering_context(type_env),
+        local_values={},
+        identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+            "sha256:" + "f" * 64
+        ),
+    )
+    config = steps[-1]["run_ref"]
+    assert type(config) is RunRefStaticConfig
+    return config
+
+
+def _surface_mapping_with_run_ref(
+    config: RunRefStaticConfig,
+    *,
+    version: str = "2.24",
+    nested: bool = False,
+) -> dict[str, object]:
+    run_ref_step = {
+        "name": "RunChild",
+        "id": "run_child",
+        "run_ref": config,
+    }
+    steps: list[dict[str, object]] = [run_ref_step]
+    if nested:
+        steps = [
+            {
+                "name": "Container",
+                "id": "container",
+                "for_each": {
+                    "items": ["one"],
+                    "as": "item",
+                    "steps": [run_ref_step],
+                },
+            }
+        ]
+    return {
+        "version": version,
+        "name": "generated-run-ref",
+        "steps": steps,
+    }
+
+
+def test_generated_run_ref_mapping_elaborates_exact_typed_surface_config() -> None:
+    config = _surface_run_ref_config()
+
+    surface = elaborate_surface_workflow(
+        _surface_mapping_with_run_ref(config),
+        workflow_path=Path("/tmp/generated-run-ref.orc"),
+        imported_bundles={},
+        allow_generated_step_kinds=True,
+    )
+
+    assert surface is not None
+    assert len(surface.steps) == 1
+    [step] = surface.steps
+    assert step.kind is SurfaceStepKind.RUN_REF
+    assert type(step.run_ref) is RunRefStaticConfig
+    assert step.run_ref == config
+    assert step.run_ref.record == config.record
+    assert step.provider is None
+    assert step.command == ()
+
+
+def test_surface_run_ref_kind_and_config_pair_exactly() -> None:
+    config = _surface_run_ref_config()
+
+    with pytest.raises(ValueError, match="run_ref.*pair"):
+        SurfaceStep(
+            name="Missing",
+            step_id="root.missing",
+            kind=SurfaceStepKind.RUN_REF,
+        )
+    with pytest.raises(ValueError, match="run_ref.*pair"):
+        SurfaceStep(
+            name="WrongKind",
+            step_id="root.wrong_kind",
+            kind=SurfaceStepKind.ASSERT,
+            run_ref=config,
+        )
+    with pytest.raises(TypeError, match="static config authority"):
+        SurfaceStep(
+            name="WrongValue",
+            step_id="root.wrong_value",
+            kind=SurfaceStepKind.RUN_REF,
+            run_ref=object(),
+        )
+
+    tampered = deepcopy(config)
+    object.__setattr__(tampered, "digest", "sha256:" + "0" * 64)
+    with pytest.raises(ValueError, match="canonical bytes"):
+        SurfaceStep(
+            name="Tampered",
+            step_id="root.tampered",
+            kind=SurfaceStepKind.RUN_REF,
+            run_ref=tampered,
+        )
+
+
+def test_generated_run_ref_mapping_rejects_ambiguous_operation_kind() -> None:
+    config = _surface_run_ref_config()
+    mapping = _surface_mapping_with_run_ref(config)
+    mapping["steps"][0]["provider"] = "provider"
+
+    with pytest.raises(ValueError, match="run_ref.*cannot be combined"):
+        elaborate_surface_workflow(
+            mapping,
+            workflow_path=Path("/tmp/ambiguous-run-ref.orc"),
+            imported_bundles={},
+            allow_generated_step_kinds=True,
+        )
+
+
+@pytest.mark.parametrize("version", ("2.24", "2.25"))
+def test_generated_run_ref_surface_accepts_target_2_24_or_later(
+    version: str,
+) -> None:
+    surface = elaborate_surface_workflow(
+        _surface_mapping_with_run_ref(
+            _surface_run_ref_config(),
+            version=version,
+        ),
+        workflow_path=Path(f"/tmp/generated-run-ref-{version}.orc"),
+        imported_bundles={},
+        allow_generated_step_kinds=True,
+    )
+
+    assert surface is not None
+    assert surface.steps[0].kind is SurfaceStepKind.RUN_REF
+
+
+def test_nested_generated_run_ref_surface_rejects_target_before_2_24() -> None:
+    with pytest.raises(ValueError, match="run_ref.*target DSL 2.24"):
+        elaborate_surface_workflow(
+            _surface_mapping_with_run_ref(
+                _surface_run_ref_config(),
+                version="2.23",
+                nested=True,
+            ),
+            workflow_path=Path("/tmp/generated-run-ref-2.23.orc"),
+            imported_bundles={},
+            allow_generated_step_kinds=True,
+        )
+
+
+@pytest.mark.parametrize("nested", (False, True), ids=("top_level", "nested"))
+def test_authored_elaboration_cannot_construct_run_ref(nested: bool) -> None:
+    with pytest.raises(ValueError, match="run_ref is compiler-generated only"):
+        elaborate_surface_workflow(
+            _surface_mapping_with_run_ref(
+                _surface_run_ref_config(),
+                nested=nested,
+            ),
+            workflow_path=Path("/tmp/authored-run-ref.orc"),
+            imported_bundles={},
+            allow_generated_step_kinds=False,
+        )
+
+
+def test_public_authored_validation_recursively_rejects_run_ref(
+    tmp_path: Path,
+) -> None:
+    result = validate_workflow_mapping(
+        WorkflowMappingBuildRequest(
+            authored_mapping=_surface_mapping_with_run_ref(
+                _surface_run_ref_config(),
+                version="2.23",
+                nested=True,
+            ),
+            workflow_path=tmp_path / "authored-run-ref.orc",
+        ),
+        options=WorkflowMappingValidationOptions(
+            workspace_root=tmp_path,
+            boundary_validation_policy=(
+                WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
+            ),
+        ),
+    )
+
+    assert result.bundle is None
+    assert any(
+        "run_ref is compiler-generated only" in error.message
+        for error in result.errors
+    )
+
+
+def test_surface_run_ref_manifest_json_uses_only_canonical_record() -> None:
+    config = _surface_run_ref_config()
+    run_ref_payload = _json_data(
+        SurfaceStep(
+            name="RunChild",
+            step_id="root.run_child",
+            kind=SurfaceStepKind.RUN_REF,
+            run_ref=config,
+        )
+    )
+    ordinary_payload = _json_data(
+        SurfaceStep(
+            name="Assert",
+            step_id="root.assert",
+            kind=SurfaceStepKind.ASSERT,
+        )
+    )
+
+    assert run_ref_payload["run_ref"] == config.record
+    assert "_canonical_bytes" not in repr(run_ref_payload)
+    assert "_result_descriptor_json" not in repr(run_ref_payload)
+    assert "run_ref" not in ordinary_payload
 
 
 def test_run_ref_leaf_builds_exact_config_and_one_result_allocation() -> None:

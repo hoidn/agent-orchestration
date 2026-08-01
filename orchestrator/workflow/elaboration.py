@@ -46,6 +46,31 @@ from .surface_ast import (
 from .state_layout import GeneratedPathAllocation
 
 
+_RUN_REF_CONFLICTING_STEP_KEYS = frozenset(
+    {
+        "if",
+        "match",
+        "repeat_until",
+        "for_each",
+        "call",
+        "adjudicated_provider",
+        "provider",
+        "provider_supervision",
+        "provider_peer_group",
+        "command",
+        "wait_for",
+        "assert",
+        "set_scalar",
+        "resource_transition",
+        "pure_projection",
+        "materialize_view",
+        "increment_scalar",
+        "materialize_artifacts",
+        "select_variant_output",
+    }
+)
+
+
 class SurfaceWorkflowValidationBackend(Protocol):
     """Validation hooks used during the surface elaboration phase."""
 
@@ -558,6 +583,11 @@ def _elaborate_step(
             if kind is SurfaceStepKind.PROVIDER_PEER_GROUP
             else None
         ),
+        run_ref=(
+            step.get("run_ref")
+            if kind is SurfaceStepKind.RUN_REF
+            else None
+        ),
         wait_for=freeze_mapping(step.get("wait_for")) if kind is SurfaceStepKind.WAIT_FOR else freeze_mapping(None),
         set_scalar=freeze_mapping(step.get("set_scalar")) if kind is SurfaceStepKind.SET_SCALAR else freeze_mapping(None),
         resource_transition=(
@@ -925,6 +955,21 @@ def _surface_step_kind(
     *,
     allow_generated_step_kinds: bool,
 ) -> SurfaceStepKind:
+    if "run_ref" in step:
+        conflicting_keys = tuple(
+            sorted(_RUN_REF_CONFLICTING_STEP_KEYS.intersection(step))
+        )
+        if conflicting_keys:
+            raise ValueError(
+                "run_ref cannot be combined with another operation kind: "
+                + ", ".join(conflicting_keys)
+            )
+        if not allow_generated_step_kinds:
+            raise ValueError(
+                "run_ref is compiler-generated only and cannot appear in "
+                "authored workflows"
+            )
+        return SurfaceStepKind.RUN_REF
     if is_if_statement(step):
         return SurfaceStepKind.IF
     if is_match_statement(step):
@@ -994,6 +1039,10 @@ def _validate_reserved_generated_step_kinds(
             if not isinstance(step, Mapping):
                 continue
             step_name = step.get("name", "<unnamed>")
+            if "run_ref" in step:
+                validation_backend.add_error(
+                    f"Step '{step_name}': run_ref is compiler-generated only and cannot appear in authored workflows"
+                )
             if "pure_projection" in step:
                 validation_backend.add_error(
                     f"Step '{step_name}': pure_projection is compiler-generated only and cannot appear in authored workflows"
