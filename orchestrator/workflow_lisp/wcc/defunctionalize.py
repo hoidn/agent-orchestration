@@ -99,6 +99,11 @@ from ..lowering.phase_resource import (
     _phase_stdlib_lower_finalize_selected_item_impl,
     _phase_stdlib_lower_resource_transition_impl,
 )
+from ..lowering.run_ref import (
+    LowerableRunRef,
+    LowerableRunRefInput,
+    _lower_run_ref_operation,
+)
 from ..loops import RepeatUntilEmitterInput
 from ..lowering.control_loops import _emit_repeat_until_from_emitter_input
 from ..phase import eligible_private_context_source_param_names
@@ -151,6 +156,7 @@ from .model import (
     WccRecJoin,
     WccRecordAtom,
     WccResumeOrStartPayload,
+    WccRunRefPayload,
     WccRunProviderPhasePayload,
     WccValue,
 )
@@ -5329,6 +5335,41 @@ def _lower_effectful_binding(
     lexical_checkpoint_points: list[Mapping[str, object]] | None = None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     if isinstance(value, WccPerform):
+        if value.perform_kind == "run_ref":
+            payload = value.operation_payload
+            if not isinstance(payload, WccRunRefPayload):
+                raise TypeError("run-ref WCC lowering requires a typed payload")
+            descriptor_rows = payload.input_type_descriptors
+            if tuple(name for name, _ in value.keyword_args) != tuple(
+                name for name, _ in descriptor_rows
+            ):
+                raise TypeError(
+                    "run-ref WCC input atoms disagree with typed payload order"
+                )
+            return _lower_run_ref_operation(
+                LowerableRunRef(
+                    payload=payload,
+                    inputs=tuple(
+                        LowerableRunRefInput(
+                            name=name,
+                            value_expr=_frontend_expr_from_wcc_value(atom),
+                            type_ref=atom.metadata.type_ref,
+                            type_descriptor=descriptor,
+                        )
+                        for (name, atom), (_, descriptor) in zip(
+                            value.keyword_args,
+                            descriptor_rows,
+                            strict=True,
+                        )
+                    ),
+                    span=value.metadata.source_span,
+                    form_path=value.metadata.form_path,
+                    expansion_stack=value.metadata.expansion_stack,
+                ),
+                result_type=binding_type,
+                context=context,
+                local_values=local_values,
+            )
         if value.perform_kind == "command_result":
             operation_payload = value.operation_payload if isinstance(value.operation_payload, dict) else {}
             adapter_inputs = operation_payload.get("adapter_inputs") or ()

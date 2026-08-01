@@ -1067,7 +1067,10 @@ def _elaborate_list(
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
         )
-    form_spec = get_form_spec(head.resolved_name)
+    form_spec = get_form_spec(
+        head.resolved_name,
+        target_dsl_version=session_state.target_dsl_version,
+    )
     if (
         form_spec is not None
         and head.resolved_name in list_traversal_authored_heads()
@@ -1326,6 +1329,30 @@ def _route_proc_ref(
     return _elaborate_proc_ref_literal(datum, form_path=form_path, session_state=session_state)
 
 
+def _route_run_ref(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
+) -> ExprNode:
+    return _parse_run_ref_syntax_list(
+        datum,
+        form_path=form_path,
+        target_dsl_version=session_state.target_dsl_version or "",
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+        function_names=session_state.function_names,
+        function_name_resolver=session_state.function_name_resolver,
+        procedure_name_resolver=session_state.procedure_name_resolver,
+        workflow_name_resolver=session_state.workflow_name_resolver,
+        guidance_example=session_state.guidance_example,
+        prompt_catalog=session_state.prompt_catalog,
+        session_state=session_state,
+    )
+
+
 def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
     return {
         "record": _elaborate_record,
@@ -1357,6 +1384,7 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
         "provider_result": _elaborate_provider_result,
         "provider_bundle_path": _elaborate_provider_bundle_path,
         "command_result": _elaborate_command_result,
+        "run_ref": _route_run_ref,
         "run_provider_phase": _elaborate_run_provider_phase,
         "produce_one_of": _elaborate_produce_one_of,
         "resume_or_start": _elaborate_resume_or_start,

@@ -96,14 +96,14 @@ DEFAULT_SUPPORTED_VERSIONS = frozenset(
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
         "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8",
         "2.9", "2.10", "2.11", "2.12", "2.13", "2.14", "2.15", "2.16", "2.17",
-        "2.18", "2.19", "2.20", "2.21", "2.22", "2.23",
+        "2.18", "2.19", "2.20", "2.21", "2.22", "2.23", "2.24",
     }
 )
 DEFAULT_VERSION_ORDER = (
     "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
     "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8",
     "2.9", "2.10", "2.11", "2.12", "2.13", "2.14", "2.15", "2.16", "2.17",
-    "2.18", "2.19", "2.20", "2.21", "2.22", "2.23",
+    "2.18", "2.19", "2.20", "2.21", "2.22", "2.23", "2.24",
 )
 DEFAULT_SUPPORTED_OUTPUT_TYPES = frozenset(
     {"enum", "integer", "float", "bool", "relpath", "string"}
@@ -182,6 +182,7 @@ class WorkflowMappingBuildRequest:
         str, Mapping[str, Any]
     ] = field(default_factory=dict)
     compiler_owned_nested_if_step_ids: tuple[str, ...] = ()
+    source_map_payload: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -6954,6 +6955,7 @@ def validate_workflow_mapping(
             imports=imported_bundles,
             private_artifact_ids=request.private_artifact_ids,
             runtime_proof_parent_ref_allowances=request.runtime_proof_parent_ref_allowances,
+            source_map_payload=request.source_map_payload,
         )
     except WorkflowValidationError as exc:
         return WorkflowMappingValidationResult(None, tuple(exc.errors))

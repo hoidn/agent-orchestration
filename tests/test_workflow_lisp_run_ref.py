@@ -47,6 +47,10 @@ from orchestrator.workflow.validation import (
     validate_workflow_mapping,
 )
 from orchestrator.workflow_lisp.build_manifest_io import _json_data
+from orchestrator.workflow_lisp.build import (
+    FrontendBuildRequest,
+    build_frontend_bundle,
+)
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.compiler_session import (
     CompilerSession,
@@ -133,7 +137,9 @@ from orchestrator.workflow_lisp.wcc import (
     WccRunRefPayload,
     elaborate_typed_workflow_body,
 )
+from orchestrator.workflow_lisp.wcc.route import LoweringRoute
 from orchestrator.workflow_lisp.wcc.elaborate import _substitute_wcc_payload
+from orchestrator.workflow_lisp.wcc import defunctionalize as wcc_defunctionalize
 from orchestrator.workflow_lisp.workflows import WorkflowCatalog, WorkflowSignature
 
 
@@ -797,8 +803,12 @@ def test_run_ref_program_discriminator_uses_closed_mode_diagnostic(
     assert excinfo.value.diagnostics[0].code == "run_ref_program_mode_invalid"
 
 
-def test_run_ref_parser_is_not_registered_for_ordinary_elaboration() -> None:
-    assert get_form_spec("run-ref", target_dsl_version="2.24") is None
+def test_run_ref_parser_is_registered_only_for_target_224() -> None:
+    assert get_form_spec("run-ref", target_dsl_version="2.23") is None
+    spec = get_form_spec("run-ref", target_dsl_version="2.24")
+    assert spec is not None
+    assert spec.kind.value == "core_effect"
+    assert spec.elaboration_route == "run_ref"
     assert RunRefExpr in get_args(ExprNode)
 
 
@@ -2971,6 +2981,149 @@ def test_wcc_run_ref_elaborates_in_let_and_match_arm_positions() -> None:
     assert isinstance(match_body.arms[0].body, WccLet)
     assert isinstance(match_body.arms[0].body.bound_value, WccPerform)
     assert match_body.arms[0].body.bound_value.perform_kind == "run_ref"
+
+
+def test_wcc_run_ref_defunctionalizes_through_shared_lowering_leaf() -> None:
+    expr = _mode_one_expr()
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(expr)
+    perform = _wcc_run_ref_perform(typed, type_env=type_env)
+    context = _run_ref_lowering_context(type_env)
+
+    steps, terminal = wcc_defunctionalize._lower_effectful_binding(
+        perform,
+        binding_type=typed.type_ref,
+        context=context,
+        local_values={},
+    )
+
+    [step] = steps
+    assert step["run_ref"].site_digest == perform.operation_payload.site_digest
+    assert terminal.step_id == step["id"]
+    assert len(context.generated_path_allocations) == 1
+    assert len(context.generated_semantic_effects) == 1
+
+
+def test_wcc_run_ref_defunctionalization_rejects_missing_typed_payload_atomically() -> None:
+    expr = _mode_one_expr()
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(expr)
+    perform = replace(
+        _wcc_run_ref_perform(typed, type_env=type_env),
+        operation_payload=None,
+    )
+    context = _run_ref_lowering_context(type_env)
+
+    with pytest.raises(TypeError, match="run-ref.*typed payload"):
+        wcc_defunctionalize._lower_effectful_binding(
+            perform,
+            binding_type=typed.type_ref,
+            context=context,
+            local_values={},
+        )
+
+    assert context.generated_path_allocations == []
+    assert context.generated_semantic_effects == []
+
+
+def test_wcc_run_ref_defunctionalization_rejects_input_order_drift_atomically() -> None:
+    span = _mode_one_expr().span
+    expr = _mode_one_expr(
+        inputs=(
+            ("first", LiteralExpr("one", "string", span, FORM_PATH)),
+            ("second", LiteralExpr(2, "int", span, FORM_PATH)),
+        )
+    )
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(
+        expr,
+        params=(
+            ("first", PrimitiveTypeRef("String")),
+            ("second", PrimitiveTypeRef("Int")),
+        ),
+    )
+    perform = _wcc_run_ref_perform(typed, type_env=type_env)
+    drifted = replace(
+        perform,
+        keyword_args=tuple(reversed(perform.keyword_args)),
+    )
+    context = _run_ref_lowering_context(type_env)
+
+    with pytest.raises(TypeError, match="input atoms.*payload order"):
+        wcc_defunctionalize._lower_effectful_binding(
+            drifted,
+            binding_type=typed.type_ref,
+            context=context,
+            local_values={},
+        )
+
+    assert context.generated_path_allocations == []
+    assert context.generated_semantic_effects == []
+
+
+def test_public_wcc_build_lowers_run_ref_through_shared_leaf(tmp_path: Path) -> None:
+    source_path = tmp_path / "run_ref_public_build.orc"
+    source_path.write_text(
+        """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.24")
+  (defmodule run_ref_public_build)
+  (export entry)
+  (defworkflow child () -> String
+    "child-result")
+  (defworkflow entry () -> String
+    (let* ((trial
+             (run-ref
+               :source (:repo "file:///workspace"
+                        :commit "0123456789abcdef0123456789abcdef01234567")
+               :program (:bundle child)
+               :inputs ()
+               :policy (:setup ()))))
+      trial.value)))
+""",
+        encoding="utf-8",
+    )
+
+    result = build_frontend_bundle(
+        FrontendBuildRequest(
+            source_path=source_path,
+            source_roots=(tmp_path,),
+            entry_workflow="entry",
+            workspace_root=tmp_path,
+            lowering_route=LoweringRoute.WCC_M4,
+        )
+    )
+
+    run_ref_nodes = [
+        node
+        for node in result.validated_bundle.ir.nodes.values()
+        if node.kind.value == "run_ref"
+    ]
+    assert len(run_ref_nodes) == 1
+    run_ref_node = run_ref_nodes[0]
+    assert isinstance(
+        run_ref_node.execution_config,
+        executable_ir_module.RunRefStepConfig,
+    )
+    assert run_ref_node.execution_config.run_ref.program.record == {
+        "mode": "bundle",
+        "workflow_name": "run_ref_public_build::child",
+    }
+
+    semantic_effects = [
+        effect
+        for effect in result.validated_bundle.semantic_ir.effects.values()
+        if effect.effect_kind == "run_ref"
+    ]
+    assert len(semantic_effects) == 1
+    semantic_workflow = result.validated_bundle.semantic_ir.workflows[
+        result.selected_workflow_name
+    ]
+    assert semantic_effects[0].effect_id in next(
+        statement.effect_ids
+        for statement in semantic_workflow.statements.values()
+        if semantic_effects[0].effect_id in statement.effect_ids
+    )
+    assert result.manifest.source_map_coverage is not None
+    assert set(result.manifest.source_map_coverage.values()) == {"covered"}
 
 
 def _lowerable_run_ref(typed, *, type_env, value_env=None) -> LowerableRunRef:
