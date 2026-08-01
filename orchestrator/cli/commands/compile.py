@@ -121,13 +121,16 @@ def _compiler_source_revisions(
         (f"source_root:{index}", root)
         for index, root in enumerate(request.source_roots)
     ]
-    if request.imported_workflow_bundles_path is not None:
-        roots.append(
-            (
-                "imported_manifest_root",
-                request.imported_workflow_bundles_path.parent,
-            )
+    roots.extend(
+        (
+            f"imported_bundle:{binding.canonical_key}",
+            binding.resolved_bundle_path.parent,
         )
+        for binding in sorted(
+            result.imported_workflow_bundles,
+            key=lambda item: item.canonical_key.encode("utf-8"),
+        )
+    )
     roots.append(("workspace_root", request.workspace_root))
 
     rows: list[dict[str, object]] = []
@@ -160,6 +163,20 @@ def _compiler_source_revisions(
     )
 
 
+def _imported_bundle_bindings(
+    result: FrontendBuildResult,
+) -> list[dict[str, object]]:
+    return [
+        {
+            "canonical_key": binding.canonical_key,
+            "bundle_kind": binding.bundle_kind,
+            "workflow_name": binding.workflow_name,
+            "resolved_workflow_name": binding.bundle.surface.name,
+        }
+        for binding in result.imported_workflow_bundles
+    ]
+
+
 def _configuration_identity(
     result: FrontendBuildResult,
 ) -> tuple[dict[str, str], list[dict[str, object]]]:
@@ -169,9 +186,6 @@ def _configuration_identity(
         "provider_externs": request.provider_externs_path,
         "prompt_externs": request.prompt_externs_path,
         "command_boundaries": request.command_boundaries_path,
-        "imported_workflow_bundles": (
-            request.imported_workflow_bundles_path
-        ),
     }
     revisions: list[dict[str, object]] = []
     payload_digests: dict[str, str] = {}
@@ -198,6 +212,7 @@ def _accepted_machine_document(
         compiler_runtime_identity=compute_compiler_runtime_identity().digest,
         module_source_revisions=_module_source_revisions(result),
         compiler_source_revisions=_compiler_source_revisions(result),
+        imported_bundle_bindings=_imported_bundle_bindings(result),
         selected_entry=selected_entry,
         lowering_route=route,
         lowering_schema_version=result.manifest.lowering_schema_version,

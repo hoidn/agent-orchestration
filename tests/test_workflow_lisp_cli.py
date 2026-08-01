@@ -391,6 +391,7 @@ def test_compile_diagnostics_json_acceptance_is_one_closed_machine_document(
         "compiler_runtime_identity",
         "module_source_revisions",
         "compiler_source_revisions",
+        "imported_bundle_bindings",
         "selected_entry_sha256",
         "lowering_route",
         "lowering_schema_version",
@@ -532,6 +533,51 @@ def test_compile_diagnostics_json_identity_binds_imported_bundle_source(
         identities.append(payload["normalized_program_identity"])
 
     assert identities[0] != identities[1]
+
+
+def test_compile_diagnostics_json_normalizes_absolute_imported_bundle_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    identities: list[dict[str, object]] = []
+    for name in ("clone-a", "clone-b"):
+        root = tmp_path / name
+        source_root = root / "source"
+        shutil.copytree(SOURCE_ROOT, source_root)
+        imported_source = root / "imported_selector.orc"
+        shutil.copy2(CLI_FIXTURES / "imported_selector.orc", imported_source)
+        imported_manifest = root / "imports.json"
+        imported_manifest.write_text(
+            json.dumps(
+                {
+                    "selector-run": {
+                        "kind": "compiled",
+                        "path": str(imported_source),
+                    }
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(root)
+
+        result = compile_workflow(
+            _orc_compile_args(
+                workflow=source_root / "neurips" / "entry.orc",
+                source_root=source_root,
+                imported_workflow_bundles_file=imported_manifest,
+                diagnostics_json=True,
+            )
+        )
+        payload = json.loads(capsys.readouterr().out)
+
+        assert result == 0, payload
+        identities.append(payload["normalized_program_identity"])
+
+    assert identities[0] == identities[1]
 
 
 def test_compile_diagnostics_json_closes_io_failures_as_machine_diagnostics(

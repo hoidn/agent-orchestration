@@ -6,6 +6,7 @@ import pytest
 
 from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
+from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow_lisp.compiler import compile_stage1_module
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint as _compile_stage3_entrypoint
 from orchestrator.workflow_lisp.compiler import compile_stage3_module as _compile_stage3_module
@@ -254,6 +255,7 @@ def test_compile_diagnostics_document_has_closed_accepted_and_rejected_shapes() 
                 "source_sha256": f"sha256:{'b' * 64}",
             },
         ),
+        imported_bundle_bindings=(),
         selected_entry=selected_entry,
         lowering_route="legacy",
         lowering_schema_version=1,
@@ -261,13 +263,11 @@ def test_compile_diagnostics_document_has_closed_accepted_and_rejected_shapes() 
             "provider_externs": f"sha256:{'c' * 64}",
             "prompt_externs": f"sha256:{'d' * 64}",
             "command_boundaries": f"sha256:{'e' * 64}",
-            "imported_workflow_bundles": f"sha256:{'f' * 64}",
         },
         configuration_revisions=(
             {"role": "provider_externs", "source_sha256": None},
             {"role": "prompt_externs", "source_sha256": None},
             {"role": "command_boundaries", "source_sha256": None},
-            {"role": "imported_workflow_bundles", "source_sha256": None},
         ),
     )
     accepted = build_document(
@@ -285,6 +285,100 @@ def test_compile_diagnostics_document_has_closed_accepted_and_rejected_shapes() 
             diagnostics=(),
             selected_entry=selected_entry,
             normalized_program_identity=tampered_identity,
+        )
+
+    malformed_entry = {
+        **selected_entry,
+        "signature": {
+            **selected_entry["signature"],
+            "parameters": [
+                {"name": "label", "type": "String", "required": "yes"}
+            ],
+        },
+    }
+    malformed_entry_identity = dict(program_identity)
+    malformed_entry_identity["selected_entry_sha256"] = canonical_sha256(
+        malformed_entry
+    )
+    malformed_entry_identity["digest"] = canonical_sha256(
+        {
+            key: value
+            for key, value in malformed_entry_identity.items()
+            if key != "digest"
+        }
+    )
+    with pytest.raises(ValueError, match="signature parameters"):
+        build_document(
+            status="accepted",
+            diagnostics=(),
+            selected_entry=malformed_entry,
+            normalized_program_identity=malformed_entry_identity,
+        )
+
+    malformed_source_identity = {
+        **program_identity,
+        "compiler_source_revisions": [
+            {
+                "root_role": "source_root:0",
+                "relative_path": 7,
+                "source_sha256": f"sha256:{'b' * 64}",
+            }
+        ],
+    }
+    malformed_source_identity["digest"] = canonical_sha256(
+        {
+            key: value
+            for key, value in malformed_source_identity.items()
+            if key != "digest"
+        }
+    )
+    with pytest.raises(ValueError, match="compiler source revisions"):
+        build_document(
+            status="accepted",
+            diagnostics=(),
+            selected_entry=selected_entry,
+            normalized_program_identity=malformed_source_identity,
+        )
+
+    malformed_compiler_identity = {
+        **program_identity,
+        "compiler_runtime_identity": "sha256:short",
+    }
+    malformed_compiler_identity["digest"] = canonical_sha256(
+        {
+            key: value
+            for key, value in malformed_compiler_identity.items()
+            if key != "digest"
+        }
+    )
+    with pytest.raises(ValueError, match="compiler/runtime identity"):
+        build_document(
+            status="accepted",
+            diagnostics=(),
+            selected_entry=selected_entry,
+            normalized_program_identity=malformed_compiler_identity,
+        )
+
+    malformed_configuration_identity = {
+        **program_identity,
+        "configuration_payload_digests": {
+            **program_identity["configuration_payload_digests"],
+            "provider_externs": "sha256:short",
+        },
+    }
+    malformed_configuration_identity["digest"] = canonical_sha256(
+        {
+            key: value
+            for key, value in malformed_configuration_identity.items()
+            if key != "digest"
+        }
+    )
+    with pytest.raises(ValueError, match="configuration payload digests"):
+        build_document(
+            status="accepted",
+            diagnostics=(),
+            selected_entry=selected_entry,
+            normalized_program_identity=malformed_configuration_identity,
         )
 
     assert rejected == {
@@ -315,6 +409,108 @@ def test_compile_diagnostics_document_has_closed_accepted_and_rejected_shapes() 
         "normalized_program_identity": program_identity,
         "diagnostics": [],
     }
+
+
+def test_normalized_program_identity_canonicalizes_and_rejects_duplicate_vectors() -> None:
+    diagnostics_module = importlib.import_module(
+        "orchestrator.workflow_lisp.diagnostics"
+    )
+    build_identity = getattr(
+        diagnostics_module,
+        "build_normalized_program_identity",
+    )
+    selected_entry = {
+        "selected_name": "run",
+        "canonical_name": "candidate::run",
+        "signature": {
+            "parameters": [],
+            "return_type": "Bool",
+            "input_contracts": {},
+            "output_contracts": {},
+        },
+    }
+    module_rows = (
+        {"module_name": "zeta", "source_sha256": f"sha256:{'b' * 64}"},
+        {"module_name": "alpha", "source_sha256": f"sha256:{'a' * 64}"},
+    )
+    source_rows = (
+        {
+            "root_role": "source_root:1",
+            "relative_path": "zeta.orc",
+            "source_sha256": f"sha256:{'b' * 64}",
+        },
+        {
+            "root_role": "source_root:0",
+            "relative_path": "alpha.orc",
+            "source_sha256": f"sha256:{'a' * 64}",
+        },
+    )
+    imported_rows = (
+        {
+            "canonical_key": "zeta",
+            "bundle_kind": "compiled",
+            "workflow_name": "run-zeta",
+            "resolved_workflow_name": "zeta::run",
+        },
+        {
+            "canonical_key": "alpha",
+            "bundle_kind": "compiled",
+            "workflow_name": "run-alpha",
+            "resolved_workflow_name": "alpha::run",
+        },
+    )
+    configuration_payloads = {
+        "provider_externs": f"sha256:{'c' * 64}",
+        "prompt_externs": f"sha256:{'d' * 64}",
+        "command_boundaries": f"sha256:{'e' * 64}",
+    }
+    revision_rows = (
+        {"role": "prompt_externs", "source_sha256": None},
+        {"role": "command_boundaries", "source_sha256": None},
+        {"role": "provider_externs", "source_sha256": None},
+    )
+
+    def build(**overrides: object) -> dict[str, object]:
+        arguments: dict[str, object] = {
+            "compiler_runtime_identity": f"sha256:{'f' * 64}",
+            "module_source_revisions": module_rows,
+            "compiler_source_revisions": source_rows,
+            "imported_bundle_bindings": imported_rows,
+            "selected_entry": selected_entry,
+            "lowering_route": "legacy",
+            "lowering_schema_version": 1,
+            "configuration_payload_digests": configuration_payloads,
+            "configuration_revisions": revision_rows,
+        }
+        arguments.update(overrides)
+        return build_identity(**arguments)
+
+    forward = build()
+    reverse = build(
+        module_source_revisions=tuple(reversed(module_rows)),
+        compiler_source_revisions=tuple(reversed(source_rows)),
+        imported_bundle_bindings=tuple(reversed(imported_rows)),
+        configuration_revisions=tuple(reversed(revision_rows)),
+    )
+    assert forward == reverse
+    assert [row["module_name"] for row in forward["module_source_revisions"]] == [
+        "alpha",
+        "zeta",
+    ]
+    assert [row["canonical_key"] for row in forward["imported_bundle_bindings"]] == [
+        "alpha",
+        "zeta",
+    ]
+
+    duplicate_cases = (
+        {"module_source_revisions": module_rows + (module_rows[0],)},
+        {"compiler_source_revisions": source_rows + (source_rows[0],)},
+        {"imported_bundle_bindings": imported_rows + (imported_rows[0],)},
+        {"configuration_revisions": revision_rows + (revision_rows[0],)},
+    )
+    for duplicate in duplicate_cases:
+        with pytest.raises(ValueError, match="duplicate"):
+            build(**duplicate)
 
 
 @pytest.mark.parametrize(
