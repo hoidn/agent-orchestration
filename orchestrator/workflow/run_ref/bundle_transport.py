@@ -351,67 +351,71 @@ def _rewrite_catalog_capsule_binding(
     binding: RunRefBundleCapsuleBinding | None,
 ) -> Mapping[str, LoadedWorkflowBundle]:
     """Rebuild one closed catalog with one uniform operational binding."""
-
+    canonical, _targets = _validate_catalog(
+        bundles_by_name,
+        target_workflow_names=tuple(sorted(bundles_by_name)),
+        require_mapping_proxy=False,
+    )
+    import_storage_by_name: dict[str, dict[str, LoadedWorkflowBundle]] = {
+        name: {} for name in canonical
+    }
     rebuilt: dict[str, LoadedWorkflowBundle] = {}
-    active: set[str] = set()
-
-    def visit(name: str) -> LoadedWorkflowBundle:
-        known = rebuilt.get(name)
-        if known is not None:
-            return known
-        if name in active:
-            _fail("run_ref_bundle_catalog_invalid")
-        original = bundles_by_name.get(name)
-        if type(original) is not LoadedWorkflowBundle:
-            _fail("run_ref_bundle_catalog_invalid")
-        active.add(name)
-        try:
-            imports = MappingProxyType(
-                {
-                    alias: visit(_bundle_name(child))
-                    for alias, child in sorted(original.imports.items())
-                }
-            )
-            nodes = MappingProxyType(
-                {
-                    node_id: (
-                        replace(
-                            node,
-                            execution_config=replace(
-                                node.execution_config,
-                                capsule_binding=(
-                                    binding
-                                    if isinstance(
-                                        node.execution_config.run_ref.program,
-                                        BundleProgram,
-                                    )
-                                    else None
-                                ),
-                            ),
-                        )
-                        if isinstance(
+    for name, original in canonical.items():
+        nodes = MappingProxyType(
+            {
+                node_id: (
+                    replace(
+                        node,
+                        execution_config=replace(
                             node.execution_config,
-                            RunRefStepConfig,
-                        )
-                        else node
+                            capsule_binding=(
+                                binding
+                                if isinstance(
+                                    node.execution_config.run_ref.program,
+                                    BundleProgram,
+                                )
+                                else None
+                            ),
+                        ),
                     )
-                    for node_id, node in sorted(original.ir.nodes.items())
-                }
-            )
-            rewritten = replace(
-                original,
-                ir=replace(original.ir, nodes=nodes),
-                imports=imports,
-            )
-            rebuilt[name] = rewritten
-            return rewritten
-        finally:
-            active.remove(name)
-
-    for workflow_name in sorted(bundles_by_name):
-        visit(workflow_name)
+                    if isinstance(
+                        node.execution_config,
+                        RunRefStepConfig,
+                    )
+                    else node
+                )
+                for node_id, node in sorted(original.ir.nodes.items())
+            }
+        )
+        rebuilt[name] = replace(
+            original,
+            ir=replace(original.ir, nodes=nodes),
+            imports=MappingProxyType(import_storage_by_name[name]),
+        )
+    for name, original in canonical.items():
+        import_storage = import_storage_by_name[name]
+        for alias, child in sorted(original.imports.items()):
+            child_name = _bundle_name(child)
+            if canonical.get(child_name) is not child:
+                _fail("run_ref_bundle_catalog_invalid")
+            import_storage[alias] = rebuilt[child_name]
     return MappingProxyType(
         {name: rebuilt[name] for name in sorted(rebuilt)}
+    )
+
+
+def bind_bundle_catalog_capsule(
+    bundles_by_name: Mapping[str, LoadedWorkflowBundle],
+    *,
+    binding: RunRefBundleCapsuleBinding,
+) -> Mapping[str, LoadedWorkflowBundle]:
+    """Bind one verified capsule identity across a closed controller graph."""
+
+    if type(binding) is not RunRefBundleCapsuleBinding:
+        _fail("run_ref_bundle_binding_invalid")
+    return _rewrite_catalog_capsule_binding(
+        bundles_by_name,
+        binding=binding,
     )
 
 

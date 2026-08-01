@@ -459,6 +459,30 @@ def test_bundle_capsule_decode_binds_mode_one_and_leaves_mode_two_unbound(
     assert by_mode["path"].capsule_binding is None
 
 
+def test_bundle_capsule_binding_rewrites_cyclic_catalog_without_losing_identity(
+    tmp_path: Path,
+) -> None:
+    bundle = _compiled_controller_bundle(tmp_path)
+    import_storage: dict[str, LoadedWorkflowBundle] = {}
+    cyclic = replace(bundle, imports=MappingProxyType(import_storage))
+    import_storage["self"] = cyclic
+    binding = RunRefBundleCapsuleBinding("sha256:" + "a" * 64)
+
+    rewritten = bundle_transport.bind_bundle_catalog_capsule(
+        {cyclic.surface.name: cyclic},
+        binding=binding,
+    )
+
+    rebound = rewritten[cyclic.surface.name]
+    assert rebound.imports["self"] is rebound
+    [config] = [
+        node.execution_config
+        for node in rebound.ir.nodes.values()
+        if isinstance(node.execution_config, RunRefStepConfig)
+    ]
+    assert config.capsule_binding == binding
+
+
 @pytest.mark.parametrize(
     "defect",
     ("digest", "oversize", "protocol"),
