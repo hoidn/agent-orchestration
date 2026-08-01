@@ -179,6 +179,9 @@ E0_DIRECT_CONTROL_PLAN_REVIEW_PATH = (
 E0_DIRECT_CONTROL_FINAL_REVIEW_PATH = (
     "artifacts/review/e0-direct-control-final-review.md"
 )
+E1_E3_OWNER_SELECTION_PATH = (
+    "docs/plans/2026-07-31-workflow-lisp-e1-e3-owner-selection.md"
+)
 TRIAL_RUNS_DESIGN_PATH = "docs/design/workflow_lisp_trial_runs.md"
 TYPED_PROGRAM_GATES_DESIGN_PATH = (
     "docs/design/workflow_lisp_typed_program_gates.md"
@@ -1344,7 +1347,7 @@ def test_lean_pilot_a1_v7_closure_routes_exact_evidence_and_narrow_owner_handoff
     assert "does not automatically select e1+" in normalized_capability
 
 
-def test_e_series_routes_completed_e0_without_selecting_successors() -> None:
+def test_e_series_routes_completed_e0_and_owner_selected_e1_through_e3() -> None:
     roadmap = (REPO_ROOT / EVOLUTION_FOLLOW_ON_ROADMAP_PATH).read_text(
         encoding="utf-8"
     )
@@ -1357,6 +1360,9 @@ def test_e_series_routes_completed_e0_without_selecting_successors() -> None:
         encoding="utf-8"
     )
     final_review = (REPO_ROOT / E0_DIRECT_CONTROL_FINAL_REVIEW_PATH).read_text(
+        encoding="utf-8"
+    )
+    selection = (REPO_ROOT / E1_E3_OWNER_SELECTION_PATH).read_text(
         encoding="utf-8"
     )
     sequence = (
@@ -1396,19 +1402,22 @@ def test_e_series_routes_completed_e0_without_selecting_successors() -> None:
     normalized_sequence = _normalized_routing_text(sequence)
     assert "e_designs_spec_approved" in normalized_roadmap
     assert "e_designs_quality_approved" in normalized_roadmap
-    assert "e0 is the sole selected tranche" in normalized_roadmap
+    assert "e1 e3 are owner selected" in normalized_roadmap
     assert "task 1's canonical source and compile contract" in normalized_roadmap
     assert "task 2 runtime proof landed at 3d41a8bf" in normalized_roadmap
     assert "task 3 accounting parity proof landed at 3b934373" in normalized_roadmap
     assert "e0 is complete at fe7d6f9b" in normalized_roadmap
     assert "pass_e0" in normalized_roadmap
-    assert "e1 is eligible only for a separate owner activation decision" in (
-        normalized_roadmap
+    assert "e1 planning is active at target 2.24" in normalized_roadmap
+    assert (
+        "e2 is selected pending the canonical e1 exit gate at target 2.25"
+        in normalized_roadmap
     )
-    assert "e1, e2, e3, c1, c2, and c3 remain unselected" in (
-        normalized_roadmap
+    assert (
+        "e3 is selected pending the canonical e2 exit gate and review of the first fixed study"
+        in normalized_roadmap
     )
-    assert "all remain designed" in normalized_roadmap
+    assert "c1, c2, and c3 remain designed and unselected" in normalized_roadmap
     assert "owner decision handoff is complete" in normalized_roadmap
     assert "creates no effect identity memo key" in normalized_roadmap
     assert "docs/superpowers/plans/2026-07-26-orc-effectiveness-lean-pilot.md" in roadmap
@@ -1448,9 +1457,10 @@ def test_e_series_routes_completed_e0_without_selecting_successors() -> None:
     assert "e0 is complete and is the only implemented tranche" in (
         normalized_trial_capability
     )
-    assert "e1 e3 and c1 c3 remain designed and unselected" in (
-        normalized_trial_capability
-    )
+    assert "e1 e3 are owner selected" in normalized_trial_capability
+    assert "e1 planning is active at target 2.24" in normalized_trial_capability
+    assert "e2 and e3 remain prerequisite gated" in normalized_trial_capability
+    assert "c1 c3 remain designed and unselected" in normalized_trial_capability
     assert "| Designed |" in gates_capability
     assert "No current syntax/runtime capability may be inferred" in gates_capability
     assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in roadmap
@@ -1480,6 +1490,32 @@ def test_e_series_routes_completed_e0_without_selecting_successors() -> None:
     ):
         assert "e0 is complete" in completed_surface
         assert "pass_e0" in completed_surface
+    for selected_surface in (
+        normalized_roadmap,
+        normalized_design_index,
+        normalized_index,
+        normalized_trial_capability,
+        normalized_sequence,
+    ):
+        assert "e1 e3 are owner selected" in selected_surface
+        assert _normalized_routing_text(
+            Path(E1_E3_OWNER_SELECTION_PATH).name
+        ) in selected_surface
+    normalized_selection = _normalized_routing_text(selection)
+    assert "status: applied owner selection" in normalized_selection
+    assert "select e1 through e3. continue executing roadmap" in (
+        normalized_selection
+    )
+    assert "e1 (run ref) is selected" in normalized_selection
+    assert "e2 (trial) is selected pending the canonical e1 exit gate" in (
+        normalized_selection
+    )
+    assert (
+        "e3 (the external gene bounded controller) is selected pending the canonical e2 exit gate"
+        in normalized_selection
+    )
+    assert "external diagnostic api is not the separate c1" in normalized_selection
+    assert "c1 c3 remain designed and unselected" in normalized_selection
     assert "46387582d2af0636a3f3041a706ddb0f658c8ce8" in plan
     assert "5dc787b69d3deb2010ed1cd4040444eec1e7c62a" in plan
     assert plan.index("E0_TASK4_SPEC_APPROVED") < plan.index(
@@ -2066,8 +2102,13 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "e4p prompt identity discipline is owned only by stage q3"
         in normalized_evolution_status
     )
-    assert "e0 is the sole selected tranche" in normalized_evolution_status
-    assert "e1, e2, e3, c1, c2, and c3 remain unselected" in (
+    assert "e0 is complete" in normalized_evolution_status
+    assert "e1 e3 are owner selected" in normalized_evolution_status
+    assert "e1 planning is active at target 2.24" in normalized_evolution_status
+    assert "e2 is selected pending the canonical e1 exit gate at target 2.25" in (
+        normalized_evolution_status
+    )
+    assert "c1, c2, and c3 remain designed and unselected" in (
         normalized_evolution_status
     )
 

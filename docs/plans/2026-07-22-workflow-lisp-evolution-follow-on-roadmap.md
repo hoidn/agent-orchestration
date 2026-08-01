@@ -22,15 +22,23 @@ Current implementation status: the recovered E0/C1 designs passed ordered
 the lean-pilot owner-decision handoff are complete. The
 [E0 direct-control component plan](2026-07-31-workflow-lisp-e0-direct-control-component-plan.md)
 passed ordered `E0_PLAN_SPEC_APPROVED` then `E0_PLAN_QUALITY_APPROVED`. E0 is
-the sole selected tranche. Task 1's canonical source and compile contract
+the only completed and implemented tranche. Task 1's canonical source and compile contract
 landed at `b71bf62a`; Task 2 runtime proof landed at `3d41a8bf`; and Task 3
 accounting-parity proof landed at `3b934373`. Task 4 closed at `46387582`.
 E0 is complete at `fe7d6f9bca9ec61b9078e4048bb43aee7f4f191b`, tree
 `c20f6fd9197b0d0e12a581e96ebbd898b8d1b3c3`, with outcome `PASS_E0` after
 ordered `E0_FINAL_SPEC_APPROVED` then `E0_FINAL_QUALITY_APPROVED`; the fresh
 postcommit direct-control/routing/route-readiness control passed 115 tests.
-E1 is eligible only for a separate owner activation decision. E1, E2, E3,
-C1, C2, and C3 remain unselected; all remain Designed.
+The owner selected E1 through E3 on 2026-07-31 through the
+[durable selection record](2026-07-31-workflow-lisp-e1-e3-owner-selection.md).
+E1-E3 are owner-selected,
+but their accepted dependency order remains binding: E1
+planning is active at target 2.24; E2 is selected pending the canonical E1
+exit gate at target 2.25; and E3 is selected pending the canonical E2 exit
+gate and review of the first fixed study. E3 adds no language target.
+Selection does not waive any feasibility,
+spec-first, ordered-review, focused, broad non-security, end-to-end, or exit
+gate. C1, C2, and C3 remain Designed and unselected.
 
 Copy safety: planning reference only. The canonical direct-control source is
 copy-safe after `PASS_E0` only for its bounded one-call direct-task shape; the
@@ -97,8 +105,9 @@ Sequencing prerequisites (owner-directed 2026-07-30):
    load-bearing: pilot runs are never resumed; interrupted pilot blocks stay
    outcomes per the pilot specification.
 
-Incorporation is not selection: no E implementation may start from this
-document alone.
+Incorporation was not selection. The separate 2026-07-31 owner decision now
+selects E1 through E3 in dependency order; it does not select C1-C3 or waive
+the reviewed-plan and predecessor-exit gates above.
 
 Successor ordering (owner-directed 2026-07-30): the
 [LSP frontend prerequisites P-series roadmap](2026-07-30-lsp-frontend-prerequisites-p-series-roadmap.md)
