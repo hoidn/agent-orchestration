@@ -256,6 +256,14 @@ class FrontendSourceReadTraceSnapshot:
 
     records: tuple[SourceReadRecord, ...]
     revision_vector: tuple[tuple[Path, str], ...]
+    raw_bytes_by_path: Mapping[Path, bytes]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "raw_bytes_by_path",
+            MappingProxyType(dict(self.raw_bytes_by_path)),
+        )
 
 
 @dataclass(frozen=True)
@@ -407,6 +415,7 @@ def load_frontend_initialization_configuration(
         source_read_trace=FrontendSourceReadTraceSnapshot(
             records=source_read_trace.records,
             revision_vector=source_read_trace.revision_vector,
+            raw_bytes_by_path=source_read_trace.raw_bytes_by_path,
         ),
         configuration_trace=FrontendConfigurationTraceSnapshot(
             records=configuration_read_trace.records,
@@ -790,6 +799,7 @@ def _build_frontend_bundle_in_memory(
     source_read_snapshot = FrontendSourceReadTraceSnapshot(
         records=active_source_read_trace.records,
         revision_vector=active_source_read_trace.revision_vector,
+        raw_bytes_by_path=active_source_read_trace.raw_bytes_by_path,
     )
     configuration_snapshot = FrontendConfigurationTraceSnapshot(
         records=configuration_read_trace.records,

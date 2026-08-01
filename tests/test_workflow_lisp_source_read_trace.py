@@ -190,6 +190,9 @@ def test_read_sexpr_file_reads_once_and_retains_exact_and_parser_views(
     assert tree.span.start.path == str(path)
     assert trace.records[0].canonical_path == path.resolve()
     assert trace.records[0].revision == _revision(payload)
+    assert trace.raw_bytes_by_path == {path.resolve(): payload}
+    with pytest.raises(TypeError):
+        trace.raw_bytes_by_path[path.resolve()] = b"mutated"  # type: ignore[index]
     assert tuple(field.name for field in fields(trace.records[0])) == (
         "canonical_path",
         "revision",
@@ -302,6 +305,10 @@ def test_trace_accepts_identical_rereads_and_rejects_changed_rereads(
         (path_a, _revision(b"(a)")),
         (path_b, _revision(b"(b)")),
     )
+    assert stable_trace.raw_bytes_by_path == {
+        path_a: b"(a)",
+        path_b: b"(b)",
+    }
     with pytest.raises(FrozenInstanceError):
         stable_trace.records[0].revision = "changed"  # type: ignore[misc]
 
@@ -315,6 +322,28 @@ def test_trace_accepts_identical_rereads_and_rejects_changed_rereads(
 
     with pytest.raises(RuntimeError, match="changed during one compiler read trace"):
         read_sexpr_file(path_a, source_read_trace=changed_trace)
+    assert changed_trace.raw_bytes_by_path == {
+        path_a: b"(a)",
+        path_b: b"(b)",
+    }
+
+
+def test_trace_rejects_raw_bytes_that_do_not_match_the_recorded_revision(
+    tmp_path: Path,
+) -> None:
+    path = (tmp_path / "entry.orc").resolve()
+    trace = _new_trace()
+
+    with pytest.raises(ValueError, match="raw bytes do not match revision"):
+        trace._record(
+            canonical_path=path,
+            revision=_revision(b"expected"),
+            raw_bytes=b"different",
+        )
+
+    assert trace.records == ()
+    assert trace.revision_vector == ()
+    assert trace.raw_bytes_by_path == {}
 
 
 def test_trace_retains_structural_revision_conflict_after_bytes_revert(
@@ -433,6 +462,7 @@ def test_trace_distinguishes_missing_unreadable_and_invalid_utf8(
         "unreadable",
         _revision(b"\xff"),
     )
+    assert trace.raw_bytes_by_path == {invalid: b"\xff"}
 
 
 def test_module_graph_uses_one_collector_for_imports_and_final_entry_reread(

@@ -438,6 +438,28 @@ def test_read_only_build_matches_persistent_prefix_without_mutating_workspace(
     assert (tmp_path / ".orchestrate" / "build").is_dir()
 
 
+def test_read_only_build_retains_immutable_exact_source_bytes_after_mutation(
+    tmp_path: Path,
+) -> None:
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    source_path = tmp_path / "entry_publication_runtime.orc"
+    original = SOURCE.read_bytes().replace(b"\n", b"\r\n")
+    source_path.write_bytes(original)
+    request = build.FrontendBuildRequest(
+        source_path=source_path,
+        source_roots=(tmp_path,),
+        entry_workflow="entry-publication-runtime",
+        workspace_root=tmp_path,
+    )
+
+    result = build.build_frontend_bundle_in_memory(request)
+    source_path.write_bytes(b"changed after build\n")
+
+    assert result.source_read_trace.raw_bytes_by_path[source_path.resolve()] == original
+    with pytest.raises(TypeError):
+        result.source_read_trace.raw_bytes_by_path[source_path.resolve()] = b"mutated"  # type: ignore[index]
+
+
 @pytest.mark.parametrize("tamper", ("missing", "non_sha", "mismatch"))
 def test_read_only_build_rejects_invalid_source_revision_vectors(
     tmp_path: Path,
@@ -1045,6 +1067,7 @@ def test_initialization_configuration_without_optional_paths_is_frozen_and_read_
     assert configuration.imported_workflow_bundles == ()
     assert configuration.source_read_trace.records == ()
     assert configuration.source_read_trace.revision_vector == ()
+    assert configuration.source_read_trace.raw_bytes_by_path == {}
     assert configuration.configuration_trace.records == ()
     assert configuration.configuration_trace.revision_vector == ()
     assert _tree_snapshot(tmp_path) == before
@@ -1151,6 +1174,9 @@ def test_initialization_configuration_uses_production_loaders_and_shared_recursi
     ) == tuple(source_reads)
     assert source_reads
     assert set(source_reads) == {imported_source_path}
+    assert configuration.source_read_trace.raw_bytes_by_path == {
+        imported_source_path: read_bytes(imported_source_path),
+    }
     assert _tree_snapshot(tmp_path) == before
     assert not (tmp_path / ".orchestrate").exists()
 

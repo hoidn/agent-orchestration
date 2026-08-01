@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 import hashlib
 import re
 from pathlib import Path
+from types import MappingProxyType
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .sexpr import BoolAtom, FloatAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
@@ -51,6 +53,7 @@ class SourceReadTrace:
     def __init__(self) -> None:
         self._records: list[SourceReadRecord] = []
         self._revisions_by_path: dict[Path, str] = {}
+        self._raw_bytes_by_path: dict[Path, bytes] = {}
         self._module_graph_read_attempts: list[ModuleGraphReadAttempt] = []
 
     @property
@@ -64,6 +67,19 @@ class SourceReadTrace:
         """Return the unique canonical path/revision vector in path order."""
 
         return tuple(sorted(self._revisions_by_path.items(), key=lambda item: item[0].as_posix()))
+
+    @property
+    def raw_bytes_by_path(self) -> Mapping[Path, bytes]:
+        """Return immutable exact bytes for unique successfully read paths."""
+
+        return MappingProxyType(
+            dict(
+                sorted(
+                    self._raw_bytes_by_path.items(),
+                    key=lambda item: item[0].as_posix(),
+                )
+            )
+        )
 
     @property
     def revision_conflict_paths(self) -> tuple[Path, ...]:
@@ -134,7 +150,16 @@ class SourceReadTrace:
         *,
         canonical_path: Path,
         revision: str,
+        raw_bytes: bytes | None = None,
     ) -> SourceReadRecord:
+        if raw_bytes is not None:
+            observed_revision = (
+                f"sha256:{hashlib.sha256(raw_bytes).hexdigest()}"
+            )
+            if revision != observed_revision:
+                raise ValueError(
+                    "source read raw bytes do not match revision"
+                )
         record = SourceReadRecord(
             canonical_path=canonical_path,
             revision=revision,
@@ -146,6 +171,15 @@ class SourceReadTrace:
             raise RuntimeError(
                 f"source `{canonical_path}` changed during one compiler read trace"
             )
+        if raw_bytes is not None:
+            previous_raw_bytes = self._raw_bytes_by_path.setdefault(
+                canonical_path,
+                raw_bytes,
+            )
+            if previous_raw_bytes != raw_bytes:
+                raise RuntimeError(
+                    f"source `{canonical_path}` changed during one compiler read trace"
+                )
         return record
 
 
@@ -420,6 +454,7 @@ def _read_source_file_views(
             source_read_trace._record(
                 canonical_path=canonical_path,
                 revision=revision,
+                raw_bytes=raw_bytes,
             )
         raise
     parser_text = raw_decoded_text.replace("\r\n", "\n").replace("\r", "\n")
@@ -427,6 +462,7 @@ def _read_source_file_views(
         source_read_trace._record(
             canonical_path=canonical_path,
             revision=revision,
+            raw_bytes=raw_bytes,
         )
     return _SourceReadViews(
         raw_bytes=raw_bytes,
