@@ -494,6 +494,33 @@ def test_compile_diagnostics_json_identity_is_clone_root_independent(
     assert identities[0] == identities[1]
 
 
+def test_compile_diagnostics_json_accepts_absolute_source_outside_cwd_without_source_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cwd = tmp_path / "caller"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+
+    ordinary_args = _orc_compile_args(diagnostics_json=False)
+    ordinary_args.source_root = None
+    assert compile_workflow(ordinary_args) == 0
+    capsys.readouterr()
+
+    machine_args = _orc_compile_args(diagnostics_json=True)
+    machine_args.source_root = None
+    assert compile_workflow(machine_args) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["status"] == "accepted"
+    source_rows = payload["normalized_program_identity"][
+        "compiler_source_revisions"
+    ]
+    assert any(row["root_role"] == "entry_source_root" for row in source_rows)
+    assert all(not Path(row["relative_path"]).is_absolute() for row in source_rows)
+
+
 def test_compile_diagnostics_json_identity_binds_imported_bundle_source(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

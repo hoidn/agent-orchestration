@@ -121,6 +121,7 @@ def _compiler_source_revisions(
         (f"source_root:{index}", root)
         for index, root in enumerate(request.source_roots)
     ]
+    roots.append(("entry_source_root", request.source_path.parent))
     roots.extend(
         (
             f"imported_bundle:{binding.canonical_key}",
