@@ -203,7 +203,11 @@ def _validate_staged_type(type_env, type_ref: TypeRef) -> None:
         )
 
 
-def _fixed_types(type_env) -> tuple[tuple[str, TypeRef], ...]:
+def compiler_run_ref_fixed_types(
+    type_env,
+) -> tuple[tuple[str, TypeRef], ...]:
+    """Build and validate the fixed compiler-owned ``run-ref`` type vector."""
+
     def primitive(name: str) -> PrimitiveTypeRef:
         existing = type_env._type_refs.get(name)
         if isinstance(existing, PrimitiveTypeRef):
@@ -357,7 +361,7 @@ def _register_result_metadata(
     value_type,
     input_types: tuple[tuple[str, TypeRef], ...],
 ) -> RunRefSiteMetadata:
-    fixed_types = _fixed_types(context.type_env)
+    fixed_types = compiler_run_ref_fixed_types(context.type_env)
     fixed_by_name = dict(fixed_types)
     expression_key = _sha256(_expression_payload(expr))
     type_payload = {

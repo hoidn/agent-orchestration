@@ -788,6 +788,8 @@ def _nominal_descriptor_name(
     start = getattr(span, "start", None)
     source_path = getattr(start, "path", None)
     if source_path:
+        if source_path.startswith("<compiler:"):
+            return type_ref.name
         info = _module_export_info(
             source_path,
             source_read_trace=source_read_trace,
@@ -1427,12 +1429,14 @@ def _field_type(type_ref: TypeRef, field_name: str, *, type_env: FrontendTypeEnv
     raise KeyError(f"unknown field `{field_name}` on `{type(type_ref).__name__}`")
 
 
-def _type_descriptor(
+def compiler_normalized_type_descriptor(
     type_ref: TypeRef,
     *,
     type_env: FrontendTypeEnvironment,
     source_read_trace: SourceReadTrace | None = None,
 ) -> dict[str, Any]:
+    """Return the compiler's validated, normalized descriptor for one type."""
+
     descriptor = _build_type_descriptor(
         type_ref,
         type_env=type_env,
@@ -1440,6 +1444,19 @@ def _type_descriptor(
     )
     validate_compiler_normalized_type_descriptor(descriptor)
     return descriptor
+
+
+def _type_descriptor(
+    type_ref: TypeRef,
+    *,
+    type_env: FrontendTypeEnvironment,
+    source_read_trace: SourceReadTrace | None = None,
+) -> dict[str, Any]:
+    return compiler_normalized_type_descriptor(
+        type_ref,
+        type_env=type_env,
+        source_read_trace=source_read_trace,
+    )
 
 
 def _build_type_descriptor(

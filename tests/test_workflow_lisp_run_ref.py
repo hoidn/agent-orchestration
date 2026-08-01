@@ -1,3 +1,4 @@
+from copy import deepcopy
 from dataclasses import FrozenInstanceError, replace
 from typing import get_args
 
@@ -31,7 +32,12 @@ from orchestrator.workflow_lisp.expressions import (
 )
 from orchestrator.workflow_lisp.expression_traversal import iter_child_exprs
 from orchestrator.workflow_lisp.form_registry import get_form_spec
+from orchestrator.workflow_lisp.lowering import pure_projection as pure_projection_lowering
 from orchestrator.workflow_lisp.reader import read_sexpr_text
+from orchestrator.workflow_lisp.run_ref_result_contract import (
+    RUN_REF_RESULT_CONTRACT_SCHEMA,
+    derive_run_ref_result_contract,
+)
 from orchestrator.workflow_lisp.syntax import SyntaxList, SyntaxNode, syntax_node_datum
 from orchestrator.workflow_lisp.type_env import (
     FrontendTypeEnvironment,
@@ -75,7 +81,32 @@ def _type_env(*extra_types) -> FrontendTypeEnvironment:
         )
     }
     refs.update({type_ref.name: type_ref for type_ref in extra_types})
-    return FrontendTypeEnvironment(refs, target_dsl_version="2.24")
+    return FrontendTypeEnvironment(
+        refs,
+        target_dsl_version="2.24",
+        nominal_descriptor_names_by_definition_id={
+            id(type_ref.definition): type_ref.name
+            for type_ref in extra_types
+            if isinstance(type_ref, (RecordTypeRef, UnionTypeRef))
+        },
+    )
+
+
+def test_compiler_normalized_type_descriptor_is_public_behavior_identical() -> None:
+    type_env = _type_env()
+    type_ref = PrimitiveTypeRef("String")
+
+    assert hasattr(
+        pure_projection_lowering,
+        "compiler_normalized_type_descriptor",
+    )
+    assert pure_projection_lowering.compiler_normalized_type_descriptor(
+        type_ref,
+        type_env=type_env,
+    ) == pure_projection_lowering._type_descriptor(
+        type_ref,
+        type_env=type_env,
+    )
 
 
 def _catalog(expr: RunRefExpr, *, params=(), return_type=None, defaults=()):
@@ -664,6 +695,417 @@ def _transportable_types(span):
         PathTypeRef("ChildPath", path_def),
         PrimitiveTypeRef("Value"),
     )
+
+
+def _run_ref_result_contract(
+    expr: RunRefExpr,
+    value_type,
+    *,
+    hydrate: bool = False,
+):
+    type_env = _type_env(value_type)
+    session = CompilerSession()
+    typed = typecheck_expression(
+        expr,
+        type_env=type_env,
+        value_env={},
+        workflow_catalog=_catalog(expr, return_type=value_type),
+        compiler_session=session,
+    )
+    if hydrate:
+        register_all_known_run_ref_types(
+            type_env,
+            session_state=session.typecheck,
+        )
+    return (
+        derive_run_ref_result_contract(
+            typed.type_ref,
+            type_env=type_env,
+        ),
+        typed.type_ref,
+        type_env,
+    )
+
+
+@pytest.mark.parametrize(
+    ("return_index", "expected_kind"),
+    tuple(
+        enumerate(
+            (
+                "primitive",
+                "record",
+                "union",
+                "list",
+                "map",
+                "optional",
+                "path",
+                "primitive",
+            )
+        )
+    ),
+)
+def test_run_ref_result_contract_preserves_all_transportable_child_roots(
+    return_index: int,
+    expected_kind: str,
+) -> None:
+    expr = _mode_one_expr()
+    value_type = _transportable_types(expr.span)[return_index]
+
+    contract, result_type, type_env = _run_ref_result_contract(expr, value_type)
+
+    envelope = contract.descriptor["envelope"]
+    assert contract.descriptor["schema"] == RUN_REF_RESULT_CONTRACT_SCHEMA
+    assert envelope["kind"] == "record"
+    assert envelope["name"] == result_type.name
+    assert [field["name"] for field in envelope["fields"]] == [
+        "value",
+        "workspace_delta",
+        "accounting",
+    ]
+    child_descriptor = pure_projection_lowering.compiler_normalized_type_descriptor(
+        value_type,
+        type_env=type_env,
+    )
+    assert envelope["fields"][0]["type"] == child_descriptor
+    assert envelope["fields"][0]["type"]["kind"] == expected_kind
+    assert contract.type_ref == result_type
+    from orchestrator.workflow.run_ref.contracts import canonical_sha256
+
+    assert contract.digest == canonical_sha256(contract.descriptor)
+
+
+def test_run_ref_result_contract_carries_exact_recursive_fixed_schema() -> None:
+    expr = _mode_one_expr()
+    contract, _, _ = _run_ref_result_contract(expr, PrimitiveTypeRef("String"))
+
+    workspace = contract.descriptor["envelope"]["fields"][1]["type"]
+    accounting = contract.descriptor["envelope"]["fields"][2]["type"]
+    with pytest.raises(FrozenInstanceError):
+        contract.digest = "sha256:changed"
+    assert workspace == {
+        "kind": "record",
+        "name": "WorkspaceDelta",
+        "fields": [
+            {
+                "name": "base",
+                "type": {
+                    "kind": "record",
+                    "name": "RepositoryRevisionId",
+                    "fields": [
+                        {"name": name, "type": {"kind": "primitive", "name": "String"}}
+                        for name in (
+                            "digest",
+                            "normalized_locator",
+                            "resolved_commit_sha",
+                            "materializer_version",
+                            "submodule_policy",
+                            "lfs_policy",
+                            "authored_setup_identity",
+                        )
+                    ],
+                },
+            },
+            *[
+                {
+                    "name": name,
+                    "type": {
+                        "kind": "list",
+                        "item": {
+                            "kind": "record",
+                            "name": "WorkspaceEntryDelta",
+                            "fields": [
+                                {"name": "path", "type": {"kind": "primitive", "name": "String"}},
+                                {"name": "kind", "type": {"kind": "primitive", "name": "String"}},
+                                {"name": "mode", "type": {"kind": "primitive", "name": "Int"}},
+                                {"name": "size", "type": {"kind": "primitive", "name": "Int"}},
+                                *[
+                                    {
+                                        "name": optional_name,
+                                        "type": {
+                                            "kind": "optional",
+                                            "item": {"kind": "primitive", "name": "String"},
+                                        },
+                                    }
+                                    for optional_name in (
+                                        "old_sha256",
+                                        "new_sha256",
+                                        "link_target",
+                                    )
+                                ],
+                            ],
+                        },
+                    },
+                }
+                for name in ("changed_files", "deleted_files", "untracked_files")
+            ],
+            {
+                "name": "normalized_diff",
+                "type": {
+                    "kind": "record",
+                    "name": "NormalizedWorkspaceDiff",
+                    "fields": [
+                        {
+                            "name": "entries",
+                            "type": {
+                                "kind": "list",
+                                "item": {
+                                    "kind": "record",
+                                    "name": "NormalizedTextDiffEntry",
+                                    "fields": [
+                                        {"name": "path", "type": {"kind": "primitive", "name": "String"}},
+                                        {"name": "text", "type": {"kind": "primitive", "name": "String"}},
+                                        {"name": "truncated", "type": {"kind": "primitive", "name": "Bool"}},
+                                        {"name": "omitted_bytes", "type": {"kind": "primitive", "name": "Int"}},
+                                    ],
+                                },
+                            },
+                        },
+                        {"name": "catalog_digest", "type": {"kind": "primitive", "name": "String"}},
+                        {"name": "truncated", "type": {"kind": "primitive", "name": "Bool"}},
+                        {"name": "omitted_bytes", "type": {"kind": "primitive", "name": "Int"}},
+                        {"name": "omitted_entries", "type": {"kind": "primitive", "name": "Int"}},
+                    ],
+                },
+            },
+            {
+                "name": "declared_artifacts",
+                "type": {
+                    "kind": "list",
+                    "item": {
+                        "kind": "record",
+                        "name": "DeclaredWorkspaceArtifact",
+                        "fields": [
+                            {"name": "name", "type": {"kind": "primitive", "name": "String"}},
+                            {"name": "path", "type": {"kind": "primitive", "name": "String"}},
+                            {"name": "kind", "type": {"kind": "primitive", "name": "String"}},
+                            {"name": "mode", "type": {"kind": "primitive", "name": "Int"}},
+                            {"name": "size", "type": {"kind": "primitive", "name": "Int"}},
+                            {
+                                "name": "sha256",
+                                "type": {
+                                    "kind": "optional",
+                                    "item": {"kind": "primitive", "name": "String"},
+                                },
+                            },
+                            {
+                                "name": "link_target",
+                                "type": {
+                                    "kind": "optional",
+                                    "item": {"kind": "primitive", "name": "String"},
+                                },
+                            },
+                        ],
+                    },
+                },
+            },
+        ],
+    }
+    assert accounting == {
+        "kind": "record",
+        "name": "RunRefAccounting",
+        "fields": [
+            {"name": "child_run_id", "type": {"kind": "primitive", "name": "RunId"}},
+            {"name": "attempt_ordinal", "type": {"kind": "primitive", "name": "Int"}},
+            {"name": "terminal_status", "type": {"kind": "primitive", "name": "String"}},
+            {"name": "elapsed_ms", "type": {"kind": "primitive", "name": "Int"}},
+            {"name": "setup_ms", "type": {"kind": "primitive", "name": "Int"}},
+            {"name": "compile_ms", "type": {"kind": "primitive", "name": "Int"}},
+            {"name": "provider_attempts", "type": {"kind": "primitive", "name": "Value"}},
+            {"name": "token_usage", "type": {"kind": "primitive", "name": "Value"}},
+            {"name": "cost", "type": {"kind": "primitive", "name": "Value"}},
+        ],
+    }
+
+
+def test_run_ref_result_contract_is_hydration_and_source_path_independent() -> None:
+    left = _mode_one_expr(source_path="/clone-a/controller.orc")
+    right = _mode_one_expr(source_path="/clone-b/controller.orc")
+
+    left_contract, left_type, _ = _run_ref_result_contract(
+        left,
+        PrimitiveTypeRef("String"),
+        hydrate=True,
+    )
+    right_contract, right_type, _ = _run_ref_result_contract(
+        right,
+        PrimitiveTypeRef("String"),
+        hydrate=True,
+    )
+
+    assert left_type.name == right_type.name
+    assert left_contract.descriptor == right_contract.descriptor
+    assert left_contract.digest == right_contract.digest
+
+
+def test_run_ref_result_contract_digest_binds_child_and_site_without_flattening() -> None:
+    base = _mode_one_expr()
+    moved = replace(
+        base,
+        span=replace(
+            base.span,
+            start=replace(base.span.start, column=base.span.start.column + 1),
+        ),
+    )
+    string_contract, _, _ = _run_ref_result_contract(
+        base,
+        PrimitiveTypeRef("String"),
+    )
+    bool_contract, _, _ = _run_ref_result_contract(
+        base,
+        PrimitiveTypeRef("Bool"),
+    )
+    moved_contract, _, _ = _run_ref_result_contract(
+        moved,
+        PrimitiveTypeRef("String"),
+    )
+
+    assert len(
+        {string_contract.digest, bool_contract.digest, moved_contract.digest}
+    ) == 3
+    tampered = deepcopy(string_contract.descriptor)
+    tampered["envelope"]["fields"][1]["type"]["fields"][0]["name"] = "changed"
+    from orchestrator.workflow.run_ref.contracts import canonical_sha256
+
+    assert canonical_sha256(tampered) != string_contract.digest
+
+
+def _record_with_fields(
+    record: RecordTypeRef,
+    fields,
+    *,
+    name: str | None = None,
+) -> RecordTypeRef:
+    resolved_name = name or record.name
+    return RecordTypeRef(
+        name=resolved_name,
+        definition=RecordDef(
+            name=resolved_name,
+            fields=tuple(
+                RecordField(
+                    name=field_name,
+                    type_name=field_type.name,
+                    span=record.definition.span,
+                )
+                for field_name, field_type in fields
+            ),
+            span=record.definition.span,
+        ),
+        field_types=dict(fields),
+    )
+
+
+def test_run_ref_result_contract_rejects_forged_envelopes_and_fixed_schemas() -> None:
+    expr = _mode_one_expr()
+    _, valid, type_env = _run_ref_result_contract(
+        expr,
+        PrimitiveTypeRef("String"),
+    )
+    value = valid.field_types["value"]
+    workspace = valid.field_types["workspace_delta"]
+    accounting = valid.field_types["accounting"]
+    valid_fields = (
+        ("value", value),
+        ("workspace_delta", workspace),
+        ("accounting", accounting),
+    )
+    wrong_workspace_name = _record_with_fields(
+        workspace,
+        tuple(workspace.field_types.items()),
+        name="OtherWorkspaceDelta",
+    )
+    wrong_accounting_name = _record_with_fields(
+        accounting,
+        tuple(accounting.field_types.items()),
+        name="OtherRunRefAccounting",
+    )
+    changed_accounting = _record_with_fields(
+        accounting,
+        (*tuple(accounting.field_types.items()), ("extra", PrimitiveTypeRef("Int"))),
+    )
+    base = workspace.field_types["base"]
+    changed_base = _record_with_fields(
+        base,
+        (
+            ("digest", PrimitiveTypeRef("Bool")),
+            *tuple(list(base.field_types.items())[1:]),
+        ),
+    )
+    changed_workspace = _record_with_fields(
+        workspace,
+        (
+            ("base", changed_base),
+            *tuple(list(workspace.field_types.items())[1:]),
+        ),
+    )
+    invalid = (
+        _record_with_fields(valid, valid_fields, name="OtherResult"),
+        _record_with_fields(valid, (valid_fields[1], valid_fields[0], valid_fields[2])),
+        _record_with_fields(valid, valid_fields[:-1]),
+        _record_with_fields(valid, (*valid_fields, ("extra", value))),
+        _record_with_fields(
+            valid,
+            (("value", value), ("workspace_delta", wrong_workspace_name), ("accounting", accounting)),
+        ),
+        _record_with_fields(
+            valid,
+            (("value", value), ("workspace_delta", workspace), ("accounting", wrong_accounting_name)),
+        ),
+        _record_with_fields(
+            valid,
+            (("value", PrimitiveTypeRef("Json")), ("workspace_delta", workspace), ("accounting", accounting)),
+        ),
+        _record_with_fields(
+            valid,
+            (("value", value), ("workspace_delta", changed_workspace), ("accounting", accounting)),
+        ),
+        _record_with_fields(
+            valid,
+            (("value", value), ("workspace_delta", workspace), ("accounting", changed_accounting)),
+        ),
+    )
+
+    for forged in invalid:
+        with pytest.raises(ValueError):
+            derive_run_ref_result_contract(
+                forged,
+                type_env=type_env,
+            )
+
+
+def test_run_ref_result_contract_is_additive_to_ordinary_result_contracts() -> None:
+    from orchestrator.workflow_lisp.contracts import derive_structured_result_contract
+
+    expr = _mode_one_expr()
+    bool_type, record_type, union_type, *_ = _transportable_types(expr.span)
+    ordinary = tuple(
+        derive_structured_result_contract(
+            type_ref,
+            workflow_name="ordinary",
+            step_id=f"step-{index}",
+        )
+        for index, type_ref in enumerate((bool_type, record_type, union_type))
+    )
+    _run_ref_result_contract(expr, PrimitiveTypeRef("String"))
+    repeated = tuple(
+        derive_structured_result_contract(
+            type_ref,
+            workflow_name="ordinary",
+            step_id=f"step-{index}",
+        )
+        for index, type_ref in enumerate((bool_type, record_type, union_type))
+    )
+
+    assert repeated == ordinary
+    assert [contract.contract_kind for contract in ordinary] == [
+        "output_bundle",
+        "output_bundle",
+        "variant_output",
+    ]
+    assert [contract.result_shape for contract in ordinary] == [
+        "root_value",
+        "record_value",
+        "union_value",
+    ]
 
 
 @pytest.mark.parametrize("return_index", range(8))
