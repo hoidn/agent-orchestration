@@ -3123,6 +3123,61 @@ def test_run_ref_output_bundle_projection_accepts_every_transportable_child_root
     assert any(field["name"].startswith("accounting__") for field in fields)
 
 
+def test_run_ref_leaf_rejects_flattened_output_name_collisions_before_mutation() -> None:
+    expr = _mode_one_expr()
+    string_type = PrimitiveTypeRef("String")
+    nested_definition = RecordDef(
+        name="NestedCollision",
+        fields=(
+            RecordField(name="b", type_name="String", span=expr.span),
+        ),
+        span=expr.span,
+    )
+    nested_type = RecordTypeRef(
+        name="NestedCollision",
+        definition=nested_definition,
+        field_types={"b": string_type},
+    )
+    collision_definition = RecordDef(
+        name="CollisionResult",
+        fields=(
+            RecordField(name="a__b", type_name="String", span=expr.span),
+            RecordField(
+                name="a",
+                type_name="NestedCollision",
+                span=expr.span,
+            ),
+        ),
+        span=expr.span,
+    )
+    collision_type = RecordTypeRef(
+        name="CollisionResult",
+        definition=collision_definition,
+        field_types={"a__b": string_type, "a": nested_type},
+    )
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(
+        expr,
+        return_type=collision_type,
+        extra_types=(nested_type, collision_type),
+    )
+    context = _run_ref_lowering_context(type_env)
+
+    with pytest.raises(ValueError, match="collision"):
+        _lower_run_ref_operation(
+            _lowerable_run_ref(typed, type_env=type_env),
+            result_type=typed.type_ref,
+            context=context,
+            local_values={},
+            identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+                "sha256:" + "a" * 64
+            ),
+        )
+
+    assert context.generated_path_allocations == []
+    assert context.step_spans == {}
+    assert context.lowering_session.run_ref_compiler_runtime_identity_digest is None
+
+
 @pytest.mark.parametrize("value_kind", ("composite", "complex", "effectful"))
 def test_run_ref_leaf_rejects_values_deferred_to_structural_binding_slice(
     value_kind: str,

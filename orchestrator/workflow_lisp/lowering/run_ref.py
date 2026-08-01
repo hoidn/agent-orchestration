@@ -118,6 +118,7 @@ def _lower_run_ref_operation(
         or contract.digest != run_ref.payload.result_digest
     ):
         raise ValueError("run-ref result metadata changed before lowering")
+    output_fields = derive_run_ref_output_bundle_fields(contract)
 
     payload_descriptors = run_ref.payload.input_type_descriptors
     if len(run_ref.inputs) != len(payload_descriptors):
@@ -179,7 +180,6 @@ def _lower_run_ref_operation(
         step_id=step_id,
         source=run_ref,
     )
-    output_fields = derive_run_ref_output_bundle_fields(contract)
     step = {
         "name": step_name,
         "id": step_id,

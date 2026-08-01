@@ -179,6 +179,7 @@ def derive_run_ref_output_bundle_fields(
         expected_digest=contract.digest,
     )
     fields: list[dict[str, Any]] = []
+    field_paths_by_name: dict[str, tuple[str, ...]] = {}
 
     def visit(node: Mapping[str, Any], *, path: tuple[str, ...]) -> None:
         if node.get("kind") == "record":
@@ -194,9 +195,18 @@ def derive_run_ref_output_bundle_fields(
                     raise ValueError("run-ref record descriptor field is malformed")
                 visit(field_type, path=(*path, name))
             return
+        flattened_name = "__".join(path)
+        prior_path = field_paths_by_name.get(flattened_name)
+        if prior_path is not None:
+            raise ValueError(
+                "run-ref output bundle artifact-name collision: "
+                f"{prior_path!r} and {path!r} both project to "
+                f"{flattened_name!r}"
+            )
+        field_paths_by_name[flattened_name] = path
         fields.append(
             {
-                "name": "__".join(path),
+                "name": flattened_name,
                 "json_pointer": "/" + "/".join(
                     part.replace("~", "~0").replace("/", "~1")
                     for part in path
