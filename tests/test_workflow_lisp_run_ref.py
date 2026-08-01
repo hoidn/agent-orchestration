@@ -948,30 +948,40 @@ def test_run_ref_result_contract_descriptor_views_are_defensive_copies() -> None
     assert canonical_sha256(fresh_descriptor) == contract.digest
 
 
-def test_run_ref_result_contract_constructor_rejects_invalid_authority() -> None:
-    from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
+def test_run_ref_result_contract_is_not_publicly_constructible() -> None:
+    from orchestrator.workflow.run_ref.contracts import (
+        canonical_json_bytes,
+        canonical_sha256,
+    )
 
     expr = _mode_one_expr()
     contract, result_type, _ = _run_ref_result_contract(
         expr,
         PrimitiveTypeRef("String"),
     )
-    canonical_descriptor = canonical_json_bytes(contract.descriptor)
+    malformed = {
+        "schema": RUN_REF_RESULT_CONTRACT_SCHEMA,
+        "envelope": {},
+    }
     invalid = (
         (
-            canonical_descriptor.replace(b'"schema":', b'"schema": '),
-            contract.digest,
+            canonical_json_bytes(malformed),
+            canonical_sha256(malformed),
+            result_type,
         ),
-        (canonical_json_bytes([]), contract.digest),
-        (canonical_descriptor, "sha256:" + "0" * 64),
+        (
+            canonical_json_bytes(contract.descriptor),
+            contract.digest,
+            PrimitiveTypeRef("String"),
+        ),
     )
 
-    for descriptor_json, digest in invalid:
-        with pytest.raises(ValueError):
+    for descriptor_json, digest, unrelated_type_ref in invalid:
+        with pytest.raises(TypeError):
             GeneratedRunRefResultContract(
                 _descriptor_json=descriptor_json,
                 digest=digest,
-                type_ref=result_type,
+                type_ref=unrelated_type_ref,
             )
 
 

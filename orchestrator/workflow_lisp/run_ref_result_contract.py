@@ -26,7 +26,7 @@ _GENERATED_RESULT_NAME = re.compile(r"RunRefResult\$[0-9a-f]{16}\Z")
 _RESULT_FIELD_NAMES = ("value", "workspace_delta", "accounting")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class GeneratedRunRefResultContract:
     """Content-addressed normalized contract for one generated result carrier."""
 
@@ -34,34 +34,27 @@ class GeneratedRunRefResultContract:
     digest: str
     type_ref: RecordTypeRef
 
-    def __post_init__(self) -> None:
-        if type(self._descriptor_json) is not bytes:
-            raise ValueError("run-ref result descriptor authority must be bytes")
-        try:
-            decoded = json.loads(self._descriptor_json)
-        except (json.JSONDecodeError, UnicodeDecodeError, TypeError) as exc:
-            raise ValueError(
-                "run-ref result descriptor authority must be valid JSON"
-            ) from exc
-        if (
-            not isinstance(decoded, dict)
-            or set(decoded) != {"schema", "envelope"}
-            or decoded.get("schema") != RUN_REF_RESULT_CONTRACT_SCHEMA
-            or not isinstance(decoded.get("envelope"), dict)
-        ):
-            raise ValueError("run-ref result descriptor authority has invalid shape")
-        if canonical_json_bytes(decoded) != self._descriptor_json:
-            raise ValueError(
-                "run-ref result descriptor authority must use canonical JSON"
-            )
-        if canonical_sha256(decoded) != self.digest:
-            raise ValueError("run-ref result descriptor digest mismatch")
-
     @property
     def descriptor(self) -> dict[str, Any]:
         """Return a defensive copy of the canonical descriptor."""
 
         return json.loads(self._descriptor_json)
+
+
+def _make_generated_run_ref_result_contract(
+    descriptor: dict[str, Any],
+    *,
+    type_ref: RecordTypeRef,
+) -> GeneratedRunRefResultContract:
+    contract = object.__new__(GeneratedRunRefResultContract)
+    object.__setattr__(
+        contract,
+        "_descriptor_json",
+        canonical_json_bytes(descriptor),
+    )
+    object.__setattr__(contract, "digest", canonical_sha256(descriptor))
+    object.__setattr__(contract, "type_ref", type_ref)
+    return contract
 
 
 def _require_generated_result_shape(result_type_ref: RecordTypeRef) -> None:
@@ -144,8 +137,7 @@ def derive_run_ref_result_contract(
         "schema": RUN_REF_RESULT_CONTRACT_SCHEMA,
         "envelope": envelope,
     }
-    return GeneratedRunRefResultContract(
-        _descriptor_json=canonical_json_bytes(descriptor),
-        digest=canonical_sha256(descriptor),
+    return _make_generated_run_ref_result_contract(
+        descriptor,
         type_ref=result_type_ref,
     )
