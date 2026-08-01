@@ -8,6 +8,8 @@ from typing import get_args
 
 import pytest
 
+from orchestrator.exceptions import WorkflowValidationError
+from orchestrator.workflow import core_ast as core_ast_module
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.run_ref.config import (
     ArrayBinding,
@@ -3396,6 +3398,115 @@ def test_surface_run_ref_manifest_json_uses_only_canonical_record() -> None:
     assert "_canonical_bytes" not in repr(run_ref_payload)
     assert "_result_descriptor_json" not in repr(run_ref_payload)
     assert "run_ref" not in ordinary_payload
+
+
+def _core_run_ref_workflow(
+    config: RunRefStaticConfig | None = None,
+):
+    config = config or _surface_run_ref_config()
+    surface = elaborate_surface_workflow(
+        _surface_mapping_with_run_ref(config),
+        workflow_path=Path("/tmp/generated-run-ref-core.orc"),
+        imported_bundles={},
+        allow_generated_step_kinds=True,
+    )
+    assert surface is not None
+    core = core_ast_module.build_core_workflow_ast(
+        surface,
+        imports={},
+        provenance=surface.provenance,
+    )
+    surface_config = surface.steps[0].run_ref
+    assert type(surface_config) is RunRefStaticConfig
+    return core, surface_config
+
+
+def test_run_ref_core_carriage_preserves_exact_typed_config_both_directions() -> None:
+    core, config = _core_run_ref_workflow()
+
+    [statement] = core.body
+    assert type(statement) is core_ast_module.CoreRunRefStep
+    assert statement.run_ref is config
+
+    reconstructed = core_ast_module._surface_workflow_from_core_ast(core)
+    [surface_step] = reconstructed.steps
+    assert surface_step.kind is SurfaceStepKind.RUN_REF
+    assert surface_step.run_ref is config
+
+
+def test_run_ref_core_json_uses_only_canonical_config_record() -> None:
+    core, config = _core_run_ref_workflow()
+
+    [statement] = core_ast_module.workflow_core_ast_to_json(core)["body"]
+
+    assert statement["kind"] == "run_ref"
+    assert statement["run_ref"] == config.record
+    assert "digest" not in statement["run_ref"]
+    assert "_canonical_bytes" not in repr(statement)
+    assert "_result_descriptor_json" not in repr(statement)
+
+
+def test_core_run_ref_step_rejects_non_authoritative_config_at_construction() -> None:
+    core, _ = _core_run_ref_workflow()
+    [statement] = core.body
+
+    with pytest.raises(TypeError, match="static config authority"):
+        core_ast_module.CoreRunRefStep(
+            meta=statement.meta,
+            common=statement.common,
+            run_ref=object(),
+        )
+
+
+def test_core_run_ref_step_rejects_kind_drift_at_construction_and_validation() -> None:
+    core, config = _core_run_ref_workflow()
+    [statement] = core.body
+    wrong_meta = replace(statement.meta, step_kind="provider")
+
+    with pytest.raises(ValueError, match="run_ref.*step kind"):
+        core_ast_module.CoreRunRefStep(
+            meta=wrong_meta,
+            common=statement.common,
+            run_ref=config,
+        )
+
+    object.__setattr__(statement, "meta", wrong_meta)
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        core_ast_module.validate_core_workflow_ast(core, imports={})
+
+    assert "run_ref step kind" in excinfo.value.errors[0].message
+
+
+@pytest.mark.parametrize(
+    ("field_name", "forged_value"),
+    (
+        ("site_digest", "0" * 64),
+        ("_canonical_bytes", b"{}"),
+    ),
+)
+def test_core_run_ref_validation_rejects_authority_tampering(
+    field_name: str,
+    forged_value: object,
+) -> None:
+    core, config = _core_run_ref_workflow()
+    object.__setattr__(config, field_name, forged_value)
+
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        core_ast_module.validate_core_workflow_ast(core, imports={})
+
+    [error] = excinfo.value.errors
+    assert "core_workflow_ast_invalid" in error.message
+    assert error.subject_refs
+    assert error.subject_refs[0].subject_kind == "step_id"
+    assert error.subject_refs[0].subject_name == "run_child"
+
+
+def test_run_ref_core_json_revalidates_config_authority() -> None:
+    core, config = _core_run_ref_workflow()
+    object.__setattr__(config, "result_digest", "sha256:" + "0" * 64)
+
+    with pytest.raises(ValueError, match="authority"):
+        core_ast_module.workflow_core_ast_to_json(core)
 
 
 def test_run_ref_leaf_builds_exact_config_and_one_result_allocation() -> None:

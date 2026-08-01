@@ -22,6 +22,10 @@ from .prompt_fragment_contract import (
     validate_compiler_prompt_attempt_pair,
     validate_compiler_prompt_fragment_pair,
 )
+from .run_ref.config import (
+    RunRefStaticConfig,
+    validate_run_ref_static_config_authority,
+)
 from .state_layout import GeneratedPathAllocation
 from .surface_ast import (
     ImportedWorkflowMetadata,
@@ -183,6 +187,23 @@ class CoreProviderPeerGroupStep:
     common: Any
     provider_peer_group: Any
     _surface_step: SurfaceStep | None = field(default=None, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class CoreRunRefStep:
+    meta: CoreStmtMeta
+    common: Any
+    run_ref: RunRefStaticConfig
+    _surface_step: SurfaceStep | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        if self.meta.step_kind != SurfaceStepKind.RUN_REF.value:
+            raise ValueError("run_ref core step kind must be run_ref")
+        validate_run_ref_static_config_authority(self.run_ref)
 
 
 @dataclass(frozen=True)
@@ -459,6 +480,35 @@ def validate_core_workflow_ast(
                         ),
                     )
                 )
+        if isinstance(statement, CoreRunRefStep):
+            if statement.meta.step_kind != SurfaceStepKind.RUN_REF.value:
+                errors.append(
+                    ValidationError(
+                        message=(
+                            "core_workflow_ast_invalid: run_ref step kind "
+                            "must be run_ref"
+                        ),
+                        subject_refs=_subject_refs_for_meta(
+                            core_workflow_ast.workflow_name,
+                            meta,
+                        ),
+                    )
+                )
+            try:
+                validate_run_ref_static_config_authority(statement.run_ref)
+            except (TypeError, ValueError) as exc:
+                errors.append(
+                    ValidationError(
+                        message=(
+                            "core_workflow_ast_invalid: "
+                            f"run_ref config authority is invalid: {exc}"
+                        ),
+                        subject_refs=_subject_refs_for_meta(
+                            core_workflow_ast.workflow_name,
+                            meta,
+                        ),
+                    )
+                )
         if isinstance(statement, CoreCallStep):
             alias = statement.call_alias
             if isinstance(alias, str) and alias and alias not in core_workflow_ast.imports and alias not in imports:
@@ -658,6 +708,13 @@ def _build_statement(
             meta=meta,
             common=step.common,
             provider_peer_group=step.provider_peer_group,
+            _surface_step=step,
+        )
+    if step.kind is SurfaceStepKind.RUN_REF:
+        return CoreRunRefStep(
+            meta=meta,
+            common=step.common,
+            run_ref=step.run_ref,
             _surface_step=step,
         )
     if step.kind is SurfaceStepKind.ADJUDICATED_PROVIDER:
@@ -1093,6 +1150,8 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
         kwargs["provider_supervision"] = statement.provider_supervision
     elif isinstance(statement, CoreProviderPeerGroupStep):
         kwargs["provider_peer_group"] = statement.provider_peer_group
+    elif isinstance(statement, CoreRunRefStep):
+        kwargs["run_ref"] = statement.run_ref
     elif isinstance(statement, CoreAdjudicatedProviderStep):
         kwargs["adjudicated_provider"] = statement.adjudicated_provider
     elif isinstance(statement, CoreWaitForStep):
@@ -1322,6 +1381,15 @@ def _statement_to_json(statement: Any) -> dict[str, Any]:
                 "provider_peer_group": _provider_peer_group_to_json(
                     statement.provider_peer_group
                 ),
+            }
+        )
+        return payload
+    if isinstance(statement, CoreRunRefStep):
+        validate_run_ref_static_config_authority(statement.run_ref)
+        payload.update(
+            {
+                "kind": "run_ref",
+                "run_ref": statement.run_ref.record,
             }
         )
         return payload
