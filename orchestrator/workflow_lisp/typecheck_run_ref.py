@@ -210,7 +210,11 @@ def compiler_run_ref_fixed_types(
 
     def primitive(name: str) -> PrimitiveTypeRef:
         existing = type_env._type_refs.get(name)
-        if isinstance(existing, PrimitiveTypeRef):
+        if (
+            type(existing) is PrimitiveTypeRef
+            and existing.name == name
+            and existing.allowed_values == ()
+        ):
             return existing
         raise TypecheckSessionStateCollisionError(
             f"run-ref requires target primitive {name!r}"

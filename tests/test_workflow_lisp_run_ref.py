@@ -52,6 +52,7 @@ from orchestrator.workflow_lisp.type_env import (
 from orchestrator.workflow_lisp.typecheck_dispatch import typecheck_expression
 from orchestrator.workflow_lisp.typecheck_run_ref import (
     RUN_REF_FIXED_TYPE_NAMES,
+    compiler_run_ref_fixed_types,
     metadata_for_run_ref_expr,
     register_all_known_run_ref_types,
 )
@@ -1803,6 +1804,63 @@ def test_run_ref_fixed_catalog_rejects_missing_target_primitive(
             type_env=type_env,
             value_env={},
             workflow_catalog=_catalog(expr),
+        )
+
+
+@pytest.mark.parametrize(
+    "primitive_name",
+    ("String", "Int", "Bool", "Value", "RunId"),
+)
+def test_run_ref_fixed_catalog_and_result_contract_reject_enum_like_primitives(
+    primitive_name: str,
+) -> None:
+    from orchestrator.workflow_lisp.typecheck_context import (
+        TypecheckSessionStateCollisionError,
+    )
+
+    malformed = PrimitiveTypeRef(
+        name=primitive_name,
+        allowed_values=("MALFORMED",),
+    )
+    type_env = _type_env()
+    type_env._type_refs[primitive_name] = malformed
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        compiler_run_ref_fixed_types(type_env)
+
+    expr = _mode_one_expr()
+    _, result_type, contract_env = _run_ref_result_contract(
+        expr,
+        PrimitiveTypeRef("String"),
+    )
+    contract_env._type_refs[primitive_name] = malformed
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        derive_run_ref_result_contract(
+            result_type,
+            type_env=contract_env,
+        )
+
+
+def test_run_ref_fixed_catalog_and_result_contract_reject_key_name_mismatch() -> None:
+    from orchestrator.workflow_lisp.typecheck_context import (
+        TypecheckSessionStateCollisionError,
+    )
+
+    mismatched = PrimitiveTypeRef("NotString")
+    type_env = _type_env()
+    type_env._type_refs["String"] = mismatched
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        compiler_run_ref_fixed_types(type_env)
+
+    expr = _mode_one_expr()
+    _, result_type, contract_env = _run_ref_result_contract(
+        expr,
+        PrimitiveTypeRef("String"),
+    )
+    contract_env._type_refs["String"] = mismatched
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        derive_run_ref_result_contract(
+            result_type,
+            type_env=contract_env,
         )
 
 
