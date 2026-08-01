@@ -207,6 +207,21 @@ def _normalized_revision_vector(
     )
 
 
+def _module_revision_vector(
+    result: FrontendInMemoryBuildResult,
+) -> tuple[tuple[str, str], ...]:
+    revisions_by_path = dict(result.source_read_trace.revision_vector)
+    return tuple(
+        (
+            module_name,
+            revisions_by_path[module_source.path.resolve()],
+        )
+        for module_name, module_source in sorted(
+            result.compile_result.graph.modules_by_name.items()
+        )
+    )
+
+
 @pytest.mark.parametrize("mutation", ("entry", "dependency"))
 def test_same_canonical_paths_are_reread_after_source_bytes_change(
     tmp_path: Path,
@@ -274,6 +289,11 @@ def test_identical_trees_in_distinct_roots_compile_equivalently_after_root_norma
     ) == _normalized_revision_vector(
         second.source_read_trace.revision_vector,
         second_root,
+    )
+    assert _module_revision_vector(first) == _module_revision_vector(second)
+    assert tuple(name for name, _digest in _module_revision_vector(first)) == (
+        _ENTRY_MODULE,
+        _HELPER_MODULE,
     )
     assert _normalized_revision_vector(
         first.configuration_trace.revision_vector,

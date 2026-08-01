@@ -395,14 +395,15 @@ plan's exact proof record only.
       input remains.
 
 Task 0A result: `tests/test_workflow_lisp_e1_compile_hermeticity.py`
-(`sha256:7c5d6bc9bb3324f533b56151b4917d4dfcf23cd8dabd52dce9b852af6d575c00`)
+(`sha256:bb7bc47ccdee6e3e3e7e5847e2d4c1b5a3d75194bc6d47014bb6804e0c97382a`)
 collects five tests and passed five of five. The same-process entry and
 dependency mutations produced fresh source revisions and changed normalized
 compiler payloads; byte-identical trees at distinct roots produced equal
 root-normalized core, semantic, executable, runtime-plan, boundary, and
-persisted views; the read vectors enumerated both source files and all three
-configuration files; and malformed input produced the ordinary compiler's
-structured `type_unknown` diagnostic. No stale cache reuse was observed.
+persisted views plus the exact module-name-to-source-digest vector; the read
+vectors enumerated both source files and all three configuration files; and
+malformed input produced the ordinary compiler's structured `type_unknown`
+diagnostic. No stale cache reuse was observed.
 
 The probe also confirmed that the existing frontend fingerprint and derived
 provenance include absolute build/source-root spellings. They are build-cache
@@ -469,23 +470,7 @@ create/modify non-security CLI compiler tests.
 - [ ] Run compile/diagnostic/CLI selectors, ordered reviews, commit, and
       postcommit controls.
 
-## Task 4: Implement the self-contained compiled-bundle capsule
-
-**Files:** create `orchestrator/workflow/run_ref/bundle_transport.py` and
-private child command; modify build artifact/provenance plumbing; create
-`tests/test_workflow_run_ref_bundle_transport.py`.
-
-- [ ] RED: missing/tampered/oversize/version-skewed pickle, closure, signature,
-      and canonical IR digests reject before decode/execution.
-- [ ] RED: an asset-using bundle with an imported call executes from staged
-      closure bytes after original source/assets are made unreadable; patched
-      compiler/reader functions are never called.
-- [ ] Emit the closed capsule only for reachable mode-1 forms, stage/relocate
-      it, refreeze decoded mappings, and run existing cross-validators.
-- [ ] Run build/bundle/call/asset selectors, ordered reviews, commit, and
-      postcommit controls.
-
-## Task 5: Add the typed `run-ref` compiler and shared IR surface
+## Task 4: Add the typed `run-ref` compiler and shared IR surface
 
 **Files:** form/syntax/expression/effect/typecheck/contract/WCC modules;
 shared `surface_ast.py`, `core_ast.py`, `semantic_ir.py`, `executable_ir.py`,
@@ -504,28 +489,27 @@ source-map modules; create `tests/test_workflow_lisp_run_ref.py`.
 - [ ] Run compiler/IR/persisted/checkpoint selectors, ordered reviews, commit,
       and postcommit controls.
 
-## Task 6: Implement the parent runtime, child launch, ledger, and delta
+## Task 5: Implement the self-contained compiled-bundle capsule
 
-**Files:** create `orchestrator/workflow/run_ref/{child,ledger,runtime}.py`;
-minimal executor/state/checkpoint dispatch changes; create
-`tests/test_workflow_run_ref_runtime.py`.
+**Files:** create `orchestrator/workflow/run_ref/bundle_transport.py` and
+private child command; modify build artifact/provenance plumbing; create
+`tests/test_workflow_run_ref_bundle_transport.py`.
 
-- [ ] RED distinct parent/child roots and locks, exact input/path copying,
-      setup-before-baseline, typed output validation, complete deterministic
-      delta, accounting `UNKNOWN` behavior, and declared artifacts.
-- [ ] RED crash injection at allocation, materialize, setup, decode/compile,
-      launch, child completion, delta, and parent commit boundaries.
-- [ ] Require incomplete-attempt disposition + exact workspace deletion +
-      fresh ordinal; require completed-result validation/reuse with zero child
-      launches. Tamper/ambiguity/discard failure stays fail-closed.
-- [ ] Implement only the delegated runtime service and minimum shared state
-      field/configuration plumbing.
-- [ ] Run runtime/state/resume/replay selectors, ordered reviews, commit, and
+- [ ] RED: missing/tampered/oversize/version-skewed pickle, closure, signature,
+      and canonical IR digests reject before decode/execution.
+- [ ] RED: an asset-using bundle with an imported call executes from staged
+      closure bytes after original source/assets are made unreadable; patched
+      compiler/reader functions are never called.
+- [ ] Using Task 4's reachable mode-1 forms and closed step config, emit the
+      closed capsule only for those forms, stage/relocate it, refreeze decoded
+      mappings, and run existing cross-validators.
+- [ ] Run build/bundle/call/asset selectors, ordered reviews, commit, and
       postcommit controls.
 
-## Task 7: Close mode-2 compilation and admissible-environment proof
+## Task 6: Close mode-2 compilation and admissible-environment proof
 
-**Files:** run-ref runtime/compiler modules and focused mode-2 tests only.
+**Files:** create the run-ref child compile/admission module and focused mode-2
+tests only; do not add parent launch/ledger behavior yet.
 
 - [ ] RED ordinary full child compile from the pinned root, structured compile
       rejection, missing program, signature mismatch, all transportable input
@@ -536,6 +520,27 @@ minimal executor/state/checkpoint dispatch changes; create
 - [ ] Bind normalized source/config/compiler identity and prove equal pinned
       inputs produce equal program/evidence digests.
 - [ ] Run mode-2/compiler/effect selectors, ordered reviews, commit, and
+      postcommit controls.
+
+## Task 7: Implement the parent runtime, child launch, ledger, and delta
+
+**Files:** create `orchestrator/workflow/run_ref/{child,ledger,runtime}.py`;
+minimal executor/state/checkpoint dispatch changes; create
+`tests/test_workflow_run_ref_runtime.py`.
+
+- [ ] RED distinct parent/child roots and locks, exact input/path copying for
+      both compiled program modes, setup-before-baseline, typed output
+      validation, complete deterministic delta, accounting `UNKNOWN`
+      behavior, and declared artifacts.
+- [ ] RED crash injection at allocation, materialize, setup, mode-1 decode or
+      Task 6 mode-2 compile, launch, child completion, delta, and parent commit
+      boundaries.
+- [ ] Require incomplete-attempt disposition + exact workspace deletion +
+      fresh ordinal; require completed-result validation/reuse with zero child
+      launches. Tamper/ambiguity/discard failure stays fail-closed.
+- [ ] Implement only the delegated runtime service and minimum shared state
+      field/configuration plumbing over the landed mode-1 and mode-2 services.
+- [ ] Run runtime/state/resume/replay selectors, ordered reviews, commit, and
       postcommit controls.
 
 ## Task 8: Prove both modes end to end and close E1 feasibility proofs
