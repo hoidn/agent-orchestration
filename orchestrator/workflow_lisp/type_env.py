@@ -294,6 +294,7 @@ class FrontendTypeEnvironment:
         self._schema_names = frozenset(schema_names)
         self._resource_defs = dict(resource_defs or {})
         self._transition_defs = dict(transition_defs or {})
+        self._compiler_owned_type_names: set[str] = set()
         self.session_state = session_state
         self._nominal_descriptor_names_by_definition_id = dict(
             nominal_descriptor_names_by_definition_id or {}
@@ -526,6 +527,7 @@ class FrontendTypeEnvironment:
             expansion_stack=expansion_stack,
             local_type_params=local_type_params,
             session_state=session_state,
+            compiler_owned_type_names=self._compiler_owned_type_names,
         )
 
     def record_field(
@@ -694,6 +696,7 @@ class FrontendTypeEnvironment:
         expansion_stack: tuple[object, ...] = (),
         local_type_params: frozenset[str] = frozenset(),
         session_state: TypecheckSessionState | None = None,
+        compiler_owned_type_names: set[str] | None = None,
     ) -> TypeRef:
         if name.startswith("%loop-state.") and session_state is not None:
             from .loop_state import register_known_carrier_type
@@ -704,6 +707,24 @@ class FrontendTypeEnvironment:
                 type_name=name,
                 span=span,
                 form_path=form_path,
+            )
+        if name.startswith("RunRefResult$") and session_state is not None:
+            from .typecheck_run_ref import register_all_known_run_ref_types
+
+            register_all_known_run_ref_types(
+                type_env=type(
+                    "_TypeEnvProxy",
+                    (),
+                    {
+                        "_type_refs": type_refs,
+                        "_compiler_owned_type_names": (
+                            compiler_owned_type_names
+                            if compiler_owned_type_names is not None
+                            else set()
+                        ),
+                    },
+                )(),
+                session_state=session_state,
             )
         parsed = parse_type_expression(
             name,

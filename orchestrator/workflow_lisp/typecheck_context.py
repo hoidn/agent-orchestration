@@ -109,6 +109,13 @@ def snapshot_session_state(state: TypecheckSessionState) -> TypecheckSessionStat
                 state.loop_carrier_metadata_by_expr_key.items()
             )
         },
+        run_ref_metadata_by_name=dict(state.run_ref_metadata_by_name),
+        run_ref_metadata_by_expr_key={
+            expr_key: dict(metadata_by_signature)
+            for expr_key, metadata_by_signature in (
+                state.run_ref_metadata_by_expr_key.items()
+            )
+        },
         parametric_specialization_requests=dict(
             state.parametric_specialization_requests
         ),
@@ -136,6 +143,13 @@ def restore_session_state(
         expr_key: dict(metadata_by_signature)
         for expr_key, metadata_by_signature in (
             snapshot.loop_carrier_metadata_by_expr_key.items()
+        )
+    }
+    state.run_ref_metadata_by_name = dict(snapshot.run_ref_metadata_by_name)
+    state.run_ref_metadata_by_expr_key = {
+        expr_key: dict(metadata_by_signature)
+        for expr_key, metadata_by_signature in (
+            snapshot.run_ref_metadata_by_expr_key.items()
         )
     }
     state.parametric_specialization_requests = dict(
@@ -197,6 +211,8 @@ def _merge_nested_unique_outputs(
     root_name: str,
     outer: Mapping[_Key, Mapping[_NestedKey, _Value]],
     completed: Mapping[_Key, Mapping[_NestedKey, _Value]],
+    *,
+    values_match: Callable[[object, object], bool] = _values_match,
 ) -> dict[_Key, dict[_NestedKey, _Value]]:
     merged = {key: dict(values) for key, values in outer.items()}
     for key, completed_values in completed.items():
@@ -204,6 +220,7 @@ def _merge_nested_unique_outputs(
             root_name,
             outer.get(key, {}),
             completed_values,
+            values_match=values_match,
         )
     return merged
 
@@ -231,6 +248,20 @@ def merge_successful_session_outputs(
             outer.loop_carrier_metadata_by_expr_key,
             completed.loop_carrier_metadata_by_expr_key,
         )
+    )
+    from .typecheck_run_ref import run_ref_metadata_equivalent
+
+    merged.run_ref_metadata_by_name = _merge_unique_outputs(
+        "run_ref_metadata_by_name",
+        outer.run_ref_metadata_by_name,
+        completed.run_ref_metadata_by_name,
+        values_match=run_ref_metadata_equivalent,
+    )
+    merged.run_ref_metadata_by_expr_key = _merge_nested_unique_outputs(
+        "run_ref_metadata_by_expr_key",
+        outer.run_ref_metadata_by_expr_key,
+        completed.run_ref_metadata_by_expr_key,
+        values_match=run_ref_metadata_equivalent,
     )
     merged.parametric_specialization_requests = _merge_unique_outputs(
         "parametric_specialization_requests",

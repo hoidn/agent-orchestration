@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from .procedure_typecheck import PendingParametricProcedureSpecialization
     from .procedures import ProcedureSignature, TypedProcedureDef
     from .prompts import PromptCatalog
+    from .typecheck_run_ref import RunRefSiteMetadata
     from .spans import SourceSpan
     from .typecheck_context import LoopTypecheckContext
     from .workflows import WorkflowSignature
@@ -26,6 +27,8 @@ NameResolver: TypeAlias = Callable[
 ]
 LoopCarrierExprKey: TypeAlias = tuple[str, int, int, tuple[str, ...]]
 LoopCarrierFieldSignature: TypeAlias = tuple[tuple[str, str], ...]
+RunRefExprKey: TypeAlias = str
+RunRefTypeSignature: TypeAlias = str
 
 
 @dataclass
@@ -73,6 +76,13 @@ class TypecheckSessionState:
     ] = field(
         default_factory=dict
     )
+    run_ref_metadata_by_name: dict[str, RunRefSiteMetadata] = field(
+        default_factory=dict
+    )
+    run_ref_metadata_by_expr_key: dict[
+        RunRefExprKey,
+        dict[RunRefTypeSignature, RunRefSiteMetadata],
+    ] = field(default_factory=dict)
     parametric_specialization_requests: dict[
         str, PendingParametricProcedureSpecialization
     ] = field(default_factory=dict)

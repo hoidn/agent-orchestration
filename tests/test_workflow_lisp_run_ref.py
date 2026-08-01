@@ -5,7 +5,10 @@ import pytest
 
 from orchestrator.workflow.run_ref.contracts import SetupCommand, SetupPolicy
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from orchestrator.workflow_lisp.compiler_session import ElaborationSessionState
+from orchestrator.workflow_lisp.compiler_session import (
+    CompilerSession,
+    ElaborationSessionState,
+)
 from orchestrator.workflow_lisp.definitions import (
     PathDef,
     RecordDef,
@@ -40,6 +43,11 @@ from orchestrator.workflow_lisp.type_env import (
     UnionTypeRef,
 )
 from orchestrator.workflow_lisp.typecheck_dispatch import typecheck_expression
+from orchestrator.workflow_lisp.typecheck_run_ref import (
+    RUN_REF_FIXED_TYPE_NAMES,
+    metadata_for_run_ref_expr,
+    register_all_known_run_ref_types,
+)
 from orchestrator.workflow_lisp.workflows import WorkflowCatalog, WorkflowSignature
 
 
@@ -61,7 +69,9 @@ def _expression(source: str) -> SyntaxNode:
 def _type_env(*extra_types) -> FrontendTypeEnvironment:
     refs = {
         name: PrimitiveTypeRef(name=name)
-        for name in ("String", "Int", "Float", "Bool", "Value", "Json")
+        for name in (
+            "String", "Int", "Float", "Bool", "Value", "Json", "RunId"
+        )
     }
     refs.update({type_ref.name: type_ref for type_ref in extra_types})
     return FrontendTypeEnvironment(refs, target_dsl_version="2.24")
@@ -669,7 +679,9 @@ def test_run_ref_mode_one_accepts_every_transportable_return_root(
         workflow_catalog=_catalog(expr, return_type=return_type),
     )
 
-    assert typed.type_ref == return_type
+    assert isinstance(typed.type_ref, RecordTypeRef)
+    assert typed.type_ref.name.startswith("RunRefResult$")
+    assert typed.type_ref.field_types["value"] == return_type
 
 
 def test_run_ref_mode_one_checks_public_inputs_defaults_and_effect() -> None:
@@ -897,7 +909,9 @@ def test_run_ref_mode_two_resolves_every_transportable_return_refinement(
         value_env={},
     )
 
-    assert typed.type_ref == return_type
+    assert isinstance(typed.type_ref, RecordTypeRef)
+    assert typed.type_ref.name.startswith("RunRefResult$")
+    assert typed.type_ref.field_types["value"] == return_type
 
 
 def test_run_ref_mode_two_defaults_value_and_merges_input_effects() -> None:
@@ -913,7 +927,8 @@ def test_run_ref_mode_two_defaults_value_and_merges_input_effects() -> None:
 
     from orchestrator.workflow_lisp.effects import RunsRefEffect
 
-    assert typed.type_ref == PrimitiveTypeRef("Value")
+    assert isinstance(typed.type_ref, RecordTypeRef)
+    assert typed.type_ref.field_types["value"] == PrimitiveTypeRef("Value")
     assert typed.effect_summary.direct_effects == frozenset(
         {
             RunsRefEffect(subject=("child",)),
@@ -941,3 +956,362 @@ def test_run_ref_mode_two_rejects_nontransportable_returns_and_inputs(
             value_env={"payload": PrimitiveTypeRef("Json")},
         )
     assert excinfo.value.diagnostics[0].code == "workflow_boundary_type_invalid"
+
+
+def _record_field_signature(type_ref: RecordTypeRef):
+    return tuple(
+        (field.name, type_ref.field_types[field.name].name)
+        for field in type_ref.definition.fields
+    )
+
+
+def test_run_ref_registers_exact_fixed_structural_catalog_and_wrapper() -> None:
+    expr = _mode_one_expr()
+    type_env = _type_env()
+    session = CompilerSession()
+
+    typed = typecheck_expression(
+        expr,
+        type_env=type_env,
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=session,
+    )
+
+    assert isinstance(typed.type_ref, RecordTypeRef)
+    fixed = {
+        name: type_env.resolve_type(
+            name,
+            span=expr.span,
+            form_path=FORM_PATH,
+            session_state=session.typecheck,
+        )
+        for name in RUN_REF_FIXED_TYPE_NAMES
+    }
+    assert all(isinstance(value, RecordTypeRef) for value in fixed.values())
+    assert _record_field_signature(fixed["RepositoryRevisionId"]) == (
+        ("digest", "String"),
+        ("normalized_locator", "String"),
+        ("resolved_commit_sha", "String"),
+        ("materializer_version", "String"),
+        ("submodule_policy", "String"),
+        ("lfs_policy", "String"),
+        ("authored_setup_identity", "String"),
+    )
+    assert _record_field_signature(fixed["WorkspaceEntryDelta"]) == (
+        ("path", "String"),
+        ("kind", "String"),
+        ("mode", "Int"),
+        ("size", "Int"),
+        ("old_sha256", "Optional[String]"),
+        ("new_sha256", "Optional[String]"),
+        ("link_target", "Optional[String]"),
+    )
+    assert _record_field_signature(fixed["NormalizedTextDiffEntry"]) == (
+        ("path", "String"),
+        ("text", "String"),
+        ("truncated", "Bool"),
+        ("omitted_bytes", "Int"),
+    )
+    assert _record_field_signature(fixed["NormalizedWorkspaceDiff"]) == (
+        ("entries", "List[NormalizedTextDiffEntry]"),
+        ("catalog_digest", "String"),
+        ("truncated", "Bool"),
+        ("omitted_bytes", "Int"),
+        ("omitted_entries", "Int"),
+    )
+    assert _record_field_signature(fixed["DeclaredWorkspaceArtifact"]) == (
+        ("name", "String"),
+        ("path", "String"),
+        ("kind", "String"),
+        ("mode", "Int"),
+        ("size", "Int"),
+        ("sha256", "Optional[String]"),
+        ("link_target", "Optional[String]"),
+    )
+    assert _record_field_signature(fixed["WorkspaceDelta"]) == (
+        ("base", "RepositoryRevisionId"),
+        ("changed_files", "List[WorkspaceEntryDelta]"),
+        ("deleted_files", "List[WorkspaceEntryDelta]"),
+        ("untracked_files", "List[WorkspaceEntryDelta]"),
+        ("normalized_diff", "NormalizedWorkspaceDiff"),
+        ("declared_artifacts", "List[DeclaredWorkspaceArtifact]"),
+    )
+    assert _record_field_signature(fixed["RunRefAccounting"]) == (
+        ("child_run_id", "RunId"),
+        ("attempt_ordinal", "Int"),
+        ("terminal_status", "String"),
+        ("elapsed_ms", "Int"),
+        ("setup_ms", "Int"),
+        ("compile_ms", "Int"),
+        ("provider_attempts", "Value"),
+        ("token_usage", "Value"),
+        ("cost", "Value"),
+    )
+    assert _record_field_signature(typed.type_ref) == (
+        ("value", "String"),
+        ("workspace_delta", "WorkspaceDelta"),
+        ("accounting", "RunRefAccounting"),
+    )
+
+
+def test_run_ref_generated_name_ignores_authored_source_path() -> None:
+    left = _mode_one_expr(source_path="/clone-a/controller.orc")
+    right = _mode_one_expr(source_path="/clone-b/controller.orc")
+    left_session = CompilerSession()
+    right_session = CompilerSession()
+
+    left_typed = typecheck_expression(
+        left,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(left),
+        compiler_session=left_session,
+    )
+    right_typed = typecheck_expression(
+        right,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(right),
+        compiler_session=right_session,
+    )
+
+    assert left_typed.type_ref.name == right_typed.type_ref.name
+
+
+def test_run_ref_generated_name_binds_site_program_and_value_type() -> None:
+    base = _mode_one_expr()
+    moved = replace(
+        base,
+        span=replace(
+            base.span,
+            start=replace(base.span.start, column=base.span.start.column + 1),
+        ),
+    )
+    alternate = replace(base, program=RunRefBundleProgram("other-child"))
+    names = []
+    for expr, program_name, value_type in (
+        (base, "child", PrimitiveTypeRef("String")),
+        (moved, "child", PrimitiveTypeRef("String")),
+        (alternate, "other-child", PrimitiveTypeRef("String")),
+        (base, "child", PrimitiveTypeRef("Bool")),
+    ):
+        catalog = WorkflowCatalog(
+            signatures_by_name={
+                program_name: WorkflowSignature(
+                    name=program_name,
+                    params=(),
+                    return_type_ref=value_type,
+                    span=expr.span,
+                    form_path=FORM_PATH,
+                )
+            },
+            definitions_by_name={},
+            imported_bundles_by_name={},
+        )
+        typed = typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=catalog,
+        )
+        names.append(typed.type_ref.name)
+    assert len(set(names)) == 4
+
+
+def test_run_ref_generated_name_binds_active_canonical_caller_identity() -> None:
+    expr = _mode_one_expr()
+    names = []
+    for caller_name in ("module/first", "module/second"):
+        session = CompilerSession()
+        session.typecheck.workflow_signature = WorkflowSignature(
+            name=caller_name,
+            params=(),
+            return_type_ref=PrimitiveTypeRef("String"),
+            span=expr.span,
+            form_path=FORM_PATH,
+        )
+        typed = typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=_catalog(expr),
+            compiler_session=session,
+        )
+        names.append(typed.type_ref.name)
+    assert names[0] != names[1]
+
+
+def test_run_ref_metadata_rolls_back_and_reuses_equal_site() -> None:
+    session = CompilerSession()
+    missing = _mode_one_expr()
+    with pytest.raises(LispFrontendCompileError):
+        typecheck_expression(
+            missing,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=_catalog(
+                missing,
+                params=(("required", PrimitiveTypeRef("String")),),
+            ),
+            compiler_session=session,
+        )
+    assert session.typecheck.run_ref_metadata_by_name == {}
+    assert session.typecheck.run_ref_metadata_by_expr_key == {}
+
+    expr = _mode_one_expr()
+    first = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=session,
+    )
+    second = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=session,
+    )
+    assert first.type_ref.name == second.type_ref.name
+    assert len(session.typecheck.run_ref_metadata_by_name) == 1
+
+
+def test_run_ref_metadata_hydrates_another_type_environment() -> None:
+    expr = _mode_one_expr()
+    session = CompilerSession()
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=session,
+    )
+    metadata = metadata_for_run_ref_expr(
+        typed.expr,
+        result_type=typed.type_ref,
+        session_state=session.typecheck,
+    )
+    assert metadata is not None
+
+    hydrated = _type_env()
+    register_all_known_run_ref_types(
+        hydrated,
+        session_state=session.typecheck,
+    )
+    assert hydrated.resolve_type(
+        typed.type_ref.name,
+        span=expr.span,
+        form_path=FORM_PATH,
+        session_state=session.typecheck,
+    ) == typed.type_ref
+
+
+def test_run_ref_metadata_collision_fails_closed_and_restores_session() -> None:
+    from orchestrator.workflow_lisp.typecheck_context import (
+        TypecheckSessionStateCollisionError,
+    )
+
+    expr = _mode_one_expr()
+    session = CompilerSession()
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=session,
+    )
+    metadata = session.typecheck.run_ref_metadata_by_name[typed.type_ref.name]
+    conflicting = replace(metadata, site_digest="0" * 64)
+    session.typecheck.run_ref_metadata_by_name[typed.type_ref.name] = conflicting
+    session.typecheck.run_ref_metadata_by_expr_key[metadata.expression_key][
+        metadata.type_signature
+    ] = conflicting
+
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=_catalog(expr),
+            compiler_session=session,
+        )
+    assert session.typecheck.run_ref_metadata_by_name[typed.type_ref.name] is conflicting
+
+
+def test_run_ref_metadata_merge_accepts_equivalent_and_rejects_conflict() -> None:
+    from orchestrator.workflow_lisp.typecheck_context import (
+        TypecheckSessionStateCollisionError,
+        merge_successful_session_outputs,
+        snapshot_session_state,
+    )
+
+    expr = _mode_one_expr()
+    session = CompilerSession()
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=session,
+    )
+    outer = snapshot_session_state(session.typecheck)
+    equivalent = snapshot_session_state(session.typecheck)
+    merged = merge_successful_session_outputs(outer, equivalent)
+    assert merged.run_ref_metadata_by_name == outer.run_ref_metadata_by_name
+
+    conflicting = snapshot_session_state(session.typecheck)
+    metadata = conflicting.run_ref_metadata_by_name[typed.type_ref.name]
+    replacement = replace(metadata, site_digest="f" * 64)
+    conflicting.run_ref_metadata_by_name[typed.type_ref.name] = replacement
+    conflicting.run_ref_metadata_by_expr_key[metadata.expression_key][
+        metadata.type_signature
+    ] = replacement
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        merge_successful_session_outputs(outer, conflicting)
+
+
+def test_run_ref_compiler_type_rejects_shape_equal_unowned_binding() -> None:
+    from orchestrator.workflow_lisp.typecheck_context import (
+        TypecheckSessionStateCollisionError,
+    )
+
+    expr = _mode_one_expr()
+    owned_env = _type_env()
+    typecheck_expression(
+        expr,
+        type_env=owned_env,
+        value_env={},
+        workflow_catalog=_catalog(expr),
+    )
+    shape_equal_unowned = owned_env._type_refs["WorkspaceDelta"]
+    unowned_env = _type_env(shape_equal_unowned)
+
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        typecheck_expression(
+            expr,
+            type_env=unowned_env,
+            value_env={},
+            workflow_catalog=_catalog(expr),
+        )
+
+
+@pytest.mark.parametrize("missing_name", ("Value", "RunId"))
+def test_run_ref_fixed_catalog_rejects_missing_target_primitive(
+    missing_name: str,
+) -> None:
+    from orchestrator.workflow_lisp.typecheck_context import (
+        TypecheckSessionStateCollisionError,
+    )
+
+    expr = _mode_one_expr()
+    type_env = _type_env()
+    del type_env._type_refs[missing_name]
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        typecheck_expression(
+            expr,
+            type_env=type_env,
+            value_env={},
+            workflow_catalog=_catalog(expr),
+        )

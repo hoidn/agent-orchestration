@@ -468,6 +468,13 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
                 key: dict(value)
                 for key, value in state.loop_carrier_metadata_by_expr_key.items()
             },
+            "run_ref_metadata_by_name": dict(
+                state.run_ref_metadata_by_name
+            ),
+            "run_ref_metadata_by_expr_key": {
+                key: dict(value)
+                for key, value in state.run_ref_metadata_by_expr_key.items()
+            },
             "parametric_specialization_requests": dict(
                 state.parametric_specialization_requests
             ),
@@ -558,6 +565,8 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
         "shared_union_field_capabilities": (),
         "loop_carrier_metadata_by_name": {},
         "loop_carrier_metadata_by_expr_key": {},
+        "run_ref_metadata_by_name": {},
+        "run_ref_metadata_by_expr_key": {},
         "parametric_specialization_requests": {},
     }
 

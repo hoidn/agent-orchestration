@@ -2,16 +2,448 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+import hashlib
+import json
+from dataclasses import dataclass, replace
 
+from .definitions import RecordDef, RecordField
 from .effects import (
     RunsRefEffect,
     effect_summary_from_direct,
     merge_effect_summaries,
 )
 from .expressions import RunRefBundleProgram, RunRefExpr, RunRefPathProgram
-from .type_env import type_refs_compatible
-from .typecheck_context import raise_error
+from .spans import SourcePosition, SourceSpan
+from .type_env import (
+    ListTypeRef,
+    MapTypeRef,
+    OptionalTypeRef,
+    PathTypeRef,
+    PrimitiveTypeRef,
+    ProcRefTypeRef,
+    RecordTypeRef,
+    TypeRef,
+    TypeParamRef,
+    UnionTypeRef,
+    VariantCaseTypeRef,
+    WorkflowRefTypeRef,
+    type_refs_compatible,
+)
+from .typecheck_context import TypecheckSessionStateCollisionError, raise_error
+
+
+RUN_REF_FIXED_TYPE_NAMES = (
+    "RepositoryRevisionId",
+    "WorkspaceEntryDelta",
+    "NormalizedTextDiffEntry",
+    "NormalizedWorkspaceDiff",
+    "DeclaredWorkspaceArtifact",
+    "WorkspaceDelta",
+    "RunRefAccounting",
+)
+_COMPILER_SPAN = SourceSpan(
+    start=SourcePosition(
+        path="<compiler:run-ref-types>", line=1, column=1, offset=0
+    ),
+    end=SourcePosition(
+        path="<compiler:run-ref-types>", line=1, column=1, offset=0
+    ),
+)
+
+
+@dataclass(frozen=True)
+class RunRefSiteMetadata:
+    """Compiler-owned result carrier metadata for one stable run-ref site."""
+
+    generated_type_name: str
+    site_digest: str
+    expression_key: str
+    type_signature: str
+    value_type_ref: TypeRef
+    input_types: tuple[tuple[str, TypeRef], ...]
+    type_ref: RecordTypeRef
+    compiler_owned_types: tuple[tuple[str, TypeRef], ...]
+
+
+def _canonical_bytes(value: object) -> bytes:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
+def _sha256(value: object) -> str:
+    return hashlib.sha256(_canonical_bytes(value)).hexdigest()
+
+
+def _type_identity(type_ref: TypeRef) -> object:
+    if isinstance(type_ref, PrimitiveTypeRef):
+        return ["primitive", type_ref.name, list(type_ref.allowed_values)]
+    if isinstance(type_ref, PathTypeRef):
+        return [
+            "path",
+            type_ref.name,
+            type_ref.definition.kind,
+            type_ref.definition.under,
+            type_ref.definition.must_exist,
+        ]
+    if isinstance(type_ref, RecordTypeRef):
+        return [
+            "record",
+            type_ref.name,
+            [
+                [field.name, _type_identity(type_ref.field_types[field.name])]
+                for field in type_ref.definition.fields
+            ],
+        ]
+    if isinstance(type_ref, UnionTypeRef):
+        return [
+            "union",
+            type_ref.name,
+            [
+                [
+                    variant.name,
+                    [
+                        [
+                            field.name,
+                            _type_identity(
+                                type_ref.variant_field_types[variant.name][
+                                    field.name
+                                ]
+                            ),
+                        ]
+                        for field in variant.fields
+                    ],
+                ]
+                for variant in type_ref.definition.variants
+            ],
+        ]
+    if isinstance(type_ref, OptionalTypeRef):
+        return ["optional", _type_identity(type_ref.item_type_ref)]
+    if isinstance(type_ref, ListTypeRef):
+        return ["list", _type_identity(type_ref.item_type_ref)]
+    if isinstance(type_ref, MapTypeRef):
+        return [
+            "map",
+            _type_identity(type_ref.key_type_ref),
+            _type_identity(type_ref.value_type_ref),
+        ]
+    if isinstance(type_ref, VariantCaseTypeRef):
+        return ["variant-case", type_ref.union_name, type_ref.variant_name]
+    if isinstance(type_ref, (WorkflowRefTypeRef, ProcRefTypeRef, TypeParamRef)):
+        return [type(type_ref).__name__, type_ref.name]
+    raise TypeError(f"unsupported run-ref type identity: {type(type_ref)!r}")
+
+
+def _record_type(
+    name: str,
+    fields: tuple[tuple[str, TypeRef], ...],
+) -> RecordTypeRef:
+    definition = RecordDef(
+        name=name,
+        fields=tuple(
+            RecordField(
+                name=field_name,
+                type_name=field_type.name,
+                span=_COMPILER_SPAN,
+            )
+            for field_name, field_type in fields
+        ),
+        span=_COMPILER_SPAN,
+    )
+    return RecordTypeRef(
+        name=name,
+        definition=definition,
+        field_types=dict(fields),
+    )
+
+
+def _install_type(type_env, type_ref: TypeRef) -> None:
+    compiler_owned_names = getattr(
+        type_env,
+        "_compiler_owned_type_names",
+        None,
+    )
+    if compiler_owned_names is None:
+        compiler_owned_names = set()
+        type_env._compiler_owned_type_names = compiler_owned_names
+    existing = type_env._type_refs.get(type_ref.name)
+    if existing is None:
+        type_env._type_refs[type_ref.name] = type_ref
+        compiler_owned_names.add(type_ref.name)
+        return
+    if type_ref.name not in compiler_owned_names:
+        raise TypecheckSessionStateCollisionError(
+            f"run-ref compiler type name is already bound by non-compiler type {type_ref.name!r}"
+        )
+    if _type_identity(existing) != _type_identity(type_ref):
+        raise TypecheckSessionStateCollisionError(
+            f"run-ref compiler type collision for {type_ref.name!r}"
+        )
+
+
+def _fixed_types(type_env) -> tuple[tuple[str, TypeRef], ...]:
+    def primitive(name: str) -> PrimitiveTypeRef:
+        existing = type_env._type_refs.get(name)
+        if isinstance(existing, PrimitiveTypeRef):
+            return existing
+        raise TypecheckSessionStateCollisionError(
+            f"run-ref requires target primitive {name!r}"
+        )
+
+    string_type = primitive("String")
+    int_type = primitive("Int")
+    bool_type = primitive("Bool")
+    value_type = primitive("Value")
+    run_id_type = primitive("RunId")
+    optional_string = OptionalTypeRef("Optional[String]", string_type)
+
+    repository_revision = _record_type(
+        "RepositoryRevisionId",
+        tuple(
+            (name, string_type)
+            for name in (
+                "digest",
+                "normalized_locator",
+                "resolved_commit_sha",
+                "materializer_version",
+                "submodule_policy",
+                "lfs_policy",
+                "authored_setup_identity",
+            )
+        ),
+    )
+    entry_delta = _record_type(
+        "WorkspaceEntryDelta",
+        (
+            ("path", string_type),
+            ("kind", string_type),
+            ("mode", int_type),
+            ("size", int_type),
+            ("old_sha256", optional_string),
+            ("new_sha256", optional_string),
+            ("link_target", optional_string),
+        ),
+    )
+    text_diff = _record_type(
+        "NormalizedTextDiffEntry",
+        (
+            ("path", string_type),
+            ("text", string_type),
+            ("truncated", bool_type),
+            ("omitted_bytes", int_type),
+        ),
+    )
+    normalized_diff = _record_type(
+        "NormalizedWorkspaceDiff",
+        (
+            ("entries", ListTypeRef("List[NormalizedTextDiffEntry]", text_diff)),
+            ("catalog_digest", string_type),
+            ("truncated", bool_type),
+            ("omitted_bytes", int_type),
+            ("omitted_entries", int_type),
+        ),
+    )
+    declared_artifact = _record_type(
+        "DeclaredWorkspaceArtifact",
+        (
+            ("name", string_type),
+            ("path", string_type),
+            ("kind", string_type),
+            ("mode", int_type),
+            ("size", int_type),
+            ("sha256", optional_string),
+            ("link_target", optional_string),
+        ),
+    )
+    workspace_delta = _record_type(
+        "WorkspaceDelta",
+        (
+            ("base", repository_revision),
+            ("changed_files", ListTypeRef("List[WorkspaceEntryDelta]", entry_delta)),
+            ("deleted_files", ListTypeRef("List[WorkspaceEntryDelta]", entry_delta)),
+            ("untracked_files", ListTypeRef("List[WorkspaceEntryDelta]", entry_delta)),
+            ("normalized_diff", normalized_diff),
+            (
+                "declared_artifacts",
+                ListTypeRef("List[DeclaredWorkspaceArtifact]", declared_artifact),
+            ),
+        ),
+    )
+    accounting = _record_type(
+        "RunRefAccounting",
+        (
+            ("child_run_id", run_id_type),
+            ("attempt_ordinal", int_type),
+            ("terminal_status", string_type),
+            ("elapsed_ms", int_type),
+            ("setup_ms", int_type),
+            ("compile_ms", int_type),
+            ("provider_attempts", value_type),
+            ("token_usage", value_type),
+            ("cost", value_type),
+        ),
+    )
+    fixed = (
+        repository_revision,
+        entry_delta,
+        text_diff,
+        normalized_diff,
+        declared_artifact,
+        workspace_delta,
+        accounting,
+    )
+    for type_ref in fixed:
+        _install_type(type_env, type_ref)
+    return tuple((type_ref.name, type_ref) for type_ref in fixed)
+
+
+def _expression_payload(expr: RunRefExpr) -> dict[str, object]:
+    program = (
+        {"mode": "bundle", "workflow": expr.program.workflow_name}
+        if isinstance(expr.program, RunRefBundleProgram)
+        else {
+            "mode": "path",
+            "path": expr.program.path,
+            "entry": expr.program.entry_name,
+        }
+    )
+    return {
+        "position": {
+            "start": [expr.span.start.line, expr.span.start.column],
+            "end": [expr.span.end.line, expr.span.end.column],
+        },
+        "form_path": list(expr.form_path),
+        "source": {"repo": expr.source.repo, "commit": expr.source.commit},
+        "program": program,
+        "setup": [
+            {
+                "argv": list(command.argv),
+                "env": [[name, value] for name, value in command.env],
+            }
+            for command in expr.setup.commands
+        ],
+        "environment": expr.environment,
+        "returns": expr.returns_type_name,
+        "input_names": [name for name, _ in expr.inputs],
+    }
+
+
+def _register_result_metadata(
+    expr: RunRefExpr,
+    *,
+    context,
+    value_type,
+    input_types: tuple[tuple[str, TypeRef], ...],
+) -> RunRefSiteMetadata:
+    fixed_types = _fixed_types(context.type_env)
+    fixed_by_name = dict(fixed_types)
+    expression_key = _sha256(_expression_payload(expr))
+    type_payload = {
+        "inputs": [
+            [name, _type_identity(type_ref)] for name, type_ref in input_types
+        ],
+        "value": _type_identity(value_type),
+    }
+    type_signature = _sha256(type_payload)
+    caller_identity = getattr(
+        context.session_state.workflow_signature,
+        "name",
+        None,
+    ) or "::".join(expr.form_path)
+    site_digest = _sha256(
+        {
+            "caller": caller_identity,
+            "expression": _expression_payload(expr),
+            "types": type_payload,
+        }
+    )
+    generated_name = f"RunRefResult${site_digest[:16]}"
+    result_type = _record_type(
+        generated_name,
+        (
+            ("value", value_type),
+            ("workspace_delta", fixed_by_name["WorkspaceDelta"]),
+            ("accounting", fixed_by_name["RunRefAccounting"]),
+        ),
+    )
+    _install_type(context.type_env, result_type)
+    metadata = RunRefSiteMetadata(
+        generated_type_name=generated_name,
+        site_digest=site_digest,
+        expression_key=expression_key,
+        type_signature=type_signature,
+        value_type_ref=value_type,
+        input_types=input_types,
+        type_ref=result_type,
+        compiler_owned_types=(*fixed_types, (generated_name, result_type)),
+    )
+    existing = context.session_state.run_ref_metadata_by_name.get(generated_name)
+    if existing is not None and not run_ref_metadata_equivalent(existing, metadata):
+        raise TypecheckSessionStateCollisionError(
+            f"run-ref metadata collision for {generated_name!r}"
+        )
+    metadata_by_signature = context.session_state.run_ref_metadata_by_expr_key.setdefault(
+        expression_key,
+        {},
+    )
+    existing = metadata_by_signature.get(type_signature)
+    if existing is not None and not run_ref_metadata_equivalent(existing, metadata):
+        raise TypecheckSessionStateCollisionError(
+            f"run-ref expression metadata collision for {expression_key!r}"
+        )
+    context.session_state.run_ref_metadata_by_name[generated_name] = metadata
+    metadata_by_signature[type_signature] = metadata
+    return metadata
+
+
+def run_ref_metadata_equivalent(left: object, right: object) -> bool:
+    if not isinstance(left, RunRefSiteMetadata) or not isinstance(
+        right,
+        RunRefSiteMetadata,
+    ):
+        return False
+    return (
+        left.generated_type_name,
+        left.site_digest,
+        left.expression_key,
+        left.type_signature,
+        _type_identity(left.value_type_ref),
+        tuple((name, _type_identity(type_ref)) for name, type_ref in left.input_types),
+        _type_identity(left.type_ref),
+    ) == (
+        right.generated_type_name,
+        right.site_digest,
+        right.expression_key,
+        right.type_signature,
+        _type_identity(right.value_type_ref),
+        tuple((name, _type_identity(type_ref)) for name, type_ref in right.input_types),
+        _type_identity(right.type_ref),
+    )
+
+
+def metadata_for_run_ref_expr(
+    expr: RunRefExpr,
+    *,
+    result_type,
+    session_state,
+) -> RunRefSiteMetadata | None:
+    metadata = session_state.run_ref_metadata_by_name.get(
+        getattr(result_type, "name", "")
+    )
+    if metadata is None:
+        return None
+    return metadata if metadata.expression_key == _sha256(_expression_payload(expr)) else None
+
+
+def register_all_known_run_ref_types(type_env, *, session_state) -> None:
+    """Hydrate another type environment with every known run-ref carrier."""
+
+    for metadata in session_state.run_ref_metadata_by_name.values():
+        for _, type_ref in metadata.compiler_owned_types:
+            _install_type(type_env, type_ref)
 
 
 def _require_transportable(type_ref, *, expr, role: str) -> None:
@@ -65,6 +497,7 @@ def _typecheck_mode_one(expr, *, context, recurse):
     seen: set[str] = set()
     typed_inputs = []
     input_effects = []
+    input_types = []
     for name, value_expr in expr.inputs:
         if name in seen:
             raise_error(
@@ -101,6 +534,7 @@ def _typecheck_mode_one(expr, *, context, recurse):
             )
         typed_inputs.append((name, typed.expr))
         input_effects.append(typed.effect_summary)
+        input_types.append((name, typed.type_ref))
 
     missing = [
         name
@@ -120,7 +554,12 @@ def _typecheck_mode_one(expr, *, context, recurse):
         expr=expr,
         role="child return",
     )
-    return signature.return_type_ref, tuple(typed_inputs), tuple(input_effects)
+    return (
+        signature.return_type_ref,
+        tuple(typed_inputs),
+        tuple(input_effects),
+        tuple(input_types),
+    )
 
 
 def _typecheck_mode_two(expr, *, context, recurse):
@@ -146,6 +585,7 @@ def _typecheck_mode_two(expr, *, context, recurse):
     seen: set[str] = set()
     typed_inputs = []
     input_effects = []
+    input_types = []
     for name, value_expr in expr.inputs:
         if name in seen:
             raise_error(
@@ -164,21 +604,22 @@ def _typecheck_mode_two(expr, *, context, recurse):
         )
         typed_inputs.append((name, typed.expr))
         input_effects.append(typed.effect_summary)
-    return value_type, tuple(typed_inputs), tuple(input_effects)
+        input_types.append((name, typed.type_ref))
+    return value_type, tuple(typed_inputs), tuple(input_effects), tuple(input_types)
 
 
 def typecheck_run_ref_expr(expr, *, context, recurse, typed_factory):
     """Type one isolated run-ref without registering it as a live form."""
 
     if isinstance(expr.program, RunRefBundleProgram):
-        value_type, typed_inputs, input_effects = _typecheck_mode_one(
+        value_type, typed_inputs, input_effects, input_types = _typecheck_mode_one(
             expr,
             context=context,
             recurse=recurse,
         )
         effect_subject = expr.program.workflow_name
     else:
-        value_type, typed_inputs, input_effects = _typecheck_mode_two(
+        value_type, typed_inputs, input_effects, input_types = _typecheck_mode_two(
             expr,
             context=context,
             recurse=recurse,
@@ -190,8 +631,15 @@ def typecheck_run_ref_expr(expr, *, context, recurse, typed_factory):
             RunsRefEffect(subject=(effect_subject,)),
         )
     )
+    typed_expr = replace(expr, inputs=typed_inputs)
+    metadata = _register_result_metadata(
+        typed_expr,
+        context=context,
+        value_type=value_type,
+        input_types=input_types,
+    )
     return typed_factory(
-        expr=replace(expr, inputs=typed_inputs),
-        type_ref=value_type,
+        expr=typed_expr,
+        type_ref=metadata.type_ref,
         effect=merge_effect_summaries(*input_effects, run_effect),
     )
