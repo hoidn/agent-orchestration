@@ -13,11 +13,13 @@ from pathlib import Path, PurePosixPath
 import pickle
 import platform
 import re
+import shutil
 import sys
 from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 
 from orchestrator import __version__ as ORCHESTRATOR_VERSION
+from orchestrator._common.io_atomic import durable_atomic_write
 from orchestrator.workflow.core_ast import (
     validate_core_workflow_ast,
     workflow_core_ast_to_json,
@@ -840,3 +842,129 @@ def decode_bundle_capsule(
         closure=canonical_closure,
         workflow_closure_paths=workflow_closure_paths,
     )
+
+
+def _validated_encoded_capsule(
+    encoded: EncodedBundleCapsule,
+) -> tuple[Mapping[str, Any], tuple[BundleCapsuleClosureBlob, ...]]:
+    if type(encoded) is not EncodedBundleCapsule or (
+        _sha256_bytes(encoded.manifest_bytes) != encoded.capsule_digest
+    ):
+        _fail("run_ref_bundle_directory_invalid")
+    manifest = _strict_manifest(encoded.manifest_bytes)
+    _validate_manifest_shape(manifest)
+    closure = _canonical_closure(encoded.closure)
+    _validate_closure_against_manifest(closure, manifest.get("closure"))
+    pickle_row = manifest["pickle"]
+    if (
+        pickle_row.get("protocol") != _PICKLE_PROTOCOL
+        or pickle_row.get("size_bytes") != len(encoded.pickle_bytes)
+        or pickle_row.get("sha256") != _sha256_bytes(encoded.pickle_bytes)
+    ):
+        _fail("run_ref_bundle_directory_invalid")
+    return manifest, closure
+
+
+def write_bundle_capsule_directory(
+    capsule_root: Path,
+    encoded: EncodedBundleCapsule,
+) -> None:
+    """Durably materialize one exact build-produced capsule directory."""
+
+    _manifest, closure = _validated_encoded_capsule(encoded)
+    root = Path(capsule_root)
+    if root.exists():
+        if not root.is_dir():
+            _fail("run_ref_bundle_directory_invalid")
+        shutil.rmtree(root)
+    root.mkdir(parents=True)
+    durable_atomic_write(root / "manifest.json", encoded.manifest_bytes)
+    durable_atomic_write(root / "bundles.pkl", encoded.pickle_bytes)
+    for blob in closure:
+        durable_atomic_write(root / "closure" / blob.path, blob.payload)
+    if (
+        read_bundle_capsule_directory(
+            root,
+            expected_capsule_digest=encoded.capsule_digest,
+        )
+        != encoded
+    ):
+        _fail("run_ref_bundle_directory_invalid")
+
+
+def read_bundle_capsule_directory(
+    capsule_root: Path,
+    *,
+    expected_capsule_digest: str,
+) -> EncodedBundleCapsule:
+    """Read one exact capsule directory under its parent-carried identity."""
+
+    root = Path(capsule_root)
+    try:
+        manifest_bytes = (root / "manifest.json").read_bytes()
+    except OSError as exc:
+        raise BundleCapsuleValidationError(
+            "run_ref_bundle_directory_invalid"
+        ) from exc
+    if (
+        not _is_sha256(expected_capsule_digest)
+        or _sha256_bytes(manifest_bytes) != expected_capsule_digest
+    ):
+        _fail("run_ref_bundle_pickle_digest_mismatch")
+    manifest = _strict_manifest(manifest_bytes)
+    _validate_manifest_shape(manifest)
+    manifest_rows = manifest.get("closure")
+    if not isinstance(manifest_rows, list):
+        _fail("run_ref_bundle_directory_invalid")
+    closure: list[BundleCapsuleClosureBlob] = []
+    expected_files = {"manifest.json", "bundles.pkl"}
+    for row in manifest_rows:
+        if not isinstance(row, dict) or set(row) != {
+            "path",
+            "roles",
+            "size_bytes",
+            "sha256",
+        }:
+            _fail("run_ref_bundle_directory_invalid")
+        path = _canonical_relative_path(row.get("path"))
+        roles = row.get("roles")
+        if not isinstance(roles, list) or any(
+            not isinstance(role, str) for role in roles
+        ):
+            _fail("run_ref_bundle_directory_invalid")
+        relative_file = f"closure/{path}"
+        expected_files.add(relative_file)
+        try:
+            payload = (root / relative_file).read_bytes()
+        except OSError as exc:
+            raise BundleCapsuleValidationError(
+                "run_ref_bundle_directory_invalid"
+            ) from exc
+        closure.append(
+            BundleCapsuleClosureBlob(
+                path=path,
+                roles=tuple(roles),
+                payload=payload,
+            )
+        )
+    try:
+        pickle_bytes = (root / "bundles.pkl").read_bytes()
+        actual_files = {
+            path.relative_to(root).as_posix()
+            for path in root.rglob("*")
+            if path.is_file()
+        }
+    except OSError as exc:
+        raise BundleCapsuleValidationError(
+            "run_ref_bundle_directory_invalid"
+        ) from exc
+    if actual_files != expected_files:
+        _fail("run_ref_bundle_directory_invalid")
+    encoded = EncodedBundleCapsule(
+        capsule_digest=expected_capsule_digest,
+        manifest_bytes=manifest_bytes,
+        pickle_bytes=pickle_bytes,
+        closure=tuple(closure),
+    )
+    _validated_encoded_capsule(encoded)
+    return encoded

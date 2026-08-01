@@ -223,6 +223,43 @@ def test_bundle_capsule_protocol_five_round_trip_is_deterministic_and_frozen(
     assert decoded_bundle.surface.name == bundle.surface.name
 
 
+def test_bundle_capsule_directory_round_trip_preserves_exact_bytes(
+    tmp_path: Path,
+) -> None:
+    encoded = _encoded_capsule(tmp_path)
+    capsule_root = tmp_path / "artifact" / "run_ref_bundle_capsule.v1"
+
+    bundle_transport.write_bundle_capsule_directory(capsule_root, encoded)
+    loaded = bundle_transport.read_bundle_capsule_directory(
+        capsule_root,
+        expected_capsule_digest=encoded.capsule_digest,
+    )
+
+    assert loaded == encoded
+    assert (capsule_root / "manifest.json").read_bytes() == encoded.manifest_bytes
+    assert (capsule_root / "bundles.pkl").read_bytes() == encoded.pickle_bytes
+    for blob in encoded.closure:
+        assert (capsule_root / "closure" / blob.path).read_bytes() == blob.payload
+
+
+def test_bundle_capsule_directory_rejects_unmanifested_file(
+    tmp_path: Path,
+) -> None:
+    encoded = _encoded_capsule(tmp_path)
+    capsule_root = tmp_path / "artifact" / "run_ref_bundle_capsule.v1"
+    bundle_transport.write_bundle_capsule_directory(capsule_root, encoded)
+    (capsule_root / "closure" / "extra.orc").write_bytes(b"unexpected")
+
+    with pytest.raises(
+        ValueError,
+        match="run_ref_bundle_directory_invalid",
+    ):
+        bundle_transport.read_bundle_capsule_directory(
+            capsule_root,
+            expected_capsule_digest=encoded.capsule_digest,
+        )
+
+
 def test_bundle_capsule_encoding_canonicalizes_catalog_order_without_global_reducer(
     tmp_path: Path,
 ) -> None:
