@@ -16,7 +16,7 @@ from .contracts import canonical_sha256
 RUN_REF_RESULT_CONTRACT_SCHEMA = "run_ref_result_contract.v1"
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _GENERATED_RESULT_RE = re.compile(r"RunRefResult\$[0-9a-f]{16}\Z")
-_TRANSPORT_PRIMITIVES = frozenset({"String", "Int", "Float", "Bool", "Value"})
+_NONTRANSPORTABLE_PRIMITIVES = frozenset({"Json", "Provider", "Prompt"})
 
 
 def _require_exact_keys(
@@ -150,7 +150,7 @@ def is_transportable_type_descriptor(
 
     kind = descriptor["kind"]
     if kind == "primitive":
-        return descriptor["name"] in _TRANSPORT_PRIMITIVES
+        return descriptor["name"] not in _NONTRANSPORTABLE_PRIMITIVES
     if kind in {"enum", "path"}:
         return True
     if kind in {"optional", "list"}:

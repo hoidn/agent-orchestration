@@ -254,34 +254,63 @@ class BundleProgram:
         return {"mode": "bundle", "workflow_name": self.workflow_name}
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class PathProgram:
     path: str
     entry_name: str
-    environment: str = _PATH_ENVIRONMENT
+    environment: str
+    _return_refinement_json: bytes | None = field(repr=False)
 
-    def __post_init__(self) -> None:
-        if not isinstance(self.path, str) or not self.path or "\\" in self.path:
+    def __init__(
+        self,
+        *,
+        path: str,
+        entry_name: str,
+        return_refinement: Mapping[str, Any] | None = None,
+        environment: str = _PATH_ENVIRONMENT,
+    ) -> None:
+        if not isinstance(path, str) or not path or "\\" in path:
             raise ValueError("path program path must be a canonical relative path")
-        parsed = PurePosixPath(self.path)
+        parsed = PurePosixPath(path)
         if (
             parsed.is_absolute()
-            or parsed.as_posix() != self.path
+            or parsed.as_posix() != path
             or any(part in {"", ".", ".."} for part in parsed.parts)
             or parsed.suffix != ".orc"
         ):
             raise ValueError("path program path must be a canonical relative .orc path")
-        _require_static_name(self.entry_name, context="path program entry name")
-        if self.environment != _PATH_ENVIRONMENT:
+        _require_static_name(entry_name, context="path program entry name")
+        if environment != _PATH_ENVIRONMENT:
             raise ValueError("path program environment is not the implemented v1 value")
+        if return_refinement is None:
+            refinement_json = None
+        else:
+            validate_compiler_normalized_type_descriptor(
+                return_refinement,
+                context="run_ref_path_program.return_refinement",
+            )
+            if not is_transportable_type_descriptor(return_refinement):
+                raise ValueError("path program return refinement is not transportable")
+            refinement_json = canonical_json_bytes(return_refinement)
+        object.__setattr__(self, "path", path)
+        object.__setattr__(self, "entry_name", entry_name)
+        object.__setattr__(self, "environment", environment)
+        object.__setattr__(self, "_return_refinement_json", refinement_json)
 
     @property
-    def record(self) -> dict[str, str]:
+    def return_refinement(self) -> dict[str, Any] | None:
+        if self._return_refinement_json is None:
+            return None
+        return json.loads(self._return_refinement_json)
+
+    @property
+    def record(self) -> dict[str, object]:
         return {
             "mode": "path",
             "path": self.path,
             "entry_name": self.entry_name,
             "environment": self.environment,
+            "return_refinement": self.return_refinement,
         }
 
 
@@ -302,13 +331,20 @@ def _program_from_record(value: object) -> RunRefProgram:
     if mode == "path":
         row = _require_exact_keys(
             value,
-            {"mode", "path", "entry_name", "environment"},
+            {
+                "mode",
+                "path",
+                "entry_name",
+                "environment",
+                "return_refinement",
+            },
             context="run-ref path program",
         )
         return PathProgram(
             path=row["path"],
             entry_name=row["entry_name"],
             environment=row["environment"],
+            return_refinement=row["return_refinement"],
         )
     raise ValueError("run-ref program mode is unsupported")
 
@@ -376,7 +412,20 @@ def build_run_ref_static_config(
         expected_generated_name=generated_result_type,
         expected_digest=result_digest,
     )
+    if isinstance(program, PathProgram):
+        value_descriptor = result_descriptor["envelope"]["fields"][0]["type"]
+        refinement = program.return_refinement
+        if refinement is None:
+            if value_descriptor != {"kind": "primitive", "name": "Value"}:
+                raise ValueError(
+                    "path program without a return refinement requires Value"
+                )
+        elif refinement != value_descriptor:
+            raise ValueError(
+                "path program return refinement does not match the result value"
+            )
     source_record = canonical_source_request(source)
+    canonical_source = source_request_from_dict(source_record)
     record = {
         "schema_version": RUN_REF_STATIC_CONFIG_SCHEMA,
         "target_dsl_version": _TARGET_DSL_VERSION,
@@ -400,7 +449,7 @@ def build_run_ref_static_config(
     )
     object.__setattr__(config, "site_digest", site_digest)
     object.__setattr__(config, "generated_result_type", generated_result_type)
-    object.__setattr__(config, "source", source)
+    object.__setattr__(config, "source", canonical_source)
     object.__setattr__(config, "program", program)
     object.__setattr__(config, "inputs", inputs)
     object.__setattr__(config, "result_digest", result_digest)

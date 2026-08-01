@@ -40,6 +40,7 @@ from orchestrator.workflow.run_ref.source import (
 
 COMPILER_IDENTITY = "sha256:" + "c" * 64
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
+_AUTO_RETURN_REFINEMENT = object()
 
 
 def _source() -> SourceRequest:
@@ -103,18 +104,33 @@ def _inputs() -> tuple[RunRefInput, ...]:
     )
 
 
-def _config(*, mode: str = "bundle", return_index: int = 0, inputs=None):
+def _config(
+    *,
+    mode: str = "bundle",
+    return_index: int = 0,
+    inputs=None,
+    source: SourceRequest | None = None,
+    return_refinement=_AUTO_RETURN_REFINEMENT,
+):
     contract, _, _ = _compiler_contract(return_index)
     descriptor = contract.descriptor
     program = (
         BundleProgram(workflow_name="imported.module/child")
         if mode == "bundle"
-        else PathProgram(path="candidate.orc", entry_name="candidate")
+        else PathProgram(
+            path="candidate.orc",
+            entry_name="candidate",
+            return_refinement=(
+                descriptor["envelope"]["fields"][0]["type"]
+                if return_refinement is _AUTO_RETURN_REFINEMENT
+                else return_refinement
+            ),
+        )
     )
     return build_run_ref_static_config(
         compiler_runtime_identity_digest=COMPILER_IDENTITY,
         site_digest=_site_digest(descriptor),
-        source=_source(),
+        source=_source() if source is None else source,
         program=program,
         inputs=_inputs() if inputs is None else inputs,
         result_descriptor=descriptor,
@@ -128,6 +144,16 @@ def test_source_request_dict_codec_round_trips_exactly() -> None:
     decoded = source_request_from_dict(record)
 
     assert canonical_source_request(decoded) == record
+
+
+def test_builder_stores_canonical_source_and_matches_decoded_typed_view() -> None:
+    source = replace(_source(), locator="/tmp/run-ref-source")
+
+    config = _config(source=source)
+    decoded = decode_run_ref_static_config(encode_run_ref_static_config(config))
+
+    assert config.source.locator == "file:///tmp/run-ref-source"
+    assert config == decoded
 
 
 @pytest.mark.parametrize(
@@ -163,8 +189,94 @@ def test_static_config_both_program_modes_have_closed_distinct_shapes() -> None:
         "path": "candidate.orc",
         "entry_name": "candidate",
         "environment": "deterministic-effect-free",
+        "return_refinement": {"kind": "primitive", "name": "Bool"},
     }
     assert bundle.digest != path.digest
+
+
+def test_path_program_omitted_refinement_is_null_only_for_default_value() -> None:
+    omitted = _config(
+        mode="path",
+        return_index=7,
+        return_refinement=None,
+    )
+
+    assert omitted.record["program"]["return_refinement"] is None
+    with pytest.raises(ValueError):
+        _config(mode="path", return_index=0, return_refinement=None)
+
+
+def test_path_program_distinguishes_omitted_and_explicit_value_refinement() -> None:
+    omitted = _config(
+        mode="path",
+        return_index=7,
+        return_refinement=None,
+    )
+    explicit = _config(
+        mode="path",
+        return_index=7,
+        return_refinement={"kind": "primitive", "name": "Value"},
+    )
+
+    assert omitted.record["program"]["return_refinement"] is None
+    assert explicit.record["program"]["return_refinement"] == {
+        "kind": "primitive",
+        "name": "Value",
+    }
+    assert omitted.digest != explicit.digest
+    assert encode_run_ref_static_config(omitted) != encode_run_ref_static_config(
+        explicit
+    )
+
+
+def test_path_program_refinement_view_is_defensive_and_immutable() -> None:
+    refinement = {"kind": "primitive", "name": "Bool"}
+    program = PathProgram(
+        path="candidate.orc",
+        entry_name="candidate",
+        return_refinement=refinement,
+    )
+
+    refinement["name"] = "String"
+    returned = program.return_refinement
+    assert returned is not None
+    returned["name"] = "String"
+
+    assert program.return_refinement == {"kind": "primitive", "name": "Bool"}
+    assert program.record["return_refinement"] == {
+        "kind": "primitive",
+        "name": "Bool",
+    }
+
+
+@pytest.mark.parametrize(
+    "return_refinement",
+    (
+        {},
+        {"kind": "primitive", "name": "Bool", "extra": True},
+        {"kind": "primitive", "name": "Json"},
+        {"kind": "primitive", "name": "Provider"},
+        {"kind": "primitive", "name": "Prompt"},
+    ),
+)
+def test_path_program_rejects_malformed_or_nontransportable_refinement(
+    return_refinement,
+) -> None:
+    with pytest.raises((TypeError, ValueError)):
+        PathProgram(
+            path="candidate.orc",
+            entry_name="candidate",
+            return_refinement=return_refinement,
+        )
+
+
+def test_path_program_refinement_must_exactly_match_result_value_descriptor() -> None:
+    with pytest.raises(ValueError):
+        _config(
+            mode="path",
+            return_index=0,
+            return_refinement={"kind": "primitive", "name": "String"},
+        )
 
 
 @pytest.mark.parametrize("return_index", range(8))
@@ -387,6 +499,10 @@ def test_static_config_decoder_rejects_closed_shape_and_input_binding_tamper(
         lambda value: value["program"].__setitem__("entry_name", "bad name"),
         lambda value: value["program"].__setitem__("environment", "ambient"),
         lambda value: value["program"].__setitem__("workflow_name", "mixed"),
+        lambda value: value["program"].__setitem__(
+            "return_refinement", {"kind": "primitive", "name": "String"}
+        ),
+        lambda value: value["program"].__setitem__("return_refinement", None),
     ),
 )
 def test_path_program_decoder_rejects_path_environment_and_mixed_mode_tamper(
@@ -405,6 +521,14 @@ def test_bundle_program_decoder_rejects_noncanonical_workflow_names(
 ) -> None:
     record = _config().record
     record["program"]["workflow_name"] = workflow_name
+
+    with pytest.raises(ValueError):
+        decode_run_ref_static_config(canonical_json_bytes(record))
+
+
+def test_bundle_program_decoder_rejects_path_only_return_refinement() -> None:
+    record = _config().record
+    record["program"]["return_refinement"] = None
 
     with pytest.raises(ValueError):
         decode_run_ref_static_config(canonical_json_bytes(record))
@@ -461,6 +585,87 @@ def test_input_decoder_rejects_malformed_or_nontransportable_type_descriptor(
 
     with pytest.raises((TypeError, ValueError)):
         decode_run_ref_static_config(canonical_json_bytes(record))
+
+
+@pytest.mark.parametrize("name", ("Symbol", "RunId", "PathRel"))
+def test_neutral_inputs_and_results_accept_additional_transportable_primitives(
+    name: str,
+) -> None:
+    descriptor = {"kind": "primitive", "name": name}
+    row = RunRefInput(
+        name="value",
+        type_descriptor=descriptor,
+        binding=ReferenceBinding("inputs.value"),
+    )
+    result_descriptor = _config().result_descriptor
+    result_descriptor["envelope"]["fields"][0]["type"] = descriptor
+
+    assert row.type_descriptor == descriptor
+    validate_run_ref_result_descriptor(
+        result_descriptor,
+        expected_digest=canonical_sha256(result_descriptor),
+    )
+
+
+@pytest.mark.parametrize("name", ("Json", "Provider", "Prompt"))
+def test_neutral_inputs_and_results_retain_nontransportable_primitive_rejection(
+    name: str,
+) -> None:
+    descriptor = {"kind": "primitive", "name": name}
+    with pytest.raises(ValueError):
+        RunRefInput(
+            name="value",
+            type_descriptor=descriptor,
+            binding=ReferenceBinding("inputs.value"),
+        )
+    result_descriptor = _config().result_descriptor
+    result_descriptor["envelope"]["fields"][0]["type"] = descriptor
+
+    with pytest.raises(ValueError):
+        validate_run_ref_result_descriptor(
+            result_descriptor,
+            expected_digest=canonical_sha256(result_descriptor),
+        )
+
+
+def test_neutral_primitive_transportability_matches_compiler_decision() -> None:
+    from orchestrator.workflow.run_ref.result_contract import (
+        is_transportable_type_descriptor,
+    )
+    from orchestrator.workflow_lisp.contracts import is_transportable_result_type
+    from orchestrator.workflow_lisp.normalized_type_descriptor import (
+        compiler_normalized_type_descriptor,
+    )
+    from orchestrator.workflow_lisp.type_env import (
+        FrontendTypeEnvironment,
+        PrimitiveTypeRef,
+    )
+
+    names = (
+        "String",
+        "Int",
+        "Float",
+        "Bool",
+        "Value",
+        "Symbol",
+        "RunId",
+        "PathRel",
+        "FutureScalar",
+        "Json",
+        "Provider",
+        "Prompt",
+    )
+    type_refs = {name: PrimitiveTypeRef(name) for name in names}
+    type_env = FrontendTypeEnvironment(type_refs, target_dsl_version="2.24")
+
+    for name, type_ref in type_refs.items():
+        descriptor = compiler_normalized_type_descriptor(
+            type_ref,
+            type_env=type_env,
+        )
+        assert is_transportable_type_descriptor(
+            descriptor
+        ) is is_transportable_result_type(type_ref)
 
 
 @pytest.mark.parametrize(
