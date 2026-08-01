@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** executing; E1 is owner-selected, Tasks 0–7 are closed, and
-  Task 8 is the active end-to-end proof step
+- **Status:** executing; E1 is owner-selected, Tasks 0–8 are closed, and
+  Task 9 is the active routing and final-gate step
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E1 only — pinned-workspace child execution through
   `run-ref`
@@ -694,16 +694,39 @@ distinct `E1_TASK7_QUALITY_APPROVED` with no remaining findings.
 **Files:** create `tests/e2e/test_e2e_workflow_lisp_run_ref.py`; production
 changes only for a newly exposed E1 contract defect through a fresh RED.
 
-- [ ] Execute mode 1 with an imported call and asset, and mode 2 with a direct
+- [x] Execute mode 1 with an imported call and asset, and mode 2 with a direct
       transportable result, in exact pinned fixture repositories.
-- [ ] Prove separate roots/writers, typed envelopes, reproducible identities
+- [x] Prove separate roots/writers, typed envelopes, reproducible identities
       and delta bytes, complete metadata, mode-1 zero recompilation, mode-2
       full compilation, committed reuse, and crash → discard → fresh rerun.
-- [ ] Prove ordinary branch/procedure placement and target-2.24 loop refusal.
-- [ ] Record feasibility proofs 2–4 and their exact test bindings.
-- [ ] Run E1 focused integration plus adjacent native-return, calls, assets,
+- [x] Prove ordinary branch/procedure placement and target-2.24 loop refusal.
+- [x] Record feasibility proofs 2–4 and their exact test bindings.
+- [x] Run E1 focused integration plus adjacent native-return, calls, assets,
       compiler-session, checkpoints, pure-replay, and at-least-once suites;
       obtain ordered reviews, commit, and postcommit controls.
+
+Task 8 closed at exact reviewed commit `2a1f42f2`, tree
+`efe3441d8a4f7808d1484482637aa5b6866716e4`. Feasibility proof 2 binds
+`test_same_canonical_paths_are_reread_after_source_bytes_change`,
+`test_identical_trees_in_distinct_roots_compile_equivalently_after_root_normalization`,
+`test_revision_vectors_exactly_enumerate_compiler_read_source_and_configuration`,
+`test_structured_rejection_is_emitted_by_the_ordinary_full_compiler`, and the
+real-child `test_mode2_pinned_bool_executes_through_real_parent_and_child`.
+Proof 3 binds both real-mode tests plus
+`test_committed_site_reuses_and_incomplete_site_reruns_fresh_on_resume`; the
+mode-2 proof executes the identical pin twice and compares normalized program
+identity and raw delta bytes. Proof 4 binds
+`test_full_compile_admits_exact_effect_free_signature_and_binds_evidence`
+against the provider, command, unknown-effect, and known-effect refusal tests
+in `tests/test_workflow_run_ref_path_compile.py`. Mode-1 zero frontend work is
+additionally bound by
+`test_mode1_child_executes_staged_import_and_prompt_asset_without_frontend`.
+The new E2E module collected and passed 4 tests, the complete focused adjacent
+gate passed 807 tests, and fresh postcommit controls passed 5 tests. The gate
+also repaired one stale compiler-session fixture by supplying the already
+required shared-callable admission profile; no production byte changed.
+Ordered review returned `E1_TASK8_SPEC_APPROVED`, then distinct
+`E1_TASK8_QUALITY_APPROVED` after removing one host-umask-dependent assertion.
 
 ## Task 9: Route, verify, and close E1
 
