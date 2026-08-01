@@ -388,6 +388,35 @@
     invocation bytes, compiled Q1/Q2 identities, and completed-result reuse
     remain compatible.
 
+- v2.24 additions (Workflow Lisp pinned child execution)
+  - Target `2.24` adds the durable `run-ref` effect with exact pinned
+    repository identity and two program loci: a statically selected workflow
+    from the caller's already-compiled bundle, or a clone-relative committed
+    `.orc` entry compiled by the ordinary full child compiler.
+  - Mode 1 carries a parent-digest-bound `run_ref_bundle_capsule.v1` containing
+    the reachable compiled graph and source/asset closure. The child validates,
+    stages, and executes the ordinary loaded-bundle path without recompilation
+    or mutable controller-source reads. Mode 2 defaults to exact `Value`, may
+    declare any transportable `:returns T` refinement, and v1 admits only the
+    declared deterministic effect-free environment.
+  - Every existing transportable input/result shape is admitted. Each site
+    returns compiler-generated `RunRefResult$<site-digest>` containing exact
+    typed `value`, deterministic `WorkspaceDelta`, and `RunRefAccounting`.
+    `RepositoryRevisionId` retains its exact six accepted inputs; Git tree,
+    compiler/runtime, and post-setup baseline identities remain separate
+    digest-bound facts.
+  - `run_ref_attempt_ledger.v1` plus the parent `StepResult.run_ref` implement
+    at-least-once settlement. The atomic parent state transition is the sole
+    settlement point; a missing adjacent committed-ledger transition may be
+    reconciled from a fully validated result, incomplete attempts are retained
+    as incident evidence then exactly discarded and rerun at a fresh ordinal,
+    and committed results validate and reuse.
+  - `run-ref` is excluded from pure and effect-loop settlement contexts at
+    2.24. The structural `trial_*` refusal family and runtime-only
+    `run_ref_*` failures are closed and machine-routed. State schema remains
+    `2.1`; targets through 2.23 retain their source, compiler, IR, state,
+    checkpoint, and runtime bytes.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -419,6 +448,7 @@
   - `v2.21`: Workflow Lisp prompt output positions
   - `v2.22`: Workflow Lisp prompt-attempt identity and diagnostics
   - `v2.23`: Workflow Lisp phased contract delivery
+  - `v2.24`: Workflow Lisp pinned child execution through `run-ref`
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -559,5 +589,6 @@ Planned acceptance:
 | 2.21 | Workflow Lisp `(slot :path :out [PathType])`, `compiled_prompt_fragment_identity.v2`, and `compiler_prompt_fragment_contract.v2` | One authored path fill drives rendering plus one required UTF-8 file contract. The generated file contract composes with exactly one prompt-owned structured result in fixed order, rejects name/destination collisions before launch, and commits both artifact maps state-atomically. |
 | 2.22 | Workflow Lisp direct-fragment prompt-attempt identity, functional-v2 evidence, and additive prompt-context reports | Requires the compiler-owned identity-version/binding-plan pair, seals five content-free roles plus exact prepared-prompt composition after invocation preparation and before launch, classifies retry drift in fixed order, and preserves target-2.20/2.21 execution and evidence bytes. |
 | 2.23 | Workflow Lisp explicit phased contract delivery | Adds optional `:delivery :composed|:phased` and phased-only literal materialization attempts, exact `T1 || T2 == C` delivery inside one provider process, bounded same-client correction, identity-v2/functional-v3/phase-ledger evidence, and report-v2 actual-delivery comparison. Omitted/explicit composed calls preserve the ordinary path and identity-v1/functional-v2 bytes; state schema remains `2.1`. |
+| 2.24 | Workflow Lisp pinned child execution through `run-ref` | Adds exact repository/materialization identity, statically compiled-bundle and ordinary full child-compile program modes, all transportable inputs/results, deterministic workspace/accounting evidence, separate parent/child roots and writers, and at-least-once incomplete-attempt discard/fresh-rerun plus validated committed reuse. Mode 1 never recompiles; mode 2 v1 admits only deterministic effect-free candidates; effect-loop placement is deferred. State schema remains `2.1`. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

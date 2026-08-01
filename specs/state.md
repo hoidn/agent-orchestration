@@ -474,6 +474,64 @@ profiled root.
   authoritative state needed to classify the boundary fails closed; missing
   or torn evidence alone does not.
 
+## Target 2.24 `run-ref` State, Settlement, And Resume
+
+- Target-2.24 `run-ref` remains on state schema `2.1`. The parent keeps one
+  append-only `run_ref_attempt_ledger.v1` beneath its run root, keyed by the
+  complete runtime step identity and visit. Ordinals are positive, contiguous
+  per key, and never reused. Every row binds source, program, input, policy,
+  step-config, capsule-or-compiler, checked-out tree, post-setup baseline,
+  child-run, result contract/payload, workspace delta, accounting, and evidence
+  manifest digests plus closed stage/status and timestamps.
+- `RepositoryRevisionId` contains exactly normalized locator, resolved commit
+  SHA, materializer version, submodule policy, LFS policy, and authored
+  setup-command identity. The verified Git tree ID, compiler/runtime identity,
+  and post-setup baseline tree digest are distinct row/config/evidence fields;
+  none silently widens repository identity. The canonical absolute run-ref
+  root is persisted and must agree on resume. Its default is
+  `~/.local/state/orchestrator/run-ref`; an explicitly configured replacement
+  must be absolute.
+- The parent state manager is the sole writer of parent state and the attempt
+  ledger. Each child is an ordinary top-level run in the fresh clone's
+  `.orchestrate/runs/<child-run-id>` and holds its own ordinary run-lifetime
+  writer lock. Child state never becomes nested parent state, and a child never
+  writes the parent ledger.
+- The settlement sequence is closed: allocate/persist an ordinal; materialize,
+  setup, decode-or-compile, bind inputs, and launch; validate terminal child
+  state and declared outputs; freeze delta/accounting/evidence; atomically mark
+  the row `completed_pending_parent_commit`; atomically persist one parent
+  state transition that stores `StepResult.run_ref` plus typed artifacts and
+  clears `current_step`; then append the row's `committed` transition. The
+  parent state transition is the sole result settlement point. The settled
+  result binds the exact pending-row and evidence digests.
+- A crash after parent settlement but before the adjacent `committed` row is
+  reconciled only from that fully validated settled result and exact pending
+  row; reconciliation appends the missing transition and launches no child. A
+  row without a settled parent result, including
+  `completed_pending_parent_commit`, is incomplete and non-authoritative. Its
+  available incident evidence is retained, exactly its attempt workspace is
+  removed, a fresh ordinal is allocated, and execution rematerializes and
+  reruns through ordinary control flow.
+- Completed reuse requires the current `RunRefStepConfig`, settled result,
+  unique bound ledger row, child terminal result, exact result contract and
+  payload, delta, accounting, and evidence digests all to validate. Multiple
+  candidates, result/row disagreement, missing or malformed authority,
+  unreadable evidence, changed root, or failed exact discard fails closed and
+  never silently restarts or reuses.
+- The lexical checkpoint policy is exactly
+  `reuse_validated_run_ref_result`. Its identity includes the canonical
+  `RunRefStepConfig` digest and retains all existing root, callee-checksum,
+  call-frame, bound-input, and checkpoint validation. A validated committed
+  `run-ref` result may be reused as a durable effect result; no effect-identity
+  memo key or cross-run memo is created.
+- `WorkspaceDelta` metadata rows are complete and ordered by UTF-8 path bytes.
+  Only text-diff content is bounded: 256 KiB per entry and 8 MiB total, with
+  explicit truncation, complete catalog digest, omitted counts, sizes, modes,
+  and old/new digests. `.git`, clone-local `.orchestrate`, and setup evidence
+  are excluded. Declared artifacts remain child-contract-validated typed
+  outputs; ledger/evidence views never substitute for them or for
+  `RunRefResult$<site-digest>`.
+
 ## Workflow Lisp Typed Prompt-Input Evidence
 
 - Each provider invocation's prompt composition returns one closed, validated

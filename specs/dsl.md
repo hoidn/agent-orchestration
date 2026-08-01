@@ -20,7 +20,7 @@ snippets are structural notation for that mapping, not accepted fresh workflow
 source.
 
 - Top-level workflow keys
-  - `version`: string (supported revisions extend through `"2.23"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (supported revisions extend through `"2.24"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -605,6 +605,147 @@ source.
       Canonical composition and actual delivered turns remain distinct,
       content-free claims. The phase ledger, reports, submit receipts, stdout,
       and protocol frames are never workflow result authority.
+
+  - Workflow Lisp pinned child execution (target 2.24):
+    - `run-ref` is a step-level durable effect, distinct from `call`, command,
+      provider, closure, and runtime evaluation. Its two closed authored forms
+      are:
+
+      ```lisp
+      (run-ref
+        :source (:repo "<canonical-locator>" :commit "<40-lowercase-hex>")
+        :program (:bundle <static-workflow-name>)
+        :inputs (:name <value-expr> ...)
+        :policy (:setup ((:argv ("/absolute/program" "literal" ...)
+                          :env (:NAME "literal" ...)) ...)))
+      ```
+
+      ```lisp
+      (run-ref
+        :source (:repo "<canonical-locator>" :commit "<40-lowercase-hex>")
+        :program (:path "relative/program.orc" :entry <static-workflow-name>)
+        :inputs (:name <value-expr> ...)
+        :returns Value
+        :policy (:environment :deterministic-effect-free :setup ()))
+      ```
+
+    - Keys are closed, unique, and compile-time literal except input value
+      expressions. Source and program discriminators are mutually exclusive.
+      A commit is exactly one lowercase 40-hex object ID. Accepted locators
+      are canonical absolute paths normalized to `file://`, canonical
+      `file://`, `https://`, or `ssh://` URIs; userinfo, query, fragment, scp
+      shorthand, and implicit relative paths reject. A clone program path is
+      normalized relative POSIX `.orc` with no empty, dot, parent, absolute,
+      or backslash segment.
+    - Mode 1 (`:bundle`) statically selects a workflow from the reachable
+      compiled catalog, validates all inputs against its exact signature, and
+      derives its exact return type. It forbids `:returns` and
+      `:environment`. Its reachable compiled graph and exact source/asset
+      closure travel in a private, version-local
+      `run_ref_bundle_capsule.v1`; the child validates the parent-bound capsule
+      digest and existing IR cross-views, stages closure bytes below its own
+      `.orchestrate`, and executes the ordinary loaded-bundle route without
+      recompiling or reading mutable controller source.
+    - Mode 2 (`:path`) runs the ordinary full compiler in the pinned child
+      root. Its result defaults to exact opaque `Value`; optional
+      `:returns T` may name any existing transportable type and is a runtime
+      claim checked exactly against the child signature. V1 requires
+      `:environment :deterministic-effect-free`; any provider, command,
+      unknown, or otherwise non-pure effect rejects with
+      `trial_candidate_environment_not_admissible`. Compiler rejection is the
+      stable structured `trial_program_compile_rejected` envelope, never a
+      parallel checker or parsed human stderr.
+    - Every target-2.19 transportable value is valid as an input and result,
+      including direct roots, records, unions, optionals, lists, maps,
+      relpaths, and exact `Value`. Relpath inputs are copied to deterministic
+      child-workspace destinations and rebound only after contract validation;
+      host source paths do not cross the boundary.
+    - Each site has one compiler-generated monomorphic result type:
+
+      ```text
+      RunRefResult$<site-digest> = {
+        value: T,
+        workspace_delta: WorkspaceDelta,
+        accounting: RunRefAccounting
+      }
+
+      WorkspaceDelta = {
+        base: RepositoryRevisionId,
+        changed_files: List[WorkspaceEntryDelta],
+        deleted_files: List[WorkspaceEntryDelta],
+        untracked_files: List[WorkspaceEntryDelta],
+        normalized_diff: NormalizedWorkspaceDiff,
+        declared_artifacts: List[DeclaredWorkspaceArtifact]
+      }
+
+      RunRefAccounting = {
+        child_run_id: RunId,
+        attempt_ordinal: Int,
+        terminal_status: String,
+        elapsed_ms: Int,
+        setup_ms: Int,
+        compile_ms: Int,
+        provider_attempts: Value,
+        token_usage: Value,
+        cost: Value
+      }
+      ```
+
+      `WorkspaceDelta` carries the exact `RepositoryRevisionId`, complete
+      sorted changed/deleted/untracked metadata, bounded normalized diff, and
+      declared artifacts. `RunRefAccounting` carries child run/attempt/status
+      and elapsed/setup/compile/provider/token/cost facts; unknown usage or
+      cost is the exact string `"UNKNOWN"`, never numeric zero. The specialized
+      result-contract encoder preserves the child's exact root contract under
+      `value`; it does not introduce general generic records.
+    - `RepositoryRevisionId` hashes exactly normalized locator, resolved
+      commit SHA, materializer version, submodule policy, LFS policy, and
+      authored setup-command identity. Verified Git tree, compiler/runtime
+      identity, and post-setup baseline digest are separate bound facts; setup
+      output is evidence, not repository identity.
+    - Setup is an ordered literal argv plus declared-env list, never a shell.
+      `argv[0]` is absolute or a canonical `./` workspace-relative executable.
+      Setup receives only that declared environment plus runtime-owned `PWD`
+      and evidence variables. Its output is evidence and excluded from the
+      workspace delta. V1 rejects `.gitmodules` and committed LFS filters.
+      Materialization uses a sealed content-addressed mirror followed by one
+      ordinary fresh detached clone; Git worktrees are not used.
+    - `run-ref` is admitted in ordinary workflow bodies, `let*`, `if`,
+      `match`, reusable calls, and effectful procedures. Target 2.24 rejects it
+      in pure functions, pure settlement/evaluation bodies, `loop/recur`,
+      `list/map-effect`, and generated repeat/for-each effect frames. A later
+      reviewed target owns effect-loop settlement.
+    - The closed structural refusal codes owned by E1 are
+      `trial_source_unresolvable`, `trial_source_submodules_unsupported`,
+      `trial_source_lfs_unsupported`,
+      `trial_source_revision_digest_mismatch`,
+      `trial_materialization_digest_mismatch`,
+      `trial_workspace_preexisting`, `trial_setup_failed`,
+      `trial_program_missing`, `trial_program_compile_rejected`,
+      `trial_program_signature_mismatch`, and
+      `trial_candidate_environment_not_admissible`. Each envelope carries
+      `code`, `rejected_value`, and stable secondary causes. Runtime-only
+      failures use the separate closed codes `run_ref_ledger_invalid`,
+      `run_ref_capsule_invalid`, `run_ref_child_launch_failed`,
+      `run_ref_child_result_invalid`, `run_ref_delta_capture_failed`, and
+      `run_ref_workspace_discard_failed`. Human prose is never routing
+      authority.
+    - Targets below 2.24 reject the form with
+      `run_ref_target_dsl_unsupported`. Missing values, duplicate or unknown
+      keys, nonliteral identity/policy fields, mixed program discriminators,
+      or placement outside the admitted effect contexts reject through the
+      closed compiler diagnostics `run_ref_shape_invalid`,
+      `run_ref_literal_required`, `run_ref_program_mode_invalid`, and
+      `run_ref_placement_invalid`; each carries a stable reason and source
+      span.
+    - The external child compile boundary emits exactly one
+      `workflow_lisp_compile_diagnostics.v1` JSON document. It has
+      `status: accepted|rejected`, ordered existing serialized diagnostics,
+      and, on acceptance, the selected entry/signature and normalized program
+      identity. The opt-in surface is
+      `orchestrator compile <program.orc> --diagnostics-json`; accepted exits
+      zero and rejected exits two. Human compiler output remains unchanged
+      when this machine surface is not requested.
 
   - Workflow Lisp WCC child-call argument projection:
     - Within existing bounded `list/map-effect`, an existing typed
