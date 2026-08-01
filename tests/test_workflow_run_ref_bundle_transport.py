@@ -86,6 +86,48 @@ def _compiled_controller_bundle(tmp_path: Path) -> LoadedWorkflowBundle:
     ).validated_bundle
 
 
+def _compiled_mixed_controller_bundle(tmp_path: Path) -> LoadedWorkflowBundle:
+    source_path = tmp_path / "capsule_mixed.orc"
+    source_path.write_text(
+        """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.24")
+  (defmodule capsule_mixed)
+  (export entry child)
+  (defworkflow child () -> String
+    "ready")
+  (defworkflow entry () -> String
+    (let* ((bundled
+             (run-ref
+               :source (:repo "file:///workspace"
+                        :commit "0123456789abcdef0123456789abcdef01234567")
+               :program (:bundle child)
+               :inputs ()
+               :policy (:setup ())))
+           (compiled
+             (run-ref
+               :source (:repo "file:///workspace"
+                        :commit "0123456789abcdef0123456789abcdef01234567")
+               :program (:path "candidate.orc" :entry candidate)
+               :inputs ()
+               :returns String
+               :policy (:environment :deterministic-effect-free :setup ()))))
+      bundled.value)))
+""",
+        encoding="utf-8",
+    )
+    return build_frontend_bundle(
+        FrontendBuildRequest(
+            source_path=source_path,
+            source_roots=(tmp_path,),
+            entry_workflow="entry",
+            workspace_root=tmp_path,
+            lowering_route=LoweringRoute.WCC_M4,
+        )
+    ).validated_bundle
+
+
 def _closure(source_path: Path) -> tuple[bundle_transport.BundleCapsuleClosureBlob, ...]:
     return (
         bundle_transport.BundleCapsuleClosureBlob(
@@ -98,8 +140,9 @@ def _closure(source_path: Path) -> tuple[bundle_transport.BundleCapsuleClosureBl
 
 def _encoded_capsule(tmp_path: Path) -> bundle_transport.EncodedBundleCapsule:
     bundle = _compiled_bundle(tmp_path)
+    bundles = {bundle.surface.name: bundle}
     return bundle_transport.encode_bundle_capsule(
-        {bundle.surface.name: bundle},
+        bundles,
         target_workflow_names=(bundle.surface.name,),
         closure=_closure(bundle.provenance.workflow_path),
         compiler_runtime_identity_digest="sha256:" + "c" * 64,
@@ -349,6 +392,39 @@ def test_bundle_capsule_decode_injects_verified_binding_and_rechecks_digests(
         encoded.capsule_digest
     )
     assert bound.step_config_digest != unbound.step_config_digest
+
+
+def test_bundle_capsule_decode_binds_mode_one_and_leaves_mode_two_unbound(
+    tmp_path: Path,
+) -> None:
+    bundle = _compiled_mixed_controller_bundle(tmp_path)
+    encoded = bundle_transport.encode_bundle_capsule(
+        {bundle.surface.name: bundle},
+        target_workflow_names=(bundle.surface.name,),
+        closure=_closure(bundle.provenance.workflow_path),
+        compiler_runtime_identity_digest="sha256:" + "c" * 64,
+        lowering_schema_version=2,
+    )
+
+    decoded = bundle_transport.decode_bundle_capsule(
+        manifest_bytes=encoded.manifest_bytes,
+        pickle_bytes=encoded.pickle_bytes,
+        closure=encoded.closure,
+        expected_capsule_digest=encoded.capsule_digest,
+        expected_compiler_runtime_identity_digest="sha256:" + "c" * 64,
+    )
+
+    configs = [
+        node.execution_config
+        for node in decoded.bundles_by_name[bundle.surface.name].ir.nodes.values()
+        if isinstance(node.execution_config, RunRefStepConfig)
+    ]
+    assert len(configs) == 2
+    by_mode = {config.run_ref.program.record["mode"]: config for config in configs}
+    assert by_mode["bundle"].capsule_binding == RunRefBundleCapsuleBinding(
+        encoded.capsule_digest
+    )
+    assert by_mode["path"].capsule_binding is None
 
 
 @pytest.mark.parametrize(

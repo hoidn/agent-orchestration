@@ -42,7 +42,7 @@ from orchestrator.workflow.semantic_ir import (
 from orchestrator.workflow_lisp.wcc.route import LOWERING_SCHEMA_WCC
 
 from .contracts import canonical_json_bytes, canonical_sha256
-from .config import RunRefBundleCapsuleBinding
+from .config import BundleProgram, RunRefBundleCapsuleBinding
 from .result_contract import validate_run_ref_result_descriptor
 
 
@@ -347,7 +347,14 @@ def _rewrite_catalog_capsule_binding(
                             node,
                             execution_config=replace(
                                 node.execution_config,
-                                capsule_binding=binding,
+                                capsule_binding=(
+                                    binding
+                                    if isinstance(
+                                        node.execution_config.run_ref.program,
+                                        BundleProgram,
+                                    )
+                                    else None
+                                ),
                             ),
                         )
                         if isinstance(
