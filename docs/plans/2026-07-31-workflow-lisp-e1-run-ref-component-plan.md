@@ -3,7 +3,8 @@
 ## Metadata
 
 - **Status:** proposed; E1 is owner-selected, but implementation remains
-  blocked on the ordered plan-review gate in Task 0
+  blocked on the preacceptance hermeticity proof in Task 0A and the ordered
+  plan-review gate in Task 0B
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E1 only — pinned-workspace child execution through
   `run-ref`
@@ -187,10 +188,13 @@ RunRefAccounting = {
 }
 ```
 
-`RepositoryRevisionId` is a load-bearing nominal digest record containing the
-normalized locator digest, exact commit, Git tree ID, materializer version,
-submodule/LFS policies, setup identity, compiler/runtime identity, and the
-post-setup baseline tree digest. `WorkspaceEntryDelta`,
+`RepositoryRevisionId` is the accepted load-bearing nominal digest of exactly
+the normalized locator, resolved commit SHA, materializer version,
+submodule policy, LFS policy, and authored setup-command identity. The
+verified Git tree ID, compiler/runtime identity, and post-setup baseline tree
+digest are separate, digest-bound materialization/program/baseline facts in
+`RunRefStepConfig`, the attempt ledger, and evidence manifest; setup output is
+evidence and never changes `RepositoryRevisionId`. `WorkspaceEntryDelta`,
 `NormalizedWorkspaceDiff`, and `DeclaredWorkspaceArtifact` use structural
 fields for canonical relative path, kind, mode, size, old/new SHA-256, link
 target, and bounded text-diff data where applicable. Unknown usage/cost stays
@@ -229,8 +233,10 @@ The runtime root defaults outside the parent workspace at
 runtime configuration/CLI plumbing to provide a different absolute root. Its
 canonical path is persisted in the parent ledger and must match on resume.
 
-Compiler/runtime identity v1 is the canonical digest of Python implementation
-and major/minor, orchestrator version, lowering schema, and sorted content
+The verified Git tree ID is retained in materialization evidence but does not
+widen `RepositoryRevisionId`. Compiler/runtime identity v1 is the canonical
+digest of Python implementation and major/minor, orchestrator version,
+lowering schema, and sorted content
 digests of the installed `orchestrator` package's Python/data files. Mode-2
 program identity additionally hashes module names with source-read revisions,
 entry name/signature, lowering route, and exact provider/prompt/command
@@ -304,16 +310,25 @@ The commit sequence is:
 3. validate terminal child state and declared outputs;
 4. freeze final workspace, delta, accounting, and evidence manifests;
 5. atomically mark the ledger row `completed_pending_parent_commit`;
-6. atomically commit the parent `StepResult.run_ref` and typed artifacts, then
-   mark the ledger row `committed` and clear `current_step` in the same parent
-   transaction or a replay-safe adjacent journal transition.
+6. atomically persist the parent state transition that stores
+   `StepResult.run_ref` plus typed artifacts and clears `current_step`; this
+   existing state-file transition is the sole settlement point, and the
+   result binds the exact pending ledger-row and evidence digests; and
+7. append the ledger's `committed` transition. A crash between 6 and 7 is
+   reconciled from the fully validated settled parent result without launching
+   another child. A crash before 6 leaves an incomplete attempt that must be
+   dispositioned, discarded, and rerun fresh.
 
-On re-entry, a fully committed row is reused only after all referenced
-digests and the current `RunRefStepConfig` digest validate. An incomplete or
-crashed row remains non-authoritative incident evidence: the runtime records
-its disposition, removes exactly that attempt workspace, allocates a new
-ordinal, rematerializes, and reruns. Missing, malformed, ambiguous, changed,
-or undiscardable state fails closed. Add lexical policy
+On re-entry, a fully settled parent result is reused only after its bound
+ledger row, all referenced digests, and the current `RunRefStepConfig` digest
+validate; a missing adjacent `committed` transition is then appended as
+reconciliation. A ledger row without the settled parent result, including
+`completed_pending_parent_commit`, remains non-authoritative incident
+evidence: the runtime records its disposition, removes exactly that attempt
+workspace, allocates a new ordinal, rematerializes, and reruns. Multiple
+candidate rows for one settled result, a result/row disagreement, or any
+missing, malformed, changed, ambiguous, or undiscardable state fails closed.
+Add lexical policy
 `reuse_validated_run_ref_result`; it never becomes an effect memo key and does
 not weaken root/callee checksum or checkpoint guards.
 
@@ -355,13 +370,55 @@ security/safety/secrets/provider-isolation exclusions.
 
 ---
 
-## Task 0: Review and accept this component plan
+## Task 0A: Close the preacceptance hermetic full-compile entry proof
+
+**Files:** create `tests/test_workflow_lisp_e1_compile_hermeticity.py`; this
+plan's exact proof record only.
+
+- [x] Run the ordinary full in-memory frontend twice in one process at one
+      canonical source path with changed entry and imported-module bytes;
+      require fresh source revisions and changed normalized compiler output,
+      never a stale cache hit.
+- [x] Compile byte-identical source/dependency trees at two distinct clone
+      roots; require equal path-normalized semantic/executable/runtime/persisted
+      outputs and equal module-name-to-source-digest vectors. Record that the
+      existing frontend build fingerprint is allowed to remain path-bound and
+      is therefore not an E1 program/repository identity input.
+- [x] Require the exact compiler source/configuration read traces to enumerate
+      every observed file input. Name any remaining process/compiler input
+      that the existing compiler does not capture; Task 2 must bind it through
+      the separate compiler/runtime identity before child execution.
+- [x] Prove malformed source rejects through the ordinary compiler's stable
+      structured diagnostic rather than a parallel validator.
+- [x] Run collect-only and the focused fixture, bind fresh results in this
+      plan, and do not accept the plan if stale reuse or an unnamed ambient
+      input remains.
+
+Task 0A result: `tests/test_workflow_lisp_e1_compile_hermeticity.py`
+(`sha256:7c5d6bc9bb3324f533b56151b4917d4dfcf23cd8dabd52dce9b852af6d575c00`)
+collects five tests and passed five of five. The same-process entry and
+dependency mutations produced fresh source revisions and changed normalized
+compiler payloads; byte-identical trees at distinct roots produced equal
+root-normalized core, semantic, executable, runtime-plan, boundary, and
+persisted views; the read vectors enumerated both source files and all three
+configuration files; and malformed input produced the ordinary compiler's
+structured `type_unknown` diagnostic. No stale cache reuse was observed.
+
+The probe also confirmed that the existing frontend fingerprint and derived
+provenance include absolute build/source-root spellings. They are build-cache
+metadata, not E1 identity. Exact compiler/runtime implementation identity is
+the one named input absent from the current source/configuration read vectors;
+Task 2 must add and test that separate binding before any child is executable.
+No other ambient compiler input was observed by this fixture.
+
+## Task 0B: Review and accept this component plan
 
 **Files:** this plan; `artifacts/review/e1-run-ref-plan-review.md`; exact E1
 status/routing rows in the E roadmap, execution sequence, design router,
 capability matrix, docs index, and routing tests.
 
-- [ ] Commit the proposed plan while status remains plan-review-pending.
+- [ ] Commit the proposed plan while status remains plan-review-pending and
+      bind the completed Task 0A result.
 - [ ] Obtain `E1_PLAN_SPEC_APPROVED` against the exact commit and governing
       design digests; correct material findings and repeat if needed.
 - [ ] Obtain distinct `E1_PLAN_QUALITY_APPROVED` once.
