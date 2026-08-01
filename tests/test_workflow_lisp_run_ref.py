@@ -3261,6 +3261,43 @@ def test_generated_run_ref_mapping_rejects_ambiguous_operation_kind() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "carrier_name",
+    (
+        "provider_params",
+        "provider_call_policy",
+        "managed_jobs",
+        "input_file",
+        "asset_file",
+        "depends_on",
+        "asset_depends_on",
+        "inject_output_contract",
+        "inject_consumes",
+        "prompt_consumes",
+        "typed_prompt_inputs",
+        "consumes_injection_position",
+        "compiler_prompt_dependency_contract",
+        "compiler_prompt_fragment_contract",
+        "compiled_prompt_fragment_identity",
+        "prompt_attempt_identity_version",
+        "compiler_prompt_attempt_binding_plan",
+    ),
+)
+def test_generated_run_ref_mapping_rejects_ancillary_operation_carrier(
+    carrier_name: str,
+) -> None:
+    mapping = _surface_mapping_with_run_ref(_surface_run_ref_config())
+    mapping["steps"][0][carrier_name] = object()
+
+    with pytest.raises(ValueError, match=rf"run_ref.*{carrier_name}"):
+        elaborate_surface_workflow(
+            mapping,
+            workflow_path=Path("/tmp/ambiguous-run-ref-carrier.orc"),
+            imported_bundles={},
+            allow_generated_step_kinds=True,
+        )
+
+
 @pytest.mark.parametrize("version", ("2.24", "2.25"))
 def test_generated_run_ref_surface_accepts_target_2_24_or_later(
     version: str,
