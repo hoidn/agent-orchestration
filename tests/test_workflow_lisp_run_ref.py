@@ -1257,7 +1257,15 @@ def test_run_ref_metadata_merge_accepts_equivalent_and_rejects_conflict() -> Non
         compiler_session=session,
     )
     outer = snapshot_session_state(session.typecheck)
-    equivalent = snapshot_session_state(session.typecheck)
+    independent_session = CompilerSession()
+    typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=independent_session,
+    )
+    equivalent = snapshot_session_state(independent_session.typecheck)
     merged = merge_successful_session_outputs(outer, equivalent)
     assert merged.run_ref_metadata_by_name == outer.run_ref_metadata_by_name
 
@@ -1270,6 +1278,38 @@ def test_run_ref_metadata_merge_accepts_equivalent_and_rejects_conflict() -> Non
     ] = replacement
     with pytest.raises(TypecheckSessionStateCollisionError):
         merge_successful_session_outputs(outer, conflicting)
+
+
+def test_run_ref_metadata_merge_rejects_changed_hydration_vector() -> None:
+    from orchestrator.workflow_lisp.typecheck_context import (
+        TypecheckSessionStateCollisionError,
+        merge_successful_session_outputs,
+        snapshot_session_state,
+    )
+
+    expr = _mode_one_expr()
+    session = CompilerSession()
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(expr),
+        compiler_session=session,
+    )
+    outer = snapshot_session_state(session.typecheck)
+    changed = snapshot_session_state(session.typecheck)
+    metadata = changed.run_ref_metadata_by_name[typed.type_ref.name]
+    replacement = replace(
+        metadata,
+        compiler_owned_types=metadata.compiler_owned_types[:-1],
+    )
+    changed.run_ref_metadata_by_name[typed.type_ref.name] = replacement
+    changed.run_ref_metadata_by_expr_key[metadata.expression_key][
+        metadata.type_signature
+    ] = replacement
+
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        merge_successful_session_outputs(outer, changed)
 
 
 def test_run_ref_compiler_type_rejects_shape_equal_unowned_binding() -> None:

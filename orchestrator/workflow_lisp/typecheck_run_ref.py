@@ -413,6 +413,10 @@ def run_ref_metadata_equivalent(left: object, right: object) -> bool:
         _type_identity(left.value_type_ref),
         tuple((name, _type_identity(type_ref)) for name, type_ref in left.input_types),
         _type_identity(left.type_ref),
+        tuple(
+            (name, _type_identity(type_ref))
+            for name, type_ref in left.compiler_owned_types
+        ),
     ) == (
         right.generated_type_name,
         right.site_digest,
@@ -421,6 +425,10 @@ def run_ref_metadata_equivalent(left: object, right: object) -> bool:
         _type_identity(right.value_type_ref),
         tuple((name, _type_identity(type_ref)) for name, type_ref in right.input_types),
         _type_identity(right.type_ref),
+        tuple(
+            (name, _type_identity(type_ref))
+            for name, type_ref in right.compiler_owned_types
+        ),
     )
 
 
