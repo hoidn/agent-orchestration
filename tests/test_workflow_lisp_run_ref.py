@@ -3281,6 +3281,9 @@ def test_generated_run_ref_mapping_rejects_ambiguous_operation_kind() -> None:
         "compiled_prompt_fragment_identity",
         "prompt_attempt_identity_version",
         "compiler_prompt_attempt_binding_plan",
+        "with",
+        "then",
+        "else",
     ),
 )
 def test_generated_run_ref_mapping_rejects_ancillary_operation_carrier(
