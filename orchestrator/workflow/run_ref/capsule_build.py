@@ -10,6 +10,7 @@ from types import MappingProxyType
 
 from orchestrator.workflow.executable_ir import (
     AdjudicatedProviderStepConfig,
+    CallBoundaryNode,
     ProviderStepConfig,
     RunRefStepConfig,
 )
@@ -68,31 +69,83 @@ def _run_ref_configs(
 def _closed_graph_from_root(
     root: LoadedWorkflowBundle,
 ) -> Mapping[str, LoadedWorkflowBundle]:
-    """Index one ordinary-import graph while preserving exact object identity."""
+    """Canonicalize the graph reached by actual ordinary-call edges."""
 
     root_name = _bundle_name(root)
     catalog: dict[str, LoadedWorkflowBundle] = {}
+    edges_by_name: dict[str, dict[str, str]] = {}
     pending = [root]
     while pending:
         bundle = pending.pop()
         name = _bundle_name(bundle)
+        edges = {
+            alias: _bundle_name(child)
+            for alias, child in _used_imports(bundle).items()
+        }
         known = catalog.get(name)
         if known is not None:
-            if known is not bundle:
+            if (
+                not _same_bundle_without_imports(known, bundle)
+                or edges_by_name[name] != edges
+            ):
                 _fail("run_ref_capsule_catalog_conflict")
             continue
         catalog[name] = bundle
-        if not isinstance(bundle.imports, Mapping):
-            _fail("run_ref_capsule_catalog_invalid")
-        for alias, child in sorted(bundle.imports.items()):
-            if not isinstance(alias, str) or type(child) is not LoadedWorkflowBundle:
-                _fail("run_ref_capsule_catalog_invalid")
-            pending.append(child)
+        edges_by_name[name] = edges
+        pending.extend(_used_imports(bundle).values())
     if root_name not in catalog:
         raise AssertionError("controller graph traversal lost its root")
+
+    import_storage_by_name: dict[str, dict[str, LoadedWorkflowBundle]] = {
+        name: {} for name in catalog
+    }
+    rebuilt = {
+        name: replace(
+            bundle,
+            imports=MappingProxyType(import_storage_by_name[name]),
+        )
+        for name, bundle in catalog.items()
+    }
+    for name, edges in edges_by_name.items():
+        for alias, child_name in sorted(edges.items()):
+            child = rebuilt.get(child_name)
+            if child is None:
+                _fail("run_ref_capsule_workflow_missing")
+            import_storage_by_name[name][alias] = child
     return MappingProxyType(
-        {name: catalog[name] for name in sorted(catalog)}
+        {name: rebuilt[name] for name in sorted(rebuilt)}
     )
+
+
+def _used_imports(
+    bundle: LoadedWorkflowBundle,
+) -> Mapping[str, LoadedWorkflowBundle]:
+    """Return only imports named by executable call-boundary nodes."""
+
+    aliases = {
+        node.call_alias
+        for node in bundle.ir.nodes.values()
+        if isinstance(node, CallBoundaryNode)
+    }
+    used: dict[str, LoadedWorkflowBundle] = {}
+    for alias in sorted(aliases):
+        if not isinstance(alias, str) or not alias:
+            _fail("run_ref_capsule_catalog_invalid")
+        child = bundle.imports.get(alias)
+        if type(child) is not LoadedWorkflowBundle:
+            _fail("run_ref_capsule_workflow_missing")
+        used[alias] = child
+    return MappingProxyType(used)
+
+
+def _same_bundle_without_imports(
+    left: LoadedWorkflowBundle,
+    right: LoadedWorkflowBundle,
+) -> bool:
+    """Compare duplicate compiler wrappers without walking import cycles."""
+
+    empty = MappingProxyType({})
+    return replace(left, imports=empty) == replace(right, imports=empty)
 
 
 def _add_catalog_rows(
@@ -221,9 +274,7 @@ def _reachable_capsule_catalog(
             _fail("run_ref_capsule_catalog_invalid")
         reached[name] = bundle
 
-        for alias, child in sorted(bundle.imports.items()):
-            if not isinstance(alias, str) or type(child) is not LoadedWorkflowBundle:
-                _fail("run_ref_capsule_catalog_invalid")
+        for alias, child in _used_imports(bundle).items():
             child_name = _bundle_name(child)
             available_child = (
                 selected_bundle
@@ -232,13 +283,8 @@ def _reachable_capsule_catalog(
             )
             if available_child is None:
                 _fail("run_ref_capsule_workflow_missing")
-            if available_child is not child:
-                original_selected = available.get(selected_name)
-                if not (
-                    child_name == selected_name
-                    and original_selected is child
-                ):
-                    _fail("run_ref_capsule_catalog_conflict")
+            if not _same_bundle_without_imports(available_child, child):
+                _fail("run_ref_capsule_catalog_conflict")
             pending.append(child_name)
         for config in _run_ref_configs(bundle):
             observe(config)
@@ -257,7 +303,7 @@ def _reachable_capsule_catalog(
         for name, bundle in reached.items()
     }
     for name, bundle in reached.items():
-        for alias, child in sorted(bundle.imports.items()):
+        for alias, child in _used_imports(bundle).items():
             child_name = _bundle_name(child)
             if child_name not in rebuilt:
                 _fail("run_ref_capsule_workflow_missing")

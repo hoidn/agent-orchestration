@@ -7,7 +7,7 @@ from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
-from orchestrator.workflow.executable_ir import RunRefStepConfig
+from orchestrator.workflow.executable_ir import CallBoundaryNode, RunRefStepConfig
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow.run_ref.capsule_build import (
     CapsuleBuildError,
@@ -467,6 +467,82 @@ def test_assemble_bundle_capsule_returns_none_without_mode_one(
         raw_bytes_by_path={},
         lowering_schema_version=2,
     ) is None
+
+
+def test_assemble_bundle_capsule_ignores_unused_same_name_import_wrapper(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "plain_wrapper.orc"
+    source_path.write_text(
+        '''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.24")
+  (defmodule plain_wrapper)
+  (export entry)
+  (defworkflow entry () -> String "ready"))''',
+        encoding="utf-8",
+    )
+    result = build_frontend_bundle_in_memory(
+        FrontendBuildRequest(
+            source_path=source_path,
+            source_roots=(tmp_path,),
+            entry_workflow="entry",
+            workspace_root=tmp_path,
+            lowering_route=LoweringRoute.WCC_M4,
+        )
+    )
+    selected = result.compile_result.entry_result.validated_bundles[
+        "plain_wrapper::entry"
+    ]
+    ghost = replace(selected, imports=MappingProxyType({}))
+    wrapper = replace(
+        selected,
+        imports=MappingProxyType({"unused-self": ghost}),
+    )
+
+    assert assemble_bundle_capsule(
+        wrapper,
+        local_catalog={},
+        raw_bytes_by_path={},
+        lowering_schema_version=2,
+    ) is None
+
+
+def test_assemble_bundle_capsule_rejects_used_same_name_payload_conflict(
+    tmp_path: Path,
+) -> None:
+    result = _compiled(tmp_path)
+    catalog = dict(result.compile_result.entry_result.validated_bundles)
+    child = catalog["capsule_build::child"]
+    call_alias = next(
+        node.call_alias
+        for node in child.ir.nodes.values()
+        if isinstance(node, CallBoundaryNode)
+    )
+    helper = child.imports[call_alias]
+    changed_helper = replace(
+        helper,
+        surface=replace(
+            helper.surface,
+            context=MappingProxyType({"semantic_drift": True}),
+        ),
+    )
+    catalog["capsule_build::child"] = replace(
+        child,
+        imports=MappingProxyType(
+            {**child.imports, call_alias: changed_helper}
+        ),
+    )
+
+    with pytest.raises(CapsuleBuildError) as raised:
+        assemble_bundle_capsule(
+            _raw_selected(result),
+            local_catalog=catalog,
+            raw_bytes_by_path=result.source_read_trace,
+            lowering_schema_version=2,
+        )
+
+    assert raised.value.code == "run_ref_capsule_catalog_conflict"
 
 
 @pytest.mark.parametrize(
