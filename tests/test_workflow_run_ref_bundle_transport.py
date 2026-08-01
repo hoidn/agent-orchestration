@@ -138,6 +138,15 @@ def _closure(source_path: Path) -> tuple[bundle_transport.BundleCapsuleClosureBl
     )
 
 
+def _workflow_closure_paths(
+    bundles: dict[str, LoadedWorkflowBundle],
+) -> dict[str, str]:
+    return {
+        name: bundle.provenance.workflow_path.name
+        for name, bundle in bundles.items()
+    }
+
+
 def _encoded_capsule(tmp_path: Path) -> bundle_transport.EncodedBundleCapsule:
     bundle = _compiled_bundle(tmp_path)
     bundles = {bundle.surface.name: bundle}
@@ -145,6 +154,7 @@ def _encoded_capsule(tmp_path: Path) -> bundle_transport.EncodedBundleCapsule:
         bundles,
         target_workflow_names=(bundle.surface.name,),
         closure=_closure(bundle.provenance.workflow_path),
+        workflow_closure_paths=_workflow_closure_paths(bundles),
         compiler_runtime_identity_digest="sha256:" + "c" * 64,
         lowering_schema_version=2,
     )
@@ -171,6 +181,9 @@ def test_bundle_capsule_protocol_five_round_trip_is_deterministic_and_frozen(
     kwargs = dict(
         target_workflow_names=(bundle.surface.name,),
         closure=_closure(bundle.provenance.workflow_path),
+        workflow_closure_paths={
+            bundle.surface.name: bundle.provenance.workflow_path.name,
+        },
         compiler_runtime_identity_digest="sha256:" + "c" * 64,
         lowering_schema_version=2,
     )
@@ -200,6 +213,9 @@ def test_bundle_capsule_protocol_five_round_trip_is_deterministic_and_frozen(
     assert type(decoded.bundles_by_name).__name__ == "mappingproxy"
     assert decoded.target_workflow_names == (bundle.surface.name,)
     assert tuple(decoded.bundles_by_name) == (bundle.surface.name,)
+    assert decoded.workflow_closure_paths == {
+        bundle.surface.name: bundle.provenance.workflow_path.name,
+    }
     decoded_bundle = decoded.bundles_by_name[bundle.surface.name]
     assert type(decoded_bundle) is LoadedWorkflowBundle
     assert type(decoded_bundle.imports).__name__ == "mappingproxy"
@@ -223,6 +239,10 @@ def test_bundle_capsule_encoding_canonicalizes_catalog_order_without_global_redu
     kwargs = dict(
         target_workflow_names=(sibling.surface.name, child.surface.name),
         closure=_closure(child.provenance.workflow_path),
+        workflow_closure_paths={
+            child.surface.name: child.provenance.workflow_path.name,
+            sibling.surface.name: sibling.provenance.workflow_path.name,
+        },
         compiler_runtime_identity_digest="sha256:" + "c" * 64,
         lowering_schema_version=2,
     )
@@ -262,6 +282,9 @@ def test_bundle_capsule_encoding_canonicalizes_nested_mapping_order(
     kwargs = dict(
         target_workflow_names=(bundle.surface.name,),
         closure=_closure(bundle.provenance.workflow_path),
+        workflow_closure_paths={
+            bundle.surface.name: bundle.provenance.workflow_path.name,
+        },
         compiler_runtime_identity_digest="sha256:" + "c" * 64,
         lowering_schema_version=2,
     )
@@ -353,6 +376,9 @@ def test_bundle_capsule_encode_rejects_prebound_mode_one_config(
             {bound.surface.name: bound},
             target_workflow_names=(bound.surface.name,),
             closure=_closure(bound.provenance.workflow_path),
+            workflow_closure_paths={
+                bound.surface.name: bound.provenance.workflow_path.name,
+            },
             compiler_runtime_identity_digest="sha256:" + "c" * 64,
             lowering_schema_version=2,
         )
@@ -371,6 +397,9 @@ def test_bundle_capsule_decode_injects_verified_binding_and_rechecks_digests(
         {bundle.surface.name: bundle},
         target_workflow_names=(bundle.surface.name,),
         closure=_closure(bundle.provenance.workflow_path),
+        workflow_closure_paths={
+            bundle.surface.name: bundle.provenance.workflow_path.name,
+        },
         compiler_runtime_identity_digest="sha256:" + "c" * 64,
         lowering_schema_version=2,
     )
@@ -402,6 +431,9 @@ def test_bundle_capsule_decode_binds_mode_one_and_leaves_mode_two_unbound(
         {bundle.surface.name: bundle},
         target_workflow_names=(bundle.surface.name,),
         closure=_closure(bundle.provenance.workflow_path),
+        workflow_closure_paths={
+            bundle.surface.name: bundle.provenance.workflow_path.name,
+        },
         compiler_runtime_identity_digest="sha256:" + "c" * 64,
         lowering_schema_version=2,
     )
@@ -619,6 +651,65 @@ def test_bundle_capsule_rejects_noncanonical_manifest_and_closure_before_unpickl
         )
 
 
+def test_bundle_capsule_rejects_workflow_closure_association_before_unpickle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encoded = _encoded_capsule(tmp_path)
+
+    def mutate(manifest) -> None:
+        name = manifest["target_workflow_names"][0]
+        manifest["workflow_closure_paths"][name] = "missing.orc"
+
+    manifest_bytes, capsule_digest = _rewrite_manifest(encoded, mutate)
+    monkeypatch.setattr(
+        bundle_transport.pickle,
+        "loads",
+        lambda _payload: pytest.fail(
+            "unpickle ran before workflow closure validation"
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="run_ref_bundle_workflow_closure_invalid",
+    ):
+        bundle_transport.decode_bundle_capsule(
+            manifest_bytes=manifest_bytes,
+            pickle_bytes=encoded.pickle_bytes,
+            closure=encoded.closure,
+            expected_capsule_digest=capsule_digest,
+            expected_compiler_runtime_identity_digest="sha256:" + "c" * 64,
+        )
+
+
+@pytest.mark.parametrize(
+    "workflow_paths",
+    (
+        {},
+        {"capsule_catalog::child": "missing.orc"},
+        {"wrong-name": "capsule_catalog.orc"},
+    ),
+)
+def test_bundle_capsule_encode_requires_exact_workflow_closure_association(
+    tmp_path: Path,
+    workflow_paths: dict[str, str],
+) -> None:
+    bundle = _compiled_bundle(tmp_path)
+
+    with pytest.raises(
+        ValueError,
+        match="run_ref_bundle_workflow_closure_invalid",
+    ):
+        bundle_transport.encode_bundle_capsule(
+            {bundle.surface.name: bundle},
+            target_workflow_names=(bundle.surface.name,),
+            closure=_closure(bundle.provenance.workflow_path),
+            workflow_closure_paths=workflow_paths,
+            compiler_runtime_identity_digest="sha256:" + "c" * 64,
+            lowering_schema_version=2,
+        )
+
 @pytest.mark.parametrize(
     "digest_name",
     ("signature", "core_ast", "executable_ir", "semantic_ir", "runtime_plan"),
@@ -686,6 +777,7 @@ def test_bundle_capsule_encode_rejects_empty_or_non_bundle_catalog(
             bundles,
             target_workflow_names=("missing",),
             closure=(),
+            workflow_closure_paths={},
             compiler_runtime_identity_digest="sha256:" + "c" * 64,
             lowering_schema_version=2,
         )

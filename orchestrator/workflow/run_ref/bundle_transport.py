@@ -94,6 +94,7 @@ class DecodedBundleCapsule:
     target_workflow_names: tuple[str, ...]
     bundles_by_name: Mapping[str, LoadedWorkflowBundle]
     closure: tuple[BundleCapsuleClosureBlob, ...]
+    workflow_closure_paths: Mapping[str, str]
 
 
 @dataclass(frozen=True)
@@ -185,6 +186,37 @@ def _canonical_closure(
     if not rows or not any("orc" in blob.roles for blob in rows):
         _fail("run_ref_bundle_closure_invalid")
     return tuple(sorted(rows, key=lambda blob: blob.path))
+
+
+def _canonical_workflow_closure_paths(
+    value: Mapping[str, str],
+    *,
+    bundle_names: Sequence[str],
+    closure: Sequence[BundleCapsuleClosureBlob],
+) -> Mapping[str, str]:
+    if not isinstance(value, Mapping) or set(value) != set(bundle_names):
+        _fail("run_ref_bundle_workflow_closure_invalid")
+    orc_paths = {
+        blob.path
+        for blob in closure
+        if "orc" in blob.roles
+    }
+    canonical: dict[str, str] = {}
+    for workflow_name, raw_path in value.items():
+        if not isinstance(workflow_name, str) or not workflow_name:
+            _fail("run_ref_bundle_workflow_closure_invalid")
+        try:
+            path = _canonical_relative_path(raw_path)
+        except BundleCapsuleValidationError as exc:
+            raise BundleCapsuleValidationError(
+                "run_ref_bundle_workflow_closure_invalid"
+            ) from exc
+        if path not in orc_paths:
+            _fail("run_ref_bundle_workflow_closure_invalid")
+        canonical[workflow_name] = path
+    return MappingProxyType(
+        {name: canonical[name] for name in sorted(canonical)}
+    )
 
 
 def _bundle_name(bundle: LoadedWorkflowBundle) -> str:
@@ -435,6 +467,7 @@ def _manifest_payload(
     closure: Sequence[BundleCapsuleClosureBlob],
     bundles_by_name: Mapping[str, LoadedWorkflowBundle],
     target_workflow_names: Sequence[str],
+    workflow_closure_paths: Mapping[str, str],
     compiler_runtime_identity_digest: str,
     lowering_schema_version: int,
 ) -> dict[str, Any]:
@@ -455,6 +488,7 @@ def _manifest_payload(
         ),
         "target_workflow_names": list(target_workflow_names),
         "bundle_names": list(bundles_by_name),
+        "workflow_closure_paths": dict(workflow_closure_paths),
         "pickle": {
             "protocol": _PICKLE_PROTOCOL,
             "size_bytes": len(pickle_bytes),
@@ -473,6 +507,7 @@ def encode_bundle_capsule(
     *,
     target_workflow_names: tuple[str, ...],
     closure: tuple[BundleCapsuleClosureBlob, ...],
+    workflow_closure_paths: Mapping[str, str],
     compiler_runtime_identity_digest: str,
     lowering_schema_version: int,
 ) -> EncodedBundleCapsule:
@@ -484,6 +519,11 @@ def encode_bundle_capsule(
         require_mapping_proxy=False,
     )
     canonical_closure = _canonical_closure(closure)
+    canonical_workflow_paths = _canonical_workflow_closure_paths(
+        workflow_closure_paths,
+        bundle_names=tuple(catalog),
+        closure=canonical_closure,
+    )
     if not _is_sha256(compiler_runtime_identity_digest):
         _fail("run_ref_bundle_compiler_identity_invalid")
     if (
@@ -518,6 +558,7 @@ def encode_bundle_capsule(
             closure=canonical_closure,
             bundles_by_name=catalog,
             target_workflow_names=targets,
+            workflow_closure_paths=canonical_workflow_paths,
             compiler_runtime_identity_digest=(
                 compiler_runtime_identity_digest
             ),
@@ -585,6 +626,7 @@ def _validate_manifest_shape(manifest: Mapping[str, Any]) -> None:
         "target_dsl_versions",
         "target_workflow_names",
         "bundle_names",
+        "workflow_closure_paths",
         "pickle",
         "closure",
         "bundle_digests",
@@ -638,6 +680,8 @@ def _validate_manifest_shape(manifest: Mapping[str, Any]) -> None:
         or set(bundle_digests) != set(bundle_names)
     ):
         _fail("run_ref_bundle_manifest_invalid")
+    if not isinstance(manifest.get("workflow_closure_paths"), dict):
+        _fail("run_ref_bundle_workflow_closure_invalid")
     pickle_row = manifest.get("pickle")
     if not isinstance(pickle_row, dict) or set(pickle_row) != {
         "protocol",
@@ -708,6 +752,11 @@ def decode_bundle_capsule(
     _validate_closure_against_manifest(
         canonical_closure,
         manifest.get("closure"),
+    )
+    workflow_closure_paths = _canonical_workflow_closure_paths(
+        manifest.get("workflow_closure_paths"),
+        bundle_names=manifest["bundle_names"],
+        closure=canonical_closure,
     )
     pickle_row = manifest["pickle"]
     if len(pickle_bytes) > MAX_BUNDLE_PICKLE_BYTES:
@@ -785,4 +834,5 @@ def decode_bundle_capsule(
         target_workflow_names=bound_targets,
         bundles_by_name=bound_catalog,
         closure=canonical_closure,
+        workflow_closure_paths=workflow_closure_paths,
     )
