@@ -1652,8 +1652,20 @@ def _parse_run_ref_syntax_list(
                 form_path=form_path,
                 expansion_stack=bundle_node.expansion_stack,
             )
+        bundle_resolver = workflow_name_resolver
+        if bundle_resolver is None and session_state is not None:
+            bundle_resolver = session_state.workflow_name_resolver
+        bundle_name = (
+            bundle_resolver(
+                bundle_identifier.resolved_name,
+                bundle_identifier.span,
+                form_path,
+            )
+            if bundle_resolver is not None
+            else bundle_identifier.resolved_name
+        )
         program: RunRefBundleProgram | RunRefPathProgram = RunRefBundleProgram(
-            workflow_name=bundle_identifier.resolved_name
+            workflow_name=bundle_name
         )
         mode = "bundle"
     elif program_keys == {":path", ":entry"}:

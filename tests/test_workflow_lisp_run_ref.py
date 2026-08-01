@@ -217,6 +217,37 @@ def test_run_ref_inputs_preserve_visible_callable_context_without_state_leak(
     assert session_state.guidance_example is True
 
 
+def test_run_ref_bundle_uses_workflow_resolver_without_session_leak() -> None:
+    source = _mode_one_source().replace("child", "local-alias")
+    observed: list[tuple[str, object, tuple[str, ...]]] = []
+
+    def resolve_workflow(name, span, form_path):
+        observed.append((name, span, form_path))
+        return "imported/canonical-child"
+
+    session_state = ElaborationSessionState(
+        workflow_name_resolver=resolve_workflow,
+        target_dsl_version="2.19",
+    )
+
+    expr = parse_run_ref_expression(
+        _expression(source),
+        target_dsl_version="2.24",
+        session_state=session_state,
+    )
+
+    assert expr.program == RunRefBundleProgram(
+        workflow_name="imported/canonical-child"
+    )
+    assert len(observed) == 1
+    authored_name, authored_span, resolver_form_path = observed[0]
+    assert authored_name == "local-alias"
+    assert authored_span.start.column == source.index("local-alias") + 1
+    assert resolver_form_path == FORM_PATH
+    assert session_state.workflow_name_resolver is resolve_workflow
+    assert session_state.target_dsl_version == "2.19"
+
+
 def test_run_ref_mode_two_without_returns_defers_default() -> None:
     source = " ".join(
         (
