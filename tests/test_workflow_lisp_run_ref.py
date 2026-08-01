@@ -12,6 +12,7 @@ from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.workflow import core_ast as core_ast_module
 from orchestrator.workflow import executable_ir as executable_ir_module
 from orchestrator.workflow import lowering as workflow_lowering
+from orchestrator.workflow import runtime_plan as runtime_plan_module
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.run_ref.config import (
     ArrayBinding,
@@ -3666,6 +3667,158 @@ def test_run_ref_runtime_step_preserves_typed_config_carrier() -> None:
     assert runtime_step["run_ref"] is config
     assert "run_ref" in tuple(runtime_step)
     assert runtime_step.to_compat_dict()["run_ref"] is config
+
+
+def _runtime_plan_for_run_ref():
+    surface, executable, projection, config = _executable_run_ref_workflow()
+    plan = runtime_plan_module.derive_workflow_runtime_plan(
+        executable,
+        projection,
+        surface.provenance,
+    )
+    return surface, executable, projection, plan, config
+
+
+def test_run_ref_runtime_plan_binds_exact_executable_config_digest() -> None:
+    _, executable, projection, plan, config = _runtime_plan_for_run_ref()
+    [node] = plan.nodes.values()
+
+    assert node.run_ref_config_digest == config.digest
+    runtime_plan_module.validate_workflow_runtime_plan(
+        plan,
+        executable,
+        projection,
+    )
+    [payload] = _json_data(plan)["nodes"].values()
+    assert payload["run_ref_config_digest"] == config.digest
+
+
+def test_finalization_run_ref_runtime_plan_binds_same_config_digest() -> None:
+    surface, executable, projection, config = _executable_run_ref_workflow()
+    [leaf] = executable.nodes.values()
+    finalization = executable_ir_module.FinalizationStepNode(
+        node_id=leaf.node_id,
+        step_id=leaf.step_id,
+        presentation_name=leaf.presentation_name,
+        kind=executable_ir_module.ExecutableNodeKind.FINALIZATION_STEP,
+        execution_kind=executable_ir_module.ExecutableNodeKind.RUN_REF,
+        region=executable_ir_module.WorkflowRegion.FINALIZATION,
+        lexical_scope=leaf.lexical_scope,
+        execution_config=leaf.execution_config,
+    )
+    finalization_ir = replace(
+        executable,
+        body_region=(),
+        finalization_region=(finalization.node_id,),
+        finalization_entry_node_id=finalization.node_id,
+        nodes=MappingProxyType({finalization.node_id: finalization}),
+    )
+
+    plan = runtime_plan_module.derive_workflow_runtime_plan(
+        finalization_ir,
+        projection,
+        surface.provenance,
+    )
+
+    [runtime_node] = plan.nodes.values()
+    assert runtime_node.run_ref_config_digest == config.digest
+
+
+@pytest.mark.parametrize(
+    "replacement_digest",
+    (None, "sha256:" + "0" * 64),
+)
+def test_run_ref_runtime_plan_rejects_missing_or_stale_config_digest(
+    replacement_digest: str | None,
+) -> None:
+    _, executable, projection, plan, _ = _runtime_plan_for_run_ref()
+    [(node_id, node)] = plan.nodes.items()
+    invalid = replace(
+        plan,
+        nodes=MappingProxyType(
+            {
+                node_id: replace(
+                    node,
+                    run_ref_config_digest=replacement_digest,
+                )
+            }
+        ),
+    )
+
+    with pytest.raises(ValueError, match="run_ref.*config digest"):
+        runtime_plan_module.validate_workflow_runtime_plan(
+            invalid,
+            executable,
+            projection,
+        )
+
+
+def test_run_ref_runtime_plan_revalidates_executable_authority() -> None:
+    _, executable, projection, plan, config = _runtime_plan_for_run_ref()
+    forged_digest = "sha256:" + "0" * 64
+    object.__setattr__(config, "digest", forged_digest)
+    [(node_id, node)] = plan.nodes.items()
+    forged_plan = replace(
+        plan,
+        nodes=MappingProxyType(
+            {
+                node_id: replace(
+                    node,
+                    run_ref_config_digest=forged_digest,
+                )
+            }
+        ),
+    )
+
+    with pytest.raises(ValueError, match="authority"):
+        runtime_plan_module.validate_workflow_runtime_plan(
+            forged_plan,
+            executable,
+            projection,
+        )
+
+
+def test_non_run_ref_runtime_plan_omits_and_rejects_config_digest() -> None:
+    surface, executable, projection, _, _ = _runtime_plan_for_run_ref()
+    [(node_id, node)] = executable.nodes.items()
+    command_node = replace(
+        node,
+        kind=executable_ir_module.ExecutableNodeKind.COMMAND,
+        execution_config=executable_ir_module.CommandStepConfig(
+            common=node.execution_config.common,
+            command=("true",),
+        ),
+    )
+    command_ir = replace(
+        executable,
+        nodes=MappingProxyType({node_id: command_node}),
+    )
+    command_plan = runtime_plan_module.derive_workflow_runtime_plan(
+        command_ir,
+        projection,
+        surface.provenance,
+    )
+    [command_payload] = _json_data(command_plan)["nodes"].values()
+    assert "run_ref_config_digest" not in command_payload
+
+    [command_plan_node] = command_plan.nodes.values()
+    invalid = replace(
+        command_plan,
+        nodes=MappingProxyType(
+            {
+                node_id: replace(
+                    command_plan_node,
+                    run_ref_config_digest="sha256:" + "1" * 64,
+                )
+            }
+        ),
+    )
+    with pytest.raises(ValueError, match="run_ref.*config digest"):
+        runtime_plan_module.validate_workflow_runtime_plan(
+            invalid,
+            command_ir,
+            projection,
+        )
 
 
 def test_run_ref_leaf_builds_exact_config_and_one_result_allocation() -> None:

@@ -9,15 +9,19 @@ from typing import Any, Mapping, Optional, cast
 from .executable_ir import (
     CallBoundaryNode,
     ExecutableNode,
+    ExecutableNodeKind,
     ExecutableWorkflow,
+    FinalizationStepNode,
     ForEachNode,
     MaterializeArtifactsStepConfig,
     ProviderPeerGroupStepConfig,
     ProviderSupervisionStepConfig,
     RepeatUntilFrameNode,
+    RunRefStepConfig,
     SelectVariantOutputStepConfig,
     WorkflowRegion,
 )
+from .run_ref.config import validate_run_ref_static_config_authority
 from .state_projection import WorkflowStateProjection
 from .surface_ast import WorkflowProvenance, empty_frozen_mapping
 
@@ -70,6 +74,10 @@ class RuntimePlanNode:
         metadata={"json_omit_if_none": True},
     )
     provider_peer_group: RuntimeProviderPeerGroupPlan | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    run_ref_config_digest: str | None = field(
         default=None,
         metadata={"json_omit_if_none": True},
     )
@@ -339,6 +347,13 @@ def validate_workflow_runtime_plan(
             raise ValueError(
                 f"Runtime plan node '{node.node_id}' has inconsistent provider peer group topology"
             )
+        expected_run_ref_digest = _derive_run_ref_config_digest(
+            ir.nodes[node.node_id]
+        )
+        if node.run_ref_config_digest != expected_run_ref_digest:
+            raise ValueError(
+                f"Runtime plan node '{node.node_id}' has inconsistent run_ref config digest"
+            )
         expected_exhaustion_code = _derive_exhaustion_diagnostic_code(
             ir.nodes[node.node_id]
         )
@@ -429,6 +444,7 @@ def _runtime_plan_node(
         call_alias=call_alias,
         provider_supervision=_derive_provider_supervision_plan(node),
         provider_peer_group=_derive_provider_peer_group_plan(node),
+        run_ref_config_digest=_derive_run_ref_config_digest(node),
         exhaustion_diagnostic_code=_derive_exhaustion_diagnostic_code(node),
     )
 
@@ -462,6 +478,30 @@ def _derive_provider_peer_group_plan(
         atomic_workflow_result_commit=True,
         max_steers=config.max_steers,
     )
+
+
+def _derive_run_ref_config_digest(node: ExecutableNode) -> str | None:
+    config = node.execution_config
+    execution_kind = (
+        node.execution_kind
+        if isinstance(node, FinalizationStepNode)
+        else node.kind
+    )
+    if execution_kind is not ExecutableNodeKind.RUN_REF:
+        if isinstance(config, RunRefStepConfig):
+            raise ValueError(
+                "Non-run_ref runtime-plan node cannot carry RunRefStepConfig"
+            )
+        return None
+    if type(config) is not RunRefStepConfig:
+        raise ValueError("run_ref runtime-plan node requires RunRefStepConfig")
+    try:
+        validate_run_ref_static_config_authority(config.run_ref)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"run_ref runtime-plan config authority is invalid: {exc}"
+        ) from exc
+    return config.run_ref.digest
 
 
 def _derive_exhaustion_diagnostic_code(
