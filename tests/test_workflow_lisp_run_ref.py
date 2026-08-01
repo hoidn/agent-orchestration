@@ -1,5 +1,7 @@
 from copy import deepcopy
 from dataclasses import FrozenInstanceError, replace
+import subprocess
+import sys
 from typing import get_args
 
 import pytest
@@ -35,6 +37,7 @@ from orchestrator.workflow_lisp.form_registry import get_form_spec
 from orchestrator.workflow_lisp.lowering import pure_projection as pure_projection_lowering
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.run_ref_result_contract import (
+    GeneratedRunRefResultContract,
     RUN_REF_RESULT_CONTRACT_SCHEMA,
     derive_run_ref_result_contract,
 )
@@ -94,6 +97,8 @@ def _type_env(*extra_types) -> FrontendTypeEnvironment:
 
 
 def test_compiler_normalized_type_descriptor_is_public_behavior_identical() -> None:
+    from orchestrator.workflow_lisp import normalized_type_descriptor
+
     type_env = _type_env()
     type_ref = PrimitiveTypeRef("String")
 
@@ -107,6 +112,14 @@ def test_compiler_normalized_type_descriptor_is_public_behavior_identical() -> N
     ) == pure_projection_lowering._type_descriptor(
         type_ref,
         type_env=type_env,
+    )
+    assert (
+        pure_projection_lowering.compiler_normalized_type_descriptor
+        is normalized_type_descriptor.compiler_normalized_type_descriptor
+    )
+    assert (
+        pure_projection_lowering.validate_compiler_normalized_type_descriptor
+        is normalized_type_descriptor.validate_compiler_normalized_type_descriptor
     )
 
 
@@ -916,6 +929,86 @@ def test_run_ref_result_contract_carries_exact_recursive_fixed_schema() -> None:
             {"name": "cost", "type": {"kind": "primitive", "name": "Value"}},
         ],
     }
+
+
+def test_run_ref_result_contract_descriptor_views_are_defensive_copies() -> None:
+    expr = _mode_one_expr()
+    contract, _, _ = _run_ref_result_contract(expr, PrimitiveTypeRef("String"))
+    descriptor = contract.descriptor
+    descriptor["envelope"]["fields"][1]["type"]["fields"][0]["name"] = (
+        "mutated"
+    )
+
+    fresh_descriptor = contract.descriptor
+    assert fresh_descriptor["envelope"]["fields"][1]["type"]["fields"][0][
+        "name"
+    ] == "base"
+    from orchestrator.workflow.run_ref.contracts import canonical_sha256
+
+    assert canonical_sha256(fresh_descriptor) == contract.digest
+
+
+def test_run_ref_result_contract_constructor_rejects_invalid_authority() -> None:
+    from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
+
+    expr = _mode_one_expr()
+    contract, result_type, _ = _run_ref_result_contract(
+        expr,
+        PrimitiveTypeRef("String"),
+    )
+    canonical_descriptor = canonical_json_bytes(contract.descriptor)
+    invalid = (
+        (
+            canonical_descriptor.replace(b'"schema":', b'"schema": '),
+            contract.digest,
+        ),
+        (canonical_json_bytes([]), contract.digest),
+        (canonical_descriptor, "sha256:" + "0" * 64),
+    )
+
+    for descriptor_json, digest in invalid:
+        with pytest.raises(ValueError):
+            GeneratedRunRefResultContract(
+                _descriptor_json=descriptor_json,
+                digest=digest,
+                type_ref=result_type,
+            )
+
+
+def test_run_ref_result_contract_import_does_not_load_lowering_modules() -> None:
+    check = subprocess.run(
+        (
+            sys.executable,
+            "-c",
+            "\n".join(
+                (
+                    "import importlib, importlib.abc, sys",
+                    "import orchestrator.workflow_lisp",
+                    "contract = 'orchestrator.workflow_lisp.run_ref_result_contract'",
+                    "neutral = 'orchestrator.workflow_lisp.normalized_type_descriptor'",
+                    "blocked = 'orchestrator.workflow_lisp.lowering'",
+                    "sys.modules.pop(contract, None)",
+                    "sys.modules.pop(neutral, None)",
+                    "for name in tuple(sys.modules):",
+                    "    if name.startswith(blocked):",
+                    "        sys.modules.pop(name)",
+                    "class Blocker(importlib.abc.MetaPathFinder):",
+                    "    def find_spec(self, fullname, path, target=None):",
+                    "        if fullname.startswith(blocked):",
+                    "            raise RuntimeError('blocked lowering dependency')",
+                    "        return None",
+                    "sys.meta_path.insert(0, Blocker())",
+                    "importlib.import_module(contract)",
+                    "assert not any(name.startswith(blocked) for name in sys.modules)",
+                )
+            ),
+        ),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert check.returncode == 0, check.stderr
 
 
 def test_run_ref_result_contract_is_hydration_and_source_path_independent() -> None:
