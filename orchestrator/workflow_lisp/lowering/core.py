@@ -2524,9 +2524,12 @@ def _shared_validation_source_map_payload(
     """Project run-ref lineage needed by the shared bundle validators."""
 
     workflow_name = lowered_workflow.typed_workflow.definition.name
+    generated_semantic_effects = tuple(
+        lowered_workflow.origin_map.generated_semantic_effects
+    )
     run_ref_effects = tuple(
         effect
-        for effect in lowered_workflow.origin_map.generated_semantic_effects
+        for effect in generated_semantic_effects
         if effect.effect_kind == "run_ref"
     )
     if not run_ref_effects:
@@ -2550,9 +2553,20 @@ def _shared_validation_source_map_payload(
         }
 
     generated_effects: list[dict[str, object]] = []
-    for effect in run_ref_effects:
-        entity_kind = "step_id"
-        subject_name = effect.step_id
+    for effect in generated_semantic_effects:
+        if effect.effect_kind == "pointer_materialization":
+            entity_kind = "generated_path"
+            subject_name = str(
+                effect.details.get("pointer_path", effect.step_id)
+            )
+        elif effect.effect_kind == "provider_bundle_path_projection":
+            entity_kind = "generated_output"
+            subject_name = str(
+                effect.details.get("projected_output_name", effect.step_id)
+            )
+        else:
+            entity_kind = "step_id"
+            subject_name = effect.step_id
         generated_effects.append(
             {
                 "effect_key": effect.effect_key,

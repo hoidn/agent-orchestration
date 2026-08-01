@@ -630,7 +630,7 @@ def _lower_run_ref_operation(
     ):
         binding = plan.direct_binding
         if plan.requires_projection:
-            projection_step_name = (
+            projection_step_name = context.normalize_generated_step_id(
                 f"{context.step_name_prefix}__input__{plan.row.name}"
             )
             lowered_projection = lower_pure_projection_step(
@@ -639,9 +639,7 @@ def _lower_run_ref_operation(
                 context=context,
                 local_values=local_values,
                 step_name=projection_step_name,
-                step_id=context.normalize_generated_step_id(
-                    projection_step_name
-                ),
+                step_id=projection_step_name,
                 stable_target=f"run_ref_input_{plan.row.name}",
                 output_contracts=_WHOLE_INPUT_OUTPUT_CONTRACTS,
             )

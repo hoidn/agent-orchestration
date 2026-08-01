@@ -1097,6 +1097,20 @@ def _elaborate_list(
         )
     ):
         form_spec = None
+    if (
+        form_spec is None
+        and head.resolved_name == "run-ref"
+        and head.resolved_name not in session_state.function_names
+        and head.resolved_name not in procedure_names
+        and head.resolved_name not in bound_names
+    ):
+        return _route_run_ref(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+            session_state=session_state,
+        )
     if form_spec is not None:
         if form_spec.kind is FormKind.TOP_LEVEL_DEFINITION:
             _raise_error(

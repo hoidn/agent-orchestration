@@ -89,6 +89,7 @@ from orchestrator.workflow_lisp.expressions import (
     UnionVariantExpr,
     WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
+    elaborate_expression,
     parse_run_ref_expression,
 )
 from orchestrator.workflow_lisp.expression_traversal import iter_child_exprs
@@ -810,6 +811,29 @@ def test_run_ref_parser_is_registered_only_for_target_224() -> None:
     assert spec.kind.value == "core_effect"
     assert spec.elaboration_route == "run_ref"
     assert RunRefExpr in get_args(ExprNode)
+
+
+def test_public_elaboration_uses_closed_run_ref_target_diagnostic() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        elaborate_expression(
+            _expression(_mode_one_source()),
+            bound_names=frozenset(),
+            target_dsl_version="2.23",
+        )
+
+    assert excinfo.value.diagnostics[0].code == "run_ref_target_dsl_unsupported"
+
+
+def test_pre_224_same_named_procedure_remains_backward_compatible() -> None:
+    expr = elaborate_expression(
+        _expression('(run-ref "legacy")'),
+        bound_names=frozenset(),
+        procedure_names=frozenset({"run-ref"}),
+        target_dsl_version="2.23",
+    )
+
+    assert isinstance(expr, ProcedureCallExpr)
+    assert expr.callee_name == "run-ref"
 
 
 def _transportable_types(span):
@@ -3067,15 +3091,19 @@ def test_public_wcc_build_lowers_run_ref_through_shared_leaf(tmp_path: Path) -> 
   (:target-dsl "2.24")
   (defmodule run_ref_public_build)
   (export entry)
-  (defworkflow child () -> String
-    "child-result")
+  (defrecord ProjectedInput
+    (value String))
+  (defworkflow child ((payload ProjectedInput)) -> String
+    payload.value)
   (defworkflow entry () -> String
     (let* ((trial
              (run-ref
                :source (:repo "file:///workspace"
                         :commit "0123456789abcdef0123456789abcdef01234567")
                :program (:bundle child)
-               :inputs ()
+               :inputs (:payload
+                         (record ProjectedInput
+                           :value (string/concat "child-" "result")))
                :policy (:setup ()))))
       trial.value)))
 """,
@@ -3111,17 +3139,21 @@ def test_public_wcc_build_lowers_run_ref_through_shared_leaf(tmp_path: Path) -> 
     semantic_effects = [
         effect
         for effect in result.validated_bundle.semantic_ir.effects.values()
-        if effect.effect_kind == "run_ref"
+        if effect.effect_kind in {"pure_projection", "run_ref"}
     ]
-    assert len(semantic_effects) == 1
+    assert sorted(effect.effect_kind for effect in semantic_effects) == [
+        "pure_projection",
+        "run_ref",
+    ]
     semantic_workflow = result.validated_bundle.semantic_ir.workflows[
         result.selected_workflow_name
     ]
-    assert semantic_effects[0].effect_id in next(
-        statement.effect_ids
-        for statement in semantic_workflow.statements.values()
-        if semantic_effects[0].effect_id in statement.effect_ids
-    )
+    for effect in semantic_effects:
+        assert effect.effect_id in next(
+            statement.effect_ids
+            for statement in semantic_workflow.statements.values()
+            if effect.effect_id in statement.effect_ids
+        )
     assert result.manifest.source_map_coverage is not None
     assert set(result.manifest.source_map_coverage.values()) == {"covered"}
 

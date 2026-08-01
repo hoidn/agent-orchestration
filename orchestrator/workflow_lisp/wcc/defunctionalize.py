@@ -2118,6 +2118,14 @@ def _defunctionalize_body(
                 local_values=updated_locals,
             )
             if (
+                is_pure_projection_expr(binding_expr)
+                and _wcc_run_ref_input_references_name(
+                    body.body,
+                    body.bound_name,
+                )
+            ):
+                resolved_binding = binding_expr
+            if (
                 isinstance(binding_expr, IfExpr)
                 and resolved_binding is not None
                 and not isinstance(resolved_binding, (str, Mapping))
@@ -5352,7 +5360,10 @@ def _lower_effectful_binding(
                     inputs=tuple(
                         LowerableRunRefInput(
                             name=name,
-                            value_expr=_frontend_expr_from_wcc_value(atom),
+                            value_expr=_frontend_expr_from_wcc_value_with_env(
+                                atom,
+                                local_values,
+                            ),
                             type_ref=atom.metadata.type_ref,
                             type_descriptor=descriptor,
                         )
@@ -5947,6 +5958,35 @@ def _wcc_tree_references_name(value: object, name: str) -> bool:
                 name,
             )
             for field in fields(value)
+        )
+    return False
+
+
+def _wcc_run_ref_input_references_name(value: object, name: str) -> bool:
+    """Return whether a later run-ref input consumes one ANF binding."""
+
+    if isinstance(value, WccPerform):
+        return value.perform_kind == "run_ref" and any(
+            _wcc_tree_references_name(input_value, name)
+            for _, input_value in value.keyword_args
+        )
+    if isinstance(value, Mapping):
+        return any(
+            _wcc_run_ref_input_references_name(item, name)
+            for item in value.values()
+        )
+    if isinstance(value, (tuple, list)):
+        return any(
+            _wcc_run_ref_input_references_name(item, name)
+            for item in value
+        )
+    if is_dataclass(value):
+        return any(
+            _wcc_run_ref_input_references_name(
+                getattr(value, field_info.name),
+                name,
+            )
+            for field_info in fields(value)
         )
     return False
 
