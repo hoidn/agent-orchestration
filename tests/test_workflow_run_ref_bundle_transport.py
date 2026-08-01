@@ -11,6 +11,11 @@ from types import MappingProxyType
 import pytest
 
 from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
+from orchestrator.workflow.run_ref.config import RunRefBundleCapsuleBinding
+from orchestrator.workflow.executable_ir import (
+    RunRefStepConfig,
+    workflow_executable_ir_to_json,
+)
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow_lisp.build import (
     FrontendBuildRequest,
@@ -47,10 +52,44 @@ def _compiled_bundle(tmp_path: Path) -> LoadedWorkflowBundle:
     ).validated_bundle
 
 
+def _compiled_controller_bundle(tmp_path: Path) -> LoadedWorkflowBundle:
+    source_path = tmp_path / "capsule_controller.orc"
+    source_path.write_text(
+        """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.24")
+  (defmodule capsule_controller)
+  (export entry child)
+  (defworkflow child () -> String
+    "ready")
+  (defworkflow entry () -> String
+    (let* ((trial
+             (run-ref
+               :source (:repo "file:///workspace"
+                        :commit "0123456789abcdef0123456789abcdef01234567")
+               :program (:bundle child)
+               :inputs ()
+               :policy (:setup ()))))
+      trial.value)))
+""",
+        encoding="utf-8",
+    )
+    return build_frontend_bundle(
+        FrontendBuildRequest(
+            source_path=source_path,
+            source_roots=(tmp_path,),
+            entry_workflow="entry",
+            workspace_root=tmp_path,
+            lowering_route=LoweringRoute.WCC_M4,
+        )
+    ).validated_bundle
+
+
 def _closure(source_path: Path) -> tuple[bundle_transport.BundleCapsuleClosureBlob, ...]:
     return (
         bundle_transport.BundleCapsuleClosureBlob(
-            path="capsule_catalog.orc",
+            path=source_path.name,
             roles=("orc",),
             payload=source_path.read_bytes(),
         ),
@@ -194,6 +233,122 @@ def test_bundle_capsule_encoding_canonicalizes_nested_mapping_order(
     )
 
     assert first == second
+
+
+def test_run_ref_step_config_digest_binds_optional_capsule_authority(
+    tmp_path: Path,
+) -> None:
+    bundle = _compiled_controller_bundle(tmp_path)
+    [config] = [
+        node.execution_config
+        for node in bundle.ir.nodes.values()
+        if isinstance(node.execution_config, RunRefStepConfig)
+    ]
+    assert config.capsule_binding is None
+    unbound_digest = config.step_config_digest
+    binding = RunRefBundleCapsuleBinding("sha256:" + "a" * 64)
+    bound = replace(config, capsule_binding=binding)
+
+    assert bound.run_ref is config.run_ref
+    assert bound.step_config_digest != unbound_digest
+    assert bound.step_config_digest == replace(
+        config,
+        capsule_binding=RunRefBundleCapsuleBinding("sha256:" + "a" * 64),
+    ).step_config_digest
+
+    payload = workflow_executable_ir_to_json(
+        replace(
+            bundle.ir,
+            nodes=MappingProxyType(
+                {
+                    node_id: (
+                        replace(node, execution_config=bound)
+                        if node.execution_config is config
+                        else node
+                    )
+                    for node_id, node in bundle.ir.nodes.items()
+                }
+            ),
+        )
+    )
+    [node_payload] = [
+        node
+        for node in payload["nodes"].values()
+        if node["kind"] == "run_ref"
+    ]
+    assert node_payload["execution_config"]["capsule_binding"] == binding.record
+
+
+def test_bundle_capsule_encode_rejects_prebound_mode_one_config(
+    tmp_path: Path,
+) -> None:
+    bundle = _compiled_controller_bundle(tmp_path)
+    binding = RunRefBundleCapsuleBinding("sha256:" + "a" * 64)
+    bound_nodes = MappingProxyType(
+        {
+            node_id: (
+                replace(
+                    node,
+                    execution_config=replace(
+                        node.execution_config,
+                        capsule_binding=binding,
+                    ),
+                )
+                if isinstance(node.execution_config, RunRefStepConfig)
+                else node
+            )
+            for node_id, node in bundle.ir.nodes.items()
+        }
+    )
+    bound = replace(bundle, ir=replace(bundle.ir, nodes=bound_nodes))
+
+    with pytest.raises(
+        ValueError,
+        match="run_ref_bundle_prebound_config",
+    ):
+        bundle_transport.encode_bundle_capsule(
+            {bound.surface.name: bound},
+            target_workflow_names=(bound.surface.name,),
+            closure=_closure(bound.provenance.workflow_path),
+            compiler_runtime_identity_digest="sha256:" + "c" * 64,
+            lowering_schema_version=2,
+        )
+
+
+def test_bundle_capsule_decode_injects_verified_binding_and_rechecks_digests(
+    tmp_path: Path,
+) -> None:
+    bundle = _compiled_controller_bundle(tmp_path)
+    [unbound] = [
+        node.execution_config
+        for node in bundle.ir.nodes.values()
+        if isinstance(node.execution_config, RunRefStepConfig)
+    ]
+    encoded = bundle_transport.encode_bundle_capsule(
+        {bundle.surface.name: bundle},
+        target_workflow_names=(bundle.surface.name,),
+        closure=_closure(bundle.provenance.workflow_path),
+        compiler_runtime_identity_digest="sha256:" + "c" * 64,
+        lowering_schema_version=2,
+    )
+
+    decoded = bundle_transport.decode_bundle_capsule(
+        manifest_bytes=encoded.manifest_bytes,
+        pickle_bytes=encoded.pickle_bytes,
+        closure=encoded.closure,
+        expected_capsule_digest=encoded.capsule_digest,
+        expected_compiler_runtime_identity_digest="sha256:" + "c" * 64,
+    )
+
+    [bound] = [
+        node.execution_config
+        for node in decoded.bundles_by_name[bundle.surface.name].ir.nodes.values()
+        if isinstance(node.execution_config, RunRefStepConfig)
+    ]
+    assert bound.capsule_binding == RunRefBundleCapsuleBinding(
+        encoded.capsule_digest
+    )
+    assert bound.step_config_digest != unbound.step_config_digest
 
 
 @pytest.mark.parametrize(

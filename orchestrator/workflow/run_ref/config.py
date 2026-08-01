@@ -24,6 +24,7 @@ from .source import SourceRequest, canonical_source_request, source_request_from
 
 
 RUN_REF_STATIC_CONFIG_SCHEMA = "run_ref_static_config.v1"
+RUN_REF_BUNDLE_CAPSULE_BINDING_SCHEMA = "run_ref_bundle_capsule_binding.v1"
 _TARGET_DSL_VERSION = "2.24"
 _LOWERING_ROUTE = "wcc_m4"
 _LOWERING_SCHEMA_VERSION = 2
@@ -37,6 +38,46 @@ _STATIC_NAME_RE = re.compile(
 _REFERENCE_RE = re.compile(
     r"[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)*\Z"
 )
+
+
+@dataclass(frozen=True)
+class RunRefBundleCapsuleBinding:
+    """Parent-owned content identity for one compiled mode-1 capsule."""
+
+    capsule_digest: str
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.capsule_digest, str)
+            or _SHA256_RE.fullmatch(self.capsule_digest) is None
+        ):
+            raise ValueError(
+                "run-ref bundle capsule digest must be sha256:<64 lowercase hex>"
+            )
+
+    @property
+    def record(self) -> dict[str, str]:
+        return {
+            "schema_version": RUN_REF_BUNDLE_CAPSULE_BINDING_SCHEMA,
+            "capsule_digest": self.capsule_digest,
+        }
+
+
+def validate_run_ref_bundle_capsule_binding(value: object) -> None:
+    """Require an exact typed binding whose record matches its fields."""
+
+    if type(value) is not RunRefBundleCapsuleBinding:
+        raise TypeError(
+            "run-ref bundle capsule authority requires "
+            "RunRefBundleCapsuleBinding"
+        )
+    reconstructed = RunRefBundleCapsuleBinding(
+        capsule_digest=value.record["capsule_digest"],
+    )
+    if reconstructed != value:
+        raise ValueError(
+            "run-ref bundle capsule authority does not match canonical fields"
+        )
 
 
 def _require_exact_keys(
@@ -570,6 +611,7 @@ def validate_run_ref_static_config_authority(value: object) -> None:
 
 
 __all__ = [
+    "RUN_REF_BUNDLE_CAPSULE_BINDING_SCHEMA",
     "RUN_REF_RESULT_CONTRACT_SCHEMA",
     "RUN_REF_STATIC_CONFIG_SCHEMA",
     "ArrayBinding",
@@ -579,11 +621,13 @@ __all__ = [
     "PathProgram",
     "ReferenceBinding",
     "RunRefInput",
+    "RunRefBundleCapsuleBinding",
     "RunRefStaticConfig",
     "build_run_ref_static_config",
     "decode_run_ref_static_config",
     "encode_run_ref_static_config",
     "run_ref_input_identity",
     "validate_run_ref_static_config_authority",
+    "validate_run_ref_bundle_capsule_binding",
     "validate_run_ref_result_descriptor",
 ]

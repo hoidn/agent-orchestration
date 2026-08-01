@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copyreg
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass, replace
 from enum import Enum
 import hashlib
 import io
@@ -42,6 +42,7 @@ from orchestrator.workflow.semantic_ir import (
 from orchestrator.workflow_lisp.wcc.route import LOWERING_SCHEMA_WCC
 
 from .contracts import canonical_json_bytes, canonical_sha256
+from .config import RunRefBundleCapsuleBinding
 from .result_contract import validate_run_ref_result_descriptor
 
 
@@ -299,6 +300,82 @@ def _result_contract_digests(bundle: LoadedWorkflowBundle) -> dict[str, str]:
     return digests
 
 
+def _require_unbound_capsule_configs(
+    bundles_by_name: Mapping[str, LoadedWorkflowBundle],
+) -> None:
+    for bundle in bundles_by_name.values():
+        for node in bundle.ir.nodes.values():
+            config = getattr(node, "execution_config", None)
+            if (
+                isinstance(config, RunRefStepConfig)
+                and config.capsule_binding is not None
+            ):
+                _fail("run_ref_bundle_prebound_config")
+
+
+def _rewrite_catalog_capsule_binding(
+    bundles_by_name: Mapping[str, LoadedWorkflowBundle],
+    *,
+    binding: RunRefBundleCapsuleBinding | None,
+) -> Mapping[str, LoadedWorkflowBundle]:
+    """Rebuild one closed catalog with one uniform operational binding."""
+
+    rebuilt: dict[str, LoadedWorkflowBundle] = {}
+    active: set[str] = set()
+
+    def visit(name: str) -> LoadedWorkflowBundle:
+        known = rebuilt.get(name)
+        if known is not None:
+            return known
+        if name in active:
+            _fail("run_ref_bundle_catalog_invalid")
+        original = bundles_by_name.get(name)
+        if type(original) is not LoadedWorkflowBundle:
+            _fail("run_ref_bundle_catalog_invalid")
+        active.add(name)
+        try:
+            imports = MappingProxyType(
+                {
+                    alias: visit(_bundle_name(child))
+                    for alias, child in sorted(original.imports.items())
+                }
+            )
+            nodes = MappingProxyType(
+                {
+                    node_id: (
+                        replace(
+                            node,
+                            execution_config=replace(
+                                node.execution_config,
+                                capsule_binding=binding,
+                            ),
+                        )
+                        if isinstance(
+                            node.execution_config,
+                            RunRefStepConfig,
+                        )
+                        else node
+                    )
+                    for node_id, node in sorted(original.ir.nodes.items())
+                }
+            )
+            rewritten = replace(
+                original,
+                ir=replace(original.ir, nodes=nodes),
+                imports=imports,
+            )
+            rebuilt[name] = rewritten
+            return rewritten
+        finally:
+            active.remove(name)
+
+    for workflow_name in sorted(bundles_by_name):
+        visit(workflow_name)
+    return MappingProxyType(
+        {name: rebuilt[name] for name in sorted(rebuilt)}
+    )
+
+
 def _bundle_digest_vector(bundle: LoadedWorkflowBundle) -> dict[str, Any]:
     persisted = serialize_persisted_workflow_surface_graph(bundle)
     persisted_bytes = canonical_persisted_surface_bytes(persisted)
@@ -413,6 +490,7 @@ def encode_bundle_capsule(
         for bundle in catalog.values()
     ):
         _fail("run_ref_bundle_version_invalid")
+    _require_unbound_capsule_configs(catalog)
     for bundle in catalog.values():
         _validate_bundle(bundle)
     payload = _BundleCatalog(
@@ -666,6 +744,7 @@ def decode_bundle_capsule(
     )
     if list(catalog) != bundle_names:
         _fail("run_ref_bundle_catalog_invalid")
+    _require_unbound_capsule_configs(catalog)
     expected_digests = manifest.get("bundle_digests")
     if not isinstance(expected_digests, dict) or set(expected_digests) != set(catalog):
         _fail("run_ref_bundle_manifest_invalid")
@@ -673,9 +752,30 @@ def decode_bundle_capsule(
         _validate_bundle(bundle)
         if _bundle_digest_vector(bundle) != expected_digests.get(name):
             _fail("run_ref_bundle_digest_mismatch")
+    binding = RunRefBundleCapsuleBinding(expected_capsule_digest)
+    bound_catalog = _rewrite_catalog_capsule_binding(
+        catalog,
+        binding=binding,
+    )
+    bound_catalog, bound_targets = _validate_catalog(
+        bound_catalog,
+        target_workflow_names=targets,
+        require_mapping_proxy=True,
+    )
+    normalized_catalog = _rewrite_catalog_capsule_binding(
+        bound_catalog,
+        binding=None,
+    )
+    for name, bundle in bound_catalog.items():
+        _validate_bundle(bundle)
+        if (
+            _bundle_digest_vector(normalized_catalog[name])
+            != expected_digests.get(name)
+        ):
+            _fail("run_ref_bundle_digest_mismatch")
     return DecodedBundleCapsule(
         capsule_digest=expected_capsule_digest,
-        target_workflow_names=targets,
-        bundles_by_name=catalog,
+        target_workflow_names=bound_targets,
+        bundles_by_name=bound_catalog,
         closure=canonical_closure,
     )

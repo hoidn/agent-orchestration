@@ -53,9 +53,13 @@ from .provider_peer_group.paths import (
     derive_provider_peer_group_paths,
 )
 from .run_ref.config import (
+    BundleProgram,
+    RunRefBundleCapsuleBinding,
     RunRefStaticConfig,
+    validate_run_ref_bundle_capsule_binding,
     validate_run_ref_static_config_authority,
 )
+from .run_ref.contracts import canonical_sha256
 from .pure_expr import (
     PureExprEvaluationError,
     canonical_json_for_pure_value,
@@ -69,6 +73,7 @@ WORKFLOW_EXECUTABLE_IR_SCHEMA_VERSION = "workflow_executable_ir.v1"
 PROVIDER_SUPERVISION_SCHEMA_VERSION = "provider_supervision.v1"
 PROVIDER_PEER_GROUP_SCHEMA_VERSION = "provider_peer_group.v1"
 PROVIDER_PEER_GROUP_MESSAGING_POLICY = "all_other_members"
+RUN_REF_STEP_CONFIG_IDENTITY_SCHEMA = "run_ref_step_config_identity.v1"
 
 
 def _serialize_provider_call_policy(
@@ -82,6 +87,13 @@ def _serialize_run_ref_static_config(
 ) -> dict[str, Any]:
     validate_run_ref_static_config_authority(config)
     return config.record
+
+
+def _serialize_run_ref_capsule_binding(
+    binding: RunRefBundleCapsuleBinding,
+) -> dict[str, str]:
+    validate_run_ref_bundle_capsule_binding(binding)
+    return binding.record
 
 
 class WorkflowRegion(str, Enum):
@@ -428,11 +440,40 @@ class RunRefStepConfig:
     run_ref: RunRefStaticConfig = field(
         metadata={"json_serializer": _serialize_run_ref_static_config},
     )
+    capsule_binding: RunRefBundleCapsuleBinding | None = field(
+        default=None,
+        metadata={
+            "json_omit_if_none": True,
+            "json_serializer": _serialize_run_ref_capsule_binding,
+        },
+    )
 
     def __post_init__(self) -> None:
         if type(self.common) is not StepCommonConfig:
             raise TypeError("run_ref executable common config must be StepCommonConfig")
         validate_run_ref_static_config_authority(self.run_ref)
+        if self.capsule_binding is not None:
+            validate_run_ref_bundle_capsule_binding(self.capsule_binding)
+            if not isinstance(self.run_ref.program, BundleProgram):
+                raise ValueError(
+                    "run_ref capsule binding is valid only for a bundle program"
+                )
+
+    @property
+    def step_config_digest(self) -> str:
+        """Bind runtime reuse to both static semantics and capsule content."""
+
+        return canonical_sha256(
+            {
+                "schema_version": RUN_REF_STEP_CONFIG_IDENTITY_SCHEMA,
+                "run_ref_static_config_digest": self.run_ref.digest,
+                "capsule_binding": (
+                    self.capsule_binding.record
+                    if self.capsule_binding is not None
+                    else None
+                ),
+            }
+        )
 
 
 @dataclass(frozen=True)
@@ -1151,6 +1192,12 @@ def _validate_run_ref_step_config(
 ) -> None:
     try:
         validate_run_ref_static_config_authority(config.run_ref)
+        if config.capsule_binding is not None:
+            validate_run_ref_bundle_capsule_binding(config.capsule_binding)
+            if not isinstance(config.run_ref.program, BundleProgram):
+                raise ValueError(
+                    "capsule binding is valid only for a bundle program"
+                )
     except (TypeError, ValueError) as exc:
         _raise_executable_ir_invalid(
             "executable_ir_invalid: run_ref config authority is invalid: "
