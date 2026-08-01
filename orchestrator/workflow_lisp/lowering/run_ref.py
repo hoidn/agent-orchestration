@@ -5,10 +5,13 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from orchestrator.workflow.run_ref.config import (
+    ArrayBinding,
+    InputBinding,
     LiteralBinding,
+    ObjectBinding,
     ReferenceBinding,
     RunRefInput,
     build_run_ref_static_config,
@@ -19,16 +22,36 @@ from orchestrator.workflow.run_ref.contracts import (
 )
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 
-from ..expressions import LiteralExpr
+from ..expressions import (
+    ListExpr,
+    LiteralExpr,
+    NameExpr,
+    RecordExpr,
+    UnionVariantExpr,
+)
 from ..normalized_type_descriptor import compiler_normalized_type_descriptor
 from ..run_ref_result_contract import (
     derive_run_ref_output_bundle_fields,
     derive_run_ref_result_contract,
 )
-from ..type_env import RecordTypeRef, TypeRef
+from ..type_env import (
+    ListTypeRef,
+    MapTypeRef,
+    OptionalTypeRef,
+    PathTypeRef,
+    PrimitiveTypeRef,
+    RecordTypeRef,
+    TypeRef,
+    UnionTypeRef,
+)
 from .context import _compile_error, _LoweringContext, _TerminalResult
 from .generated_paths import allocate_generated_result_bundle
 from .origins import _origin_from_context_source, _record_step_origin
+from .pure_projection import (
+    build_pure_projection_payload,
+    is_pure_projection_expr,
+    lower_pure_projection_step,
+)
 from .values import ProjectedPathRef, _record_output_refs, _resolve_inline_expr_value
 
 if TYPE_CHECKING:
@@ -36,6 +59,20 @@ if TYPE_CHECKING:
 
 
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+_WHOLE_INPUT_OUTPUT_CONTRACTS = {
+    "__result__": {"kind": "value", "type": "value"},
+}
+
+
+class _DirectBindingUnavailable(Exception):
+    """Internal signal that one otherwise-pure input needs projection."""
+
+
+@dataclass(frozen=True)
+class _RunRefInputBindingPlan:
+    row: LowerableRunRefInput
+    direct_binding: InputBinding | None
+    requires_projection: bool
 
 
 @dataclass(frozen=True)
@@ -67,6 +104,428 @@ class LowerableRunRef:
             not isinstance(row, LowerableRunRefInput) for row in self.inputs
         ):
             raise TypeError("lowerable run-ref inputs must be an ordered tuple")
+
+
+def _input_binding_error(
+    row: LowerableRunRefInput,
+    *,
+    code: str,
+    message: str,
+) -> NoReturn:
+    raise _compile_error(
+        code=code,
+        message=message,
+        span=getattr(row.value_expr, "span"),
+        form_path=getattr(row.value_expr, "form_path", ()),
+    )
+
+
+def _resolved_binding_value(value: object, *, local_values: Mapping[str, object]) -> object:
+    if isinstance(value, NameExpr) and value.name in local_values:
+        return local_values[value.name]
+    return _resolve_inline_expr_value(value, local_values=local_values)
+
+
+def _literal_binding_for_value(
+    value: object,
+    *,
+    row: LowerableRunRefInput,
+) -> LiteralBinding:
+    if value is not None and not isinstance(value, (str, int, float, bool)):
+        _input_binding_error(
+            row,
+            code="run_ref_input_binding_invalid",
+            message=f"run-ref input `{row.name}` contains a non-scalar literal",
+        )
+    try:
+        return LiteralBinding(value)
+    except ValueError as exc:
+        _input_binding_error(
+            row,
+            code="run_ref_input_binding_invalid",
+            message=f"run-ref input `{row.name}` contains an invalid scalar: {exc}",
+        )
+
+
+def _reference_binding_for_value(
+    reference: str,
+    *,
+    row: LowerableRunRefInput,
+) -> ReferenceBinding:
+    try:
+        return ReferenceBinding(reference)
+    except ValueError as exc:
+        _input_binding_error(
+            row,
+            code="run_ref_input_binding_invalid",
+            message=f"run-ref input `{row.name}` contains an invalid reference: {exc}",
+        )
+
+
+def _utf8_sorted_object_entries(
+    value: Mapping[object, object],
+    *,
+    row: LowerableRunRefInput,
+) -> tuple[tuple[str, object], ...]:
+    if any(not isinstance(key, str) for key in value):
+        _input_binding_error(
+            row,
+            code="run_ref_input_binding_invalid",
+            message=f"run-ref input `{row.name}` object keys must be strings",
+        )
+    try:
+        return tuple(
+            sorted(
+                ((key, item) for key, item in value.items() if isinstance(key, str)),
+                key=lambda item: item[0].encode("utf-8"),
+            )
+        )
+    except UnicodeEncodeError:
+        _input_binding_error(
+            row,
+            code="run_ref_input_binding_invalid",
+            message=f"run-ref input `{row.name}` object key is not valid UTF-8",
+        )
+
+
+def _value_binding(
+    value: object,
+    *,
+    row: LowerableRunRefInput,
+    local_values: Mapping[str, object],
+) -> InputBinding:
+    resolved = _resolved_binding_value(value, local_values=local_values)
+    if isinstance(resolved, LiteralExpr):
+        return _literal_binding_for_value(resolved.value, row=row)
+    if isinstance(resolved, ProjectedPathRef):
+        return _reference_binding_for_value(resolved.ref, row=row)
+    if (
+        isinstance(resolved, Mapping)
+        and set(resolved) == {"ref"}
+        and isinstance(resolved.get("ref"), str)
+    ):
+        return _reference_binding_for_value(resolved["ref"], row=row)
+    if isinstance(resolved, str):
+        return _reference_binding_for_value(resolved, row=row)
+    if isinstance(resolved, (type(None), bool, int, float)):
+        return _literal_binding_for_value(resolved, row=row)
+    if isinstance(resolved, (list, tuple)):
+        return ArrayBinding(
+            tuple(
+                _value_binding(item, row=row, local_values=local_values)
+                for item in resolved
+            )
+        )
+    if isinstance(resolved, Mapping):
+        return ObjectBinding(
+            tuple(
+                (
+                    key,
+                    _value_binding(item, row=row, local_values=local_values),
+                )
+                for key, item in _utf8_sorted_object_entries(resolved, row=row)
+            )
+        )
+    if is_pure_projection_expr(resolved):
+        raise _DirectBindingUnavailable
+    _input_binding_error(
+        row,
+        code="run_ref_input_binding_invalid",
+        message=f"run-ref input `{row.name}` contains an unsupported Value member",
+    )
+
+
+def _direct_binding_value(
+    value: object,
+    type_ref: TypeRef,
+    *,
+    row: LowerableRunRefInput,
+    local_values: Mapping[str, object],
+) -> InputBinding:
+    resolved = _resolved_binding_value(value, local_values=local_values)
+    if isinstance(resolved, ProjectedPathRef):
+        return _reference_binding_for_value(resolved.ref, row=row)
+    if (
+        isinstance(resolved, Mapping)
+        and set(resolved) == {"ref"}
+        and isinstance(resolved.get("ref"), str)
+    ):
+        return _reference_binding_for_value(resolved["ref"], row=row)
+    if isinstance(resolved, str) and not isinstance(value, LiteralExpr):
+        return _reference_binding_for_value(resolved, row=row)
+
+    if isinstance(type_ref, OptionalTypeRef):
+        if resolved is None:
+            return LiteralBinding(None)
+        return _direct_binding_value(
+            value,
+            type_ref.item_type_ref,
+            row=row,
+            local_values=local_values,
+        )
+    if isinstance(type_ref, ListTypeRef):
+        items: object
+        if isinstance(value, ListExpr):
+            items = value.items
+        else:
+            items = resolved
+        if not isinstance(items, (list, tuple)):
+            if is_pure_projection_expr(resolved):
+                raise _DirectBindingUnavailable
+            _input_binding_error(
+                row,
+                code="run_ref_input_binding_invalid",
+                message=f"run-ref input `{row.name}` must be a list",
+            )
+        return ArrayBinding(
+            tuple(
+                _direct_binding_value(
+                    item,
+                    type_ref.item_type_ref,
+                    row=row,
+                    local_values=local_values,
+                )
+                for item in items
+            )
+        )
+    if isinstance(type_ref, RecordTypeRef):
+        if isinstance(value, RecordExpr):
+            if value.type_name != type_ref.name:
+                _input_binding_error(
+                    row,
+                    code="run_ref_input_binding_invalid",
+                    message=f"run-ref input `{row.name}` record type changed before lowering",
+                )
+            names = tuple(name for name, _ in value.fields)
+            if len(set(names)) != len(names):
+                _input_binding_error(
+                    row,
+                    code="run_ref_input_binding_invalid",
+                    message=f"run-ref input `{row.name}` record fields must be unique",
+                )
+            field_values: Mapping[object, object] = dict(value.fields)
+        elif isinstance(resolved, Mapping):
+            field_values = resolved
+        else:
+            if is_pure_projection_expr(resolved):
+                raise _DirectBindingUnavailable
+            _input_binding_error(
+                row,
+                code="run_ref_input_binding_invalid",
+                message=f"run-ref input `{row.name}` must be a record",
+            )
+        declared_names = tuple(field.name for field in type_ref.definition.fields)
+        if set(field_values) != set(declared_names) or any(
+            not isinstance(name, str) for name in field_values
+        ):
+            _input_binding_error(
+                row,
+                code="run_ref_input_binding_invalid",
+                message=f"run-ref input `{row.name}` record fields are incomplete or unknown",
+            )
+        return ObjectBinding(
+            tuple(
+                (
+                    name,
+                    _direct_binding_value(
+                        field_values[name],
+                        type_ref.field_types[name],
+                        row=row,
+                        local_values=local_values,
+                    ),
+                )
+                for name in declared_names
+            )
+        )
+    if isinstance(type_ref, UnionTypeRef):
+        if isinstance(value, UnionVariantExpr):
+            if value.type_name != type_ref.name:
+                _input_binding_error(
+                    row,
+                    code="run_ref_input_binding_invalid",
+                    message=f"run-ref input `{row.name}` union type changed before lowering",
+                )
+            variant_name = value.variant_name
+            names = tuple(name for name, _ in value.fields)
+            if len(set(names)) != len(names):
+                _input_binding_error(
+                    row,
+                    code="run_ref_input_binding_invalid",
+                    message=f"run-ref input `{row.name}` union fields must be unique",
+                )
+            field_values = dict(value.fields)
+        elif isinstance(resolved, Mapping):
+            variant_name = resolved.get("variant")
+            field_values = {
+                key: item for key, item in resolved.items() if key != "variant"
+            }
+        else:
+            if is_pure_projection_expr(resolved):
+                raise _DirectBindingUnavailable
+            _input_binding_error(
+                row,
+                code="run_ref_input_binding_invalid",
+                message=f"run-ref input `{row.name}` must be a union value",
+            )
+        if not isinstance(variant_name, str):
+            _input_binding_error(
+                row,
+                code="run_ref_input_binding_invalid",
+                message=f"run-ref input `{row.name}` union variant is missing",
+            )
+        variant = next(
+            (
+                candidate
+                for candidate in type_ref.definition.variants
+                if candidate.name == variant_name
+            ),
+            None,
+        )
+        if variant is None:
+            _input_binding_error(
+                row,
+                code="run_ref_input_binding_invalid",
+                message=f"run-ref input `{row.name}` union variant is unknown",
+            )
+        declared_names = tuple(field.name for field in variant.fields)
+        if set(field_values) != set(declared_names) or any(
+            not isinstance(name, str) for name in field_values
+        ):
+            _input_binding_error(
+                row,
+                code="run_ref_input_binding_invalid",
+                message=f"run-ref input `{row.name}` union fields are incomplete or unknown",
+            )
+        variant_types = type_ref.variant_field_types[variant_name]
+        return ObjectBinding(
+            (("variant", LiteralBinding(variant_name)),)
+            + tuple(
+                (
+                    name,
+                    _direct_binding_value(
+                        field_values[name],
+                        variant_types[name],
+                        row=row,
+                        local_values=local_values,
+                    ),
+                )
+                for name in declared_names
+            )
+        )
+    if isinstance(type_ref, MapTypeRef):
+        if not isinstance(resolved, Mapping):
+            if is_pure_projection_expr(resolved):
+                raise _DirectBindingUnavailable
+            _input_binding_error(
+                row,
+                code="run_ref_input_binding_invalid",
+                message=f"run-ref input `{row.name}` must be a string-keyed map",
+            )
+        return ObjectBinding(
+            tuple(
+                (
+                    key,
+                    _direct_binding_value(
+                        item,
+                        type_ref.value_type_ref,
+                        row=row,
+                        local_values=local_values,
+                    ),
+                )
+                for key, item in _utf8_sorted_object_entries(resolved, row=row)
+            )
+        )
+    if isinstance(type_ref, PrimitiveTypeRef) and type_ref.name == "Value":
+        return _value_binding(value, row=row, local_values=local_values)
+
+    if isinstance(resolved, LiteralExpr):
+        scalar = resolved.value
+    else:
+        scalar = resolved
+    if is_pure_projection_expr(scalar):
+        raise _DirectBindingUnavailable
+    if hasattr(scalar, "span") and hasattr(scalar, "form_path"):
+        _input_binding_error(
+            row,
+            code="run_ref_input_binding_unsupported",
+            message=(
+                f"run-ref input `{row.name}` is effectful or cannot be "
+                "represented as transportable data"
+            ),
+        )
+    if isinstance(type_ref, PathTypeRef):
+        valid = isinstance(scalar, str)
+    elif isinstance(type_ref, PrimitiveTypeRef):
+        if type_ref.allowed_values:
+            valid = isinstance(scalar, str) and scalar in type_ref.allowed_values
+        elif type_ref.name in {"String", "Symbol", "RunId"}:
+            valid = isinstance(scalar, str)
+        elif type_ref.name == "Bool":
+            valid = isinstance(scalar, bool)
+        elif type_ref.name == "Int":
+            valid = isinstance(scalar, int) and not isinstance(scalar, bool)
+        elif type_ref.name == "Float":
+            valid = isinstance(scalar, (int, float)) and not isinstance(scalar, bool)
+        else:
+            valid = isinstance(scalar, (str, int, float, bool, type(None)))
+    else:
+        valid = False
+    if not valid:
+        _input_binding_error(
+            row,
+            code="run_ref_input_binding_invalid",
+            message=f"run-ref input `{row.name}` scalar does not match its declared type",
+        )
+    return _literal_binding_for_value(scalar, row=row)
+
+
+def _direct_run_ref_input_binding(
+    row: LowerableRunRefInput,
+    *,
+    local_values: Mapping[str, object],
+) -> InputBinding:
+    return _direct_binding_value(
+        row.value_expr,
+        row.type_ref,
+        row=row,
+        local_values=local_values,
+    )
+
+
+def _plan_run_ref_input_binding(
+    row: LowerableRunRefInput,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, object],
+) -> _RunRefInputBindingPlan:
+    try:
+        binding = _direct_run_ref_input_binding(row, local_values=local_values)
+    except _DirectBindingUnavailable:
+        if not is_pure_projection_expr(row.value_expr):
+            _input_binding_error(
+                row,
+                code="run_ref_input_binding_unsupported",
+                message=(
+                    f"run-ref input `{row.name}` is effectful or cannot be "
+                    "represented as transportable data"
+                ),
+            )
+        build_pure_projection_payload(
+            row.value_expr,
+            result_type=row.type_ref,
+            context=context,
+            local_values=local_values,
+        )
+        return _RunRefInputBindingPlan(
+            row=row,
+            direct_binding=None,
+            requires_projection=True,
+        )
+    return _RunRefInputBindingPlan(
+        row=row,
+        direct_binding=binding,
+        requires_projection=False,
+    )
 
 
 def _compiler_runtime_identity_digest(
@@ -123,7 +582,7 @@ def _lower_run_ref_operation(
     payload_descriptors = run_ref.payload.input_type_descriptors
     if len(run_ref.inputs) != len(payload_descriptors):
         raise ValueError("run-ref input metadata changed before lowering")
-    lowered_inputs: list[RunRefInput] = []
+    input_plans: list[_RunRefInputBindingPlan] = []
     for row, (payload_name, payload_descriptor) in zip(
         run_ref.inputs,
         payload_descriptors,
@@ -140,14 +599,55 @@ def _lower_run_ref_operation(
             or normalized_descriptor != payload_descriptor
         ):
             raise ValueError("run-ref input metadata changed before lowering")
+        input_plans.append(
+            _plan_run_ref_input_binding(
+                row,
+                context=context,
+                local_values=local_values,
+            )
+        )
+
+    prefix_steps: list[dict[str, Any]] = []
+    lowered_inputs: list[RunRefInput] = []
+    for plan, (_, payload_descriptor) in zip(
+        input_plans,
+        payload_descriptors,
+        strict=True,
+    ):
+        binding = plan.direct_binding
+        if plan.requires_projection:
+            projection_step_name = (
+                f"{context.step_name_prefix}__input__{plan.row.name}"
+            )
+            lowered_projection = lower_pure_projection_step(
+                plan.row.value_expr,
+                result_type=plan.row.type_ref,
+                context=context,
+                local_values=local_values,
+                step_name=projection_step_name,
+                step_id=context.normalize_generated_step_id(
+                    projection_step_name
+                ),
+                stable_target=f"run_ref_input_{plan.row.name}",
+                output_contracts=_WHOLE_INPUT_OUTPUT_CONTRACTS,
+            )
+            binding_ref = lowered_projection.output_refs.get("return")
+            if (
+                set(lowered_projection.output_refs) != {"return"}
+                or not isinstance(binding_ref, str)
+            ):
+                raise ValueError(
+                    "run-ref whole-input projection did not expose one root ref"
+                )
+            prefix_steps.append(lowered_projection.step)
+            binding = ReferenceBinding(binding_ref)
+        if binding is None:
+            raise AssertionError("run-ref input plan did not produce a binding")
         lowered_inputs.append(
             RunRefInput(
-                name=row.name,
+                name=plan.row.name,
                 type_descriptor=payload_descriptor,
-                binding=_scalar_or_reference_binding(
-                    row,
-                    local_values=local_values,
-                ),
+                binding=binding,
             )
         )
 
@@ -189,7 +689,7 @@ def _lower_run_ref_operation(
         },
         "run_ref": config,
     }
-    return [step], _TerminalResult(
+    return [*prefix_steps, step], _TerminalResult(
         step_name=step_name,
         step_id=step_id,
         output_refs=_record_output_refs(step_name, result_type),
@@ -201,36 +701,4 @@ def _lower_run_ref_operation(
             )
         },
         checkpoint_identity_component_digest=None,
-    )
-
-
-def _scalar_or_reference_binding(
-    row: LowerableRunRefInput,
-    *,
-    local_values: Mapping[str, object],
-):
-    resolved = _resolve_inline_expr_value(
-        row.value_expr,
-        local_values=local_values,
-    )
-    if isinstance(resolved, LiteralExpr):
-        return LiteralBinding(resolved.value)
-    if isinstance(resolved, ProjectedPathRef):
-        return ReferenceBinding(resolved.ref)
-    if isinstance(resolved, str):
-        return ReferenceBinding(resolved)
-    if (
-        isinstance(resolved, Mapping)
-        and set(resolved) == {"ref"}
-        and isinstance(resolved.get("ref"), str)
-    ):
-        return ReferenceBinding(resolved["ref"])
-    raise _compile_error(
-        code="run_ref_input_binding_unsupported",
-        message=(
-            "run-ref input requires a scalar literal or canonical runtime "
-            "reference in this lowering slice"
-        ),
-        span=getattr(row.value_expr, "span"),
-        form_path=getattr(row.value_expr, "form_path", ()),
     )

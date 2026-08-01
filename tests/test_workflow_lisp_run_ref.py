@@ -8,7 +8,9 @@ from typing import get_args
 import pytest
 
 from orchestrator.workflow.run_ref.config import (
+    ArrayBinding,
     LiteralBinding,
+    ObjectBinding,
     ReferenceBinding,
     RunRefStaticConfig,
 )
@@ -55,6 +57,8 @@ from orchestrator.workflow_lisp.expressions import (
     NameExpr,
     PureOpExpr,
     ProcedureCallExpr,
+    RecordExpr,
+    UnionVariantExpr,
     WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
     parse_run_ref_expression,
@@ -2989,8 +2993,11 @@ def _run_ref_lowering_context(type_env, *, lowering_session=None):
         lowering_session=lowering_session or LoweringSessionState(),
         generated_path_allocations=[],
         generated_path_spans={},
+        generated_semantic_effects=[],
         step_spans={},
+        local_type_bindings={},
         origin_notes=(),
+        source_read_trace=None,
         normalize_generated_step_id=lambda name: name,
     )
 
@@ -3178,50 +3185,353 @@ def test_run_ref_leaf_rejects_flattened_output_name_collisions_before_mutation()
     assert context.lowering_session.run_ref_compiler_runtime_identity_digest is None
 
 
-@pytest.mark.parametrize("value_kind", ("composite", "complex", "effectful"))
-def test_run_ref_leaf_rejects_values_deferred_to_structural_binding_slice(
-    value_kind: str,
-) -> None:
+def test_run_ref_leaf_encodes_direct_structural_bindings_canonically() -> None:
     span = _mode_one_expr().span
+    string_type = PrimitiveTypeRef("String")
+    int_type = PrimitiveTypeRef("Int")
+    list_type = ListTypeRef("List[String]", string_type)
+    record_definition = RecordDef(
+        name="InputRecord",
+        fields=(
+            RecordField(name="z", type_name="String", span=span),
+            RecordField(name="a", type_name="Int", span=span),
+        ),
+        span=span,
+    )
+    record_type = RecordTypeRef(
+        name="InputRecord",
+        definition=record_definition,
+        field_types={"z": string_type, "a": int_type},
+    )
+    union_definition = UnionDef(
+        name="InputUnion",
+        variants=(
+            UnionVariant(
+                name="OK",
+                fields=(
+                    RecordField(name="z", type_name="String", span=span),
+                    RecordField(name="a", type_name="Int", span=span),
+                ),
+                span=span,
+            ),
+        ),
+        span=span,
+    )
+    union_type = UnionTypeRef(
+        name="InputUnion",
+        definition=union_definition,
+        variant_field_types={"OK": {"z": string_type, "a": int_type}},
+    )
+    map_type = MapTypeRef("Map[String,Int]", string_type, int_type)
+    value_type = PrimitiveTypeRef("Value")
+    optional_type = OptionalTypeRef("Optional[String]", string_type)
     expr = _mode_one_expr(
-        inputs=(("value", LiteralExpr("ok", "string", span, FORM_PATH)),)
+        inputs=(
+            (
+                "items",
+                ListExpr(
+                    items=(
+                        LiteralExpr("second", "string", span, FORM_PATH),
+                        LiteralExpr("first", "string", span, FORM_PATH),
+                    ),
+                    element_type_ref=string_type,
+                    span=span,
+                    form_path=FORM_PATH,
+                ),
+            ),
+            (
+                "record",
+                RecordExpr(
+                    type_name="InputRecord",
+                    fields=(
+                        ("a", LiteralExpr(1, "int", span, FORM_PATH)),
+                        ("z", LiteralExpr("zed", "string", span, FORM_PATH)),
+                    ),
+                    span=span,
+                    form_path=FORM_PATH,
+                ),
+            ),
+            (
+                "choice",
+                UnionVariantExpr(
+                    type_name="InputUnion",
+                    variant_name="OK",
+                    fields=(
+                        ("a", LiteralExpr(2, "int", span, FORM_PATH)),
+                        ("z", LiteralExpr("zee", "string", span, FORM_PATH)),
+                    ),
+                    span=span,
+                    form_path=FORM_PATH,
+                ),
+            ),
+            ("mapping", NameExpr("mapping", span, FORM_PATH)),
+            ("opaque", NameExpr("opaque", span, FORM_PATH)),
+            ("optional", NameExpr("optional", span, FORM_PATH)),
+        )
+    )
+    params = (
+        ("items", list_type),
+        ("record", record_type),
+        ("choice", union_type),
+        ("mapping", map_type),
+        ("opaque", value_type),
+        ("optional", optional_type),
+    )
+    value_env = {
+        "mapping": map_type,
+        "opaque": value_type,
+        "optional": optional_type,
+    }
+    typed, type_env, _, resolved_value_env = _typed_run_ref_for_wcc(
+        expr,
+        params=params,
+        extra_types=(record_type, union_type),
+        value_env=value_env,
+    )
+
+    steps, _ = _lower_run_ref_operation(
+        _lowerable_run_ref(
+            typed,
+            type_env=type_env,
+            value_env=resolved_value_env,
+        ),
+        result_type=typed.type_ref,
+        context=_run_ref_lowering_context(type_env),
+        local_values={
+            "mapping": {"\u00e9": 3, "z": 2, "a": 1},
+            "opaque": {
+                "\u00e9": [True, None],
+                "a": {
+                    "z": LiteralExpr("literal", "string", span, FORM_PATH)
+                },
+            },
+            "optional": None,
+        },
+        identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+            "sha256:" + "f" * 64
+        ),
+    )
+
+    config = steps[-1]["run_ref"]
+    assert config.inputs[0].binding == ArrayBinding(
+        (LiteralBinding("second"), LiteralBinding("first"))
+    )
+    assert config.inputs[1].binding == ObjectBinding(
+        (("z", LiteralBinding("zed")), ("a", LiteralBinding(1)))
+    )
+    assert config.inputs[2].binding == ObjectBinding(
+        (
+            ("variant", LiteralBinding("OK")),
+            ("z", LiteralBinding("zee")),
+            ("a", LiteralBinding(2)),
+        )
+    )
+    assert tuple(name for name, _ in config.inputs[3].binding.entries) == (
+        "a",
+        "z",
+        "\u00e9",
+    )
+    opaque = config.inputs[4].binding
+    assert opaque == ObjectBinding(
+        (
+            ("a", ObjectBinding((("z", LiteralBinding("literal")),))),
+            (
+                "\u00e9",
+                ArrayBinding((LiteralBinding(True), LiteralBinding(None))),
+            ),
+        )
+    )
+    assert config.inputs[5].binding == LiteralBinding(None)
+
+
+def test_run_ref_leaf_uses_one_whole_input_projection_for_complex_pure_value() -> None:
+    span = _mode_one_expr().span
+    string_type = PrimitiveTypeRef("String")
+    record_definition = RecordDef(
+        name="ProjectedInput",
+        fields=(RecordField(name="value", type_name="String", span=span),),
+        span=span,
+    )
+    record_type = RecordTypeRef(
+        name="ProjectedInput",
+        definition=record_definition,
+        field_types={"value": string_type},
+    )
+    expr = _mode_one_expr(
+        inputs=(
+            (
+                "value",
+                RecordExpr(
+                    type_name="ProjectedInput",
+                    fields=(
+                        (
+                            "value",
+                            PureOpExpr(
+                                operator="string/concat",
+                                args=(
+                                    LiteralExpr("a", "string", span, FORM_PATH),
+                                    LiteralExpr("b", "string", span, FORM_PATH),
+                                ),
+                                span=span,
+                                form_path=FORM_PATH,
+                            ),
+                        ),
+                    ),
+                    span=span,
+                    form_path=FORM_PATH,
+                ),
+            ),
+        )
     )
     typed, type_env, _, _ = _typed_run_ref_for_wcc(
         expr,
-        params=(("value", PrimitiveTypeRef("String")),),
+        params=(("value", record_type),),
+        extra_types=(record_type,),
+    )
+    context = _run_ref_lowering_context(type_env)
+
+    steps, terminal = _lower_run_ref_operation(
+        _lowerable_run_ref(typed, type_env=type_env),
+        result_type=typed.type_ref,
+        context=context,
+        local_values={},
+        identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+            "sha256:" + "f" * 64
+        ),
+    )
+
+    assert len(steps) == 2
+    projection, run_ref_step = steps
+    assert set(projection) >= {"pure_projection", "output_bundle"}
+    assert tuple(projection["pure_projection"]["output_contracts"]) == (
+        "__result__",
+    )
+    assert run_ref_step["run_ref"].inputs[0].binding == ReferenceBinding(
+        f"root.steps.{projection['name']}.artifacts.__result__"
+    )
+    assert len(context.generated_semantic_effects) == 1
+    assert terminal.step_name == run_ref_step["name"]
+
+
+def test_run_ref_leaf_preflights_all_inputs_before_projection_or_identity_mutation() -> None:
+    span = _mode_one_expr().span
+    expr = _mode_one_expr(
+        inputs=(
+            ("first", LiteralExpr("ok", "string", span, FORM_PATH)),
+            ("second", LiteralExpr("ok", "string", span, FORM_PATH)),
+        )
+    )
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(
+        expr,
+        params=(
+            ("first", PrimitiveTypeRef("String")),
+            ("second", PrimitiveTypeRef("String")),
+        ),
     )
     lowerable = _lowerable_run_ref(typed, type_env=type_env)
-    deferred_expr = {
-        "composite": ListExpr(
-            items=(LiteralExpr("ok", "string", span, FORM_PATH),),
-            element_type_ref=PrimitiveTypeRef("String"),
-            span=span,
-            form_path=FORM_PATH,
-        ),
-        "complex": PureOpExpr(
-            operator="string/concat",
-            args=(LiteralExpr("ok", "string", span, FORM_PATH),),
-            span=span,
-            form_path=FORM_PATH,
-        ),
-        "effectful": _mode_one_expr(),
-    }[value_kind]
     lowerable = replace(
         lowerable,
-        inputs=(replace(lowerable.inputs[0], value_expr=deferred_expr),),
+        inputs=(
+            replace(
+                lowerable.inputs[0],
+                value_expr=PureOpExpr(
+                    operator="string/concat",
+                    args=(
+                        LiteralExpr("a", "string", span, FORM_PATH),
+                        LiteralExpr("b", "string", span, FORM_PATH),
+                    ),
+                    span=span,
+                    form_path=FORM_PATH,
+                ),
+            ),
+            replace(lowerable.inputs[1], value_expr=_mode_one_expr()),
+        ),
     )
+    context = _run_ref_lowering_context(type_env)
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _lower_run_ref_operation(
             lowerable,
             result_type=typed.type_ref,
-            context=_run_ref_lowering_context(type_env),
+            context=context,
             local_values={},
             identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
                 "sha256:" + "f" * 64
             ),
         )
     assert excinfo.value.diagnostics[0].code == "run_ref_input_binding_unsupported"
+    assert context.generated_path_allocations == []
+    assert context.generated_semantic_effects == []
+    assert context.step_spans == {}
+    assert context.lowering_session.run_ref_compiler_runtime_identity_digest is None
+
+
+@pytest.mark.parametrize("invalid_kind", ("record", "union", "map", "value"))
+def test_run_ref_leaf_rejects_malformed_structural_input_without_mutation(
+    invalid_kind: str,
+) -> None:
+    span = _mode_one_expr().span
+    string_type = PrimitiveTypeRef("String")
+    if invalid_kind == "record":
+        definition = RecordDef(
+            name="InvalidRecord",
+            fields=(RecordField(name="required", type_name="String", span=span),),
+            span=span,
+        )
+        input_type = RecordTypeRef(
+            name="InvalidRecord",
+            definition=definition,
+            field_types={"required": string_type},
+        )
+        local_value = {}
+        extra_types = (input_type,)
+    elif invalid_kind == "union":
+        definition = UnionDef(
+            name="InvalidUnion",
+            variants=(UnionVariant(name="OK", fields=(), span=span),),
+            span=span,
+        )
+        input_type = UnionTypeRef(
+            name="InvalidUnion",
+            definition=definition,
+            variant_field_types={"OK": {}},
+        )
+        local_value = {"variant": "UNKNOWN"}
+        extra_types = (input_type,)
+    elif invalid_kind == "map":
+        input_type = MapTypeRef("Map[String,String]", string_type, string_type)
+        local_value = {1: "not-a-string-key"}
+        extra_types = ()
+    else:
+        input_type = PrimitiveTypeRef("Value")
+        local_value = {"unsupported": object()}
+        extra_types = ()
+    expr = _mode_one_expr(
+        inputs=(("value", NameExpr("value", span, FORM_PATH)),)
+    )
+    typed, type_env, _, value_env = _typed_run_ref_for_wcc(
+        expr,
+        params=(("value", input_type),),
+        extra_types=extra_types,
+        value_env={"value": input_type},
+    )
+    context = _run_ref_lowering_context(type_env)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _lower_run_ref_operation(
+            _lowerable_run_ref(typed, type_env=type_env, value_env=value_env),
+            result_type=typed.type_ref,
+            context=context,
+            local_values={"value": local_value},
+            identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+                "sha256:" + "f" * 64
+            ),
+        )
+
+    assert excinfo.value.diagnostics[0].code == "run_ref_input_binding_invalid"
+    assert context.generated_path_allocations == []
+    assert context.generated_semantic_effects == []
+    assert context.lowering_session.run_ref_compiler_runtime_identity_digest is None
 
 
 def test_run_ref_leaf_rejects_metadata_order_or_type_drift() -> None:
