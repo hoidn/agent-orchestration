@@ -247,6 +247,13 @@ def test_compile_diagnostics_document_has_closed_accepted_and_rejected_shapes() 
         module_source_revisions=(
             {"module_name": "candidate", "source_sha256": f"sha256:{'b' * 64}"},
         ),
+        compiler_source_revisions=(
+            {
+                "root_role": "source_root:0",
+                "relative_path": "candidate.orc",
+                "source_sha256": f"sha256:{'b' * 64}",
+            },
+        ),
         selected_entry=selected_entry,
         lowering_route="legacy",
         lowering_schema_version=1,
@@ -254,11 +261,13 @@ def test_compile_diagnostics_document_has_closed_accepted_and_rejected_shapes() 
             "provider_externs": f"sha256:{'c' * 64}",
             "prompt_externs": f"sha256:{'d' * 64}",
             "command_boundaries": f"sha256:{'e' * 64}",
+            "imported_workflow_bundles": f"sha256:{'f' * 64}",
         },
         configuration_revisions=(
             {"role": "provider_externs", "source_sha256": None},
             {"role": "prompt_externs", "source_sha256": None},
             {"role": "command_boundaries", "source_sha256": None},
+            {"role": "imported_workflow_bundles", "source_sha256": None},
         ),
     )
     accepted = build_document(

@@ -113,6 +113,53 @@ def _module_source_revisions(
     return rows
 
 
+def _compiler_source_revisions(
+    result: FrontendBuildResult,
+) -> list[dict[str, object]]:
+    request = result.resolved_request
+    roots: list[tuple[str, Path]] = [
+        (f"source_root:{index}", root)
+        for index, root in enumerate(request.source_roots)
+    ]
+    if request.imported_workflow_bundles_path is not None:
+        roots.append(
+            (
+                "imported_manifest_root",
+                request.imported_workflow_bundles_path.parent,
+            )
+        )
+    roots.append(("workspace_root", request.workspace_root))
+
+    rows: list[dict[str, object]] = []
+    for source_path, revision in result.source_read_trace.revision_vector:
+        normalized: tuple[str, str] | None = None
+        for root_role, root in roots:
+            try:
+                relative_path = source_path.relative_to(root)
+            except ValueError:
+                continue
+            normalized = (root_role, relative_path.as_posix())
+            break
+        if normalized is None:
+            raise ValueError(
+                "compiler-read source is outside declared identity roots"
+            )
+        rows.append(
+            {
+                "root_role": normalized[0],
+                "relative_path": normalized[1],
+                "source_sha256": revision,
+            }
+        )
+    return sorted(
+        rows,
+        key=lambda row: (
+            str(row["root_role"]),
+            str(row["relative_path"]).encode("utf-8"),
+        ),
+    )
+
+
 def _configuration_identity(
     result: FrontendBuildResult,
 ) -> tuple[dict[str, str], list[dict[str, object]]]:
@@ -122,6 +169,9 @@ def _configuration_identity(
         "provider_externs": request.provider_externs_path,
         "prompt_externs": request.prompt_externs_path,
         "command_boundaries": request.command_boundaries_path,
+        "imported_workflow_bundles": (
+            request.imported_workflow_bundles_path
+        ),
     }
     revisions: list[dict[str, object]] = []
     payload_digests: dict[str, str] = {}
@@ -147,6 +197,7 @@ def _accepted_machine_document(
     program_identity = build_normalized_program_identity(
         compiler_runtime_identity=compute_compiler_runtime_identity().digest,
         module_source_revisions=_module_source_revisions(result),
+        compiler_source_revisions=_compiler_source_revisions(result),
         selected_entry=selected_entry,
         lowering_route=route,
         lowering_schema_version=result.manifest.lowering_schema_version,

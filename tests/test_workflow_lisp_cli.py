@@ -390,6 +390,7 @@ def test_compile_diagnostics_json_acceptance_is_one_closed_machine_document(
         "digest",
         "compiler_runtime_identity",
         "module_source_revisions",
+        "compiler_source_revisions",
         "selected_entry_sha256",
         "lowering_route",
         "lowering_schema_version",
@@ -490,6 +491,47 @@ def test_compile_diagnostics_json_identity_is_clone_root_independent(
         identities.append(payload["normalized_program_identity"])
 
     assert identities[0] == identities[1]
+
+
+def test_compile_diagnostics_json_identity_binds_imported_bundle_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    identities: list[dict[str, object]] = []
+    for name in ("baseline", "changed-import"):
+        root = tmp_path / name
+        source_root = root / "source"
+        cli_root = root / "cli"
+        shutil.copytree(SOURCE_ROOT, source_root)
+        shutil.copytree(CLI_FIXTURES, cli_root)
+        if name == "changed-import":
+            imported_source = cli_root / "imported_selector.orc"
+            imported_source.write_text(
+                imported_source.read_text(encoding="utf-8") + "\n",
+                encoding="utf-8",
+            )
+        monkeypatch.chdir(root)
+
+        result = compile_workflow(
+            _orc_compile_args(
+                workflow=source_root / "neurips" / "entry.orc",
+                source_root=source_root,
+                provider_externs_file=cli_root / "providers.json",
+                prompt_externs_file=cli_root / "prompts.json",
+                imported_workflow_bundles_file=(
+                    cli_root / "imported_workflow_bundles.json"
+                ),
+                command_boundaries_file=cli_root / "commands.json",
+                diagnostics_json=True,
+            )
+        )
+        payload = json.loads(capsys.readouterr().out)
+
+        assert result == 0, payload
+        identities.append(payload["normalized_program_identity"])
+
+    assert identities[0] != identities[1]
 
 
 def test_compile_diagnostics_json_closes_io_failures_as_machine_diagnostics(

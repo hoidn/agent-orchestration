@@ -433,6 +433,7 @@ def build_normalized_program_identity(
     *,
     compiler_runtime_identity: str,
     module_source_revisions: Iterable[Mapping[str, object]],
+    compiler_source_revisions: Iterable[Mapping[str, object]],
     selected_entry: Mapping[str, object],
     lowering_route: str,
     lowering_schema_version: int,
@@ -459,11 +460,28 @@ def build_normalized_program_identity(
         for row in module_rows
     ):
         raise ValueError("module source revisions have an invalid shape")
+    compiler_source_rows = _canonical_json_value(
+        list(compiler_source_revisions)
+    )
+    if not isinstance(compiler_source_rows, list) or not compiler_source_rows:
+        raise ValueError("program identity requires compiler source revisions")
+    if any(
+        not isinstance(row, Mapping)
+        or set(row) != {"root_role", "relative_path", "source_sha256"}
+        or not isinstance(row.get("root_role"), str)
+        or not row.get("root_role")
+        or not isinstance(row.get("relative_path"), str)
+        or not row.get("relative_path")
+        or not _is_sha256_identity(row.get("source_sha256"))
+        for row in compiler_source_rows
+    ):
+        raise ValueError("compiler source revisions have an invalid shape")
     payload_digests = _canonical_json_value(dict(configuration_payload_digests))
     expected_configuration_roles = {
         "provider_externs",
         "prompt_externs",
         "command_boundaries",
+        "imported_workflow_bundles",
     }
     if (
         not isinstance(payload_digests, Mapping)
@@ -493,6 +511,7 @@ def build_normalized_program_identity(
         "schema_version": "workflow_lisp_program_identity.v1",
         "compiler_runtime_identity": compiler_runtime_identity,
         "module_source_revisions": module_rows,
+        "compiler_source_revisions": compiler_source_rows,
         "selected_entry_sha256": canonical_sha256(selected_entry_value),
         "lowering_route": lowering_route,
         "lowering_schema_version": lowering_schema_version,
@@ -545,6 +564,7 @@ def build_compile_diagnostics_document(
             "digest",
             "compiler_runtime_identity",
             "module_source_revisions",
+            "compiler_source_revisions",
             "selected_entry_sha256",
             "lowering_route",
             "lowering_schema_version",
