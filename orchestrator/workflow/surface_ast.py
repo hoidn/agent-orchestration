@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+import re
 from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
@@ -342,6 +343,12 @@ class SurfaceStep:
             raise ValueError("run_ref kind/config pairing is invalid")
         if self.run_ref is not None:
             validate_run_ref_static_config_authority(self.run_ref)
+            conflicting_carriers = _run_ref_conflicting_carriers(self)
+            if conflicting_carriers:
+                raise ValueError(
+                    "run_ref conflicts with operation carrier(s): "
+                    + ", ".join(conflicting_carriers)
+                )
         validate_compiler_prompt_fragment_pair(
             self.compiler_prompt_fragment_contract,
             self.compiled_prompt_fragment_identity,
@@ -423,12 +430,87 @@ class SurfaceWorkflow:
             )
 
 
+_CANONICAL_TARGET_COMPONENT_RE = re.compile(r"(?:0|[1-9][0-9]*)\Z")
+
+
 def _target_dsl_at_least(value: str, minimum: tuple[int, ...]) -> bool:
-    try:
-        parts = tuple(int(part) for part in value.split("."))
-    except (AttributeError, TypeError, ValueError) as exc:
-        raise ValueError("surface workflow target DSL version is invalid") from exc
+    if not isinstance(value, str):
+        raise ValueError("surface workflow target DSL version is invalid")
+    raw_parts = value.split(".")
+    if len(raw_parts) < 2 or any(
+        _CANONICAL_TARGET_COMPONENT_RE.fullmatch(part) is None
+        for part in raw_parts
+    ):
+        raise ValueError("surface workflow target DSL version is invalid")
+    parts = tuple(int(part) for part in raw_parts)
     return parts >= minimum
+
+
+def _run_ref_conflicting_carriers(step: SurfaceStep) -> tuple[str, ...]:
+    checks = (
+        ("command", step.command != ()),
+        ("provider", step.provider is not None),
+        ("provider_params", step.provider_params is not None),
+        ("provider_call_policy", step.provider_call_policy is not None),
+        ("managed_jobs", step.managed_jobs is not None),
+        ("adjudicated_provider", bool(step.adjudicated_provider)),
+        ("input_file", step.input_file is not None),
+        ("asset_file", step.asset_file is not None),
+        ("depends_on", bool(step.depends_on)),
+        ("asset_depends_on", bool(step.asset_depends_on)),
+        ("inject_output_contract", step.inject_output_contract is not None),
+        ("inject_consumes", step.inject_consumes is not None),
+        ("prompt_consumes", step.prompt_consumes is not None),
+        ("typed_prompt_inputs", bool(step.typed_prompt_inputs)),
+        (
+            "consumes_injection_position",
+            step.consumes_injection_position is not None,
+        ),
+        (
+            "compiler_prompt_dependency_contract",
+            step.compiler_prompt_dependency_contract is not None,
+        ),
+        (
+            "compiler_prompt_fragment_contract",
+            step.compiler_prompt_fragment_contract is not None,
+        ),
+        (
+            "compiled_prompt_fragment_identity",
+            step.compiled_prompt_fragment_identity is not None,
+        ),
+        (
+            "prompt_attempt_identity_version",
+            step.prompt_attempt_identity_version is not None,
+        ),
+        (
+            "compiler_prompt_attempt_binding_plan",
+            step.compiler_prompt_attempt_binding_plan is not None,
+        ),
+        ("provider_supervision", step.provider_supervision is not None),
+        ("provider_peer_group", step.provider_peer_group is not None),
+        ("wait_for", bool(step.wait_for)),
+        ("assert", step.assert_predicate is not None),
+        ("set_scalar", bool(step.set_scalar)),
+        ("resource_transition", bool(step.resource_transition)),
+        ("pure_projection", bool(step.pure_projection)),
+        ("materialize_view", bool(step.materialize_view)),
+        ("increment_scalar", bool(step.increment_scalar)),
+        ("materialize_artifacts", bool(step.materialize_artifacts)),
+        ("select_variant_output", bool(step.select_variant_output)),
+        ("if", step.if_condition is not None),
+        ("then", step.then_branch is not None),
+        ("else", step.else_branch is not None),
+        ("match", step.match_ref is not None),
+        ("match_cases", bool(step.match_cases)),
+        ("for_each_items", bool(step.for_each_items)),
+        ("for_each_items_from", step.for_each_items_from is not None),
+        ("for_each_item_name", step.for_each_item_name != "item"),
+        ("for_each_steps", bool(step.for_each_steps)),
+        ("repeat_until", step.repeat_until is not None),
+        ("call", step.call_alias is not None),
+        ("call_bindings", bool(step.call_bindings)),
+    )
+    return tuple(name for name, populated in checks if populated)
 
 
 def _iter_surface_steps(

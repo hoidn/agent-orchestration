@@ -25,7 +25,13 @@ from orchestrator.workflow.state_layout import (
     GeneratedPathResumeScope,
     GeneratedPathSemanticRole,
 )
-from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind
+from orchestrator.workflow.surface_ast import (
+    SurfaceStep,
+    SurfaceStepCommonConfig,
+    SurfaceStepKind,
+    SurfaceWorkflow,
+    WorkflowProvenance,
+)
 from orchestrator.workflow.validation import (
     WorkflowBoundaryValidationPolicy,
     WorkflowMappingBuildRequest,
@@ -3114,6 +3120,131 @@ def test_surface_run_ref_kind_and_config_pair_exactly() -> None:
             kind=SurfaceStepKind.RUN_REF,
             run_ref=tampered,
         )
+
+
+@pytest.mark.parametrize(
+    "version",
+    (
+        "2.24.-1",
+        "3.-999",
+        "2.24.",
+        "2..24",
+        "02.24",
+        "2.024",
+        "+2.24",
+    ),
+)
+def test_direct_surface_run_ref_rejects_noncanonical_target_components(
+    version: str,
+) -> None:
+    step = SurfaceStep(
+        name="RunChild",
+        step_id="root.run_child",
+        kind=SurfaceStepKind.RUN_REF,
+        run_ref=_surface_run_ref_config(),
+    )
+
+    with pytest.raises(ValueError, match="target DSL version is invalid"):
+        SurfaceWorkflow(
+            version=version,
+            name="invalid-run-ref-target",
+            steps=(step,),
+            provenance=WorkflowProvenance(
+                workflow_path=Path("/tmp/invalid-run-ref-target.orc"),
+                source_root=Path("/tmp"),
+            ),
+        )
+
+
+@pytest.mark.parametrize("version", ("2.24", "2.25", "2.24.0", "3.0"))
+def test_direct_surface_run_ref_accepts_canonical_target_2_24_or_later(
+    version: str,
+) -> None:
+    workflow = SurfaceWorkflow(
+        version=version,
+        name="valid-run-ref-target",
+        steps=(
+            SurfaceStep(
+                name="RunChild",
+                step_id="root.run_child",
+                kind=SurfaceStepKind.RUN_REF,
+                run_ref=_surface_run_ref_config(),
+            ),
+        ),
+        provenance=WorkflowProvenance(
+            workflow_path=Path("/tmp/valid-run-ref-target.orc"),
+            source_root=Path("/tmp"),
+        ),
+    )
+
+    assert workflow.version == version
+
+
+@pytest.mark.parametrize(
+    ("carrier_name", "carrier_kwargs"),
+    (
+        ("provider", {"provider": "provider"}),
+        ("command", {"command": ("python",)}),
+        ("provider_supervision", {"provider_supervision": {"worker": "w"}}),
+        ("provider_peer_group", {"provider_peer_group": {"members": ()}}),
+        ("adjudicated_provider", {"adjudicated_provider": {"candidates": ()}}),
+        ("wait_for", {"wait_for": {"condition": "ready"}}),
+        ("assert", {"assert_predicate": {"equals": True}}),
+        ("set_scalar", {"set_scalar": {"value": 1}}),
+        ("resource_transition", {"resource_transition": {"resource": "r"}}),
+        ("pure_projection", {"pure_projection": {"payload": {}}}),
+        ("materialize_view", {"materialize_view": {"renderer": "r"}}),
+        ("increment_scalar", {"increment_scalar": {"by": 1}}),
+        ("materialize_artifacts", {"materialize_artifacts": {"values": ()}}),
+        ("select_variant_output", {"select_variant_output": {"variant": "OK"}}),
+        ("call", {"call_alias": "child"}),
+        ("call_bindings", {"call_bindings": {"value": "input"}}),
+        ("if", {"if_condition": {"equals": True}}),
+        ("then", {"then_branch": object()}),
+        ("else", {"else_branch": object()}),
+        ("match", {"match_ref": "inputs.choice"}),
+        ("match_cases", {"match_cases": {"OK": object()}}),
+        ("for_each_items", {"for_each_items": ("one",)}),
+        ("for_each_items_from", {"for_each_items_from": "inputs.items"}),
+        ("for_each_item_name", {"for_each_item_name": "candidate"}),
+        ("for_each_steps", {"for_each_steps": (object(),)}),
+        ("repeat_until", {"repeat_until": object()}),
+    ),
+)
+def test_direct_surface_run_ref_rejects_conflicting_operation_carrier(
+    carrier_name: str,
+    carrier_kwargs: dict[str, object],
+) -> None:
+    with pytest.raises(ValueError, match=rf"run_ref.*{carrier_name}"):
+        SurfaceStep(
+            name="RunChild",
+            step_id="root.run_child",
+            kind=SurfaceStepKind.RUN_REF,
+            run_ref=_surface_run_ref_config(),
+            **carrier_kwargs,
+        )
+
+
+def test_direct_surface_run_ref_allows_common_and_provenance_metadata() -> None:
+    marker = object()
+
+    step = SurfaceStep(
+        name="RunChild",
+        step_id="root.run_child",
+        kind=SurfaceStepKind.RUN_REF,
+        authored_id="run_child",
+        common=SurfaceStepCommonConfig(
+            expected_outputs=({"name": "value"},),
+            timeout_sec=30,
+        ),
+        when_predicate=marker,
+        references=(marker,),
+        run_ref=_surface_run_ref_config(),
+    )
+
+    assert step.common.timeout_sec == 30
+    assert step.when_predicate is marker
+    assert step.references == (marker,)
 
 
 def test_generated_run_ref_mapping_rejects_ambiguous_operation_kind() -> None:
