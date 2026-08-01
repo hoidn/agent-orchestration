@@ -141,7 +141,10 @@ def normalize_repository_locator(locator: str) -> str:
     if os.path.isabs(locator):
         return Path(locator).resolve(strict=False).as_uri()
 
-    parsed = urlsplit(locator)
+    try:
+        parsed = urlsplit(locator)
+    except ValueError as exc:
+        raise _refuse_unresolvable(locator, "URI syntax is malformed") from exc
     scheme = parsed.scheme.lower()
     if scheme not in {"file", "https", "ssh"}:
         raise _refuse_unresolvable(
@@ -980,15 +983,21 @@ def materialize_source(
     )
 
     source, revision = _revision_identity(request)
-    (
-        mirror_path,
-        seal_path,
-        verified_tree,
-        expected_checkout_tree_manifest,
-    ) = _sealed_mirror(
-        source=source,
-        run_ref_root=run_ref_root_path,
-    )
+    try:
+        (
+            mirror_path,
+            seal_path,
+            verified_tree,
+            expected_checkout_tree_manifest,
+        ) = _sealed_mirror(
+            source=source,
+            run_ref_root=run_ref_root_path,
+        )
+    except OSError as exc:
+        raise _materialization_refusal(
+            str(run_ref_root_path),
+            "run-reference mirror coordination failed",
+        ) from exc
 
     try:
         workspace_path.parent.mkdir(parents=True, exist_ok=True)

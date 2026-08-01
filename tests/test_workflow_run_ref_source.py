@@ -21,6 +21,7 @@ from orchestrator.workflow.run_ref.contracts import (
     compute_compiler_runtime_identity,
 )
 from orchestrator.workflow.run_ref import source as source_module
+from orchestrator.workflow.run_ref import workspace as workspace_module
 from orchestrator.workflow.run_ref.source import (
     RunRefSourceRefusal,
     SourceRequest,
@@ -201,6 +202,16 @@ def test_network_repository_locator_preserves_ipv6_authority_brackets(
     expected: str,
 ) -> None:
     assert normalize_repository_locator(locator) == expected
+
+
+def test_repository_locator_wraps_malformed_urlsplit_input_as_closed_refusal() -> None:
+    locator = "https://[2001:db8::1/team/repository.git"
+
+    with pytest.raises(RunRefSourceRefusal) as caught:
+        normalize_repository_locator(locator)
+
+    assert caught.value.code == "trial_source_unresolvable"
+    assert caught.value.rejected_value == locator
 
 
 @pytest.mark.parametrize(
@@ -600,6 +611,71 @@ def test_compiler_identity_ignores_generated_bytecode_cache(tmp_path: Path) -> N
     assert _compiler_identity(package) == before
 
 
+def test_compiler_identity_symlink_binds_followed_regular_file_bytes(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "orchestrator"
+    _write_compiler_package(package, module_body="VALUE = 1\n")
+    external = tmp_path / "external.py"
+    external.write_text("EXTERNAL = 1\n", encoding="utf-8")
+    os.symlink("../external.py", package / "linked.py")
+    before = _compiler_identity(package)
+
+    external.write_text("EXTERNAL = 2\n", encoding="utf-8")
+
+    assert _compiler_identity(package) != before
+
+
+def test_compiler_identity_symlink_binds_authored_link_target_text(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "orchestrator"
+    _write_compiler_package(package, module_body="VALUE = 1\n")
+    (tmp_path / "first.py").write_text("SAME = True\n", encoding="utf-8")
+    (tmp_path / "second.py").write_text("SAME = True\n", encoding="utf-8")
+    link = package / "linked.py"
+    os.symlink("../first.py", link)
+    before = _compiler_identity(package)
+
+    link.unlink()
+    os.symlink("../second.py", link)
+
+    assert _compiler_identity(package) != before
+
+
+def test_compiler_identity_symlink_rows_do_not_bind_host_root_paths(
+    tmp_path: Path,
+) -> None:
+    identities: list[VerifiedCompilerRuntimeIdentity] = []
+    for root_name in ("first", "second"):
+        root = tmp_path / root_name
+        package = root / "orchestrator"
+        _write_compiler_package(package, module_body="VALUE = 1\n")
+        (root / "external.py").write_text("EXTERNAL = 1\n", encoding="utf-8")
+        os.symlink("../external.py", package / "linked.py")
+        identities.append(_compiler_identity(package))
+
+    assert identities[0] == identities[1]
+
+
+@pytest.mark.parametrize("target_kind", ["broken", "directory", "fifo"])
+def test_compiler_identity_rejects_nonregular_symlink_targets(
+    tmp_path: Path,
+    target_kind: str,
+) -> None:
+    package = tmp_path / "orchestrator"
+    _write_compiler_package(package, module_body="VALUE = 1\n")
+    target = tmp_path / "external-target"
+    if target_kind == "directory":
+        target.mkdir()
+    elif target_kind == "fifo":
+        os.mkfifo(target)
+    os.symlink("../external-target", package / "linked.py")
+
+    with pytest.raises(ValueError, match="compiler package symlink target"):
+        _compiler_identity(package)
+
+
 def test_freeze_tree_is_complete_deterministic_and_root_independent(
     tmp_path: Path,
 ) -> None:
@@ -661,6 +737,42 @@ def test_freeze_tree_rejects_special_entries(tmp_path: Path) -> None:
 
     with pytest.raises(WorkspaceFreezeError, match="unsupported-fifo"):
         freeze_tree(root)
+
+
+def test_freeze_tree_rejects_regular_file_mutation_during_hash(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    payload = root / "payload.bin"
+    payload.write_bytes(b"a" * (2 * 1024 * 1024))
+    real_read = workspace_module.os.read
+    mutated = False
+
+    def mutate_after_first_read(descriptor: int, size: int) -> bytes:
+        nonlocal mutated
+        chunk = real_read(descriptor, size)
+        if chunk and not mutated:
+            mutated = True
+            with payload.open("r+b") as handle:
+                handle.seek(-1, os.SEEK_END)
+                handle.write(b"b")
+                handle.flush()
+                os.fsync(handle.fileno())
+            changed = payload.stat()
+            os.utime(
+                payload,
+                ns=(changed.st_atime_ns, changed.st_mtime_ns + 2_000_000_000),
+            )
+        return chunk
+
+    monkeypatch.setattr(workspace_module.os, "read", mutate_after_first_read)
+
+    with pytest.raises(WorkspaceFreezeError, match="changed while hashing"):
+        freeze_tree(root)
+
+    assert mutated is True
 
 
 def _git(
@@ -739,16 +851,26 @@ def test_materialize_source_seals_bare_mirror_and_reuses_it_without_source_fetch
     request = SourceRequest(locator=str(origin), commit=first_commit)
     run_ref_root = tmp_path / "run-ref"
     calls: list[tuple[str, ...]] = []
-    real_run_git = source_module._run_git
+    real_subprocess_run = source_module.subprocess.run
 
-    def recording_run_git(
-        argv: tuple[str, ...],
+    def recording_subprocess_run(
+        *args: object,
         **kwargs: object,
     ) -> subprocess.CompletedProcess[object]:
-        calls.append(argv)
-        return real_run_git(argv, **kwargs)
+        argv = args[0]
+        if (
+            isinstance(argv, (list, tuple))
+            and argv
+            and argv[0] == "git"
+        ):
+            calls.append(tuple(str(value) for value in argv))
+        return real_subprocess_run(*args, **kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(source_module, "_run_git", recording_run_git)
+    monkeypatch.setattr(
+        source_module.subprocess,
+        "run",
+        recording_subprocess_run,
+    )
     first_workspace = tmp_path / "first-workspace"
 
     first_result = materialize_source(
@@ -793,7 +915,19 @@ def test_materialize_source_seals_bare_mirror_and_reuses_it_without_source_fetch
     )
     assert all("worktree" not in call for call in calls)
 
-    seal_mtime_ns = first_result.mirror_seal_path.stat().st_mtime_ns
+    seal_bytes = first_result.mirror_seal_path.read_bytes()
+    real_durable_atomic_write = source_module.durable_atomic_write
+
+    def reject_seal_rewrite(path: Path, payload: bytes) -> None:
+        if Path(path) == first_result.mirror_seal_path:
+            raise AssertionError("sealed mirror reuse must not rewrite its seal")
+        real_durable_atomic_write(path, payload)
+
+    monkeypatch.setattr(
+        source_module,
+        "durable_atomic_write",
+        reject_seal_rewrite,
+    )
     shutil.rmtree(origin)
     calls.clear()
     second_workspace = tmp_path / "second-workspace"
@@ -805,7 +939,7 @@ def test_materialize_source_seals_bare_mirror_and_reuses_it_without_source_fetch
     )
 
     assert second_result.mirror_path == first_result.mirror_path
-    assert second_result.mirror_seal_path.stat().st_mtime_ns == seal_mtime_ns
+    assert second_result.mirror_seal_path.read_bytes() == seal_bytes
     assert second_result.source_tree_manifest == first_result.source_tree_manifest
     assert (second_workspace / "payload.txt").read_text(encoding="utf-8") == "first\n"
     assert _git(second_workspace, "rev-parse", "HEAD").stdout.strip() == first_commit
@@ -854,7 +988,7 @@ def test_materialize_source_partitions_mirrors_by_source_not_setup_identity(
         run_ref_root=run_ref_root,
         workspace=tmp_path / "first-workspace",
     )
-    seal_mtime_ns = first.mirror_seal_path.stat().st_mtime_ns
+    seal_bytes = first.mirror_seal_path.read_bytes()
     shutil.rmtree(origin)
     second = materialize_source(
         second_request,
@@ -869,13 +1003,57 @@ def test_materialize_source_partitions_mirrors_by_source_not_setup_identity(
     )
     assert first.mirror_path == second.mirror_path
     assert first.mirror_seal_path == second.mirror_seal_path
-    assert second.mirror_seal_path.stat().st_mtime_ns == seal_mtime_ns
+    assert second.mirror_seal_path.read_bytes() == seal_bytes
     seal = json.loads(second.mirror_seal_path.read_text(encoding="utf-8"))
     assert seal["normalized_locator"] == first.normalized_locator
     assert seal["resolved_commit_sha"] == commit
     assert "repository_revision" not in seal
     assert "repository_revision_digest" not in seal
     assert "authored_setup_identity" not in json.dumps(seal, sort_keys=True)
+
+
+def test_materialize_source_partitions_mirrors_by_locator_and_commit_identity(
+    tmp_path: Path,
+) -> None:
+    origin = tmp_path / "origin"
+    first_commit, second_commit = _repository_with_two_commits(origin)
+    alternate_origin = tmp_path / "alternate-origin"
+    shutil.copytree(origin, alternate_origin)
+    run_ref_root = tmp_path / "run-ref"
+
+    baseline = materialize_source(
+        SourceRequest(locator=str(origin), commit=first_commit),
+        run_ref_root=run_ref_root,
+        workspace=tmp_path / "baseline-workspace",
+    )
+    changed_locator = materialize_source(
+        SourceRequest(locator=str(alternate_origin), commit=first_commit),
+        run_ref_root=run_ref_root,
+        workspace=tmp_path / "changed-locator-workspace",
+    )
+    changed_commit = materialize_source(
+        SourceRequest(locator=str(origin), commit=second_commit),
+        run_ref_root=run_ref_root,
+        workspace=tmp_path / "changed-commit-workspace",
+    )
+
+    assert len(
+        {
+            baseline.mirror_path,
+            changed_locator.mirror_path,
+            changed_commit.mirror_path,
+        }
+    ) == 3
+    assert baseline.repository_revision_id.digest != (
+        changed_locator.repository_revision_id.digest
+    )
+    assert baseline.repository_revision_id.digest != (
+        changed_commit.repository_revision_id.digest
+    )
+    assert all(
+        result.mirror_seal_path.is_file()
+        for result in (baseline, changed_locator, changed_commit)
+    )
 
 
 @pytest.mark.parametrize("gitmodules_path", [".gitmodules", "nested/.gitmodules"])
@@ -963,6 +1141,30 @@ def test_materialize_source_rejects_committed_lfs_filter_before_sealing(
     assert caught.value.rejected_value == "nested/.gitattributes"
     assert not workspace.exists()
     assert list(run_ref_root.rglob("run-ref-seal.json")) == []
+
+
+def test_materialize_source_accepts_harmless_committed_gitattributes(
+    tmp_path: Path,
+) -> None:
+    origin = tmp_path / "origin"
+    _repository_with_two_commits(origin)
+    (origin / ".gitattributes").write_text(
+        "*.txt text eol=lf\n*.bin -filter\n",
+        encoding="utf-8",
+    )
+    _git(origin, "add", ".gitattributes")
+    _git(origin, "commit", "--quiet", "-m", "add harmless attributes")
+    commit = _git(origin, "rev-parse", "HEAD").stdout.strip()
+
+    result = materialize_source(
+        SourceRequest(locator=str(origin), commit=commit),
+        run_ref_root=tmp_path / "run-ref",
+        workspace=tmp_path / "workspace",
+    )
+
+    assert result.workspace_path.joinpath(".gitattributes").read_text(
+        encoding="utf-8"
+    ) == "*.txt text eol=lf\n*.bin -filter\n"
 
 
 def test_materialize_source_seals_the_exact_git_object_checkout_manifest(
@@ -1120,6 +1322,10 @@ def test_materialize_source_runs_ordered_setup_with_closed_env_and_external_evid
         }
     assert result.setup_evidence_path.is_file()
     assert not result.setup_evidence_path.is_relative_to(workspace)
+    assert (workspace / "runtime-env.txt").read_text(encoding="utf-8").splitlines() == [
+        str(workspace),
+        str(result.setup_evidence_path),
+    ]
     evidence = json.loads(result.setup_evidence_path.read_text(encoding="utf-8"))
     assert evidence["status"] == "passed"
     assert [row["exit_code"] for row in evidence["commands"]] == [0, 0]
@@ -1493,3 +1699,27 @@ def test_materialize_source_closes_existing_workspace_parent_file_before_git(
     assert workspace_parent.read_text(encoding="utf-8") == "caller-owned file\n"
     assert not workspace.exists()
     assert not run_ref_root.exists()
+
+
+def test_materialize_source_closes_mirror_coordination_filesystem_error(
+    tmp_path: Path,
+) -> None:
+    origin = tmp_path / "origin"
+    commit, _ = _repository_with_two_commits(origin)
+    run_ref_root = tmp_path / "run-ref"
+    run_ref_root.mkdir()
+    mirrors_path = run_ref_root / "mirrors"
+    mirrors_path.write_text("caller-owned file\n", encoding="utf-8")
+    workspace = tmp_path / "workspace"
+
+    with pytest.raises(RunRefSourceRefusal) as caught:
+        materialize_source(
+            SourceRequest(locator=str(origin), commit=commit),
+            run_ref_root=run_ref_root,
+            workspace=workspace,
+        )
+
+    assert caught.value.code == "trial_materialization_digest_mismatch"
+    assert caught.value.rejected_value == str(run_ref_root)
+    assert mirrors_path.read_text(encoding="utf-8") == "caller-owned file\n"
+    assert not workspace.exists()

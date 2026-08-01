@@ -277,6 +277,27 @@ def _compiler_package_files(package_root: Path) -> list[dict[str, object]]:
                     raise ValueError(
                         f"cannot read compiler package symlink: {path_text!r}"
                     ) from exc
+                try:
+                    followed_identity = child_path.stat()
+                except OSError as exc:
+                    raise ValueError(
+                        f"cannot inspect compiler package symlink target: {path_text!r}"
+                    ) from exc
+                if not stat.S_ISREG(followed_identity.st_mode):
+                    raise ValueError(
+                        f"compiler package symlink target is not a regular file: {path_text!r}"
+                    )
+                followed_digest = hashlib.sha256()
+                followed_size = 0
+                try:
+                    with child_path.open("rb") as handle:
+                        while chunk := handle.read(1024 * 1024):
+                            followed_digest.update(chunk)
+                            followed_size += len(chunk)
+                except OSError as exc:
+                    raise ValueError(
+                        f"cannot hash compiler package symlink target: {path_text!r}"
+                    ) from exc
                 rows.append(
                     {
                         "path": path_text,
@@ -284,6 +305,10 @@ def _compiler_package_files(package_root: Path) -> list[dict[str, object]]:
                         "size": len(target_bytes),
                         "sha256": f"sha256:{hashlib.sha256(target_bytes).hexdigest()}",
                         "link_target": target,
+                        "followed_target_size": followed_size,
+                        "followed_target_sha256": (
+                            f"sha256:{followed_digest.hexdigest()}"
+                        ),
                     }
                 )
                 continue

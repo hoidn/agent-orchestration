@@ -103,6 +103,17 @@ def _is_excluded(path: PurePosixPath, excluded_roots: tuple[PurePosixPath, ...])
     return any(path.parts[: len(excluded.parts)] == excluded.parts for excluded in excluded_roots)
 
 
+def _regular_file_stability_fields(identity: os.stat_result) -> tuple[int, ...]:
+    return (
+        identity.st_dev,
+        identity.st_ino,
+        identity.st_mode,
+        identity.st_size,
+        identity.st_mtime_ns,
+        identity.st_ctime_ns,
+    )
+
+
 def _hash_regular_file(path: Path, expected: os.stat_result) -> tuple[int, str]:
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(path, flags)
@@ -112,6 +123,10 @@ def _hash_regular_file(path: Path, expected: os.stat_result) -> tuple[int, str]:
             raise WorkspaceFreezeError(f"tree entry changed type before hashing: {path}")
         if (opened.st_dev, opened.st_ino) != (expected.st_dev, expected.st_ino):
             raise WorkspaceFreezeError(f"tree entry changed identity before hashing: {path}")
+        admitted_fields = _regular_file_stability_fields(expected)
+        opened_fields = _regular_file_stability_fields(opened)
+        if opened_fields != admitted_fields:
+            raise WorkspaceFreezeError(f"tree entry changed before hashing: {path}")
         digest = hashlib.sha256()
         size = 0
         while True:
@@ -120,6 +135,14 @@ def _hash_regular_file(path: Path, expected: os.stat_result) -> tuple[int, str]:
                 break
             digest.update(chunk)
             size += len(chunk)
+        finished = os.fstat(descriptor)
+        finished_fields = _regular_file_stability_fields(finished)
+        if (
+            finished_fields != admitted_fields
+            or finished_fields != opened_fields
+            or size != finished.st_size
+        ):
+            raise WorkspaceFreezeError(f"tree entry changed while hashing: {path}")
         return size, f"sha256:{digest.hexdigest()}"
     finally:
         os.close(descriptor)
