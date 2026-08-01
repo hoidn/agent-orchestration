@@ -1025,27 +1025,22 @@ def _validate_pure_function_expr(
     from .effects import RunsRefEffect
     from .typecheck_context import raise_run_ref_placement_invalid
 
-    try:
-        for candidate in walk_expr(expr):
-            if isinstance(candidate, RunRefExpr):
+    for candidate in walk_expr(expr):
+        if isinstance(candidate, RunRefExpr):
+            raise_run_ref_placement_invalid(
+                candidate,
+                reason="is not permitted in a pure function",
+            )
+        if isinstance(candidate, ProcedureCallExpr) and procedure_catalog is not None:
+            signature = procedure_catalog.signatures_by_name.get(candidate.callee_name)
+            if signature is not None and any(
+                isinstance(effect, RunsRefEffect)
+                for effect in signature.declared_effects
+            ):
                 raise_run_ref_placement_invalid(
                     candidate,
                     reason="is not permitted in a pure function",
                 )
-            if isinstance(candidate, ProcedureCallExpr) and procedure_catalog is not None:
-                signature = procedure_catalog.signatures_by_name.get(candidate.callee_name)
-                if signature is not None and any(
-                    isinstance(effect, RunsRefEffect)
-                    for effect in signature.declared_effects
-                ):
-                    raise_run_ref_placement_invalid(
-                        candidate,
-                        reason="is not permitted in a pure function",
-                    )
-    except TypeError:
-        # Preserve the existing fail-closed purity diagnostic for unknown
-        # expression containers; the generic validator below owns that case.
-        pass
     violation = _find_purity_violation(expr)
     if violation is None:
         return

@@ -264,7 +264,7 @@ def test_compile_stage3_rejects_effectful_helper_bodies(tmp_path: Path) -> None:
     _assert_diagnostic_code(excinfo, "pure_function_has_effect")
 
 
-def test_validate_pure_function_expr_rejects_unknown_expression_containers() -> None:
+def test_validate_pure_function_expr_surfaces_unknown_traversal_nodes() -> None:
     functions = _functions_module()
     expr = _UnsupportedExprContainer(
         span=_test_span("unsupported_expr.orc"),
@@ -279,13 +279,8 @@ def test_validate_pure_function_expr_rejects_unknown_expression_containers() -> 
         form_path=expr.form_path,
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
+    with pytest.raises(TypeError, match="unsupported expression traversal node"):
         functions._validate_pure_function_expr(expr, function_def=function_def)
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "pure_function_has_effect"
-    assert "unsupported" in diagnostic.message
-    assert "expression container" in diagnostic.message
 
 
 def test_validate_pure_function_expr_allows_pure_loop_state_children() -> None:

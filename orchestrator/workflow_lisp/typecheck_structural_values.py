@@ -329,17 +329,14 @@ def typecheck_structural_value_expr(
         from .expression_traversal import walk_expr
         from .expressions import RunRefExpr
 
-        try:
-            direct_run_ref = next(
-                (
-                    candidate
-                    for candidate in walk_expr(expr.body_expr)
-                    if isinstance(candidate, RunRefExpr)
-                ),
-                None,
-            )
-        except TypeError:
-            direct_run_ref = None
+        direct_run_ref = next(
+            (
+                candidate
+                for candidate in walk_expr(expr.body_expr)
+                if isinstance(candidate, RunRefExpr)
+            ),
+            None,
+        )
         if direct_run_ref is not None:
             raise_run_ref_placement_invalid(
                 direct_run_ref,

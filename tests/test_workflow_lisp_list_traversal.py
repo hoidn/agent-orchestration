@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import hashlib
 import importlib
 import json
@@ -92,6 +92,15 @@ _LIST_TRAVERSAL_AUTHORED_HEADS = (
     "list/append",
     "list/length",
 )
+
+
+@dataclass(frozen=True)
+class _UnsupportedListMapEffectBody:
+    span: object
+    form_path: tuple[str, ...]
+    expansion_stack: tuple[object, ...] = ()
+
+
 _RUNTIME_CARDINALITY_PROVIDER_FIXTURE = (
     Path(__file__).parent
     / "fixtures"
@@ -2552,6 +2561,59 @@ def test_frontend_effect_map_rejects_effectful_body_composition(
         )
         == "list_map_effect_body_unsupported"
     )
+
+
+def test_list_map_effect_pre_scan_surfaces_unknown_traversal_nodes() -> None:
+    from orchestrator.workflow_lisp.effects import EMPTY_EFFECT_SUMMARY
+    from orchestrator.workflow_lisp.expressions import ListMapEffectExpr
+    from orchestrator.workflow_lisp.typecheck_context import TypedExpr
+    from orchestrator.workflow_lisp.typecheck_structural_values import (
+        typecheck_structural_value_expr,
+    )
+
+    datum = read_sexpr_text('"item"', source_path="unsupported_map_body.orc").items[0]
+    source_expr = LiteralExpr(
+        "item",
+        "string",
+        datum.span,
+        ("workflow-lisp", "list-map-effect"),
+    )
+    unsupported_body = _UnsupportedListMapEffectBody(
+        span=datum.span,
+        form_path=("workflow-lisp", "list-map-effect", "body"),
+    )
+    expr = ListMapEffectExpr(
+        binder_name="item",
+        source_expr=source_expr,
+        max_iterations=1,
+        body_expr=unsupported_body,
+        source_item_type_ref=None,
+        result_item_type_ref=None,
+        span=datum.span,
+        form_path=("workflow-lisp", "list-map-effect"),
+    )
+
+    def recurse(candidate, **_kwargs):
+        assert candidate is source_expr
+        return TypedExpr(
+            expr=source_expr,
+            type_ref=ListTypeRef(
+                "List[String]",
+                PrimitiveTypeRef("String"),
+            ),
+            span=source_expr.span,
+            form_path=source_expr.form_path,
+            effect_summary=EMPTY_EFFECT_SUMMARY,
+        )
+
+    with pytest.raises(TypeError, match="unsupported expression traversal node"):
+        typecheck_structural_value_expr(
+            expr,
+            context=SimpleNamespace(type_env=None, value_env={}),
+            recurse=recurse,
+            typed_factory=lambda **kwargs: kwargs,
+            expected_type=None,
+        )
 
 
 def test_frontend_effect_map_rejects_effectful_call_argument(

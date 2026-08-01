@@ -1624,20 +1624,20 @@ def test_run_ref_is_allowed_transitively_through_procedure_and_workflow_calls() 
     assert RunsRefEffect(subject=("grandchild",)) in workflow.effect_summary.transitive_effects
 
 
+def _assert_run_ref_placement_diagnostic(excinfo, *, owner) -> None:
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "run_ref_placement_invalid"
+    assert diagnostic.span == owner.span
+    assert diagnostic.form_path == owner.form_path
+    assert diagnostic.expansion_stack == owner.expansion_stack
+
+
 @pytest.mark.parametrize(
-    ("owner", "reason"),
-    (
-        ("if", "is not permitted in an `if` condition"),
-        ("match", "is not permitted in a `match` discriminant"),
-        ("loop-max", "is not permitted in `loop/recur` :max"),
-        ("loop-body", "is not permitted in a `loop/recur` body"),
-        ("list-source", "is not permitted in a `list/map-effect` source"),
-        ("list-body", "is not permitted in a `list/map-effect` body"),
-    ),
+    "owner",
+    ("if", "match", "loop-max", "loop-body", "list-source", "list-body"),
 )
 def test_run_ref_restricted_placements_precede_generic_shape_diagnostics(
     owner: str,
-    reason: str,
 ) -> None:
     run_ref = _mode_one_expr()
     literal_list = ListExpr(
@@ -1695,15 +1695,13 @@ def test_run_ref_restricted_placements_precede_generic_shape_diagnostics(
             workflow_catalog=_catalog(run_ref),
         )
 
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "run_ref_placement_invalid"
-    assert reason in diagnostic.message
-    assert diagnostic.span == run_ref.span
+    _assert_run_ref_placement_diagnostic(excinfo, owner=run_ref)
 
 
 def test_transitive_run_ref_in_list_map_effect_body_uses_placement_diagnostic() -> None:
     run_ref = _mode_one_expr()
     procedure_catalog, procedure_effects = _run_ref_procedure_context(run_ref)
+    call = ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH)
     expr = ListMapEffectExpr(
         binder_name="item",
         source_expr=ListExpr(
@@ -1713,7 +1711,7 @@ def test_transitive_run_ref_in_list_map_effect_body_uses_placement_diagnostic() 
             form_path=FORM_PATH,
         ),
         max_iterations=1,
-        body_expr=ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH),
+        body_expr=call,
         source_item_type_ref=None,
         result_item_type_ref=None,
         span=run_ref.span,
@@ -1729,7 +1727,7 @@ def test_transitive_run_ref_in_list_map_effect_body_uses_placement_diagnostic() 
             procedure_effects_by_name=procedure_effects,
         )
 
-    assert excinfo.value.diagnostics[0].code == "run_ref_placement_invalid"
+    _assert_run_ref_placement_diagnostic(excinfo, owner=call)
 
 
 def test_transitive_run_ref_in_pure_function_precedes_generic_purity_diagnostic() -> None:
@@ -1740,6 +1738,7 @@ def test_transitive_run_ref_in_pure_function_precedes_generic_purity_diagnostic(
 
     run_ref = _mode_one_expr()
     procedure_catalog, _ = _run_ref_procedure_context(run_ref)
+    call = ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH)
     function_def = FunctionDef(
         name="pure_helper",
         params=(),
@@ -1751,12 +1750,12 @@ def test_transitive_run_ref_in_pure_function_precedes_generic_purity_diagnostic(
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _validate_pure_function_expr(
-            ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH),
+            call,
             function_def=function_def,
             procedure_catalog=procedure_catalog,
         )
 
-    assert excinfo.value.diagnostics[0].code == "run_ref_placement_invalid"
+    _assert_run_ref_placement_diagnostic(excinfo, owner=call)
 
 
 def test_non_run_ref_procedure_keeps_generic_pure_function_diagnostic() -> None:
@@ -1800,19 +1799,18 @@ def test_non_run_ref_procedure_keeps_generic_pure_function_diagnostic() -> None:
 
 
 @pytest.mark.parametrize(
-    ("owner", "return_type", "reason"),
+    ("owner", "return_type"),
     (
-        ("if", PrimitiveTypeRef("Bool"), "is not permitted in an `if` condition"),
-        ("loop-max", PrimitiveTypeRef("Int"), "is not permitted in `loop/recur` :max"),
-        ("loop-state", PrimitiveTypeRef("Int"), "is not permitted in `loop/recur` state"),
-        ("loop-body", PrimitiveTypeRef("String"), "is not permitted in a `loop/recur` body"),
-        ("loop-exhaustion", PrimitiveTypeRef("String"), "is not permitted in `loop/recur` exhaustion"),
+        ("if", PrimitiveTypeRef("Bool")),
+        ("loop-max", PrimitiveTypeRef("Int")),
+        ("loop-state", PrimitiveTypeRef("Int")),
+        ("loop-body", PrimitiveTypeRef("String")),
+        ("loop-exhaustion", PrimitiveTypeRef("String")),
     ),
 )
 def test_transitive_run_ref_restricted_placements_use_exact_diagnostic(
     owner: str,
     return_type,
-    reason: str,
 ) -> None:
     run_ref = _mode_one_expr()
     procedure_catalog, procedure_effects = _run_ref_procedure_context(
@@ -1880,10 +1878,7 @@ def test_transitive_run_ref_restricted_placements_use_exact_diagnostic(
             procedure_effects_by_name=procedure_effects,
         )
 
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "run_ref_placement_invalid"
-    assert reason in diagnostic.message
-    assert diagnostic.span == call.span
+    _assert_run_ref_placement_diagnostic(excinfo, owner=call)
 
 
 def test_transitive_run_ref_match_discriminant_precedes_union_shape_diagnostic() -> None:
@@ -1904,7 +1899,7 @@ def test_transitive_run_ref_match_discriminant_precedes_union_shape_diagnostic()
             procedure_effects_by_name=procedure_effects,
         )
 
-    assert excinfo.value.diagnostics[0].code == "run_ref_placement_invalid"
+    _assert_run_ref_placement_diagnostic(excinfo, owner=call)
 
 
 def test_transitive_run_ref_in_list_map_effect_source_is_rejected() -> None:
@@ -1935,7 +1930,7 @@ def test_transitive_run_ref_in_list_map_effect_source_is_rejected() -> None:
             procedure_effects_by_name=procedure_effects,
         )
 
-    assert excinfo.value.diagnostics[0].code == "run_ref_placement_invalid"
+    _assert_run_ref_placement_diagnostic(excinfo, owner=call)
 
 
 def _provider_steering_directive_type(span):
@@ -2033,7 +2028,7 @@ def test_run_ref_is_rejected_from_live_provider_evaluation_and_settlement(
             workflow_catalog=_catalog(run_ref),
         )
 
-    assert excinfo.value.diagnostics[0].code == "run_ref_placement_invalid"
+    _assert_run_ref_placement_diagnostic(excinfo, owner=run_ref)
 
 
 def test_run_ref_is_rejected_from_result_guidance_before_constant_diagnostic(
@@ -2059,7 +2054,7 @@ def test_run_ref_is_rejected_from_result_guidance_before_constant_diagnostic(
             type_env=_type_env(),
         )
 
-    assert excinfo.value.diagnostics[0].code == "run_ref_placement_invalid"
+    _assert_run_ref_placement_diagnostic(excinfo, owner=run_ref)
 
 
 def _mode_two_expr(*, returns_type_name=None, inputs=()) -> RunRefExpr:
