@@ -660,20 +660,34 @@ findings. No parent runtime, ledger, child launch, or security surface changed.
 minimal executor/state/checkpoint dispatch changes; create
 `tests/test_workflow_run_ref_runtime.py`.
 
-- [ ] RED distinct parent/child roots and locks, exact input/path copying for
+- [x] RED distinct parent/child roots and locks, exact input/path copying for
       both compiled program modes, setup-before-baseline, typed output
       validation, complete deterministic delta, accounting `UNKNOWN`
       behavior, and declared artifacts.
-- [ ] RED crash injection at allocation, materialize, setup, mode-1 decode or
+- [x] RED crash injection at allocation, materialize, setup, mode-1 decode or
       Task 6 mode-2 compile, launch, child completion, delta, and parent commit
       boundaries.
-- [ ] Require incomplete-attempt disposition + exact workspace deletion +
+- [x] Require incomplete-attempt disposition + exact workspace deletion +
       fresh ordinal; require completed-result validation/reuse with zero child
       launches. Tamper/ambiguity/discard failure stays fail-closed.
-- [ ] Implement only the delegated runtime service and minimum shared state
+- [x] Implement only the delegated runtime service and minimum shared state
       field/configuration plumbing over the landed mode-1 and mode-2 services.
-- [ ] Run runtime/state/resume/replay selectors, ordered reviews, commit, and
+- [x] Run runtime/state/resume/replay selectors, ordered reviews, commit, and
       postcommit controls.
+
+Task 7 closed at exact reviewed commit `2a0ae82e`, tree
+`ab1350176d9cfc58b7fe0bde4077afb480ecef9d`. The parent now owns one
+hash-chained attempt ledger, complete visit-keyed external workspaces,
+materialization/setup/baseline/delta/evidence settlement, and atomic parent
+state before ledger commit. Children execute from the pinned clone under an
+isolated controller-package bootstrap, retain clone-local state and locks,
+and preserve closed structural refusal authority. Actual post-decode and
+post-compile child crashes, every other planned boundary, exact disposition
+and deletion, fresh ordinals, pending-parent reconciliation, completed reuse,
+root binding, and checkpoint authority are regression-locked. The final
+runtime/state/resume/replay gate passed 986 tests; fresh postcommit controls
+passed 15 tests. Ordered review returned `E1_TASK7_SPEC_APPROVED` and then
+distinct `E1_TASK7_QUALITY_APPROVED` with no remaining findings.
 
 ## Task 8: Prove both modes end to end and close E1 feasibility proofs
 
