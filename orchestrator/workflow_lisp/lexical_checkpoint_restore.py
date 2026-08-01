@@ -1666,9 +1666,11 @@ def select_restore_candidate(
                             record,
                             expected_point=checkpoints._point_payload(point),
                             state=state,
+                            state_manager=state_manager,
                             workspace=state_manager.workspace,
                             executable_workflow=executable_workflow,
                             runtime_plan=runtime_plan,
+                            loaded_workflow=loaded_workflow,
                         )
                     except ValueError as exc:
                         return RestoreDecision(

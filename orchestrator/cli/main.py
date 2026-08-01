@@ -175,6 +175,11 @@ def create_parser() -> argparse.ArgumentParser:
         help='Override default state directory'
     )
     run_parser.add_argument(
+        '--run-ref-root',
+        type=str,
+        help='Canonical absolute runtime root for run-ref child workspaces'
+    )
+    run_parser.add_argument(
         '--on-error',
         choices=['stop', 'continue'],
         default='stop',
@@ -328,6 +333,11 @@ def create_parser() -> argparse.ArgumentParser:
         '--state-dir',
         type=str,
         help='Override default state directory'
+    )
+    resume_parser.add_argument(
+        '--run-ref-root',
+        type=str,
+        help='Canonical absolute runtime root matching the persisted run binding'
     )
     resume_parser.add_argument(
         '--max-retries',

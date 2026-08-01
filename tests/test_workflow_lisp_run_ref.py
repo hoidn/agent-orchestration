@@ -1,5 +1,6 @@
 from copy import deepcopy
 from dataclasses import FrozenInstanceError, replace
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -19,17 +20,24 @@ from orchestrator.workflow import runtime_plan as runtime_plan_module
 from orchestrator.workflow import semantic_ir as semantic_ir_module
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.resume_planner import ResumeStateIntegrityError
 from orchestrator.workflow.run_ref.config import (
     ArrayBinding,
     LiteralBinding,
     ObjectBinding,
     ReferenceBinding,
+    RunRefBundleCapsuleBinding,
     RunRefStaticConfig,
 )
 from orchestrator.workflow.run_ref.contracts import (
     SetupCommand,
     SetupPolicy,
     VerifiedCompilerRuntimeIdentity,
+)
+from orchestrator.workflow.run_ref.runtime import (
+    ParentBundleOrphanPreimage,
+    RunRefRuntimeError,
+    RunRefRuntimeRequest,
 )
 from orchestrator.workflow.state_layout import (
     GeneratedPathResumeScope,
@@ -3357,7 +3365,7 @@ def test_public_wcc_build_lowers_run_ref_through_shared_leaf(tmp_path: Path) -> 
     }
     with pytest.raises(
         ValueError,
-        match="lexical_checkpoint_completed_effect_invalid",
+        match="lexical_checkpoint_effect_policy_run_ref_result_invalid",
     ):
         lexical_checkpoints_module._validate_completed_effect_refs(
             forged_record,
@@ -3370,17 +3378,21 @@ def test_public_wcc_build_lowers_run_ref_through_shared_leaf(tmp_path: Path) -> 
         step_id=point.step_id,
         target_dsl_version=result.validated_bundle.ir.version,
     )
-    assert lexical_checkpoints_module.collect_completed_effect_refs(
-        SimpleNamespace(
-            state_manager=SimpleNamespace(state={"steps": {}}),
-            _runtime_step_for_node_id=lambda *_args, **_kwargs: runtime_step,
-        ),
-        point=point,
-        committed_step_state={
-            "status": "completed",
-            "step_id": point.step_id,
-        },
-    ) == []
+    with pytest.raises(
+        ValueError,
+        match="lexical_checkpoint_effect_policy_run_ref_result_invalid",
+    ):
+        lexical_checkpoints_module.collect_completed_effect_refs(
+            SimpleNamespace(
+                state_manager=SimpleNamespace(state={"steps": {}}),
+                _runtime_step_for_node_id=lambda *_args, **_kwargs: runtime_step,
+            ),
+            point=point,
+            committed_step_state={
+                "status": "completed",
+                "step_id": point.step_id,
+            },
+        )
 
     run_workspace = tmp_path / "run"
     run_workspace.mkdir()
@@ -4817,37 +4829,29 @@ def test_run_ref_leaf_builds_exact_config_and_one_result_allocation() -> None:
     }
 
 
-def test_run_ref_executor_surface_is_explicitly_typed_but_unavailable() -> None:
+def test_run_ref_executor_surface_delegates_to_the_runtime_service() -> None:
     executor = object.__new__(WorkflowExecutor)
     executor._execution_kind_for_step = (  # type: ignore[method-assign]
         lambda _step: executable_ir_module.ExecutableNodeKind.RUN_REF
     )
-    persisted: list[tuple[object, ...]] = []
-
-    def persist(
-        state,
-        step_name,
-        step,
-        result,
-        *,
-        phase_hint=None,
-        class_hint=None,
-        retryable_hint=None,
-    ):
-        persisted.append(
-            (
-                state,
-                step_name,
-                step,
-                result,
-                phase_hint,
-                class_hint,
-                retryable_hint,
-            )
+    calls: list[tuple[object, ...]] = []
+    completed = {
+        "status": "completed",
+        "exit_code": 0,
+        "duration_ms": 12,
+        "artifacts": {"value": True},
+        "run_ref": {"pending_row_digest": "sha256:" + "a" * 64},
+    }
+    executor._execute_run_ref = (  # type: ignore[method-assign]
+        lambda step, state, *, step_name: (
+            calls.append((step, state, step_name)) or completed
         )
-        return result
-
-    executor._persist_step_result = persist  # type: ignore[method-assign]
+    )
+    executor._persist_step_result = (  # type: ignore[method-assign]
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("run-ref owns its atomic parent settlement")
+        )
+    )
     state = {"steps": {}}
     step = {"name": "Reference", "id": "root.reference"}
 
@@ -4859,30 +4863,482 @@ def test_run_ref_executor_surface_is_explicitly_typed_but_unavailable() -> None:
         step_name="Reference",
     )
 
-    assert result == {
-        "status": "failed",
-        "exit_code": 2,
-        "duration_ms": 0,
-        "output": "",
-        "error": {
-            "type": "run_ref_executor_unavailable",
-            "message": (
-                "run-ref execution is unavailable until the delegated "
-                "runtime service is installed"
-            ),
+    assert result is completed
+    assert calls == [(step, state, "Reference")]
+
+
+def test_run_ref_runtime_refusal_persists_closed_machine_authority() -> None:
+    executor = object.__new__(WorkflowExecutor)
+    refusal = RunRefRuntimeError(
+        "trial_program_compile_rejected",
+        "child_process_rejected",
+        machine_fields={
+            "rejected_value": {"program": "candidate.orc"},
+            "secondary_causes": ["name_unknown"],
+            "compile_diagnostics": {
+                "schema_version": "workflow_lisp_compile_diagnostics.v1",
+                "status": "rejected",
+                "diagnostics": [{"code": "name_unknown"}],
+            },
+        },
+    )
+
+    error = WorkflowExecutor._executor_exception_error(
+        executor,
+        refusal,
+        step_name="Reference",
+        step_id="root.reference",
+        step_index=2,
+        node_id="node-2",
+        visit_count=1,
+    )
+
+    assert error == {
+        "type": "trial_program_compile_rejected",
+        "code": "trial_program_compile_rejected",
+        "message": "child_process_rejected",
+        "rejected_value": {"program": "candidate.orc"},
+        "secondary_causes": ["name_unknown"],
+        "compile_diagnostics": {
+            "schema_version": "workflow_lisp_compile_diagnostics.v1",
+            "status": "rejected",
+            "diagnostics": [{"code": "name_unknown"}],
+        },
+        "context": {
+            "step_name": "Reference",
+            "step_id": "root.reference",
+            "step_index": 2,
+            "node_id": "node-2",
+            "visit_count": 1,
         },
     }
-    assert persisted == [
-        (
-            state,
-            "Reference",
-            step,
-            result,
-            "pre_execution",
-            "pre_execution_failed",
-            False,
+
+
+def test_run_ref_executor_commits_state_before_ledger_and_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    parent_run_root = (tmp_path / "parent-run").resolve()
+    run_ref_root = (tmp_path / "external-run-ref").resolve()
+    build_root = (tmp_path / "build").resolve()
+    capsule_dir = build_root / "run_ref_bundle_capsule.v1"
+    for path in (workspace, parent_run_root, run_ref_root, capsule_dir):
+        path.mkdir(parents=True)
+
+    static_config = _surface_run_ref_config()
+    step_config = executable_ir_module.RunRefStepConfig(
+        common=executable_ir_module.StepCommonConfig(
+            output_bundle={
+                "path": "artifacts/run-ref.json",
+                "fields": [],
+            },
+        ),
+        run_ref=static_config,
+        capsule_binding=RunRefBundleCapsuleBinding(
+            "sha256:" + "c" * 64,
+        ),
+    )
+    node = SimpleNamespace(execution_config=step_config)
+    events: list[str] = []
+    prepared_requests: list[RunRefRuntimeRequest] = []
+    settled_record = {
+        "visit": {
+            "parent_run_id": "parent-run",
+            "execution_frame_id": "root",
+            "call_frame_id": None,
+            "step_id": "root.reference",
+            "visit_count": 1,
+        },
+        "attempt_ordinal": 1,
+        "step_config_digest": step_config.step_config_digest,
+        "run_ref_root": run_ref_root.as_posix(),
+        "workspace_path": (run_ref_root / "attempt" / "workspace").as_posix(),
+        "child_run_id": "child-run",
+        **{
+            name: "sha256:" + digit * 64
+            for name, digit in (
+                ("pending_row_digest", "1"),
+                ("child_terminal_state_digest", "2"),
+                ("result_contract_digest", "3"),
+                ("result_payload_digest", "4"),
+                ("workspace_delta_digest", "5"),
+                ("accounting_digest", "6"),
+                ("evidence_manifest_digest", "7"),
+            )
+        },
+    }
+    envelope = {
+        "value": True,
+        "workspace_delta": {"schema_version": "run_ref_workspace_delta.v1"},
+        "accounting": {"elapsed_ms": 7},
+    }
+    artifacts = {"value": True}
+    prepared = SimpleNamespace(
+        envelope=envelope,
+        artifacts=artifacts,
+        settled_result=SimpleNamespace(
+            record=settled_record,
+            attempt_ordinal=1,
+        ),
+    )
+
+    class FakeStateManager:
+        run_root = parent_run_root
+        state = SimpleNamespace(run_ref_root=run_ref_root.as_posix())
+
+        def finalize_step_with_dataflow(self, step_name, result, **kwargs):
+            assert kwargs["commit_guard"]() is True
+            assert kwargs["expected_step_name"] == "Reference"
+            assert kwargs["expected_step_type"] == "run_ref"
+            assert kwargs["expected_step_status"] == "running"
+            events.append("parent_state")
+
+    executor = object.__new__(WorkflowExecutor)
+    executor.workspace = workspace
+    executor.state_manager = FakeStateManager()
+    executor.loaded_bundle = SimpleNamespace(
+        provenance=SimpleNamespace(frontend_build_root=build_root),
+    )
+    executor._step_id = lambda _step: "root.reference"  # type: ignore[method-assign]
+    executor._executable_node_for_step = lambda _step: node  # type: ignore[method-assign]
+    executor._resolve_output_contract_paths = (  # type: ignore[method-assign]
+        lambda *_args, **_kwargs: (
+            None,
+            {"path": "artifacts/run-ref.json", "fields": []},
+            None,
         )
+    )
+    executor._resolve_workspace_path = (  # type: ignore[method-assign]
+        lambda relative: (workspace / relative).resolve()
+    )
+    executor._apply_expected_outputs_contract = (  # type: ignore[method-assign]
+        lambda _step, result, _state: {**result, "artifacts": artifacts}
+    )
+    executor._record_published_artifacts = (  # type: ignore[method-assign]
+        lambda *_args, **kwargs: events.append("published") or None
+    )
+    executor._finalize_consumes = (  # type: ignore[method-assign]
+        lambda *_args, **kwargs: events.append("consumes")
+    )
+    executor._attach_outcome = lambda _step, result: result  # type: ignore[method-assign]
+    executor._emit_lexical_checkpoint_shadow_after_step_commit = (  # type: ignore[method-assign]
+        lambda *_args, **_kwargs: events.append("checkpoint")
+    )
+    executor._emit_step_summary = (  # type: ignore[method-assign]
+        lambda *_args, **_kwargs: events.append("summary")
+    )
+    owner = SimpleNamespace(
+        root_manager=SimpleNamespace(
+            run_id="parent-run",
+            state=SimpleNamespace(run_ref_root=run_ref_root.as_posix()),
+            bind_run_ref_root=lambda path: path,
+        ),
+        resume_scope_path=SimpleNamespace(call_frame_ids=()),
+        aggregate_root=parent_run_root,
+    )
+    monkeypatch.setattr(
+        "orchestrator.workflow.executor.resolve_aggregate_run_owner",
+        lambda _manager: owner,
+    )
+    def prepare(request, **_kwargs):
+        prepared_requests.append(request)
+        events.append("prepared")
+        return prepared
+
+    monkeypatch.setattr(
+        "orchestrator.workflow.executor.prepare_run_ref_settlement",
+        prepare,
+    )
+    monkeypatch.setattr(
+        "orchestrator.workflow.executor.validate_pending_parent_commit",
+        lambda *_args, **_kwargs: events.append("pending_guard") or True,
+    )
+    monkeypatch.setattr(
+        "orchestrator.workflow.executor.finalize_run_ref_parent_commit",
+        lambda *_args, **_kwargs: (
+            events.append("ledger_committed")
+            or SimpleNamespace(
+                envelope=envelope,
+                artifacts=artifacts,
+                settled_result=prepared.settled_result,
+                reused=False,
+            )
+        ),
+    )
+    state = {
+        "steps": {},
+        "step_visits": {"Reference": 1},
+        "current_step": {
+            "name": "Reference",
+            "step_id": "root.reference",
+            "type": "run_ref",
+            "status": "running",
+            "visit_count": 1,
+        },
+        "artifact_versions": {},
+        "artifact_consumes": {},
+        "private_artifact_versions": {},
+        "private_artifact_consumes": {},
+    }
+    step = {"name": "Reference", "step_id": "root.reference"}
+    bundle_path = workspace / "artifacts" / "run-ref.json"
+    bundle_path.parent.mkdir(parents=True)
+    orphan_bytes = b'{"orphaned":true}\n'
+    bundle_path.write_bytes(orphan_bytes)
+
+    result = WorkflowExecutor._execute_run_ref(
+        executor,
+        step,
+        state,
+        step_name="Reference",
+    )
+
+    assert result["status"] == "completed"
+    assert result["run_ref"] == settled_record
+    assert len(prepared_requests) == 1
+    assert prepared_requests[0].parent_bundle_orphan_preimage == (
+        ParentBundleOrphanPreimage(
+            path=bundle_path,
+            sha256="sha256:" + hashlib.sha256(orphan_bytes).hexdigest(),
+            byte_size=len(orphan_bytes),
+        )
+    )
+    assert json.loads(
+        (workspace / "artifacts" / "run-ref.json").read_text(
+            encoding="utf-8",
+        )
+    ) == envelope
+    assert events == [
+        "prepared",
+        "published",
+        "consumes",
+        "pending_guard",
+        "parent_state",
+        "ledger_committed",
+        "checkpoint",
+        "summary",
     ]
+
+
+def test_run_ref_resume_preflight_reconciles_before_emitting_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    parent_run_root = (tmp_path / "parent-run").resolve()
+    run_ref_root = (tmp_path / "external-run-ref").resolve()
+    build_root = (tmp_path / "build").resolve()
+    capsule_dir = build_root / "run_ref_bundle_capsule.v1"
+    for path in (workspace, parent_run_root, run_ref_root, capsule_dir):
+        path.mkdir(parents=True)
+    step_config = executable_ir_module.RunRefStepConfig(
+        common=executable_ir_module.StepCommonConfig(),
+        run_ref=_surface_run_ref_config(),
+        capsule_binding=RunRefBundleCapsuleBinding(
+            "sha256:" + "c" * 64,
+        ),
+    )
+    step = {"name": "Reference", "step_id": "root.reference"}
+    settled = {
+        "visit": {
+            "parent_run_id": "parent-run",
+            "execution_frame_id": "root",
+            "call_frame_id": None,
+            "step_id": "root.reference",
+            "visit_count": 2,
+        },
+        "attempt_ordinal": 1,
+        "step_config_digest": step_config.step_config_digest,
+        "run_ref_root": run_ref_root.as_posix(),
+        "workspace_path": (run_ref_root / "attempt" / "workspace").as_posix(),
+        "child_run_id": "child-run",
+        **{
+            name: "sha256:" + digit * 64
+            for name, digit in (
+                ("pending_row_digest", "1"),
+                ("child_terminal_state_digest", "2"),
+                ("result_contract_digest", "3"),
+                ("result_payload_digest", "4"),
+                ("workspace_delta_digest", "5"),
+                ("accounting_digest", "6"),
+                ("evidence_manifest_digest", "7"),
+            )
+        },
+    }
+    state = {
+        "steps": {
+            "Reference": {
+                "status": "completed",
+                "step_id": "root.reference",
+                "visit_count": 2,
+                "artifacts": {"value": True},
+                "run_ref": settled,
+            }
+        }
+    }
+    executor = object.__new__(WorkflowExecutor)
+    executor.workspace = workspace
+    executor.state_manager = SimpleNamespace()
+    executor.loaded_bundle = SimpleNamespace(
+        provenance=SimpleNamespace(frontend_build_root=build_root),
+    )
+    executor._step_node_ids = ["node"]
+    executor._runtime_step_for_node_id = lambda _node_id: step  # type: ignore[method-assign]
+    executor._execution_kind_for_step = (  # type: ignore[method-assign]
+        lambda _step: executable_ir_module.ExecutableNodeKind.RUN_REF
+    )
+    executor._executable_node_for_step = (  # type: ignore[method-assign]
+        lambda _step: SimpleNamespace(execution_config=step_config)
+    )
+    executor._step_id = lambda _step: "root.reference"  # type: ignore[method-assign]
+    events: list[str] = []
+    executor._emit_lexical_checkpoint_shadow_after_step_commit = (  # type: ignore[method-assign]
+        lambda *_args, **_kwargs: events.append("checkpoint")
+    )
+    owner = SimpleNamespace(
+        root_manager=SimpleNamespace(
+            run_id="parent-run",
+            state=SimpleNamespace(run_ref_root=run_ref_root.as_posix()),
+            bind_run_ref_root=lambda path: path,
+        ),
+        resume_scope_path=SimpleNamespace(call_frame_ids=()),
+        aggregate_root=parent_run_root,
+    )
+    monkeypatch.setattr(
+        "orchestrator.workflow.executor.resolve_aggregate_run_owner",
+        lambda _manager: owner,
+    )
+
+    def validate(request, *, settled_result, artifacts, reconcile_pending):
+        assert request.visit.record == settled["visit"]
+        assert settled_result == settled
+        assert artifacts == {"value": True}
+        assert reconcile_pending is True
+        events.append("reconciled")
+        return SimpleNamespace()
+
+    monkeypatch.setattr(
+        "orchestrator.workflow.executor.validate_completed_run_ref_authority",
+        validate,
+    )
+
+    WorkflowExecutor._reconcile_completed_run_refs_before_resume(
+        executor,
+        state,
+    )
+
+    assert events == ["reconciled", "checkpoint"]
+
+
+def test_run_ref_resume_reuses_the_interrupted_visit_identity() -> None:
+    executor = object.__new__(WorkflowExecutor)
+    executor._execution_kind_for_step = (  # type: ignore[method-assign]
+        lambda _step: executable_ir_module.ExecutableNodeKind.RUN_REF
+    )
+    state = {
+        "step_visits": {"Reference": 3},
+        "current_step": {
+            "name": "Reference",
+            "step_id": "root.reference",
+            "type": "run_ref",
+            "status": "failed",
+            "visit_count": 3,
+        },
+    }
+
+    assert WorkflowExecutor._run_ref_resume_visit_count(
+        executor,
+        state,
+        {"name": "Reference", "step_id": "root.reference"},
+        step_name="Reference",
+        step_id="root.reference",
+        resume_current_step=True,
+    ) == 3
+
+
+@pytest.mark.parametrize(
+    ("call_frame_ids", "execution_frame_id", "call_frame_id"),
+    (
+        ((), "root", None),
+        (("outer", "inner"), "inner", "inner"),
+    ),
+)
+def test_run_ref_visit_key_binds_the_aggregate_run_and_innermost_frame(
+    monkeypatch: pytest.MonkeyPatch,
+    call_frame_ids: tuple[str, ...],
+    execution_frame_id: str,
+    call_frame_id: str | None,
+) -> None:
+    executor = object.__new__(WorkflowExecutor)
+    executor.state_manager = object()
+    monkeypatch.setattr(
+        "orchestrator.workflow.executor.resolve_aggregate_run_owner",
+        lambda manager: (
+            SimpleNamespace(
+                root_manager=SimpleNamespace(run_id="parent-run"),
+                resume_scope_path=SimpleNamespace(
+                    call_frame_ids=call_frame_ids,
+                ),
+            )
+            if manager is executor.state_manager
+            else pytest.fail("unexpected state manager")
+        ),
+    )
+
+    visit = WorkflowExecutor._run_ref_visit_key(
+        executor,
+        step_id="root.reference",
+        visit_count=4,
+    )
+
+    assert visit.record == {
+        "parent_run_id": "parent-run",
+        "execution_frame_id": execution_frame_id,
+        "call_frame_id": call_frame_id,
+        "step_id": "root.reference",
+        "visit_count": 4,
+    }
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda state: state["current_step"].__setitem__("type", "provider"),
+        lambda state: state["current_step"].__setitem__("status", "completed"),
+        lambda state: state["current_step"].__setitem__("visit_count", 2),
+        lambda state: state["step_visits"].__setitem__("Reference", 4),
+    ),
+)
+def test_run_ref_resume_visit_identity_mismatch_fails_closed(mutation) -> None:
+    executor = object.__new__(WorkflowExecutor)
+    executor._execution_kind_for_step = (  # type: ignore[method-assign]
+        lambda _step: executable_ir_module.ExecutableNodeKind.RUN_REF
+    )
+    state = {
+        "step_visits": {"Reference": 3},
+        "current_step": {
+            "name": "Reference",
+            "step_id": "root.reference",
+            "type": "run_ref",
+            "status": "failed",
+            "visit_count": 3,
+        },
+    }
+    mutation(state)
+
+    with pytest.raises(
+        ResumeStateIntegrityError,
+        match="run-ref interrupted visit identity is invalid",
+    ):
+        WorkflowExecutor._run_ref_resume_visit_count(
+            executor,
+            state,
+            {"name": "Reference", "step_id": "root.reference"},
+            step_name="Reference",
+            step_id="root.reference",
+            resume_current_step=True,
+        )
 
 
 def test_run_ref_source_map_fallback_preserves_exact_step_kind() -> None:

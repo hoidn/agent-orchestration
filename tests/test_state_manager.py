@@ -584,6 +584,30 @@ steps:
         loaded_state = manager2.load()
         assert loaded_state.run_root == str(custom_state_dir / "custom-run")
 
+    def test_run_ref_root_binding_is_durable_and_immutable(self, temp_workspace, workflow_file):
+        manager = StateManager(temp_workspace, run_id="run-ref-root-binding")
+        manager.initialize(workflow_file)
+        selected = (temp_workspace / "external-run-ref").resolve()
+
+        assert manager.bind_run_ref_root(selected) == selected
+        assert manager.bind_run_ref_root(selected) == selected
+
+        loaded = StateManager(
+            temp_workspace,
+            run_id=manager.run_id,
+        ).load()
+        assert loaded.run_ref_root == selected.as_posix()
+
+        with pytest.raises(ValueError, match="run-ref root binding changed"):
+            manager.bind_run_ref_root((temp_workspace / "other-run-ref").resolve())
+
+    def test_run_ref_root_binding_rejects_noncanonical_paths(self, temp_workspace, workflow_file):
+        manager = StateManager(temp_workspace, run_id="run-ref-root-invalid")
+        manager.initialize(workflow_file)
+
+        with pytest.raises(ValueError, match="canonical absolute"):
+            manager.bind_run_ref_root(Path("relative-run-ref"))
+
     def test_control_flow_counters_persist_across_writes(self, temp_workspace, workflow_file):
         """Cycle-guard counters are durable in state.json."""
         manager = StateManager(temp_workspace)

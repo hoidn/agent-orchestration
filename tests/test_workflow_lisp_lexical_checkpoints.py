@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,6 +22,9 @@ from orchestrator.workflow.pure_result_replay import (
     derive_pure_result_replay_index,
 )
 from orchestrator.workflow.runtime_step import RuntimeStep
+from orchestrator.workflow.run_ref.ledger import (
+    SettledRunRefResultBinding,
+)
 from orchestrator.workflow.prompt_fragment_contract import (
     serialize_compiler_prompt_attempt_binding_plan,
 )
@@ -35,6 +39,9 @@ from tests.test_workflow_lisp_prompt_identity_carriage import (
     _provider_carriers,
 )
 from tests.workflow_bundle_helpers import bundle_context_dict
+from tests.test_workflow_run_ref_runtime import (
+    _runtime_request as _run_ref_runtime_request,
+)
 
 
 FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_shadow_points.orc")
@@ -47,6 +54,377 @@ PROCEDURE_FIXTURE = Path(
 
 def _module():
     return importlib.import_module("orchestrator.workflow_lisp.lexical_checkpoints")
+
+
+def _run_ref_checkpoint_fixture(tmp_path: Path, *, mode: str = "path"):
+    request = _run_ref_runtime_request(tmp_path, mode=mode)
+    settled = SettledRunRefResultBinding(
+        visit=request.visit,
+        attempt_ordinal=1,
+        step_config_digest=request.step_config.step_config_digest,
+        run_ref_root=request.run_ref_root,
+        workspace_path=(request.run_ref_root / "visits" / "attempt-1").resolve(),
+        child_run_id="child-run",
+        pending_row_digest="sha256:" + "1" * 64,
+        child_terminal_state_digest="sha256:" + "2" * 64,
+        result_contract_digest="sha256:" + "3" * 64,
+        result_payload_digest="sha256:" + "4" * 64,
+        workspace_delta_digest="sha256:" + "5" * 64,
+        accounting_digest="sha256:" + "6" * 64,
+        evidence_manifest_digest="sha256:" + "7" * 64,
+    )
+    policy = {
+        "policy_kind": "reuse_validated_run_ref_result",
+        "evidence_requirements": {
+            "run_ref_result": {
+                "step_config_digest": request.step_config.run_ref.digest,
+            }
+        },
+    }
+    point = SimpleNamespace(
+        checkpoint_id="checkpoint:run-ref",
+        program_point_id="program-point:run-ref",
+        point_kind="effect_boundary",
+        workflow_name="parent",
+        step_id=request.visit.step_id,
+        node_id="node.run-ref",
+        presentation_key="Run child",
+        origin_key="source:run-ref",
+        details={
+            "effect_boundary": {
+                "effect_kind": "run_ref",
+                "policy": policy,
+            }
+        },
+    )
+    artifacts = {
+        "value": "complete",
+        "workspace_delta": {},
+        "accounting": {},
+    }
+    step_state = {
+        "status": "completed",
+        "step_id": request.visit.step_id,
+        "visit_count": 1,
+        "run_ref": settled.record,
+        "artifacts": artifacts,
+    }
+    runtime_step = SimpleNamespace(
+        node=SimpleNamespace(execution_config=request.step_config),
+        name=point.presentation_key,
+        step_id=point.step_id,
+    )
+    executor = SimpleNamespace(
+        state_manager=SimpleNamespace(state={"steps": {point.presentation_key: step_state}}),
+        _runtime_step_for_node_id=lambda *_args, **_kwargs: runtime_step,
+    )
+    return request, settled, point, step_state, artifacts, executor
+
+
+def test_run_ref_completed_effect_ref_is_closed_and_keeps_static_checkpoint_identity(
+    tmp_path: Path,
+) -> None:
+    checkpoints = _module()
+    request, settled, point, step_state, _, executor = (
+        _run_ref_checkpoint_fixture(tmp_path)
+    )
+
+    refs = checkpoints.collect_completed_effect_refs(
+        executor,
+        point=point,
+        committed_step_state=step_state,
+    )
+
+    assert refs == [
+        {
+            "effect_ref_schema_version": "workflow_lisp_completed_effect_ref.v1",
+            "effect_kind": "run_ref",
+            "step_id": request.visit.step_id,
+            "status": "completed",
+            "source_map_origin_key": point.origin_key,
+            "evidence_kind": "run_ref_result",
+            "step_config_digest": request.step_config.run_ref.digest,
+            "settled_result": settled.record,
+        }
+    ]
+    assert refs[0]["step_config_digest"] != settled.step_config_digest
+    record = {
+        "completed_effect_refs": refs,
+        "validity_envelope": {
+            "completed_effect_refs_digest": checkpoints._completed_effect_refs_digest(
+                refs
+            )
+        },
+    }
+    checkpoints._validate_completed_effect_refs(
+        record,
+        expected_point=checkpoints._point_payload(point),
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "top_level_extra",
+        "missing_settled_result",
+        "settled_result_extra",
+        "malformed_settled_digest",
+        "full_digest_replaces_static_digest",
+    ),
+)
+def test_run_ref_completed_effect_ref_rejects_closed_shape_drift_after_reseal(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    checkpoints = _module()
+    request, _, point, step_state, _, executor = _run_ref_checkpoint_fixture(
+        tmp_path
+    )
+    [ref] = checkpoints.collect_completed_effect_refs(
+        executor,
+        point=point,
+        committed_step_state=step_state,
+    )
+    ref = deepcopy(dict(ref))
+    if mutation == "top_level_extra":
+        ref["artifact_digest"] = "sha256:" + "8" * 64
+    elif mutation == "missing_settled_result":
+        ref.pop("settled_result")
+    elif mutation == "settled_result_extra":
+        ref["settled_result"]["extra"] = True
+    elif mutation == "malformed_settled_digest":
+        ref["settled_result"]["pending_row_digest"] = "sha256:invalid"
+    else:
+        ref["step_config_digest"] = request.step_config.step_config_digest
+    record = {
+        "completed_effect_refs": [ref],
+        "validity_envelope": {
+            "completed_effect_refs_digest": checkpoints._completed_effect_refs_digest(
+                (ref,)
+            )
+        },
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="lexical_checkpoint_effect_policy_run_ref_result_invalid",
+    ):
+        checkpoints._validate_completed_effect_refs(
+            record,
+            expected_point=checkpoints._point_payload(point),
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("missing_settlement", "missing_artifacts", "settlement_config_drift"),
+)
+def test_completed_run_ref_checkpoint_never_degrades_to_an_empty_ref(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    checkpoints = _module()
+    _, _, point, step_state, _, executor = _run_ref_checkpoint_fixture(
+        tmp_path
+    )
+    step_state = deepcopy(step_state)
+    if mutation == "missing_settlement":
+        step_state.pop("run_ref")
+    elif mutation == "missing_artifacts":
+        step_state.pop("artifacts")
+    else:
+        step_state["run_ref"]["step_config_digest"] = "sha256:" + "8" * 64
+
+    with pytest.raises(
+        ValueError,
+        match="lexical_checkpoint_effect_policy_run_ref_result_invalid",
+    ):
+        checkpoints.collect_completed_effect_refs(
+            executor,
+            point=point,
+            committed_step_state=step_state,
+        )
+
+
+@pytest.mark.parametrize("mode", ("path", "bundle"))
+def test_run_ref_completed_effect_ref_revalidates_exact_runtime_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    checkpoints = _module()
+    request, settled, point, step_state, artifacts, executor = (
+        _run_ref_checkpoint_fixture(tmp_path, mode=mode)
+    )
+    [ref] = checkpoints.collect_completed_effect_refs(
+        executor,
+        point=point,
+        committed_step_state=step_state,
+    )
+    record = {
+        "completed_effect_refs": [ref],
+        "validity_envelope": {
+            "completed_effect_refs_digest": checkpoints._completed_effect_refs_digest(
+                (ref,)
+            )
+        },
+        "frame_identity": {
+            "execution_index": 0,
+            "visit_count": 1,
+            "loop_iteration": None,
+            "call_frame_id": None,
+        },
+    }
+    workflow_path = request.parent_workspace / "parent.orc"
+    workflow_path.write_text("(workflow-lisp)\n", encoding="utf-8")
+    state_manager = StateManager(
+        request.parent_workspace,
+        run_id=request.visit.parent_run_id,
+    )
+    state_manager.initialize(str(workflow_path))
+    state_manager.bind_run_ref_root(request.run_ref_root)
+    state = state_manager.load().to_dict()
+    state["steps"][point.presentation_key] = deepcopy(step_state)
+    state["step_visits"][point.presentation_key] = 1
+    executable_workflow = SimpleNamespace(
+        version="2.24",
+        nodes={
+            point.node_id: SimpleNamespace(
+                execution_config=request.step_config,
+            )
+        },
+    )
+    observed = {}
+
+    def validate_authority(
+        runtime_request,
+        *,
+        settled_result,
+        artifacts,
+        reconcile_pending,
+    ):
+        observed.update(
+            request=runtime_request,
+            settled_result=settled_result,
+            artifacts=artifacts,
+            reconcile_pending=reconcile_pending,
+        )
+        return SimpleNamespace(reused=True)
+
+    runtime = importlib.import_module("orchestrator.workflow.run_ref.runtime")
+    monkeypatch.setattr(
+        runtime,
+        "validate_completed_run_ref_authority",
+        validate_authority,
+    )
+    loaded_workflow = None
+    expected_capsule_dir = None
+    if mode == "bundle":
+        build_root = request.parent_workspace / ".orchestrate" / "build" / "fixture"
+        expected_capsule_dir = build_root / "run_ref_bundle_capsule.v1"
+        expected_capsule_dir.mkdir(parents=True)
+        loaded_workflow = SimpleNamespace(
+            provenance=SimpleNamespace(
+                frontend_persisted_surface_path=(
+                    build_root / "workflow-surface.json"
+                ).relative_to(request.parent_workspace)
+            )
+        )
+
+    checkpoints.validate_completed_effect_refs_against_authoritative_state(
+        record,
+        expected_point=checkpoints._point_payload(point),
+        state=state,
+        state_manager=state_manager,
+        workspace=request.parent_workspace,
+        executable_workflow=executable_workflow,
+        runtime_plan=SimpleNamespace(resume_checkpoints=()),
+        loaded_workflow=loaded_workflow,
+    )
+
+    runtime_request = observed["request"]
+    assert runtime_request.step_config is request.step_config
+    assert runtime_request.visit == request.visit
+    assert runtime_request.parent_state is state
+    assert runtime_request.parent_workspace == request.parent_workspace
+    assert runtime_request.parent_run_root == state_manager.run_root
+    assert runtime_request.run_ref_root == request.run_ref_root
+    assert runtime_request.capsule_dir == expected_capsule_dir
+    assert observed["settled_result"] == settled.record
+    assert observed["artifacts"] == artifacts
+    assert observed["reconcile_pending"] is False
+
+
+def test_run_ref_completed_effect_ref_rejects_resealed_settlement_not_in_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkpoints = _module()
+    request, _, point, step_state, _, executor = _run_ref_checkpoint_fixture(
+        tmp_path
+    )
+    [ref] = checkpoints.collect_completed_effect_refs(
+        executor,
+        point=point,
+        committed_step_state=step_state,
+    )
+    ref = deepcopy(dict(ref))
+    ref["settled_result"]["pending_row_digest"] = "sha256:" + "9" * 64
+    record = {
+        "completed_effect_refs": [ref],
+        "validity_envelope": {
+            "completed_effect_refs_digest": checkpoints._completed_effect_refs_digest(
+                (ref,)
+            )
+        },
+        "frame_identity": {
+            "execution_index": 0,
+            "visit_count": 1,
+            "loop_iteration": None,
+            "call_frame_id": None,
+        },
+    }
+    workflow_path = request.parent_workspace / "parent.orc"
+    workflow_path.write_text("(workflow-lisp)\n", encoding="utf-8")
+    state_manager = StateManager(
+        request.parent_workspace,
+        run_id=request.visit.parent_run_id,
+    )
+    state_manager.initialize(str(workflow_path))
+    state_manager.bind_run_ref_root(request.run_ref_root)
+    state = state_manager.load().to_dict()
+    state["steps"][point.presentation_key] = deepcopy(step_state)
+    executable_workflow = SimpleNamespace(
+        version="2.24",
+        nodes={
+            point.node_id: SimpleNamespace(
+                execution_config=request.step_config,
+            )
+        },
+    )
+    runtime = importlib.import_module("orchestrator.workflow.run_ref.runtime")
+    monkeypatch.setattr(
+        runtime,
+        "validate_completed_run_ref_authority",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("resealed ref must fail before ledger validation")
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="lexical_checkpoint_effect_policy_run_ref_result_invalid",
+    ):
+        checkpoints.validate_completed_effect_refs_against_authoritative_state(
+            record,
+            expected_point=checkpoints._point_payload(point),
+            state=state,
+            state_manager=state_manager,
+            workspace=request.parent_workspace,
+            executable_workflow=executable_workflow,
+            runtime_plan=SimpleNamespace(resume_checkpoints=()),
+            loaded_workflow=None,
+        )
 
 
 @pytest.mark.parametrize(

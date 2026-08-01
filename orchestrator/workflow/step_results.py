@@ -73,4 +73,5 @@ def to_step_result(result: Dict[str, Any], fallback_name: str) -> StepResult:
         timed_out=result.get("timed_out"),
         outcome=result.get("outcome"),
         visit_count=result.get("visit_count"),
+        run_ref=result.get("run_ref"),
     )

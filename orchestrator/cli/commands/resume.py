@@ -44,6 +44,7 @@ from orchestrator.workflow_lisp.wcc.route import (
     lowering_route_for_schema,
     workflow_lisp_context_with_lowering_schema,
 )
+from orchestrator.cli.run_ref_root import resolve_run_ref_root
 
 
 logger = logging.getLogger(__name__)
@@ -268,6 +269,7 @@ def _resume_workflow_with_writer_lock_held(
     live_agent_note_interval_sec: Optional[float] = None,
     live_agent_note_timeout_sec: Optional[int] = None,
     live_agent_note_max_tail_chars: Optional[int] = None,
+    run_ref_root: Optional[str] = None,
     _writer_locks: ExitStack | None = None,
     **kwargs
 ) -> int:
@@ -294,6 +296,7 @@ def _resume_workflow_with_writer_lock_held(
         live_agent_note_interval_sec: Optional live note interval override
         live_agent_note_timeout_sec: Optional live note timeout override
         live_agent_note_max_tail_chars: Optional live note tail size override
+        run_ref_root: Optional canonical absolute run-reference runtime root
         **kwargs: Additional options (ignored)
 
     Returns:
@@ -309,6 +312,11 @@ def _resume_workflow_with_writer_lock_held(
     # Determine workspace and state directory
     workspace_dir = Path.cwd()
     state_dir_override = Path(state_dir).expanduser().resolve() if state_dir else None
+    try:
+        selected_run_ref_root = resolve_run_ref_root(run_ref_root)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
     runs_root = state_dir_override or (workspace_dir / '.orchestrate' / 'runs')
     run_root = runs_root / run_id
     if not run_root.exists():
@@ -380,6 +388,21 @@ def _resume_workflow_with_writer_lock_held(
         )
         print("Use --force-restart to start a new run on the current schema.", file=sys.stderr)
         return 1
+
+    if not force_restart and state.run_ref_root is not None:
+        try:
+            recorded_run_ref_root = resolve_run_ref_root(
+                state.run_ref_root,
+            )
+        except ValueError:
+            print("Error: persisted run-ref root binding is invalid", file=sys.stderr)
+            return 1
+        if (
+            run_ref_root is not None
+            and selected_run_ref_root != recorded_run_ref_root
+        ):
+            print("Error: run-ref root binding changed", file=sys.stderr)
+            return 1
 
     observability: Optional[Dict[str, Any]] = None
 
@@ -533,6 +556,8 @@ def _resume_workflow_with_writer_lock_held(
             observability=observability,
             result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
         )
+        if run_ref_root is not None:
+            state_manager.bind_run_ref_root(selected_run_ref_root)
     else:
         # Find the next step to execute
         steps_state = state.steps
@@ -560,6 +585,11 @@ def _resume_workflow_with_writer_lock_held(
             print(f"  Completed steps: {', '.join(completed_steps)}")
         if pending_steps:
             print(f"  Pending steps: {', '.join(pending_steps)}")
+
+        if state.run_ref_root is None and run_ref_root is not None:
+            state_manager.bind_run_ref_root(selected_run_ref_root)
+            state = state_manager.state
+            assert state is not None
 
     session_id: str | None = None
     session_status = "failed"
@@ -661,6 +691,7 @@ def resume_workflow(
     live_agent_note_interval_sec: Optional[float] = None,
     live_agent_note_timeout_sec: Optional[int] = None,
     live_agent_note_max_tail_chars: Optional[int] = None,
+    run_ref_root: Optional[str] = None,
     **kwargs
 ) -> int:
     """Hold the selected run's writer lock for the complete resume command."""
@@ -704,6 +735,7 @@ def resume_workflow(
                 live_agent_note_interval_sec=live_agent_note_interval_sec,
                 live_agent_note_timeout_sec=live_agent_note_timeout_sec,
                 live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
+                run_ref_root=run_ref_root,
                 _writer_locks=writer_locks,
                 **kwargs,
             )

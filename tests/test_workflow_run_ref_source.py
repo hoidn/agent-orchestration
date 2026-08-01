@@ -1344,6 +1344,44 @@ def test_materialize_source_runs_ordered_setup_with_closed_env_and_external_evid
     }
 
 
+def test_materialize_source_reports_checkout_and_setup_crash_boundaries(
+    tmp_path: Path,
+) -> None:
+    origin = tmp_path / "origin"
+    commit, _ = _repository_with_two_commits(origin)
+    workspace = tmp_path / "workspace"
+    observations: list[tuple[str, bool]] = []
+    request = SourceRequest(
+        locator=str(origin),
+        commit=commit,
+        setup=SetupPolicy(
+            commands=(
+                SetupCommand(
+                    argv=(
+                        sys.executable,
+                        "-c",
+                        "from pathlib import Path; Path('setup.done').write_text('yes')",
+                    ),
+                ),
+            )
+        ),
+    )
+
+    materialize_source(
+        request,
+        run_ref_root=tmp_path / "run-ref",
+        workspace=workspace,
+        progress_hook=lambda boundary: observations.append(
+            (boundary, (workspace / "setup.done").exists())
+        ),
+    )
+
+    assert observations == [
+        ("materialized", False),
+        ("setup_completed", True),
+    ]
+
+
 def test_materialize_source_preserves_canonical_evidence_and_mirror_on_setup_exit(
     tmp_path: Path,
 ) -> None:

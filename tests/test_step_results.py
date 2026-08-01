@@ -69,3 +69,21 @@ def test_to_step_result_uses_failure_and_explicit_truncation_values():
 
     assert converted.status == "failed"
     assert converted.truncated is True
+
+
+def test_to_step_result_preserves_run_ref_settlement_authority():
+    run_ref = {
+        "schema_version": "run_ref_settled_result.v1",
+        "step_config_digest": "sha256:" + "a" * 64,
+        "attempt_id": "attempt-1",
+        "pending_row_digest": "sha256:" + "b" * 64,
+        "evidence_digest": "sha256:" + "c" * 64,
+    }
+
+    converted = step_results.to_step_result(
+        {"status": "completed", "run_ref": run_ref},
+        "child",
+    )
+
+    assert converted.run_ref == run_ref
+    assert converted.to_dict()["run_ref"] == run_ref

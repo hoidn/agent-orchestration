@@ -14,7 +14,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import quote, unquote_to_bytes, urlsplit, urlunsplit
 
 from orchestrator._common.io_atomic import durable_atomic_write
@@ -1031,6 +1031,7 @@ def materialize_source(
     *,
     run_ref_root: Path,
     workspace: Path,
+    progress_hook: Callable[[str], None] | None = None,
 ) -> MaterializedSource:
     """Seal an exact source mirror and produce one fresh independent clone."""
 
@@ -1140,6 +1141,8 @@ def materialize_source(
                 source_tree_manifest.digest,
                 "detached clone manifest does not match the sealed Git object manifest",
             )
+        if progress_hook is not None:
+            progress_hook("materialized")
         setup_evidence_path, setup_evidence_digest = _run_setup(
             request.setup,
             workspace=workspace_path,
@@ -1153,6 +1156,8 @@ def materialize_source(
         post_setup_baseline_identity = PostSetupBaselineIdentity(
             post_setup_tree_manifest.digest
         )
+        if progress_hook is not None:
+            progress_hook("setup_completed")
     except RunRefSourceRefusal:
         if workspace_created:
             _discard_path(workspace_path)

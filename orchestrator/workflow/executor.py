@@ -16,7 +16,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, NamedTuple, Optional
 
-from .._common.io_atomic import atomic_write_text
+from .._common.io_atomic import atomic_write_text, durable_atomic_write
 from .._common.status import is_step_settled
 from ..state import StateManager, StepResult
 from ..exec.step_executor import StepExecutor
@@ -85,6 +85,7 @@ from .executable_ir import (
     ProviderPeerGroupStepConfig,
     ProviderSupervisionStepConfig,
     RepeatUntilFrameNode,
+    RunRefStepConfig,
     WorkflowInputAddress,
 )
 from .executor_runtime import CallFrameStateManager, RuntimeStepInput
@@ -178,6 +179,20 @@ from .provider_supervision.bindings import (
 )
 from .provider_supervision.coordinator import (
     ProviderSupervisionCoordinator,
+)
+from .run_ref.contracts import canonical_json_bytes
+from .run_ref.ledger import (
+    RunRefVisitKey,
+    validate_pending_parent_commit,
+)
+from .run_ref.runtime import (
+    ParentBundleOrphanPreimage,
+    RunRefRuntimeDependencies,
+    RunRefRuntimeError,
+    RunRefRuntimeRequest,
+    finalize_run_ref_parent_commit,
+    prepare_run_ref_settlement,
+    validate_completed_run_ref_authority,
 )
 from .references import (
     MaterializeViewBindingReference,
@@ -2328,6 +2343,17 @@ class WorkflowExecutor:
             "node_id": node_id,
             "visit_count": visit_count,
         }
+        filtered_context = {
+            key: value for key, value in context.items() if value is not None
+        }
+        if isinstance(exc, RunRefRuntimeError):
+            return {
+                "type": exc.code,
+                "code": exc.code,
+                "message": exc.detail,
+                **exc.machine_fields,
+                "context": filtered_context,
+            }
         return {
             "type": "executor_unhandled_exception",
             "message": str(exc),
@@ -2335,9 +2361,7 @@ class WorkflowExecutor:
             "traceback": "".join(
                 traceback.format_exception(type(exc), exc, exc.__traceback__)
             ),
-            "context": {
-                key: value for key, value in context.items() if value is not None
-            },
+            "context": filtered_context,
         }
 
     def _resume_for_each_has_pending_work(self, state: Dict[str, Any], step_name: str) -> bool:
@@ -4171,12 +4195,28 @@ class WorkflowExecutor:
                 root_guard_result = self._revalidate_root_resume(run_state)
                 if root_guard_result is not None:
                     return root_guard_result
+            state = run_state.to_dict()
+            if resume:
+                try:
+                    self._reconcile_completed_run_refs_before_resume(state)
+                except (OSError, TypeError, ValueError) as exc:
+                    return self._fail_resume_state_integrity(
+                        "run_ref_resume_state_integrity_error",
+                        "Completed run-reference authority is invalid.",
+                        {
+                            "diagnostic": getattr(
+                                exc,
+                                "code",
+                                "run_ref_evidence_invalid",
+                            ),
+                            "error": str(exc),
+                        },
+                    )
             self._configure_pure_replay_runtime(
                 run_state,
                 resume=resume,
             )
             self._initialize_provider_observation_manager()
-            state = run_state.to_dict()
             completed_phased_resume_boundary = None
             completed_resume_candidate = (
                 resume
@@ -4924,11 +4964,20 @@ class WorkflowExecutor:
                     node_id=current_node_id,
                     resume_current_step=resume_current_step,
                 )
+                run_ref_resume_visit = self._run_ref_resume_visit_count(
+                    state,
+                    step,
+                    step_name=step_name,
+                    step_id=step_id,
+                    resume_current_step=resume_current_step,
+                )
                 if pure_replay_witness is not None:
                     visit_count = pure_replay_witness.visit_count
                     self._active_pure_replay_witnesses[
                         pure_replay_witness.step_id
                     ] = pure_replay_witness
+                elif run_ref_resume_visit is not None:
+                    visit_count = run_ref_resume_visit
                 else:
                     visit_count = self._increment_step_visit(
                         state,
@@ -5579,6 +5628,427 @@ class WorkflowExecutor:
         self._persist_control_flow_state(state)
         return step_visits[step_name]
 
+    def _run_ref_resume_visit_count(
+        self,
+        state: Dict[str, Any],
+        step: RuntimeStepInput,
+        *,
+        step_name: str,
+        step_id: str,
+        resume_current_step: bool,
+    ) -> int | None:
+        """Reuse one interrupted run-ref visit so its attempt ledger remains addressable."""
+
+        if (
+            not resume_current_step
+            or self._execution_kind_for_step(step)
+            is not ExecutableNodeKind.RUN_REF
+        ):
+            return None
+        current = state.get("current_step")
+        visits = state.get("step_visits")
+        visit_count = (
+            current.get("visit_count")
+            if isinstance(current, Mapping)
+            else None
+        )
+        valid = (
+            isinstance(current, Mapping)
+            and current.get("name") == step_name
+            and current.get("step_id") == step_id
+            and current.get("type") == "run_ref"
+            and current.get("status") in {"running", "failed"}
+            and not isinstance(visit_count, bool)
+            and isinstance(visit_count, int)
+            and visit_count > 0
+            and isinstance(visits, Mapping)
+            and visits.get(step_name) == visit_count
+        )
+        if not valid:
+            raise ResumeStateIntegrityError(
+                "run-ref interrupted visit identity is invalid",
+                context={
+                    "step_name": step_name,
+                    "step_id": step_id,
+                    "current_step": dict(current)
+                    if isinstance(current, Mapping)
+                    else current,
+                    "recorded_visit_count": (
+                        visits.get(step_name)
+                        if isinstance(visits, Mapping)
+                        else None
+                    ),
+                },
+            )
+        return visit_count
+
+    def _run_ref_visit_key(
+        self,
+        *,
+        step_id: str,
+        visit_count: int,
+    ) -> RunRefVisitKey:
+        """Bind one run-ref visit to the aggregate run and reached frame."""
+
+        owner = resolve_aggregate_run_owner(self.state_manager)
+        frame_ids = owner.resume_scope_path.call_frame_ids
+        call_frame_id = frame_ids[-1] if frame_ids else None
+        return RunRefVisitKey(
+            parent_run_id=owner.root_manager.run_id,
+            execution_frame_id=call_frame_id or "root",
+            call_frame_id=call_frame_id,
+            step_id=step_id,
+            visit_count=visit_count,
+        )
+
+    def _bound_run_ref_runtime_root(self, owner: Any) -> Path:
+        """Return the aggregate run's immutable external run-ref root."""
+
+        root_manager = owner.root_manager
+        root_state = root_manager.state
+        recorded = getattr(root_state, "run_ref_root", None)
+        selected = (
+            Path(recorded)
+            if isinstance(recorded, str) and recorded
+            else (Path.home() / ".local" / "state" / "orchestrator" / "run-ref").resolve(
+                strict=False,
+            )
+        )
+        return root_manager.bind_run_ref_root(selected)
+
+    def _run_ref_capsule_dir(
+        self,
+        step_config: RunRefStepConfig,
+    ) -> Path | None:
+        """Resolve the compiler-owned mode-1 capsule directory."""
+
+        if step_config.capsule_binding is None:
+            return None
+        provenance = getattr(self.loaded_bundle, "provenance", None)
+        build_root = getattr(provenance, "frontend_build_root", None)
+        if not isinstance(build_root, Path):
+            raise RunRefRuntimeError(
+                "run_ref_capsule_invalid",
+                "frontend_build_root_missing",
+            )
+        return (build_root / "run_ref_bundle_capsule.v1").resolve(
+            strict=False,
+        )
+
+    def _run_ref_runtime_request(
+        self,
+        step: RuntimeStepInput,
+        state: Mapping[str, Any],
+        *,
+        step_id: str,
+        visit_count: int,
+        parent_bundle_orphan_preimage: ParentBundleOrphanPreimage | None = None,
+    ) -> RunRefRuntimeRequest:
+        """Build one exact parent-owned request for execution or revalidation."""
+
+        node = self._executable_node_for_step(step)
+        step_config = getattr(node, "execution_config", None)
+        if type(step_config) is not RunRefStepConfig:
+            raise RunRefRuntimeError(
+                "run_ref_ledger_invalid",
+                "typed_step_config_missing",
+            )
+        owner = resolve_aggregate_run_owner(self.state_manager)
+        return RunRefRuntimeRequest(
+            step_config=step_config,
+            visit=self._run_ref_visit_key(
+                step_id=step_id,
+                visit_count=visit_count,
+            ),
+            parent_state=state,
+            parent_workspace=Path(self.workspace).resolve(),
+            parent_run_root=Path(owner.aggregate_root).resolve(),
+            run_ref_root=self._bound_run_ref_runtime_root(owner),
+            capsule_dir=self._run_ref_capsule_dir(step_config),
+            parent_bundle_orphan_preimage=parent_bundle_orphan_preimage,
+        )
+
+    def _run_ref_parent_output_bundle_path(
+        self,
+        step: RuntimeStepInput,
+        state: Dict[str, Any],
+    ) -> Path:
+        """Resolve the compiler-allocated parent bundle destination."""
+
+        _expected, output_bundle, path_error = (
+            self._resolve_output_contract_paths(step, state)
+        )
+        bundle_path_value = (
+            output_bundle.get("path")
+            if isinstance(output_bundle, Mapping)
+            else None
+        )
+        bundle_path = (
+            self._resolve_workspace_path(bundle_path_value)
+            if isinstance(bundle_path_value, str)
+            else None
+        )
+        if path_error is not None or bundle_path is None:
+            raise RunRefRuntimeError(
+                "run_ref_evidence_invalid",
+                "parent_output_bundle_path_invalid",
+            )
+        return bundle_path
+
+    @staticmethod
+    def _run_ref_parent_bundle_preimage(
+        bundle_path: Path,
+    ) -> ParentBundleOrphanPreimage | None:
+        """Capture exact existing bundle bytes before authorized recovery."""
+
+        if not os.path.lexists(bundle_path):
+            return None
+        if bundle_path.is_symlink() or not bundle_path.is_file():
+            raise RunRefRuntimeError(
+                "run_ref_evidence_invalid",
+                "parent_output_bundle_preimage_not_regular",
+            )
+        try:
+            payload = bundle_path.read_bytes()
+        except OSError as exc:
+            raise RunRefRuntimeError(
+                "run_ref_evidence_invalid",
+                "parent_output_bundle_preimage_unreadable",
+            ) from exc
+        return ParentBundleOrphanPreimage(
+            path=bundle_path,
+            sha256=f"sha256:{sha256(payload).hexdigest()}",
+            byte_size=len(payload),
+        )
+
+    def _reconcile_completed_run_refs_before_resume(
+        self,
+        state: Dict[str, Any],
+    ) -> None:
+        """Reopen completed run-ref authority before any resume selection."""
+
+        steps = state.get("steps")
+        if not isinstance(steps, Mapping):
+            raise RunRefRuntimeError(
+                "run_ref_evidence_invalid",
+                "parent_steps_invalid",
+            )
+        for node_id in self._step_node_ids:
+            step = self._runtime_step_for_node_id(node_id)
+            if (
+                self._execution_kind_for_step(step)
+                is not ExecutableNodeKind.RUN_REF
+            ):
+                continue
+            step_name = step.get("name")
+            if not isinstance(step_name, str) or not step_name:
+                raise RunRefRuntimeError(
+                    "run_ref_evidence_invalid",
+                    "parent_step_name_invalid",
+                )
+            persisted = steps.get(step_name)
+            if not isinstance(persisted, Mapping) or persisted.get("status") != "completed":
+                continue
+            visit_count = persisted.get("visit_count")
+            settled_result = persisted.get("run_ref")
+            artifacts = persisted.get("artifacts")
+            if (
+                isinstance(visit_count, bool)
+                or not isinstance(visit_count, int)
+                or visit_count < 1
+                or not isinstance(settled_result, Mapping)
+                or not isinstance(artifacts, Mapping)
+            ):
+                raise RunRefRuntimeError(
+                    "run_ref_evidence_invalid",
+                    "persisted_parent_settlement_invalid",
+                )
+            step_id = self._step_id(step)
+            request = self._run_ref_runtime_request(
+                step,
+                state,
+                step_id=step_id,
+                visit_count=visit_count,
+            )
+            validate_completed_run_ref_authority(
+                request,
+                settled_result=settled_result,
+                artifacts=artifacts,
+                reconcile_pending=True,
+            )
+            self._emit_lexical_checkpoint_shadow_after_step_commit(
+                state,
+                step_name,
+                step,
+                dict(persisted),
+            )
+
+    def _execute_run_ref(
+        self,
+        step: RuntimeStepInput,
+        state: Dict[str, Any],
+        *,
+        step_name: str,
+    ) -> Dict[str, Any]:
+        """Execute and atomically settle one delegated run-reference effect."""
+
+        step_id = self._step_id(step)
+        step_visits = state.get("step_visits")
+        visit_count = (
+            step_visits.get(step_name)
+            if isinstance(step_visits, Mapping)
+            else None
+        )
+        if (
+            isinstance(visit_count, bool)
+            or not isinstance(visit_count, int)
+            or visit_count < 1
+        ):
+            raise RunRefRuntimeError(
+                "run_ref_ledger_invalid",
+                "parent_visit_missing",
+            )
+
+        bundle_path = self._run_ref_parent_output_bundle_path(step, state)
+        request = self._run_ref_runtime_request(
+            step,
+            state,
+            step_id=step_id,
+            visit_count=visit_count,
+            parent_bundle_orphan_preimage=(
+                self._run_ref_parent_bundle_preimage(bundle_path)
+            ),
+        )
+        step_config = request.step_config
+        dependencies = getattr(
+            self,
+            "_run_ref_runtime_dependencies",
+            None,
+        )
+        if dependencies is not None and type(dependencies) is not RunRefRuntimeDependencies:
+            raise TypeError(
+                "_run_ref_runtime_dependencies must be exact RunRefRuntimeDependencies"
+            )
+        prepared = prepare_run_ref_settlement(
+            request,
+            dependencies=dependencies,
+        )
+
+        durable_atomic_write(
+            bundle_path,
+            canonical_json_bytes(dict(prepared.envelope)) + b"\n",
+        )
+
+        accounting = prepared.envelope.get("accounting")
+        duration_ms = (
+            accounting.get("elapsed_ms")
+            if isinstance(accounting, Mapping)
+            and isinstance(accounting.get("elapsed_ms"), int)
+            else 0
+        )
+        result = self._apply_expected_outputs_contract(
+            step,
+            {
+                "status": "completed",
+                "exit_code": 0,
+                "duration_ms": duration_ms,
+                "output": "",
+                "run_ref": dict(prepared.settled_result.record),
+            },
+            state,
+        )
+        if (
+            result.get("status") != "completed"
+            or result.get("exit_code") != 0
+            or not isinstance(result.get("artifacts"), Mapping)
+            or dict(result["artifacts"]) != dict(prepared.artifacts)
+        ):
+            raise RunRefRuntimeError(
+                "run_ref_evidence_invalid",
+                "parent_output_contract_disagrees",
+            )
+
+        publish_error = self._record_published_artifacts(
+            step,
+            step_name,
+            result,
+            state,
+            persist=False,
+        )
+        if publish_error is not None:
+            raise RunRefRuntimeError(
+                "run_ref_evidence_invalid",
+                "parent_publication_failed",
+            )
+        finalized = self._attach_outcome(step, result)
+        finalized.setdefault("name", step_name)
+        finalized.setdefault("step_id", step_id)
+        finalized.setdefault("visit_count", visit_count)
+        state.setdefault("steps", {})[step_name] = finalized
+        self._finalize_consumes(
+            step,
+            step_name,
+            state,
+            succeeded=True,
+            persist=False,
+        )
+
+        artifact_versions = state.get("artifact_versions")
+        artifact_consumes = state.get("artifact_consumes")
+        private_artifact_versions = state.get("private_artifact_versions")
+        private_artifact_consumes = state.get("private_artifact_consumes")
+        self.state_manager.finalize_step_with_dataflow(
+            step_name,
+            self._to_step_result(finalized, step_name),
+            artifact_versions=(
+                artifact_versions
+                if isinstance(artifact_versions, dict)
+                else {}
+            ),
+            artifact_consumes=(
+                artifact_consumes
+                if isinstance(artifact_consumes, dict)
+                else {}
+            ),
+            private_artifact_versions=(
+                private_artifact_versions
+                if isinstance(private_artifact_versions, dict)
+                else {}
+            ),
+            private_artifact_consumes=(
+                private_artifact_consumes
+                if isinstance(private_artifact_consumes, dict)
+                else {}
+            ),
+            expected_step_id=step_id,
+            expected_visit_count=visit_count,
+            expected_step_name=step_name,
+            expected_step_type="run_ref",
+            expected_step_status="running",
+            commit_guard=lambda: validate_pending_parent_commit(
+                request.ledger_path,
+                visit=request.visit,
+                attempt_ordinal=prepared.settled_result.attempt_ordinal,
+                current_step_config_digest=step_config.step_config_digest,
+                settled_result=prepared.settled_result,
+            ),
+        )
+        state["current_step"] = None
+        finalize_run_ref_parent_commit(
+            request,
+            prepared,
+            persisted_settled_result=prepared.settled_result.record,
+            dependencies=dependencies,
+        )
+        self._emit_lexical_checkpoint_shadow_after_step_commit(
+            state,
+            step_name,
+            step,
+            finalized,
+        )
+        self._emit_step_summary(step_name, step, finalized)
+        return finalized
+
     def _increment_transition_count(self, state: Dict[str, Any]) -> int:
         """Increment and persist the workflow transition counter."""
         transition_count = state.get('transition_count', 0)
@@ -6201,27 +6671,7 @@ class WorkflowExecutor:
             return self._persist_step_result(state, step_name, step, result)
 
         if execution_kind is ExecutableNodeKind.RUN_REF:
-            return self._persist_step_result(
-                state,
-                step_name,
-                step,
-                {
-                    "status": "failed",
-                    "exit_code": 2,
-                    "duration_ms": 0,
-                    "output": "",
-                    "error": {
-                        "type": "run_ref_executor_unavailable",
-                        "message": (
-                            "run-ref execution is unavailable until the "
-                            "delegated runtime service is installed"
-                        ),
-                    },
-                },
-                phase_hint="pre_execution",
-                class_hint="pre_execution_failed",
-                retryable_hint=False,
-            )
+            return self._execute_run_ref(step, state, step_name=step_name)
 
         if execution_kind is ExecutableNodeKind.WAIT_FOR:
             result = self._execute_wait_for_result(step)

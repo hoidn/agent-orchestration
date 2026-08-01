@@ -31,6 +31,7 @@ from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
 from orchestrator.workflow_lisp.wcc.route import workflow_lisp_context_with_lowering_schema
+from orchestrator.cli.run_ref_root import resolve_run_ref_root
 
 
 logger = logging.getLogger(__name__)
@@ -322,6 +323,7 @@ def run_workflow(args: Namespace) -> int:
         # Determine workspace
         workspace = Path.cwd()
         state_dir_override = Path(args.state_dir).expanduser().resolve() if args.state_dir else None
+        run_ref_root = resolve_run_ref_root(getattr(args, "run_ref_root", None))
 
         # Load workflow
         workflow_path = Path(args.workflow).resolve()
@@ -443,6 +445,8 @@ def run_workflow(args: Namespace) -> int:
             observability=observability,
             result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
         )
+        if getattr(args, "run_ref_root", None) is not None:
+            state_manager.bind_run_ref_root(run_ref_root)
         if frontend_build is not None:
             with state_manager.state_transaction() as transaction_state:
                 record_compiled_frontend_provenance(

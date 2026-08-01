@@ -672,6 +672,8 @@ def _policy_ref_invalid_diagnostic(expected_point: Mapping[str, Any]) -> str:
         return EFFECT_POLICY_DIAGNOSTIC_CODES.materialized_view_mismatch
     if effect_kind == "resource_transition":
         return EFFECT_POLICY_DIAGNOSTIC_CODES.transition_audit_missing
+    if effect_kind == "run_ref":
+        return EFFECT_POLICY_DIAGNOSTIC_CODES.run_ref_result_invalid
     return DIAGNOSTIC_CODES.completed_effect_invalid
 
 
@@ -930,6 +932,71 @@ def _resource_transition_completed_effect_ref(
     }
 
 
+def _run_ref_completed_effect_ref(
+    *,
+    point: Any,
+    runtime_step: Any,
+    step_state: Mapping[str, Any],
+    point_policy: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Project one settled parent result without flattening runtime authority."""
+
+    from orchestrator.workflow.executable_ir import RunRefStepConfig
+    from orchestrator.workflow.run_ref.config import (
+        validate_run_ref_static_config_authority,
+    )
+    from orchestrator.workflow.run_ref.ledger import (
+        settled_result_binding_from_record,
+    )
+
+    diagnostic = EFFECT_POLICY_DIAGNOSTIC_CODES.run_ref_result_invalid
+    execution_config = getattr(
+        getattr(runtime_step, "node", None),
+        "execution_config",
+        None,
+    )
+    if type(execution_config) is not RunRefStepConfig:
+        raise ValueError(diagnostic)
+    try:
+        validate_run_ref_static_config_authority(execution_config.run_ref)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(diagnostic) from exc
+    requirement = _mapping(
+        _mapping(point_policy.get("evidence_requirements")).get(
+            "run_ref_result"
+        )
+    )
+    static_digest = requirement.get("step_config_digest")
+    if static_digest != execution_config.run_ref.digest:
+        raise ValueError(diagnostic)
+    settled_record = step_state.get("run_ref")
+    artifacts = step_state.get("artifacts")
+    if not isinstance(settled_record, Mapping) or not isinstance(
+        artifacts,
+        Mapping,
+    ):
+        raise ValueError(diagnostic)
+    try:
+        settled = settled_result_binding_from_record(settled_record)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(diagnostic) from exc
+    if (
+        dict(settled_record) != settled.record
+        or settled.step_config_digest
+        != execution_config.step_config_digest
+        or settled.visit.step_id != _point_field(point, "step_id")
+    ):
+        raise ValueError(diagnostic)
+    return {
+        **_completed_effect_ref_base(point, effect_kind="run_ref"),
+        "evidence_kind": "run_ref_result",
+        # Checkpoint identity intentionally remains the static configuration;
+        # the complete executable/capsule binding stays inside settlement.
+        "step_config_digest": static_digest,
+        "settled_result": settled.record,
+    }
+
+
 def collect_completed_effect_refs(
     executor: Any,
     *,
@@ -995,7 +1062,80 @@ def collect_completed_effect_refs(
                 point_policy=point_policy,
             )
         ]
+    if effect_kind == "run_ref":
+        return [
+            _run_ref_completed_effect_ref(
+                point=point,
+                runtime_step=runtime_step,
+                step_state=step_state,
+                point_policy=point_policy,
+            )
+        ]
     return []
+
+
+_RUN_REF_COMPLETED_EFFECT_REF_KEYS = frozenset(
+    {
+        "effect_ref_schema_version",
+        "effect_kind",
+        "step_id",
+        "status",
+        "source_map_origin_key",
+        "evidence_kind",
+        "step_config_digest",
+        "settled_result",
+    }
+)
+
+
+def _validate_run_ref_completed_effect_ref(
+    ref: Mapping[str, Any],
+    *,
+    expected_point: Mapping[str, Any],
+    point_policy: Mapping[str, Any],
+) -> None:
+    from orchestrator.workflow.run_ref.ledger import (
+        settled_result_binding_from_record,
+    )
+
+    diagnostic = EFFECT_POLICY_DIAGNOSTIC_CODES.run_ref_result_invalid
+    if set(ref) != _RUN_REF_COMPLETED_EFFECT_REF_KEYS:
+        raise ValueError(diagnostic)
+    if (
+        ref.get("effect_ref_schema_version")
+        != COMPLETED_EFFECT_REF_SCHEMA_VERSION
+        or ref.get("effect_kind") != "run_ref"
+        or ref.get("step_id") != expected_point.get("step_id")
+        or ref.get("status") != "completed"
+        or ref.get("source_map_origin_key")
+        != expected_point.get("origin_key")
+        or ref.get("evidence_kind") != "run_ref_result"
+    ):
+        raise ValueError(diagnostic)
+    requirement = _mapping(
+        _mapping(point_policy.get("evidence_requirements")).get(
+            "run_ref_result"
+        )
+    )
+    static_digest = ref.get("step_config_digest")
+    if (
+        not isinstance(static_digest, str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", static_digest) is None
+        or static_digest != requirement.get("step_config_digest")
+    ):
+        raise ValueError(diagnostic)
+    settled_record = ref.get("settled_result")
+    if not isinstance(settled_record, Mapping):
+        raise ValueError(diagnostic)
+    try:
+        settled = settled_result_binding_from_record(settled_record)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(diagnostic) from exc
+    if (
+        dict(settled_record) != settled.record
+        or settled.visit.step_id != ref.get("step_id")
+    ):
+        raise ValueError(diagnostic)
 
 
 def _validate_completed_effect_refs(
@@ -1033,6 +1173,14 @@ def _validate_completed_effect_refs(
     if len(completed_effect_refs) != 1:
         raise ValueError(_policy_ref_invalid_diagnostic(expected_point))
     ref = _mapping(completed_effect_refs[0])
+    point_policy = _mapping(effect_boundary.get("policy"))
+    if effect_kind == "run_ref":
+        _validate_run_ref_completed_effect_ref(
+            ref,
+            expected_point=expected_point,
+            point_policy=point_policy,
+        )
+        return
     for key in ("effect_ref_schema_version", "effect_kind", "step_id", "status", "source_map_origin_key"):
         value = ref.get(key)
         if key == "effect_ref_schema_version":
@@ -1102,12 +1250,6 @@ def _validate_completed_effect_refs(
         if ref.get("evidence_kind") != "transition_audit":
             raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.transition_audit_missing)
         return
-    if effect_kind == "run_ref":
-        # Task 4 defines the identity and resume policy only. The Task 7
-        # runtime is the sole producer/validator of authoritative run-ref
-        # result evidence, so accepting a fabricated ref here would turn an
-        # unimplemented producer into a resume authority.
-        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
 
 
 def validate_completed_effect_refs_against_authoritative_state(
@@ -1115,10 +1257,13 @@ def validate_completed_effect_refs_against_authoritative_state(
     *,
     expected_point: Mapping[str, Any],
     state: Mapping[str, Any],
+    state_manager: Any,
     workspace: Path,
     executable_workflow: Any,
     runtime_plan: Any,
+    loaded_workflow: Any | None = None,
 ) -> None:
+    from orchestrator.workflow.executable_ir import RunRefStepConfig
     from orchestrator.workflow.runtime_step import RuntimeStep
 
     _validate_completed_effect_refs(record, expected_point=expected_point)
@@ -1201,6 +1346,123 @@ def validate_completed_effect_refs_against_authoritative_state(
         step_state = _mapping(
             _mapping(state.get("steps")).get(runtime_step.name)
         )
+
+    if effect_kind == "run_ref":
+        from orchestrator.workflow.provider_attempts import (
+            resolve_aggregate_run_owner,
+        )
+        from orchestrator.workflow.run_ref.config import BundleProgram
+        from orchestrator.workflow.run_ref.ledger import (
+            settled_result_binding_from_record,
+        )
+        from orchestrator.workflow.run_ref.runtime import (
+            RunRefRuntimeRequest,
+            validate_completed_run_ref_authority,
+        )
+
+        diagnostic = EFFECT_POLICY_DIAGNOSTIC_CODES.run_ref_result_invalid
+        try:
+            execution_config = getattr(node, "execution_config", None)
+            if type(execution_config) is not RunRefStepConfig:
+                raise ValueError(diagnostic)
+            requirement = _mapping(
+                _mapping(point_policy.get("evidence_requirements")).get(
+                    "run_ref_result"
+                )
+            )
+            if (
+                ref.get("step_config_digest")
+                != execution_config.run_ref.digest
+                or ref.get("step_config_digest")
+                != requirement.get("step_config_digest")
+            ):
+                raise ValueError(diagnostic)
+            settled_record = ref.get("settled_result")
+            persisted_settled = step_state.get("run_ref")
+            artifacts = step_state.get("artifacts")
+            if (
+                step_state.get("status") != "completed"
+                or not isinstance(settled_record, Mapping)
+                or not isinstance(persisted_settled, Mapping)
+                or dict(persisted_settled) != dict(settled_record)
+                or not isinstance(artifacts, Mapping)
+            ):
+                raise ValueError(diagnostic)
+            settled = settled_result_binding_from_record(settled_record)
+            if (
+                dict(settled_record) != settled.record
+                or settled.step_config_digest
+                != execution_config.step_config_digest
+            ):
+                raise ValueError(diagnostic)
+
+            owner = resolve_aggregate_run_owner(state_manager)
+            root_manager = owner.root_manager
+            if Path(workspace).resolve() != Path(root_manager.workspace).resolve():
+                raise ValueError(diagnostic)
+            root_state = root_manager.state
+            run_ref_root_value = getattr(root_state, "run_ref_root", None)
+            if not isinstance(run_ref_root_value, str) or not run_ref_root_value:
+                raise ValueError(diagnostic)
+            frame_ids = owner.resume_scope_path.call_frame_ids
+            call_frame_id = frame_ids[-1] if frame_ids else None
+            execution_frame_id = call_frame_id or "root"
+            frame_identity = _mapping(record.get("frame_identity"))
+            visit_count = frame_identity.get("visit_count")
+            if (
+                isinstance(visit_count, bool)
+                or not isinstance(visit_count, int)
+                or visit_count <= 0
+                or frame_identity.get("call_frame_id") != call_frame_id
+                or settled.visit.parent_run_id != root_manager.run_id
+                or settled.visit.execution_frame_id != execution_frame_id
+                or settled.visit.call_frame_id != call_frame_id
+                or settled.visit.step_id != step_state.get("step_id")
+                or settled.visit.step_id != expected_point.get("step_id")
+                or settled.visit.visit_count != visit_count
+                or step_state.get("visit_count") != visit_count
+            ):
+                raise ValueError(diagnostic)
+
+            capsule_dir = None
+            if isinstance(execution_config.run_ref.program, BundleProgram):
+                provenance = getattr(loaded_workflow, "provenance", None)
+                persisted_surface = getattr(
+                    provenance,
+                    "frontend_persisted_surface_path",
+                    None,
+                )
+                if not isinstance(persisted_surface, Path):
+                    raise ValueError(diagnostic)
+                persisted_surface = (
+                    persisted_surface
+                    if persisted_surface.is_absolute()
+                    else Path(root_manager.workspace) / persisted_surface
+                ).resolve(strict=False)
+                capsule_dir = (
+                    persisted_surface.parent / "run_ref_bundle_capsule.v1"
+                ).resolve(strict=False)
+
+            request = RunRefRuntimeRequest(
+                step_config=execution_config,
+                visit=settled.visit,
+                parent_state=state,
+                parent_workspace=Path(root_manager.workspace).resolve(),
+                parent_run_root=owner.aggregate_root.resolve(),
+                run_ref_root=Path(run_ref_root_value),
+                capsule_dir=capsule_dir,
+            )
+            validate_completed_run_ref_authority(
+                request,
+                settled_result=settled.record,
+                artifacts=artifacts,
+                reconcile_pending=False,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            if str(exc) == diagnostic:
+                raise
+            raise ValueError(diagnostic) from exc
+        return
 
     if effect_kind in {"command", "provider"}:
         if step_state.get("status") != "completed":

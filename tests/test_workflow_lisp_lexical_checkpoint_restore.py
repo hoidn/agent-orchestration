@@ -1981,6 +1981,54 @@ def test_completed_provider_checkpoint_emits_restorable_effect_barrier(tmp_path:
     assert decision.policy_decision == "REUSABLE"
 
 
+def test_restore_threads_state_manager_into_authoritative_effect_validation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkpoints = _checkpoints_module()
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_policy_sidecars(
+        tmp_path,
+        run_id="restore-policy-authority-manager",
+    )
+    assert final_state["status"] == "completed"
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get(
+            "effect_kind"
+        )
+        == "provider"
+    )
+    original = (
+        checkpoints.validate_completed_effect_refs_against_authoritative_state
+    )
+    observed = []
+
+    def validate(*args, **kwargs):
+        observed.append(kwargs.get("state_manager"))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        checkpoints,
+        "validate_completed_effect_refs_against_authoritative_state",
+        validate,
+    )
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "RESTORED"
+    assert observed == [state_manager]
+
+
 def test_completed_bool_provider_checkpoint_restores_direct_json_root(tmp_path: Path) -> None:
     checkpoints = _checkpoints_module()
     restore = _restore_module()

@@ -52,6 +52,7 @@ class StepResult:
     timed_out: Optional[bool] = None
     outcome: Optional[Dict[str, Any]] = None
     visit_count: Optional[int] = None
+    run_ref: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict, omitting None values."""
@@ -86,6 +87,7 @@ class RunState:
     status: StateStatus
     result_persistence_profile: Optional[str] = None
     run_root: Optional[str] = None  # Path to .orchestrate/runs/<run_id>
+    run_ref_root: Optional[str] = None
     context: Dict[str, Any] = field(default_factory=dict)
     bound_inputs: Dict[str, Any] = field(default_factory=dict)
     workflow_outputs: Dict[str, Any] = field(default_factory=dict)
@@ -143,6 +145,8 @@ class RunState:
         # Include run_root if set
         if self.run_root:
             result["run_root"] = self.run_root
+        if self.run_ref_root is not None:
+            result["run_ref_root"] = self.run_ref_root
         if self.result_persistence_profile is not None:
             result[
                 "result_persistence_profile"
@@ -224,6 +228,7 @@ class RunState:
             status=data["status"],
             result_persistence_profile=result_persistence_profile,
             run_root=data.get("run_root"),  # Optional, may not be present in older states
+            run_ref_root=data.get("run_ref_root"),
             context=data.get("context", {}),
             bound_inputs=data.get("bound_inputs", {}),
             workflow_outputs=data.get("workflow_outputs", {}),
@@ -1358,6 +1363,24 @@ class StateManager:
 
             self.state.status = status
             self._write_state()
+
+    def bind_run_ref_root(self, run_ref_root: Path) -> Path:
+        """Persist one immutable canonical run-reference runtime root."""
+
+        candidate = Path(run_ref_root)
+        resolved = candidate.resolve(strict=False)
+        if not candidate.is_absolute() or candidate != resolved:
+            raise ValueError("run-ref root must be a canonical absolute path")
+        with self._state_mutation():
+            if self.state is None:
+                raise RuntimeError("State not initialized")
+            recorded = self.state.run_ref_root
+            if recorded is not None and recorded != resolved.as_posix():
+                raise ValueError("run-ref root binding changed")
+            if recorded is None:
+                self.state.run_ref_root = resolved.as_posix()
+                self._write_state()
+        return resolved
 
     def start_step(
         self,
