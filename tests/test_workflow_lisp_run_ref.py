@@ -5,14 +5,17 @@ import pytest
 
 from orchestrator.workflow.run_ref.contracts import SetupCommand, SetupPolicy
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.compiler_session import ElaborationSessionState
 from orchestrator.workflow_lisp.expressions import (
     RunRefBundleProgram,
     RunRefExpr,
     RunRefPathProgram,
     RunRefSource,
     ExprNode,
+    FunctionCallExpr,
     LiteralExpr,
     NameExpr,
+    ProcedureCallExpr,
     parse_run_ref_expression,
 )
 from orchestrator.workflow_lisp.expression_traversal import iter_child_exprs
@@ -158,6 +161,60 @@ def test_run_ref_mode_one_elaborates_inputs_setup_and_traversal() -> None:
         )
     )
     assert iter_child_exprs(expr) == (task_expr, attempt_expr)
+
+
+@pytest.mark.parametrize(
+    ("call_source", "visibility", "expected_type"),
+    (
+        ("(normalize task)", "function", FunctionCallExpr),
+        ("(prepare task)", "procedure", ProcedureCallExpr),
+    ),
+)
+def test_run_ref_inputs_preserve_visible_callable_context_without_state_leak(
+    call_source: str,
+    visibility: str,
+    expected_type: type,
+) -> None:
+    source = _mode_one_source().replace(
+        ":inputs ()",
+        f":inputs (:value {call_source})",
+    )
+    session_state = ElaborationSessionState(
+        function_names=frozenset({"original"}),
+        target_dsl_version="2.19",
+        guidance_example=True,
+    )
+
+    expr = parse_run_ref_expression(
+        _expression(source),
+        target_dsl_version="2.24",
+        bound_names=frozenset({"task"}),
+        function_names=(
+            frozenset({"normalize"})
+            if visibility == "function"
+            else frozenset()
+        ),
+        procedure_names=(
+            frozenset({"prepare"})
+            if visibility == "procedure"
+            else frozenset()
+        ),
+        guidance_example=False,
+        session_state=session_state,
+    )
+
+    value_expr = expr.inputs[0][1]
+    assert isinstance(value_expr, expected_type)
+    assert value_expr.args == (
+        NameExpr(
+            name="task",
+            span=value_expr.args[0].span,
+            form_path=FORM_PATH + ("inputs", "value"),
+        ),
+    )
+    assert session_state.function_names == frozenset({"original"})
+    assert session_state.target_dsl_version == "2.19"
+    assert session_state.guidance_example is True
 
 
 def test_run_ref_mode_two_without_returns_defers_default() -> None:

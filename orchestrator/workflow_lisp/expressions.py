@@ -845,6 +845,14 @@ def parse_run_ref_expression(
     *,
     target_dsl_version: str,
     bound_names: frozenset[str] = frozenset(),
+    procedure_names: frozenset[str] = frozenset(),
+    function_names: frozenset[str] = frozenset(),
+    function_name_resolver=None,
+    procedure_name_resolver=None,
+    workflow_name_resolver=None,
+    guidance_example: bool = False,
+    prompt_catalog: PromptCatalog | None = None,
+    session_state: ElaborationSessionState | None = None,
 ) -> RunRefExpr:
     """Parse the isolated E1 mode-1 surface before compiler integration."""
 
@@ -863,6 +871,14 @@ def parse_run_ref_expression(
         form_path=node.form_path,
         target_dsl_version=target_dsl_version,
         bound_names=bound_names,
+        procedure_names=procedure_names,
+        function_names=function_names,
+        function_name_resolver=function_name_resolver,
+        procedure_name_resolver=procedure_name_resolver,
+        workflow_name_resolver=workflow_name_resolver,
+        guidance_example=guidance_example,
+        prompt_catalog=prompt_catalog,
+        session_state=session_state,
     )
 
 
@@ -1506,6 +1522,14 @@ def _parse_run_ref_syntax_list(
     form_path: tuple[str, ...],
     target_dsl_version: str,
     bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+    function_names: frozenset[str],
+    function_name_resolver,
+    procedure_name_resolver,
+    workflow_name_resolver,
+    guidance_example: bool,
+    prompt_catalog: PromptCatalog | None,
+    session_state: ElaborationSessionState | None,
 ) -> RunRefExpr:
     if not target_dsl_supports_run_ref(target_dsl_version):
         _raise_error(
@@ -1698,18 +1722,26 @@ def _parse_run_ref_syntax_list(
             form_path=form_path,
             expansion_stack=inputs_node.expansion_stack,
         )
-    input_session = ElaborationSessionState(
-        target_dsl_version=target_dsl_version
-    )
     inputs = tuple(
         (
             name[1:],
-            _elaborate(
-                value,
-                form_path=form_path + ("inputs", name[1:]),
+            elaborate_expression(
+                SyntaxNode(
+                    datum=value,
+                    span=value.span,
+                    module_path=value.module_path,
+                    form_path=form_path + ("inputs", name[1:]),
+                ),
                 bound_names=bound_names,
-                procedure_names=frozenset(),
-                session_state=input_session,
+                procedure_names=procedure_names,
+                function_names=function_names,
+                function_name_resolver=function_name_resolver,
+                procedure_name_resolver=procedure_name_resolver,
+                workflow_name_resolver=workflow_name_resolver,
+                guidance_example=guidance_example,
+                target_dsl_version=target_dsl_version,
+                prompt_catalog=prompt_catalog,
+                session_state=session_state,
             ),
         )
         for name, value in input_sections.items()
