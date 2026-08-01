@@ -13,6 +13,7 @@ from orchestrator.workflow import core_ast as core_ast_module
 from orchestrator.workflow import executable_ir as executable_ir_module
 from orchestrator.workflow import lowering as workflow_lowering
 from orchestrator.workflow import runtime_plan as runtime_plan_module
+from orchestrator.workflow import semantic_ir as semantic_ir_module
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.run_ref.config import (
     ArrayBinding,
@@ -29,6 +30,7 @@ from orchestrator.workflow.run_ref.contracts import (
 from orchestrator.workflow.state_layout import (
     GeneratedPathResumeScope,
     GeneratedPathSemanticRole,
+    derive_entrypoint_managed_write_root_allocations,
 )
 from orchestrator.workflow.runtime_step import RuntimeStep
 from orchestrator.workflow.surface_ast import (
@@ -3679,6 +3681,274 @@ def _runtime_plan_for_run_ref():
     return surface, executable, projection, plan, config
 
 
+def _semantic_run_ref_bundle():
+    expr = _mode_one_expr()
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(expr)
+    context = _run_ref_lowering_context(type_env)
+    steps, _ = _lower_run_ref_operation(
+        _lowerable_run_ref(typed, type_env=type_env),
+        result_type=typed.type_ref,
+        context=context,
+        local_values={},
+        identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+            "sha256:" + "f" * 64
+        ),
+    )
+    [result_allocation] = context.generated_path_allocations
+    entrypoint_allocations = derive_entrypoint_managed_write_root_allocations(
+        (result_allocation,)
+    )
+    generated_input_name = result_allocation.generated_input_name
+    assert isinstance(generated_input_name, str)
+    surface = elaborate_surface_workflow(
+        {
+            "version": "2.24",
+            "name": "parent",
+            "inputs": {
+                generated_input_name: {"kind": "relpath", "type": "relpath"},
+            },
+            "steps": steps,
+        },
+        workflow_path=Path("/tmp/generated-run-ref-semantic.orc"),
+        imported_bundles={},
+        generated_path_allocations=(result_allocation, *entrypoint_allocations),
+        managed_write_root_inputs=(generated_input_name,),
+        allow_generated_step_kinds=True,
+    )
+    assert surface is not None
+    core = core_ast_module.build_core_workflow_ast(
+        surface,
+        imports={},
+        provenance=surface.provenance,
+    )
+    executable, projection = workflow_lowering.lower_core_workflow_ast(core)
+    runtime_plan = runtime_plan_module.derive_workflow_runtime_plan(
+        executable,
+        projection,
+        surface.provenance,
+    )
+    [generated_effect] = context.generated_semantic_effects
+    origin_key = "source:run-ref"
+    source_map_payload = {
+        "workflows": {
+            surface.name: {
+                "workflow_origin": {"origin_key": "source:workflow"},
+                "step_ids": {
+                    generated_effect.step_id: {"origin_key": origin_key},
+                },
+                "generated_inputs": {},
+                "generated_outputs": {},
+                "contract_fields": {},
+                "generated_paths": {
+                    allocation.concrete_path_template: {"origin_key": origin_key}
+                    for allocation in (result_allocation, *entrypoint_allocations)
+                },
+                "generated_internal_inputs": {},
+                "validation_subjects": [],
+                "generated_semantic_effects": [
+                    {
+                        "effect_key": generated_effect.effect_key,
+                        "step_id": generated_effect.step_id,
+                        "effect_kind": generated_effect.effect_kind,
+                        "origin_key": origin_key,
+                        "details": dict(generated_effect.details),
+                    }
+                ],
+            }
+        }
+    }
+    semantic_ir = semantic_ir_module.derive_workflow_semantic_ir(
+        core_workflow_ast=core,
+        surface=surface,
+        ir=executable,
+        projection=projection,
+        runtime_plan=runtime_plan,
+        imports={},
+        provenance=surface.provenance,
+        source_map_payload=source_map_payload,
+    )
+    return (
+        surface,
+        executable,
+        projection,
+        runtime_plan,
+        semantic_ir,
+        result_allocation,
+        generated_input_name,
+    )
+
+
+def test_run_ref_semantic_ir_binds_config_effect_and_state_layout() -> None:
+    (
+        surface,
+        executable,
+        projection,
+        runtime_plan,
+        semantic_ir,
+        result_allocation,
+        generated_input_name,
+    ) = _semantic_run_ref_bundle()
+
+    [effect] = [
+        row for row in semantic_ir.effects.values() if row.effect_kind == "run_ref"
+    ]
+    config = surface.steps[0].run_ref
+    assert type(config) is RunRefStaticConfig
+    assert effect.details["run_ref_static_config_digest"] == config.digest
+    assert effect.details["result_allocation_id"] == result_allocation.allocation_id
+    assert effect.details["output_bundle_path"] == result_allocation.concrete_path_template
+    assert [
+        row.layout_kind for row in semantic_ir.state_layout.values()
+        if row.layout_kind == "run_ref_result_bundle"
+    ] == ["run_ref_result_bundle"]
+    assert [
+        row.layout_kind for row in semantic_ir.state_layout.values()
+        if row.layout_kind == "entrypoint_managed_write_root"
+    ] == ["entrypoint_managed_write_root"]
+    assert [
+        row.details["input_name"] for row in semantic_ir.state_layout.values()
+        if row.layout_kind == "managed_write_root_input"
+    ] == [generated_input_name]
+    semantic_ir_module.validate_workflow_semantic_ir(
+        semantic_ir,
+        ir=executable,
+        projection=projection,
+        runtime_plan=runtime_plan,
+        surface=surface,
+        imports={},
+    )
+
+
+def test_run_ref_semantic_ir_rejects_stale_config_digest() -> None:
+    surface, executable, projection, runtime_plan, semantic_ir, _, _ = (
+        _semantic_run_ref_bundle()
+    )
+    effect_id, effect = next(
+        (effect_id, effect)
+        for effect_id, effect in semantic_ir.effects.items()
+        if effect.effect_kind == "run_ref"
+    )
+    invalid = replace(
+        semantic_ir,
+        effects=MappingProxyType(
+            {
+                **semantic_ir.effects,
+                effect_id: replace(
+                    effect,
+                    details=MappingProxyType(
+                        {
+                            **effect.details,
+                            "run_ref_static_config_digest": "sha256:" + "0" * 64,
+                        }
+                    ),
+                ),
+            }
+        ),
+    )
+
+    with pytest.raises(WorkflowValidationError, match="run_ref.*config digest"):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            invalid,
+            ir=executable,
+            projection=projection,
+            runtime_plan=runtime_plan,
+            surface=surface,
+            imports={},
+        )
+
+
+def test_run_ref_semantic_ir_rejects_missing_effect_even_when_catalogs_agree() -> None:
+    surface, executable, projection, runtime_plan, semantic_ir, _, _ = (
+        _semantic_run_ref_bundle()
+    )
+    effect_id = next(
+        effect_id
+        for effect_id, effect in semantic_ir.effects.items()
+        if effect.effect_kind == "run_ref"
+    )
+    workflow_name, workflow = next(iter(semantic_ir.workflows.items()))
+    statement_id, statement = next(iter(workflow.statements.items()))
+    invalid = replace(
+        semantic_ir,
+        workflows=MappingProxyType(
+            {
+                workflow_name: replace(
+                    workflow,
+                    statements=MappingProxyType(
+                        {
+                            statement_id: replace(
+                                statement,
+                                effect_ids=tuple(
+                                    candidate
+                                    for candidate in statement.effect_ids
+                                    if candidate != effect_id
+                                ),
+                            )
+                        }
+                    ),
+                )
+            }
+        ),
+        effects=MappingProxyType(
+            {
+                candidate_id: effect
+                for candidate_id, effect in semantic_ir.effects.items()
+                if candidate_id != effect_id
+            }
+        ),
+    )
+
+    with pytest.raises(WorkflowValidationError, match="exactly one run_ref effect"):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            invalid,
+            ir=executable,
+            projection=projection,
+            runtime_plan=runtime_plan,
+            surface=surface,
+            imports={},
+        )
+
+
+def test_run_ref_semantic_ir_rejects_orphan_result_allocation() -> None:
+    surface, executable, projection, runtime_plan, semantic_ir, _, _ = (
+        _semantic_run_ref_bundle()
+    )
+    layout_id, layout = next(
+        (layout_id, layout)
+        for layout_id, layout in semantic_ir.state_layout.items()
+        if layout.layout_kind == "run_ref_result_bundle"
+    )
+    orphan_id = f"{layout_id}:orphan"
+    invalid = replace(
+        semantic_ir,
+        state_layout=MappingProxyType(
+            {
+                **semantic_ir.state_layout,
+                orphan_id: replace(
+                    layout,
+                    layout_id=orphan_id,
+                    details=MappingProxyType(
+                        {
+                            **layout.details,
+                            "allocation_id": "sha256:" + "1" * 64,
+                        }
+                    ),
+                ),
+            }
+        ),
+    )
+
+    with pytest.raises(WorkflowValidationError, match="match exactly"):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            invalid,
+            ir=executable,
+            projection=projection,
+            runtime_plan=runtime_plan,
+            surface=surface,
+            imports={},
+        )
+
+
 def test_run_ref_runtime_plan_binds_exact_executable_config_digest() -> None:
     _, executable, projection, plan, config = _runtime_plan_for_run_ref()
     [node] = plan.nodes.values()
@@ -3872,6 +4142,50 @@ def test_run_ref_leaf_builds_exact_config_and_one_result_allocation() -> None:
     )
     assert allocation.generated_input_name in terminal.hidden_inputs
     assert terminal.checkpoint_identity_component_digest is None
+    assert len(context.generated_semantic_effects) == 1
+    [effect] = context.generated_semantic_effects
+    assert effect.effect_key == f"run_ref:{step['id']}"
+    assert effect.step_id == step["id"]
+    assert effect.effect_kind == "run_ref"
+    assert effect.origin == context.step_spans[step["id"]]
+    assert effect.details == {
+        "run_ref_static_config_schema_version": "run_ref_static_config.v1",
+        "run_ref_static_config_digest": config.digest,
+        "compiler_runtime_identity_digest": config.compiler_runtime_identity_digest,
+        "site_digest": config.site_digest,
+        "generated_result_type": config.generated_result_type,
+        "result_digest": config.result_digest,
+        "program_mode": config.program.record["mode"],
+        "result_allocation_id": allocation.allocation_id,
+        "output_bundle_path": allocation.concrete_path_template,
+    }
+
+
+def test_run_ref_result_allocation_derives_one_entrypoint_managed_root() -> None:
+    expr = _mode_one_expr()
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(expr)
+    context = _run_ref_lowering_context(type_env)
+
+    _lower_run_ref_operation(
+        _lowerable_run_ref(typed, type_env=type_env),
+        result_type=typed.type_ref,
+        context=context,
+        local_values={},
+        identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+            "sha256:" + "e" * 64
+        ),
+    )
+
+    derived = derive_entrypoint_managed_write_root_allocations(
+        tuple(context.generated_path_allocations)
+    )
+
+    assert len(derived) == 1
+    [entrypoint] = derived
+    [result] = context.generated_path_allocations
+    assert entrypoint.semantic_role is GeneratedPathSemanticRole.ENTRYPOINT_MANAGED_WRITE_ROOT
+    assert entrypoint.generated_input_name == result.generated_input_name
+    assert entrypoint.projection_hints["source_allocation_id"] == result.allocation_id
 
 
 def test_run_ref_leaf_caches_or_accepts_injected_compiler_identity() -> None:
@@ -4228,7 +4542,9 @@ def test_run_ref_leaf_uses_one_whole_input_projection_for_complex_pure_value() -
     assert run_ref_step["run_ref"].inputs[0].binding == ReferenceBinding(
         f"root.steps.{projection['name']}.artifacts.__result__"
     )
-    assert len(context.generated_semantic_effects) == 1
+    assert [
+        effect.effect_kind for effect in context.generated_semantic_effects
+    ] == ["pure_projection", "run_ref"]
     assert terminal.step_name == run_ref_step["name"]
 
 
@@ -4293,7 +4609,9 @@ def test_run_ref_leaf_projects_one_dynamically_selected_union_input() -> None:
     assert run_ref_step["run_ref"].inputs[0].binding == ReferenceBinding(
         f"root.steps.{projection['name']}.artifacts.__result__"
     )
-    assert len(context.generated_semantic_effects) == 1
+    assert [
+        effect.effect_kind for effect in context.generated_semantic_effects
+    ] == ["pure_projection", "run_ref"]
 
 
 def test_run_ref_leaf_preflights_all_inputs_before_projection_or_identity_mutation() -> None:

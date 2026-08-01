@@ -22,10 +22,13 @@ from .core_ast import (
     _surface_step_from_core_statement,
 )
 from .executable_ir import (
+    ExecutableNodeKind,
     ExecutableWorkflow,
+    FinalizationStepNode,
     ProviderPeerGroupStepConfig,
     ProviderStepConfig,
     ProviderSupervisionStepConfig,
+    RunRefStepConfig,
     provider_peer_group_config_to_runtime_dict,
 )
 from .prompt_dependency_contract import (
@@ -43,6 +46,10 @@ from .prompt_fragment_contract import (
 )
 from .references import ReferenceResolutionError, StructuredStepReference, parse_structured_ref
 from .runtime_plan import WorkflowRuntimePlan
+from .run_ref.config import (
+    RunRefStaticConfig,
+    validate_run_ref_static_config_authority,
+)
 from .state_projection import WorkflowStateProjection
 from .surface_ast import (
     SurfaceStep,
@@ -59,7 +66,13 @@ from .view_renderer import VIEW_RENDERER_SCHEMA_VERSION
 WORKFLOW_SEMANTIC_IR_SCHEMA_VERSION = "workflow_semantic_ir.v1"
 _PROMOTED_ADAPTER_EFFECT_KINDS = frozenset({"resource_transition", "ledger_update"})
 _PROMOTED_GENERATED_EFFECT_KINDS = frozenset(
-    {"snapshot_capture", "pointer_materialization", "pure_projection", "materialize_view"}
+    {
+        "snapshot_capture",
+        "pointer_materialization",
+        "pure_projection",
+        "materialize_view",
+        "run_ref",
+    }
 )
 _PROVIDER_BUNDLE_PATH_PROJECTION_KIND = "provider_bundle_path_projection"
 
@@ -1332,6 +1345,15 @@ def validate_workflow_semantic_ir(
                 workflow_name=workflow_name,
                 effect=effect,
             )
+        elif effect.effect_kind == "run_ref":
+            _validate_run_ref_effect(
+                semantic_ir=semantic_ir,
+                workflow=workflow,
+                workflow_name=workflow_name,
+                effect=effect,
+                ir=ir,
+                runtime_plan=runtime_plan,
+            )
         elif effect.effect_kind == _PROVIDER_BUNDLE_PATH_PROJECTION_KIND:
             _validate_provider_bundle_path_projection_effect(
                 semantic_ir=semantic_ir,
@@ -1353,6 +1375,66 @@ def validate_workflow_semantic_ir(
                 effect=effect,
                 ir=ir,
             )
+
+    for statement in workflow.statements.values():
+        run_ref_effects = tuple(
+            effect
+            for effect in semantic_ir.effects.values()
+            if effect.statement_id == statement.statement_id
+            and effect.effect_kind == "run_ref"
+        )
+        if statement.step_kind == SurfaceStepKind.RUN_REF.value:
+            if len(run_ref_effects) != 1:
+                _raise_semantic_ir_invalid(
+                    "semantic_ir_invalid: run_ref statement "
+                    f"`{statement.step_id}` requires exactly one run_ref effect",
+                    workflow_name=workflow_name,
+                    subject_refs=_subject_refs_for_statement(
+                        workflow_name,
+                        statement,
+                    ),
+                )
+        elif run_ref_effects:
+            _raise_semantic_ir_invalid(
+                "semantic_ir_invalid: non-run_ref statement "
+                f"`{statement.step_id}` cannot carry a run_ref effect",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(
+                    workflow_name,
+                    statement,
+                ),
+            )
+    run_ref_effect_allocation_ids = tuple(
+        effect.details.get("result_allocation_id")
+        for effect in semantic_ir.effects.values()
+        if effect.effect_kind == "run_ref"
+    )
+    run_ref_layout_allocation_ids = tuple(
+        layout.details.get("allocation_id")
+        for layout in semantic_ir.state_layout.values()
+        if layout.workflow_name == workflow_name
+        and layout.layout_kind == "run_ref_result_bundle"
+    )
+    if (
+        any(
+            not isinstance(value, str) or not value
+            for value in run_ref_effect_allocation_ids
+        )
+        or any(
+            not isinstance(value, str) or not value
+            for value in run_ref_layout_allocation_ids
+        )
+        or len(set(run_ref_effect_allocation_ids))
+        != len(run_ref_effect_allocation_ids)
+        or len(set(run_ref_layout_allocation_ids))
+        != len(run_ref_layout_allocation_ids)
+        or set(run_ref_effect_allocation_ids)
+        != set(run_ref_layout_allocation_ids)
+    ):
+        _raise_semantic_ir_invalid(
+            "semantic_ir_invalid: run_ref effects and result allocations must match exactly",
+            workflow_name=workflow_name,
+        )
 
     if surface is not None and imports is not None:
         _validate_materialized_view_semantic_authority_usage(
@@ -2339,6 +2421,70 @@ def _generated_promoted_effect_details(
                 "output_bundle_path": output_bundle_path,
             }
         )
+
+    if effect_kind == "run_ref":
+        if surface_step.kind is not SurfaceStepKind.RUN_REF:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` requires a run_ref surface",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        config = surface_step.run_ref
+        if type(config) is not RunRefStaticConfig:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` requires typed run_ref config authority",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        try:
+            validate_run_ref_static_config_authority(config)
+        except (TypeError, ValueError) as exc:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` has invalid run_ref config authority: {exc}",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        result_allocation_id = details.get("result_allocation_id")
+        output_bundle_path = details.get("output_bundle_path")
+        if (
+            not isinstance(result_allocation_id, str)
+            or not result_allocation_id
+            or not isinstance(output_bundle_path, str)
+            or not output_bundle_path
+        ):
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` requires run_ref allocation details",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        output_bundle = surface_step.common.output_bundle
+        expected = {
+            "run_ref_static_config_schema_version": config.record[
+                "schema_version"
+            ],
+            "run_ref_static_config_digest": config.digest,
+            "compiler_runtime_identity_digest": (
+                config.compiler_runtime_identity_digest
+            ),
+            "site_digest": config.site_digest,
+            "generated_result_type": config.generated_result_type,
+            "result_digest": config.result_digest,
+            "program_mode": config.program.record["mode"],
+            "result_allocation_id": result_allocation_id,
+            "output_bundle_path": output_bundle_path,
+        }
+        if (
+            set(details) != set(expected)
+            or any(details.get(name) != value for name, value in expected.items())
+            or not isinstance(output_bundle, Mapping)
+            or output_bundle.get("path") != output_bundle_path
+        ):
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` has inconsistent run_ref config or allocation lineage",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        return MappingProxyType(expected)
 
     if effect_kind == "materialize_view":
         if surface_step.kind is not SurfaceStepKind.MATERIALIZE_VIEW:
@@ -3573,6 +3719,123 @@ def _validate_pure_projection_effect(
     if not isinstance(output_bundle_path, str) or not output_bundle_path:
         _raise_semantic_ir_invalid(
             f"semantic_ir_invalid: pure projection effect `{effect.effect_id}` requires an output bundle path",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+
+
+def _validate_run_ref_effect(
+    *,
+    semantic_ir: SemanticWorkflowIR,
+    workflow: SemanticWorkflow,
+    workflow_name: str,
+    effect: SemanticEffectEntry,
+    ir: ExecutableWorkflow,
+    runtime_plan: WorkflowRuntimePlan,
+) -> None:
+    statement = workflow.statements[effect.statement_id]
+    if statement.step_kind != SurfaceStepKind.RUN_REF.value:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: run_ref effect `{effect.effect_id}` requires a run_ref statement",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if len(statement.executable_node_ids) != 1:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: run_ref effect `{effect.effect_id}` requires exactly one executable node",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    node_id = statement.executable_node_ids[0]
+    node = ir.nodes.get(node_id)
+    execution_kind = (
+        node.execution_kind
+        if isinstance(node, FinalizationStepNode)
+        else getattr(node, "kind", None)
+    )
+    config = getattr(node, "execution_config", None)
+    if (
+        execution_kind is not ExecutableNodeKind.RUN_REF
+        or type(config) is not RunRefStepConfig
+    ):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: run_ref effect `{effect.effect_id}` requires typed executable run_ref authority",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    try:
+        validate_run_ref_static_config_authority(config.run_ref)
+    except (TypeError, ValueError) as exc:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: run_ref effect `{effect.effect_id}` has invalid executable config authority: {exc}",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    config_digest = effect.details.get("run_ref_static_config_digest")
+    if config_digest != config.run_ref.digest:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: run_ref effect `{effect.effect_id}` config digest disagrees with executable authority",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    runtime_node = runtime_plan.nodes.get(node_id)
+    if (
+        runtime_node is None
+        or runtime_node.run_ref_config_digest != config_digest
+    ):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: run_ref effect `{effect.effect_id}` config digest disagrees with runtime-plan authority",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+
+    allocation_id = effect.details.get("result_allocation_id")
+    output_bundle_path = effect.details.get("output_bundle_path")
+    matching_layouts = tuple(
+        layout
+        for layout in semantic_ir.state_layout.values()
+        if layout.workflow_name == workflow_name
+        and layout.layout_kind == "run_ref_result_bundle"
+        and layout.details.get("allocation_id") == allocation_id
+    )
+    if len(matching_layouts) != 1:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: run_ref effect `{effect.effect_id}` requires exactly one result allocation",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    [result_layout] = matching_layouts
+    generated_input_name = result_layout.details.get("generated_input_name")
+    if (
+        result_layout.details.get("privacy") != "private_generated"
+        or result_layout.details.get("resume_scope") != "step_visit"
+        or result_layout.details.get("concrete_path_template")
+        != output_bundle_path
+        or not isinstance(generated_input_name, str)
+        or not generated_input_name
+    ):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: run_ref effect `{effect.effect_id}` has inconsistent result allocation lineage",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    entrypoint_layouts = tuple(
+        layout
+        for layout in semantic_ir.state_layout.values()
+        if layout.workflow_name == workflow_name
+        and layout.layout_kind == "entrypoint_managed_write_root"
+        and layout.details.get("generated_input_name") == generated_input_name
+    )
+    managed_input_layouts = tuple(
+        layout
+        for layout in semantic_ir.state_layout.values()
+        if layout.workflow_name == workflow_name
+        and layout.layout_kind == "managed_write_root_input"
+        and layout.details.get("input_name") == generated_input_name
+    )
+    if len(entrypoint_layouts) != 1 or len(managed_input_layouts) != 1:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: run_ref effect `{effect.effect_id}` requires one entrypoint and managed-root state row",
             workflow_name=workflow_name,
             subject_refs=_subject_refs_for_statement(workflow_name, statement),
         )

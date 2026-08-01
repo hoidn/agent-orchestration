@@ -46,7 +46,11 @@ from ..type_env import (
 )
 from .context import _compile_error, _LoweringContext, _TerminalResult
 from .generated_paths import allocate_generated_result_bundle
-from .origins import _origin_from_context_source, _record_step_origin
+from .origins import (
+    GeneratedSemanticEffectBinding,
+    _origin_from_context_source,
+    _record_step_origin,
+)
 from .pure_projection import (
     build_pure_projection_payload,
     is_pure_projection_expr,
@@ -689,6 +693,29 @@ def _lower_run_ref_operation(
         step_name=step_name,
         step_id=step_id,
         source=run_ref,
+    )
+    context.generated_semantic_effects.append(
+        GeneratedSemanticEffectBinding(
+            effect_key=f"run_ref:{step_id}",
+            step_id=step_id,
+            effect_kind="run_ref",
+            origin=context.step_spans[step_id],
+            details={
+                "run_ref_static_config_schema_version": config.record[
+                    "schema_version"
+                ],
+                "run_ref_static_config_digest": config.digest,
+                "compiler_runtime_identity_digest": (
+                    config.compiler_runtime_identity_digest
+                ),
+                "site_digest": config.site_digest,
+                "generated_result_type": config.generated_result_type,
+                "result_digest": config.result_digest,
+                "program_mode": config.program.record["mode"],
+                "result_allocation_id": allocation.allocation_id,
+                "output_bundle_path": allocation.concrete_path_template,
+            },
+        )
     )
     step = {
         "name": step_name,

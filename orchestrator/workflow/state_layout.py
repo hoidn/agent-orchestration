@@ -272,6 +272,7 @@ def derive_entrypoint_managed_write_root_allocations(
             not in {
                 GeneratedPathSemanticRole.COMMAND_RESULT_BUNDLE,
                 GeneratedPathSemanticRole.PROVIDER_RESULT_BUNDLE,
+                GeneratedPathSemanticRole.RUN_REF_RESULT_BUNDLE,
                 GeneratedPathSemanticRole.VARIANT_PROJECTION_BUNDLE,
                 GeneratedPathSemanticRole.PURE_PROJECTION_BUNDLE,
             }
