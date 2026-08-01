@@ -959,6 +959,9 @@ def test_run_ref_result_contract_is_not_publicly_constructible() -> None:
         expr,
         PrimitiveTypeRef("String"),
     )
+    with pytest.raises(TypeError):
+        GeneratedRunRefResultContract()
+
     malformed = {
         "schema": RUN_REF_RESULT_CONTRACT_SCHEMA,
         "envelope": {},

@@ -34,6 +34,12 @@ class GeneratedRunRefResultContract:
     digest: str
     type_ref: RecordTypeRef
 
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError(
+            "GeneratedRunRefResultContract must be created by "
+            "derive_run_ref_result_contract"
+        )
+
     @property
     def descriptor(self) -> dict[str, Any]:
         """Return a defensive copy of the canonical descriptor."""
