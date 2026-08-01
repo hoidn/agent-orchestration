@@ -3624,6 +3624,34 @@ def test_run_ref_executable_accepts_canonical_target_2_24_or_later(
     )
 
 
+def test_finalization_run_ref_uses_same_target_and_authority_gate() -> None:
+    _, executable, _, _ = _executable_run_ref_workflow()
+    [leaf] = executable.nodes.values()
+    finalization = executable_ir_module.FinalizationStepNode(
+        node_id="finally.run_child",
+        step_id="finally.run_child",
+        presentation_name="RunChild",
+        kind=executable_ir_module.ExecutableNodeKind.FINALIZATION_STEP,
+        execution_kind=executable_ir_module.ExecutableNodeKind.RUN_REF,
+        region=executable_ir_module.WorkflowRegion.FINALIZATION,
+        lexical_scope=(),
+        execution_config=leaf.execution_config,
+    )
+    finalization_ir = replace(
+        executable,
+        body_region=(),
+        finalization_region=(finalization.node_id,),
+        finalization_entry_node_id=finalization.node_id,
+        nodes=MappingProxyType({finalization.node_id: finalization}),
+    )
+
+    executable_ir_module.validate_executable_workflow(finalization_ir)
+    with pytest.raises(WorkflowValidationError, match="target DSL 2.24"):
+        executable_ir_module.validate_executable_workflow(
+            replace(finalization_ir, version="2.23")
+        )
+
+
 def test_run_ref_runtime_step_preserves_typed_config_carrier() -> None:
     _, executable, _, config = _executable_run_ref_workflow()
     [node] = executable.nodes.values()

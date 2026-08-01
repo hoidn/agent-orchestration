@@ -1057,25 +1057,6 @@ def _validate_node_shape(
                 workflow_name=workflow_name,
                 node=node,
             )
-        if isinstance(node.execution_config, RunRefStepConfig):
-            try:
-                validate_run_ref_static_config_authority(
-                    node.execution_config.run_ref
-                )
-            except (TypeError, ValueError) as exc:
-                _raise_executable_ir_invalid(
-                    "executable_ir_invalid: run_ref config authority is "
-                    f"invalid: {exc}",
-                    workflow_name=workflow_name,
-                    node=node,
-                )
-            if not _target_dsl_at_least_2_24(target_dsl_version):
-                _raise_executable_ir_invalid(
-                    "executable_ir_invalid: run_ref requires target DSL 2.24 "
-                    "or later",
-                    workflow_name=workflow_name,
-                    node=node,
-                )
     elif isinstance(node, CallBoundaryNode):
         if not isinstance(node.execution_config, CallStepConfig):
             _raise_executable_ir_invalid(
@@ -1139,6 +1120,14 @@ def _validate_node_shape(
                 node=node,
             )
 
+    if isinstance(node.execution_config, RunRefStepConfig):
+        _validate_run_ref_step_config(
+            node.execution_config,
+            workflow_name=workflow_name,
+            node=node,
+            target_dsl_version=target_dsl_version,
+        )
+
     if isinstance(node, FinalizationStepNode) and node.region is not WorkflowRegion.FINALIZATION:
         _raise_executable_ir_invalid(
             f"executable_ir_invalid: finalization node `{node.node_id}` must live in the finalization region",
@@ -1148,6 +1137,30 @@ def _validate_node_shape(
     if not isinstance(node, FinalizationStepNode) and node.region is WorkflowRegion.FINALIZATION:
         _raise_executable_ir_invalid(
             f"executable_ir_invalid: non-finalization node `{node.node_id}` must not declare finalization region membership",
+            workflow_name=workflow_name,
+            node=node,
+        )
+
+
+def _validate_run_ref_step_config(
+    config: RunRefStepConfig,
+    *,
+    workflow_name: str | None,
+    node: ExecutableNode,
+    target_dsl_version: str,
+) -> None:
+    try:
+        validate_run_ref_static_config_authority(config.run_ref)
+    except (TypeError, ValueError) as exc:
+        _raise_executable_ir_invalid(
+            "executable_ir_invalid: run_ref config authority is invalid: "
+            f"{exc}",
+            workflow_name=workflow_name,
+            node=node,
+        )
+    if not _target_dsl_at_least_2_24(target_dsl_version):
+        _raise_executable_ir_invalid(
+            "executable_ir_invalid: run_ref requires target DSL 2.24 or later",
             workflow_name=workflow_name,
             node=node,
         )
