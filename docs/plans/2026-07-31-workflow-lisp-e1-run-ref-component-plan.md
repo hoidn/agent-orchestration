@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** executing; E1 is owner-selected, Tasks 0–3 are closed, and
-  Task 4 is complete and Task 5 is the active implementation step
+- **Status:** executing; E1 is owner-selected, Tasks 0–5 are closed, and
+  Task 6 is the active implementation step
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E1 only — pinned-workspace child execution through
   `run-ref`
@@ -596,16 +596,29 @@ Fresh postcommit controls passed eight focused tests, and the task-level
 private child command; modify build artifact/provenance plumbing; create
 `tests/test_workflow_run_ref_bundle_transport.py`.
 
-- [ ] RED: missing/tampered/oversize/version-skewed pickle, closure, signature,
+- [x] RED: missing/tampered/oversize/version-skewed pickle, closure, signature,
       and canonical IR digests reject before decode/execution.
-- [ ] RED: an asset-using bundle with an imported call executes from staged
+- [x] RED: an asset-using bundle with an imported call executes from staged
       closure bytes after original source/assets are made unreadable; patched
       compiler/reader functions are never called.
-- [ ] Using Task 4's reachable mode-1 forms and closed step config, emit the
+- [x] Using Task 4's reachable mode-1 forms and closed step config, emit the
       closed capsule only for those forms, stage/relocate it, refreeze decoded
       mappings, and run existing cross-validators.
-- [ ] Run build/bundle/call/asset selectors, ordered reviews, commit, and
+- [x] Run build/bundle/call/asset selectors, ordered reviews, commit, and
       postcommit controls.
+
+Task 5 closed at exact reviewed tip
+`bf16b22a7259562542164573d108aa74c8c5f8f1`, tree
+`09d0a2f8ca917d27507015a2d275b3517da903a3`. The frontend now emits one
+content-addressed capsule only for reachable mode-1 targets, preserves exact
+compiler-read source and asset bytes, stages and relocates the closed graph,
+validates every bound digest before execution, and runs the private child over
+the ordinary loaded-bundle path without frontend reads. A compiler catalog
+wrapper correction prunes unused visible imports while preserving and
+validating actual authored call edges and cycles. Fresh postcommit controls
+passed 434 build, bundle, call, and asset tests. Ordered review returned
+`E1_TASK5_SPEC_APPROVED` and then distinct
+`E1_TASK5_QUALITY_APPROVED` against the exact tip.
 
 ## Task 6: Close mode-2 compilation and admissible-environment proof
 
