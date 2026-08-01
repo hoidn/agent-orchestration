@@ -410,6 +410,7 @@ class WorkflowCatalog:
     definitions_by_name: Mapping[str, WorkflowDef]
     imported_bundles_by_name: Mapping[str, "LoadedWorkflowBundle"]
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None
+    allow_transportable_input_boundaries: bool = False
 
 
 @dataclass(frozen=True)
@@ -808,6 +809,7 @@ def build_workflow_catalog(
     selected_entry_workflow_name: str | None = None,
     allow_collection_input_boundaries: bool = False,
     allow_collection_return_boundaries: bool = False,
+    allow_transportable_input_boundaries: bool = False,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
 ) -> WorkflowCatalog:
     """Build same-file workflow signatures before any body is typechecked."""
@@ -908,19 +910,24 @@ def build_workflow_catalog(
                 form_path=param.form_path,
                 expansion_stack=param.expansion_stack,
             )
-            param_analysis = analyze_workflow_boundary_type(
-                param_type,
-                source_path=(param.name,),
-                allow_top_level_workflow_ref=True,
-            )
-            param_diagnostic = _boundary_diagnostic(
-                workflow_name=workflow_def.name,
-                analysis=param_analysis,
-                span=param.span,
-                form_path=param.form_path,
-                expansion_stack=param.expansion_stack,
-                allow_collection_boundaries=allow_collection_input_boundaries,
-            )
+            param_diagnostic = None
+            if not (
+                allow_transportable_input_boundaries
+                and is_transportable_result_type(param_type)
+            ):
+                param_analysis = analyze_workflow_boundary_type(
+                    param_type,
+                    source_path=(param.name,),
+                    allow_top_level_workflow_ref=True,
+                )
+                param_diagnostic = _boundary_diagnostic(
+                    workflow_name=workflow_def.name,
+                    analysis=param_analysis,
+                    span=param.span,
+                    form_path=param.form_path,
+                    expansion_stack=param.expansion_stack,
+                    allow_collection_boundaries=allow_collection_input_boundaries,
+                )
             if param_diagnostic is not None:
                 diagnostics.append(param_diagnostic)
                 workflow_invalid = True
@@ -1108,6 +1115,7 @@ def build_workflow_catalog(
         definitions_by_name=definitions_by_name,
         imported_bundles_by_name=dict(imported_workflow_bundles or {}),
         family_profile_catalog=family_profile_catalog,
+        allow_transportable_input_boundaries=allow_transportable_input_boundaries,
     )
 
 

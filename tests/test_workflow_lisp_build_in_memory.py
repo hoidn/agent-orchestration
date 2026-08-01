@@ -58,6 +58,7 @@ PRODUCTION_REQUEST_CAPTURE_FIELDS = (
     "source_roots",
     "entry_workflow",
     "validation_profile",
+    "boundary_admission_profile",
     "lint_profile",
     "lowering_route",
     "provider_externs",
@@ -260,6 +261,7 @@ def _assert_exact_production_request_capture(
     request: object,
     configuration: object,
     validation_profile: object,
+    boundary_admission_profile: object,
 ) -> None:
     assert tuple(field.name for field in fields(capture)) == (
         PRODUCTION_REQUEST_CAPTURE_FIELDS
@@ -273,6 +275,7 @@ def _assert_exact_production_request_capture(
         tuple(path.resolve() for path in request.source_roots),
         request.entry_workflow,
         validation_profile,
+        boundary_admission_profile,
         request.lint_profile,
         configuration.lowering_route,
         configuration.provider_externs,
@@ -339,6 +342,9 @@ def test_production_request_capture_is_exact_ordered_and_immutable_after_loaders
         request=request,
         configuration=configuration,
         validation_profile=compiler.Stage3ValidationProfile.SHARED_CALLABLE,
+        boundary_admission_profile=(
+            compiler.WorkflowBoundaryAdmissionProfile.SHARED_CALLABLE
+        ),
     )
 
 
@@ -404,6 +410,9 @@ def test_same_production_request_capture_is_retained_on_success_and_language_err
         request=request,
         configuration=configuration,
         validation_profile=compiler.Stage3ValidationProfile.SHARED_CALLABLE,
+        boundary_admission_profile=(
+            compiler.WorkflowBoundaryAdmissionProfile.SHARED_CALLABLE
+        ),
     )
 
 

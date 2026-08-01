@@ -2389,6 +2389,9 @@ def _l3_serializable_result_identity(
             "source_roots": tuple(str(path) for path in capture.source_roots),
             "entry_workflow": capture.entry_workflow,
             "validation_profile": capture.validation_profile.value,
+            "boundary_admission_profile": (
+                capture.boundary_admission_profile.value
+            ),
             "lint_profile": capture.lint_profile,
             "lowering_route": capture.lowering_route.value,
             "provider_externs": dict(capture.provider_externs),

@@ -1024,7 +1024,12 @@ def _lower_one_workflow(
     object consumed by shared validation.
     """
 
-    inputs, outputs, boundary_projection = derive_workflow_signature_contracts(typed_workflow.signature)
+    inputs, outputs, boundary_projection = derive_workflow_signature_contracts(
+        typed_workflow.signature,
+        allow_transportable_inputs=(
+            workflow_catalog.allow_transportable_input_boundaries
+        ),
+    )
     authored_inputs = {name: dict(contract.definition) for name, contract in inputs.items()}
     authored_outputs = {name: dict(contract.definition) for name, contract in outputs.items()}
     is_generated_private_workflow = typed_workflow.definition.name in generated_private_workflow_names

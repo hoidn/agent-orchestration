@@ -74,6 +74,8 @@ from .command_boundaries import CertifiedAdapterBinding, ExternalToolBinding
 from .compiler import (
     LinkedStage3CompileResult,
     Stage3ValidationProfile,
+    WorkflowBoundaryAdmissionProfile,
+    _normalize_workflow_boundary_admission_profile,
     compile_stage3_entrypoint,
 )
 from .compiler_session import CompilerSession
@@ -125,6 +127,7 @@ class FrontendBuildRequest:
     source_path: Path
     source_roots: tuple[Path, ...] = ()
     entry_workflow: str | None = None
+    boundary_admission_profile: WorkflowBoundaryAdmissionProfile | str | None = None
     provider_externs_path: Path | None = None
     prompt_externs_path: Path | None = None
     imported_workflow_bundles_path: Path | None = None
@@ -144,6 +147,7 @@ class FrontendCompileRequestCapture:
     source_roots: tuple[Path, ...]
     entry_workflow: str | None
     validation_profile: Stage3ValidationProfile
+    boundary_admission_profile: WorkflowBoundaryAdmissionProfile
     lint_profile: str
     lowering_route: LoweringRoute
     provider_externs: Mapping[str, str]
@@ -640,6 +644,11 @@ def _capture_frontend_compile_request(
             source_roots=resolved_request.source_roots,
             entry_workflow=resolved_request.entry_workflow,
             validation_profile=Stage3ValidationProfile.SHARED_CALLABLE,
+            boundary_admission_profile=(
+                _normalize_workflow_boundary_admission_profile(
+                    resolved_request.boundary_admission_profile
+                )
+            ),
             lint_profile=resolved_request.lint_profile,
             lowering_route=normalize_lowering_route(
                 resolved_request.lowering_route
@@ -1040,6 +1049,9 @@ def _compile_entry(
         ),
         command_boundaries=compile_request_capture.command_boundaries,
         validation_profile=compile_request_capture.validation_profile,
+        boundary_admission_profile=(
+            compile_request_capture.boundary_admission_profile
+        ),
         workspace_root=compile_request_capture.workspace_root,
         lint_profile=compile_request_capture.lint_profile,
         lowering_route=compile_request_capture.lowering_route,

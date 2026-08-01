@@ -12,6 +12,7 @@ from orchestrator.workflow.run_ref.contracts import (
 
 from .build import FrontendBuildResult
 from .build_manifest_io import _json_data
+from .compiler import WorkflowBoundaryAdmissionProfile
 from .diagnostics import (
     LispFrontendDiagnostic,
     build_compile_diagnostics_document,
@@ -200,6 +201,12 @@ def build_accepted_compile_diagnostics_document(
         lowering_schema_version=result.manifest.lowering_schema_version,
         configuration_payload_digests=configuration_payload_digests,
         configuration_revisions=configuration_revisions,
+        boundary_admission_profile=(
+            result.compile_request_capture.boundary_admission_profile.value
+            if result.compile_request_capture.boundary_admission_profile
+            is WorkflowBoundaryAdmissionProfile.TRANSPORTABLE_CHILD
+            else None
+        ),
     )
     return build_compile_diagnostics_document(
         status="accepted",

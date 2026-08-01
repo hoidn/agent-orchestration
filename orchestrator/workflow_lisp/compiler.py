@@ -243,6 +243,32 @@ class Stage3ValidationProfile(str, Enum):
     DEDICATED_RUNTIME_PROOF = "dedicated_runtime_proof"
 
 
+class WorkflowBoundaryAdmissionProfile(str, Enum):
+    """Closed input-boundary lanes for full executable compilation."""
+
+    SHARED_CALLABLE = "shared_callable"
+    TRANSPORTABLE_CHILD = "transportable_child"
+
+
+def _normalize_workflow_boundary_admission_profile(
+    profile: WorkflowBoundaryAdmissionProfile | str | None,
+) -> WorkflowBoundaryAdmissionProfile:
+    if profile is None:
+        return WorkflowBoundaryAdmissionProfile.SHARED_CALLABLE
+    if isinstance(profile, WorkflowBoundaryAdmissionProfile):
+        return profile
+    profile_text = str(profile).strip()
+    try:
+        return WorkflowBoundaryAdmissionProfile[profile_text]
+    except KeyError as exc:
+        try:
+            return WorkflowBoundaryAdmissionProfile(profile_text.lower())
+        except ValueError as value_exc:
+            raise ValueError(
+                f"unknown workflow boundary admission profile `{profile}`"
+            ) from value_exc
+
+
 def _coerce_stage3_validation_profile(
     validation_profile: Stage3ValidationProfile | str,
 ) -> Stage3ValidationProfile:
@@ -540,6 +566,15 @@ def _linked_module_type_environment(
         raise KeyError(f"module `{module_name}` not present in linked compile result") from exc
 
 
+def linked_module_type_environment(
+    compile_result: LinkedStage1CompileResult | LinkedStage3CompileResult,
+    module_name: str,
+) -> FrontendTypeEnvironment:
+    """Return the compiler-owned linked type environment for one module."""
+
+    return _linked_module_type_environment(compile_result, module_name)[2]
+
+
 def compile_stage1_entrypoint(
     path: Path,
     *,
@@ -610,6 +645,7 @@ def compile_stage3_entrypoint(
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
     validate_shared: bool | None = None,
     validation_profile: Stage3ValidationProfile | str | None = None,
+    boundary_admission_profile: WorkflowBoundaryAdmissionProfile | str | None = None,
     workspace_root: Path | None = None,
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
@@ -630,6 +666,11 @@ def compile_stage3_entrypoint(
     normalized_validation_profile = _normalize_stage3_validation_profile(
         validate_shared=validate_shared,
         validation_profile=validation_profile,
+    )
+    normalized_boundary_admission_profile = (
+        _normalize_workflow_boundary_admission_profile(
+            boundary_admission_profile
+        )
     )
     if normalized_lowering_route in {LoweringRoute.WCC_M2, LoweringRoute.WCC_M3}:
         _raise_wcc_module_graph_unsupported(path, normalized_lowering_route)
@@ -652,6 +693,7 @@ def compile_stage3_entrypoint(
         imported_workflow_bundles=imported_workflow_bundles,
         command_boundaries=command_boundaries,
         validation_profile=normalized_validation_profile,
+        boundary_admission_profile=normalized_boundary_admission_profile,
         workspace_root=workspace_root or path.parent,
         lint_profile=lint_profile,
         lowering_route=normalized_lowering_route,
@@ -704,6 +746,7 @@ def compile_stage3_module(
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
     validate_shared: bool | None = None,
     validation_profile: Stage3ValidationProfile | str | None = None,
+    boundary_admission_profile: WorkflowBoundaryAdmissionProfile | str | None = None,
     workspace_root: Path | None = None,
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
@@ -719,6 +762,11 @@ def compile_stage3_module(
         validate_shared=validate_shared,
         validation_profile=validation_profile,
     )
+    normalized_boundary_admission_profile = (
+        _normalize_workflow_boundary_admission_profile(
+            boundary_admission_profile
+        )
+    )
     if _syntax_module_uses_module_graph(
         path,
         source_read_trace=source_read_trace,
@@ -733,6 +781,7 @@ def compile_stage3_module(
             imported_workflow_bundles=imported_workflow_bundles,
             command_boundaries=command_boundaries,
             validation_profile=normalized_validation_profile,
+            boundary_admission_profile=normalized_boundary_admission_profile,
             workspace_root=workspace_root,
             lint_profile=lint_profile,
             lowering_route=normalized_lowering_route,
@@ -749,6 +798,7 @@ def compile_stage3_module(
         imported_workflow_bundles=imported_workflow_bundles,
         command_boundaries=command_boundaries,
         validation_profile=normalized_validation_profile,
+        boundary_admission_profile=normalized_boundary_admission_profile,
         workspace_root=workspace_root or path.parent,
         lint_profile=lint_profile,
         lowering_route=normalized_lowering_route,
@@ -912,7 +962,14 @@ def _collect_stage3_required_lint_diagnostics(
                 else None
             ),
         ):
-            _inputs, _outputs, boundary_projection = derive_workflow_signature_contracts(signature)
+            _inputs, _outputs, boundary_projection = derive_workflow_signature_contracts(
+                signature,
+                allow_transportable_inputs=(
+                    workflow_catalog.allow_transportable_input_boundaries
+                    if workflow_catalog is not None
+                    else False
+                ),
+            )
             classification = classify_phase_family_boundary(
                 workflow_name=signature.name,
                 params=signature.params,
@@ -1273,6 +1330,7 @@ def _run_stage3_entrypoint_validation_pipeline(
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
     validate_shared: bool | None = None,
     validation_profile: Stage3ValidationProfile | None = None,
+    boundary_admission_profile: WorkflowBoundaryAdmissionProfile | str | None = None,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
@@ -1286,6 +1344,11 @@ def _run_stage3_entrypoint_validation_pipeline(
     normalized_validation_profile = _normalize_stage3_validation_profile(
         validate_shared=validate_shared,
         validation_profile=validation_profile,
+    )
+    normalized_boundary_admission_profile = (
+        _normalize_workflow_boundary_admission_profile(
+            boundary_admission_profile
+        )
     )
     normalized_lowering_route = normalize_lowering_route(lowering_route)
     graph = resolve_module_graph(
@@ -1316,6 +1379,7 @@ def _run_stage3_entrypoint_validation_pipeline(
             imported_workflow_bundles=imported_workflow_bundles,
             command_boundaries=command_boundaries,
             validation_profile=Stage3ValidationProfile.FRONTEND_ONLY,
+            boundary_admission_profile=normalized_boundary_admission_profile,
             workspace_root=workspace_root,
             lint_profile=lint_profile,
             lowering_route=normalized_lowering_route,
@@ -1633,6 +1697,7 @@ def _run_stage3_validation_pipeline(
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None,
     validate_shared: bool | None = None,
     validation_profile: Stage3ValidationProfile | None = None,
+    boundary_admission_profile: WorkflowBoundaryAdmissionProfile | str | None = None,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
@@ -1645,6 +1710,11 @@ def _run_stage3_validation_pipeline(
     normalized_validation_profile = _normalize_stage3_validation_profile(
         validate_shared=validate_shared,
         validation_profile=validation_profile,
+    )
+    normalized_boundary_admission_profile = (
+        _normalize_workflow_boundary_admission_profile(
+            boundary_admission_profile
+        )
     )
     normalized_lowering_route = normalize_lowering_route(lowering_route)
     effective_imported_workflow_bundles = dict(imported_workflow_bundles or {})
@@ -1709,6 +1779,10 @@ def _run_stage3_validation_pipeline(
             imported_workflow_bundles=effective_imported_workflow_bundles,
             allow_collection_input_boundaries=True,
             allow_collection_return_boundaries=True,
+            allow_transportable_input_boundaries=(
+                normalized_boundary_admission_profile
+                is WorkflowBoundaryAdmissionProfile.TRANSPORTABLE_CHILD
+            ),
             family_profile_catalog=family_profile_catalog,
         )
         procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
@@ -2265,6 +2339,7 @@ def _compile_stage3_graph(
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None,
     validate_shared: bool | None = None,
     validation_profile: Stage3ValidationProfile | str | None = None,
+    boundary_admission_profile: WorkflowBoundaryAdmissionProfile | str | None = None,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
@@ -2285,6 +2360,11 @@ def _compile_stage3_graph(
     normalized_validation_profile = _normalize_stage3_validation_profile(
         validate_shared=validate_shared,
         validation_profile=validation_profile,
+    )
+    normalized_boundary_admission_profile = (
+        _normalize_workflow_boundary_admission_profile(
+            boundary_admission_profile
+        )
     )
     export_surfaces = dict(graph.export_surfaces_by_name)
     exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
@@ -2463,6 +2543,10 @@ def _compile_stage3_graph(
             ),
             allow_collection_input_boundaries=True,
             allow_collection_return_boundaries=True,
+            allow_transportable_input_boundaries=(
+                normalized_boundary_admission_profile
+                is WorkflowBoundaryAdmissionProfile.TRANSPORTABLE_CHILD
+            ),
             family_profile_catalog=family_profile_catalog,
         )
         function_catalog = build_function_catalog(

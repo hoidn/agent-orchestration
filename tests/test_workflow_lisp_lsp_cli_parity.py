@@ -53,6 +53,7 @@ REQUEST_IDENTITY_FIELDS = (
     "source_roots",
     "entry_workflow",
     "validation_profile",
+    "boundary_admission_profile",
     "lint_profile",
     "lowering_route",
     "provider_externs",
@@ -396,6 +397,10 @@ def test_l3_listed_and_unlisted_requests_match_real_cli_f2_capture(
     assert cli_capture.source_roots == caller_roots
     assert cli_capture.entry_workflow == entry_workflow
     assert cli_capture.validation_profile is lsp_capture.validation_profile
+    assert (
+        cli_capture.boundary_admission_profile
+        is lsp_capture.boundary_admission_profile
+    )
     assert cli_capture.lint_profile == lsp_capture.lint_profile
     assert cli_capture.lowering_route == lsp_capture.lowering_route
     assert cli_capture.provider_externs == lsp_capture.provider_externs
@@ -591,6 +596,7 @@ def test_request_capture_rejects_every_source_root_shape_delta_in_both_direction
         ("workspace_root", Path("/replacement/workspace")),
         ("entry_workflow", "replacement-entry"),
         ("validation_profile", "frontend_only"),
+        ("boundary_admission_profile", "transportable_child"),
         ("lint_profile", "replacement-lint"),
         ("lowering_route", "legacy"),
         ("provider_externs", (("replacement-provider", "value"),)),

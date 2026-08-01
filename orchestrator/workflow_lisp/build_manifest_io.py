@@ -127,6 +127,7 @@ def _resolve_request(request: FrontendBuildRequest) -> FrontendBuildRequest:
         source_path=source_path,
         source_roots=source_roots,
         entry_workflow=request.entry_workflow,
+        boundary_admission_profile=request.boundary_admission_profile,
         provider_externs_path=request.provider_externs_path.resolve() if request.provider_externs_path else None,
         prompt_externs_path=request.prompt_externs_path.resolve() if request.prompt_externs_path else None,
         imported_workflow_bundles_path=request.imported_workflow_bundles_path.resolve()

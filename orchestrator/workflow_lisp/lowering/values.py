@@ -152,7 +152,15 @@ def _build_record_local_value(type_ref: RecordTypeRef, *, generated_name: str) -
         field_type = type_ref.field_types[field.name]
         leaf_name = f"{generated_name}__{field.name}"
         if isinstance(field_type, RecordTypeRef):
-            local_value[field.name] = _build_record_local_value(field_type, generated_name=leaf_name)
+            local_value[field.name] = _build_record_local_value(
+                field_type,
+                generated_name=leaf_name,
+            )
+        elif isinstance(field_type, UnionTypeRef):
+            local_value[field.name] = _build_union_local_value(
+                field_type,
+                generated_name=leaf_name,
+            )
         else:
             local_value[field.name] = f"inputs.{leaf_name}"
     return local_value
@@ -488,11 +496,11 @@ def _flatten_boundary_leaf_paths(
 
     if isinstance(type_ref, UnionTypeRef):
         return tuple(
-            (field.generated_name, field.source_path[1:])
+            (field.generated_name, field_path + field.source_path[1:])
             for field in derive_workflow_boundary_fields(
                 type_ref,
                 generated_name=generated_name,
-                source_path=("return",),
+                source_path=(generated_name,),
                 span=type_ref.definition.span,
                 form_path=("workflow-lisp", "defunion", type_ref.name),
             )
@@ -502,7 +510,7 @@ def _flatten_boundary_leaf_paths(
         field_type = type_ref.field_types[field.name]
         next_generated_name = f"{generated_name}__{field.name}"
         next_field_path = field_path + (field.name,)
-        if isinstance(field_type, RecordTypeRef):
+        if isinstance(field_type, (RecordTypeRef, UnionTypeRef)):
             flattened.extend(
                 _flatten_boundary_leaf_paths(
                     field_type,

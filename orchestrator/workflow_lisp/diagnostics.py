@@ -588,6 +588,7 @@ def build_normalized_program_identity(
     lowering_schema_version: int,
     configuration_payload_digests: Mapping[str, str],
     configuration_revisions: Iterable[Mapping[str, object]],
+    boundary_admission_profile: str | None = None,
 ) -> dict[str, object]:
     """Build the path-independent identity exposed by machine compilation."""
 
@@ -644,8 +645,16 @@ def build_normalized_program_identity(
         key=lambda row: str(row["role"]).encode("utf-8"),
     )
     selected_entry_value = _canonical_selected_entry(selected_entry)
+    if boundary_admission_profile is not None and boundary_admission_profile != (
+        "transportable_child"
+    ):
+        raise ValueError("boundary admission profile is invalid")
     components = {
-        "schema_version": "workflow_lisp_program_identity.v1",
+        "schema_version": (
+            "workflow_lisp_program_identity.v1"
+            if boundary_admission_profile is None
+            else "workflow_lisp_program_identity.v2"
+        ),
         "compiler_runtime_identity": compiler_runtime_identity,
         "module_source_revisions": module_rows,
         "compiler_source_revisions": compiler_source_rows,
@@ -656,6 +665,8 @@ def build_normalized_program_identity(
         "configuration_payload_digests": payload_digests,
         "configuration_revisions": revision_rows,
     }
+    if boundary_admission_profile is not None:
+        components["boundary_admission_profile"] = boundary_admission_profile
     return {
         **components,
         "digest": canonical_sha256(components),
@@ -684,7 +695,10 @@ def build_compile_diagnostics_document(
         raise ValueError("rejected compile diagnostics cannot carry accepted fields")
     if status == "accepted":
         selected_entry_value = _canonical_selected_entry(selected_entry or {})
-        if set(normalized_program_identity or ()) != {
+        identity_schema = (normalized_program_identity or {}).get(
+            "schema_version"
+        )
+        expected_identity_fields = {
             "schema_version",
             "digest",
             "compiler_runtime_identity",
@@ -696,13 +710,13 @@ def build_compile_diagnostics_document(
             "lowering_schema_version",
             "configuration_payload_digests",
             "configuration_revisions",
-        }:
-            raise ValueError("normalized program identity has an invalid shape")
-        if (
-            (normalized_program_identity or {}).get("schema_version")
-            != "workflow_lisp_program_identity.v1"
-        ):
+        }
+        if identity_schema == "workflow_lisp_program_identity.v2":
+            expected_identity_fields.add("boundary_admission_profile")
+        elif identity_schema != "workflow_lisp_program_identity.v1":
             raise ValueError("normalized program identity version is invalid")
+        if set(normalized_program_identity or ()) != expected_identity_fields:
+            raise ValueError("normalized program identity has an invalid shape")
         identity = dict(normalized_program_identity or {})
         identity_digest = identity.pop("digest", None)
         if identity_digest != canonical_sha256(identity):
@@ -731,6 +745,11 @@ def build_compile_diagnostics_document(
                 ),
                 configuration_revisions=identity.get(
                     "configuration_revisions", ()
+                ),
+                boundary_admission_profile=(
+                    identity.get("boundary_admission_profile")
+                    if identity_schema == "workflow_lisp_program_identity.v2"
+                    else None
                 ),
             )
         except (KeyError, TypeError) as exc:

@@ -513,6 +513,73 @@ def test_normalized_program_identity_canonicalizes_and_rejects_duplicate_vectors
             build(**duplicate)
 
 
+def test_candidate_boundary_program_identity_v2_is_closed_and_tamper_checked() -> None:
+    diagnostics_module = importlib.import_module(
+        "orchestrator.workflow_lisp.diagnostics"
+    )
+    build_identity = diagnostics_module.build_normalized_program_identity
+    build_document = diagnostics_module.build_compile_diagnostics_document
+    selected_entry = {
+        "selected_name": "run",
+        "canonical_name": "candidate::run",
+        "signature": {
+            "parameters": [],
+            "return_type": "Value",
+            "input_contracts": {},
+            "output_contracts": {},
+        },
+    }
+    identity = build_identity(
+        compiler_runtime_identity=f"sha256:{'a' * 64}",
+        module_source_revisions=(
+            {"module_name": "candidate", "source_sha256": f"sha256:{'b' * 64}"},
+        ),
+        compiler_source_revisions=(
+            {
+                "root_role": "source_root:0",
+                "relative_path": "candidate.orc",
+                "source_sha256": f"sha256:{'b' * 64}",
+            },
+        ),
+        imported_bundle_bindings=(),
+        selected_entry=selected_entry,
+        lowering_route="wcc_m4",
+        lowering_schema_version=4,
+        configuration_payload_digests={
+            "provider_externs": f"sha256:{'c' * 64}",
+            "prompt_externs": f"sha256:{'d' * 64}",
+            "command_boundaries": f"sha256:{'e' * 64}",
+        },
+        configuration_revisions=(
+            {"role": "provider_externs", "source_sha256": None},
+            {"role": "prompt_externs", "source_sha256": None},
+            {"role": "command_boundaries", "source_sha256": None},
+        ),
+        boundary_admission_profile="transportable_child",
+    )
+
+    assert identity["schema_version"] == "workflow_lisp_program_identity.v2"
+    assert identity["boundary_admission_profile"] == "transportable_child"
+    assert build_document(
+        status="accepted",
+        diagnostics=(),
+        selected_entry=selected_entry,
+        normalized_program_identity=identity,
+    )["normalized_program_identity"] == identity
+
+    tampered = {**identity, "boundary_admission_profile": "shared_callable"}
+    tampered["digest"] = canonical_sha256(
+        {key: value for key, value in tampered.items() if key != "digest"}
+    )
+    with pytest.raises(ValueError, match="boundary admission profile"):
+        build_document(
+            status="accepted",
+            diagnostics=(),
+            selected_entry=selected_entry,
+            normalized_program_identity=tampered,
+        )
+
+
 @pytest.mark.parametrize(
     ("status", "selected_entry", "program_identity"),
     [
