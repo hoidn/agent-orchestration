@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** executing; E1 is owner-selected, Tasks 0–1 are closed, and
-  Task 2 is the active implementation step
+- **Status:** executing; E1 is owner-selected, Tasks 0–2 are closed, and
+  Task 3 is the active implementation step
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E1 only — pinned-workspace child execution through
   `run-ref`
@@ -472,16 +472,27 @@ remain absent.
 **Files:** create `orchestrator/workflow/run_ref/{contracts,source,workspace}.py`;
 create `tests/test_workflow_run_ref_source.py` and fixture repositories.
 
-- [ ] RED: locator/revision separation, changed-same-path compiler input,
+- [x] RED: locator/revision separation, changed-same-path compiler input,
       equal-content/different-root normalized identity, exact checkout,
       mirror reuse, no post-seal fetch, preexisting workspace, submodule/LFS,
       setup identity, symlink, and special-entry cases.
-- [ ] Implement canonical identities, locked bare mirrors, ordinary detached
+- [x] Implement canonical identities, locked bare mirrors, ordinary detached
       clones, setup evidence, and reusable generic tree-freeze primitives.
-- [ ] Prove no Git worktree command is used and no source fetch occurs after
+- [x] Prove no Git worktree command is used and no source fetch occurs after
       sealing.
-- [ ] Run source/materialization/property selectors, ordered reviews, commit,
+- [x] Run source/materialization/property selectors, ordered reviews, commit,
       and postcommit controls.
+
+Task 2 landed its source/materialization candidate at
+`686fee846ddc8a32b171a7b30abe8997d27d2673`, tree
+`97df8512c3f045a9241f198a17f81c9c6cb6a3b1`. The first quality audit found
+bounded exception-closure, file-stability, compiler-symlink identity, and test
+oracle gaps. Their TDD correction landed at
+`91ce4090356c80367977fc5ceb6c9fa81676ec41`, tree
+`c886f7385d4e8d84e568f33c0d1f186337534a1d`. Fresh correction controls passed
+132 source tests, 140 source plus E1 contract/hermeticity tests, and 203 source
+plus routing tests. Ordered replay then returned `E1_TASK2_SPEC_APPROVED` and
+distinct `E1_TASK2_QUALITY_APPROVED` against the exact correction commit.
 
 ## Task 3: Add the structured compile-diagnostics API
 
