@@ -2689,7 +2689,7 @@ def test_prompt_identity_normative_and_authoring_surfaces_ship_q3() -> None:
     ).read_text(encoding="utf-8")
 
     normalized_master = _normalized_routing_text(master)
-    assert "v1.1 through v2.23" in normalized_master
+    assert "v1.1 through v2.24" in normalized_master
     assert "v2.22 adds direct fragment prompt attempt identity" in (
         normalized_master
     )
