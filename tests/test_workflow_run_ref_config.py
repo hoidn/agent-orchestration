@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import FrozenInstanceError, replace
+import hashlib
 import json
 import math
 import subprocess
@@ -41,6 +42,98 @@ from orchestrator.workflow.run_ref.source import (
 COMPILER_IDENTITY = "sha256:" + "c" * 64
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 _AUTO_RETURN_REFINEMENT = object()
+_DEFAULT_RESULT_DESCRIPTOR = object()
+_FIXED_RESULT_DESCRIPTOR_BYTES = (
+    b'{"envelope":{"fields":[{"name":"value","type":{"kind":"primitive","name":"Bool"}},{"'
+    b'name":"workspace_delta","type":{"fields":[{"name":"base","type":{"fields":[{"name":"'
+    b'digest","type":{"kind":"primitive","name":"String"}},{"name":"normalized_locator","t'
+    b'ype":{"kind":"primitive","name":"String"}},{"name":"resolved_commit_sha","type":{"ki'
+    b'nd":"primitive","name":"String"}},{"name":"materializer_version","type":{"kind":"pri'
+    b'mitive","name":"String"}},{"name":"submodule_policy","type":{"kind":"primitive","nam'
+    b'e":"String"}},{"name":"lfs_policy","type":{"kind":"primitive","name":"String"}},{"na'
+    b'me":"authored_setup_identity","type":{"kind":"primitive","name":"String"}}],"kind":"'
+    b'record","name":"RepositoryRevisionId"}},{"name":"changed_files","type":{"item":{"fie'
+    b'lds":[{"name":"path","type":{"kind":"primitive","name":"String"}},{"name":"kind","ty'
+    b'pe":{"kind":"primitive","name":"String"}},{"name":"mode","type":{"kind":"primitive",'
+    b'"name":"Int"}},{"name":"size","type":{"kind":"primitive","name":"Int"}},{"name":"old'
+    b'_sha256","type":{"item":{"kind":"primitive","name":"String"},"kind":"optional"}},{"n'
+    b'ame":"new_sha256","type":{"item":{"kind":"primitive","name":"String"},"kind":"option'
+    b'al"}},{"name":"link_target","type":{"item":{"kind":"primitive","name":"String"},"kin'
+    b'd":"optional"}}],"kind":"record","name":"WorkspaceEntryDelta"},"kind":"list"}},{"nam'
+    b'e":"deleted_files","type":{"item":{"fields":[{"name":"path","type":{"kind":"primitiv'
+    b'e","name":"String"}},{"name":"kind","type":{"kind":"primitive","name":"String"}},{"n'
+    b'ame":"mode","type":{"kind":"primitive","name":"Int"}},{"name":"size","type":{"kind":'
+    b'"primitive","name":"Int"}},{"name":"old_sha256","type":{"item":{"kind":"primitive","'
+    b'name":"String"},"kind":"optional"}},{"name":"new_sha256","type":{"item":{"kind":"pri'
+    b'mitive","name":"String"},"kind":"optional"}},{"name":"link_target","type":{"item":{"'
+    b'kind":"primitive","name":"String"},"kind":"optional"}}],"kind":"record","name":"Work'
+    b'spaceEntryDelta"},"kind":"list"}},{"name":"untracked_files","type":{"item":{"fields"'
+    b':[{"name":"path","type":{"kind":"primitive","name":"String"}},{"name":"kind","type":'
+    b'{"kind":"primitive","name":"String"}},{"name":"mode","type":{"kind":"primitive","nam'
+    b'e":"Int"}},{"name":"size","type":{"kind":"primitive","name":"Int"}},{"name":"old_sha'
+    b'256","type":{"item":{"kind":"primitive","name":"String"},"kind":"optional"}},{"name"'
+    b':"new_sha256","type":{"item":{"kind":"primitive","name":"String"},"kind":"optional"}'
+    b'},{"name":"link_target","type":{"item":{"kind":"primitive","name":"String"},"kind":"'
+    b'optional"}}],"kind":"record","name":"WorkspaceEntryDelta"},"kind":"list"}},{"name":"'
+    b'normalized_diff","type":{"fields":[{"name":"entries","type":{"item":{"fields":[{"nam'
+    b'e":"path","type":{"kind":"primitive","name":"String"}},{"name":"text","type":{"kind"'
+    b':"primitive","name":"String"}},{"name":"truncated","type":{"kind":"primitive","name"'
+    b':"Bool"}},{"name":"omitted_bytes","type":{"kind":"primitive","name":"Int"}}],"kind":'
+    b'"record","name":"NormalizedTextDiffEntry"},"kind":"list"}},{"name":"catalog_digest",'
+    b'"type":{"kind":"primitive","name":"String"}},{"name":"truncated","type":{"kind":"pri'
+    b'mitive","name":"Bool"}},{"name":"omitted_bytes","type":{"kind":"primitive","name":"I'
+    b'nt"}},{"name":"omitted_entries","type":{"kind":"primitive","name":"Int"}}],"kind":"r'
+    b'ecord","name":"NormalizedWorkspaceDiff"}},{"name":"declared_artifacts","type":{"item'
+    b'":{"fields":[{"name":"name","type":{"kind":"primitive","name":"String"}},{"name":"pa'
+    b'th","type":{"kind":"primitive","name":"String"}},{"name":"kind","type":{"kind":"prim'
+    b'itive","name":"String"}},{"name":"mode","type":{"kind":"primitive","name":"Int"}},{"'
+    b'name":"size","type":{"kind":"primitive","name":"Int"}},{"name":"sha256","type":{"ite'
+    b'm":{"kind":"primitive","name":"String"},"kind":"optional"}},{"name":"link_target","t'
+    b'ype":{"item":{"kind":"primitive","name":"String"},"kind":"optional"}}],"kind":"recor'
+    b'd","name":"DeclaredWorkspaceArtifact"},"kind":"list"}}],"kind":"record","name":"Work'
+    b'spaceDelta"}},{"name":"accounting","type":{"fields":[{"name":"child_run_id","type":{'
+    b'"kind":"primitive","name":"RunId"}},{"name":"attempt_ordinal","type":{"kind":"primit'
+    b'ive","name":"Int"}},{"name":"terminal_status","type":{"kind":"primitive","name":"Str'
+    b'ing"}},{"name":"elapsed_ms","type":{"kind":"primitive","name":"Int"}},{"name":"setup'
+    b'_ms","type":{"kind":"primitive","name":"Int"}},{"name":"compile_ms","type":{"kind":"'
+    b'primitive","name":"Int"}},{"name":"provider_attempts","type":{"kind":"primitive","na'
+    b'me":"Value"}},{"name":"token_usage","type":{"kind":"primitive","name":"Value"}},{"na'
+    b'me":"cost","type":{"kind":"primitive","name":"Value"}}],"kind":"record","name":"RunR'
+    b'efAccounting"}}],"kind":"record","name":"RunRefResult$6c347f1d65bf55f7"},"schema":"r'
+    b'un_ref_result_contract.v1"}'
+)
+_FIXED_RESULT_DESCRIPTOR = json.loads(_FIXED_RESULT_DESCRIPTOR_BYTES)
+_FIXED_RESULT_DIGEST = (
+    "sha256:8909a2b1af48d21deec5e5413be2b35253f0622cb3aa2b3bbf4c6067246f6211"
+)
+_TRANSPORTABLE_ROOT_DESCRIPTORS = (
+    {"kind": "primitive", "name": "Bool"},
+    {
+        "kind": "record",
+        "name": "ChildRecord",
+        "fields": [
+            {
+                "name": "value",
+                "type": {"kind": "primitive", "name": "String"},
+            }
+        ],
+    },
+    {"kind": "union", "name": "ChildUnion", "variants": [{"name": "OK", "fields": []}]},
+    {"kind": "list", "item": {"kind": "primitive", "name": "String"}},
+    {
+        "kind": "map",
+        "key": {"kind": "primitive", "name": "String"},
+        "value": {"kind": "primitive", "name": "Int"},
+    },
+    {"kind": "optional", "item": {"kind": "primitive", "name": "String"}},
+    {
+        "kind": "path",
+        "name": "ChildPath",
+        "under": "artifacts/work",
+        "must_exist_target": False,
+    },
+    {"kind": "primitive", "name": "Value"},
+)
 
 
 def _source() -> SourceRequest:
@@ -58,22 +151,19 @@ def _source() -> SourceRequest:
     )
 
 
-def _compiler_contract(return_index: int = 0):
-    from tests.test_workflow_lisp_run_ref import (
-        _mode_one_expr,
-        _run_ref_result_contract,
-        _transportable_types,
-    )
-
-    expr = _mode_one_expr()
-    value_type = _transportable_types(expr.span)[return_index]
-    contract, _, type_env = _run_ref_result_contract(expr, value_type)
-    return contract, value_type, type_env
-
-
 def _site_digest(result_descriptor: dict[str, object]) -> str:
     generated_name = result_descriptor["envelope"]["name"]
     return generated_name.removeprefix("RunRefResult$") + "0" * 48
+
+
+def _result_contract(
+    value_descriptor=_DEFAULT_RESULT_DESCRIPTOR,
+) -> tuple[dict[str, object], str]:
+    descriptor = deepcopy(_FIXED_RESULT_DESCRIPTOR)
+    if value_descriptor is _DEFAULT_RESULT_DESCRIPTOR:
+        return descriptor, _FIXED_RESULT_DIGEST
+    descriptor["envelope"]["fields"][0]["type"] = deepcopy(value_descriptor)
+    return descriptor, canonical_sha256(descriptor)
 
 
 def _inputs() -> tuple[RunRefInput, ...]:
@@ -107,13 +197,12 @@ def _inputs() -> tuple[RunRefInput, ...]:
 def _config(
     *,
     mode: str = "bundle",
-    return_index: int = 0,
+    value_descriptor=_DEFAULT_RESULT_DESCRIPTOR,
     inputs=None,
     source: SourceRequest | None = None,
     return_refinement=_AUTO_RETURN_REFINEMENT,
 ):
-    contract, _, _ = _compiler_contract(return_index)
-    descriptor = contract.descriptor
+    descriptor, result_digest = _result_contract(value_descriptor)
     program = (
         BundleProgram(workflow_name="imported.module/child")
         if mode == "bundle"
@@ -134,7 +223,22 @@ def _config(
         program=program,
         inputs=_inputs() if inputs is None else inputs,
         result_descriptor=descriptor,
-        result_digest=contract.digest,
+        result_digest=result_digest,
+    )
+
+
+def test_local_result_descriptor_fixture_has_independent_canonical_digest() -> None:
+    independently_encoded = json.dumps(
+        _FIXED_RESULT_DESCRIPTOR,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    assert independently_encoded == _FIXED_RESULT_DESCRIPTOR_BYTES
+    assert (
+        "sha256:" + hashlib.sha256(independently_encoded).hexdigest()
+        == _FIXED_RESULT_DIGEST
     )
 
 
@@ -197,24 +301,24 @@ def test_static_config_both_program_modes_have_closed_distinct_shapes() -> None:
 def test_path_program_omitted_refinement_is_null_only_for_default_value() -> None:
     omitted = _config(
         mode="path",
-        return_index=7,
+        value_descriptor=_TRANSPORTABLE_ROOT_DESCRIPTORS[7],
         return_refinement=None,
     )
 
     assert omitted.record["program"]["return_refinement"] is None
     with pytest.raises(ValueError):
-        _config(mode="path", return_index=0, return_refinement=None)
+        _config(mode="path", return_refinement=None)
 
 
 def test_path_program_distinguishes_omitted_and_explicit_value_refinement() -> None:
     omitted = _config(
         mode="path",
-        return_index=7,
+        value_descriptor=_TRANSPORTABLE_ROOT_DESCRIPTORS[7],
         return_refinement=None,
     )
     explicit = _config(
         mode="path",
-        return_index=7,
+        value_descriptor=_TRANSPORTABLE_ROOT_DESCRIPTORS[7],
         return_refinement={"kind": "primitive", "name": "Value"},
     )
 
@@ -274,16 +378,15 @@ def test_path_program_refinement_must_exactly_match_result_value_descriptor() ->
     with pytest.raises(ValueError):
         _config(
             mode="path",
-            return_index=0,
             return_refinement={"kind": "primitive", "name": "String"},
         )
 
 
-@pytest.mark.parametrize("return_index", range(8))
+@pytest.mark.parametrize("value_descriptor", _TRANSPORTABLE_ROOT_DESCRIPTORS)
 def test_static_config_accepts_all_transportable_result_descriptor_roots(
-    return_index: int,
+    value_descriptor,
 ) -> None:
-    config = _config(return_index=return_index)
+    config = _config(value_descriptor=value_descriptor)
 
     validate_run_ref_result_descriptor(
         config.result_descriptor,
@@ -342,21 +445,13 @@ def test_static_config_and_input_views_are_defensive_and_immutable() -> None:
             RunRefStaticConfig(*args, **kwargs)
 
 
-@pytest.mark.parametrize("return_index", range(8))
+@pytest.mark.parametrize("type_descriptor", _TRANSPORTABLE_ROOT_DESCRIPTORS)
 def test_static_inputs_accept_all_transportable_descriptor_roots(
-    return_index: int,
+    type_descriptor,
 ) -> None:
-    from orchestrator.workflow_lisp.normalized_type_descriptor import (
-        compiler_normalized_type_descriptor,
-    )
-
-    _, value_type, type_env = _compiler_contract(return_index)
     row = RunRefInput(
         name="value",
-        type_descriptor=compiler_normalized_type_descriptor(
-            value_type,
-            type_env=type_env,
-        ),
+        type_descriptor=type_descriptor,
         binding=ReferenceBinding("inputs.value"),
     )
 
@@ -745,6 +840,29 @@ def test_every_root_wire_field_is_config_digest_bearing() -> None:
     assert all(digest != base.digest for digest in digests)
 
 
+def _live_compiler_result_contract():
+    from tests.test_workflow_lisp_run_ref import (
+        _mode_one_expr,
+        _run_ref_result_contract,
+        _transportable_types,
+    )
+
+    expr = _mode_one_expr()
+    value_type = _transportable_types(expr.span)[0]
+    return _run_ref_result_contract(expr, value_type)[0]
+
+
+def test_compiler_to_neutral_result_contract_matches_fixed_literal() -> None:
+    contract = _live_compiler_result_contract()
+
+    assert contract.descriptor == _FIXED_RESULT_DESCRIPTOR
+    assert contract.digest == _FIXED_RESULT_DIGEST
+    validate_run_ref_result_descriptor(
+        deepcopy(_FIXED_RESULT_DESCRIPTOR),
+        expected_digest=_FIXED_RESULT_DIGEST,
+    )
+
+
 def test_compiler_result_builder_cross_checks_neutral_descriptor_validator(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -760,17 +878,90 @@ def test_compiler_result_builder_cross_checks_neutral_descriptor_validator(
     )
 
     with pytest.raises(ValueError):
-        _compiler_contract()
+        _live_compiler_result_contract()
 
 
-def test_compiler_result_builder_imports_narrow_neutral_result_owner() -> None:
-    import inspect
-    import orchestrator.workflow_lisp.run_ref_result_contract as result_contract_module
+def test_compiler_result_contract_runs_with_forbidden_config_import_blocked() -> None:
+    check = subprocess.run(
+        (
+            sys.executable,
+            "-c",
+            r'''
+import importlib
+import importlib.abc
+import sys
 
-    source = inspect.getsource(result_contract_module)
+blocked_name = "orchestrator.workflow.run_ref.config"
 
-    assert "workflow.run_ref.result_contract" in source
-    assert "workflow.run_ref.config" not in source
+class BlockedImport(RuntimeError):
+    pass
+
+class Blocker(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == blocked_name:
+            raise BlockedImport(fullname)
+        return None
+
+sys.meta_path.insert(0, Blocker())
+from orchestrator.workflow_lisp.definitions import RecordDef, RecordField
+from orchestrator.workflow_lisp.run_ref_result_contract import (
+    derive_run_ref_result_contract,
+)
+from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+from orchestrator.workflow_lisp.type_env import (
+    FrontendTypeEnvironment,
+    PrimitiveTypeRef,
+    RecordTypeRef,
+)
+from orchestrator.workflow_lisp.typecheck_run_ref import compiler_run_ref_fixed_types
+
+primitive_names = ("String", "Int", "Bool", "Value", "RunId")
+primitives = {name: PrimitiveTypeRef(name) for name in primitive_names}
+type_env = FrontendTypeEnvironment(primitives, target_dsl_version="2.24")
+fixed = dict(compiler_run_ref_fixed_types(type_env))
+position = SourcePosition(
+    path="<prelude:dependency-probe>", line=1, column=1, offset=0
+)
+span = SourceSpan(start=position, end=position)
+name = "RunRefResult$0123456789abcdef"
+definition = RecordDef(
+    name=name,
+    fields=tuple(
+        RecordField(name=field_name, type_name=type_ref.name, span=span)
+        for field_name, type_ref in (
+            ("value", primitives["Bool"]),
+            ("workspace_delta", fixed["WorkspaceDelta"]),
+            ("accounting", fixed["RunRefAccounting"]),
+        )
+    ),
+    span=span,
+)
+result_type = RecordTypeRef(
+    name=name,
+    definition=definition,
+    field_types={
+        "value": primitives["Bool"],
+        "workspace_delta": fixed["WorkspaceDelta"],
+        "accounting": fixed["RunRefAccounting"],
+    },
+)
+contract = derive_run_ref_result_contract(result_type, type_env=type_env)
+assert contract.digest.startswith("sha256:")
+assert blocked_name not in sys.modules
+try:
+    importlib.import_module(blocked_name)
+except BlockedImport:
+    pass
+else:
+    raise AssertionError("forbidden config import was not blocked")
+''',
+        ),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert check.returncode == 0, check.stderr
 
 
 def test_normalized_descriptor_validator_is_reexported_from_neutral_owner() -> None:
@@ -784,15 +975,60 @@ def test_normalized_descriptor_validator_is_reexported_from_neutral_owner() -> N
     assert compiler_validator is neutral_validator
 
 
-def test_neutral_config_import_does_not_load_workflow_lisp_or_ir() -> None:
+def test_neutral_config_import_succeeds_with_workflow_lisp_and_ir_blocked() -> None:
     check = subprocess.run(
         (
             sys.executable,
             "-c",
-            "import inspect, sys; import orchestrator.workflow.run_ref.config as config; "
-            "assert not any(name.startswith('orchestrator.workflow_lisp') for name in sys.modules); "
-            "source = inspect.getsource(config); "
-            "assert 'semantic_ir' not in source and 'executable_ir' not in source",
+            r'''
+import importlib
+import importlib.abc
+import sys
+
+# Isolate the neutral module's own dependency closure from the repository's
+# pre-existing eager workflow-package compatibility exports.
+import orchestrator.workflow
+
+config_name = "orchestrator.workflow.run_ref.config"
+neutral_children = {
+    config_name,
+    "orchestrator.workflow.run_ref.result_contract",
+    "orchestrator.workflow.type_descriptor",
+}
+
+def forbidden(fullname):
+    return (
+        fullname.startswith("orchestrator.workflow_lisp")
+        or fullname == "orchestrator.workflow.semantic_ir"
+        or fullname == "orchestrator.workflow.executable_ir"
+    )
+
+for loaded_name in tuple(sys.modules):
+    if forbidden(loaded_name) or loaded_name in neutral_children:
+        del sys.modules[loaded_name]
+assert not any(forbidden(name) for name in sys.modules)
+assert config_name not in sys.modules
+
+class BlockedImport(RuntimeError):
+    pass
+
+class Blocker(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if forbidden(fullname):
+            raise BlockedImport(fullname)
+        return None
+
+sys.meta_path.insert(0, Blocker())
+config = importlib.import_module(config_name)
+assert config.RUN_REF_STATIC_CONFIG_SCHEMA == "run_ref_static_config.v1"
+assert not any(forbidden(name) for name in sys.modules)
+try:
+    importlib.import_module("orchestrator.workflow.semantic_ir")
+except BlockedImport:
+    pass
+else:
+    raise AssertionError("forbidden IR import was not blocked")
+''',
         ),
         check=False,
         capture_output=True,
