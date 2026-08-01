@@ -430,13 +430,17 @@ capability matrix, docs index, and routing tests.
 - [x] Obtain distinct `E1_PLAN_QUALITY_APPROVED` once.
 - [x] Record verdicts and reviewed plan SHA, change status to
       accepted-for-execution, add behavioral routing assertions, and commit.
-- [ ] Run the complete routing module postcommit.
+- [x] Run the complete routing module postcommit.
 
 Task 0B review closed against commit `0c392ac9`, tree `3a55ac5f`, after
 ordered `E1_PLAN_SPEC_APPROVED` then `E1_PLAN_QUALITY_APPROVED`. The exact
 bindings, corrected findings, and E1-only execution boundary are recorded in
 `artifacts/review/e1-run-ref-plan-review.md`. Task 1 may now begin; this gate
 does not claim target 2.24 behavior exists yet or make E2 eligible.
+The acceptance/routing candidate landed at
+`04c13f992e3cc32d4280ab2e2a07daf3f927b67c`, tree
+`0b0b34170d1c865a5664240b7668b3c8ae9c88a6`; its postcommit routing plus
+hermeticity control passed 76 tests (71 routing and five hermeticity).
 
 ## Task 1: Land target-2.24 normative contracts first
 
