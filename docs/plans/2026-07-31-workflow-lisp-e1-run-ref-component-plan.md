@@ -2,8 +2,7 @@
 
 ## Metadata
 
-- **Status:** executing; E1 is owner-selected, Tasks 0–8 are closed, and
-  Task 9 is the active routing and final-gate step
+- **Status:** `PASS_E1`; Tasks 0–9 and the canonical E1 exit gate are closed
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E1 only — pinned-workspace child execution through
   `run-ref`
@@ -22,6 +21,9 @@
   `524e7a76afd23f8dbcbd7e5b9a33514efbaf347a7a2041bc2d1a8847be899389`
 - **Plan review:** `artifacts/review/e1-run-ref-plan-review.md`;
   `E1_PLAN_SPEC_APPROVED`, then `E1_PLAN_QUALITY_APPROVED`
+- **Final review:** `artifacts/review/e1-run-ref-final-review.md`;
+  `sha256:af816ae147b4c64f737c05a11a32cbfbea8e3ceba5594e9c2717f23a66486a34`;
+  `E1_FINAL_SPEC_APPROVED`, then `E1_FINAL_QUALITY_APPROVED`
 - **Governing inputs:**
   - `docs/design/workflow_lisp_trial_runs.md`
     (`sha256:ed4b4090b71f4310e09aa59d3f347245c640c0727eceec8baf1344a14c53cf53`)
@@ -740,11 +742,11 @@ the reviewed implementation bytes.
 - [x] Run collect-only for every new module, all focused E1/adjacent selectors,
       deterministic CLI/executor smoke, `git diff --check`, and the broad
       16-worker non-security suite in tmux.
-- [ ] Obtain `E1_FINAL_SPEC_APPROVED`, then distinct
+- [x] Obtain `E1_FINAL_SPEC_APPROVED`, then distinct
       `E1_FINAL_QUALITY_APPROVED`, against exact candidate bytes/evidence.
-- [ ] Commit the reviewed candidate, rerun focused/routing/readiness controls,
+- [x] Commit the reviewed candidate, rerun focused/routing/readiness controls,
       and bind commit/tree/test totals in this plan and final review.
-- [ ] Record exactly one exit: `PASS_E1`, `REVISE_E1`, or `STOP_E1`. Only
+- [x] Record exactly one exit: `PASS_E1`, `REVISE_E1`, or `STOP_E1`. Only
       `PASS_E1` makes selected E2 eligible for its separate reviewed component
       plan; it does not start E2 behavior before that plan gate.
 
@@ -765,24 +767,33 @@ seconds. Its complete log SHA-256 is
 `383a7ff687b2ce2c360b357a1184b666dca9741c5ac0cb98f60c275723e7d90f`;
 the final focused log SHA-256 is
 `f14ba4e1edab922069395bc5d4ddfa5b014e02f1a0b3d05dd6f98f73421e4cb8`.
-`git diff --check` passed.
+`git diff --check` passed. Ordered review returned
+`E1_FINAL_SPEC_APPROVED`, then distinct `E1_FINAL_QUALITY_APPROVED`, against
+the unchanged staged tree and binary-diff digest. Those exact bytes landed at
+`577715f176fcacf9c29127f8b519d58c3a5b6470`, tree
+`ef7eacbdb747d09754d02aab328606893dad07e3`. The fresh postcommit run-ref,
+routing, and route-readiness control passed 864 tests in 30.40 seconds; its
+complete log SHA-256 is
+`38ea61a994595350813c47112dc8622e2421e2b3ec022fc7c31f466661b816f8`.
+The final review records `PASS_E1` at SHA-256
+`af816ae147b4c64f737c05a11a32cbfbea8e3ceba5594e9c2717f23a66486a34`.
 
 ## Final acceptance checklist
 
-- [ ] Target 2.24 is normative, gated, and backward compatible.
-- [ ] `run-ref` is a distinct durable effect with exact source/program/policy
+- [x] Target 2.24 is normative, gated, and backward compatible.
+- [x] `run-ref` is a distinct durable effect with exact source/program/policy
       identity and no command/call/eval substitution.
-- [ ] Mode 1 runs the exact self-contained compiled capsule without compiler
+- [x] Mode 1 runs the exact self-contained compiled capsule without compiler
       or mutable controller-source reads.
-- [ ] Mode 2 uses the ordinary full compiler and stable JSON diagnostics.
-- [ ] Both modes accept every existing transportable input/result shape and
+- [x] Mode 2 uses the ordinary full compiler and stable JSON diagnostics.
+- [x] Both modes accept every existing transportable input/result shape and
       enforce exact child contracts.
-- [ ] Materialization, setup, delta, accounting, evidence, and declared
+- [x] Materialization, setup, delta, accounting, evidence, and declared
       artifacts are deterministic and digest-bound.
-- [ ] Separate roots and single writers hold; incomplete attempts discard and
+- [x] Separate roots and single writers hold; incomplete attempts discard and
       rerun fresh; committed results validate and reuse.
-- [ ] Effect-free generated candidates admit and non-admissible effects reject
+- [x] Effect-free generated candidates admit and non-admissible effects reject
       without security/isolation implementation.
-- [ ] Feasibility proofs 2–4, focused/E2E/broad gates, ordered final reviews,
+- [x] Feasibility proofs 2–4, focused/E2E/broad gates, ordered final reviews,
       and postcommit controls are fresh and bound.
-- [ ] E2/E3/C1-C3 remain truthfully gated and no later surface is inferred.
+- [x] E2/E3/C1-C3 remain truthfully gated and no later surface is inferred.

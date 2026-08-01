@@ -186,6 +186,7 @@ E1_RUN_REF_PLAN_PATH = (
     "docs/plans/2026-07-31-workflow-lisp-e1-run-ref-component-plan.md"
 )
 E1_RUN_REF_PLAN_REVIEW_PATH = "artifacts/review/e1-run-ref-plan-review.md"
+E1_RUN_REF_FINAL_REVIEW_PATH = "artifacts/review/e1-run-ref-final-review.md"
 TRIAL_RUNS_DESIGN_PATH = "docs/design/workflow_lisp_trial_runs.md"
 TYPED_PROGRAM_GATES_DESIGN_PATH = (
     "docs/design/workflow_lisp_typed_program_gates.md"
@@ -1351,7 +1352,7 @@ def test_lean_pilot_a1_v7_closure_routes_exact_evidence_and_narrow_owner_handoff
     assert "does not automatically select e1+" in normalized_capability
 
 
-def test_e_series_routes_completed_e0_and_pending_final_e1_through_e3() -> None:
+def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     roadmap = (REPO_ROOT / EVOLUTION_FOLLOW_ON_ROADMAP_PATH).read_text(
         encoding="utf-8"
     )
@@ -1371,6 +1372,9 @@ def test_e_series_routes_completed_e0_and_pending_final_e1_through_e3() -> None:
     )
     e1_plan = (REPO_ROOT / E1_RUN_REF_PLAN_PATH).read_text(encoding="utf-8")
     e1_plan_review = (REPO_ROOT / E1_RUN_REF_PLAN_REVIEW_PATH).read_text(
+        encoding="utf-8"
+    )
+    e1_final_review = (REPO_ROOT / E1_RUN_REF_FINAL_REVIEW_PATH).read_text(
         encoding="utf-8"
     )
     sequence = (
@@ -1416,16 +1420,11 @@ def test_e_series_routes_completed_e0_and_pending_final_e1_through_e3() -> None:
     assert "task 3 accounting parity proof landed at 3b934373" in normalized_roadmap
     assert "e0 is complete at fe7d6f9b" in normalized_roadmap
     assert "pass_e0" in normalized_roadmap
-    assert "e1 tasks 0 8 are complete" in normalized_roadmap
-    assert (
-        "run ref compiler/runtime surface is implemented pending task 9"
-        in normalized_roadmap
-    )
-    assert "no pass_e1 is recorded yet" in normalized_roadmap
-    assert (
-        "e2 remains selected pending the canonical e1 exit gate at target 2.25"
-        in normalized_roadmap
-    )
+    assert "e1 tasks 0 9 are complete" in normalized_roadmap
+    assert "pass_e1 at commit 577715f1" in normalized_roadmap
+    assert "e1_final_spec_approved" in normalized_roadmap
+    assert "e1_final_quality_approved" in normalized_roadmap
+    assert "e2 is selected and eligible" in normalized_roadmap
     assert (
         "e3 remains selected pending the canonical e2 exit gate and review of the first fixed study"
         in normalized_roadmap
@@ -1465,20 +1464,18 @@ def test_e_series_routes_completed_e0_and_pending_final_e1_through_e3() -> None:
     assert "principle 30" in normalized_gates
     assert "| Implemented |" in trial_capability
     normalized_trial_capability = _normalized_routing_text(trial_capability)
-    assert "2a1f42f2" in normalized_trial_capability
-    assert "79540e0a" in normalized_trial_capability
-    assert "target 2.24 run ref is implemented but unpromoted" in (
-        normalized_trial_capability
-    )
+    assert "577715f1" in normalized_trial_capability
+    assert "ef7eacbd" in normalized_trial_capability
+    assert "target 2.24 run ref" in normalized_trial_capability
     assert "canonical mapping: e0 one call direct control" in (
         normalized_trial_capability
     )
-    assert "e1 tasks 0 8 are complete" in normalized_trial_capability
-    assert "no pass_e1 is recorded yet" in normalized_trial_capability
+    assert "e0 is complete and e1 is complete" in normalized_trial_capability
+    assert "pass_e1" in normalized_trial_capability
     assert "route readiness registry remains unchanged" in (
         normalized_trial_capability
     )
-    assert "e2 remains selected pending pass_e1" in normalized_trial_capability
+    assert "e2 is selected and eligible" in normalized_trial_capability
     assert "e3 remains selected pending pass_e2" in normalized_trial_capability
     assert "c1 c3 remain designed and unselected" in normalized_trial_capability
     assert "| Designed |" in gates_capability
@@ -1496,11 +1493,14 @@ def test_e_series_routes_completed_e0_and_pending_final_e1_through_e3() -> None:
     ):
         assert Path(E1_RUN_REF_PLAN_PATH).name in surface
         assert Path(E1_RUN_REF_PLAN_REVIEW_PATH).name in surface
+        assert Path(E1_RUN_REF_FINAL_REVIEW_PATH).name in surface
     normalized_e1_plan = _normalized_routing_text(e1_plan)
     normalized_e1_plan_review = _normalized_routing_text(e1_plan_review)
-    assert "status: executing" in normalized_e1_plan
-    assert "tasks 0 8 are closed" in normalized_e1_plan
-    assert "task 9 is the active routing and final gate step" in normalized_e1_plan
+    normalized_e1_final_review = _normalized_routing_text(e1_final_review)
+    assert "status: pass_e1" in normalized_e1_plan
+    assert "tasks 0 9 and the canonical e1 exit gate are closed" in (
+        normalized_e1_plan
+    )
     assert "task 0a result" in normalized_e1_plan
     assert "five tests and passed five of five" in normalized_e1_plan
     assert "2a1f42f2" in normalized_e1_plan
@@ -1511,6 +1511,11 @@ def test_e_series_routes_completed_e0_and_pending_final_e1_through_e3() -> None:
     assert e1_plan.index("E1_PLAN_SPEC_APPROVED") < e1_plan.index(
         "E1_PLAN_QUALITY_APPROVED"
     )
+    assert e1_plan.index("E1_FINAL_SPEC_APPROVED") < e1_plan.index(
+        "E1_FINAL_QUALITY_APPROVED"
+    )
+    assert "577715f176fcacf9c29127f8b519d58c3a5b6470" in e1_plan
+    assert "ef7eacbdb747d09754d02aab328606893dad07e3" in e1_plan
     assert "status: approved for e1 execution" in normalized_e1_plan_review
     assert "0c392ac93e2e7a0304dbda48549d8113904ab90c" in e1_plan_review
     assert e1_plan_review.index("E1_PLAN_SPEC_APPROVED") < e1_plan_review.index(
@@ -1574,11 +1579,26 @@ def test_e_series_routes_completed_e0_and_pending_final_e1_through_e3() -> None:
         normalized_index
     )
     assert "task 4 and final e0 gates pending" not in normalized_trial_capability
-    assert "e1 implemented pending final gate" in normalized_design_index
-    assert "run ref is implemented pending task 9's final gate" in normalized_index
+    assert "e0 and e1 complete" in normalized_design_index
+    assert "e2 eligible for reviewed planning" in normalized_design_index
+    assert "target 2.24 run ref has pass_e1" in normalized_index
     assert "fe7d6f9bca9ec61b9078e4048bb43aee7f4f191b" in plan
     assert "c20f6fd9197b0d0e12a581e96ebbd898b8d1b3c3" in plan
     assert Path(E0_DIRECT_CONTROL_FINAL_REVIEW_PATH).name in index
+    assert "status: pass_e1" in normalized_e1_final_review
+    assert "577715f176fcacf9c29127f8b519d58c3a5b6470" in e1_final_review
+    assert "ef7eacbdb747d09754d02aab328606893dad07e3" in e1_final_review
+    assert e1_final_review.index("E1_FINAL_SPEC_APPROVED") < (
+        e1_final_review.index("E1_FINAL_QUALITY_APPROVED")
+    )
+    assert "864 passed" in normalized_e1_final_review
+    e1_final_review_digest = hashlib.sha256(
+        (REPO_ROOT / E1_RUN_REF_FINAL_REVIEW_PATH).read_bytes()
+    ).hexdigest()
+    assert e1_final_review_digest == (
+        "af816ae147b4c64f737c05a11a32cbfbea8e3ceba5594e9c2717f23a66486a34"
+    )
+    assert e1_final_review_digest in e1_plan
     assert direct_control_catalog, "direct-control library catalog row is missing"
     normalized_catalog = _normalized_routing_text(direct_control_catalog)
     for required_catalog_fact in (
@@ -2154,16 +2174,9 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "e0 is complete" in normalized_evolution_status
     assert "e1 e3 are owner selected" in normalized_evolution_status
-    assert "e1 tasks 0 8 are complete" in normalized_evolution_status
-    assert (
-        "run ref compiler/runtime surface is implemented pending task 9"
-        in normalized_evolution_status
-    )
-    assert "no pass_e1 is recorded yet" in normalized_evolution_status
-    assert (
-        "e2 remains selected pending the canonical e1 exit gate at target 2.25"
-        in normalized_evolution_status
-    )
+    assert "e1 tasks 0 9 are complete" in normalized_evolution_status
+    assert "pass_e1 at commit 577715f1" in normalized_evolution_status
+    assert "e2 is selected and eligible" in normalized_evolution_status
     assert "c1, c2, and c3 remain designed and unselected" in (
         normalized_evolution_status
     )
